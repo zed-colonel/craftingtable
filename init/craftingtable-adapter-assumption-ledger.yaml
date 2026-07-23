@@ -1,0 +1,44 @@
+document: CraftingTable Adapter and Planning Assumption Ledger
+status: provisional-until-spike
+checked_date: 2026-07-22
+assumptions:
+  - id: CT-A-01
+    owner: Codex adapter
+    assumption: Codex app-server can support a rich local client with streamed events, approvals, and session control.
+    validation_gate: CT-05 adapter spike
+    fallback: Use codex exec JSONL for MVP while retaining the normalized adapter contract.
+    source: https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md
+  - id: CT-A-02
+    owner: Claude adapter
+    assumption: The Claude Agent SDK exposes the Claude Code agent loop programmatically in TypeScript or Python.
+    validation_gate: CT-11
+    fallback: Use programmatic CLI JSON output if the SDK is unsuitable for the daemon.
+    source: https://docs.anthropic.com/en/docs/claude-code/sdk
+  - id: CT-A-03
+    owner: OpenCode adapter
+    assumption: OpenCode's server and generated SDK support programmatic multi-client session control.
+    validation_gate: CT-11
+    fallback: Use opencode run for a reduced adapter while retaining normalized contracts.
+    source: https://opencode.ai/docs/server/
+  - id: CT-A-04
+    owner: Planning Studio
+    assumption: GPT-5.6 Sol is available through the OpenAI API, while ChatGPT Pro uses GPT-5.6 Sol Pro.
+    validation_gate: CT-13 provider spike
+    consequence: CraftingTable must not promise exact ChatGPT Pro equivalence; it must evaluate planning quality empirically.
+    source: https://help.openai.com/en/articles/20001354-gpt-56-in-chatgpt
+  - id: CT-A-05
+    owner: Planning Studio
+    assumption: OpenAI Structured Outputs can enforce JSON-schema-shaped planning artifacts.
+    validation_gate: CT-13
+    fallback: Validate and repair model output in a separate deterministic pass.
+    source: https://developers.openai.com/api/docs/guides/structured-outputs
+  - id: CT-A-06
+    owner: Authentication
+    assumption: Initial users are trusted household members, but agent execution is not security-isolated across users.
+    validation_gate: CT-14 isolation decision
+    consequence: Do not represent early multi-user support as safe for mutually untrusted users.
+  - id: CT-A-07
+    owner: Deployment
+    assumption: The Linux workstation remains the sole authoritative execution host in the first releases.
+    validation_gate: post-MVP remote-worker decision
+    consequence: Do not add distributed scheduling or remote worker identity to MVP.

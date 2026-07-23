@@ -1,0 +1,126 @@
+document: CraftingTable Implementation Plan
+status: development-planning-baseline
+project: CraftingTable
+purpose: local supervisory workbench for agent-assisted Exo Stack development
+first_proving_workload: AQ-01 end-to-end local implementation, review, remediation, and merge
+scope_rule: Features are justified by immediate development friction, not hypothetical product completeness.
+first_release:
+  primary_backend: Codex
+  users: 1
+  parallel_agent_runs: 1
+  merge: human-authorized-local
+  plan_generation: false
+  github_actions_required: false
+  github_pr_required: false
+  exo_stack_runtime_dependency: false
+pull_requests:
+  - id: CT-01
+    title: Establish scope, repository contract, and executable skeleton
+    depends_on: []
+    phase: first-useful-release
+    risk: medium
+    primary_areas: [workspace, contracts, fake-backend, quality]
+    exit_gate: Server and web load; fake events stream; shared schemas and quality gates pass.
+  - id: CT-02
+    title: Build the persistent daemon, authentication, workspaces, and audit journal
+    depends_on: [CT-01]
+    phase: first-useful-release
+    risk: high
+    primary_areas: [storage, auth, workspaces, events, sse]
+    exit_gate: Bootstrap user logs in; all data is workspace-scoped; restart and reconnect preserve state.
+  - id: CT-03
+    title: Import plan bundles and render the project/work-item dashboard
+    depends_on: [CT-02]
+    phase: first-useful-release
+    risk: medium
+    primary_areas: [planning-import, projects, work-items, dashboard]
+    exit_gate: AQ-01 through AQ-14 import with dependency validation and actionable diagnostics.
+  - id: CT-04
+    title: Implement repository registration, worktrees, change requests, and diff snapshots
+    depends_on: [CT-02, CT-03]
+    phase: first-useful-release
+    risk: high
+    primary_areas: [git, worktrees, change-requests, diff]
+    exit_gate: AQ-01 creates a controlled worktree; base, branch, status, and diff are visible.
+  - id: CT-05
+    title: Integrate Codex and stream supervised agent activity
+    depends_on: [CT-04]
+    phase: first-useful-release
+    risk: high
+    primary_areas: [backend-codex, process-supervision, approvals, activity-ui]
+    exit_gate: Codex runs in AQ-01 worktree; live events and approvals are visible; browser disconnect is harmless.
+  - id: CT-06
+    title: Add verification, scope enforcement, and controller-owned generations
+    depends_on: [CT-04, CT-05]
+    phase: first-useful-release
+    risk: high
+    primary_areas: [verification, scope, commits, evidence]
+    exit_gate: Scope is enforced; daemon creates immutable generation commits; checks bind to exact SHAs.
+  - id: CT-07
+    title: Implement structured review, finding disposition, and remediation
+    depends_on: [CT-06]
+    phase: first-useful-release
+    risk: high
+    primary_areas: [review, findings, remediation, diff-annotations]
+    exit_gate: Independent review produces structured findings and the bounded remediation loop works.
+  - id: CT-08
+    title: Implement readiness, human merge, recovery, and LAN deployment
+    depends_on: [CT-07]
+    phase: first-useful-release
+    risk: critical
+    primary_areas: [readiness, merge, recovery, backup, systemd, tls]
+    exit_gate: Current evidence yields readiness; Keith authorizes merge; LAN use and restart recovery are safe.
+  - id: CT-09
+    title: Dogfood AQ-01 and harden only from observed friction
+    depends_on: [CT-08]
+    phase: first-useful-release
+    risk: high
+    primary_areas: [dogfood, regression, scope-cleanup]
+    exit_gate: AQ-01 merges through CraftingTable without a MacBook clone or normal-path terminal use.
+  - id: CT-10
+    title: Add bounded parallelism and resource scheduling
+    depends_on: [CT-09]
+    phase: post-mvp
+    risk: high
+    primary_areas: [parallelism, resource-limits, scope-conflicts, dashboard]
+    exit_gate: Two nonconflicting work items run safely with bounded resources and clear status.
+  - id: CT-11
+    title: Add OpenCode and Claude Code adapters
+    depends_on: [CT-09]
+    recommends: [CT-10]
+    phase: post-mvp
+    risk: medium
+    primary_areas: [backend-opencode, backend-claude, capability-matrix]
+    exit_gate: Each adapter passes shared conformance and demonstrates value on a real work item.
+  - id: CT-12
+    title: Add Planning Studio artifact workflow
+    depends_on: [CT-09]
+    phase: post-mvp
+    risk: medium
+    primary_areas: [planning, artifact-editor, validation, adoption]
+    exit_gate: A plan bundle can be assembled, reviewed, validated, versioned, and adopted without model generation.
+  - id: CT-13
+    title: Add model-assisted planning pipeline
+    depends_on: [CT-12]
+    phase: post-mvp
+    risk: high
+    primary_areas: [planning-provider, openai, codex-planning, critics, provenance]
+    exit_gate: A model-assisted run creates a valid reviewable plan bundle without silently launching work.
+  - id: CT-14
+    title: Activate trusted-household multi-user support
+    depends_on: [CT-09]
+    phase: post-mvp
+    risk: high
+    primary_areas: [invitations, memberships, backend-ownership, execution-isolation]
+    exit_gate: A second user has an isolated workspace and explicit repository and backend access.
+forbidden_mvp_scope:
+  - general-purpose IDE
+  - browser shell
+  - cloud SaaS
+  - distributed workers
+  - automatic high-risk merge
+  - plugin marketplace
+  - Exo Stack runtime dependency
+  - model-generated plans before CT-09
+  - multiple agent backends before CT-09
+  - multi-user activation before CT-09

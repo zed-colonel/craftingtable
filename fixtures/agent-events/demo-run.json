@@ -1,0 +1,30 @@
+{
+  "workspaceId": "ws-demo",
+  "projectId": "proj-craftingtable",
+  "workItemId": "AQ-01",
+  "runId": "run-demo-1",
+  "steps": [
+    {
+      "kind": "run-started",
+      "delayMs": 0,
+      "payload": {
+        "backend": "fake-agent",
+        "title": "Implement AQ-01 acceptance workload"
+      }
+    },
+    {
+      "kind": "status-changed",
+      "delayMs": 1000,
+      "payload": {
+        "status": "Editing 3 files"
+      }
+    },
+    {
+      "kind": "completion-proposed",
+      "delayMs": 2000,
+      "payload": {
+        "summary": "Fake run finished: 3 files edited, checks pending"
+      }
+    }
+  ]
+}

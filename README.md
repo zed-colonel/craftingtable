@@ -8,7 +8,20 @@ It exists to make development of the Exo Stack (ActionQueue, WorldInterface, and
 
 This repository is at **CT-01: Establish scope, repository contract, and executable skeleton**.
 
-The normative planning artifacts are under [`init/`](init/). The active work contract is [`work-items/CT-01.md`](work-items/CT-01.md).
+The normative planning artifacts are under [`init/`](init/). The active work contract is [`work-items/CT-01.md`](work-items/CT-01.md). Architectural boundaries are documented in [`docs/architecture.md`](docs/architecture.md) and [`docs/decisions/`](docs/decisions/).
+
+## Quickstart
+
+Prerequisites: Node.js ≥ 24 and pnpm 10 (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
+
+```sh
+pnpm install
+pnpm exec playwright install chromium   # once, for the smoke test
+pnpm dev                                # server on 127.0.0.1:4600 + web app via Vite
+pnpm check                              # CI-equivalent local quality gate
+```
+
+The dashboard shows a simulated agent run streamed over SSE from a fake backend — all data is clearly labeled as simulated; no real agents, Git operations, or persistence exist yet.
 
 ## Non-goals
 

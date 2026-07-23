@@ -1,0 +1,22 @@
+{
+  "name": "@craftingtable/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@craftingtable/agents": "workspace:*",
+    "@craftingtable/contracts": "workspace:*",
+    "@craftingtable/domain": "workspace:*",
+    "@craftingtable/git": "workspace:*",
+    "@craftingtable/testing": "workspace:*",
+    "fastify": "^5.10.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.1"
+  }
+}

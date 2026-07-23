@@ -1,0 +1,32 @@
+{
+  "name": "craftingtable",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@10.10.0",
+  "scripts": {
+    "dev": "tsc -b && pnpm run \"/^dev:/\"",
+    "dev:types": "tsc -b --watch --preserveWatchOutput",
+    "dev:server": "pnpm --filter @craftingtable/server dev",
+    "dev:web": "pnpm --filter @craftingtable/web dev",
+    "build": "tsc -b && pnpm --filter @craftingtable/web build",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "typecheck": "tsc -b && tsc --noEmit -p apps/web",
+    "test": "vitest run",
+    "test:e2e": "tsc -b && playwright test",
+    "check:scope": "node scripts/check-forbidden-scope.mjs",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test && pnpm test:e2e && pnpm check:scope"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.5",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

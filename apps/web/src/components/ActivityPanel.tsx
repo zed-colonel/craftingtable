@@ -33,8 +33,8 @@ export function ActivityPanel({ connection, events, invalidEventCount }: Activit
 
       {connection === 'disconnected' && (
         <p className="error-state" role="alert">
-          The event stream is disconnected. Check that the CraftingTable server is running, then
-          reload the page.
+          The event stream is unreachable. Check that the CraftingTable server is running; the
+          dashboard keeps retrying automatically.
         </p>
       )}
       {invalidEventCount > 0 && (

@@ -4,3 +4,9 @@ packages:
 
 onlyBuiltDependencies:
   - esbuild
+
+# Pin the script runtime to the supported Node LTS (ADR-008, CT01-R5): pnpm
+# downloads and uses this exact Node for all workspace scripts, so `pnpm check`
+# behaves identically regardless of which Node (if any) is on PATH and which
+# runtime the pnpm executable itself embeds.
+useNodeVersion: 24.18.0

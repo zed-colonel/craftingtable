@@ -14,8 +14,8 @@ The active work contract controls scope. When a requirement conflicts with it, s
 
 ## Prerequisites
 
-- Node.js ≥ 24 (LTS floor; see ADR-008) — `.nvmrc` pins 24.
 - pnpm 10 (`packageManager` field pins the tested version).
+- Node.js ≥ 24 for anything you run outside pnpm scripts (LTS floor; see ADR-008) — `.nvmrc` pins 24. Workspace **scripts** always run under the pnpm-managed Node pinned by `useNodeVersion` in `pnpm-workspace.yaml`; pnpm downloads it automatically on first use, so `pnpm check` works even when no `node` is on `PATH`.
 - One-time: `pnpm exec playwright install chromium` for the smoke test.
 
 ## Commands
@@ -35,6 +35,8 @@ pnpm check         CI-equivalent gate: all of the above, fail-fast
 ```
 
 `pnpm check` must pass before any work is called done.
+
+The E2E gate always starts fresh servers from the current source and fails explicitly if ports `4600`/`5173` are occupied — stop any running `pnpm dev` first. To iterate interactively against already-running dev servers instead, opt in with `CRAFTINGTABLE_E2E_REUSE=1 pnpm test:e2e` (the quality gate never sets this).
 
 ## Quality expectations
 

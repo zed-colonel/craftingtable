@@ -1,5 +1,7 @@
 # CT-01 Completion Report
 
+> **Addendum (2026-07-23):** the initial review (`review-findings/CT-01-initial-review.md`) requested changes; all findings were remediated in `implementation-reports/CT-01-remediation.md`. Notably, unresolved risk #1 below is now retired — workspace scripts run under pnpm-managed Node 24.18.0 (`useNodeVersion`), so the quality gate is verified on Node 24 LTS, and the literal `pnpm check` invocation is reproducible independent of the `PATH` Node.
+
 **Work contract:** `work-items/CT-01.md`
 **Accepted plan:** `work-items/CT-01-accepted-implementation-plan.md`
 **Date:** 2026-07-23

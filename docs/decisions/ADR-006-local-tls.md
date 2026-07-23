@@ -9,7 +9,7 @@ LAN exposure with authenticated TLS (reverse proxy, private DNS, `systemd` user 
 
 ## Decision
 
-Deferred until CT-08. The CT-01 server binds `127.0.0.1:4600` only; nothing listens on LAN interfaces, and no TLS or proxy configuration exists in the repository.
+Deferred until CT-08. The CT-01 server binds `127.0.0.1:4600` only; nothing listens on LAN interfaces, and no TLS or proxy configuration exists in the repository. This is enforced, not just documented: `configFromEnv` rejects any non-loopback `CRAFTINGTABLE_HOST` value (`127.0.0.1`, `localhost`, and `::1` are the only accepted hosts) so an environment setting cannot create an undeclared network exposure (review finding CT01-R1).
 
 ## Notes for the future decision
 

@@ -12,7 +12,7 @@ The normative planning artifacts are under [`init/`](init/). The active work con
 
 ## Quickstart
 
-Prerequisites: Node.js ≥ 24 and pnpm 10 (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
+Prerequisites: pnpm 10 (see [`CONTRIBUTING.md`](CONTRIBUTING.md)). Workspace scripts run under a pnpm-managed Node 24 LTS pinned in `pnpm-workspace.yaml`, downloaded automatically on first use.
 
 ```sh
 pnpm install

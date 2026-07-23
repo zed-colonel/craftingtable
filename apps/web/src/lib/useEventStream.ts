@@ -1,45 +1,27 @@
-import {
-  type AgentEventEnvelope,
-  agentEventEnvelopeSchema,
-  SSE_AGENT_EVENT_NAME,
-} from '@craftingtable/contracts';
-import { useEffect, useState } from 'react';
+import { agentEventEnvelopeSchema, SSE_AGENT_EVENT_NAME } from '@craftingtable/contracts';
+import { useEffect, useReducer } from 'react';
+import { type EventStreamState, INITIAL_STREAM_STATE, reduceStreamState } from './streamState.js';
 
-export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'disconnected';
-
-export interface EventStreamState {
-  connection: ConnectionState;
-  events: AgentEventEnvelope[];
-  invalidEventCount: number;
-}
-
-const initialState: EventStreamState = {
-  connection: 'connecting',
-  events: [],
-  invalidEventCount: 0,
-};
+export type { ConnectionState, EventStreamState } from './streamState.js';
 
 /**
  * Subscribes to the server's SSE endpoint. Every incoming event is re-validated
  * against the shared contract; invalid events are counted, never rendered.
- * The fake stream replays its scripted run per connection, so events reset
- * whenever a (re)connection opens.
+ * Connection-state policy (including when an outage becomes user-visible)
+ * lives in `streamState.ts`.
  */
 export function useEventStream(url = '/api/events'): EventStreamState {
-  const [state, setState] = useState<EventStreamState>(initialState);
+  const [state, dispatch] = useReducer(reduceStreamState, INITIAL_STREAM_STATE);
 
   useEffect(() => {
     const source = new EventSource(url);
 
     source.onopen = () => {
-      setState({ connection: 'open', events: [], invalidEventCount: 0 });
+      dispatch({ type: 'opened' });
     };
 
     source.onerror = () => {
-      setState((previous) => ({
-        ...previous,
-        connection: source.readyState === EventSource.CLOSED ? 'disconnected' : 'reconnecting',
-      }));
+      dispatch({ type: 'stream-error', sourceClosed: source.readyState === EventSource.CLOSED });
     };
 
     source.addEventListener(SSE_AGENT_EVENT_NAME, (message: MessageEvent<string>) => {
@@ -50,11 +32,11 @@ export function useEventStream(url = '/api/events'): EventStreamState {
         parsed = undefined;
       }
       const result = agentEventEnvelopeSchema.safeParse(parsed);
-      setState((previous) =>
-        result.success
-          ? { ...previous, events: [...previous.events, result.data] }
-          : { ...previous, invalidEventCount: previous.invalidEventCount + 1 },
-      );
+      if (result.success) {
+        dispatch({ type: 'event-received', envelope: result.data });
+      } else {
+        dispatch({ type: 'event-invalid' });
+      }
     });
 
     return () => {

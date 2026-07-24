@@ -1,0 +1,369 @@
+document: CT-02 Acceptance Matrix
+work_item: CT-02
+status: proposed-for-operator-approval
+risk: high
+repository: zed-colonel/craftingtable
+baseline_commit: 693445257d61222959c2efa9fc82c621fa8c6653
+binding_contract: work-items/CT-02.md
+source_assessment: work-items/CT-02-source-assessment.md
+implementation_guidance: work-items/CT-02-implementation-guidance.md
+
+scope:
+  primary_areas:
+    - storage
+    - migrations
+    - authentication
+    - sessions
+    - csrf
+    - workspaces
+    - authorization
+    - audit
+    - snapshots
+    - sse-replay
+  explicitly_forbidden:
+    - plan-import
+    - project-domain
+    - work-item-domain
+    - repository-registration
+    - real-git
+    - worktrees
+    - diffs
+    - real-agent-backends
+    - process-execution
+    - verification-runners
+    - reviews
+    - merge
+    - lan-exposure
+    - systemd
+    - planning-studio
+    - exo-stack-runtime-dependencies
+
+fixed_decisions:
+  database_driver: better-sqlite3
+  journal_mode: WAL
+  synchronous_mode: FULL
+  migration_strategy: ordered-sql-with-checksums
+  password_hashing: argon2id
+  session_model: opaque-server-side-token-with-stored-sha256-digest
+  csrf_model: session-bound-synchronizer-token-plus-origin-check
+  daemon_network_scope: loopback-only
+  event_source: sqlite-workspace-event-journal
+  browser_reconstruction: snapshot-plus-cursor-plus-sse
+  orm: none
+
+acceptance:
+  - id: CT02-A01
+    area: persistence
+    statement: A clean data directory migrates to the current SQLite schema.
+    evidence:
+      - storage integration test using a real temporary database file
+      - schema_migrations row with expected version and checksum
+
+  - id: CT02-A02
+    area: persistence
+    statement: Startup on an already-current schema is idempotent.
+    evidence:
+      - close and reopen test
+      - no duplicate migration rows or schema mutation
+
+  - id: CT02-A03
+    area: persistence
+    statement: Applied migration checksum mismatch is rejected without mutation.
+    evidence:
+      - focused migration negative test
+
+  - id: CT02-A04
+    area: persistence
+    statement: A newer unsupported schema version is rejected without mutation.
+    evidence:
+      - focused startup negative test
+
+  - id: CT02-A05
+    area: persistence
+    statement: Required SQLite pragmas are active.
+    evidence:
+      - journal_mode equals wal
+      - foreign_keys equals 1
+      - synchronous resolves to FULL semantics
+      - busy_timeout is configured
+
+  - id: CT02-A06
+    area: bootstrap
+    statement: Bootstrap creates exactly one user, one default workspace, and one Owner membership atomically.
+    evidence:
+      - bootstrap service integration test
+      - database row assertions
+      - matching audit and workspace event assertions
+
+  - id: CT02-A07
+    area: bootstrap
+    statement: A second bootstrap attempt fails without any new domain, audit, or event rows.
+    evidence:
+      - row-count and sequence assertions before and after refusal
+
+  - id: CT02-A08
+    area: authentication
+    statement: The bootstrap user can log in using the browser and typed API.
+    evidence:
+      - server integration test
+      - Playwright login flow
+
+  - id: CT02-A09
+    area: authentication
+    statement: Passwords use Argon2id and plaintext never reaches persistent storage or logs.
+    evidence:
+      - encoded-hash format assertion
+      - verification test
+      - storage/log redaction test
+
+  - id: CT02-A10
+    area: sessions
+    statement: Session tokens contain at least 256 bits of randomness and only their SHA-256 digest is stored.
+    evidence:
+      - token-service unit test
+      - database inspection proving raw cookie token absent
+
+  - id: CT02-A11
+    area: sessions
+    statement: Session cookie has HttpOnly, SameSite=Strict, Path=/, expiry, and environment-correct Secure behavior.
+    evidence:
+      - Set-Cookie integration assertions
+
+  - id: CT02-A12
+    area: sessions
+    statement: Expired and revoked sessions cannot access protected APIs or streams.
+    evidence:
+      - server integration tests
+      - event-stream authorization test
+
+  - id: CT02-A13
+    area: sessions
+    statement: Logout revokes the current server-side session and clears the browser cookie.
+    evidence:
+      - API integration test
+      - Playwright logout flow
+
+  - id: CT02-A14
+    area: sessions
+    statement: A user can list and revoke another active session belonging to the same user.
+    evidence:
+      - typed API integration test
+      - ownership negative test
+
+  - id: CT02-A15
+    area: csrf
+    statement: Authenticated state-changing requests reject missing or invalid CSRF tokens.
+    evidence:
+      - logout/revoke negative tests
+
+  - id: CT02-A16
+    area: csrf
+    statement: Valid same-origin authenticated mutations succeed with the session-bound CSRF token.
+    evidence:
+      - positive integration tests
+
+  - id: CT02-A17
+    area: csrf
+    statement: Login accepts JSON only and rejects cross-site origin or fetch-metadata requests.
+    evidence:
+      - content-type and origin negative tests
+
+  - id: CT02-A18
+    area: authorization
+    statement: Every workspace query and stream performs service-layer membership authorization.
+    evidence:
+      - service tests
+      - route tests using a non-member user fixture
+
+  - id: CT02-A19
+    area: authorization
+    statement: Unauthorized access does not disclose another workspace's name or contents.
+    evidence:
+      - response-body and status negative test
+
+  - id: CT02-A20
+    area: multi_user_seam
+    statement: User, workspace, membership, and session records do not assume a global singleton user or workspace.
+    evidence:
+      - schema constraints
+      - two-user/two-workspace authorization fixture, even though UI activation remains deferred
+
+  - id: CT02-A21
+    area: audit
+    statement: Security-relevant and state-changing actions append attributable audit records.
+    evidence:
+      - bootstrap, login, logout, revoke, and denial audit assertions
+
+  - id: CT02-A22
+    area: audit
+    statement: Audit records never contain passwords, raw session tokens, CSRF tokens, cookies, or uncontrolled request bodies.
+    evidence:
+      - metadata allowlist tests
+      - log capture tests
+
+  - id: CT02-A23
+    area: audit
+    statement: Audit rows are append-only at the database layer.
+    evidence:
+      - update and delete statements fail in integration tests
+
+  - id: CT02-A24
+    area: workspace_events
+    statement: Workspace events are immutable, database-sequenced, and filtered by workspace.
+    evidence:
+      - append-only trigger tests
+      - sequence and filtering tests
+
+  - id: CT02-A25
+    area: atomicity
+    statement: A successful workspace-domain command commits state, audit, and related events in one transaction.
+    evidence:
+      - success-path row assertions
+
+  - id: CT02-A26
+    area: atomicity
+    statement: A transaction failure leaves no partial state, audit, or workspace event.
+    evidence:
+      - injected-failure rollback test
+
+  - id: CT02-A27
+    area: contracts
+    statement: The primary live wire type is workspace-scoped rather than directly owned by AgentBackend.
+    evidence:
+      - shared WorkspaceEventEnvelope schema
+      - source inspection showing SSE route depends on journal service, not AgentBackend
+
+  - id: CT02-A28
+    area: snapshot
+    statement: Workspace snapshot and asOfSequence represent one transactionally consistent database view.
+    evidence:
+      - concurrent snapshot/write test
+      - snapshot-service integration test
+
+  - id: CT02-A29
+    area: sse
+    statement: Initial SSE connection replays every authorized event after the supplied cursor in ascending order.
+    evidence:
+      - real-port stream integration test
+
+  - id: CT02-A30
+    area: sse
+    statement: Native reconnect honors a valid Last-Event-ID cursor.
+    evidence:
+      - reconnect integration test
+
+  - id: CT02-A31
+    area: sse
+    statement: A committed event between journal query and waiter registration cannot be lost.
+    evidence:
+      - deterministic race test for query-then-commit-before-wait ordering
+
+  - id: CT02-A32
+    area: sse
+    statement: An event committed after the stream begins is delivered without reconnect.
+    evidence:
+      - live-tail integration test
+
+  - id: CT02-A33
+    area: sse
+    statement: In-memory notification is not authoritative; timeout/requery recovers missed notification.
+    evidence:
+      - notifier-drop test
+
+  - id: CT02-A34
+    area: browser
+    statement: The browser hydrates a workspace snapshot before applying subsequent events.
+    evidence:
+      - reducer tests
+      - Playwright flow
+
+  - id: CT02-A35
+    area: browser
+    statement: Stream open does not clear the hydrated projection.
+    evidence:
+      - reducer regression test replacing CT-01 fake-stream behavior
+
+  - id: CT02-A36
+    area: browser
+    statement: Duplicate replay after refresh is ignored by event sequence or ID.
+    evidence:
+      - reducer test
+      - Playwright refresh assertion showing one visible event
+
+  - id: CT02-A37
+    area: browser
+    statement: Temporary daemon outage becomes visibly disconnected and later recovers.
+    evidence:
+      - existing CT-01 outage regression retained
+      - authenticated stream recovery browser test
+
+  - id: CT02-A38
+    area: restart
+    statement: Reopening the daemon on the same database preserves user, workspace, session policy, audit, event, and snapshot state.
+    evidence:
+      - close/reopen or process restart test
+
+  - id: CT02-A39
+    area: network_boundary
+    statement: Non-loopback host configuration remains rejected despite authentication.
+    evidence:
+      - retained CT-01 configuration tests
+
+  - id: CT02-A40
+    area: test_isolation
+    statement: Unit, integration, and E2E tests never use the operator's normal data directory or stale daemon.
+    evidence:
+      - temporary directory fixtures
+      - fresh Playwright webServer configuration
+
+  - id: CT02-A41
+    area: toolchain
+    statement: Native dependencies install and pnpm check passes under pnpm-managed Node 24.18.0.
+    evidence:
+      - literal pnpm check output
+      - pnpm exec node --version output
+
+  - id: CT02-A42
+    area: scope
+    statement: No CT-03-or-later feature or Exo Stack runtime dependency is present.
+    evidence:
+      - scope-check output
+      - changed-path review
+
+  - id: CT02-A43
+    area: documentation
+    statement: ADRs, architecture, bootstrap instructions, and completion evidence reflect the implemented design.
+    evidence:
+      - ADR-002 accepted
+      - ADR-003 amended
+      - auth/session/CSRF ADR
+      - completion report
+
+quality_gate:
+  command: pnpm check
+  required_components:
+    - format-check
+    - lint
+    - strict-typecheck
+    - production-build
+    - unit-tests
+    - storage-integration-tests
+    - auth-and-authorization-tests
+    - sse-replay-tests
+    - restart-tests
+    - playwright-smoke-and-auth-flow
+    - forbidden-scope-check
+
+review_focus:
+  - migration-integrity
+  - sqlite-transaction-atomicity
+  - password-and-token-secrecy
+  - csrf-correctness
+  - workspace-authorization
+  - audit-append-only-semantics
+  - snapshot-consistency
+  - sse-lost-wakeup
+  - browser-deduplication
+  - restart-recovery
+  - test-isolation
+  - scope-discipline

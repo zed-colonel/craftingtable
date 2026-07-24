@@ -213,7 +213,8 @@ export function App() {
           <ActivityPanel
             connection={projection.connection}
             events={projection.events}
-            invalidEventCount={projection.invalidEventCount}
+            invalidPayloadCount={projection.invalidPayloadCount}
+            foreignWorkspaceEventCount={projection.foreignWorkspaceEventCount}
           />
           <div className="utility-grid">
             <AuditPanel records={audit} />

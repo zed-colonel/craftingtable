@@ -6,8 +6,10 @@ import {
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import { SESSION_COOKIE_NAME } from '../config.js';
+import { SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
+import { isAllowedBrowserRequest } from '../security/origin-policy.js';
 import type { AuthService } from '../services/auth-service.js';
+import { ForbiddenError } from '../services/errors.js';
 import {
   selectEventCursor,
   type WorkspaceEventStreamService,
@@ -22,6 +24,7 @@ export function registerWorkspaceEventRoute(
   authService: AuthService,
   workspaceService: WorkspaceService,
   streamService: WorkspaceEventStreamService,
+  config: ServerConfig,
 ): void {
   const activeStreams = new Set<AbortController>();
   const tasks = new Set<Promise<void>>();
@@ -37,6 +40,21 @@ export function registerWorkspaceEventRoute(
     Params: { workspaceId: string };
     Querystring: { after?: string };
   }>('/api/workspaces/:workspaceId/events', (request, reply) => {
+    const rawSessionToken = request.cookies[SESSION_COOKIE_NAME];
+    const context = authService.authenticate(rawSessionToken);
+    if (
+      !isAllowedBrowserRequest(
+        {
+          ...(typeof request.headers.origin === 'string' ? { origin: request.headers.origin } : {}),
+          ...(typeof request.headers['sec-fetch-site'] === 'string'
+            ? { secFetchSite: request.headers['sec-fetch-site'] }
+            : {}),
+        },
+        config.publicOrigin,
+      )
+    ) {
+      throw new ForbiddenError();
+    }
     const parsedWorkspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
     if (!parsedWorkspaceId.success) {
       return sendApiError(reply, 404, 'not-found', 'Resource not found');
@@ -47,8 +65,6 @@ export function registerWorkspaceEventRoute(
     } catch {
       return sendApiError(reply, 400, 'invalid-request', 'Invalid event cursor');
     }
-    const rawSessionToken = request.cookies[SESSION_COOKIE_NAME];
-    const context = authService.authenticate(rawSessionToken);
     workspaceService.requireAuthorized(context, parsedWorkspaceId.data, request.id);
     if (rawSessionToken === undefined) {
       return sendApiError(reply, 401, 'unauthenticated', 'Authentication required');

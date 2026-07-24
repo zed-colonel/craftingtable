@@ -41,6 +41,12 @@ refuses if any user already exists. An accepted operator amendment records
 exactly one safe `admin.bootstrap.denied` audit row for each refusal; it creates
 no other row.
 
+`db status` opens an existing database read-only and reports a missing database
+as schema `0/1` without creating it. Pending migrations exit with status 2.
+Unsupported versions and migration name/checksum mismatches produce a
+structured `schema invalid (...)` diagnostic and exit with status 4 for both
+`db status` and `db migrate`; neither command repairs or bypasses validation.
+
 ## Shutdown and database handling
 
 `SIGINT` and `SIGTERM` stop accepting work, abort active SSE loops, wait for

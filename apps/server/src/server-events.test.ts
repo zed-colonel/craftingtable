@@ -98,6 +98,36 @@ describe('workspace SSE route', () => {
     expect(response.statusCode).toBe(401);
   });
 
+  it('authenticates before cursor/id validation and rejects cross-site browser streams', async () => {
+    const context = await createTestContext();
+    contexts.push(context);
+    const unauthenticated = await context.app.inject({
+      method: 'GET',
+      url: '/api/workspaces/%20/events?after=invalid',
+      headers: { origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' },
+    });
+    expect(unauthenticated.statusCode).toBe(401);
+
+    const bootstrap = await context.services.bootstrapService.bootstrap(
+      TEST_USERNAME,
+      TEST_PASSWORD,
+    );
+    const login = await context.login();
+    const crossSite = await context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${bootstrap.workspace.id}/events?after=0`,
+      headers: {
+        cookie: login.cookie,
+        origin: 'https://evil.example',
+        'sec-fetch-site': 'cross-site',
+      },
+    });
+    expect(crossSite.statusCode).toBe(403);
+    expect(crossSite.json()).toEqual({
+      error: { code: 'forbidden', message: 'Request forbidden' },
+    });
+  });
+
   it('denies a non-member stream without disclosing the workspace', async () => {
     const context = await createTestContext();
     contexts.push(context);

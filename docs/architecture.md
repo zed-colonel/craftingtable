@@ -64,6 +64,19 @@ lost or process-local notifications harmless and makes replay survive daemon
 restart. The global database sequence is strictly increasing; a workspace
 stream can legitimately contain gaps caused by events in another workspace.
 
+CT-02 has no daemon-process workspace-event producer after bootstrap: bootstrap
+runs through the separate CLI process, so live daemon streams currently recover
+that commit through the bounded durable re-query. Every CT-03+ daemon command
+that appends a workspace event must use the daemon's composed notifier
+immediately after its transaction commits. Its acceptance coverage must prove
+same-process notification delivery without waiting for the fallback poll.
+
+The fallback re-query interval is currently 1000 ms. It deliberately guarantees
+session/membership invalidation and dropped-notification recovery, at the cost
+of one authentication and empty journal query per idle connection per second.
+That is appropriate for CT-02's single-user loopback boundary and must be
+revisited before activated multi-user or CT-08 deployment.
+
 ## Boundary rules
 
 - Domain types do not depend on HTTP, React, SQLite, process control, Git, or

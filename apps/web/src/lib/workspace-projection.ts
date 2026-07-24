@@ -13,7 +13,8 @@ export interface WorkspaceProjectionState {
   readonly statusSummary: WorkspaceSnapshotResponse['statusSummary'];
   readonly lastSequence: number;
   readonly events: readonly WorkspaceEventEnvelope[];
-  readonly invalidEventCount: number;
+  readonly invalidPayloadCount: number;
+  readonly foreignWorkspaceEventCount: number;
   readonly consecutiveErrors: number;
 }
 
@@ -23,7 +24,8 @@ export const INITIAL_WORKSPACE_PROJECTION: WorkspaceProjectionState = {
   statusSummary: { needsAttention: 0, active: 0, ready: 0, blocked: 0 },
   lastSequence: 0,
   events: [],
-  invalidEventCount: 0,
+  invalidPayloadCount: 0,
+  foreignWorkspaceEventCount: 0,
   consecutiveErrors: 0,
 };
 
@@ -51,7 +53,8 @@ export function reduceWorkspaceProjection(
         statusSummary: action.snapshot.statusSummary,
         lastSequence: action.snapshot.asOfSequence,
         events: action.snapshot.recentActivity,
-        invalidEventCount: 0,
+        invalidPayloadCount: 0,
+        foreignWorkspaceEventCount: 0,
         consecutiveErrors: 0,
       };
     case 'snapshot-failed':
@@ -67,13 +70,14 @@ export function reduceWorkspaceProjection(
       };
     }
     case 'event-received':
-      if (
-        action.event.sequence <= state.lastSequence ||
-        action.event.workspaceId !== state.workspace?.id
-      ) {
-        return action.event.workspaceId === state.workspace?.id
-          ? state
-          : { ...state, invalidEventCount: state.invalidEventCount + 1 };
+      if (action.event.workspaceId !== state.workspace?.id) {
+        return {
+          ...state,
+          foreignWorkspaceEventCount: state.foreignWorkspaceEventCount + 1,
+        };
+      }
+      if (action.event.sequence <= state.lastSequence) {
+        return state;
       }
       return {
         ...state,
@@ -82,6 +86,6 @@ export function reduceWorkspaceProjection(
         consecutiveErrors: 0,
       };
     case 'event-invalid':
-      return { ...state, invalidEventCount: state.invalidEventCount + 1 };
+      return { ...state, invalidPayloadCount: state.invalidPayloadCount + 1 };
   }
 }

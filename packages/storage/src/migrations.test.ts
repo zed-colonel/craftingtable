@@ -1,10 +1,17 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from './database.js';
-import { checksumSql, discoverMigrations, migrationStatus, runMigrations } from './migrations.js';
+import {
+  checksumSql,
+  discoverMigrations,
+  inspectMigrationStatus,
+  type MigrationValidationError,
+  migrationStatus,
+  runMigrations,
+} from './migrations.js';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -123,5 +130,51 @@ describe('ordered SQL migrations', () => {
     `);
     expect(() => migrationStatus(database)).toThrow(/99/);
     database.close();
+  });
+
+  it('inspects status read-only without changing journal mode or creating WAL companions', () => {
+    const path = databasePath();
+    const database = new Database(path);
+    database.exec(`CREATE TABLE marker (id INTEGER PRIMARY KEY)`);
+    expect(database.pragma('journal_mode', { simple: true })).toBe('delete');
+    database.close();
+
+    expect(inspectMigrationStatus(path)).toEqual({
+      currentVersion: 0,
+      supportedVersion: 1,
+      pendingVersions: [1],
+    });
+
+    const inspection = new Database(path, { readonly: true, fileMustExist: true });
+    expect(inspection.pragma('journal_mode', { simple: true })).toBe('delete');
+    inspection.close();
+    expect(existsSync(`${path}-wal`)).toBe(false);
+    expect(existsSync(`${path}-shm`)).toBe(false);
+  });
+
+  it('reports a missing database as pending without creating it', () => {
+    const path = databasePath();
+    expect(existsSync(path)).toBe(false);
+    expect(inspectMigrationStatus(path)).toEqual({
+      currentVersion: 0,
+      supportedVersion: 1,
+      pendingVersions: [1],
+    });
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it('classifies unsupported and tampered schemas for operator-facing callers', () => {
+    const path = databasePath();
+    const database = openDatabase(path);
+    runMigrations(database);
+    database
+      .prepare(`UPDATE schema_migrations SET checksum = ? WHERE version = 1`)
+      .run('0'.repeat(64));
+    database.close();
+    expect(() => inspectMigrationStatus(path)).toThrow(
+      expect.objectContaining<Partial<MigrationValidationError>>({
+        failure: 'checksum-mismatch',
+      }),
+    );
   });
 });

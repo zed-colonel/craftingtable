@@ -19,6 +19,21 @@ afterEach(async () => {
 });
 
 describe('workspace HTTP surface', () => {
+  it('authenticates before validating workspace identifiers', async () => {
+    const context = await createTestContext();
+    contexts.push(context);
+    for (const suffix of ['snapshot', 'audit']) {
+      const response = await context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/%20/${suffix}`,
+      });
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual({
+        error: { code: 'unauthenticated', message: 'Authentication required' },
+      });
+    }
+  });
+
   it('lists, snapshots, and audits the authorized durable workspace', async () => {
     const context = await createTestContext();
     contexts.push(context);

@@ -54,6 +54,7 @@ export function buildServer(
     deps.authService,
     deps.workspaceService,
     deps.workspaceEventStreamService,
+    config,
   );
 
   app.setErrorHandler((error, request, reply) => {

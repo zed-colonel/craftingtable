@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import type { MigrationStatus } from './types.js';
 
 export interface MigrationDefinition {
@@ -15,6 +15,21 @@ interface AppliedMigrationRow {
   readonly version: number;
   readonly name: string;
   readonly checksum: string;
+}
+
+export type MigrationValidationFailure =
+  | 'unsupported-version'
+  | 'name-mismatch'
+  | 'checksum-mismatch';
+
+export class MigrationValidationError extends Error {
+  constructor(
+    readonly failure: MigrationValidationFailure,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'MigrationValidationError';
+  }
 }
 
 const MIGRATION_FILE = /^(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\.sql$/;
@@ -85,16 +100,42 @@ function validateApplied(
   for (const row of applied) {
     const migration = migrations.find((candidate) => candidate.version === row.version);
     if (migration === undefined) {
-      throw new Error(
+      throw new MigrationValidationError(
+        'unsupported-version',
         `Database schema version ${row.version} is newer than or unknown to this application`,
       );
     }
     if (migration.name !== row.name) {
-      throw new Error(`Applied migration ${row.version} name mismatch`);
+      throw new MigrationValidationError(
+        'name-mismatch',
+        `Applied migration ${row.version} name mismatch`,
+      );
     }
     if (migration.checksum !== row.checksum) {
-      throw new Error(`Applied migration ${row.version} checksum mismatch`);
+      throw new MigrationValidationError(
+        'checksum-mismatch',
+        `Applied migration ${row.version} checksum mismatch`,
+      );
     }
+  }
+}
+
+export function inspectMigrationStatus(
+  databasePath: string,
+  migrations: readonly MigrationDefinition[] = discoverMigrations(),
+): MigrationStatus {
+  if (!existsSync(databasePath)) {
+    return {
+      currentVersion: 0,
+      supportedVersion: migrations.at(-1)?.version ?? 0,
+      pendingVersions: migrations.map((migration) => migration.version),
+    };
+  }
+  const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+  try {
+    return migrationStatus(database, migrations);
+  } finally {
+    database.close();
   }
 }
 

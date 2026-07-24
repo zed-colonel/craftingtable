@@ -44,11 +44,26 @@ forces another durable query. Session and membership are periodically
 revalidated while streaming. Revocation emits the typed
 `authentication-expired` control event and closes the stream.
 
+Authenticated stream establishment also applies the configured origin/fetch
+metadata policy explicitly. `SameSite=Strict` remains defense in depth, not the
+stream's sole cross-site control.
+
 ## Consequences
 
 Refresh, disconnect, missed notification, and daemon restart reconstruct from
 SQLite. At-least-once network behavior is harmless to the idempotent browser.
 No normal-runtime path streams `AgentBackend` events directly.
+
+The 1000 ms fallback re-query is a CT-02 correctness mechanism and a scaling
+caveat: each idle connection re-authenticates and queries once per interval.
+Before multi-user or CT-08 operation, revisit that interval without weakening
+revocation or missed-notification recovery.
+
+CT-03 producer obligation: after a daemon command commits a workspace event, it
+must call the same daemon-composed notifier. Tests must prove fast-path
+delivery independently of the fallback interval. CT-02 bootstrap runs in a
+separate CLI process, so its daemon visibility correctly relies on durable
+re-query.
 
 ## Alternatives considered
 

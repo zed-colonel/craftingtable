@@ -84,11 +84,22 @@ describe('workspace projection', () => {
       type: 'snapshot-loaded',
       snapshot,
     });
-    const invalid = reduceWorkspaceProjection(hydrated, {
+    const rejected = reduceWorkspaceProjection(hydrated, {
       type: 'event-received',
       event: { ...event, workspaceId: asWorkspaceId('workspace-other'), sequence: 2 },
     });
-    expect(invalid.invalidEventCount).toBe(1);
-    expect(invalid.events).toEqual([event]);
+    expect(rejected.foreignWorkspaceEventCount).toBe(1);
+    expect(rejected.invalidPayloadCount).toBe(0);
+    expect(rejected.events).toEqual([event]);
+  });
+
+  it('counts schema-invalid payloads separately from workspace isolation failures', () => {
+    const hydrated = reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, {
+      type: 'snapshot-loaded',
+      snapshot,
+    });
+    const invalid = reduceWorkspaceProjection(hydrated, { type: 'event-invalid' });
+    expect(invalid.invalidPayloadCount).toBe(1);
+    expect(invalid.foreignWorkspaceEventCount).toBe(0);
   });
 });

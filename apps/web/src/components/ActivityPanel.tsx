@@ -11,11 +11,13 @@ function describeEvent(event: WorkspaceEventEnvelope): string {
 export function ActivityPanel({
   connection,
   events,
-  invalidEventCount,
+  invalidPayloadCount,
+  foreignWorkspaceEventCount,
 }: {
   connection: ConnectionState;
   events: readonly WorkspaceEventEnvelope[];
-  invalidEventCount: number;
+  invalidPayloadCount: number;
+  foreignWorkspaceEventCount: number;
 }) {
   return (
     <section className="activity" aria-label="Workspace activity">
@@ -29,10 +31,17 @@ export function ActivityPanel({
           reconnection continues automatically.
         </p>
       )}
-      {invalidEventCount > 0 && (
+      {invalidPayloadCount > 0 && (
         <p className="error-state" role="alert">
-          {invalidEventCount} event{invalidEventCount === 1 ? '' : 's'} failed contract validation
-          and {invalidEventCount === 1 ? 'was' : 'were'} not displayed.
+          {invalidPayloadCount} event{invalidPayloadCount === 1 ? '' : 's'} failed contract
+          validation and {invalidPayloadCount === 1 ? 'was' : 'were'} not displayed.
+        </p>
+      )}
+      {foreignWorkspaceEventCount > 0 && (
+        <p className="error-state" role="alert">
+          {foreignWorkspaceEventCount} event
+          {foreignWorkspaceEventCount === 1 ? '' : 's'} addressed to another workspace
+          {foreignWorkspaceEventCount === 1 ? ' was' : ' were'} rejected.
         </p>
       )}
       {events.length === 0 ? (

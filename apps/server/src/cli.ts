@@ -1,4 +1,8 @@
-import { openDatabase, migrationStatus, openCraftingTableStorage } from '@craftingtable/storage';
+import {
+  inspectMigrationStatus,
+  MigrationValidationError,
+  openCraftingTableStorage,
+} from '@craftingtable/storage';
 import { configFromEnv } from './config.js';
 import { Argon2PasswordHasher } from './security/password-hasher.js';
 import { BootstrapService } from './services/bootstrap-service.js';
@@ -8,6 +12,12 @@ import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
 export interface ParsedCliCommand {
   readonly command: 'bootstrap' | 'db-migrate' | 'db-status';
   readonly username?: string;
+}
+
+export const SCHEMA_VALIDATION_EXIT_CODE = 4;
+
+interface CliOutput {
+  write(message: string): unknown;
 }
 
 export function parseCliArguments(args: readonly string[]): ParsedCliCommand {
@@ -76,32 +86,52 @@ export async function readHiddenPassword(prompt: string): Promise<string> {
   });
 }
 
-export async function runCli(args: readonly string[]): Promise<number> {
-  const parsed = parseCliArguments(args);
-  const config = configFromEnv();
-  if (parsed.command === 'db-status') {
-    const database = openDatabase(config.databasePath);
+function reportSchemaValidationError(error: unknown, stderr: CliOutput): number {
+  if (!(error instanceof MigrationValidationError)) {
+    throw error;
+  }
+  stderr.write(`schema invalid (${error.failure}): ${error.message}\n`);
+  return SCHEMA_VALIDATION_EXIT_CODE;
+}
+
+export function runDatabaseCommand(
+  command: 'db-status' | 'db-migrate',
+  databasePath: string,
+  output: { readonly stdout: CliOutput; readonly stderr: CliOutput } = {
+    stdout: process.stdout,
+    stderr: process.stderr,
+  },
+): number {
+  if (command === 'db-status') {
     try {
-      const status = migrationStatus(database);
-      process.stdout.write(
+      const status = inspectMigrationStatus(databasePath);
+      output.stdout.write(
         `schema ${status.currentVersion}/${status.supportedVersion}; pending: ${status.pendingVersions.join(', ') || 'none'}\n`,
       );
       return status.pendingVersions.length === 0 ? 0 : 2;
-    } finally {
-      database.close();
+    } catch (error) {
+      return reportSchemaValidationError(error, output.stderr);
     }
   }
 
-  if (parsed.command === 'db-migrate') {
-    const storage = openCraftingTableStorage(config.databasePath);
+  try {
+    const storage = openCraftingTableStorage(databasePath);
     try {
-      process.stdout.write(
-        `schema migrated to version ${storage.migrationStatus.currentVersion}\n`,
-      );
+      output.stdout.write(`schema migrated to version ${storage.migrationStatus.currentVersion}\n`);
       return 0;
     } finally {
       storage.close();
     }
+  } catch (error) {
+    return reportSchemaValidationError(error, output.stderr);
+  }
+}
+
+export async function runCli(args: readonly string[]): Promise<number> {
+  const parsed = parseCliArguments(args);
+  const config = configFromEnv();
+  if (parsed.command === 'db-status' || parsed.command === 'db-migrate') {
+    return runDatabaseCommand(parsed.command, config.databasePath);
   }
 
   const firstPassword = await readHiddenPassword('Password: ');

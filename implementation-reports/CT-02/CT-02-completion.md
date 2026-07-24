@@ -5,7 +5,10 @@
 **Accepted plan:** `work-items/CT-02-accepted-implementation-plan.md`
 **Accepted CT-01 baseline:** `693445257d61222959c2efa9fc82c621fa8c6653`
 **Implementation starting head:** `ac760499b87f0c128228ce9e84323bfff553c5fc`
-**Commit status:** uncommitted, as required
+**Implementation commit:** `466649bbfa9f99d777ed899c9dae00fe4b7713ec`
+(`CT-02: add persistent authenticated daemon`), created after the operator
+explicitly authorized a clean review commit. The accepted plan itself granted
+no commit authority.
 
 ## Outcome
 
@@ -354,7 +357,9 @@ diagnostics:
   an HTTPS public origin, while actual TLS/LAN deployment remains CT-08.
 - There is no online backup command. Stop the daemon and treat the SQLite,
   WAL, and SHM files as one unit for any manual offline copy.
-- The checked-out tree is intentionally dirty and uncommitted for review.
+- The operator explicitly authorized committing the completed implementation
+  after this report was first prepared; implementation commit `466649b`
+  provided the clean independent-review baseline.
 
 No unresolved CT-02 acceptance failure remains. Every CT-02 acceptance
 criterion passes under the operator-approved A07 amendment.

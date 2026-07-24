@@ -13,6 +13,8 @@ export interface WorkspaceEventStreamHooks {
   readonly waitTimeoutMs?: number;
 }
 
+export const STREAM_REQUERY_INTERVAL_MS = 1000;
+
 export class WorkspaceEventStreamService {
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -61,7 +63,7 @@ export class WorkspaceEventStreamService {
       await this.hooks.afterEmptyQuery?.();
       await this.notifier.waitForChangeOrTimeout({
         generation,
-        timeoutMs: this.hooks.waitTimeoutMs ?? 1000,
+        timeoutMs: this.hooks.waitTimeoutMs ?? STREAM_REQUERY_INTERVAL_MS,
         signal: input.signal,
       });
     }

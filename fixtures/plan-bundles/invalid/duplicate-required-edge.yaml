@@ -1,0 +1,14 @@
+document: Repeated required edge plan
+pull_requests:
+- id: WI-01
+  title: Root
+  depends_on: []
+  risk: low
+  primary_areas: [core]
+  exit_gate: Green.
+- id: WI-02
+  title: Lists the same predecessor twice
+  depends_on: [WI-01, WI-01]
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.

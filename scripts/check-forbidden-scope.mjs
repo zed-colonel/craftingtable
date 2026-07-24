@@ -14,6 +14,57 @@ import { fileURLToPath } from 'node:url';
 
 export const FORBIDDEN_PATTERNS = [/action-?queue/i, /world-?interface/i, /exoskeleton/i];
 
+/**
+ * Modules that would give CraftingTable a CT-04-or-later capability
+ * (work-items/CT-03/CT-03.md §9, CT03-A70): real Git, worktrees, process and
+ * shell execution, and vendor coding-agent SDKs. Checked against production
+ * source only; tests may still exercise fakes.
+ */
+export const FORBIDDEN_CAPABILITY_PATTERNS = [
+  /^simple-git$/i,
+  /^nodegit$/i,
+  /^isomorphic-git$/i,
+  /^dugite$/i,
+  /^node:child_process$/i,
+  /^child_process$/i,
+  /^execa$/i,
+  /^cross-spawn$/i,
+  /^shelljs$/i,
+  /^node-pty$/i,
+  /^@openai\/.*$/i,
+  /^openai$/i,
+  /^@anthropic-ai\/.*$/i,
+  /^@modelcontextprotocol\/.*$/i,
+];
+
+/**
+ * Packages that exist as future or test seams only. Production source must not
+ * import them (AGENTS.md, CT-03 §4).
+ */
+export const NON_PRODUCTION_PACKAGES = [
+  '@craftingtable/agents',
+  '@craftingtable/git',
+  '@craftingtable/testing',
+];
+
+/**
+ * The pure planning boundary. It may hash, but it must not reach the
+ * filesystem, a process, a socket, a database, or a UI (ADR-012).
+ */
+export const PLANNING_FORBIDDEN_PATTERNS = [
+  /^node:fs(\/.*)?$/,
+  /^node:path$/,
+  /^node:child_process$/,
+  /^node:net$/,
+  /^node:http(s)?$/,
+  /^node:worker_threads$/,
+  /^fastify$/,
+  /^@fastify\/.*$/,
+  /^react(-dom)?$/,
+  /^better-sqlite3$/,
+  /^@craftingtable\/(storage|server|web|agents|git|testing)$/,
+];
+
 const DEPENDENCY_FIELDS = [
   'dependencies',
   'devDependencies',
@@ -33,6 +84,28 @@ export const IMPORT_PATTERN = /(?:\bimport\s*\(?\s*|\bfrom\s+|\brequire\s*\(\s*)
 
 export function isForbidden(specifier) {
   return FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier));
+}
+
+export function isForbiddenCapability(specifier) {
+  return FORBIDDEN_CAPABILITY_PATTERNS.some((pattern) => pattern.test(specifier));
+}
+
+export function isNonProductionPackage(specifier) {
+  return NON_PRODUCTION_PACKAGES.includes(specifier);
+}
+
+export function isForbiddenInPlanning(specifier) {
+  return PLANNING_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier));
+}
+
+/** Returns every module specifier the source imports. */
+export function findImports(source) {
+  return [...source.matchAll(IMPORT_PATTERN)].map((match) => match[1]);
+}
+
+/** True for test and test-support modules, which may use wider capabilities. */
+export function isTestModule(path) {
+  return /\.test\.[cm]?[jt]sx?$/.test(path) || /test-support\.[cm]?[jt]sx?$/.test(path);
 }
 
 /** Returns every forbidden module specifier referenced by the source text. */
@@ -91,12 +164,37 @@ export function runCheck(root) {
       }
       const packageDir = join(root, group, entry.name);
       checkManifest(join(packageDir, 'package.json'));
+      const isPlanningPackage = group === 'packages' && entry.name === 'planning';
+      // The seams themselves may reference each other; only *production*
+      // packages must stay clear of them.
+      const isSeamPackage =
+        group === 'packages' && ['agents', 'git', 'testing'].includes(entry.name);
       walk(join(packageDir, 'src'), (path) => {
         if (!SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension))) {
           return;
         }
-        for (const specifier of findForbiddenImports(readFileSync(path, 'utf8'))) {
-          violations.push(`${relative(root, path)}: imports forbidden module "${specifier}"`);
+        const source = readFileSync(path, 'utf8');
+        const relativePath = relative(root, path);
+        for (const specifier of findForbiddenImports(source)) {
+          violations.push(`${relativePath}: imports forbidden module "${specifier}"`);
+        }
+        if (isTestModule(path)) {
+          return;
+        }
+        for (const specifier of findImports(source)) {
+          if (isForbiddenCapability(specifier)) {
+            violations.push(`${relativePath}: imports CT-04+ capability module "${specifier}"`);
+          }
+          if (!isSeamPackage && isNonProductionPackage(specifier)) {
+            violations.push(
+              `${relativePath}: production source imports non-production seam "${specifier}"`,
+            );
+          }
+          if (isPlanningPackage && isForbiddenInPlanning(specifier)) {
+            violations.push(
+              `${relativePath}: the pure planning package must not import "${specifier}"`,
+            );
+          }
         }
       });
     }
@@ -116,5 +214,8 @@ if (isMain) {
     }
     process.exit(1);
   }
-  console.log('Forbidden-scope check passed: no Exo Stack runtime dependencies found.');
+  console.log(
+    'Forbidden-scope check passed: no Exo Stack dependency, no CT-04+ capability module,\n' +
+      'no non-production seam in production source, and the planning package stays pure.',
+  );
 }

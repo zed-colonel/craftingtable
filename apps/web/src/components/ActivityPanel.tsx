@@ -5,6 +5,12 @@ function describeEvent(event: WorkspaceEventEnvelope): string {
   switch (event.kind) {
     case 'workspace-created':
       return `Workspace created: ${event.payload.name}`;
+    case 'project-created':
+      return `Project created: ${event.payload.name}`;
+    case 'plan-version-imported':
+      return `Plan version ${event.payload.versionNumber} imported: ${event.payload.document} (${event.payload.itemCount} work items, ${event.payload.requiredDependencyCount} required dependencies)`;
+    case 'work-item-admitted':
+      return `Work item admitted: ${event.payload.sourceWorkItemId}`;
   }
 }
 

@@ -63,7 +63,7 @@ describe('CLI argument parsing', () => {
       future
         .prepare(
           `INSERT INTO schema_migrations (version, name, checksum, applied_at)
-           VALUES (2, 'future', ?, ?)`,
+           VALUES (3, 'future', ?, ?)`,
         )
         .run('f'.repeat(64), '2026-07-24T00:00:00.000Z');
       future.close();

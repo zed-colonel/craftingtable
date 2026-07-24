@@ -1,0 +1,5 @@
+document: Malformed plan
+pull_requests:
+- id: WI-01
+  title: [unclosed
+  depends_on: []

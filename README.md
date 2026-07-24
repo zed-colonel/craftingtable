@@ -6,11 +6,12 @@ It exists to make development of the Exo Stack (ActionQueue, WorldInterface, and
 
 ## Current phase
 
-This repository implements **CT-02: Persistent daemon, authentication,
+This repository implements **CT-03: Plan bundle import and the project/work-item
+dashboard**, on top of CT-02's persistent daemon, authentication,
 workspaces, and durable event history**.
 
 The normative planning artifacts are under [`init/`](init/). The active work
-contract is [`work-items/CT-02.md`](work-items/CT-02.md). Architectural,
+contract is [`work-items/CT-03/CT-03.md`](work-items/CT-03/CT-03.md). Architectural,
 security, and operating boundaries are documented in
 [`docs/architecture.md`](docs/architecture.md), [`docs/security.md`](docs/security.md),
 [`docs/operations.md`](docs/operations.md), and [`docs/decisions/`](docs/decisions/).

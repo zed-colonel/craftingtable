@@ -1,0 +1,8 @@
+document: Unmodelled risk plan
+pull_requests:
+- id: WI-01
+  title: Uses a risk word CraftingTable does not model
+  depends_on: []
+  risk: apocalyptic
+  primary_areas: [core]
+  exit_gate: Green.

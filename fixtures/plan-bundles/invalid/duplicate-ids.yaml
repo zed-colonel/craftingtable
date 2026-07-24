@@ -1,0 +1,14 @@
+document: Duplicate identifier plan
+pull_requests:
+- id: WI-01
+  title: First
+  depends_on: []
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.
+- id: WI-01
+  title: Second copy of the same identifier
+  depends_on: []
+  risk: high
+  primary_areas: [core]
+  exit_gate: Green.

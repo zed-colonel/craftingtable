@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-24
+- **Amended:** 2026-07-24 for CT-03 schema version 2
 
 ## Context
 
@@ -24,6 +25,12 @@ atomically, and schema drift must fail closed.
 - Use immediate transactions for writes and deferred transactions for
   consistent read snapshots.
 - Restrict foreign-key deletion and expose no CT-02 deletion/retention API.
+
+CT-03 amendment. Migration `0002` installs schema version 2. Because
+`PRAGMA foreign_keys` is a no-op inside a transaction and the runner wraps every
+migration in one, a migration must be foreign-key clean at every statement.
+Migration 0002 therefore seeds its kind catalogs before copying any journal row.
+See ADR-013 for the one-time journal rebuild and its preservation guarantees.
 
 ## Consequences
 

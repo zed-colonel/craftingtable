@@ -5,17 +5,24 @@ import type {
   AuditOutcome,
   EventId,
   JsonValue,
+  ProjectId,
   Session,
   SessionId,
   User,
   UserId,
   Workspace,
   WorkspaceEvent,
+  WorkspaceEventKind,
+  WorkspaceEventPayload,
   WorkspaceId,
   WorkspaceMembership,
   WorkspaceMembershipId,
   WorkspaceRole,
+  WorkItemId,
 } from '@craftingtable/domain';
+import type { PlanningRepositories } from './planning-types.js';
+
+export * from './planning-types.js';
 
 export interface StoredUser extends User {
   readonly usernameNormalized: string;
@@ -93,6 +100,22 @@ export interface AppendWorkspaceCreatedInput {
   readonly slug: string;
 }
 
+/**
+ * Kind-generic append. The payload type is selected by the kind, so a mismatched
+ * payload is a compile error rather than an unreadable journal row; the database
+ * additionally rejects any kind absent from `workspace_event_kinds`.
+ */
+export interface AppendWorkspaceEventInput<K extends WorkspaceEventKind = WorkspaceEventKind> {
+  readonly id: EventId;
+  readonly occurredAt: string;
+  readonly workspaceId: WorkspaceId;
+  readonly actorUserId?: UserId;
+  readonly projectId?: ProjectId;
+  readonly workItemId?: WorkItemId;
+  readonly kind: K;
+  readonly payload: WorkspaceEventPayload<K>;
+}
+
 export interface UserRepository {
   count(): number;
   insert(input: CreateUserInput): StoredUser;
@@ -133,6 +156,7 @@ export interface AuditRepository {
 
 export interface WorkspaceEventRepository {
   appendWorkspaceCreated(input: AppendWorkspaceCreatedInput): WorkspaceEvent;
+  appendEvent<K extends WorkspaceEventKind>(input: AppendWorkspaceEventInput<K>): WorkspaceEvent;
   count(): number;
   maxSequence(): number;
   listAfter(input: {
@@ -153,6 +177,8 @@ export interface StorageRepositories {
   readonly workspaces: WorkspaceRepository;
   readonly audit: AuditRepository;
   readonly workspaceEvents: WorkspaceEventRepository;
+  /** CT-03 planning model; grouped so the nine repositories stay legible. */
+  readonly planning: PlanningRepositories;
 }
 
 export interface MigrationStatus {

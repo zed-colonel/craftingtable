@@ -3,6 +3,7 @@ import { fastify, type FastifyInstance } from 'fastify';
 import type { ServerConfig } from './config.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { sendApiError } from './routes/http.js';
+import { registerPlanningRoutes } from './routes/planning.js';
 import { registerWorkspaceEventRoute } from './routes/workspace-events.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { registerHealthRoute } from './routes/health.js';
@@ -14,11 +15,17 @@ import {
   UnauthenticatedError,
 } from './services/errors.js';
 import type { WorkspaceEventStreamService } from './services/workspace-event-stream-service.js';
+import type { PlanImportService } from './services/plan-import-service.js';
+import type { PlanningQueryService } from './services/planning-query-service.js';
+import type { WorkItemService } from './services/work-item-service.js';
 import type { WorkspaceService } from './services/workspace-service.js';
 
 export interface ServerDependencies {
   readonly authService: AuthService;
   readonly workspaceService: WorkspaceService;
+  readonly planImportService: PlanImportService;
+  readonly planningQueryService: PlanningQueryService;
+  readonly workItemService: WorkItemService;
   readonly workspaceEventStreamService: WorkspaceEventStreamService;
 }
 
@@ -49,6 +56,14 @@ export function buildServer(
   registerHealthRoute(app);
   registerAuthRoutes(app, deps.authService, config);
   registerWorkspaceRoutes(app, deps.authService, deps.workspaceService);
+  registerPlanningRoutes(
+    app,
+    deps.authService,
+    deps.planImportService,
+    deps.planningQueryService,
+    deps.workItemService,
+    config,
+  );
   registerWorkspaceEventRoute(
     app,
     deps.authService,

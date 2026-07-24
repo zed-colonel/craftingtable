@@ -1,0 +1,5 @@
+document: Missing field plan
+pull_requests:
+- id: WI-01
+  title: Missing depends_on, primary_areas, and exit_gate
+  risk: medium

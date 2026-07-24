@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { openDatabase } from './database.js';
 import { discoverMigrations, runMigrations } from './migrations.js';
 import { SqliteAuditRepository } from './repositories/audit.js';
+import { planningRepositories } from './repositories/planning/index.js';
 import { SqliteSessionRepository } from './repositories/sessions.js';
 import { SqliteUserRepository } from './repositories/users.js';
 import { SqliteWorkspaceEventRepository } from './repositories/workspace-events.js';
@@ -15,6 +16,7 @@ function repositories(database: Database.Database): StorageRepositories {
     workspaces: new SqliteWorkspaceRepository(database),
     audit: new SqliteAuditRepository(database),
     workspaceEvents: new SqliteWorkspaceEventRepository(database),
+    planning: planningRepositories(database),
   };
 }
 
@@ -24,6 +26,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   readonly workspaces;
   readonly audit;
   readonly workspaceEvents;
+  readonly planning;
 
   private closed = false;
 
@@ -38,6 +41,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     this.workspaces = repos.workspaces;
     this.audit = repos.audit;
     this.workspaceEvents = repos.workspaceEvents;
+    this.planning = repos.planning;
   }
 
   transaction<T>(operation: (tx: StorageRepositories) => T): T {

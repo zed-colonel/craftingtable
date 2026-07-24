@@ -13,6 +13,11 @@ ADR-007-agent-execution-boundary.md
 ADR-008-toolchain-and-quality-gates.md
 ADR-009-authentication-sessions-and-csrf.md
 ADR-010-atomic-audit-and-workspace-events.md
+ADR-011-plan-bundle-import-and-versioning.md
+ADR-012-planning-domain-and-dependency-semantics.md
+ADR-013-journal-vocabulary-catalogs.md
+ADR-014-work-item-admission-and-draft-contracts.md
+ADR-015-browser-navigation-and-planning-views.md
 ```
 
 Each ADR should contain:

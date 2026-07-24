@@ -5,6 +5,7 @@ import { openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import { configFromEnv, SESSION_COOKIE_NAME, type ServerConfig } from './config.js';
 import { createServices, type ServiceSet } from './composition.js';
+import type { WorkspaceEventStreamHooks } from './services/workspace-event-stream-service.js';
 import type { PasswordHasher } from './security/password-hasher.js';
 import { buildServer } from './server.js';
 
@@ -40,6 +41,7 @@ export async function createTestContext(
     readonly passwordHasher?: PasswordHasher;
     readonly publicOrigin?: string;
     readonly loggerStream?: { write(message: string): void };
+    readonly streamHooks?: WorkspaceEventStreamHooks;
   } = {},
 ): Promise<TestContext> {
   const directory = mkdtempSync(join(tmpdir(), 'craftingtable-server-test-'));
@@ -52,11 +54,15 @@ export async function createTestContext(
   const services = await createServices(storage, config, {
     passwordHasher: options.passwordHasher ?? new FastTestPasswordHasher(),
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.streamHooks === undefined ? {} : { streamHooks: options.streamHooks }),
   });
   const app = buildServer(
     {
       authService: services.authService,
       workspaceService: services.workspaceService,
+      planImportService: services.planImportService,
+      planningQueryService: services.planningQueryService,
+      workItemService: services.workItemService,
       workspaceEventStreamService: services.workspaceEventStreamService,
     },
     config,

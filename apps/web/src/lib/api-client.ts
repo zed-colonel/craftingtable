@@ -31,7 +31,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(
+export async function request<T>(
   url: string,
   schema: ResponseSchema<T>,
   init: RequestInit = {},

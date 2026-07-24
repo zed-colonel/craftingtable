@@ -1,0 +1,8 @@
+document: Missing dependency plan
+pull_requests:
+- id: WI-01
+  title: Refers to an absent predecessor
+  depends_on: [WI-99]
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.

@@ -1,0 +1,206 @@
+document: CraftingTable CT-03 AQ-CONT-1 import expectations
+fixture_profile: exo-work-breakdown-v1
+source_files:
+  implementation_plan: fixtures/plan-bundles/aq-cont-1/aq-cont-1-implementation-plan.md
+  work_breakdown: fixtures/plan-bundles/aq-cont-1/aq-cont-1-work-breakdown.yaml
+expected:
+  document: AQ-CONT-1 Implementation Plan
+  status: development-planning-baseline
+  contract: AQ-CONT-1
+  stack_revision: STACK-2026-07-20-CLEAN-1
+  repository: zed-colonel/actionqueue
+  baseline_commit: 97c9dc26c19c697dbfb204ed503e82c5f053394f
+  clean_break:
+    legacy_runtime_compatibility: false
+    legacy_store_readers: false
+    live_dual_authority: false
+    offline_characterization: true
+    integration_branch: aq-cont-1
+    baseline_tag: actionqueue/pre-aq-cont-1
+  integration_branch: null
+  tag: null
+  work_item_count: 14
+  required_dependency_edge_count: 24
+  root_source_ids: &id001
+  - AQ-01
+  source_ids_in_order:
+  - AQ-01
+  - AQ-02
+  - AQ-03
+  - AQ-04
+  - AQ-05
+  - AQ-06
+  - AQ-07
+  - AQ-08
+  - AQ-09
+  - AQ-10
+  - AQ-11
+  - AQ-12
+  - AQ-13
+  - AQ-14
+  risk_counts:
+    critical: 6
+    high: 7
+    medium: 1
+  planning_ready_source_ids_before_any_completion: *id001
+required_dependencies:
+  AQ-01: []
+  AQ-02:
+  - AQ-01
+  AQ-03:
+  - AQ-02
+  AQ-04:
+  - AQ-03
+  AQ-05:
+  - AQ-03
+  AQ-06:
+  - AQ-05
+  AQ-07:
+  - AQ-06
+  AQ-08:
+  - AQ-04
+  - AQ-06
+  - AQ-07
+  AQ-09:
+  - AQ-08
+  AQ-10:
+  - AQ-06
+  - AQ-08
+  AQ-11:
+  - AQ-08
+  - AQ-10
+  AQ-12:
+  - AQ-04
+  - AQ-05
+  - AQ-06
+  - AQ-07
+  - AQ-08
+  - AQ-09
+  - AQ-10
+  - AQ-11
+  AQ-13:
+  - AQ-12
+  AQ-14:
+  - AQ-13
+work_item_fields:
+  AQ-01:
+    title: Freeze evidence and establish the development contract
+    risk: medium
+    primary_areas:
+    - contract
+    - conformance
+    - archive
+    exit_gate: Baseline green; contract, archive, and boundary checks installed.
+  AQ-02:
+    title: Introduce target core vocabulary, state, and routing terminology
+    risk: high
+    primary_areas:
+    - actionqueue-core
+    exit_gate: Pure types, Awaiting transitions, serialization, and terminology tests pass.
+  AQ-03:
+    title: Establish the fresh AQ-CONT-1 persistence lineage
+    risk: critical
+    primary_areas:
+    - actionqueue-storage
+    - runtime-bootstrap
+    exit_gate: Target replay, reject-old, backup/restore, and projection equivalence pass.
+  AQ-04:
+    title: Implement compound idempotent task admission
+    risk: critical
+    primary_areas:
+    - core
+    - engine
+    - storage
+    - runtime
+    exit_gate: Admission conflict, race, crash, and replay suites pass.
+  AQ-05:
+    title: Add durable signal admission and retained signal indexing
+    risk: high
+    primary_areas:
+    - core
+    - engine
+    - storage
+    - runtime
+    exit_gate: Signal deduplication, conflict, sequence, retention, and replay pass.
+  AQ-06:
+    title: Implement Awaiting, waits, deadlines, and race-free matching
+    risk: critical
+    primary_areas:
+    - core
+    - engine
+    - storage
+    - runtime
+    exit_gate: Full no-lost-wakeup, timeout, cancellation, and recovery matrix passes.
+  AQ-07:
+    title: Add immutable checkpoints and resume context
+    risk: high
+    primary_areas:
+    - core
+    - storage
+    - executor-local
+    - runtime
+    exit_gate: Checkpoint and exactly-once resume-context crash suite passes.
+  AQ-08:
+    title: Replace HandlerOutput with AttemptDisposition
+    risk: critical
+    primary_areas:
+    - executor-local
+    - core
+    - storage
+    - runtime
+    exit_gate: One target handler path; lease-fenced compound disposition tests pass.
+  AQ-09:
+    title: Rebuild workflow coordination around transactional child admission
+    risk: critical
+    primary_areas:
+    - workflow
+    - runtime
+    - storage
+    exit_gate: Child/wait atomicity, DAG, hierarchy, and recovery tests pass.
+  AQ-10:
+    title: Separate budgets and internal reactivity from durable continuation
+    risk: high
+    primary_areas:
+    - budget
+    - core
+    - runtime
+    exit_gate: Budget/suspension/awaiting feature matrix passes; external custom events removed.
+  AQ-11:
+    title: Update remote actors, platform controls, and mutation attribution
+    risk: high
+    primary_areas:
+    - actor
+    - platform
+    - runtime
+    exit_gate: Fence, tenant, routing-trait, and control-attribution suites pass.
+  AQ-12:
+    title: Complete embedded API, daemon, CLI, inspection, and observability
+    risk: high
+    primary_areas:
+    - runtime
+    - daemon
+    - cli
+    exit_gate: Embedded/daemon/CLI semantic parity and security tests pass.
+  AQ-13:
+    title: Build conformance, model, chaos, and performance suite
+    risk: critical
+    primary_areas:
+    - conformance
+    - acceptance
+    - chaos
+    - benchmarks
+    exit_gate: Full target conformance and crash matrix pass with immutable fixture hashes.
+  AQ-14:
+    title: Release cutover and downstream handoff
+    risk: high
+    primary_areas:
+    - release
+    - documentation
+    - downstream-example
+    exit_gate: All release blockers clear; target release and conformance manifest published.
+notes:
+- Exact source bytes are authoritative for unknown-field preservation.
+- The required dependency count is calculated from depends_on entries in this fixture.
+- Recommended relationships, if present, do not contribute to the required dependency count.
+- No work item is Completed in CT-03, so only root proposed items are planning-ready before admission.
+- Admission does not satisfy dependencies and does not make work executable.

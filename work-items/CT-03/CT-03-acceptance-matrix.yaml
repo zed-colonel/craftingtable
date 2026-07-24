@@ -1,0 +1,283 @@
+document: CraftingTable CT-03 acceptance matrix
+contract: CT-03
+source_baseline: c8e2396a65466bdde95bf740771af63b4fc2272e
+fixture:
+  path: fixtures/plan-bundles/aq-cont-1
+  expectations: work-items/CT-03-aq-import-expectations.yaml
+rules:
+- Every acceptance case must map to concrete automated evidence or an explicitly documented inspection.
+- All persisted-state cases use real temporary SQLite files.
+- All HTTP mutation cases exercise authentication, workspace authorization, origin policy, and CSRF.
+- Every event assertion is tied to a committed database row and exact workspace sequence.
+- No acceptance case may be satisfied by weakening a CT-01 or CT-02 regression.
+groups:
+- name: migration-and-journals
+  cases:
+  - id: CT03-A01
+    criterion: Schema 1 migrates to schema 2 without losing users, workspaces, memberships, sessions, audit rows,
+      workspace events, IDs, or the existing maximum global event sequence.
+    evidence: Real-file migration preservation test seeded through CT-02 repositories.
+  - id: CT03-A02
+    criterion: Migration 0002 is checksum-recorded, idempotent on reopen, and rejected if its applied checksum changes.
+    evidence: Migration runner real-file tests.
+  - id: CT03-A03
+    criterion: Audit action and workspace-event kind catalogs contain all CT-02 and CT-03 registered values.
+    evidence: Catalog repository/schema tests.
+  - id: CT03-A04
+    criterion: An unregistered audit action and an unregistered workspace-event kind are rejected.
+    evidence: Database constraint tests.
+  - id: CT03-A05
+    criterion: Audit and workspace-event rows remain non-updatable and non-deletable after migration.
+    evidence: Trigger tests after schema-1-to-2 migration.
+  - id: CT03-A06
+    criterion: The next workspace event inserted after migration receives a sequence greater than the preserved
+      CT-02 maximum.
+    evidence: Sequence preservation test.
+  - id: CT03-A07
+    criterion: A future test-only catalog insertion permits a newly registered kind without rebuilding either journal
+      table.
+    evidence: Migration/catalog extensibility test.
+  - id: CT03-A08
+    criterion: Every CT-03 planning table and index has the intended workspace/version ownership and foreign-key
+      constraints.
+    evidence: Schema introspection and negative FK tests.
+- name: planning-parser-and-diagnostics
+  cases:
+  - id: CT03-A09
+    criterion: The exact AQ-CONT-1 fixture parses into the supported profile without fatal diagnostics.
+    evidence: Pure planning package fixture test.
+  - id: CT03-A10
+    criterion: The normalized AQ fixture contains exactly 14 work items, 24 required dependency edges, and one root
+      item AQ-01.
+    evidence: Pure graph fixture test and expectation file.
+  - id: CT03-A11
+    criterion: The normalized AQ fixture preserves every recognized top-level and work-item field and retains unknown
+      fields in source metadata.
+    evidence: Round-trip/source-field assertions.
+  - id: CT03-A12
+    criterion: Exact input artifact bytes and per-artifact SHA-256 values remain unchanged through analysis.
+    evidence: Artifact digest test.
+  - id: CT03-A13
+    criterion: Missing required implementation-plan or work-breakdown artifact produces a fatal diagnostic with
+      stable code and artifact role.
+    evidence: Pure bundle validation tests.
+  - id: CT03-A14
+    criterion: Invalid YAML produces an actionable fatal diagnostic without executing tags or constructors.
+    evidence: Parser security tests.
+  - id: CT03-A15
+    criterion: Duplicate work-item IDs produce fatal diagnostics identifying the duplicated source ID.
+    evidence: Pure schema test.
+  - id: CT03-A16
+    criterion: Invalid or empty work-item IDs produce field-specific fatal diagnostics.
+    evidence: Identifier validation tests.
+  - id: CT03-A17
+    criterion: A required dependency on a missing item produces a fatal diagnostic identifying source item and target.
+    evidence: Graph validation test.
+  - id: CT03-A18
+    criterion: A self-dependency produces a fatal diagnostic.
+    evidence: Graph validation test.
+  - id: CT03-A19
+    criterion: A two-node and a longer required-dependency cycle each produce deterministic cycle diagnostics.
+    evidence: Cycle tests.
+  - id: CT03-A20
+    criterion: An unresolved recommended dependency produces a warning and does not make the import fatal or block
+      readiness.
+    evidence: Recommended-edge test.
+  - id: CT03-A21
+    criterion: Multipart ordering does not change the canonical bundle digest.
+    evidence: Digest property test.
+  - id: CT03-A22
+    criterion: Changing any artifact role, logical filename, media type, or byte changes the canonical bundle digest.
+    evidence: Digest property test.
+  - id: CT03-A23
+    criterion: Duplicate logical filenames, invalid normalized names, path separators, NUL, unsupported media types,
+      excessive file count, excessive file size, and excessive total size are rejected before parsing.
+    evidence: Contract/service boundary tests.
+  - id: CT03-A24
+    criterion: YAML alias/nesting/resource-abuse input is bounded or rejected according to the accepted parser policy.
+    evidence: Parser abuse tests.
+- name: import-persistence-and-versioning
+  cases:
+  - id: CT03-A25
+    criterion: A successful first import atomically creates one attempt, project, bundle, version, all artifacts,
+      diagnostics, work items, dependency edges, audit rows, and summary workspace events.
+    evidence: Injected-failure transaction test plus success repository assertions.
+  - id: CT03-A26
+    criterion: The first successful plan version becomes the project's active plan version.
+    evidence: Import service test.
+  - id: CT03-A27
+    criterion: An injected failure at each durable insert stage leaves no partial project/version/work-item/dependency/event
+      state.
+    evidence: Transaction rollback table-driven tests.
+  - id: CT03-A28
+    criterion: A validation failure persists one failed attempt, bounded artifacts, diagnostics, and safe audit
+      evidence but no project, plan version, work item, dependency, draft, or workspace event.
+    evidence: Failed import integration test.
+  - id: CT03-A29
+    criterion: An identical logical bundle returns the existing plan version, records a duplicate attempt/audit,
+      and does not duplicate artifacts, items, edges, or workspace events.
+    evidence: Idempotent repeat integration test.
+  - id: CT03-A30
+    criterion: Changed content creates a distinct immutable plan version and preserved artifacts.
+    evidence: Changed-import integration test.
+  - id: CT03-A31
+    criterion: A changed plan version does not silently replace the project's active version.
+    evidence: Versioning service test.
+  - id: CT03-A32
+    criterion: Old plan versions, their work items, dependencies, artifacts, and diagnostics remain queryable after
+      a changed import.
+    evidence: Version-history query test.
+  - id: CT03-A33
+    criterion: Plan versions and accepted plan artifacts reject updates and deletes through repository/database
+      enforcement.
+    evidence: Immutability tests.
+  - id: CT03-A34
+    criterion: Work-item source IDs are unique within a plan version but may recur in another immutable version.
+    evidence: Schema/repository uniqueness tests.
+  - id: CT03-A35
+    criterion: All planning state is isolated by workspace and cross-workspace IDs do not disclose existence.
+    evidence: Two-user/two-workspace service and route tests.
+- name: http-auth-and-artifacts
+  cases:
+  - id: CT03-A36
+    criterion: Viewer can query authorized planning state but cannot import or admit work.
+    evidence: Role matrix HTTP/service tests.
+  - id: CT03-A37
+    criterion: Editor and Owner can import and admit in an authorized workspace.
+    evidence: Positive role tests.
+  - id: CT03-A38
+    criterion: Import and admission reject missing/invalid CSRF, cross-site origins, unauthenticated sessions, revoked
+      sessions, and expired sessions.
+    evidence: HTTP security regression tests.
+  - id: CT03-A39
+    criterion: Artifact bytes and diagnostics require authorized workspace membership through parent ownership joins.
+    evidence: Artifact route isolation tests.
+  - id: CT03-A40
+    criterion: Raw source files are served with safe content types/disposition and are never rendered as executable
+      HTML.
+    evidence: HTTP header and web rendering tests.
+  - id: CT03-A41
+    criterion: No import API accepts a host path, external URL, shell string, or ZIP archive.
+    evidence: Route contract and forbidden-source tests.
+  - id: CT03-A42
+    criterion: Audit metadata is bounded and contains no cookies, session tokens, CSRF tokens, raw authorization
+      headers, or complete source artifacts.
+    evidence: Captured-log/database assertions.
+- name: events-snapshots-and-recovery
+  cases:
+  - id: CT03-A43
+    criterion: Successful plan import appends strict project-created and plan-version-imported events after durable
+      state is committed.
+    evidence: Transaction/event repository test.
+  - id: CT03-A44
+    criterion: Failed and duplicate imports do not append workspace events that imply newly accepted planning state.
+    evidence: Import outcome event assertions.
+  - id: CT03-A45
+    criterion: A connected SSE client receives successful-import events through the same-process notifier before
+      a deliberately long fallback poll can fire.
+    evidence: Real-port notifier fast-path test.
+  - id: CT03-A46
+    criterion: A connected SSE client receives work-item-admitted through the same-process notifier before fallback
+      polling.
+    evidence: Real-port admission notifier test.
+  - id: CT03-A47
+    criterion: A deliberately dropped CT-03 notification is recovered through the existing durable timeout/re-query
+      behavior.
+    evidence: Dropped-notifier integration test.
+  - id: CT03-A48
+    criterion: Workspace snapshot counts, project summaries, risk counts, planning-ready count, blocked count, admitted
+      count, attention count, and asOfSequence are transactionally consistent.
+    evidence: Concurrent snapshot and fixture assertions.
+  - id: CT03-A49
+    criterion: Snapshot followed by SSE replay has no gap or duplicate across an import or admission concurrent
+      with snapshot construction.
+    evidence: Both race-order integration tests.
+  - id: CT03-A50
+    criterion: Refresh and daemon restart preserve project, version, artifact metadata, diagnostics, work items,
+      dependencies, admission, draft, audit, and event state.
+    evidence: Close/reopen service test and Playwright restart flow.
+- name: work-items-readiness-and-drafts
+  cases:
+  - id: CT03-A51
+    criterion: AQ-01 is the only initially planning-ready proposed item and every other AQ item reports its unsatisfied
+      required predecessors.
+    evidence: Fixture readiness query test.
+  - id: CT03-A52
+    criterion: Risk summary for the fixture is medium=1, high=7, critical=6.
+    evidence: Fixture snapshot/project query assertion.
+  - id: CT03-A53
+    criterion: Admission transitions exactly one item from Proposed to Admitted and attributes actor/time.
+    evidence: Admission service test.
+  - id: CT03-A54
+    criterion: Admission is idempotent and returns the existing draft without duplicating audit, event, or draft
+      rows.
+    evidence: Repeated-admission test.
+  - id: CT03-A55
+    criterion: A dependency-blocked item may be admitted only through explicit user action and its blockers remain
+      visible.
+    evidence: Service/UI test.
+  - id: CT03-A56
+    criterion: Admission atomically creates one draft contract, audit evidence, and work-item-admitted event.
+    evidence: Injected rollback and success assertions.
+  - id: CT03-A57
+    criterion: The draft preserves objective, exit gate, risk, primary areas, and dependency references from the
+      source work item.
+    evidence: Pure draft projection and persistence tests.
+  - id: CT03-A58
+    criterion: The draft is explicitly status Draft, completeness Incomplete, human-merge-required, and lists unresolved
+      repository/base/scope/check/backend/environment fields.
+    evidence: Draft schema tests and AQ-01 fixture assertion.
+  - id: CT03-A59
+    criterion: No CT-03 route can approve a draft, create a change request, create a worktree, start an agent, execute
+      a command, or merge.
+    evidence: Route inventory and scope tests.
+- name: browser-and-user-experience
+  cases:
+  - id: CT03-A60
+    criterion: The authenticated workspace dashboard displays real Needs attention, Active, Ready for admission,
+      and Dependency-blocked summaries with unambiguous labels.
+    evidence: Component tests and Playwright.
+  - id: CT03-A61
+    criterion: The AQ project page shows active plan metadata, version history, source artifacts, diagnostics, risk/status
+      counts, and all 14 work items.
+    evidence: Playwright fixture flow.
+  - id: CT03-A62
+    criterion: The work-item page shows source identity, risk, areas, exit gate, required/recommended dependencies,
+      current blockers, and admission state.
+    evidence: Component/Playwright assertions.
+  - id: CT03-A63
+    criterion: After admitting AQ-01, the UI shows the non-executable draft and its missing fields.
+    evidence: Playwright admission flow.
+  - id: CT03-A64
+    criterion: The import UI distinguishes successful new version, validation failure, and identical duplicate outcomes
+      with actionable diagnostics.
+    evidence: Component and Playwright cases.
+  - id: CT03-A65
+    criterion: Source Markdown/YAML/JSON is rendered as escaped text or safe code, with no raw HTML/script execution
+      or remote-content loading.
+    evidence: Web security tests.
+  - id: CT03-A66
+    criterion: Relevant workspace events invalidate/refetch authoritative queries without treating event payloads
+      as complete planning state.
+    evidence: Projection/query invalidation tests.
+  - id: CT03-A67
+    criterion: A reconnect or temporary query failure preserves the last good planning projection and visibly reports
+      degraded state.
+    evidence: Reducer/component tests and outage E2E.
+- name: regression-scope-and-documentation
+  cases:
+  - id: CT03-A68
+    criterion: All accepted CT-01 and CT-02 tests and regressions remain green, including loopback rejection, fresh
+      E2E server, payload validation, session/CSRF/isolation, lost-wakeup, dropped notification, and restart recovery.
+    evidence: Full existing suite.
+  - id: CT03-A69
+    criterion: The literal root pnpm check passes under the pinned Node runtime.
+    evidence: Completion command record.
+  - id: CT03-A70
+    criterion: Forbidden-scope checks prove no ActionQueue, WorldInterface, Exoskeleton, real Git, worktree, real
+      agent, process runner, review, merge, or Planning Studio runtime dependency entered CT-03.
+    evidence: Scope script and source review.
+  - id: CT03-A71
+    criterion: Architecture, security, operations, UI principles, ADRs, accepted plan, and completion report describe
+      the implemented CT-03 behavior and deferred decisions.
+    evidence: Documentation inspection.

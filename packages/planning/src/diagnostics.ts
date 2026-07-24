@@ -14,6 +14,7 @@ export const PLAN_DIAGNOSTIC_CODES = [
   'duplicate-logical-filename',
   'invalid-logical-filename',
   'unsupported-media-type',
+  'artifact-role-format-mismatch',
   'artifact-too-large',
   'too-many-artifacts',
   'total-size-exceeded',

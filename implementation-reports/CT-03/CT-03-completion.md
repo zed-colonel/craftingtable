@@ -3,7 +3,11 @@
 **Work item:** CT-03 — Import plan bundles and render the project/work-item dashboard
 **Binding contract:** `work-items/CT-03/CT-03.md`
 **Accepted plan:** `work-items/CT-03/CT-03-accepted-implementation-plan.md`
-**Status:** every CT-03 acceptance criterion passes.
+**Reviewed head:** `b226df5e1fe7931e69a3c9f8306dcf7b8900ba05`
+**Status at that head:** the deterministic gate passed, but independent review
+returned 2 blocking, 2 high, 2 medium, and 2 low findings and did **not** accept
+the result. See `review-findings/CT-03/CT-03-initial-review.md` and the
+remediation report for the resolved state.
 
 ## 1. Summary
 
@@ -36,13 +40,19 @@ daemon commands.
 | Role | SHA |
 |---|---|
 | Accepted source baseline | `c8e2396a65466bdde95bf740771af63b4fc2272e` |
-| Phase A inspection head | `2173d6c9ebc0edf28ab4adfb1775e8a098341e01` |
-| Implementation head | `2173d6c9ebc0edf28ab4adfb1775e8a098341e01` (working tree; **no commit made**) |
+| CT-03 base (Phase A inspection head) | `2173d6c9ebc0edf28ab4adfb1775e8a098341e01` |
+| First implementation commit (reviewed head) | `b226df5e1fe7931e69a3c9f8306dcf7b8900ba05` |
 
-HEAD descends from the accepted baseline. No CT-01 or CT-02 history was
-rewritten or discarded. **Nothing has been committed or merged**: the accepted
-plan granted no commit authority and the operator has not authorized one. The
-work is left as a clean, reviewable working tree of 87 added or modified paths.
+Base-to-head at the reviewed head: 1 commit, 132 files, 16,772 insertions,
+195 deletions. HEAD descends from the accepted baseline and no CT-01 or CT-02
+history was rewritten or discarded.
+
+An earlier revision of this section named `2173d6c` as the implementation head
+and stated the work was uncommitted, because it was written before the operator
+authorized the commit and was not updated afterwards. That was corrected in
+remediation (CT03-R8); see
+`implementation-reports/CT-03/CT-03-remediation.md` for the remediated head and
+its evidence.
 
 ## 3. Final file tree (added and materially changed)
 
@@ -248,7 +258,7 @@ verbatim in the version's normalized source.
 | `pnpm lint` | pass — 191 files |
 | `pnpm typecheck` | pass |
 | `pnpm build` | pass |
-| `pnpm test` | **315 passed (52 files)** |
+| `pnpm test` | **315 passed (52 files)** at the reviewed head |
 | `pnpm test:e2e` | **4 passed** |
 | `pnpm check:scope` | pass |
 | **`pnpm check`** | **exit 0**, under pnpm-managed Node **24.18.0** |
@@ -338,6 +348,12 @@ Baseline for comparison: CT-02 had 103 tests in 35 files and 1 E2E test.
    unchanged and still documented in ADR-003.
 
 ## 13. Criterion statement
+
+*Superseded by review.* At the reviewed head the deterministic gate passed, but
+the independent review demonstrated focused negative cases the gate did not
+exercise, contradicting CT03-A08, A13/23/28, A35, A58, A67, and A71. The
+statement below describes the exit gate as tested at that head; the remediated
+position is recorded in `CT-03-remediation.md`.
 
 **Every CT-03 exit-gate criterion passes.** The exact AQ-CONT-1 fixture imports
 without losing source fields; AQ-01 through AQ-14 appear in one immutable plan

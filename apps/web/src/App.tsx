@@ -10,7 +10,7 @@ import type {
   WorkspaceSummary,
 } from '@craftingtable/contracts';
 import type { PlanArtifactId, SessionId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
-import { useCallback, useEffect, useReducer, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ActivityPanel } from './components/ActivityPanel.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
@@ -77,6 +77,27 @@ export function App() {
   const [admitting, setAdmitting] = useState(false);
   const [admitError, setAdmitError] = useState<string>();
   const [refreshToken, setRefreshToken] = useState(0);
+
+  // Detail state belongs to one workspace. Clearing it on a workspace change
+  // stops a stale project, plan version, work item, or artifact from rendering
+  // under a workspace that does not own it (CT03-R6).
+  const previousWorkspaceId = useRef<WorkspaceId>(undefined);
+  useEffect(() => {
+    if (previousWorkspaceId.current === selectedWorkspaceId) {
+      return;
+    }
+    previousWorkspaceId.current = selectedWorkspaceId;
+    setProject(undefined);
+    setPlanVersion(undefined);
+    setWorkItem(undefined);
+    setArtifact(undefined);
+    setImportResult(undefined);
+    setImportError(undefined);
+    setAdmitError(undefined);
+    setAudit([]);
+    setStreamAfter(0);
+    dispatch({ type: 'workspace-changed' });
+  }, [selectedWorkspaceId]);
 
   const establishSession = useCallback(async (session: AuthenticatedSessionResponse) => {
     setAuthenticated(session);
@@ -190,15 +211,27 @@ export function App() {
     };
     if (route.name === 'project') {
       void loadProject(workspaceId, route.projectId)
-        .then((detail) => !canceled && setProject(detail))
+        .then((detail) => {
+          if (!canceled) {
+            setProject(detail);
+          }
+        })
         .catch(fail);
     } else if (route.name === 'plan-version') {
       void loadPlanVersion(workspaceId, route.projectId, route.planVersionId)
-        .then((detail) => !canceled && setPlanVersion(detail))
+        .then((detail) => {
+          if (!canceled) {
+            setPlanVersion(detail);
+          }
+        })
         .catch(fail);
     } else if (route.name === 'work-item') {
       void loadWorkItem(workspaceId, route.workItemId)
-        .then((detail) => !canceled && setWorkItem(detail))
+        .then((detail) => {
+          if (!canceled) {
+            setWorkItem(detail);
+          }
+        })
         .catch(fail);
     }
     return () => {
@@ -402,7 +435,7 @@ export function App() {
             />
           )}
 
-          {route.name === 'project' && project !== undefined && (
+          {route.name === 'project' && project?.project.id === route.projectId && (
             <ProjectPage
               detail={project}
               onOpenWorkItem={(workItemId) =>
@@ -421,7 +454,7 @@ export function App() {
             />
           )}
 
-          {route.name === 'plan-version' && planVersion !== undefined && (
+          {route.name === 'plan-version' && planVersion?.version.id === route.planVersionId && (
             <PlanVersionPage
               detail={planVersion}
               onOpenWorkItem={(workItemId) =>
@@ -431,7 +464,7 @@ export function App() {
             />
           )}
 
-          {route.name === 'work-item' && workItem !== undefined && (
+          {route.name === 'work-item' && workItem?.workItem.id === route.workItemId && (
             <WorkItemPage
               detail={workItem}
               onAdmit={() => handleAdmit(workItem.workItem.id)}

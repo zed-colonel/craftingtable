@@ -69,6 +69,7 @@ export const INITIAL_WORKSPACE_PROJECTION: WorkspaceProjectionState = {
 
 export type WorkspaceProjectionAction =
   | { readonly type: 'snapshot-requested' }
+  | { readonly type: 'workspace-changed' }
   | { readonly type: 'snapshot-loaded'; readonly snapshot: WorkspaceSnapshotResponse }
   | { readonly type: 'snapshot-failed' }
   | { readonly type: 'stream-opened' }
@@ -115,21 +116,38 @@ export function reduceWorkspaceProjection(
   switch (action.type) {
     case 'snapshot-requested':
       return { ...INITIAL_WORKSPACE_PROJECTION, snapshotStatus: 'loading' };
-    case 'snapshot-loaded':
+    case 'workspace-changed':
+      // Clears the previous workspace's projection *before* the new snapshot
+      // resolves, so nothing from the old workspace is ever rendered under the
+      // new one, even briefly.
+      return { ...INITIAL_WORKSPACE_PROJECTION, snapshotStatus: 'loading' };
+    case 'snapshot-loaded': {
+      // Retention is keyed by workspace identity. Preserving events, the
+      // cursor, or diagnostic counters across a *different* workspace would
+      // merge one workspace's activity into another's projection
+      // (CT03-R6, CT03-I14). Within the same workspace, retention is exactly
+      // what keeps a refetch from discarding the live tail.
+      const sameWorkspace =
+        state.snapshotStatus === 'ready' && state.workspace?.id === action.snapshot.workspace.id;
       return {
         ...state,
         snapshotStatus: 'ready',
-        connection: state.snapshotStatus === 'ready' ? state.connection : 'connecting',
+        connection: sameWorkspace ? state.connection : 'connecting',
         workspace: action.snapshot.workspace,
         statusSummary: action.snapshot.statusSummary,
         planningSummary: action.snapshot.planningSummary,
         projects: action.snapshot.projects,
-        lastSequence: Math.max(state.lastSequence, action.snapshot.asOfSequence),
-        events: state.snapshotStatus === 'ready' ? state.events : action.snapshot.recentActivity,
+        lastSequence: sameWorkspace
+          ? Math.max(state.lastSequence, action.snapshot.asOfSequence)
+          : action.snapshot.asOfSequence,
+        events: sameWorkspace ? state.events : action.snapshot.recentActivity,
+        invalidPayloadCount: sameWorkspace ? state.invalidPayloadCount : 0,
+        foreignWorkspaceEventCount: sameWorkspace ? state.foreignWorkspaceEventCount : 0,
         consecutiveErrors: 0,
         stale: NO_STALE_SCOPES,
         refreshFailed: false,
       };
+    }
     case 'snapshot-failed':
       return { ...state, snapshotStatus: 'error' };
     case 'stream-opened':

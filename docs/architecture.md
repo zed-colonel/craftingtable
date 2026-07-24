@@ -82,6 +82,11 @@ CT-02's durable timeout still recovers it.
 Bootstrap still runs in the separate CLI process, so its daemon visibility
 correctly relies on the durable re-query.
 
+Planning ownership and history are database guarantees. Composite foreign keys
+close the workspace/project/version/item chain, and triggers freeze every
+imported field, so neither a defect in a service nor a direct SQL statement can
+rewrite a committed plan version or move a record between workspaces.
+
 A successful plan import is one atomic transition:
 
 ```text

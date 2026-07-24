@@ -8,6 +8,7 @@ import {
   type WorkItemId,
   type WorkspaceId,
 } from '@craftingtable/domain';
+import { workContractDraftDocumentSchema } from '@craftingtable/contracts';
 import { projectWorkContractDraft } from '@craftingtable/planning';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
@@ -92,41 +93,46 @@ export class WorkItemService {
       }
       const predecessors = tx.planning.dependencies.listPredecessors(workspaceId, workItemId);
 
-      const document = projectWorkContractDraft({
-        projectId: item.projectId,
-        planVersionId: item.planVersionId,
-        workItemId,
-        item: {
-          sourceId: row.sourceId,
-          ordinal: row.ordinal,
-          title: row.title,
-          risk: row.risk,
-          ...(row.phase === undefined ? {} : { phase: row.phase }),
-          primaryAreas: row.primaryAreas,
-          exitGate: row.exitGate,
+      // Parsed through the shared contract here rather than only on the way
+      // out: a draft that could not satisfy the wire schema must never reach
+      // the database in the first place (CT03-R3).
+      const document = workContractDraftDocumentSchema.parse(
+        projectWorkContractDraft({
+          projectId: item.projectId,
+          planVersionId: item.planVersionId,
+          workItemId,
+          item: {
+            sourceId: row.sourceId,
+            ordinal: row.ordinal,
+            title: row.title,
+            risk: row.risk,
+            ...(row.phase === undefined ? {} : { phase: row.phase }),
+            primaryAreas: row.primaryAreas,
+            exitGate: row.exitGate,
+            requiredDependencies: predecessors
+              .filter((entry) => entry.kind === 'required')
+              .map((entry) => entry.sourceId),
+            recommendedDependencies: predecessors
+              .filter((entry) => entry.kind === 'recommended')
+              .map((entry) => entry.sourceId),
+            sourceFields: row.sourceFields,
+          },
           requiredDependencies: predecessors
             .filter((entry) => entry.kind === 'required')
-            .map((entry) => entry.sourceId),
+            .map((entry) => ({
+              sourceId: entry.sourceId,
+              title: entry.title,
+              status: entry.status,
+            })),
           recommendedDependencies: predecessors
             .filter((entry) => entry.kind === 'recommended')
-            .map((entry) => entry.sourceId),
-          sourceFields: row.sourceFields,
-        },
-        requiredDependencies: predecessors
-          .filter((entry) => entry.kind === 'required')
-          .map((entry) => ({
-            sourceId: entry.sourceId,
-            title: entry.title,
-            status: entry.status,
-          })),
-        recommendedDependencies: predecessors
-          .filter((entry) => entry.kind === 'recommended')
-          .map((entry) => ({
-            sourceId: entry.sourceId,
-            title: entry.title,
-            status: entry.status,
-          })),
-      });
+            .map((entry) => ({
+              sourceId: entry.sourceId,
+              title: entry.title,
+              status: entry.status,
+            })),
+        }),
+      );
 
       const draft = tx.planning.drafts.insert({
         id: asWorkContractDraftId(randomUUID()),
@@ -134,7 +140,7 @@ export class WorkItemService {
         projectId: item.projectId,
         planVersionId: item.planVersionId,
         workItemId,
-        document: document as never,
+        document,
         createdAt: occurredAt,
         createdByUserId: context.user.id,
       });

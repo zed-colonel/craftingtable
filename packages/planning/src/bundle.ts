@@ -19,9 +19,11 @@ import {
   ACCEPTED_EXTENSIONS,
   type AcceptedExtension,
   CHECKSUM_EXTENSIONS,
+  EXTENSION_SOURCE_CLASSES,
   PLAN_BUNDLE_LIMITS,
   PLAN_LIMITS,
-  YAML_EXTENSIONS,
+  REQUIRED_ROLE_SOURCE_CLASSES,
+  type SourceClass,
 } from './limits.js';
 import { type NormalizedPlan, normalizePlan } from './normalize.js';
 import { parseYamlDocument } from './parse.js';
@@ -56,6 +58,7 @@ export interface AcceptedPlanArtifact {
   readonly role: PlanArtifactRole;
   readonly logicalFilename: string;
   readonly mediaType: string;
+  readonly sourceClass: SourceClass;
   readonly byteLength: number;
   readonly sha256: string;
   readonly bytes: Uint8Array;
@@ -105,6 +108,7 @@ interface ValidatedName {
   readonly logicalFilename: string;
   readonly extension: AcceptedExtension;
   readonly mediaType: string;
+  readonly sourceClass: SourceClass;
 }
 
 /**
@@ -151,7 +155,12 @@ function validateFilename(raw: string): ValidatedName | PlanDiagnostic {
       { artifactName: normalized },
     );
   }
-  return { logicalFilename: normalized, extension, mediaType: ACCEPTED_EXTENSIONS[extension] };
+  return {
+    logicalFilename: normalized,
+    extension,
+    mediaType: ACCEPTED_EXTENSIONS[extension],
+    sourceClass: EXTENSION_SOURCE_CLASSES[extension],
+  };
 }
 
 interface ChecksumEntry {
@@ -311,10 +320,29 @@ export function analyzePlanBundle(input: PlanBundleInput): PlanBundleAnalysis {
     namesSeen.set(name.logicalFilename.toLowerCase(), name.logicalFilename);
     roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
 
+    // A required role must arrive in the source class the contract names.
+    // Without this, a JSON work-breakdown was accepted as generic JSON and
+    // never parsed as a plan at all (CT03-R4).
+    const requiredClasses = (
+      REQUIRED_ROLE_SOURCE_CLASSES as Record<string, readonly SourceClass[] | undefined>
+    )[role];
+    if (requiredClasses !== undefined && !requiredClasses.includes(name.sourceClass)) {
+      diagnostics.push(
+        error(
+          'artifact-role-format-mismatch',
+          `Role "${role}" requires ${requiredClasses.join(' or ')} source; "${name.logicalFilename}" is ${name.sourceClass}`,
+          { artifactName: name.logicalFilename, path: role },
+        ),
+      );
+      artifactSetComplete = false;
+      continue;
+    }
+
     accepted.push({
       role,
       logicalFilename: name.logicalFilename,
       mediaType: name.mediaType,
+      sourceClass: name.sourceClass,
       byteLength: artifact.bytes.byteLength,
       sha256: sha256Hex(artifact.bytes),
       bytes: artifact.bytes,
@@ -382,10 +410,8 @@ export function analyzePlanBundle(input: PlanBundleInput): PlanBundleAnalysis {
   let graph: PlanGraph | undefined;
 
   for (const artifact of accepted) {
-    const isYaml = YAML_EXTENSIONS.some((extension) =>
-      artifact.logicalFilename.toLowerCase().endsWith(extension),
-    );
-    const isJson = artifact.logicalFilename.toLowerCase().endsWith('.json');
+    const isYaml = artifact.sourceClass === 'yaml';
+    const isJson = artifact.sourceClass === 'json';
     if (!isYaml && !isJson) {
       continue;
     }
@@ -421,6 +447,20 @@ export function analyzePlanBundle(input: PlanBundleInput): PlanBundleAnalysis {
       diagnostics.push(...analyzed.diagnostics);
       graph = analyzed.graph;
     }
+  }
+
+  // The caller treats a missing plan or digest as a failed import, so a bundle
+  // that cannot yield one must carry an error explaining why. Without this an
+  // import could be recorded as failed with an empty diagnostics array, leaving
+  // the operator nothing to act on (CT03-R4, CT03-A28).
+  if (!hasFatal(diagnostics) && plan === undefined) {
+    diagnostics.push(
+      error(
+        'invalid-work-breakdown',
+        'The bundle produced no usable work breakdown; a work-breakdown YAML artifact is required',
+        { path: 'work-breakdown' },
+      ),
+    );
   }
 
   const ordered = sortDiagnostics(diagnostics).slice(0, PLAN_LIMITS.maxDiagnostics);

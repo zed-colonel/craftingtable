@@ -8,7 +8,7 @@
  * Exported functions are unit-tested in check-forbidden-scope.test.mjs; keep
  * the recognized module syntax and those tests in lockstep.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -103,6 +103,15 @@ export function findImports(source) {
   return [...source.matchAll(IMPORT_PATTERN)].map((match) => match[1]);
 }
 
+/**
+ * A NUL byte makes Git classify a text file as binary, which silently removes
+ * it from diffs, blame, and merge review. Tracked source must stay reviewable
+ * (CT03-R7).
+ */
+export function findNulByte(buffer) {
+  return buffer.indexOf(0);
+}
+
 /** True for test and test-support modules, which may use wider capabilities. */
 export function isTestModule(path) {
   return /\.test\.[cm]?[jt]sx?$/.test(path) || /test-support\.[cm]?[jt]sx?$/.test(path);
@@ -157,6 +166,18 @@ export function runCheck(root) {
   };
 
   checkManifest(join(root, 'package.json'));
+
+  const migrations = join(root, 'packages', 'storage', 'migrations');
+  if (existsSync(migrations)) {
+    walk(migrations, (path) => {
+      const nul = findNulByte(readFileSync(path));
+      if (nul !== -1) {
+        violations.push(
+          `${relative(root, path)}: contains a NUL byte at offset ${nul}, which makes Git treat this source as binary`,
+        );
+      }
+    });
+  }
   for (const group of ['apps', 'packages']) {
     for (const entry of readdirSync(join(root, group), { withFileTypes: true })) {
       if (!entry.isDirectory()) {
@@ -173,8 +194,15 @@ export function runCheck(root) {
         if (!SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension))) {
           return;
         }
-        const source = readFileSync(path, 'utf8');
+        const bytes = readFileSync(path);
         const relativePath = relative(root, path);
+        const nul = findNulByte(bytes);
+        if (nul !== -1) {
+          violations.push(
+            `${relativePath}: contains a NUL byte at offset ${nul}, which makes Git treat this source as binary`,
+          );
+        }
+        const source = bytes.toString('utf8');
         for (const specifier of findForbiddenImports(source)) {
           violations.push(`${relativePath}: imports forbidden module "${specifier}"`);
         }
@@ -216,6 +244,7 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, no CT-04+ capability module,\n' +
-      'no non-production seam in production source, and the planning package stays pure.',
+      'no non-production seam in production source, no NUL byte in tracked source, and\n' +
+      'the planning package stays pure.',
   );
 }

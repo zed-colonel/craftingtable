@@ -112,6 +112,19 @@ export class PlanImportService {
       ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
     });
 
+    // Resolve any supplied project *before* analysing the bundle. Writing an
+    // unresolved identifier straight into the attempt row violated its foreign
+    // key and produced a 500 with no durable evidence, and made the answer to
+    // "does this project exist?" depend on unrelated bundle validity
+    // (CT03-R5). An unknown or foreign project is now the same non-disclosing
+    // 404 either way.
+    if (input.projectId !== undefined) {
+      const target = this.storage.planning.projects.find(input.workspaceId, input.projectId);
+      if (target === undefined) {
+        throw new NotFoundError();
+      }
+    }
+
     const analysis = analyzePlanBundle(input.bundle);
     const occurredAt = this.now().toISOString();
     const actorUserId = context.user.id;
@@ -151,7 +164,11 @@ export class PlanImportService {
             }),
         artifactCount: analysis.artifacts.length,
         totalByteLength: analysis.totalByteLength,
-        errorCount: Math.max(analysis.errorCount, 1),
+        // The real count, not a fabricated minimum. `analyzePlanBundle`
+        // guarantees at least one error whenever it cannot produce a plan, and
+        // the row's CHECK constraint fails loudly if that ever stops holding
+        // rather than persisting an unexplained failure (CT03-R4).
+        errorCount: analysis.errorCount,
         warningCount: analysis.warningCount,
         createdAt: occurredAt,
       });
@@ -479,9 +496,11 @@ export class PlanImportService {
     workspaceId: WorkspaceId,
     projectId: ProjectId,
   ): Project {
+    // Already resolved before analysis; re-read inside the write lock so a
+    // project that disappeared in between still yields the same 404 rather
+    // than a foreign-key error.
     const project = tx.planning.projects.find(workspaceId, projectId);
     if (project === undefined) {
-      // Indistinguishable from an unauthorized project in another workspace.
       throw new NotFoundError();
     }
     return project;

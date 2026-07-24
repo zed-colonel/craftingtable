@@ -193,3 +193,111 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
     expect(refreshed.events).toHaveLength(2);
   });
 });
+
+/**
+ * CT03-R6 regression cover.
+ *
+ * The first review found that switching workspaces retained and then merged the
+ * previous workspace's activity into the newly selected projection, because the
+ * reducer had no workspace identity.
+ */
+describe('workspace switching (CT03-R6)', () => {
+  const otherWorkspace = asWorkspaceId('workspace-2');
+
+  const otherEvent = {
+    ...event,
+    id: asEventId('event-other'),
+    sequence: 7,
+    workspaceId: otherWorkspace,
+    payload: { name: 'Second workspace', slug: 'second' },
+  } as WorkspaceEventEnvelope;
+
+  const otherSnapshot = {
+    ...snapshot,
+    workspace: { ...snapshot.workspace, id: otherWorkspace, name: 'Second workspace' },
+    asOfSequence: 7,
+    statusSummary: { needsAttention: 0, active: 3, planningReady: 2, dependencyBlocked: 4 },
+    recentActivity: [otherEvent],
+  } as WorkspaceSnapshotResponse;
+
+  it('never carries the previous workspace activity into a new one', () => {
+    const first = reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, {
+      type: 'snapshot-loaded',
+      snapshot,
+    });
+    expect(first.events).toEqual([event]);
+
+    const second = reduceWorkspaceProjection(first, {
+      type: 'snapshot-loaded',
+      snapshot: otherSnapshot,
+    });
+    expect(second.workspace?.id).toBe(otherWorkspace);
+    expect(second.events).toEqual([otherEvent]);
+    expect(second.events).not.toContainEqual(event);
+    expect(second.statusSummary).toEqual(otherSnapshot.statusSummary);
+  });
+
+  it('does not carry the previous workspace cursor forward', () => {
+    const first = reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, {
+      type: 'snapshot-loaded',
+      snapshot: otherSnapshot,
+    });
+    expect(first.lastSequence).toBe(7);
+
+    // The new workspace's cursor is lower; retaining the maximum would skip its
+    // replay entirely.
+    const second = reduceWorkspaceProjection(first, { type: 'snapshot-loaded', snapshot });
+    expect(second.lastSequence).toBe(snapshot.asOfSequence);
+  });
+
+  it('resets diagnostic counters across a workspace change', () => {
+    let state = reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, {
+      type: 'snapshot-loaded',
+      snapshot,
+    });
+    state = reduceWorkspaceProjection(state, { type: 'event-invalid' });
+    state = reduceWorkspaceProjection(state, {
+      type: 'event-received',
+      event: { ...event, workspaceId: otherWorkspace, sequence: 2 },
+    });
+    expect(state.invalidPayloadCount).toBe(1);
+    expect(state.foreignWorkspaceEventCount).toBe(1);
+
+    const switched = reduceWorkspaceProjection(state, {
+      type: 'snapshot-loaded',
+      snapshot: otherSnapshot,
+    });
+    expect(switched.invalidPayloadCount).toBe(0);
+    expect(switched.foreignWorkspaceEventCount).toBe(0);
+  });
+
+  it('clears the projection immediately on workspace-changed', () => {
+    const loaded = reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, {
+      type: 'snapshot-loaded',
+      snapshot,
+    });
+    const cleared = reduceWorkspaceProjection(loaded, { type: 'workspace-changed' });
+    // Nothing from the old workspace may render while the new request is in
+    // flight, not even briefly.
+    expect(cleared.snapshotStatus).toBe('loading');
+    expect(cleared.workspace).toBeUndefined();
+    expect(cleared.events).toEqual([]);
+    expect(cleared.projects).toEqual([]);
+    expect(cleared.lastSequence).toBe(0);
+    expect(cleared.statusSummary).toEqual(INITIAL_WORKSPACE_PROJECTION.statusSummary);
+  });
+
+  it('still retains state across a refetch of the same workspace', () => {
+    let state = reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, {
+      type: 'snapshot-loaded',
+      snapshot,
+    });
+    state = reduceWorkspaceProjection(state, {
+      type: 'event-received',
+      event: { ...event, id: asEventId('event-5'), sequence: 5 },
+    });
+    const refetched = reduceWorkspaceProjection(state, { type: 'snapshot-loaded', snapshot });
+    expect(refetched.lastSequence).toBe(5);
+    expect(refetched.events).toHaveLength(2);
+  });
+});

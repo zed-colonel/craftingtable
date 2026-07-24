@@ -2,6 +2,7 @@ import {
   DIAGNOSTIC_SEVERITIES,
   PLAN_ARTIFACT_ROLES,
   PLAN_IMPORT_OUTCOMES,
+  WORK_CONTRACT_UNRESOLVED_FIELDS,
   WORK_ITEM_RISKS,
   WORK_ITEM_STATUSES,
 } from '@craftingtable/domain';
@@ -189,6 +190,66 @@ export const projectDetailResponseSchema = z.strictObject({
   activeVersion: planVersionDetailResponseSchema.nullable(),
 });
 
+const draftDependencySchema = z.strictObject({
+  sourceId: z.string().min(1).max(64),
+  title: z.string().min(1).max(300),
+  status: z.enum(WORK_ITEM_STATUSES),
+  kind: z.enum(['required', 'recommended']),
+});
+
+/**
+ * The complete work-contract draft document.
+ *
+ * Strict at every level. This matters more here than anywhere else in CT-03:
+ * the draft's whole purpose is to be unmistakably incomplete and
+ * non-executable, so `strictObject` is what makes an added `approved`,
+ * `executable`, or `ready` field a parse failure rather than a rendering
+ * surprise (CT03-I11, ADR-014). The literals pin every field a reader might
+ * otherwise interpret as authorization.
+ */
+export const workContractDraftDocumentSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  status: z.literal('draft'),
+  completeness: z.literal('incomplete'),
+  source: z.strictObject({
+    projectId: projectIdSchema,
+    planVersionId: planVersionIdSchema,
+    workItemId: workItemIdSchema,
+    sourceWorkItemId: z.string().min(1).max(64),
+  }),
+  objective: z.strictObject({
+    title: z.string().min(1).max(300),
+    exitGate: z.string().min(1).max(1000),
+  }),
+  classification: z.strictObject({
+    risk: z.enum(WORK_ITEM_RISKS),
+    primaryAreas: z.array(z.string().max(64)).max(32),
+  }),
+  dependencies: z.strictObject({
+    required: z.array(draftDependencySchema).max(64),
+    recommended: z.array(draftDependencySchema).max(64),
+  }),
+  repository: z.strictObject({ status: z.literal('unresolved') }),
+  baseRevision: z.strictObject({ status: z.literal('unresolved') }),
+  scope: z.strictObject({
+    status: z.literal('unresolved'),
+    writable: z.array(z.string().max(200)).max(64),
+    forbidden: z.array(z.string().max(200)).max(64),
+  }),
+  verification: z.strictObject({
+    status: z.literal('unresolved'),
+    checkIds: z.array(z.string().max(64)).max(64),
+  }),
+  review: z.strictObject({
+    requiredPerspectives: z.array(z.string().max(64)).max(16),
+    maxRemediationGenerations: z.number().int().nonnegative().max(100),
+  }),
+  // Not optional and not a boolean the caller may choose: CT-03 has no path
+  // that could set this to false.
+  merge: z.strictObject({ humanAuthorizationRequired: z.literal(true) }),
+  missing: z.array(z.enum(WORK_CONTRACT_UNRESOLVED_FIELDS)).min(1).max(32),
+});
+
 export const workContractDraftSummarySchema = z.strictObject({
   id: workContractDraftIdSchema,
   schemaVersion: z.literal(1),
@@ -196,7 +257,7 @@ export const workContractDraftSummarySchema = z.strictObject({
   completeness: z.literal('incomplete'),
   createdAt: z.iso.datetime(),
   /** Rendered read-only; the browser never posts it back. */
-  document: z.unknown(),
+  document: workContractDraftDocumentSchema,
 });
 
 export const workItemDetailResponseSchema = z.strictObject({
@@ -234,6 +295,7 @@ export type ProjectDetailResponse = z.infer<typeof projectDetailResponseSchema>;
 export type WorkItemSummary = z.infer<typeof workItemSummarySchema>;
 export type WorkItemDetailResponse = z.infer<typeof workItemDetailResponseSchema>;
 export type WorkContractDraftSummary = z.infer<typeof workContractDraftSummarySchema>;
+export type WorkContractDraftDocumentPayload = z.infer<typeof workContractDraftDocumentSchema>;
 export type AdmitWorkItemResponse = z.infer<typeof admitWorkItemResponseSchema>;
 export type PlanArtifactSummary = z.infer<typeof planArtifactSummarySchema>;
 export type PlanningStatusCountsPayload = z.infer<typeof planningStatusCountsSchema>;

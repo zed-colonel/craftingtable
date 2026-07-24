@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-24
+- **Amended:** 2026-07-24 after independent review (CT03-R6)
 
 ## Context
 
@@ -59,6 +60,19 @@ This is a breaking change to an accepted CT-02 contract, made because CT-03
 debt: it is indistinguishable from executable readiness and merge readiness,
 neither of which CT-03 owns. Labels are rendered as text, not encoded only in
 colour or tooltips.
+
+### Projection state is keyed by workspace identity
+
+Retaining the last good projection across a refetch is what stops a refresh from
+discarding the live tail — but retention must be scoped to one workspace.
+Preserving events, the cursor, or diagnostic counters across a *different*
+workspace merged one workspace's activity into another's projection.
+
+`snapshot-loaded` therefore retains state only when the incoming snapshot names
+the same workspace, and a `workspace-changed` action clears the projection the
+moment the selection changes, so nothing from the previous workspace renders
+even briefly. Detail state is reset on workspace change and each detail view
+renders only when its loaded data matches the current route identity.
 
 ### Safe source rendering
 

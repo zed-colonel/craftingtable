@@ -10,6 +10,13 @@ const VALID_BREAKDOWN =
 
 const encoder = new TextEncoder();
 
+const MINIMAL_PLAN_ARTIFACT: PlanBundleArtifactInput = {
+  fieldName: 'implementation-plan',
+  filename: 'plan.md',
+  declaredMediaType: 'text/markdown',
+  bytes: new TextEncoder().encode('# Plan\n'),
+};
+
 function artifact(overrides: Partial<PlanBundleArtifactInput> = {}): PlanBundleArtifactInput {
   return {
     fieldName: 'supporting',
@@ -268,5 +275,140 @@ describe('plan bundle validation', () => {
       artifacts: [artifact({ filename: 'a.exe' }), artifact({ filename: 'b.exe' })],
     }).diagnostics;
     expect(first).toEqual(second);
+  });
+});
+
+/**
+ * CT03-R4 regression cover.
+ *
+ * The first review found that a required role could be supplied in the wrong
+ * source class, and that such a bundle failed with an *empty* diagnostics
+ * array — an unactionable failure.
+ */
+describe('required role source classes (CT03-R4)', () => {
+  const workBreakdownJson = JSON.stringify({
+    document: 'X',
+    pull_requests: [
+      {
+        id: 'WI-01',
+        title: 'T',
+        depends_on: [],
+        risk: 'low',
+        primary_areas: ['core'],
+        exit_gate: 'G',
+      },
+    ],
+  });
+
+  it('rejects a JSON work breakdown rather than parsing it as generic JSON', () => {
+    const analysis = analyzePlanBundle({
+      artifacts: [
+        MINIMAL_PLAN_ARTIFACT,
+        {
+          fieldName: 'work-breakdown',
+          filename: 'breakdown.json',
+          declaredMediaType: 'application/json',
+          bytes: encoder.encode(workBreakdownJson),
+        },
+      ],
+    });
+    expect(analysis.fatal).toBe(true);
+    expect(analysis.diagnostics.map((d) => d.code)).toContain('artifact-role-format-mismatch');
+    expect(analysis.plan).toBeUndefined();
+    expect(analysis.digest).toBeUndefined();
+  });
+
+  it('rejects a YAML implementation plan', () => {
+    const analysis = analyzePlanBundle({
+      artifacts: [
+        {
+          fieldName: 'implementation-plan',
+          filename: 'plan.yaml',
+          declaredMediaType: 'application/yaml',
+          bytes: encoder.encode('document: X\n'),
+        },
+        {
+          fieldName: 'work-breakdown',
+          filename: 'breakdown.yaml',
+          declaredMediaType: 'application/yaml',
+          bytes: encoder.encode(VALID_BREAKDOWN),
+        },
+      ],
+    });
+    expect(analysis.diagnostics.map((d) => d.code)).toContain('artifact-role-format-mismatch');
+    expect(analysis.fatal).toBe(true);
+  });
+
+  it('still accepts every permitted spelling of the required roles', () => {
+    for (const [planName, breakdownName] of [
+      ['plan.md', 'breakdown.yaml'],
+      ['plan.markdown', 'breakdown.yml'],
+    ] as const) {
+      const analysis = analyzePlanBundle({
+        artifacts: [
+          {
+            fieldName: 'implementation-plan',
+            filename: planName,
+            declaredMediaType: 'text/markdown',
+            bytes: encoder.encode('# Plan\n'),
+          },
+          {
+            fieldName: 'work-breakdown',
+            filename: breakdownName,
+            declaredMediaType: 'application/yaml',
+            bytes: encoder.encode(VALID_BREAKDOWN),
+          },
+        ],
+      });
+      expect(analysis.diagnostics, `${planName}/${breakdownName}`).toEqual([]);
+      expect(analysis.plan?.workItems).toHaveLength(1);
+    }
+  });
+
+  it('leaves optional roles free to use any accepted source class', () => {
+    const analysis = analyzePlanBundle({
+      artifacts: [
+        ...syntheticBundle(VALID_BREAKDOWN),
+        {
+          fieldName: 'supporting',
+          filename: 'notes.json',
+          declaredMediaType: 'application/json',
+          bytes: encoder.encode('{"note":"ok"}'),
+        },
+      ],
+    });
+    expect(analysis.fatal).toBe(false);
+  });
+
+  it('never reports a fatal analysis with an empty diagnostics list', () => {
+    // Every shape that can prevent a usable plan must still explain itself.
+    for (const artifacts of [
+      [],
+      [MINIMAL_PLAN_ARTIFACT],
+      [
+        MINIMAL_PLAN_ARTIFACT,
+        {
+          fieldName: 'work-breakdown',
+          filename: 'breakdown.json',
+          declaredMediaType: 'application/json',
+          bytes: encoder.encode(workBreakdownJson),
+        },
+      ],
+      [
+        MINIMAL_PLAN_ARTIFACT,
+        {
+          fieldName: 'work-breakdown',
+          filename: 'breakdown.txt',
+          declaredMediaType: 'text/plain',
+          bytes: encoder.encode('not a plan'),
+        },
+      ],
+    ]) {
+      const analysis = analyzePlanBundle({ artifacts });
+      expect(analysis.plan, JSON.stringify(artifacts.map((a) => a.filename))).toBeUndefined();
+      expect(analysis.fatal).toBe(true);
+      expect(analysis.errorCount).toBeGreaterThan(0);
+      expect(analysis.diagnostics.filter((d) => d.severity === 'error').length).toBeGreaterThan(0);
+    }
   });
 });

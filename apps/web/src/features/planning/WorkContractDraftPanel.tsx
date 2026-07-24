@@ -1,20 +1,5 @@
 import type { WorkContractDraftSummary } from '@craftingtable/contracts';
 
-interface DraftDocument {
-  readonly objective?: { readonly title?: string; readonly exitGate?: string };
-  readonly classification?: { readonly risk?: string; readonly primaryAreas?: string[] };
-  readonly dependencies?: {
-    readonly required?: { readonly sourceId: string; readonly status: string }[];
-    readonly recommended?: { readonly sourceId: string; readonly status: string }[];
-  };
-  readonly missing?: readonly string[];
-  readonly merge?: { readonly humanAuthorizationRequired?: boolean };
-  readonly review?: {
-    readonly requiredPerspectives?: readonly string[];
-    readonly maxRemediationGenerations?: number;
-  };
-}
-
 const MISSING_FIELD_LABELS: Record<string, string> = {
   'registered-repository': 'Registered repository',
   'exact-base-revision': 'Exact base revision',
@@ -33,8 +18,10 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
  * start an agent, and the draft must not imply otherwise (ADR-014).
  */
 export function WorkContractDraftPanel({ draft }: { draft: WorkContractDraftSummary }) {
-  const document = draft.document as DraftDocument;
-  const missing = document.missing ?? [];
+  // Typed by the shared contract, which the browser already revalidated; no
+  // local re-declaration and no cast (CT03-R3).
+  const document = draft.document;
+  const missing = document.missing;
   return (
     <section className="draft-panel" aria-label="Work contract draft">
       <h3>Work contract draft</h3>
@@ -51,26 +38,21 @@ export function WorkContractDraftPanel({ draft }: { draft: WorkContractDraftSumm
         <dt>Schema version</dt>
         <dd>{draft.schemaVersion}</dd>
         <dt>Objective</dt>
-        <dd>{document.objective?.title ?? '—'}</dd>
+        <dd>{document.objective.title}</dd>
         <dt>Exit gate</dt>
-        <dd>{document.objective?.exitGate ?? '—'}</dd>
+        <dd>{document.objective.exitGate}</dd>
         <dt>Risk</dt>
-        <dd>{document.classification?.risk ?? '—'}</dd>
+        <dd>{document.classification.risk}</dd>
         <dt>Primary areas</dt>
-        <dd>{(document.classification?.primaryAreas ?? []).join(', ') || '—'}</dd>
+        <dd>{document.classification.primaryAreas.join(', ') || '—'}</dd>
         <dt>Required dependencies</dt>
         <dd>
-          {(document.dependencies?.required ?? []).map((entry) => entry.sourceId).join(', ') ||
-            'None'}
+          {document.dependencies.required.map((entry) => entry.sourceId).join(', ') || 'None'}
         </dd>
         <dt>Merge</dt>
-        <dd>
-          {document.merge?.humanAuthorizationRequired === true
-            ? 'Human authorization required'
-            : '—'}
-        </dd>
+        <dd>{document.merge.humanAuthorizationRequired ? 'Human authorization required' : '—'}</dd>
         <dt>Review perspectives</dt>
-        <dd>{(document.review?.requiredPerspectives ?? []).join(', ') || '—'}</dd>
+        <dd>{document.review.requiredPerspectives.join(', ') || '—'}</dd>
       </dl>
 
       <section aria-label="Unresolved fields">

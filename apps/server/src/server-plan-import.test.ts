@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { planImportResponseSchema } from '@craftingtable/contracts';
-import type { WorkspaceId } from '@craftingtable/domain';
+import { asProjectId, asUserId, asWorkspaceId, type WorkspaceId } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { buildMultipartBody, type MultipartFilePart } from './multipart-test-support.js';
@@ -547,5 +547,128 @@ describe('plan import over HTTP', () => {
     );
     const original = readFileSync(new URL('aq-cont-1/aq-cont-1-work-breakdown.yaml', FIXTURE_DIR));
     expect(Buffer.from(stored?.content ?? new Uint8Array()).equals(original)).toBe(true);
+  });
+});
+
+/**
+ * CT03-R5 regression cover.
+ *
+ * The first review found that an unresolved requested project produced a 500
+ * with no durable import attempt when the bundle was also invalid, so failure
+ * evidence depended on unrelated bundle validity.
+ */
+describe('requested project resolution (CT03-R5)', () => {
+  it.each([
+    ['a valid bundle', () => aqFiles()],
+    ['an invalid bundle', () => [MINIMAL_PLAN]],
+  ])('returns the same 404 for a missing project with %s', async (_label, files) => {
+    const ready = await signedIn();
+    const response = await postImport(ready, {
+      files: files(),
+      fields: { projectId: 'project-that-does-not-exist', projectName: 'AQ' },
+    });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: { code: 'not-found', message: 'Resource not found' },
+    });
+    // No half-written evidence either way.
+    expect(ready.context.storage.planning.importAttempts.count()).toBe(0);
+  });
+
+  it.each([
+    ['a valid bundle', () => aqFiles()],
+    ['an invalid bundle', () => [MINIMAL_PLAN]],
+  ])('returns the same 404 for another workspace’s project with %s', async (_label, files) => {
+    const ready = await signedIn();
+    // A real project, but in a workspace this user is not a member of.
+    const foreignProjectId = 'foreign-project';
+    ready.context.storage.transaction((tx) => {
+      const userId = tx.users.insert({
+        id: asUserId('outsider'),
+        username: 'outsider',
+        usernameNormalized: 'outsider',
+        passwordHash: '$argon2id$test$c2VlZA',
+        occurredAt: new Date().toISOString(),
+      }).id;
+      const workspace = tx.workspaces.insert({
+        id: asWorkspaceId('workspace-outsider'),
+        name: 'Outsider',
+        slug: 'outsider',
+        createdByUserId: userId,
+        occurredAt: new Date().toISOString(),
+      });
+      tx.planning.projects.insert({
+        id: asProjectId(foreignProjectId),
+        workspaceId: workspace.id,
+        name: 'Foreign',
+        slug: 'foreign',
+        createdAt: new Date().toISOString(),
+        createdByUserId: userId,
+      });
+    });
+
+    const response = await postImport(ready, {
+      files: files(),
+      fields: { projectId: foreignProjectId, projectName: 'AQ' },
+    });
+    expect(response.statusCode).toBe(404);
+    expect(ready.context.storage.planning.importAttempts.count()).toBe(0);
+    // The foreign project gained nothing.
+    expect(ready.context.storage.planning.versions.count()).toBe(0);
+  });
+
+  it('records a failed attempt with actionable diagnostics when the project resolves', async () => {
+    const ready = await signedIn();
+    const first = planImportResponseSchema.parse((await postImport(ready)).json());
+    if (first.outcome !== 'succeeded') {
+      throw new Error('Expected the first import to succeed');
+    }
+
+    const response = await postImport(ready, {
+      files: [MINIMAL_PLAN, invalidFile('two-node-cycle.yaml')],
+      fields: { projectId: first.projectId, projectName: 'AQ' },
+    });
+    expect(response.statusCode).toBe(200);
+    const parsed = planImportResponseSchema.parse(response.json());
+    if (parsed.outcome !== 'failed-validation') {
+      throw new Error(`Expected a validation failure, got ${parsed.outcome}`);
+    }
+    expect(parsed.diagnostics.length).toBeGreaterThan(0);
+    expect(ready.context.storage.planning.importAttempts.count()).toBe(2);
+  });
+
+  it('never records a failed attempt with zero diagnostics (CT03-R4)', async () => {
+    const ready = await signedIn();
+    // A JSON work breakdown: valid JSON, but not the required YAML plan source.
+    const response = await postImport(ready, {
+      files: [
+        MINIMAL_PLAN,
+        {
+          fieldName: 'work-breakdown',
+          filename: 'breakdown.json',
+          contentType: 'application/json',
+          bytes: new TextEncoder().encode('{"document":"X","pull_requests":[]}'),
+        },
+      ],
+    });
+    expect(response.statusCode).toBe(200);
+    const parsed = planImportResponseSchema.parse(response.json());
+    if (parsed.outcome !== 'failed-validation') {
+      throw new Error(`Expected a validation failure, got ${parsed.outcome}`);
+    }
+    expect(parsed.diagnostics.map((d) => d.code)).toContain('artifact-role-format-mismatch');
+
+    const storage = ready.context.storage;
+    const attempt = storage.planning.importAttempts.listRecent(ready.workspaceId, 5)[0];
+    expect(attempt?.outcome).toBe('failed-validation');
+    expect(attempt?.errorCount).toBeGreaterThan(0);
+    // The persisted diagnostic count must match the reported error count, not
+    // a fabricated minimum.
+    const persisted = storage.planning.diagnostics.listForAttempt(
+      ready.workspaceId,
+      attempt?.id ?? ('' as never),
+    );
+    expect(persisted.length).toBeGreaterThan(0);
+    expect(persisted.filter((d) => d.severity === 'error').length).toBe(attempt?.errorCount);
   });
 });

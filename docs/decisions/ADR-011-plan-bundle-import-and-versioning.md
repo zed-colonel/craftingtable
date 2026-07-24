@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-24
+- **Amended:** 2026-07-24 after independent review (CT03-R4, CT03-R5)
 
 ## Context
 
@@ -107,6 +108,25 @@ Artifacts are served as `text/plain; charset=utf-8` with
 `content-disposition: attachment`, `x-content-type-options: nosniff`, and
 `content-security-policy: default-src 'none'; sandbox`, regardless of the stored
 media type.
+
+### Required roles are pinned to their source class
+
+`implementation-plan` must be Markdown and `work-breakdown` must be YAML.
+Dispatching on file extension alone let a JSON work breakdown be accepted as
+generic JSON and never parsed as a plan, producing a failed import with no
+diagnostic. A mismatch is now the stable `artifact-role-format-mismatch` code.
+
+Analysis additionally guarantees at least one error diagnostic whenever it
+cannot produce a usable plan, and the import attempt records the real error
+count. A failed import that cannot explain itself is not an acceptable outcome.
+
+### A requested project is resolved before analysis
+
+An unknown or foreign `projectId` returns the same non-disclosing 404 whether
+the bundle is valid or not. Previously an unresolved identifier was written
+straight into the attempt row, violating its foreign key and producing a 500
+with no durable evidence — so the answer to "does this project exist?" depended
+on unrelated bundle validity.
 
 ## Consequences
 

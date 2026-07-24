@@ -49,6 +49,12 @@ index; an in-migration guard aborts the whole migration if a row count or
 maximum sequence fails to match. Migration `0001` is unchanged, so an existing
 database still validates.
 
+Migration `0002` was revised during CT-03 remediation to close a structural
+ownership gap and freeze the imported work graph. A local database that ran the
+*pre-remediation* `0002` will therefore fail validation with
+`schema invalid (checksum-mismatch)`. Reset it with the procedure below; a
+CT-02-era database at schema 1 is unaffected because `0001` is untouched.
+
 Imported planning artifacts are stored as bounded SQLite BLOBs (at most 2 MiB
 each). This is deliberately narrow so one import is one atomic transaction; it
 does not make SQLite CraftingTable's general artifact store. Artifacts from

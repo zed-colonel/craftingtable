@@ -6,6 +6,7 @@ import {
   isForbidden,
   runCheck,
   findImports,
+  findNulByte,
   isForbiddenCapability,
   isForbiddenInPlanning,
   isNonProductionPackage,
@@ -163,5 +164,17 @@ describe('CT-03 capability and boundary guards', () => {
   it('collects every import specifier, not only forbidden ones', () => {
     const source = "import { a } from 'alpha';\nexport * from 'beta';\nconst c = require('gamma');";
     expect(findImports(source)).toEqual(['alpha', 'beta', 'gamma']);
+  });
+});
+
+describe('source integrity (CT03-R7)', () => {
+  it('locates a NUL byte and its offset', () => {
+    expect(findNulByte(Buffer.from('clean source'))).toBe(-1);
+    expect(findNulByte(Buffer.from([0x61, 0x62, 0x00, 0x63]))).toBe(2);
+  });
+
+  it('passes over the real repository, which contains no NUL bytes', () => {
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    expect(runCheck(root).filter((violation) => violation.includes('NUL byte'))).toEqual([]);
   });
 });

@@ -73,9 +73,16 @@ END;
 -- Created before the journal rebuild so the rebuilt workspace_events table can
 -- reference projects and work_items directly.
 --
--- Workspace ownership is structural: every table carries workspace_id, and each
--- child uses a composite foreign key into its parent's (workspace_id, id), so a
--- row can never be attached to a parent in another workspace.
+-- Ownership is structural. Every table carries workspace_id, and each child
+-- uses composite foreign keys into its parent's (workspace_id, id) *and*, where
+-- a project or version chain exists, into (project_id, id) or
+-- (plan_version_id, id). A row therefore cannot be attached to a parent in
+-- another workspace, nor to a project that does not own its plan version.
+--
+-- Imported planning content is immutable: plan versions, artifacts, drafts,
+-- import attempts, diagnostics, and dependency edges reject update and delete
+-- outright, and work items accept only the single proposed-to-admitted
+-- transition.
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE projects (
@@ -85,12 +92,16 @@ CREATE TABLE projects (
     slug                   TEXT NOT NULL CHECK (length(slug) BETWEEN 1 AND 120),
     -- Forward reference: plan_versions is created below. SQLite resolves
     -- foreign keys at DML time, so the declaration order is safe.
-    active_plan_version_id TEXT REFERENCES plan_versions(id) ON DELETE RESTRICT,
+    active_plan_version_id TEXT,
     created_at             TEXT NOT NULL,
     created_by_user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     version                INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
     UNIQUE (workspace_id, slug),
-    UNIQUE (workspace_id, id)
+    UNIQUE (workspace_id, id),
+    -- The active version must belong to *this* project. A plain reference to
+    -- plan_versions(id) would let a project point at another project's — or
+    -- another workspace's — plan (CT03-I14).
+    FOREIGN KEY (id, active_plan_version_id) REFERENCES plan_versions(project_id, id) ON DELETE RESTRICT
 ) STRICT;
 
 CREATE INDEX idx_projects_workspace ON projects(workspace_id, created_at);
@@ -103,6 +114,7 @@ CREATE TABLE plan_bundles (
     created_at   TEXT NOT NULL,
     UNIQUE (project_id, logical_name),
     UNIQUE (workspace_id, id),
+    UNIQUE (project_id, id),
     FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id) ON DELETE RESTRICT
 ) STRICT;
 
@@ -126,8 +138,11 @@ CREATE TABLE plan_versions (
     -- Bundle identity: byte-identical logical artifacts are one version.
     UNIQUE (workspace_id, content_digest),
     UNIQUE (workspace_id, id),
+    UNIQUE (project_id, id),
     FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id, bundle_id) REFERENCES plan_bundles(workspace_id, id) ON DELETE RESTRICT
+    -- Keyed by project, not only by workspace, so a version cannot claim one
+    -- project while drawing its bundle from another.
+    FOREIGN KEY (project_id, bundle_id) REFERENCES plan_bundles(project_id, id) ON DELETE RESTRICT
 ) STRICT;
 
 CREATE INDEX idx_plan_versions_project ON plan_versions(project_id, version_number DESC);
@@ -167,12 +182,24 @@ CREATE TABLE plan_import_attempts (
     CHECK (outcome = 'failed-validation' OR bundle_digest IS NOT NULL),
     CHECK ((outcome = 'failed-validation') = (error_count > 0)),
     FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id, plan_version_id) REFERENCES plan_versions(workspace_id, id) ON DELETE RESTRICT,
+    FOREIGN KEY (project_id, plan_version_id) REFERENCES plan_versions(project_id, id) ON DELETE RESTRICT,
     FOREIGN KEY (workspace_id, requested_project_id) REFERENCES projects(workspace_id, id) ON DELETE RESTRICT
 ) STRICT;
 
 CREATE INDEX idx_plan_import_attempts_workspace
     ON plan_import_attempts(workspace_id, created_at DESC);
+
+CREATE TRIGGER plan_import_attempts_no_update
+BEFORE UPDATE ON plan_import_attempts
+BEGIN
+  SELECT RAISE(ABORT, 'import attempts are append-only');
+END;
+
+CREATE TRIGGER plan_import_attempts_no_delete
+BEFORE DELETE ON plan_import_attempts
+BEGIN
+  SELECT RAISE(ABORT, 'import attempts are append-only');
+END;
 
 -- Exact source bytes. Bounded and immutable; retained for a failed validation
 -- attempt with a null plan version so the failure stays diagnosable.
@@ -231,6 +258,18 @@ CREATE TABLE plan_import_diagnostics (
 CREATE INDEX idx_plan_import_diagnostics_attempt
     ON plan_import_diagnostics(import_attempt_id, ordinal);
 
+CREATE TRIGGER plan_import_diagnostics_no_update
+BEFORE UPDATE ON plan_import_diagnostics
+BEGIN
+  SELECT RAISE(ABORT, 'import diagnostics are append-only');
+END;
+
+CREATE TRIGGER plan_import_diagnostics_no_delete
+BEFORE DELETE ON plan_import_diagnostics
+BEGIN
+  SELECT RAISE(ABORT, 'import diagnostics are append-only');
+END;
+
 CREATE TABLE work_items (
     id                  TEXT PRIMARY KEY CHECK (length(id) > 0),
     workspace_id        TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
@@ -261,11 +300,64 @@ CREATE TABLE work_items (
       OR (status = 'proposed' AND admitted_at IS NULL AND admitted_by_user_id IS NULL)
     ),
     FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id, plan_version_id) REFERENCES plan_versions(workspace_id, id) ON DELETE RESTRICT
+    -- Keyed by project so an item cannot be reassigned to a project that does
+    -- not own its plan version.
+    FOREIGN KEY (project_id, plan_version_id) REFERENCES plan_versions(project_id, id) ON DELETE RESTRICT
 ) STRICT;
 
 CREATE INDEX idx_work_items_version_status ON work_items(plan_version_id, status);
 CREATE INDEX idx_work_items_project ON work_items(project_id, plan_version_id);
+
+-- Making plan_versions immutable does not by itself make the versioned work
+-- graph immutable. Every imported field of a work item is frozen here, so an
+-- already-committed plan version cannot have its meaning rewritten without a
+-- new version. `IS NOT` is used rather than `<>` so NULL-to-value changes are
+-- caught too.
+CREATE TRIGGER work_items_source_immutable
+BEFORE UPDATE ON work_items
+WHEN OLD.workspace_id       IS NOT NEW.workspace_id
+  OR OLD.project_id         IS NOT NEW.project_id
+  OR OLD.plan_version_id    IS NOT NEW.plan_version_id
+  OR OLD.source_id          IS NOT NEW.source_id
+  OR OLD.ordinal            IS NOT NEW.ordinal
+  OR OLD.title              IS NOT NEW.title
+  OR OLD.risk               IS NOT NEW.risk
+  OR OLD.phase              IS NOT NEW.phase
+  OR OLD.primary_areas_json IS NOT NEW.primary_areas_json
+  OR OLD.exit_gate          IS NOT NEW.exit_gate
+  OR OLD.source_fields_json IS NOT NEW.source_fields_json
+BEGIN
+  SELECT RAISE(ABORT, 'imported work item fields are immutable');
+END;
+
+-- CT-03 exposes exactly one transition. Scoped to UPDATE OF status so that a
+-- content rewrite is reported by the trigger above, which names the real
+-- problem, rather than by this one.
+CREATE TRIGGER work_items_admission_only
+BEFORE UPDATE OF status ON work_items
+WHEN NOT (
+  OLD.status = 'proposed'
+  AND NEW.status = 'admitted'
+  AND NEW.version = OLD.version + 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'work items support only the proposed-to-admitted transition');
+END;
+
+-- Admission is terminal in CT-03: once admitted, nothing about the row may
+-- change again, including its actor and time attribution.
+CREATE TRIGGER work_items_admission_final
+BEFORE UPDATE ON work_items
+WHEN OLD.status = 'admitted'
+BEGIN
+  SELECT RAISE(ABORT, 'an admitted work item is final in CT-03');
+END;
+
+CREATE TRIGGER work_items_no_delete
+BEFORE DELETE ON work_items
+BEGIN
+  SELECT RAISE(ABORT, 'imported work items are immutable');
+END;
 
 -- The composite parent keys make a cross-version dependency edge impossible at
 -- the database level rather than only by repository convention.
@@ -289,6 +381,20 @@ CREATE INDEX idx_work_item_dependencies_successor
 CREATE INDEX idx_work_item_dependencies_predecessor
     ON work_item_dependencies(predecessor_work_item_id, kind);
 
+-- A dependency edge is imported history with no lifecycle of its own; editing
+-- or deleting one would silently change a committed graph (CT03-I08).
+CREATE TRIGGER work_item_dependencies_no_update
+BEFORE UPDATE ON work_item_dependencies
+BEGIN
+  SELECT RAISE(ABORT, 'work item dependencies are immutable');
+END;
+
+CREATE TRIGGER work_item_dependencies_no_delete
+BEFORE DELETE ON work_item_dependencies
+BEGIN
+  SELECT RAISE(ABORT, 'work item dependencies are immutable');
+END;
+
 CREATE TABLE work_contract_drafts (
     id                 TEXT PRIMARY KEY CHECK (length(id) > 0),
     workspace_id       TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
@@ -303,8 +409,9 @@ CREATE TABLE work_contract_drafts (
     created_at         TEXT NOT NULL,
     created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id, plan_version_id) REFERENCES plan_versions(workspace_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id, work_item_id) REFERENCES work_items(workspace_id, id) ON DELETE RESTRICT
+    FOREIGN KEY (project_id, plan_version_id) REFERENCES plan_versions(project_id, id) ON DELETE RESTRICT,
+    -- The whole chain: draft -> item -> version -> project -> workspace.
+    FOREIGN KEY (plan_version_id, work_item_id) REFERENCES work_items(plan_version_id, id) ON DELETE RESTRICT
 ) STRICT;
 
 CREATE TRIGGER work_contract_drafts_no_update
@@ -407,15 +514,19 @@ CREATE TABLE workspace_events (
     occurred_at    TEXT NOT NULL,
     workspace_id   TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
     actor_user_id  TEXT REFERENCES users(id) ON DELETE RESTRICT,
-    project_id     TEXT REFERENCES projects(id) ON DELETE RESTRICT,
-    work_item_id   TEXT REFERENCES work_items(id) ON DELETE RESTRICT,
+    project_id     TEXT,
+    work_item_id   TEXT,
     run_id         TEXT,
     kind           TEXT NOT NULL REFERENCES workspace_event_kinds(kind) ON DELETE RESTRICT,
     -- Kind-agnostic here; strict per-kind payload shape stays in the Zod
     -- contracts (ADR-003). A registered kind does not make a payload valid.
     payload_json   TEXT NOT NULL CHECK (
                      json_valid(payload_json)
-                     AND json_type(payload_json) = 'object')
+                     AND json_type(payload_json) = 'object'),
+    -- Correlation identifiers are workspace-keyed so an event cannot point at
+    -- a project or work item belonging to a different workspace.
+    FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id) ON DELETE RESTRICT,
+    FOREIGN KEY (workspace_id, work_item_id) REFERENCES work_items(workspace_id, id) ON DELETE RESTRICT
 ) STRICT;
 
 INSERT INTO workspace_events (

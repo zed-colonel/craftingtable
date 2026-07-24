@@ -60,6 +60,17 @@ sources, and no route accepts a path, URL, shell string, or archive.
 
 - Every planning read and write authorizes workspace membership in the service
   layer. Import and admission additionally require Owner or Editor.
+- Ownership is enforced by the schema, not only by queries. Composite foreign
+  keys tie each record to its parent's `(workspace_id, id)` and, where a chain
+  exists, to `(project_id, id)` or `(plan_version_id, id)`. A project cannot
+  point its active version at another project's or another workspace's plan, a
+  work item cannot be reassigned to a project that does not own its version, and
+  a workspace event cannot correlate to a foreign project or work item.
+- Imported planning content is immutable. Plan versions, artifacts, drafts,
+  import attempts, diagnostics, and dependency edges reject update and delete
+  outright; a work item accepts only the single proposed-to-admitted transition
+  and is terminal afterwards. Rewriting an already-imported plan version is
+  impossible without creating a new version.
 - A non-member receives the same 404 a missing resource does. A member with an
   insufficient role receives 403, since the workspace's existence is not secret
   from them.

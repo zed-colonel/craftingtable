@@ -77,6 +77,31 @@ export const ACCEPTED_DECLARED_MEDIA_TYPES: readonly string[] = [
   'application/octet-stream',
 ];
 
+/**
+ * The source class each artifact role must be supplied in.
+ *
+ * CT-03 §5.1 requires "one implementation-plan Markdown file" and "one
+ * work-breakdown YAML file". Dispatching on extension alone let a JSON
+ * work-breakdown be accepted as generic JSON and never parsed as a plan, so the
+ * required roles are pinned to their formats here.
+ */
+export const REQUIRED_ROLE_SOURCE_CLASSES = {
+  'implementation-plan': ['markdown'],
+  'work-breakdown': ['yaml'],
+} as const satisfies Record<string, readonly string[]>;
+
+export type SourceClass = 'markdown' | 'yaml' | 'json' | 'text';
+
+export const EXTENSION_SOURCE_CLASSES = {
+  '.md': 'markdown',
+  '.markdown': 'markdown',
+  '.yaml': 'yaml',
+  '.yml': 'yaml',
+  '.json': 'json',
+  '.txt': 'text',
+  '.sha256': 'text',
+} as const satisfies Record<string, SourceClass>;
+
 /** Extensions whose bytes are parsed as YAML. */
 export const YAML_EXTENSIONS: readonly AcceptedExtension[] = ['.yaml', '.yml'];
 

@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-24
+- **Amended:** 2026-07-24 after independent review (CT03-R2, CT03-R3)
 
 ## Context
 
@@ -65,10 +66,19 @@ Unresolved fields are **enumerated in a `missing` list**, not left blank. A blan
 field reads as "nothing required"; an enumerated one reads as "not yet decided".
 
 The document deliberately has no `approved`, `executable`, `ready`,
-`authorized`, or `active` field. A test asserts their absence in both the object
-keys and the serialised form, because the cheapest way for this artifact to
-become dangerous is for a later change to add a field that a reader — human or
-model — interprets as authorization.
+`authorized`, or `active` field.
+
+That is enforced by the shared contract, not only by a test.
+`workContractDraftDocumentSchema` is `strictObject` at every level, with
+literals pinning `status`, `completeness`, each `unresolved` marker, and
+`merge.humanAuthorizationRequired`. The admission service parses its projection
+through that schema *before persisting*, so a draft that could not satisfy the
+wire contract never reaches the database, and the browser consumes the inferred
+type with no local re-declaration and no cast. An added authorization-looking
+field is a parse failure rather than a rendering surprise.
+
+Admission is also terminal at the database level: an admitted work item rejects
+every further update, so its actor and time attribution cannot be rewritten.
 
 Drafts are immutable in CT-03: `work_contract_drafts` carries no-update and
 no-delete triggers, so the draft cannot transition even at the database level.

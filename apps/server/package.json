@@ -6,14 +6,16 @@
   "main": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "cli": "tsx src/cli.ts",
+    "e2e:start": "tsx src/e2e-entry.ts"
   },
   "dependencies": {
-    "@craftingtable/agents": "workspace:*",
     "@craftingtable/contracts": "workspace:*",
     "@craftingtable/domain": "workspace:*",
-    "@craftingtable/git": "workspace:*",
-    "@craftingtable/testing": "workspace:*",
+    "@craftingtable/storage": "workspace:*",
+    "@fastify/cookie": "11.1.2",
+    "argon2": "0.45.1",
     "fastify": "^5.10.0"
   },
   "devDependencies": {

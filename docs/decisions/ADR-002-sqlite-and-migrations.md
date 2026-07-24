@@ -1,16 +1,45 @@
-# ADR-002 — SQLite library and migration tool
+# ADR-002 — SQLite library and migration strategy
 
-- **Status:** deferred
-- **Date:** 2026-07-23
+- **Status:** accepted
+- **Date:** 2026-07-24
 
 ## Context
 
-The implementation plan fixes SQLite in WAL mode as the authoritative workflow store, arriving in CT-02. CT-01 explicitly forbids adding a database.
+CT-02 requires one restart-safe, transactional local authority for state, audit
+history, sessions, and workspace events. State, audit, and events must commit
+atomically, and schema drift must fail closed.
 
 ## Decision
 
-Deferred until CT-02. Nothing in CT-01 persists state; the fake event stream is generated per connection.
+- Use `better-sqlite3` 13.0.1, isolated in `@craftingtable/storage`.
+- Use repository-owned, package-local ordered SQL migrations. Migration 0001
+  installs schema version 1.
+- Store migration version, name, SHA-256 checksum, and application timestamp in
+  `schema_migrations`.
+- Require contiguous ascending versions. Reject changed checksums, unknown
+  applied migrations, and databases newer than the application. Apply each SQL
+  file and ledger insert in one explicit transaction.
+- Open the database in WAL mode with foreign keys enabled, FULL synchronous
+  semantics, and a 5000 ms busy timeout. Verify those settings at open.
+- Use immediate transactions for writes and deferred transactions for
+  consistent read snapshots.
+- Restrict foreign-key deletion and expose no CT-02 deletion/retention API.
 
-## Notes for the future decision
+## Consequences
 
-Candidates to evaluate in CT-02: `better-sqlite3` (synchronous, simple) versus `node:sqlite` (built-in, still maturing), plus a migration approach (hand-rolled ordered SQL files versus a small library). The decision must preserve the rule that large artifacts live on the filesystem, not in database rows.
+SQLite and SQL do not leak into server, browser, contracts, or domain code.
+Synchronous transaction callbacks make atomic state/audit/event writes
+explicit. `better-sqlite3` is a native dependency and must be approved in
+pnpm's build allowlist.
+
+The database file and its `-wal`/`-shm` companions are one live persistence
+unit. Copying only the main file while the daemon is open is not a supported
+backup. Backup/restore tooling remains CT-08.
+
+## Alternatives considered
+
+- `node:sqlite` — still release-candidate at the decision point.
+- ORM or migration framework — unnecessary abstraction for one controlled
+  SQLite schema.
+- In-memory persistence — cannot satisfy restart reconstruction or durable
+  replay.

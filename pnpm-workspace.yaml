@@ -3,6 +3,8 @@ packages:
   - packages/*
 
 onlyBuiltDependencies:
+  - argon2
+  - better-sqlite3
   - esbuild
 
 # Pin the script runtime to the supported Node LTS (ADR-008, CT01-R5): pnpm

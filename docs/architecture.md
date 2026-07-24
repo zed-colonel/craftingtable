@@ -1,36 +1,101 @@
-# Architecture boundaries (CT-01)
+# Architecture boundaries (CT-02)
 
-This document records the package boundaries established in CT-01 and the rules that keep them honest. `AGENTS.md` states the governing principles; this file maps them to the actual workspace.
+CraftingTable is a loopback-only supervisory workbench. The daemon owns
+authoritative state; the browser is an authenticated projection reconstructed
+from a durable snapshot and event cursor.
 
 ## Dependency direction
 
-Dependencies point strictly downward. TypeScript project references (`tsc -b`) enforce the graph — a package cannot import something it does not reference.
-
 ```text
-domain          pure TS, zero runtime deps: branded IDs, event-kind vocabulary
+domain        pure TypeScript records and branded identifiers
    ▲
-contracts       Zod schemas: HealthResponse, AgentEventEnvelope; wire types inferred
-   ▲                    ▲
-agents  git             │      interfaces only: AgentBackend, GitService
-   ▲     ▲              │
-   testing              │      FakeAgentBackend, FakeGitService — the test/dev boundary
-      ▲                 │
-   apps/server ─────────┤      Fastify; composes fakes; validates at the boundary
-   apps/web ────────────┘      React/Vite; consumes contracts; never trusts wire data
+contracts     strict Zod HTTP/SSE contracts
+   ▲
+storage       SQLite adapter, migrations, SQL, repositories
+   ▲
+server        Fastify routes, security policy, application services, composition
+
+domain + contracts
+   ▲
+web           React projection; no server/storage imports
 ```
 
-## Rules
+The actual project-reference graph is:
 
-- **The daemon is authoritative.** The browser renders projections of server state and will submit typed commands (CT-02+). It never invokes Git or processes.
-- **`domain` stays pure.** No HTTP, React, process, Git, or vendor-SDK types. Branded IDs make `WorkspaceId`, `ProjectId`, etc. non-interchangeable at compile time.
-- **`contracts` is the single validation point.** The server validates every payload before writing it to the wire; the browser re-validates before rendering. Neither side defines its own wire types.
-- **`agents` and `git` are seams, not features.** They hold the narrowest interfaces that let the server depend on abstractions. The complete future contracts are deliberately not designed yet (ADR-005, ADR-007).
-- **Fakes live in `testing`.** `FakeAgentBackend` replays a deterministic scripted run from `fixtures/agent-events/demo-run.json`; `FakeGitService` returns a canned snapshot. In CT-01 the server composes these fakes at its entry point (`apps/server/src/index.ts`) because no real implementations exist; that composition point is where real adapters plug in later.
-- **Raw vendor events are not domain vocabulary.** Only normalized `AgentEventEnvelope` values cross package boundaries.
-- **No Exo Stack runtime dependencies.** `pnpm check:scope` fails the build if ActionQueue, WorldInterface, or Exoskeleton appears in any dependency field or import specifier.
+```text
+domain       → none
+contracts    → domain
+storage      → domain
+server       → domain + contracts + storage
+web          → domain + contracts
+```
 
-## What is deliberately fake or absent in CT-01
+`packages/agents`, `packages/git`, and `packages/testing` remain future/test
+seams inherited from CT-01. Production server composition imports none of them.
+Only `@craftingtable/storage` imports `better-sqlite3` or owns SQL. No package
+depends on ActionQueue, WorldInterface, Exoskeleton, or another application
+runtime.
 
-- The agent backend, Git service, and every event shown in the UI are simulated and labeled as such.
-- No persistence: the event stream is regenerated per SSE connection.
-- No authentication, users, workspaces-as-data, plan import, worktrees, diffs, verification runners, reviews, merges, or LAN exposure. See `work-items/CT-01.md` non-goals and the deferred ADRs.
+## Authoritative write and read paths
+
+The first workspace-domain command is bootstrap:
+
+```text
+user + default workspace + Owner membership
+  + allowlisted audit rows + workspace-created event
+  └── one immediate SQLite transaction
+        └── commit
+              └── in-memory generation notifier
+```
+
+The notifier contains no event data and is never an event store. A browser
+reconstructs state through:
+
+```text
+authenticated session
+  → authorized workspace list
+  → one-transaction snapshot + global asOfSequence
+  → workspace-filtered SSE replay after that cursor
+  → durable live tail
+```
+
+SSE re-queries SQLite after notifier changes and bounded timeouts. This makes
+lost or process-local notifications harmless and makes replay survive daemon
+restart. The global database sequence is strictly increasing; a workspace
+stream can legitimately contain gaps caused by events in another workspace.
+
+CT-02 has no daemon-process workspace-event producer after bootstrap: bootstrap
+runs through the separate CLI process, so live daemon streams currently recover
+that commit through the bounded durable re-query. Every CT-03+ daemon command
+that appends a workspace event must use the daemon's composed notifier
+immediately after its transaction commits. Its acceptance coverage must prove
+same-process notification delivery without waiting for the fallback poll.
+
+The fallback re-query interval is currently 1000 ms. It deliberately guarantees
+session/membership invalidation and dropped-notification recovery, at the cost
+of one authentication and empty journal query per idle connection per second.
+That is appropriate for CT-02's single-user loopback boundary and must be
+revisited before activated multi-user or CT-08 deployment.
+
+## Boundary rules
+
+- Domain types do not depend on HTTP, React, SQLite, process control, Git, or
+  vendor SDKs.
+- Shared responses and SSE payloads are strict runtime-validated contracts.
+  The server validates before sending and the browser validates again.
+- Workspace membership is enforced in application services. UI filtering and
+  route parameters are not authorization.
+- The browser cannot submit shell commands, SQL, paths, or process-control
+  requests.
+- Audit events and workspace events are separate append-only vocabularies.
+- CT-01's fake backend fixture is test/development data only. No normal-runtime
+  fallback bypasses the workspace journal.
+
+## Deliberately deferred
+
+CT-02 has no projects, imported plans, executable work items, repository
+registration, Git/worktrees/diffs, real coding agents, verification runners,
+reviews, remediation/readiness/merge workflow, Planning Studio, LAN exposure,
+TLS termination, service manager integration, or backup command. The schema has
+user/workspace/membership seams but does not activate collaborative multi-user
+product behavior.

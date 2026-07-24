@@ -1,34 +1,57 @@
-# ADR-003 — SSE event contract
+# ADR-003 — Durable workspace SSE event contract
 
 - **Status:** accepted
 - **Date:** 2026-07-23
+- **Amended:** 2026-07-24 for CT-02 durable replay
 
 ## Context
 
-The browser needs live, reconnectable, server-to-client updates. Commands will remain ordinary authenticated POST requests (CT-02+), so bidirectional transport is unnecessary.
+The browser needs one-way live updates and restart-safe reconstruction.
+Commands remain ordinary authenticated HTTP requests. CT-01's direct fake
+backend stream and per-connection sequence were only executable scaffolding.
 
 ## Decision
 
-- Live updates use **server-sent events** at `GET /api/events`.
-- Each normalized event is one SSE frame:
+Live updates use authenticated, workspace-scoped SSE:
 
-  ```text
-  event: agent-event
-  id: <sequence>
-  data: <JSON AgentEventEnvelope>
-  ```
+```text
+GET /api/workspaces/:workspaceId/events?after=<global-sequence>
 
-- `AgentEventEnvelope` is defined once in `@craftingtable/contracts` (Zod) with fields `id`, `sequence`, `occurredAt`, `workspaceId`, optional `projectId`/`workItemId`/`runId`, `kind`, and a per-kind `payload` (discriminated union). The server validates before writing; the browser validates before rendering and never displays an invalid event.
-- The CT-01 kind vocabulary is deliberately minimal: `run-started`, `status-changed`, `completion-proposed`. It extends toward the implementation plan's §8.2 list only when a work item needs it.
-- Comment lines (`:connected`, `:hb` every 15 s) keep intermediaries from timing out the stream.
-- The CT-01 fake source replays a deterministic scripted run per connection and then holds the stream open, so a page refresh reproduces the demonstration without a reconnect-replay loop.
+event: workspace-event
+id: <global-database-sequence>
+data: <JSON WorkspaceEventEnvelope>
+```
+
+The strict version-1 envelope contains `id`, `sequence`, `occurredAt`,
+`workspaceId`, `kind`, `payload`, optional `actorUserId`, `projectId`,
+`workItemId`, and `runId`, plus `schemaVersion`. CT-02 defines only the honest
+`workspace-created` kind.
+
+SQLite assigns one global monotonically increasing sequence. Queries filter by
+authorized workspace, so cross-workspace gaps are valid. Events are immutable
+and unique by both sequence and event ID. The endpoint uses the greater valid
+cursor from `after` and `Last-Event-ID`, replays ascending committed rows, then
+tails through SQLite re-query. Heartbeat comments remain every 15 seconds.
+
+A snapshot and `asOfSequence` are read in one transaction. The browser hydrates
+that snapshot before connecting after the cursor, revalidates every payload,
+and ignores duplicates by sequence. Opening or reconnecting never clears the
+projection.
+
+The in-memory notifier is only a wakeup optimization: generation is sampled
+before querying, registration rechecks generation, and a bounded timeout
+forces another durable query. Session and membership are periodically
+revalidated while streaming. Revocation emits the typed
+`authentication-expired` control event and closes the stream.
 
 ## Consequences
 
-- Native browser `EventSource` reconnection works without client libraries.
-- `sequence` is per-stream and monotonic. **Deferred to CT-02:** durable global event sequencing, `Last-Event-ID` resume/replay, and snapshot queries; the `id:` field is already emitted so replay can be added without changing the wire shape.
+Refresh, disconnect, missed notification, and daemon restart reconstruct from
+SQLite. At-least-once network behavior is harmless to the idempotent browser.
+No normal-runtime path streams `AgentBackend` events directly.
 
 ## Alternatives considered
 
-- **WebSockets** — bidirectional capability CraftingTable does not need; commands stay HTTP so they remain auditable, authenticated requests.
-- **Polling** — simpler but loses liveness and costs more once runs stream many events.
+- WebSockets — unnecessary bidirectional capability.
+- Polling — less responsive and still needs cursor semantics.
+- Process-memory replay — loses authoritative history on restart.

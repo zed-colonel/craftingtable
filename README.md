@@ -6,9 +6,14 @@ It exists to make development of the Exo Stack (ActionQueue, WorldInterface, and
 
 ## Current phase
 
-This repository is at **CT-01: Establish scope, repository contract, and executable skeleton**.
+This repository implements **CT-02: Persistent daemon, authentication,
+workspaces, and durable event history**.
 
-The normative planning artifacts are under [`init/`](init/). The active work contract is [`work-items/CT-01.md`](work-items/CT-01.md). Architectural boundaries are documented in [`docs/architecture.md`](docs/architecture.md) and [`docs/decisions/`](docs/decisions/).
+The normative planning artifacts are under [`init/`](init/). The active work
+contract is [`work-items/CT-02.md`](work-items/CT-02.md). Architectural,
+security, and operating boundaries are documented in
+[`docs/architecture.md`](docs/architecture.md), [`docs/security.md`](docs/security.md),
+[`docs/operations.md`](docs/operations.md), and [`docs/decisions/`](docs/decisions/).
 
 ## Quickstart
 
@@ -17,11 +22,18 @@ Prerequisites: pnpm 10 (see [`CONTRIBUTING.md`](CONTRIBUTING.md)). Workspace scr
 ```sh
 pnpm install
 pnpm exec playwright install chromium   # once, for the smoke test
+pnpm db:migrate
+pnpm craftingtable admin bootstrap --username keith
 pnpm dev                                # server on 127.0.0.1:4600 + web app via Vite
 pnpm check                              # CI-equivalent local quality gate
 ```
 
-The dashboard shows a simulated agent run streamed over SSE from a fake backend — all data is clearly labeled as simulated; no real agents, Git operations, or persistence exist yet.
+The bootstrap command prompts twice for a password without echo. The browser
+then signs in, loads the authorized default workspace from SQLite, hydrates a
+durable snapshot, and follows authenticated replayable workspace events. See
+the [local operating guide](docs/operations.md) for data-directory,
+shutdown, and recoverable reset instructions before moving or copying the
+database.
 
 ## Non-goals
 

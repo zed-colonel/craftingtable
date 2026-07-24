@@ -1,13 +1,8 @@
-import { FakeAgentBackend, FakeGitService, loadDemoRunScript } from '@craftingtable/testing';
 import { configFromEnv } from './config.js';
-import { buildServer } from './server.js';
+import { createRuntime } from './composition.js';
 
 const config = configFromEnv();
-const script = await loadDemoRunScript();
-const git = new FakeGitService();
-const backend = new FakeAgentBackend(script, git);
-
-const app = buildServer({ backend, git }, { logger: true });
+const runtime = await createRuntime(config, { logger: true });
 
 let shuttingDown = false;
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
@@ -15,13 +10,15 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     return;
   }
   shuttingDown = true;
-  app.log.info({ signal }, 'shutting down');
-  await app.close();
-  process.exit(0);
+  runtime.app.log.info({ signal }, 'shutting down');
+  await runtime.close();
 }
 
-process.once('SIGINT', shutdown);
-process.once('SIGTERM', shutdown);
+process.once('SIGINT', () => {
+  void shutdown('SIGINT');
+});
+process.once('SIGTERM', () => {
+  void shutdown('SIGTERM');
+});
 
-await app.listen({ host: config.host, port: config.port });
-app.log.info(`backend: ${backend.describe().label} (simulated)`);
+await runtime.app.listen({ host: config.host, port: config.port });

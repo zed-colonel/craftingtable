@@ -1,9 +1,12 @@
 import {
   type AgentRunId,
+  type AuditEventId,
   type EventId,
   isWellFormedId,
   type ProjectId,
+  type SessionId,
   type UserId,
+  type WorkspaceMembershipId,
   type WorkItemId,
   type WorkspaceId,
 } from '@craftingtable/domain';
@@ -16,7 +19,10 @@ function idSchema<T extends string>(label: string) {
 }
 
 export const userIdSchema = idSchema<UserId>('userId');
+export const sessionIdSchema = idSchema<SessionId>('sessionId');
 export const workspaceIdSchema = idSchema<WorkspaceId>('workspaceId');
+export const workspaceMembershipIdSchema = idSchema<WorkspaceMembershipId>('workspaceMembershipId');
+export const auditEventIdSchema = idSchema<AuditEventId>('auditEventId');
 export const projectIdSchema = idSchema<ProjectId>('projectId');
 export const workItemIdSchema = idSchema<WorkItemId>('workItemId');
 export const agentRunIdSchema = idSchema<AgentRunId>('runId');

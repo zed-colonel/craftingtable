@@ -10,6 +10,9 @@ ADR-004-diff-viewer.md
 ADR-005-codex-integration.md
 ADR-006-local-tls.md
 ADR-007-agent-execution-boundary.md
+ADR-008-toolchain-and-quality-gates.md
+ADR-009-authentication-sessions-and-csrf.md
+ADR-010-atomic-audit-and-workspace-events.md
 ```
 
 Each ADR should contain:
@@ -21,4 +24,5 @@ Each ADR should contain:
 - alternatives considered;
 - date.
 
-CT-01 should decide only what is required for the executable skeleton. Later decisions may be created as concise `deferred` records rather than designed prematurely.
+The active work contract decides which records may move from deferred to
+accepted. Later concerns stay deferred rather than being designed prematurely.

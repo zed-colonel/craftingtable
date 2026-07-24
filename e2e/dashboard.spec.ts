@@ -1,36 +1,56 @@
 import { expect, test } from '@playwright/test';
 
-test('dashboard loads, connects, and shows the fake agent run', async ({ page }) => {
-  const consoleErrors: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') {
-      consoleErrors.push(message.text());
-    }
-  });
-  page.on('pageerror', (error) => {
-    consoleErrors.push(String(error));
-  });
+const USERNAME = 'e2e-admin';
+const PASSWORD = 'correct horse battery staple';
+const EVENT_ROUTE = '**/api/workspaces/*/events*';
+
+async function signIn(page: import('@playwright/test').Page): Promise<void> {
+  await page.getByLabel('Username').fill(USERNAME);
+  await page.getByLabel('Password').fill(PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Default workspace' })).toBeVisible();
+}
+
+test('authenticated snapshot, replay, outage recovery, and logout', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
 
   await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Sign in to CraftingTable' })).toBeVisible();
 
-  // Shell renders with the workspace header and the simulated-data label.
-  await expect(page.getByRole('heading', { name: 'Demo workspace' })).toBeVisible();
-  await expect(page.getByText('Simulated data')).toBeVisible();
+  await page.getByLabel('Username').fill(USERNAME);
+  await page.getByLabel('Password').fill('incorrect password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('alert')).toContainText('Sign-in failed');
 
-  // Future dashboard regions are visually suggested.
-  for (const label of ['Needs attention', 'Active', 'Ready', 'Blocked']) {
-    await expect(page.getByRole('heading', { name: label })).toBeVisible();
-  }
-
-  // SSE connects and the normalized fake event appears.
+  await signIn(page);
   await expect(page.getByRole('status')).toHaveText('Live');
-  await expect(page.getByText(/Run started: /)).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('run-started', { exact: true })).toBeVisible();
+  await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Audit' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible();
 
-  // A normal refresh reconnects and replays the simulated run.
   await page.reload();
   await expect(page.getByRole('status')).toHaveText('Live');
-  await expect(page.getByText(/Run started: /)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
 
-  expect(consoleErrors).toEqual([]);
+  await page.route(EVENT_ROUTE, (route) => route.abort());
+  await page.reload();
+  await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
+  await expect(page.getByRole('status')).toHaveText('Disconnected', { timeout: 10_000 });
+  await expect(page.getByRole('alert')).toContainText(
+    'last committed workspace state remains visible',
+  );
+
+  await page.unroute(EVENT_ROUTE);
+  await expect(page.getByRole('status')).toHaveText('Live', { timeout: 10_000 });
+  await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Log out' }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in to CraftingTable' })).toBeVisible();
+  const protectedStatus = await page.evaluate(async () => {
+    const response = await fetch('/api/workspaces');
+    return response.status;
+  });
+  expect(protectedStatus).toBe(401);
+  expect(pageErrors).toEqual([]);
 });

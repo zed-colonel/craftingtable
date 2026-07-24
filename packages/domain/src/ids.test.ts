@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { asEventId, asWorkspaceId, isWellFormedId } from './ids.js';
+import {
+  asAuditEventId,
+  asEventId,
+  asSessionId,
+  asWorkspaceId,
+  asWorkspaceMembershipId,
+  isWellFormedId,
+} from './ids.js';
 
 describe('branded id factories', () => {
   it('accept non-empty trimmed strings', () => {
     expect(asWorkspaceId('ws-demo')).toBe('ws-demo');
     expect(asEventId('01J0000')).toBe('01J0000');
+    expect(asSessionId('session-1')).toBe('session-1');
+    expect(asWorkspaceMembershipId('membership-1')).toBe('membership-1');
+    expect(asAuditEventId('audit-1')).toBe('audit-1');
   });
 
   it('reject empty strings', () => {

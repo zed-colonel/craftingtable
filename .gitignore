@@ -19,6 +19,9 @@ test-results/
 .tmp/
 tmp/
 .local/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 
 # Editor and OS files
 .DS_Store

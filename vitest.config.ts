@@ -10,6 +10,7 @@ export default defineConfig({
     alias: {
       '@craftingtable/domain': fromHere('./packages/domain/src/index.ts'),
       '@craftingtable/contracts': fromHere('./packages/contracts/src/index.ts'),
+      '@craftingtable/storage': fromHere('./packages/storage/src/index.ts'),
       '@craftingtable/agents': fromHere('./packages/agents/src/index.ts'),
       '@craftingtable/git': fromHere('./packages/git/src/index.ts'),
       '@craftingtable/testing': fromHere('./packages/testing/src/index.ts'),

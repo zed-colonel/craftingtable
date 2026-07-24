@@ -1,4 +1,4 @@
-import type { ConnectionState } from '../lib/useEventStream.js';
+import type { ConnectionState } from '../lib/workspace-projection.js';
 
 const LABELS: Record<ConnectionState, string> = {
   connecting: 'Connecting…',

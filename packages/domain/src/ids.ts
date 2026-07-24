@@ -7,7 +7,10 @@ declare const brand: unique symbol;
 export type Brand<B extends string> = string & { readonly [brand]: B };
 
 export type UserId = Brand<'UserId'>;
+export type SessionId = Brand<'SessionId'>;
 export type WorkspaceId = Brand<'WorkspaceId'>;
+export type WorkspaceMembershipId = Brand<'WorkspaceMembershipId'>;
+export type AuditEventId = Brand<'AuditEventId'>;
 export type ProjectId = Brand<'ProjectId'>;
 export type WorkItemId = Brand<'WorkItemId'>;
 export type AgentRunId = Brand<'AgentRunId'>;
@@ -28,7 +31,10 @@ function idFactory<T extends Brand<string>>(label: string): (value: string) => T
 }
 
 export const asUserId = idFactory<UserId>('UserId');
+export const asSessionId = idFactory<SessionId>('SessionId');
 export const asWorkspaceId = idFactory<WorkspaceId>('WorkspaceId');
+export const asWorkspaceMembershipId = idFactory<WorkspaceMembershipId>('WorkspaceMembershipId');
+export const asAuditEventId = idFactory<AuditEventId>('AuditEventId');
 export const asProjectId = idFactory<ProjectId>('ProjectId');
 export const asWorkItemId = idFactory<WorkItemId>('WorkItemId');
 export const asAgentRunId = idFactory<AgentRunId>('AgentRunId');

@@ -4,7 +4,7 @@ CraftingTable is a personal supervisory workbench. Contributions — human or ag
 
 ## Read first, in this order
 
-1. The active work contract under `work-items/` (currently `work-items/CT-01.md`).
+1. The active work contract under `work-items/` (currently `work-items/CT-02.md`).
 2. `AGENTS.md` — canonical architectural, quality, and safety boundaries.
 3. `init/craftingtable-implementation-plan.md` — context; it does not authorize work beyond the active contract.
 4. `docs/ui-principles.md` — visual direction.
@@ -30,13 +30,25 @@ pnpm lint          lint with Biome
 pnpm typecheck     tsc -b across project references + web app
 pnpm test          Vitest unit tests
 pnpm test:e2e      Playwright browser smoke test
+pnpm db:migrate    migrate the configured SQLite database
+pnpm db:status     report configured SQLite schema status
 pnpm check:scope   forbidden-scope check (no Exo Stack dependencies)
 pnpm check         CI-equivalent gate: all of the above, fail-fast
 ```
 
 `pnpm check` must pass before any work is called done.
 
-The E2E gate always starts fresh servers from the current source and fails explicitly if ports `4600`/`5173` are occupied — stop any running `pnpm dev` first. To iterate interactively against already-running dev servers instead, opt in with `CRAFTINGTABLE_E2E_REUSE=1 pnpm test:e2e` (the quality gate never sets this).
+For a normal local installation, run `pnpm db:migrate`, then
+`pnpm craftingtable admin bootstrap --username <name>` and use that account in
+the browser. Bootstrap prompts for the password without echo. Data-directory,
+shutdown, database-unit, and recoverable reset instructions are in
+[`docs/operations.md`](docs/operations.md); never point tests at that operator
+directory.
+
+The E2E gate always starts fresh servers from the current source, creates a
+unique temporary database, and fails explicitly if ports `4600`/`5173` are
+occupied. Stop any running `pnpm dev` first. It never reuses an operator daemon
+or normal data directory.
 
 ## Quality expectations
 

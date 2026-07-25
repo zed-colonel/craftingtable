@@ -3,7 +3,8 @@
 - **Status:** accepted
 - **Date:** 2026-07-24
 - **Amended:** 2026-07-24 after independent review (CT03-R6)
-- **Amended:** 2026-07-24 after remediation re-review (CT03-RR4)
+- **Amended:** 2026-07-24 after remediation re-review (CT03-RR4), and again after
+  the second re-review (CT03-R2R3, CT03-R2R4)
 
 ## Context
 
@@ -80,12 +81,25 @@ the `workspace-changed` dispatch with the selection itself, and every path that
 changes the selected workspace — the picker, a deep link, logout — goes through
 it.
 
-The structural backstop is a render guard: planning content renders only when
-`projection.workspace?.id === selectedWorkspaceId`. That makes rendering one
-workspace's projection under another's identity impossible regardless of update
-ordering or a future missed call site, which a clearing routine alone cannot
-guarantee. Detail state is reset on workspace change and each detail view
-additionally renders only when its loaded data matches the current route.
+The structural backstop is a render guard. It compares the projection against
+the **active** workspace, which is derived during render from the route — the
+route's workspace when the user can see it, and the selected workspace
+otherwise — never against the selected workspace alone. A deep link or a
+`popstate` changes the route before any effect can call `selectWorkspace`, so a
+guard reading only the selection passes for the *previous* workspace and commits
+its dashboard under the new workspace's URL, staying wrong until an effect
+catches up. Deriving the identity in the same render that reads the route makes
+that state unrepresentable rather than short-lived.
+
+Asynchronous results carry the same hazard in the other direction. Every planning
+request captures the workspace it was issued for and writes state or navigates
+only while `activeWorkspaceIdRef.current` still names it, so an artifact, import
+outcome, or admission error from a workspace the user has left is discarded
+rather than rendered under the new one. The ref is assigned during render, not in
+an effect, so it is already correct when a promise settles.
+
+Detail state is reset on workspace change and each detail view additionally
+renders only when its loaded data matches the current route.
 
 ### Safe source rendering
 

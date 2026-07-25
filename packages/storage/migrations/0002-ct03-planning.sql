@@ -224,14 +224,29 @@ CREATE TABLE plan_artifacts (
     UNIQUE (import_attempt_id, logical_filename),
     UNIQUE (workspace_id, id),
     CHECK (length(content) = byte_length),
-    -- One key, not two independent ones: the artifact's version must be the
-    -- version its attempt resolved to. A NULL version matches a failed
-    -- attempt's NULL, which is how retained failure evidence stays legal.
+    -- Two keys, deliberately. SQLite skips a composite foreign key entirely
+    -- when any child column is NULL, so the three-column coherence key alone
+    -- would leave failed-import evidence — which always has a NULL version —
+    -- with no enforced parent at all (CT03-R2R1).
+    FOREIGN KEY (workspace_id, import_attempt_id)
+      REFERENCES plan_import_attempts(workspace_id, id) ON DELETE RESTRICT,
     FOREIGN KEY (workspace_id, import_attempt_id, plan_version_id)
       REFERENCES plan_import_attempts(workspace_id, id, plan_version_id) ON DELETE RESTRICT
 ) STRICT;
 
 CREATE INDEX idx_plan_artifacts_version ON plan_artifacts(plan_version_id, role);
+
+-- A foreign key cannot say "NULL here only if NULL there", because the
+-- NULL-skip rule disables the comparison. Evidence with no version must belong
+-- to an attempt that resolved no version (CT03-R2R1).
+CREATE TRIGGER plan_artifacts_version_matches_attempt
+BEFORE INSERT ON plan_artifacts
+WHEN NEW.plan_version_id IS NULL
+ AND (SELECT plan_version_id FROM plan_import_attempts WHERE id = NEW.import_attempt_id)
+     IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'artifact must name the plan version its import attempt resolved to');
+END;
 
 CREATE TRIGGER plan_artifacts_no_update
 BEFORE UPDATE ON plan_artifacts
@@ -258,12 +273,24 @@ CREATE TABLE plan_import_diagnostics (
     work_item_source_id TEXT CHECK (work_item_source_id IS NULL OR length(work_item_source_id) <= 64),
     message             TEXT NOT NULL CHECK (length(message) BETWEEN 1 AND 500),
     UNIQUE (import_attempt_id, ordinal),
+    -- Both keys, for the same reason as plan_artifacts (CT03-R2R1).
+    FOREIGN KEY (workspace_id, import_attempt_id)
+      REFERENCES plan_import_attempts(workspace_id, id) ON DELETE RESTRICT,
     FOREIGN KEY (workspace_id, import_attempt_id, plan_version_id)
       REFERENCES plan_import_attempts(workspace_id, id, plan_version_id) ON DELETE RESTRICT
 ) STRICT;
 
 CREATE INDEX idx_plan_import_diagnostics_attempt
     ON plan_import_diagnostics(import_attempt_id, ordinal);
+
+CREATE TRIGGER plan_import_diagnostics_version_matches_attempt
+BEFORE INSERT ON plan_import_diagnostics
+WHEN NEW.plan_version_id IS NULL
+ AND (SELECT plan_version_id FROM plan_import_attempts WHERE id = NEW.import_attempt_id)
+     IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'diagnostic must name the plan version its import attempt resolved to');
+END;
 
 CREATE TRIGGER plan_import_diagnostics_no_update
 BEFORE UPDATE ON plan_import_diagnostics
@@ -524,9 +551,17 @@ CREATE TABLE workspace_events (
     payload_json   TEXT NOT NULL CHECK (
                      json_valid(payload_json)
                      AND json_type(payload_json) = 'object'),
+    -- A correlated work item must carry its project. Without this the
+    -- three-column key below is skipped by the NULL rule and the item goes
+    -- unchecked (CT03-R2R2).
+    CHECK (work_item_id IS NULL OR project_id IS NOT NULL),
     -- Correlation identifiers are workspace-keyed so an event cannot point at
     -- a project or work item belonging to a different workspace.
     FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id) ON DELETE RESTRICT,
+    -- Strictly weaker than the three-column key below given the CHECK above, so
+    -- no test can distinguish its removal. It is kept deliberately: it is the
+    -- constraint that still holds if that CHECK is ever relaxed.
+    FOREIGN KEY (workspace_id, work_item_id) REFERENCES work_items(workspace_id, id) ON DELETE RESTRICT,
     -- And when both are present they must describe the *same* project graph: a
     -- work item from a sibling project in the same workspace is not a valid
     -- correlation (CT03-RR3). A NULL work_item_id leaves this trivially

@@ -10,7 +10,7 @@ import type {
   WorkspaceSummary,
 } from '@craftingtable/contracts';
 import type { PlanArtifactId, SessionId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
-import { useCallback, useEffect, useReducer, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ActivityPanel } from './components/ActivityPanel.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
@@ -67,6 +67,33 @@ export function App() {
   );
   const { route, navigate } = useRoute();
 
+  /**
+   * The workspace this render is about.
+   *
+   * Derived from the route when it names a workspace the user belongs to, so a
+   * deep link or popstate changes identity in the *same* render rather than one
+   * render later through an effect (CT03-R2R4). Falls back to the picker
+   * selection, and ignores a route naming a workspace the user cannot see.
+   */
+  const routedWorkspaceId = route.workspaceId;
+  const activeWorkspaceId =
+    routedWorkspaceId !== undefined &&
+    workspaces.some((workspace) => workspace.id === routedWorkspaceId)
+      ? routedWorkspaceId
+      : selectedWorkspaceId;
+
+  /**
+   * A mirror of the active workspace that asynchronous callbacks can read.
+   *
+   * Every request captures the workspace it was made for and compares against
+   * this before writing state or navigating, so a deferred artifact, import
+   * outcome, or admission from the previous workspace is discarded rather than
+   * surfacing in the new one (CT03-R2R3). Assigned during render so it is
+   * current even for a route-driven change, which no effect has reacted to yet.
+   */
+  const activeWorkspaceIdRef = useRef(activeWorkspaceId);
+  activeWorkspaceIdRef.current = activeWorkspaceId;
+
   const [project, setProject] = useState<ProjectDetailResponse>();
   const [planVersion, setPlanVersion] = useState<PlanVersionDetailResponse>();
   const [workItem, setWorkItem] = useState<WorkItemDetailResponse>();
@@ -89,6 +116,8 @@ export function App() {
    */
   const selectWorkspace = useCallback((next: WorkspaceId | undefined) => {
     setSelectedWorkspaceId(next);
+    setImportBusy(false);
+    setAdmitting(false);
     setProject(undefined);
     setPlanVersion(undefined);
     setWorkItem(undefined);
@@ -150,7 +179,7 @@ export function App() {
   // authoritative snapshot (CT03-A66); it is a trigger, not a read value.
   // biome-ignore lint/correctness/useExhaustiveDependencies: deliberate refetch trigger
   useEffect(() => {
-    if (authenticationStatus !== 'authenticated' || selectedWorkspaceId === undefined) {
+    if (authenticationStatus !== 'authenticated' || activeWorkspaceId === undefined) {
       return;
     }
     let canceled = false;
@@ -158,8 +187,8 @@ export function App() {
       dispatch({ type: 'snapshot-requested' });
     }
     void Promise.all([
-      loadWorkspaceSnapshot(selectedWorkspaceId),
-      loadWorkspaceAudit(selectedWorkspaceId),
+      loadWorkspaceSnapshot(activeWorkspaceId),
+      loadWorkspaceAudit(activeWorkspaceId),
     ])
       .then(([snapshot, auditPage]) => {
         if (canceled) {
@@ -187,7 +216,7 @@ export function App() {
       canceled = true;
     };
     // `refreshToken` re-runs this effect when an event invalidates the summary.
-  }, [authenticationStatus, selectedWorkspaceId, refreshToken, projection.snapshotStatus]);
+  }, [authenticationStatus, activeWorkspaceId, refreshToken, projection.snapshotStatus]);
 
   /**
    * Relevant events mark scopes stale; the app then refetches the authoritative
@@ -201,7 +230,7 @@ export function App() {
     setRefreshToken((current) => current + 1);
   }, [projection.stale]);
 
-  const workspaceId = selectedWorkspaceId;
+  const workspaceId = activeWorkspaceId;
 
   // Detail views refetch whenever their route or the refresh token changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: deliberate refetch trigger
@@ -210,15 +239,17 @@ export function App() {
       return;
     }
     let canceled = false;
+    const requestedFor = workspaceId;
+    const current = (): boolean => !canceled && activeWorkspaceIdRef.current === requestedFor;
     const fail = (): void => {
-      if (!canceled) {
+      if (current()) {
         dispatch({ type: 'refresh-failed' });
       }
     };
     if (route.name === 'project') {
       void loadProject(workspaceId, route.projectId)
         .then((detail) => {
-          if (!canceled) {
+          if (current()) {
             setProject(detail);
           }
         })
@@ -226,7 +257,7 @@ export function App() {
     } else if (route.name === 'plan-version') {
       void loadPlanVersion(workspaceId, route.projectId, route.planVersionId)
         .then((detail) => {
-          if (!canceled) {
+          if (current()) {
             setPlanVersion(detail);
           }
         })
@@ -234,7 +265,7 @@ export function App() {
     } else if (route.name === 'work-item') {
       void loadWorkItem(workspaceId, route.workItemId)
         .then((detail) => {
-          if (!canceled) {
+          if (current()) {
             setWorkItem(detail);
           }
         })
@@ -321,45 +352,77 @@ export function App() {
     if (workspaceId === undefined || authenticated === undefined) {
       return;
     }
+    const requestedFor = workspaceId;
     setImportBusy(true);
     setImportError(undefined);
     void importPlanBundle(workspaceId, upload, authenticated.csrfToken)
       .then((response) => {
+        if (activeWorkspaceIdRef.current !== requestedFor) {
+          return;
+        }
         setImportResult(response);
         setRefreshToken((current) => current + 1);
         if (response.outcome !== 'failed-validation') {
-          go({ name: 'project', workspaceId, projectId: response.projectId });
+          go({ name: 'project', workspaceId: requestedFor, projectId: response.projectId });
         }
       })
       .catch((error: unknown) => {
+        if (activeWorkspaceIdRef.current !== requestedFor) {
+          return;
+        }
         setImportError(
           error instanceof ApiError ? error.message : 'The plan import request failed',
         );
       })
-      .finally(() => setImportBusy(false));
+      .finally(() => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setImportBusy(false);
+        }
+      });
   };
 
   const handleAdmit = (workItemId: WorkItemId): void => {
     if (workspaceId === undefined || authenticated === undefined) {
       return;
     }
+    const requestedFor = workspaceId;
     setAdmitting(true);
     setAdmitError(undefined);
     void admitWorkItem(workspaceId, workItemId, authenticated.csrfToken)
-      .then(() => setRefreshToken((current) => current + 1))
+      .then(() => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setRefreshToken((current) => current + 1);
+        }
+      })
       .catch((error: unknown) => {
+        if (activeWorkspaceIdRef.current !== requestedFor) {
+          return;
+        }
         setAdmitError(error instanceof ApiError ? error.message : 'Admission failed');
       })
-      .finally(() => setAdmitting(false));
+      .finally(() => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setAdmitting(false);
+        }
+      });
   };
 
   const viewArtifact = (artifactId: PlanArtifactId, filename: string): void => {
     if (workspaceId === undefined) {
       return;
     }
+    const requestedFor = workspaceId;
     void loadArtifactText(workspaceId, artifactId)
-      .then((text) => setArtifact({ filename, text }))
-      .catch(() => setArtifact({ filename, text: 'The source artifact could not be loaded.' }));
+      .then((text) => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setArtifact({ filename, text });
+        }
+      })
+      .catch(() => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setArtifact({ filename, text: 'The source artifact could not be loaded.' });
+        }
+      });
   };
 
   if (authenticationStatus === 'checking') {
@@ -382,7 +445,7 @@ export function App() {
     <WorkspaceShell
       username={authenticated.user.username}
       workspaces={workspaces}
-      selectedWorkspaceId={selectedWorkspaceId}
+      selectedWorkspaceId={activeWorkspaceId}
       connection={projection.connection}
       onSelectWorkspace={(id) => {
         selectWorkspace(id);
@@ -422,9 +485,10 @@ export function App() {
         <p className="error-state" role="alert">
           The workspace snapshot could not be loaded.
         </p>
-      ) : projection.workspace?.id !== selectedWorkspaceId ? (
+      ) : projection.workspace?.id !== activeWorkspaceId ? (
         // Never render one workspace's projection under another's identity,
-        // whatever order the state updates arrive in (CT03-RR4, CT03-I14).
+        // whatever order the state updates arrive in, and whether the change
+        // came from the picker or the URL (CT03-RR4, CT03-R2R4, CT03-I14).
         <p className="empty-state">Loading durable workspace snapshot…</p>
       ) : (
         <>

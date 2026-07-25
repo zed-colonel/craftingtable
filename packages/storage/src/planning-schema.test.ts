@@ -390,6 +390,9 @@ describe('planning schema', () => {
             id: asPlanArtifactId('artifact-bad-length'),
             workspaceId: seed.workspaceId,
             importAttemptId: attempt.id,
+            // Matches the attempt's version, so the byte-length CHECK is the
+            // constraint under test rather than the coherence trigger.
+            planVersionId: plan.planVersionId,
             logicalFilename: 'plan.md',
             role: 'implementation-plan',
             mediaType: 'text/markdown',
@@ -900,6 +903,218 @@ describe('evidence and correlation coherence (CT03-RR1, CT03-RR3)', () => {
            VALUES ('project-only', 1, ?, ?, ?, 'project-created', '{}')`,
         )
         .run(SEED_NOW, seed.workspaceId, first.projectId),
+    ).not.toThrow();
+  });
+});
+
+/**
+ * SQLite treats a composite foreign key as satisfied whenever any child column
+ * is NULL — it does not match that NULL to the parent's NULL. Failed-import
+ * evidence always carries a NULL version and an event may legitimately carry no
+ * work item, so the coherence keys alone silently stop enforcing anything for
+ * exactly the rows that matter most (CT03-R2R1, CT03-R2R2).
+ */
+describe('referential integrity where a column is NULL (CT03-R2R1, CT03-R2R2)', () => {
+  const CONTENT = new TextEncoder().encode('# Plan\n');
+
+  function artifact(overrides: {
+    id: string;
+    workspaceId: ReturnType<typeof seedWorkspace>['workspaceId'];
+    importAttemptId: ReturnType<typeof asPlanImportAttemptId>;
+    planVersionId?: ReturnType<typeof asPlanVersionId>;
+  }) {
+    return {
+      id: asPlanArtifactId(overrides.id),
+      workspaceId: overrides.workspaceId,
+      importAttemptId: overrides.importAttemptId,
+      ...(overrides.planVersionId === undefined ? {} : { planVersionId: overrides.planVersionId }),
+      logicalFilename: 'plan.md',
+      role: 'implementation-plan' as const,
+      mediaType: 'text/markdown',
+      byteLength: CONTENT.byteLength,
+      sha256: 'a'.repeat(64),
+      content: CONTENT,
+      createdAt: SEED_NOW,
+    };
+  }
+
+  function diagnostic(overrides: {
+    id: string;
+    workspaceId: ReturnType<typeof seedWorkspace>['workspaceId'];
+    importAttemptId: ReturnType<typeof asPlanImportAttemptId>;
+  }) {
+    return {
+      id: asPlanImportDiagnosticId(overrides.id),
+      workspaceId: overrides.workspaceId,
+      importAttemptId: overrides.importAttemptId,
+      ordinal: 0,
+      severity: 'error' as const,
+      code: 'invalid-yaml' as const,
+      message: 'bad',
+    };
+  }
+
+  /** A failed attempt in workspace b, plus a succeeded one in workspace a. */
+  function twoWorkspaceAttempts() {
+    const store = storage();
+    const first = seedWorkspace(store, 'a');
+    const second = seedWorkspace(store, 'b');
+    const planA = seedPlan(store, first, { suffix: 'a' });
+    const planB = seedPlan(store, second, { suffix: 'b', digest: uniqueDigest() });
+    const database = (store as unknown as { database: import('better-sqlite3').Database }).database;
+    const succeeded = store.transaction((tx) =>
+      tx.planning.importAttempts.insert({
+        id: asPlanImportAttemptId('attempt-succeeded'),
+        workspaceId: first.workspaceId,
+        actorUserId: first.userId,
+        outcome: 'succeeded',
+        requestedProjectName: 'Project a',
+        bundleDigest: 'd'.repeat(64),
+        digestFormatVersion: 1,
+        projectId: planA.projectId,
+        planVersionId: planA.planVersionId,
+        artifactCount: 1,
+        totalByteLength: CONTENT.byteLength,
+        errorCount: 0,
+        warningCount: 0,
+        createdAt: SEED_NOW,
+      }),
+    );
+    const foreignFailed = store.transaction((tx) =>
+      tx.planning.importAttempts.insert({
+        id: asPlanImportAttemptId('attempt-foreign-failed'),
+        workspaceId: second.workspaceId,
+        actorUserId: second.userId,
+        outcome: 'failed-validation',
+        requestedProjectName: 'Broken',
+        artifactCount: 1,
+        totalByteLength: CONTENT.byteLength,
+        errorCount: 1,
+        warningCount: 0,
+        createdAt: SEED_NOW,
+      }),
+    );
+    return { store, first, second, planA, planB, database, succeeded, foreignFailed };
+  }
+
+  it('refuses versionless artifact evidence whose attempt does not exist', () => {
+    const { store, first } = twoWorkspaceAttempts();
+    expect(() =>
+      store.transaction((tx) =>
+        tx.planning.artifacts.insertMany([
+          artifact({
+            id: 'orphan-artifact',
+            workspaceId: first.workspaceId,
+            importAttemptId: asPlanImportAttemptId('attempt-that-never-existed'),
+          }),
+        ]),
+      ),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it('refuses versionless diagnostic evidence whose attempt does not exist', () => {
+    const { store, first } = twoWorkspaceAttempts();
+    expect(() =>
+      store.transaction((tx) =>
+        tx.planning.diagnostics.insertMany([
+          diagnostic({
+            id: 'orphan-diagnostic',
+            workspaceId: first.workspaceId,
+            importAttemptId: asPlanImportAttemptId('attempt-that-never-existed'),
+          }),
+        ]),
+      ),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it('refuses versionless evidence borrowed from another workspace’s attempt', () => {
+    const { store, first, foreignFailed } = twoWorkspaceAttempts();
+    expect(() =>
+      store.transaction((tx) =>
+        tx.planning.artifacts.insertMany([
+          artifact({
+            id: 'foreign-artifact',
+            workspaceId: first.workspaceId,
+            importAttemptId: foreignFailed.id,
+          }),
+        ]),
+      ),
+    ).toThrow(/FOREIGN KEY/);
+    expect(() =>
+      store.transaction((tx) =>
+        tx.planning.diagnostics.insertMany([
+          diagnostic({
+            id: 'foreign-diagnostic',
+            workspaceId: first.workspaceId,
+            importAttemptId: foreignFailed.id,
+          }),
+        ]),
+      ),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it('refuses versionless evidence on an attempt that did resolve a version', () => {
+    const { store, first, succeeded } = twoWorkspaceAttempts();
+    expect(() =>
+      store.transaction((tx) =>
+        tx.planning.artifacts.insertMany([
+          artifact({
+            id: 'versionless-on-succeeded',
+            workspaceId: first.workspaceId,
+            importAttemptId: succeeded.id,
+          }),
+        ]),
+      ),
+    ).toThrow(/artifact must name the plan version/);
+    expect(() =>
+      store.transaction((tx) =>
+        tx.planning.diagnostics.insertMany([
+          diagnostic({
+            id: 'versionless-diagnostic-on-succeeded',
+            workspaceId: first.workspaceId,
+            importAttemptId: succeeded.id,
+          }),
+        ]),
+      ),
+    ).toThrow(/diagnostic must name the plan version/);
+  });
+
+  it('refuses an event correlating a work item without naming its project', () => {
+    const { first, planA, database } = twoWorkspaceAttempts();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO workspace_events
+             (id, schema_version, occurred_at, workspace_id, work_item_id, kind, payload_json)
+           VALUES ('item-without-project', 1, ?, ?, ?, 'work-item-admitted', '{}')`,
+        )
+        .run(SEED_NOW, first.workspaceId, planA.rootWorkItemId),
+    ).toThrow(/CHECK constraint failed/);
+  });
+
+  it('refuses an event correlating another workspace’s work item', () => {
+    const { second, planA, planB, database } = twoWorkspaceAttempts();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO workspace_events
+             (id, schema_version, occurred_at, workspace_id, project_id, work_item_id, kind, payload_json)
+           VALUES ('foreign-item', 1, ?, ?, ?, ?, 'work-item-admitted', '{}')`,
+        )
+        .run(SEED_NOW, second.workspaceId, planB.projectId, planA.rootWorkItemId),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it('still accepts an event that correlates neither a project nor a work item', () => {
+    const { first, database } = twoWorkspaceAttempts();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO workspace_events
+             (id, schema_version, occurred_at, workspace_id, kind, payload_json)
+           VALUES ('workspace-only', 1, ?, ?, 'workspace-created', '{}')`,
+        )
+        .run(SEED_NOW, first.workspaceId),
     ).not.toThrow();
   });
 });

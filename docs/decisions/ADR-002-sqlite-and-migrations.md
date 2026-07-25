@@ -2,7 +2,8 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-24
-- **Amended:** 2026-07-24 for CT-03 schema version 2
+- **Amended:** 2026-07-24 for CT-03 schema version 2, and again after the second
+  remediation re-review (CT03-R2R1, CT03-R2R2)
 
 ## Context
 
@@ -31,6 +32,24 @@ CT-03 amendment. Migration `0002` installs schema version 2. Because
 migration in one, a migration must be foreign-key clean at every statement.
 Migration 0002 therefore seeds its kind catalogs before copying any journal row.
 See ADR-013 for the one-time journal rebuild and its preservation guarantees.
+
+**A composite foreign key is not a constraint on nullable columns.** SQLite
+applies MATCH SIMPLE semantics: if *any* child column of a composite key is
+NULL, the entire key is treated as satisfied and no parent row is looked up. It
+does not match a child NULL to a parent NULL. Two rules follow, and CT-03 relies
+on both:
+
+- A composite key that adds coherence between columns never replaces the plain
+  key that enforces existence. Where a child column is legitimately NULL —
+  failure evidence with no plan version, an event with no work item — the
+  narrower key must also be declared, or those exact rows become unparented.
+- What a foreign key cannot express is "NULL here only if NULL there", because
+  the NULL-skip rule disables the comparison in precisely that case. That rule
+  is expressed with a `BEFORE INSERT` trigger or a `CHECK` instead.
+
+Any constraint kept for defence in depth that is strictly weaker than another is
+labelled as such in the migration, because its removal is not falsifiable by
+test.
 
 ## Consequences
 

@@ -176,6 +176,10 @@ CREATE TABLE plan_import_attempts (
     warning_count          INTEGER NOT NULL CHECK (warning_count >= 0),
     created_at             TEXT NOT NULL,
     UNIQUE (workspace_id, id),
+    -- Candidate key for children: an artifact or diagnostic must reference the
+    -- attempt *and* the version that attempt actually resolved to, not any
+    -- version that happens to share the workspace (CT03-RR1).
+    UNIQUE (workspace_id, id, plan_version_id),
     -- Only a failed validation lacks a resolved project and plan version.
     CHECK ((outcome = 'failed-validation') = (plan_version_id IS NULL)),
     CHECK ((outcome = 'failed-validation') = (project_id IS NULL)),
@@ -220,8 +224,11 @@ CREATE TABLE plan_artifacts (
     UNIQUE (import_attempt_id, logical_filename),
     UNIQUE (workspace_id, id),
     CHECK (length(content) = byte_length),
-    FOREIGN KEY (workspace_id, import_attempt_id) REFERENCES plan_import_attempts(workspace_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id, plan_version_id) REFERENCES plan_versions(workspace_id, id) ON DELETE RESTRICT
+    -- One key, not two independent ones: the artifact's version must be the
+    -- version its attempt resolved to. A NULL version matches a failed
+    -- attempt's NULL, which is how retained failure evidence stays legal.
+    FOREIGN KEY (workspace_id, import_attempt_id, plan_version_id)
+      REFERENCES plan_import_attempts(workspace_id, id, plan_version_id) ON DELETE RESTRICT
 ) STRICT;
 
 CREATE INDEX idx_plan_artifacts_version ON plan_artifacts(plan_version_id, role);
@@ -251,8 +258,8 @@ CREATE TABLE plan_import_diagnostics (
     work_item_source_id TEXT CHECK (work_item_source_id IS NULL OR length(work_item_source_id) <= 64),
     message             TEXT NOT NULL CHECK (length(message) BETWEEN 1 AND 500),
     UNIQUE (import_attempt_id, ordinal),
-    FOREIGN KEY (workspace_id, import_attempt_id) REFERENCES plan_import_attempts(workspace_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id, plan_version_id) REFERENCES plan_versions(workspace_id, id) ON DELETE RESTRICT
+    FOREIGN KEY (workspace_id, import_attempt_id, plan_version_id)
+      REFERENCES plan_import_attempts(workspace_id, id, plan_version_id) ON DELETE RESTRICT
 ) STRICT;
 
 CREATE INDEX idx_plan_import_diagnostics_attempt
@@ -295,6 +302,8 @@ CREATE TABLE work_items (
     UNIQUE (plan_version_id, ordinal),
     UNIQUE (plan_version_id, id),
     UNIQUE (workspace_id, id),
+    -- Candidate key for event correlation (CT03-RR3).
+    UNIQUE (workspace_id, project_id, id),
     CHECK (
       (status = 'admitted' AND admitted_at IS NOT NULL AND admitted_by_user_id IS NOT NULL)
       OR (status = 'proposed' AND admitted_at IS NULL AND admitted_by_user_id IS NULL)
@@ -308,49 +317,41 @@ CREATE TABLE work_items (
 CREATE INDEX idx_work_items_version_status ON work_items(plan_version_id, status);
 CREATE INDEX idx_work_items_project ON work_items(project_id, plan_version_id);
 
--- Making plan_versions immutable does not by itself make the versioned work
--- graph immutable. Every imported field of a work item is frozen here, so an
--- already-committed plan version cannot have its meaning rewritten without a
--- new version. `IS NOT` is used rather than `<>` so NULL-to-value changes are
--- caught too.
-CREATE TRIGGER work_items_source_immutable
-BEFORE UPDATE ON work_items
-WHEN OLD.workspace_id       IS NOT NEW.workspace_id
-  OR OLD.project_id         IS NOT NEW.project_id
-  OR OLD.plan_version_id    IS NOT NEW.plan_version_id
-  OR OLD.source_id          IS NOT NEW.source_id
-  OR OLD.ordinal            IS NOT NEW.ordinal
-  OR OLD.title              IS NOT NEW.title
-  OR OLD.risk               IS NOT NEW.risk
-  OR OLD.phase              IS NOT NEW.phase
-  OR OLD.primary_areas_json IS NOT NEW.primary_areas_json
-  OR OLD.exit_gate          IS NOT NEW.exit_gate
-  OR OLD.source_fields_json IS NOT NEW.source_fields_json
-BEGIN
-  SELECT RAISE(ABORT, 'imported work item fields are immutable');
-END;
-
--- CT-03 exposes exactly one transition. Scoped to UPDATE OF status so that a
--- content rewrite is reported by the trigger above, which names the real
--- problem, rather than by this one.
+-- A work item accepts exactly one update: the atomic proposed-to-admitted
+-- transition, carrying its actor attribution and a single version increment.
+-- Everything else — rewriting imported content, moving the item between
+-- versions or projects, bumping the controller version on its own, or touching
+-- an already-admitted row — is refused.
+--
+-- Stated as one rule rather than several overlapping triggers: splitting it
+-- made the reported reason depend on SQLite's trigger firing order
+-- (CT03-R2, CT03-RR2). `IS` rather than `=` so NULL-to-value changes count as
+-- changes.
 CREATE TRIGGER work_items_admission_only
-BEFORE UPDATE OF status ON work_items
+BEFORE UPDATE ON work_items
 WHEN NOT (
-  OLD.status = 'proposed'
+      OLD.workspace_id       IS NEW.workspace_id
+  AND OLD.project_id         IS NEW.project_id
+  AND OLD.plan_version_id    IS NEW.plan_version_id
+  AND OLD.source_id          IS NEW.source_id
+  AND OLD.ordinal            IS NEW.ordinal
+  AND OLD.title              IS NEW.title
+  AND OLD.risk               IS NEW.risk
+  AND OLD.phase              IS NEW.phase
+  AND OLD.primary_areas_json IS NEW.primary_areas_json
+  AND OLD.exit_gate          IS NEW.exit_gate
+  AND OLD.source_fields_json IS NEW.source_fields_json
+  AND OLD.status = 'proposed'
   AND NEW.status = 'admitted'
   AND NEW.version = OLD.version + 1
+  AND NEW.admitted_at IS NOT NULL
+  AND NEW.admitted_by_user_id IS NOT NULL
 )
 BEGIN
-  SELECT RAISE(ABORT, 'work items support only the proposed-to-admitted transition');
-END;
-
--- Admission is terminal in CT-03: once admitted, nothing about the row may
--- change again, including its actor and time attribution.
-CREATE TRIGGER work_items_admission_final
-BEFORE UPDATE ON work_items
-WHEN OLD.status = 'admitted'
-BEGIN
-  SELECT RAISE(ABORT, 'an admitted work item is final in CT-03');
+  SELECT RAISE(
+    ABORT,
+    'a work item accepts only the atomic proposed-to-admitted transition; imported fields, the controller version, and admitted rows are immutable'
+  );
 END;
 
 CREATE TRIGGER work_items_no_delete
@@ -526,7 +527,12 @@ CREATE TABLE workspace_events (
     -- Correlation identifiers are workspace-keyed so an event cannot point at
     -- a project or work item belonging to a different workspace.
     FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id, work_item_id) REFERENCES work_items(workspace_id, id) ON DELETE RESTRICT
+    -- And when both are present they must describe the *same* project graph: a
+    -- work item from a sibling project in the same workspace is not a valid
+    -- correlation (CT03-RR3). A NULL work_item_id leaves this trivially
+    -- satisfied, which is how the kinds without an item stay legal.
+    FOREIGN KEY (workspace_id, project_id, work_item_id)
+      REFERENCES work_items(workspace_id, project_id, id) ON DELETE RESTRICT
 ) STRICT;
 
 INSERT INTO workspace_events (

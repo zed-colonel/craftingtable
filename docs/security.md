@@ -66,10 +66,16 @@ sources, and no route accepts a path, URL, shell string, or archive.
   point its active version at another project's or another workspace's plan, a
   work item cannot be reassigned to a project that does not own its version, and
   a workspace event cannot correlate to a foreign project or work item.
+- Ownership keys are coherent, not merely workspace-scoped. Evidence must name
+  the version its import attempt actually resolved to, and a workspace event
+  correlating both a project and a work item must describe the same project
+  graph. Same-workspace cross-project mixtures are rejected by the database.
 - Imported planning content is immutable. Plan versions, artifacts, drafts,
   import attempts, diagnostics, and dependency edges reject update and delete
-  outright; a work item accepts only the single proposed-to-admitted transition
-  and is terminal afterwards. Rewriting an already-imported plan version is
+  outright; a work item accepts only the single proposed-to-admitted transition,
+  carrying its actor attribution and exactly one version increment, and is
+  terminal afterwards. Its controller version cannot be changed on its own, so
+  audit attribution cannot be fabricated ahead of a later admission. Rewriting an already-imported plan version is
   impossible without creating a new version.
 - A non-member receives the same 404 a missing resource does. A member with an
   insufficient role receives 403, since the workspace's existence is not secret

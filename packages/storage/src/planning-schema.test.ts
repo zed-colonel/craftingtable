@@ -433,18 +433,29 @@ describe('planning schema', () => {
     const plan = seedPlan(store, seed);
     const database = (store as unknown as { database: import('better-sqlite3').Database }).database;
 
-    // A bare status flip is stopped by the transition trigger first.
+    // Attribution is part of the one valid transition, so an update omitting
+    // it is refused by the guard rather than reaching the CHECK constraint.
     expect(() =>
       database
         .prepare(`UPDATE work_items SET status = 'admitted' WHERE id = ?`)
         .run(plan.rootWorkItemId),
     ).toThrow(/proposed-to-admitted/);
-
-    // A correctly shaped transition still has to carry actor attribution.
     expect(() =>
       database
         .prepare(`UPDATE work_items SET status = 'admitted', version = version + 1 WHERE id = ?`)
         .run(plan.rootWorkItemId),
+    ).toThrow(/proposed-to-admitted/);
+
+    // The CHECK constraint remains the backstop for a direct insert, which no
+    // trigger covers.
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO work_items (id,workspace_id,project_id,plan_version_id,source_id,ordinal,
+              title,status,risk,primary_areas_json,exit_gate,source_fields_json,version)
+            VALUES ('unattributed',?,?,?,'WI-99',99,'T','admitted','low','[]','G','{}',1)`,
+        )
+        .run(seed.workspaceId, plan.projectId, plan.planVersionId),
     ).toThrow(/CHECK/);
   });
 
@@ -604,7 +615,9 @@ describe('historical work-graph immutability (CT03-R2)', () => {
     ['workspace_id', `UPDATE work_items SET workspace_id = 'workspace-b' WHERE id = ?`],
   ])('refuses to rewrite an imported work item %s', (_field, sql) => {
     const { plan, database } = seeded();
-    expect(() => database.prepare(sql).run(plan.rootWorkItemId)).toThrow(/immutable/);
+    expect(() => database.prepare(sql).run(plan.rootWorkItemId)).toThrow(
+      /accepts only the atomic proposed-to-admitted transition/,
+    );
   });
 
   it('refuses to delete an imported work item or dependency edge', () => {
@@ -681,11 +694,256 @@ describe('historical work-graph immutability (CT03-R2)', () => {
       database
         .prepare(`UPDATE work_items SET status = 'proposed' WHERE id = ?`)
         .run(plan.rootWorkItemId),
-    ).toThrow(/final/);
+    ).toThrow(/accepts only the atomic proposed-to-admitted transition/);
     expect(() =>
       database
         .prepare(`UPDATE work_items SET admitted_by_user_id = 'user-b' WHERE id = ?`)
         .run(plan.rootWorkItemId),
-    ).toThrow(/final/);
+    ).toThrow(/accepts only the atomic proposed-to-admitted transition/);
+  });
+});
+
+/**
+ * Regression cover for the remediation re-review (CT03-RR1 to CT03-RR3).
+ *
+ * The first remediation closed direct parent ownership but left three
+ * relationships unenforced: evidence could name one attempt and a different
+ * version, a proposed item's controller version was freely mutable, and an
+ * event could correlate a project with a sibling project's work item.
+ */
+describe('evidence and correlation coherence (CT03-RR1, CT03-RR3)', () => {
+  function twoProjects() {
+    const store = storage();
+    const seed = seedWorkspace(store, 'a');
+    const first = seedPlan(store, seed, { suffix: 'a' });
+    const second = seedPlan(store, seed, { suffix: 'b', digest: uniqueDigest() });
+    const database = (store as unknown as { database: import('better-sqlite3').Database }).database;
+    const attempt = store.transaction((tx) =>
+      tx.planning.importAttempts.insert({
+        id: asPlanImportAttemptId('attempt-a'),
+        workspaceId: seed.workspaceId,
+        actorUserId: seed.userId,
+        outcome: 'succeeded',
+        requestedProjectName: 'Project a',
+        bundleDigest: 'd'.repeat(64),
+        digestFormatVersion: 1,
+        projectId: first.projectId,
+        planVersionId: first.planVersionId,
+        artifactCount: 1,
+        totalByteLength: 7,
+        errorCount: 0,
+        warningCount: 0,
+        createdAt: SEED_NOW,
+      }),
+    );
+    return { store, seed, first, second, database, attempt };
+  }
+
+  it('refuses an artifact naming one attempt and a different version (CT03-RR1)', () => {
+    const { store, seed, second, attempt } = twoProjects();
+    expect(() =>
+      store.transaction((tx) =>
+        tx.planning.artifacts.insertMany([
+          {
+            id: asPlanArtifactId('mismatched'),
+            workspaceId: seed.workspaceId,
+            importAttemptId: attempt.id,
+            // Same workspace, but not the version this attempt resolved to.
+            planVersionId: second.planVersionId,
+            logicalFilename: 'plan.md',
+            role: 'implementation-plan',
+            mediaType: 'text/markdown',
+            byteLength: 7,
+            sha256: 'a'.repeat(64),
+            content: new TextEncoder().encode('# Plan\n'),
+            createdAt: SEED_NOW,
+          },
+        ]),
+      ),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it('refuses a diagnostic naming one attempt and a different version (CT03-RR1)', () => {
+    const { store, seed, second, attempt } = twoProjects();
+    expect(() =>
+      store.transaction((tx) =>
+        tx.planning.diagnostics.insertMany([
+          {
+            id: asPlanImportDiagnosticId('mismatched'),
+            workspaceId: seed.workspaceId,
+            importAttemptId: attempt.id,
+            planVersionId: second.planVersionId,
+            ordinal: 0,
+            severity: 'warning',
+            code: 'unrecognized-risk',
+            message: 'mismatched',
+          },
+        ]),
+      ),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it('refuses attaching a version to a failed attempt, which resolved none', () => {
+    const store = storage();
+    const seed = seedWorkspace(store, 'a');
+    const plan = seedPlan(store, seed);
+    const failed = store.transaction((tx) =>
+      tx.planning.importAttempts.insert({
+        id: asPlanImportAttemptId('attempt-failed'),
+        workspaceId: seed.workspaceId,
+        actorUserId: seed.userId,
+        outcome: 'failed-validation',
+        requestedProjectName: 'Broken',
+        artifactCount: 1,
+        totalByteLength: 7,
+        errorCount: 1,
+        warningCount: 0,
+        createdAt: SEED_NOW,
+      }),
+    );
+    expect(() =>
+      store.transaction((tx) =>
+        tx.planning.artifacts.insertMany([
+          {
+            id: asPlanArtifactId('failed-with-version'),
+            workspaceId: seed.workspaceId,
+            importAttemptId: failed.id,
+            planVersionId: plan.planVersionId,
+            logicalFilename: 'plan.md',
+            role: 'implementation-plan',
+            mediaType: 'text/markdown',
+            byteLength: 7,
+            sha256: 'a'.repeat(64),
+            content: new TextEncoder().encode('# Plan\n'),
+            createdAt: SEED_NOW,
+          },
+        ]),
+      ),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it('still accepts retained failure evidence with no version', () => {
+    const store = storage();
+    const seed = seedWorkspace(store, 'a');
+    expect(() =>
+      store.transaction((tx) => {
+        const failed = tx.planning.importAttempts.insert({
+          id: asPlanImportAttemptId('attempt-failed'),
+          workspaceId: seed.workspaceId,
+          actorUserId: seed.userId,
+          outcome: 'failed-validation',
+          requestedProjectName: 'Broken',
+          artifactCount: 1,
+          totalByteLength: 7,
+          errorCount: 1,
+          warningCount: 0,
+          createdAt: SEED_NOW,
+        });
+        tx.planning.artifacts.insertMany([
+          {
+            id: asPlanArtifactId('failure-evidence'),
+            workspaceId: seed.workspaceId,
+            importAttemptId: failed.id,
+            logicalFilename: 'plan.md',
+            role: 'implementation-plan',
+            mediaType: 'text/markdown',
+            byteLength: 7,
+            sha256: 'a'.repeat(64),
+            content: new TextEncoder().encode('# Plan\n'),
+            createdAt: SEED_NOW,
+          },
+        ]);
+        tx.planning.diagnostics.insertMany([
+          {
+            id: asPlanImportDiagnosticId('failure-diagnostic'),
+            workspaceId: seed.workspaceId,
+            importAttemptId: failed.id,
+            ordinal: 0,
+            severity: 'error',
+            code: 'invalid-yaml',
+            message: 'bad',
+          },
+        ]);
+      }),
+    ).not.toThrow();
+  });
+
+  it('refuses an event correlating a project with a sibling project item (CT03-RR3)', () => {
+    const { seed, first, second, database } = twoProjects();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO workspace_events
+             (id, schema_version, occurred_at, workspace_id, project_id, work_item_id, kind, payload_json)
+           VALUES ('cross-project', 1, ?, ?, ?, ?, 'work-item-admitted', '{}')`,
+        )
+        .run(SEED_NOW, seed.workspaceId, first.projectId, second.rootWorkItemId),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it('accepts a correct correlation and the kinds that carry no work item', () => {
+    const { seed, first, database } = twoProjects();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO workspace_events
+             (id, schema_version, occurred_at, workspace_id, project_id, work_item_id, kind, payload_json)
+           VALUES ('matched', 1, ?, ?, ?, ?, 'work-item-admitted', '{}')`,
+        )
+        .run(SEED_NOW, seed.workspaceId, first.projectId, first.rootWorkItemId),
+    ).not.toThrow();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO workspace_events
+             (id, schema_version, occurred_at, workspace_id, project_id, kind, payload_json)
+           VALUES ('project-only', 1, ?, ?, ?, 'project-created', '{}')`,
+        )
+        .run(SEED_NOW, seed.workspaceId, first.projectId),
+    ).not.toThrow();
+  });
+});
+
+describe('controller version integrity (CT03-RR2)', () => {
+  it.each([
+    ['version alone', `UPDATE work_items SET version = version + 40 WHERE id = ?`],
+    ['version to a lower value', `UPDATE work_items SET version = 0 WHERE id = ?`],
+    [
+      'admitted_at without a transition',
+      `UPDATE work_items SET admitted_at = '2026-01-01T00:00:00.000Z' WHERE id = ?`,
+    ],
+    [
+      'admitted_by_user_id without a transition',
+      `UPDATE work_items SET admitted_by_user_id = 'user-a' WHERE id = ?`,
+    ],
+  ])('refuses to change %s on a proposed item', (_label, sql) => {
+    const store = storage();
+    const seed = seedWorkspace(store, 'a');
+    const plan = seedPlan(store, seed);
+    const database = (store as unknown as { database: import('better-sqlite3').Database }).database;
+
+    expect(() => database.prepare(sql).run(plan.rootWorkItemId)).toThrow(
+      /proposed-to-admitted|CHECK/,
+    );
+    // The controller version is unchanged, so a later admission reports the
+    // real prior and resulting versions.
+    expect(store.planning.workItems.find(seed.workspaceId, plan.rootWorkItemId)?.version).toBe(1);
+  });
+
+  it('reports true prior and resulting versions through a real admission', () => {
+    const store = storage();
+    const seed = seedWorkspace(store, 'a');
+    const plan = seedPlan(store, seed);
+    const before = store.planning.workItems.find(seed.workspaceId, plan.rootWorkItemId);
+    const admitted = store.transaction((tx) =>
+      tx.planning.workItems.admit({
+        workItemId: plan.rootWorkItemId,
+        workspaceId: seed.workspaceId,
+        admittedAt: SEED_NOW,
+        admittedByUserId: seed.userId,
+      }),
+    );
+    expect(before?.version).toBe(1);
+    expect(admitted?.version).toBe(2);
   });
 });

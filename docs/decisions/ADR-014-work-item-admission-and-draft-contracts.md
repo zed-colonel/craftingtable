@@ -3,6 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-07-24
 - **Amended:** 2026-07-24 after independent review (CT03-R2, CT03-R3)
+- **Amended:** 2026-07-24 after remediation re-review (CT03-RR2)
 
 ## Context
 
@@ -77,8 +78,17 @@ wire contract never reaches the database, and the browser consumes the inferred
 type with no local re-declaration and no cast. An added authorization-looking
 field is a parse failure rather than a rendering surprise.
 
-Admission is also terminal at the database level: an admitted work item rejects
-every further update, so its actor and time attribution cannot be rewritten.
+Admission is also terminal at the database level. One trigger states the whole
+rule: a work item accepts an update only when every imported field is unchanged,
+the status moves proposed → admitted, the controller version increments by
+exactly one, and actor attribution is present. Anything else — a content
+rewrite, a move between versions or projects, a bare version bump, or any touch
+of an already-admitted row — aborts.
+
+It is deliberately one trigger rather than several. Splitting the rule made the
+reported reason depend on SQLite's trigger firing order, and leaving the
+controller version outside the rule let a bare version bump through, which would
+have made a later admission record a fabricated prior and resulting version.
 
 Drafts are immutable in CT-03: `work_contract_drafts` carries no-update and
 no-delete triggers, so the draft cannot transition even at the database level.

@@ -3,6 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-07-24
 - **Amended:** 2026-07-24 after independent review (CT03-R6)
+- **Amended:** 2026-07-24 after remediation re-review (CT03-RR4)
 
 ## Context
 
@@ -69,10 +70,22 @@ Preserving events, the cursor, or diagnostic counters across a *different*
 workspace merged one workspace's activity into another's projection.
 
 `snapshot-loaded` therefore retains state only when the incoming snapshot names
-the same workspace, and a `workspace-changed` action clears the projection the
-moment the selection changes, so nothing from the previous workspace renders
-even briefly. Detail state is reset on workspace change and each detail view
-renders only when its loaded data matches the current route identity.
+the same workspace.
+
+Clearing must happen *in the selection transition*, not in an effect that reacts
+to it. A `useEffect` runs after the render commits, so a single frame could show
+the new workspace selected while still rendering the previous workspace's
+summaries, projects, activity, and audit. A `selectWorkspace` helper now batches
+the `workspace-changed` dispatch with the selection itself, and every path that
+changes the selected workspace — the picker, a deep link, logout — goes through
+it.
+
+The structural backstop is a render guard: planning content renders only when
+`projection.workspace?.id === selectedWorkspaceId`. That makes rendering one
+workspace's projection under another's identity impossible regardless of update
+ordering or a future missed call site, which a clearing routine alone cannot
+guarantee. Detail state is reset on workspace change and each detail view
+additionally renders only when its loaded data matches the current route.
 
 ### Safe source rendering
 

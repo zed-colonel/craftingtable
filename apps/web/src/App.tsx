@@ -10,7 +10,7 @@ import type {
   WorkspaceSummary,
 } from '@craftingtable/contracts';
 import type { PlanArtifactId, SessionId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useState } from 'react';
 import { ActivityPanel } from './components/ActivityPanel.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
@@ -78,15 +78,17 @@ export function App() {
   const [admitError, setAdmitError] = useState<string>();
   const [refreshToken, setRefreshToken] = useState(0);
 
-  // Detail state belongs to one workspace. Clearing it on a workspace change
-  // stops a stale project, plan version, work item, or artifact from rendering
-  // under a workspace that does not own it (CT03-R6).
-  const previousWorkspaceId = useRef<WorkspaceId>(undefined);
-  useEffect(() => {
-    if (previousWorkspaceId.current === selectedWorkspaceId) {
-      return;
-    }
-    previousWorkspaceId.current = selectedWorkspaceId;
+  /**
+   * Switches workspace in one synchronous transition.
+   *
+   * Clearing in a `useEffect` ran *after* the render committed, so a single
+   * frame could show the new workspace selected while still rendering the
+   * previous workspace's summaries, projects, activity, and audit (CT03-RR4).
+   * These updates are batched with the selection itself, so no such frame
+   * exists. The render guard below is the structural backstop.
+   */
+  const selectWorkspace = useCallback((next: WorkspaceId | undefined) => {
+    setSelectedWorkspaceId(next);
     setProject(undefined);
     setPlanVersion(undefined);
     setWorkItem(undefined);
@@ -97,7 +99,7 @@ export function App() {
     setAudit([]);
     setStreamAfter(0);
     dispatch({ type: 'workspace-changed' });
-  }, [selectedWorkspaceId]);
+  }, []);
 
   const establishSession = useCallback(async (session: AuthenticatedSessionResponse) => {
     setAuthenticated(session);
@@ -108,11 +110,10 @@ export function App() {
     ]);
     setWorkspaces(workspaceResponse.workspaces);
     setSessions(sessionResponse.sessions);
-    setSelectedWorkspaceId((current) =>
-      workspaceResponse.workspaces.some((workspace) => workspace.id === current)
-        ? current
-        : workspaceResponse.workspaces[0]?.id,
-    );
+    setSelectedWorkspaceId((current) => {
+      const keep = workspaceResponse.workspaces.some((workspace) => workspace.id === current);
+      return keep ? current : workspaceResponse.workspaces[0]?.id;
+    });
   }, []);
 
   useEffect(() => {
@@ -134,11 +135,16 @@ export function App() {
   useEffect(() => {
     if (route.name !== 'dashboard' || route.workspaceId !== undefined) {
       const target = route.name === 'dashboard' ? route.workspaceId : route.workspaceId;
-      if (target !== undefined && workspaces.some((workspace) => workspace.id === target)) {
-        setSelectedWorkspaceId(target);
+      if (
+        target !== undefined &&
+        target !== selectedWorkspaceId &&
+        workspaces.some((workspace) => workspace.id === target)
+      ) {
+        // A deep link to another workspace is a workspace switch too.
+        selectWorkspace(target);
       }
     }
-  }, [route, workspaces]);
+  }, [route, workspaces, selectedWorkspaceId, selectWorkspace]);
 
   // An invalidating event bumps refreshToken so this effect re-reads the
   // authoritative snapshot (CT03-A66); it is a trigger, not a read value.
@@ -288,8 +294,7 @@ export function App() {
       setAuthenticated(undefined);
       setWorkspaces([]);
       setSessions([]);
-      setAudit([]);
-      setSelectedWorkspaceId(undefined);
+      selectWorkspace(undefined);
       setAuthenticationStatus('unauthenticated');
     }
   };
@@ -380,7 +385,7 @@ export function App() {
       selectedWorkspaceId={selectedWorkspaceId}
       connection={projection.connection}
       onSelectWorkspace={(id) => {
-        setSelectedWorkspaceId(id);
+        selectWorkspace(id);
         go({ name: 'dashboard', workspaceId: id });
       }}
       onLogout={() => void handleLogout()}
@@ -417,6 +422,10 @@ export function App() {
         <p className="error-state" role="alert">
           The workspace snapshot could not be loaded.
         </p>
+      ) : projection.workspace?.id !== selectedWorkspaceId ? (
+        // Never render one workspace's projection under another's identity,
+        // whatever order the state updates arrive in (CT03-RR4, CT03-I14).
+        <p className="empty-state">Loading durable workspace snapshot…</p>
       ) : (
         <>
           {projection.refreshFailed && (

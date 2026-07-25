@@ -83,9 +83,12 @@ Bootstrap still runs in the separate CLI process, so its daemon visibility
 correctly relies on the durable re-query.
 
 Planning ownership and history are database guarantees. Composite foreign keys
-close the workspace/project/version/item chain, and triggers freeze every
-imported field, so neither a defect in a service nor a direct SQL statement can
-rewrite a committed plan version or move a record between workspaces.
+close the workspace/project/version/item chain — including evidence to the
+version its attempt resolved to, and event correlation to a single project graph
+— and one trigger per table freezes imported content. Neither a defect in a
+service nor a direct SQL statement can rewrite a committed plan version, move a
+record between workspaces or projects, or change a work item outside the single
+atomic admission transition.
 
 A successful plan import is one atomic transition:
 

@@ -12,7 +12,7 @@ export interface ServerConfig {
   readonly logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 }
 
-export const SERVER_VERSION = '0.2.0';
+export const SERVER_VERSION = '0.3.0';
 export const SESSION_COOKIE_NAME = 'craftingtable_session';
 export const CSRF_HEADER_NAME = 'x-craftingtable-csrf';
 

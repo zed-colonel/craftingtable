@@ -4,6 +4,9 @@ import type { ServerConfig } from './config.js';
 import { Argon2PasswordHasher, type PasswordHasher } from './security/password-hasher.js';
 import { SessionTokenService } from './security/session-tokens.js';
 import { BootstrapService } from './services/bootstrap-service.js';
+import { PlanImportService } from './services/plan-import-service.js';
+import { PlanningQueryService } from './services/planning-query-service.js';
+import { WorkItemService } from './services/work-item-service.js';
 import { AuthService } from './services/auth-service.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
 import {
@@ -17,6 +20,9 @@ export interface ServiceSet {
   readonly bootstrapService: BootstrapService;
   readonly authService: AuthService;
   readonly workspaceService: WorkspaceService;
+  readonly planImportService: PlanImportService;
+  readonly planningQueryService: PlanningQueryService;
+  readonly workItemService: WorkItemService;
   readonly workspaceEventNotifier: WorkspaceEventNotifier;
   readonly workspaceEventStreamService: WorkspaceEventStreamService;
 }
@@ -46,10 +52,16 @@ export async function createServices(
     now,
   );
   const workspaceService = new WorkspaceService(storage, now);
+  const planImportService = new PlanImportService(storage, workspaceService, notifier, now);
+  const planningQueryService = new PlanningQueryService(storage, workspaceService);
+  const workItemService = new WorkItemService(storage, workspaceService, notifier, now);
   return {
     bootstrapService: new BootstrapService(storage, passwordHasher, notifier, now),
     authService,
     workspaceService,
+    planImportService,
+    planningQueryService,
+    workItemService,
     workspaceEventNotifier: notifier,
     workspaceEventStreamService: new WorkspaceEventStreamService(
       storage,
@@ -79,6 +91,9 @@ export async function createRuntime(
       {
         authService: services.authService,
         workspaceService: services.workspaceService,
+        planImportService: services.planImportService,
+        planningQueryService: services.planningQueryService,
+        workItemService: services.workItemService,
         workspaceEventStreamService: services.workspaceEventStreamService,
       },
       config,

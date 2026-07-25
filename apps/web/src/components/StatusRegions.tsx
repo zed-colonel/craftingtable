@@ -6,33 +6,35 @@ export function StatusRegions({
 }: {
   summary: WorkspaceSnapshotResponse['statusSummary'];
 }) {
+  // Labels are deliberately unambiguous: CT-03 owns planning readiness only,
+  // never executable or merge readiness (CT-03 §5.11).
   const regions = [
     {
       id: 'needs-attention',
       label: 'Needs attention',
       count: summary.needsAttention,
-      hint: 'No executable work in CT-02',
+      hint: 'Imports that failed or carry warnings',
       accent: 'var(--color-attention)',
     },
     {
       id: 'active',
       label: 'Active',
       count: summary.active,
-      hint: 'No executable work in CT-02',
+      hint: 'Admitted into the agenda',
       accent: 'var(--color-active)',
     },
     {
       id: 'ready',
-      label: 'Ready',
-      count: summary.ready,
-      hint: 'No executable work in CT-02',
+      label: 'Ready for admission',
+      count: summary.planningReady,
+      hint: 'Proposed with every required predecessor satisfied',
       accent: 'var(--color-ready)',
     },
     {
       id: 'blocked',
-      label: 'Blocked',
-      count: summary.blocked,
-      hint: 'No executable work in CT-02',
+      label: 'Dependency-blocked',
+      count: summary.dependencyBlocked,
+      hint: 'Waiting on an unfinished required predecessor',
       accent: 'var(--color-blocked)',
     },
   ];

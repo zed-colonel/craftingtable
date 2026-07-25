@@ -1,0 +1,14 @@
+document: Two node cycle plan
+pull_requests:
+- id: WI-01
+  title: First
+  depends_on: [WI-02]
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.
+- id: WI-02
+  title: Second
+  depends_on: [WI-01]
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.

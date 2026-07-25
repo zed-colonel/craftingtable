@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { asAuditEventId, type WorkspaceId } from '@craftingtable/domain';
-import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
+import { asAuditEventId, type WorkspaceId, type WorkspaceRole } from '@craftingtable/domain';
+import type {
+  AuthorizedWorkspace,
+  CraftingTableStorage,
+  StorageRepositories,
+} from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
-import { NotFoundError } from './errors.js';
+import { ForbiddenError, NotFoundError } from './errors.js';
 
 export class WorkspaceService {
   constructor(
@@ -22,6 +26,13 @@ export class WorkspaceService {
       }));
   }
 
+  /**
+   * Snapshot plus planning summaries.
+   *
+   * Every count and `asOfSequence` are read inside the *same* deferred
+   * transaction, so the browser can never see counts from one instant paired
+   * with a cursor from another (CT03-A48).
+   */
   snapshot(context: AuthContext, workspaceId: WorkspaceId, requestId?: string) {
     const snapshot = this.storage.readTransaction((tx) => {
       const authorized = tx.workspaces.findAuthorized(context.user.id, workspaceId);
@@ -29,6 +40,7 @@ export class WorkspaceService {
         return undefined;
       }
       const asOfSequence = tx.workspaceEvents.maxSequence();
+      const planning = tx.planning.queries.workspaceSummary(workspaceId);
       return {
         workspace: {
           id: authorized.workspace.id,
@@ -38,7 +50,14 @@ export class WorkspaceService {
           role: authorized.membership.role,
         },
         asOfSequence,
-        statusSummary: { needsAttention: 0, active: 0, ready: 0, blocked: 0 },
+        statusSummary: {
+          needsAttention: planning.importAttentionCount,
+          active: planning.admittedCount,
+          planningReady: planning.planningReadyCount,
+          dependencyBlocked: planning.dependencyBlockedCount,
+        },
+        planningSummary: planning,
+        projects: tx.planning.queries.projectSummaries(workspaceId, 50),
         recentActivity: tx.workspaceEvents.listRecentAtOrBefore({
           workspaceId,
           asOfSequence,
@@ -92,6 +111,30 @@ export class WorkspaceService {
       this.recordDenied(context, workspaceId, requestId);
       throw new NotFoundError();
     }
+  }
+
+  /**
+   * Requires membership *and* one of the given roles.
+   *
+   * A non-member gets the same 404 a missing workspace does, preserving CT-02's
+   * non-disclosure posture. A member with an insufficient role gets 403: they
+   * already know the workspace exists, so there is nothing to conceal.
+   */
+  requireRole(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    roles: readonly WorkspaceRole[],
+    options: { readonly requestId?: string } = {},
+  ): AuthorizedWorkspace {
+    const authorized = this.storage.workspaces.findAuthorized(context.user.id, workspaceId);
+    if (authorized === undefined) {
+      this.recordDenied(context, workspaceId, options.requestId);
+      throw new NotFoundError();
+    }
+    if (!roles.includes(authorized.membership.role)) {
+      throw new ForbiddenError();
+    }
+    return authorized;
   }
 
   private recordDenied(context: AuthContext, workspaceId: WorkspaceId, requestId?: string): void {

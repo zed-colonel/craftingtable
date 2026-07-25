@@ -3,7 +3,7 @@ contract: CT-03
 source_baseline: c8e2396a65466bdde95bf740771af63b4fc2272e
 fixture:
   path: fixtures/plan-bundles/aq-cont-1
-  expectations: work-items/CT-03-aq-import-expectations.yaml
+  expectations: work-items/CT-03/CT-03-aq-import-expectations.yaml
 rules:
 - Every acceptance case must map to concrete automated evidence or an explicitly documented inspection.
 - All persisted-state cases use real temporary SQLite files.

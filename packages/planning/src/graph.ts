@@ -1,0 +1,269 @@
+import { error, type PlanDiagnostic, warning } from './diagnostics.js';
+import { PLAN_LIMITS } from './limits.js';
+import type { NormalizedPlan } from './normalize.js';
+
+export interface PlanEdge {
+  readonly predecessorSourceId: string;
+  readonly successorSourceId: string;
+  /** Position within the successor's dependency list; display order only. */
+  readonly ordinal: number;
+}
+
+export interface PlanGraph {
+  readonly requiredEdges: readonly PlanEdge[];
+  readonly recommendedEdges: readonly PlanEdge[];
+  /** Items with no required predecessor. */
+  readonly rootSourceIds: readonly string[];
+  /**
+   * Items whose every required predecessor is Completed. CT-03 has no
+   * completion workflow, so this equals `rootSourceIds` for a freshly imported
+   * plan — but it is derived, not assumed, so CT-04's completion workflow only
+   * has to widen `completedSourceIds`.
+   */
+  readonly planningReadySourceIds: readonly string[];
+  readonly requiredPredecessors: ReadonlyMap<string, readonly string[]>;
+  readonly requiredSuccessors: ReadonlyMap<string, readonly string[]>;
+}
+
+export interface GraphResult {
+  readonly graph?: PlanGraph;
+  readonly diagnostics: readonly PlanDiagnostic[];
+}
+
+/**
+ * Rotates a cycle so its lowest-ordinal member comes first, producing one
+ * canonical spelling per cycle regardless of which node the search entered
+ * from. Without this, the same cycle reported from two entry points would
+ * yield two different diagnostics.
+ */
+function canonicalizeCycle(
+  cycle: readonly string[],
+  ordinalOf: ReadonlyMap<string, number>,
+): readonly string[] {
+  let pivot = 0;
+  for (let index = 1; index < cycle.length; index += 1) {
+    const candidate = ordinalOf.get(cycle[index] as string) ?? Number.MAX_SAFE_INTEGER;
+    const incumbent = ordinalOf.get(cycle[pivot] as string) ?? Number.MAX_SAFE_INTEGER;
+    if (candidate < incumbent) {
+      pivot = index;
+    }
+  }
+  return [...cycle.slice(pivot), ...cycle.slice(0, pivot)];
+}
+
+/**
+ * Iterative depth-first cycle detection over the required graph.
+ *
+ * The search is iterative rather than recursive so a deep plan cannot overflow
+ * the stack, and it visits nodes and successors in source order so the reported
+ * cycles are identical across runs.
+ */
+function detectCycles(
+  sourceIds: readonly string[],
+  successors: ReadonlyMap<string, readonly string[]>,
+  ordinalOf: ReadonlyMap<string, number>,
+): readonly (readonly string[])[] {
+  // Escaped rather than written as a literal byte: a raw NUL in source makes
+  // Git classify this file as binary and omit its diff from review, which is
+  // exactly the wrong outcome for a security-relevant graph routine
+  // (CT03-R7). The separator only has to be a character a validated
+  // work-item source id can never contain.
+  const CYCLE_KEY_SEPARATOR = '\u0000';
+  const WHITE = 0;
+  const GREY = 1;
+  const BLACK = 2;
+  const colour = new Map<string, number>(sourceIds.map((id) => [id, WHITE]));
+  const found = new Map<string, readonly string[]>();
+
+  for (const start of sourceIds) {
+    if (colour.get(start) !== WHITE) {
+      continue;
+    }
+    const path: string[] = [];
+    const stack: { node: string; next: number }[] = [{ node: start, next: 0 }];
+    colour.set(start, GREY);
+    path.push(start);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1] as { node: string; next: number };
+      const outgoing = successors.get(frame.node) ?? [];
+      if (frame.next >= outgoing.length) {
+        colour.set(frame.node, BLACK);
+        stack.pop();
+        path.pop();
+        continue;
+      }
+      const target = outgoing[frame.next] as string;
+      frame.next += 1;
+
+      const targetColour = colour.get(target);
+      if (targetColour === GREY) {
+        const start_ = path.lastIndexOf(target);
+        if (start_ >= 0) {
+          const cycle = canonicalizeCycle(path.slice(start_), ordinalOf);
+          found.set(cycle.join(CYCLE_KEY_SEPARATOR), cycle);
+        }
+        continue;
+      }
+      if (targetColour === BLACK) {
+        continue;
+      }
+      colour.set(target, GREY);
+      path.push(target);
+      stack.push({ node: target, next: 0 });
+    }
+  }
+
+  return [...found.entries()]
+    .sort(([left], [right]) => left.localeCompare(right, 'en'))
+    .map(([, cycle]) => cycle);
+}
+
+/**
+ * Validates the dependency graph of a normalized plan.
+ *
+ * Missing and self edges are diagnosed and then excluded before cycle
+ * detection runs, so one import surfaces every actionable problem at once
+ * rather than hiding cycles behind an unrelated typo.
+ */
+export function analyzePlanGraph(
+  plan: NormalizedPlan,
+  artifactName: string,
+  completedSourceIds: readonly string[] = [],
+): GraphResult {
+  const diagnostics: PlanDiagnostic[] = [];
+  const sourceIds = plan.workItems.map((item) => item.sourceId);
+  const known = new Set(sourceIds);
+  const ordinalOf = new Map(plan.workItems.map((item) => [item.sourceId, item.ordinal]));
+
+  const requiredEdges: PlanEdge[] = [];
+  const recommendedEdges: PlanEdge[] = [];
+  const requiredPredecessors = new Map<string, string[]>(sourceIds.map((id) => [id, []]));
+  const requiredSuccessors = new Map<string, string[]>(sourceIds.map((id) => [id, []]));
+
+  for (const item of plan.workItems) {
+    const path = `pull_requests[${item.ordinal}]`;
+    const seenRequired = new Set<string>();
+
+    for (const [index, target] of item.requiredDependencies.entries()) {
+      if (target === item.sourceId) {
+        diagnostics.push(
+          error('self-dependency', `"${item.sourceId}" cannot depend on itself`, {
+            artifactName,
+            path: `${path}.depends_on[${index}]`,
+            workItemSourceId: item.sourceId,
+          }),
+        );
+        continue;
+      }
+      if (!known.has(target)) {
+        diagnostics.push(
+          error(
+            'missing-required-dependency',
+            `"${item.sourceId}" requires "${target}", which is not present in this plan version`,
+            {
+              artifactName,
+              path: `${path}.depends_on[${index}]`,
+              workItemSourceId: item.sourceId,
+            },
+          ),
+        );
+        continue;
+      }
+      if (seenRequired.has(target)) {
+        // Deduplicated with a warning rather than rejected: a repeated edge is
+        // unambiguous authoring redundancy, and keeping the distinct-edge count
+        // is what makes requiredDependencyCount match the stored edge rows.
+        diagnostics.push(
+          warning(
+            'duplicate-required-dependency',
+            `"${item.sourceId}" lists "${target}" more than once; the duplicate was ignored`,
+            {
+              artifactName,
+              path: `${path}.depends_on[${index}]`,
+              workItemSourceId: item.sourceId,
+            },
+          ),
+        );
+        continue;
+      }
+      seenRequired.add(target);
+      requiredEdges.push({
+        predecessorSourceId: target,
+        successorSourceId: item.sourceId,
+        ordinal: seenRequired.size - 1,
+      });
+      requiredPredecessors.get(item.sourceId)?.push(target);
+      requiredSuccessors.get(target)?.push(item.sourceId);
+    }
+
+    const seenRecommended = new Set<string>();
+    for (const [index, target] of item.recommendedDependencies.entries()) {
+      if (target === item.sourceId || !known.has(target) || seenRecommended.has(target)) {
+        if (!known.has(target)) {
+          // Never fatal: a recommendation is advisory and must not gain
+          // blocking authority through a typo (CT03-I09).
+          diagnostics.push(
+            warning(
+              'unknown-recommended-dependency',
+              `"${item.sourceId}" recommends "${target}", which is not present in this plan version`,
+              {
+                artifactName,
+                path: `${path}.recommends[${index}]`,
+                workItemSourceId: item.sourceId,
+              },
+            ),
+          );
+        }
+        continue;
+      }
+      seenRecommended.add(target);
+      recommendedEdges.push({
+        predecessorSourceId: target,
+        successorSourceId: item.sourceId,
+        ordinal: seenRecommended.size - 1,
+      });
+    }
+  }
+
+  const cycles = detectCycles(sourceIds, requiredSuccessors, ordinalOf);
+  for (const cycle of cycles.slice(0, PLAN_LIMITS.maxReportedCycles)) {
+    diagnostics.push(
+      error(
+        'required-dependency-cycle',
+        `Required dependency cycle: ${[...cycle, cycle[0]].join(' → ')}`,
+        {
+          artifactName,
+          ...(cycle[0] === undefined ? {} : { workItemSourceId: cycle[0] }),
+        },
+      ),
+    );
+  }
+  if (cycles.length > PLAN_LIMITS.maxReportedCycles) {
+    diagnostics.push(
+      error(
+        'required-dependency-cycle',
+        `${cycles.length} required dependency cycles were found; only the first ${PLAN_LIMITS.maxReportedCycles} are listed`,
+        { artifactName },
+      ),
+    );
+  }
+
+  const completed = new Set(completedSourceIds);
+  const rootSourceIds = sourceIds.filter((id) => (requiredPredecessors.get(id) ?? []).length === 0);
+  const planningReadySourceIds = sourceIds.filter((id) =>
+    (requiredPredecessors.get(id) ?? []).every((predecessor) => completed.has(predecessor)),
+  );
+
+  return {
+    diagnostics,
+    graph: {
+      requiredEdges,
+      recommendedEdges,
+      rootSourceIds,
+      planningReadySourceIds,
+      requiredPredecessors,
+      requiredSuccessors,
+    },
+  };
+}

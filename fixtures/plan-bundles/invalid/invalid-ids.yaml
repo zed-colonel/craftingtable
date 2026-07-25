@@ -1,0 +1,20 @@
+document: Invalid identifier plan
+pull_requests:
+- id: "   "
+  title: Blank identifier
+  depends_on: []
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.
+- id: "has spaces"
+  title: Identifier with a space
+  depends_on: []
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.
+- id: "-leading-dash"
+  title: Identifier starting with a dash
+  depends_on: []
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.

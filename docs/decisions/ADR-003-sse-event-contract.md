@@ -3,6 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-07-23
 - **Amended:** 2026-07-24 for CT-02 durable replay
+- **Amended:** 2026-07-24 for CT-03 planning events
 
 ## Context
 
@@ -59,10 +60,22 @@ caveat: each idle connection re-authenticates and queries once per interval.
 Before multi-user or CT-08 operation, revisit that interval without weakening
 revocation or missed-notification recovery.
 
-CT-03 producer obligation: after a daemon command commits a workspace event, it
-must call the same daemon-composed notifier. Tests must prove fast-path
-delivery independently of the fallback interval. CT-02 bootstrap runs in a
-separate CLI process, so its daemon visibility correctly relies on durable
+CT-03 amendment. Three kinds join the envelope union: `project-created`,
+`plan-version-imported`, and `work-item-admitted`, each with a strict payload.
+Import appends *summary* events — importing a fourteen-item plan appends one
+`plan-version-imported`, not fourteen per-item events — because the
+authoritative work-item table carries the detail.
+
+The CT-03 producer obligation is now satisfied and tested: plan import and
+admission call the daemon-composed notifier immediately after commit, and
+acceptance proves fast-path delivery with the fallback interval configured far
+longer than the test. A duplicate or failed import appends no event at all.
+
+The browser treats an event as an *invalidation signal*, never as the model: a
+relevant event marks the workspace summary, project, or work item stale, and
+the app then refetches through authorized queries. A failed refetch leaves the
+last good projection visible and reports the degradation. CT-02 bootstrap still
+runs in a separate CLI process, so its visibility correctly relies on durable
 re-query.
 
 ## Alternatives considered

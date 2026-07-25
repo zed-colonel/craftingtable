@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/domain" },
     { "path": "packages/contracts" },
+    { "path": "packages/planning" },
     { "path": "packages/storage" },
     { "path": "packages/agents" },
     { "path": "packages/git" },

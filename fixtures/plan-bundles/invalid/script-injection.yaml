@@ -1,0 +1,8 @@
+document: "<script>window.__pwned = true</script>"
+pull_requests:
+- id: WI-01
+  title: "<img src=x onerror=\"window.__pwned = true\">"
+  depends_on: []
+  risk: medium
+  primary_areas: ["<b>core</b>"]
+  exit_gate: "</pre><script>alert(1)</script><pre>"

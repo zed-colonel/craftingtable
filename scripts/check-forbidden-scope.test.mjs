@@ -5,6 +5,12 @@ import {
   findManifestViolations,
   isForbidden,
   runCheck,
+  findImports,
+  findNulByte,
+  isForbiddenCapability,
+  isForbiddenInPlanning,
+  isNonProductionPackage,
+  isTestModule,
 } from './check-forbidden-scope.mjs';
 
 describe('isForbidden', () => {
@@ -82,5 +88,93 @@ describe('runCheck', () => {
   it('passes against the actual repository', () => {
     const root = fileURLToPath(new URL('..', import.meta.url));
     expect(runCheck(root)).toEqual([]);
+  });
+});
+
+describe('CT-03 capability and boundary guards', () => {
+  it('flags real Git, process execution, and vendor agent SDKs', () => {
+    for (const specifier of [
+      'simple-git',
+      'isomorphic-git',
+      'node:child_process',
+      'child_process',
+      'execa',
+      'node-pty',
+      'openai',
+      '@anthropic-ai/sdk',
+      '@modelcontextprotocol/sdk',
+    ]) {
+      expect(isForbiddenCapability(specifier), specifier).toBe(true);
+    }
+  });
+
+  it('permits ordinary modules CT-03 legitimately uses', () => {
+    for (const specifier of [
+      'node:crypto',
+      'yaml',
+      'zod',
+      'fastify',
+      '@fastify/multipart',
+      'better-sqlite3',
+      '@craftingtable/planning',
+    ]) {
+      expect(isForbiddenCapability(specifier), specifier).toBe(false);
+    }
+  });
+
+  it('treats the future/test packages as non-production seams', () => {
+    expect(isNonProductionPackage('@craftingtable/agents')).toBe(true);
+    expect(isNonProductionPackage('@craftingtable/git')).toBe(true);
+    expect(isNonProductionPackage('@craftingtable/testing')).toBe(true);
+    expect(isNonProductionPackage('@craftingtable/planning')).toBe(false);
+    expect(isNonProductionPackage('@craftingtable/storage')).toBe(false);
+  });
+
+  it('keeps the pure planning package away from I/O and UI', () => {
+    for (const specifier of [
+      'node:fs',
+      'node:fs/promises',
+      'node:path',
+      'node:child_process',
+      'node:net',
+      'fastify',
+      '@fastify/multipart',
+      'react',
+      'react-dom',
+      'better-sqlite3',
+      '@craftingtable/storage',
+      '@craftingtable/server',
+      '@craftingtable/web',
+    ]) {
+      expect(isForbiddenInPlanning(specifier), specifier).toBe(true);
+    }
+    // Hashing is computation, not I/O (ADR-012).
+    expect(isForbiddenInPlanning('node:crypto')).toBe(false);
+    expect(isForbiddenInPlanning('yaml')).toBe(false);
+    expect(isForbiddenInPlanning('@craftingtable/domain')).toBe(false);
+  });
+
+  it('recognizes test modules, which may use wider capabilities', () => {
+    expect(isTestModule('packages/planning/src/parse.test.ts')).toBe(true);
+    expect(isTestModule('packages/planning/src/test-support.ts')).toBe(true);
+    expect(isTestModule('apps/web/src/features/planning/views.test.tsx')).toBe(true);
+    expect(isTestModule('packages/planning/src/parse.ts')).toBe(false);
+  });
+
+  it('collects every import specifier, not only forbidden ones', () => {
+    const source = "import { a } from 'alpha';\nexport * from 'beta';\nconst c = require('gamma');";
+    expect(findImports(source)).toEqual(['alpha', 'beta', 'gamma']);
+  });
+});
+
+describe('source integrity (CT03-R7)', () => {
+  it('locates a NUL byte and its offset', () => {
+    expect(findNulByte(Buffer.from('clean source'))).toBe(-1);
+    expect(findNulByte(Buffer.from([0x61, 0x62, 0x00, 0x63]))).toBe(2);
+  });
+
+  it('passes over the real repository, which contains no NUL bytes', () => {
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    expect(runCheck(root).filter((violation) => violation.includes('NUL byte'))).toEqual([]);
   });
 });

@@ -8,11 +8,62 @@
  * Exported functions are unit-tested in check-forbidden-scope.test.mjs; keep
  * the recognized module syntax and those tests in lockstep.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const FORBIDDEN_PATTERNS = [/action-?queue/i, /world-?interface/i, /exoskeleton/i];
+
+/**
+ * Modules that would give CraftingTable a CT-04-or-later capability
+ * (work-items/CT-03/CT-03.md §9, CT03-A70): real Git, worktrees, process and
+ * shell execution, and vendor coding-agent SDKs. Checked against production
+ * source only; tests may still exercise fakes.
+ */
+export const FORBIDDEN_CAPABILITY_PATTERNS = [
+  /^simple-git$/i,
+  /^nodegit$/i,
+  /^isomorphic-git$/i,
+  /^dugite$/i,
+  /^node:child_process$/i,
+  /^child_process$/i,
+  /^execa$/i,
+  /^cross-spawn$/i,
+  /^shelljs$/i,
+  /^node-pty$/i,
+  /^@openai\/.*$/i,
+  /^openai$/i,
+  /^@anthropic-ai\/.*$/i,
+  /^@modelcontextprotocol\/.*$/i,
+];
+
+/**
+ * Packages that exist as future or test seams only. Production source must not
+ * import them (AGENTS.md, CT-03 §4).
+ */
+export const NON_PRODUCTION_PACKAGES = [
+  '@craftingtable/agents',
+  '@craftingtable/git',
+  '@craftingtable/testing',
+];
+
+/**
+ * The pure planning boundary. It may hash, but it must not reach the
+ * filesystem, a process, a socket, a database, or a UI (ADR-012).
+ */
+export const PLANNING_FORBIDDEN_PATTERNS = [
+  /^node:fs(\/.*)?$/,
+  /^node:path$/,
+  /^node:child_process$/,
+  /^node:net$/,
+  /^node:http(s)?$/,
+  /^node:worker_threads$/,
+  /^fastify$/,
+  /^@fastify\/.*$/,
+  /^react(-dom)?$/,
+  /^better-sqlite3$/,
+  /^@craftingtable\/(storage|server|web|agents|git|testing)$/,
+];
 
 const DEPENDENCY_FIELDS = [
   'dependencies',
@@ -33,6 +84,37 @@ export const IMPORT_PATTERN = /(?:\bimport\s*\(?\s*|\bfrom\s+|\brequire\s*\(\s*)
 
 export function isForbidden(specifier) {
   return FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier));
+}
+
+export function isForbiddenCapability(specifier) {
+  return FORBIDDEN_CAPABILITY_PATTERNS.some((pattern) => pattern.test(specifier));
+}
+
+export function isNonProductionPackage(specifier) {
+  return NON_PRODUCTION_PACKAGES.includes(specifier);
+}
+
+export function isForbiddenInPlanning(specifier) {
+  return PLANNING_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier));
+}
+
+/** Returns every module specifier the source imports. */
+export function findImports(source) {
+  return [...source.matchAll(IMPORT_PATTERN)].map((match) => match[1]);
+}
+
+/**
+ * A NUL byte makes Git classify a text file as binary, which silently removes
+ * it from diffs, blame, and merge review. Tracked source must stay reviewable
+ * (CT03-R7).
+ */
+export function findNulByte(buffer) {
+  return buffer.indexOf(0);
+}
+
+/** True for test and test-support modules, which may use wider capabilities. */
+export function isTestModule(path) {
+  return /\.test\.[cm]?[jt]sx?$/.test(path) || /test-support\.[cm]?[jt]sx?$/.test(path);
 }
 
 /** Returns every forbidden module specifier referenced by the source text. */
@@ -84,6 +166,18 @@ export function runCheck(root) {
   };
 
   checkManifest(join(root, 'package.json'));
+
+  const migrations = join(root, 'packages', 'storage', 'migrations');
+  if (existsSync(migrations)) {
+    walk(migrations, (path) => {
+      const nul = findNulByte(readFileSync(path));
+      if (nul !== -1) {
+        violations.push(
+          `${relative(root, path)}: contains a NUL byte at offset ${nul}, which makes Git treat this source as binary`,
+        );
+      }
+    });
+  }
   for (const group of ['apps', 'packages']) {
     for (const entry of readdirSync(join(root, group), { withFileTypes: true })) {
       if (!entry.isDirectory()) {
@@ -91,12 +185,44 @@ export function runCheck(root) {
       }
       const packageDir = join(root, group, entry.name);
       checkManifest(join(packageDir, 'package.json'));
+      const isPlanningPackage = group === 'packages' && entry.name === 'planning';
+      // The seams themselves may reference each other; only *production*
+      // packages must stay clear of them.
+      const isSeamPackage =
+        group === 'packages' && ['agents', 'git', 'testing'].includes(entry.name);
       walk(join(packageDir, 'src'), (path) => {
         if (!SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension))) {
           return;
         }
-        for (const specifier of findForbiddenImports(readFileSync(path, 'utf8'))) {
-          violations.push(`${relative(root, path)}: imports forbidden module "${specifier}"`);
+        const bytes = readFileSync(path);
+        const relativePath = relative(root, path);
+        const nul = findNulByte(bytes);
+        if (nul !== -1) {
+          violations.push(
+            `${relativePath}: contains a NUL byte at offset ${nul}, which makes Git treat this source as binary`,
+          );
+        }
+        const source = bytes.toString('utf8');
+        for (const specifier of findForbiddenImports(source)) {
+          violations.push(`${relativePath}: imports forbidden module "${specifier}"`);
+        }
+        if (isTestModule(path)) {
+          return;
+        }
+        for (const specifier of findImports(source)) {
+          if (isForbiddenCapability(specifier)) {
+            violations.push(`${relativePath}: imports CT-04+ capability module "${specifier}"`);
+          }
+          if (!isSeamPackage && isNonProductionPackage(specifier)) {
+            violations.push(
+              `${relativePath}: production source imports non-production seam "${specifier}"`,
+            );
+          }
+          if (isPlanningPackage && isForbiddenInPlanning(specifier)) {
+            violations.push(
+              `${relativePath}: the pure planning package must not import "${specifier}"`,
+            );
+          }
         }
       });
     }
@@ -116,5 +242,9 @@ if (isMain) {
     }
     process.exit(1);
   }
-  console.log('Forbidden-scope check passed: no Exo Stack runtime dependencies found.');
+  console.log(
+    'Forbidden-scope check passed: no Exo Stack dependency, no CT-04+ capability module,\n' +
+      'no non-production seam in production source, no NUL byte in tracked source, and\n' +
+      'the planning package stays pure.',
+  );
 }

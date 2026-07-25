@@ -6,6 +6,14 @@ export type AuditActorKind = (typeof AUDIT_ACTOR_KINDS)[number];
 export const AUDIT_OUTCOMES = ['succeeded', 'denied', 'failed'] as const;
 export type AuditOutcome = (typeof AUDIT_OUTCOMES)[number];
 
+/**
+ * Registered audit actions.
+ *
+ * From schema 2 onward this list is mirrored by the migration-owned
+ * `audit_action_kinds` catalog, which the `audit_events.action` foreign key
+ * references. Adding an action here without seeding it in a migration makes
+ * every insert of that action fail closed.
+ */
 export const AUDIT_ACTIONS = [
   'admin.bootstrap',
   'admin.bootstrap.denied',
@@ -15,8 +23,18 @@ export const AUDIT_ACTIONS = [
   'auth.session.revoked',
   'workspace.created',
   'workspace.access.denied',
+  /* CT-03 (schema 2). */
+  'plan.import.succeeded',
+  'plan.import.failed',
+  'plan.import.duplicate',
+  'work-item.admitted',
+  'work-contract-draft.created',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+export function isAuditAction(value: unknown): value is AuditAction {
+  return (AUDIT_ACTIONS as readonly string[]).includes(value as string);
+}
 
 export type JsonValue =
   | null

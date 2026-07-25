@@ -6,8 +6,17 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../../packages/domain" },
-    { "path": "../../packages/contracts" },
-    { "path": "../../packages/storage" }
+    {
+      "path": "../../packages/domain"
+    },
+    {
+      "path": "../../packages/contracts"
+    },
+    {
+      "path": "../../packages/planning"
+    },
+    {
+      "path": "../../packages/storage"
+    }
   ]
 }

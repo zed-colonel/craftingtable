@@ -1,0 +1,9 @@
+document: Unresolved recommendation plan
+pull_requests:
+- id: WI-01
+  title: Root
+  depends_on: []
+  recommends: [WI-99]
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.

@@ -16,6 +16,15 @@ export type WorkItemId = Brand<'WorkItemId'>;
 export type AgentRunId = Brand<'AgentRunId'>;
 export type EventId = Brand<'EventId'>;
 
+/* CT-03 planning identifiers. */
+export type PlanBundleId = Brand<'PlanBundleId'>;
+export type PlanVersionId = Brand<'PlanVersionId'>;
+export type PlanImportAttemptId = Brand<'PlanImportAttemptId'>;
+export type PlanArtifactId = Brand<'PlanArtifactId'>;
+export type PlanImportDiagnosticId = Brand<'PlanImportDiagnosticId'>;
+export type WorkItemDependencyId = Brand<'WorkItemDependencyId'>;
+export type WorkContractDraftId = Brand<'WorkContractDraftId'>;
+
 /** Shared well-formedness rule for all identifiers: non-empty, no surrounding whitespace. */
 export function isWellFormedId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value === value.trim();
@@ -39,3 +48,10 @@ export const asProjectId = idFactory<ProjectId>('ProjectId');
 export const asWorkItemId = idFactory<WorkItemId>('WorkItemId');
 export const asAgentRunId = idFactory<AgentRunId>('AgentRunId');
 export const asEventId = idFactory<EventId>('EventId');
+export const asPlanBundleId = idFactory<PlanBundleId>('PlanBundleId');
+export const asPlanVersionId = idFactory<PlanVersionId>('PlanVersionId');
+export const asPlanImportAttemptId = idFactory<PlanImportAttemptId>('PlanImportAttemptId');
+export const asPlanArtifactId = idFactory<PlanArtifactId>('PlanArtifactId');
+export const asPlanImportDiagnosticId = idFactory<PlanImportDiagnosticId>('PlanImportDiagnosticId');
+export const asWorkItemDependencyId = idFactory<WorkItemDependencyId>('WorkItemDependencyId');
+export const asWorkContractDraftId = idFactory<WorkContractDraftId>('WorkContractDraftId');

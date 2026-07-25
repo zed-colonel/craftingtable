@@ -1,4 +1,4 @@
-# CT-02 local operations
+# CT-03 local operations
 
 ## Data location and configuration
 
@@ -40,6 +40,26 @@ Bootstrap prompts twice without echo. It refuses password arguments and
 refuses if any user already exists. An accepted operator amendment records
 exactly one safe `admin.bootstrap.denied` audit row for each refusal; it creates
 no other row.
+
+The schema is at version 2. Migration `0002-ct03-planning.sql` rebuilds both
+CT-02 journals once so their audit-action and workspace-event vocabularies
+become migration-owned catalogs, then adds the planning tables. It preserves
+every CT-02 row, both global sequences, the append-only triggers, and every
+index; an in-migration guard aborts the whole migration if a row count or
+maximum sequence fails to match. Migration `0001` is unchanged, so an existing
+database still validates.
+
+Migration `0002` was revised during CT-03 remediation to close a structural
+ownership gap and freeze the imported work graph. A local database that ran the
+*pre-remediation* `0002` will therefore fail validation with
+`schema invalid (checksum-mismatch)`. Reset it with the procedure below; a
+CT-02-era database at schema 1 is unaffected because `0001` is untouched.
+
+Imported planning artifacts are stored as bounded SQLite BLOBs (at most 2 MiB
+each). This is deliberately narrow so one import is one atomic transaction; it
+does not make SQLite CraftingTable's general artifact store. Artifacts from
+failed imports persist until a retention feature exists, so the database grows
+with repeated failed imports.
 
 `db status` opens an existing database read-only and reports a missing database
 as schema `0/1` without creating it. Pending migrations exit with status 2.

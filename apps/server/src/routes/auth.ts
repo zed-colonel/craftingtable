@@ -8,12 +8,12 @@ import {
   sessionIdSchema,
   sessionListResponseSchema,
 } from '@craftingtable/contracts';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { CSRF_HEADER_NAME, type ServerConfig, SESSION_COOKIE_NAME } from '../config.js';
-import { csrfTokensEqual } from '../security/csrf.js';
+import type { FastifyInstance } from 'fastify';
+import { type ServerConfig, SESSION_COOKIE_NAME } from '../config.js';
 import { isAllowedBrowserRequest } from '../security/origin-policy.js';
-import type { AuthContext, AuthService } from '../services/auth-service.js';
-import { ForbiddenError, NotFoundError, UnauthenticatedError } from '../services/errors.js';
+import type { AuthService } from '../services/auth-service.js';
+import { NotFoundError, UnauthenticatedError } from '../services/errors.js';
+import { authenticate, authorizeMutation, browserHeaders } from './request-security.js';
 import {
   authenticatedResponse,
   cookieOptions,
@@ -21,36 +21,6 @@ import {
   sendApiError,
   sessionSummary,
 } from './http.js';
-
-function browserHeaders(request: FastifyRequest) {
-  const origin = request.headers.origin;
-  const fetchSite = request.headers['sec-fetch-site'];
-  return {
-    ...(typeof origin === 'string' ? { origin } : {}),
-    ...(typeof fetchSite === 'string' ? { secFetchSite: fetchSite } : {}),
-  };
-}
-
-function authenticate(request: FastifyRequest, authService: AuthService): AuthContext {
-  return authService.authenticate(request.cookies[SESSION_COOKIE_NAME]);
-}
-
-function authorizeMutation(
-  request: FastifyRequest,
-  authService: AuthService,
-  config: ServerConfig,
-): AuthContext {
-  const context = authenticate(request, authService);
-  const csrf = request.headers[CSRF_HEADER_NAME];
-  if (
-    typeof csrf !== 'string' ||
-    !csrfTokensEqual(context.session.csrfToken, csrf) ||
-    !isAllowedBrowserRequest(browserHeaders(request), config.publicOrigin)
-  ) {
-    throw new ForbiddenError();
-  }
-  return context;
-}
 
 export function registerAuthRoutes(
   app: FastifyInstance,

@@ -3,9 +3,15 @@ import {
   type AuditEventId,
   type EventId,
   isWellFormedId,
+  type PlanArtifactId,
+  type PlanBundleId,
+  type PlanImportAttemptId,
+  type PlanImportDiagnosticId,
+  type PlanVersionId,
   type ProjectId,
   type SessionId,
   type UserId,
+  type WorkContractDraftId,
   type WorkspaceMembershipId,
   type WorkItemId,
   type WorkspaceId,
@@ -27,3 +33,10 @@ export const projectIdSchema = idSchema<ProjectId>('projectId');
 export const workItemIdSchema = idSchema<WorkItemId>('workItemId');
 export const agentRunIdSchema = idSchema<AgentRunId>('runId');
 export const eventIdSchema = idSchema<EventId>('eventId');
+export const planBundleIdSchema = idSchema<PlanBundleId>('planBundleId');
+export const planVersionIdSchema = idSchema<PlanVersionId>('planVersionId');
+export const planImportAttemptIdSchema = idSchema<PlanImportAttemptId>('planImportAttemptId');
+export const planArtifactIdSchema = idSchema<PlanArtifactId>('planArtifactId');
+export const planImportDiagnosticIdSchema =
+  idSchema<PlanImportDiagnosticId>('planImportDiagnosticId');
+export const workContractDraftIdSchema = idSchema<WorkContractDraftId>('workContractDraftId');

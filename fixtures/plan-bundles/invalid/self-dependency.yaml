@@ -1,0 +1,8 @@
+document: Self dependency plan
+pull_requests:
+- id: WI-01
+  title: Depends on itself
+  depends_on: [WI-01]
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.

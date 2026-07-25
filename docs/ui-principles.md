@@ -39,6 +39,30 @@ Create reusable CSS custom properties for at least:
 
 Do not introduce a large component library merely to render the first shell. Prefer small local primitives and plain CSS unless a dependency materially reduces complexity.
 
+## Planning vocabulary
+
+CraftingTable owns only the planning half of "readiness". The interface must
+never say a bare "Ready" or "Blocked", because both are indistinguishable from
+executable readiness and merge readiness, which this system cannot determine.
+
+Use exactly:
+
+```text
+Proposed              imported and preserved, not yet in the agenda
+Admitted              accepted into the agenda; not execution readiness
+Ready for admission   proposed, every required predecessor satisfied
+Dependency-blocked    waiting on an unfinished required predecessor
+Draft — not executable   a work-contract draft, which cannot be approved or run
+```
+
+Every one of these is rendered as visible text, not as colour alone and not only
+in a tooltip. Unresolved contract fields are enumerated rather than left blank:
+a blank field reads as "nothing required", an enumerated one as "not yet
+decided".
+
+Dependencies are shown as tables with explicit predecessor and blocker columns.
+CT-03 deliberately has no interactive graph canvas.
+
 ## Accessibility
 
 - Full keyboard navigation for controls introduced in CT-01.

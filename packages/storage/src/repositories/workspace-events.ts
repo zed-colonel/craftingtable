@@ -1,6 +1,15 @@
-import type { WorkspaceEvent, WorkspaceId } from '@craftingtable/domain';
+import type {
+  WorkspaceEvent,
+  WorkspaceEventKind,
+  WorkspaceEventPayload,
+  WorkspaceId,
+} from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
-import type { AppendWorkspaceCreatedInput, WorkspaceEventRepository } from '../types.js';
+import type {
+  AppendWorkspaceCreatedInput,
+  AppendWorkspaceEventInput,
+  WorkspaceEventRepository,
+} from '../types.js';
 
 interface WorkspaceEventRow {
   sequence: number;
@@ -12,12 +21,13 @@ interface WorkspaceEventRow {
   project_id: string | null;
   work_item_id: string | null;
   run_id: string | null;
-  kind: 'workspace-created';
+  kind: WorkspaceEventKind;
   payload_json: string;
 }
 
-function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
-  const payload = JSON.parse(row.payload_json) as WorkspaceEvent['payload'];
+type EventBase = Omit<WorkspaceEvent, 'kind' | 'payload'>;
+
+function mapBase(row: WorkspaceEventRow): EventBase {
   return {
     sequence: row.sequence,
     id: row.id as WorkspaceEvent['id'],
@@ -34,27 +44,78 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
       ? {}
       : { workItemId: row.work_item_id as NonNullable<WorkspaceEvent['workItemId']> }),
     ...(row.run_id === null ? {} : { runId: row.run_id as NonNullable<WorkspaceEvent['runId']> }),
-    kind: row.kind,
-    payload,
   };
+}
+
+/**
+ * Maps a journal row to its discriminated domain event.
+ *
+ * The switch is exhaustive by kind, so registering a new workspace-event kind
+ * fails to compile until this mapper handles it — the row shape and the domain
+ * union cannot drift apart silently. Payload *shape* is enforced by the strict
+ * contracts before anything crosses the wire (ADR-003).
+ */
+function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
+  const base = mapBase(row);
+  switch (row.kind) {
+    case 'workspace-created':
+      return {
+        ...base,
+        kind: 'workspace-created',
+        payload: JSON.parse(row.payload_json) as WorkspaceEventPayload<'workspace-created'>,
+      };
+    case 'project-created':
+      return {
+        ...base,
+        kind: 'project-created',
+        payload: JSON.parse(row.payload_json) as WorkspaceEventPayload<'project-created'>,
+      };
+    case 'plan-version-imported':
+      return {
+        ...base,
+        kind: 'plan-version-imported',
+        payload: JSON.parse(row.payload_json) as WorkspaceEventPayload<'plan-version-imported'>,
+      };
+    case 'work-item-admitted':
+      return {
+        ...base,
+        kind: 'work-item-admitted',
+        payload: JSON.parse(row.payload_json) as WorkspaceEventPayload<'work-item-admitted'>,
+      };
+  }
 }
 
 export class SqliteWorkspaceEventRepository implements WorkspaceEventRepository {
   constructor(private readonly database: Database.Database) {}
 
   appendWorkspaceCreated(input: AppendWorkspaceCreatedInput): WorkspaceEvent {
+    return this.appendEvent({
+      id: input.id,
+      occurredAt: input.occurredAt,
+      workspaceId: input.workspaceId,
+      ...(input.actorUserId === undefined ? {} : { actorUserId: input.actorUserId }),
+      kind: 'workspace-created',
+      payload: { name: input.name, slug: input.slug },
+    });
+  }
+
+  appendEvent<K extends WorkspaceEventKind>(input: AppendWorkspaceEventInput<K>): WorkspaceEvent {
     const result = this.database
       .prepare(
         `INSERT INTO workspace_events (
-          id, schema_version, occurred_at, workspace_id, actor_user_id, kind, payload_json
-        ) VALUES (?, 1, ?, ?, ?, 'workspace-created', ?)`,
+          id, schema_version, occurred_at, workspace_id, actor_user_id,
+          project_id, work_item_id, kind, payload_json
+        ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
         input.occurredAt,
         input.workspaceId,
         input.actorUserId ?? null,
-        JSON.stringify({ name: input.name, slug: input.slug }),
+        input.projectId ?? null,
+        input.workItemId ?? null,
+        input.kind,
+        JSON.stringify(input.payload),
       );
     const row = this.database
       .prepare(`SELECT * FROM workspace_events WHERE sequence = ?`)

@@ -1,0 +1,32 @@
+document: Four node cycle plan
+pull_requests:
+- id: WI-01
+  title: Root outside the cycle
+  depends_on: []
+  risk: low
+  primary_areas: [core]
+  exit_gate: Green.
+- id: WI-02
+  title: Second
+  depends_on: [WI-01, WI-05]
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.
+- id: WI-03
+  title: Third
+  depends_on: [WI-02]
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.
+- id: WI-04
+  title: Fourth
+  depends_on: [WI-03]
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.
+- id: WI-05
+  title: Fifth closes the cycle back to the second
+  depends_on: [WI-04]
+  risk: medium
+  primary_areas: [core]
+  exit_gate: Green.

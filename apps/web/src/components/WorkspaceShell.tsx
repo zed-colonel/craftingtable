@@ -11,6 +11,7 @@ export function WorkspaceShell({
   connection,
   onSelectWorkspace,
   onLogout,
+  navigation,
   children,
 }: {
   username: string;
@@ -19,6 +20,7 @@ export function WorkspaceShell({
   connection: ConnectionState;
   onSelectWorkspace: (workspaceId: WorkspaceId) => void;
   onLogout: () => void;
+  navigation?: ReactNode;
   children: ReactNode;
 }) {
   const selected = workspaces.find((workspace) => workspace.id === selectedWorkspaceId);
@@ -52,6 +54,7 @@ export function WorkspaceShell({
             </label>
             <h1>{selected?.name ?? 'CraftingTable'}</h1>
             <p className="subtitle">Persistent local workspace · signed in as {username}</p>
+            {navigation}
           </div>
           <div className="masthead-status">
             <ConnectionBadge connection={connection} />

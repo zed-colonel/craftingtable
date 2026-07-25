@@ -4,6 +4,7 @@
 - **Date:** 2026-07-23
 - **Amended:** 2026-07-23 after the CT-01 initial review (findings CT01-R2, CT01-R5)
 - **Amended:** 2026-07-24 for CT-02 native persistence and authenticated E2E
+- **Amended:** 2026-07-24 for CT-03 planning dependencies and DOM component tests
 
 ## Context
 
@@ -17,6 +18,20 @@ CT-01 requires a deliberately simple TypeScript workspace with one documented fo
 - **Tests:** **Vitest** for unit and real-file SQLite integration tests (root config aliases workspace packages to source, so `pnpm test` needs no prior build). **Playwright** runs one chromium-only authenticated flow at a 1440×900 viewport. It always starts a fresh daemon with a unique temporary data directory and a fresh Vite server; occupied ports fail rather than reusing stale processes (finding CT01-R2).
 - **Server dev runner:** `tsx watch`.
 - **Quality gate:** `pnpm check` = `format:check → lint → typecheck → build → test → test:e2e → check:scope`, fail-fast, fully local, no GitHub Actions required. `check:scope` (`scripts/check-forbidden-scope.mjs`) fails on any Exo Stack dependency or import.
+
+CT-03 additions:
+
+- **Runtime dependencies:** `yaml` 2.9.0 (zero transitive dependencies, bounded
+  alias expansion) in `@craftingtable/planning`, and `@fastify/multipart` 10.1.0
+  in the server. Both are compelled by the work contract's fixed decisions.
+- **Test environments:** Vitest now runs two projects in one command. Server,
+  storage, planning, and script tests stay on `node`; only `apps/web/**/*.test.tsx`
+  pays for `jsdom`. `jsdom` and `@testing-library/react` are development-only
+  dependencies of `apps/web`.
+- **`check:scope` scope:** the script now additionally fails on any real-Git,
+  process-execution, or vendor-agent-SDK import in production source; on a
+  production import of the `agents`/`git`/`testing` seams; and on any filesystem,
+  process, socket, database, or UI import inside `@craftingtable/planning`.
 
 ## Consequences
 

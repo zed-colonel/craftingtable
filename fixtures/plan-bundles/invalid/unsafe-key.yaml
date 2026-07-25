@@ -1,0 +1,4 @@
+document: Prototype pollution probe
+__proto__:
+  polluted: true
+pull_requests: []

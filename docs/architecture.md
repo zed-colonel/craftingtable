@@ -1,4 +1,4 @@
-# Architecture boundaries (CT-02)
+# Architecture boundaries (CT-03)
 
 CraftingTable is a loopback-only supervisory workbench. The daemon owns
 authoritative state; the browser is an authenticated projection reconstructed
@@ -10,14 +10,14 @@ from a durable snapshot and event cursor.
 domain        pure TypeScript records and branded identifiers
    ▲
 contracts     strict Zod HTTP/SSE contracts
-   ▲
+planning      pure plan parsing, validation, graph, digest, draft projection
 storage       SQLite adapter, migrations, SQL, repositories
    ▲
 server        Fastify routes, security policy, application services, composition
 
 domain + contracts
    ▲
-web           React projection; no server/storage imports
+web           React projection; no server/storage/planning imports
 ```
 
 The actual project-reference graph is:
@@ -25,10 +25,17 @@ The actual project-reference graph is:
 ```text
 domain       → none
 contracts    → domain
+planning     → domain
 storage      → domain
-server       → domain + contracts + storage
+server       → domain + planning + contracts + storage
 web          → domain + contracts
 ```
+
+`@craftingtable/planning` is the whole interpretation boundary for untrusted
+planning input. It accepts bytes plus logical metadata and returns data: it
+opens no file, issues no SQL, spawns no process, and never throws for hostile
+input. `node:crypto`'s `createHash` is permitted because hashing is
+computation, not I/O. `check:scope` enforces this boundary mechanically.
 
 `packages/agents`, `packages/git`, and `packages/testing` remain future/test
 seams inherited from CT-01. Production server composition imports none of them.
@@ -64,12 +71,38 @@ lost or process-local notifications harmless and makes replay survive daemon
 restart. The global database sequence is strictly increasing; a workspace
 stream can legitimately contain gaps caused by events in another workspace.
 
-CT-02 has no daemon-process workspace-event producer after bootstrap: bootstrap
-runs through the separate CLI process, so live daemon streams currently recover
-that commit through the bounded durable re-query. Every CT-03+ daemon command
-that appends a workspace event must use the daemon's composed notifier
-immediately after its transaction commits. Its acceptance coverage must prove
-same-process notification delivery without waiting for the fallback poll.
+CT-03 introduces the first in-daemon workspace-event producers. Plan import and
+work-item admission both call the composed notifier immediately after their
+transaction commits, and never inside it. Acceptance proves this independently
+of the fallback poll: the stream's re-query interval is configured far longer
+than the test, so any event that arrives must have arrived through same-process
+notification. A separate case suppresses the notification entirely and confirms
+CT-02's durable timeout still recovers it.
+
+Bootstrap still runs in the separate CLI process, so its daemon visibility
+correctly relies on the durable re-query.
+
+Planning ownership and history are database guarantees. Composite foreign keys
+close the workspace/project/version/item chain — including evidence to the
+version its attempt resolved to, and event correlation to a single project graph
+— and one trigger per table freezes imported content. Neither a defect in a
+service nor a direct SQL statement can rewrite a committed plan version, move a
+record between workspaces or projects, or change a work item outside the single
+atomic admission transition.
+
+A successful plan import is one atomic transition:
+
+```text
+project + bundle + immutable version + attempt + exact artifact bytes
+  + diagnostics + work items + dependency edges + audit + summary events
+  └── one immediate SQLite transaction
+        └── commit
+              └── notifier
+```
+
+Parsing, digesting, and graph analysis all happen before that transaction opens.
+A failed validation commits an attempt, bounded artifacts, diagnostics, and an
+audit row — and no project, version, work item, draft, or workspace event.
 
 The fallback re-query interval is currently 1000 ms. It deliberately guarantees
 session/membership invalidation and dropped-notification recovery, at the cost
@@ -93,9 +126,17 @@ revisited before activated multi-user or CT-08 deployment.
 
 ## Deliberately deferred
 
-CT-02 has no projects, imported plans, executable work items, repository
-registration, Git/worktrees/diffs, real coding agents, verification runners,
-reviews, remediation/readiness/merge workflow, Planning Studio, LAN exposure,
-TLS termination, service manager integration, or backup command. The schema has
-user/workspace/membership seams but does not activate collaborative multi-user
-product behavior.
+CT-03 has projects, imported plans, and an operator-admitted agenda, but no
+executable work. It adds no repository registration, Git, worktrees, diffs,
+change requests, real coding agents, process execution, verification runners,
+reviews, remediation, readiness, or merge workflow; no Planning Studio, plan
+version activation, or model-assisted planning; no interactive graph editing;
+no ZIP, host-path, or external-URL import; no general artifact store; and no
+LAN exposure, TLS termination, service manager integration, or backup command.
+The schema has user/workspace/membership seams but does not activate
+collaborative multi-user product behavior.
+
+A work item can be Proposed or Admitted, and nothing else. Admission pairs the
+item with a deliberately incomplete, non-executable work-contract draft; it is
+not execution readiness and satisfies no dependency. A route-inventory test and
+`check:scope` fail the build if any CT-04+ capability appears.

@@ -1,0 +1,1114 @@
+contract: CT-04
+source_baseline: abc5f37815ad76430cae989224afde817d77a047
+version: 1
+purpose: Predeclared positive, negative, crash, and temporal cases. Implementers map every case to a permanent test
+  or explicit deferred disposition approved before code.
+matrices:
+- id: REG-PATH
+  title: Repository path admission
+  slice: CT-04A
+  governing_invariant: CT04-I03/04/13
+  protected_default: true
+  cases:
+  - id: REG-PATH-001
+    setup: absolute canonical primary repository under one allowed root
+    operation: register as Owner
+    expected: accepted once with canonical identity
+  - id: REG-PATH-002
+    setup: same repository path
+    operation: register as Editor
+    expected: 403; no Git inspection side effect beyond authorization policy
+  - id: REG-PATH-003
+    setup: relative path
+    operation: register
+    expected: rejected before Git
+  - id: REG-PATH-004
+    setup: nonexistent path
+    operation: register
+    expected: rejected without row/event
+  - id: REG-PATH-005
+    setup: directory outside every allowed root
+    operation: register
+    expected: rejected
+  - id: REG-PATH-006
+    setup: repository subdirectory rather than top-level
+    operation: register
+    expected: rejected
+  - id: REG-PATH-007
+    setup: bare repository
+    operation: register
+    expected: rejected
+  - id: REG-PATH-008
+    setup: linked worktree directory
+    operation: register
+    expected: rejected
+  - id: REG-PATH-009
+    setup: path under managed-worktree root
+    operation: register
+    expected: rejected
+  - id: REG-PATH-010
+    setup: path equal to or overlapping CraftingTable data/artifact root
+    operation: register
+    expected: rejected
+  - id: REG-PATH-011
+    setup: path reaches repository through rejected symlink component
+    operation: register
+    expected: rejected or exact accepted policy result
+  - id: REG-PATH-012
+    setup: path contains shell metacharacters/newline but is otherwise valid
+    operation: register
+    expected: treated as one path argument; never shell interpreted
+- id: REG-IDENTITY
+  title: Repository identity and replacement
+  slice: CT-04A
+  governing_invariant: CT04-I05/06/17
+  protected_default: true
+  cases:
+  - id: REG-ID-001
+    setup: registered repository unchanged
+    operation: reinspect
+    expected: identity matches
+  - id: REG-ID-002
+    setup: canonical path replaced by another Git repository
+    operation: reinspect or bind
+    expected: blocked and identity-mismatch recorded
+  - id: REG-ID-003
+    setup: same canonical repository requested by second workspace
+    operation: register
+    expected: rejected structurally
+  - id: REG-ID-004
+    setup: same workspace attempts duplicate registration
+    operation: register
+    expected: idempotent or explicit duplicate; no second active identity
+  - id: REG-ID-005
+    setup: repository becomes unavailable
+    operation: inspect
+    expected: unavailable, not silently retired
+  - id: REG-ID-006
+    setup: common Git directory changes unexpectedly
+    operation: inspect
+    expected: identity mismatch
+  - id: REG-ID-007
+    setup: filesystem identity changes where stat evidence supported
+    operation: inspect
+    expected: identity mismatch or explicit platform policy
+  - id: REG-ID-008
+    setup: repository has configured external filters/fsmonitor/diff/textconv
+    operation: register
+    expected: recorded and handled per explicit accepted policy
+- id: REG-GIT-PROCESS
+  title: Git subprocess boundary
+  slice: CT-04A
+  governing_invariant: CT04-I01/02/16
+  protected_default: true
+  cases:
+  - id: REG-GIT-001
+    setup: valid fixed inspection command
+    operation: run
+    expected: structured bounded result
+  - id: REG-GIT-002
+    setup: user value starts with dash
+    operation: inspect fixed position
+    expected: cannot become subcommand/option
+  - id: REG-GIT-003
+    setup: inherited GIT_DIR/GIT_WORK_TREE overrides
+    operation: inspect
+    expected: sanitized; registered repo still controls
+  - id: REG-GIT-004
+    setup: Git requests terminal credential input
+    operation: inspect
+    expected: prompt disabled and operation fails boundedly
+  - id: REG-GIT-005
+    setup: stdout exceeds limit
+    operation: inspect
+    expected: overflow classified; process terminated; no partial success
+  - id: REG-GIT-006
+    setup: stderr exceeds limit
+    operation: inspect
+    expected: overflow classified
+  - id: REG-GIT-007
+    setup: process exceeds deadline
+    operation: inspect
+    expected: timed out and terminated
+  - id: REG-GIT-008
+    setup: HTTP request tries to supply command/argv/environment
+    operation: validate
+    expected: strict schema rejects
+- id: OWN-REPOSITORY
+  title: Repository and project binding ownership
+  slice: CT-04A
+  governing_invariant: CT04-I07
+  protected_default: true
+  cases:
+  - id: OWN-REP-001
+    setup: repository and project same workspace
+    operation: bind
+    expected: accepted
+  - id: OWN-REP-002
+    setup: repository and project different workspace
+    operation: bind through service
+    expected: 404/blocked
+  - id: OWN-REP-003
+    setup: same workspace but nonexistent project
+    operation: bind
+    expected: rejected
+  - id: OWN-REP-004
+    setup: direct SQL cross-workspace binding
+    operation: insert
+    expected: foreign key/trigger rejects
+  - id: OWN-REP-005
+    setup: Viewer member
+    operation: bind
+    expected: '403'
+  - id: OWN-REP-006
+    setup: nonmember
+    operation: read repository
+    expected: same 404 as missing
+- id: CR-OWNERSHIP
+  title: Change-request relationship coherence
+  slice: CT-04B
+  governing_invariant: CT04-I07
+  protected_default: true
+  cases:
+  - id: CR-OWN-001
+    setup: admitted item, draft, project binding, repository coherent
+    operation: create
+    expected: accepted
+  - id: CR-OWN-002
+    setup: work item from another workspace
+    operation: create
+    expected: rejected
+  - id: CR-OWN-003
+    setup: same workspace but work item from another project
+    operation: create
+    expected: rejected structurally
+  - id: CR-OWN-004
+    setup: draft belongs to another work item/version
+    operation: create
+    expected: rejected structurally
+  - id: CR-OWN-005
+    setup: repository bound to another project in same workspace
+    operation: create
+    expected: rejected structurally
+  - id: CR-OWN-006
+    setup: work item still Proposed
+    operation: create
+    expected: rejected
+  - id: CR-OWN-007
+    setup: second open change request for same work item
+    operation: create
+    expected: idempotent or conflict; never two open rows
+- id: CR-BASE
+  title: Exact base identity
+  slice: CT-04B
+  governing_invariant: CT04-I08/09
+  protected_default: true
+  cases:
+  - id: CR-BASE-001
+    setup: allowed local target ref points to commit
+    operation: create
+    expected: full object ID stored
+  - id: CR-BASE-002
+    setup: abbreviated SHA supplied
+    operation: create
+    expected: rejected as authoritative base
+  - id: CR-BASE-003
+    setup: blob/tree object ID
+    operation: create
+    expected: rejected
+  - id: CR-BASE-004
+    setup: annotated tag ref
+    operation: resolve
+    expected: peeled to commit only according to accepted policy
+  - id: CR-BASE-005
+    setup: target ref changes between initial UI load and command
+    operation: create
+    expected: server resolves current ref and records exact result; stale client fact cannot override
+  - id: CR-BASE-006
+    setup: historical SHA not reachable from target
+    operation: create
+    expected: rejected unless explicit approved historical-base policy
+  - id: CR-BASE-007
+    setup: repository identity changes before resolve
+    operation: create
+    expected: blocked
+- id: CR-BRANCH
+  title: Controlled branch identity
+  slice: CT-04B
+  governing_invariant: CT04-I10
+  protected_default: true
+  cases:
+  - id: CR-BR-001
+    setup: normal source ID and change-request ID
+    operation: generate
+    expected: valid bounded CraftingTable branch
+  - id: CR-BR-002
+    setup: source title contains spaces/slashes/control characters
+    operation: generate
+    expected: title not used as raw ref; output valid
+  - id: CR-BR-003
+    setup: generated branch already exists
+    operation: create
+    expected: collision rejected before change-request acceptance or according to accepted reservation policy
+  - id: CR-BR-004
+    setup: client supplies branch field
+    operation: validate request
+    expected: strict schema rejects
+  - id: CR-BR-005
+    setup: branch prefix violates ref rules
+    operation: startup/policy validation
+    expected: daemon refuses unsafe config
+- id: WT-PROVISION
+  title: Managed worktree provision
+  slice: CT-04C
+  governing_invariant: CT04-I11/13/16
+  protected_default: true
+  cases:
+  - id: WT-PROV-001
+    setup: valid draft change request, branch absent, path absent
+    operation: provision
+    expected: one branch/worktree at expected base
+  - id: WT-PROV-002
+    setup: browser attempts to supply path
+    operation: validate request
+    expected: strict schema rejects
+  - id: WT-PROV-003
+    setup: expected managed path already contains ordinary directory
+    operation: provision
+    expected: blocked; no deletion
+  - id: WT-PROV-004
+    setup: repository identity mismatch
+    operation: provision
+    expected: blocked before subprocess
+  - id: WT-PROV-005
+    setup: branch exists at wrong tip
+    operation: provision/reconcile
+    expected: blocked
+  - id: WT-PROV-006
+    setup: another active Git operation for repository
+    operation: provision
+    expected: durable conflict
+  - id: WT-PROV-007
+    setup: worktree command triggers hook attempt
+    operation: provision
+    expected: hooks disabled according to accepted profile or operation blocked by repository policy
+- id: WT-CRASH
+  title: Provision crash windows
+  slice: CT-04C
+  governing_invariant: CT04-I11/12
+  protected_default: true
+  cases:
+  - id: WT-CRASH-001
+    setup: crash before intent commit
+    operation: restart
+    expected: no operation/effect exists
+  - id: WT-CRASH-002
+    setup: crash after intent commit before running
+    operation: restart
+    expected: operation discoverable and safely resumable
+  - id: WT-CRASH-003
+    setup: crash after running commit before spawn
+    operation: restart
+    expected: reconcile sees no branch/path; no blind success
+  - id: WT-CRASH-004
+    setup: branch created but worktree absent
+    operation: restart
+    expected: partial state recognized; no `-b` blind retry
+  - id: WT-CRASH-005
+    setup: worktree registered/path exists before outcome commit
+    operation: restart
+    expected: reconciles to provisioned if branch/head/path exact
+  - id: WT-CRASH-006
+    setup: subprocess exits but daemon dies before inspection
+    operation: restart
+    expected: observable state controls outcome
+  - id: WT-CRASH-007
+    setup: outcome committed before notifier
+    operation: SSE client
+    expected: durable fallback delivers event
+  - id: WT-CRASH-008
+    setup: notifier called before commit by defect
+    operation: acceptance probe
+    expected: test fails; ordering invariant enforced
+- id: WT-CLEANUP
+  title: Safe worktree cleanup
+  slice: CT-04C
+  governing_invariant: CT04-I14/15
+  protected_default: true
+  cases:
+  - id: WT-CLEAN-001
+    setup: exact managed worktree clean
+    operation: remove
+    expected: worktree removed; branch retained
+  - id: WT-CLEAN-002
+    setup: unstaged tracked changes
+    operation: remove
+    expected: blocked
+  - id: WT-CLEAN-003
+    setup: staged changes
+    operation: remove
+    expected: blocked
+  - id: WT-CLEAN-004
+    setup: untracked file
+    operation: remove
+    expected: blocked
+  - id: WT-CLEAN-005
+    setup: conflicted index
+    operation: remove
+    expected: blocked
+  - id: WT-CLEAN-006
+    setup: worktree on wrong branch
+    operation: remove
+    expected: blocked
+  - id: WT-CLEAN-007
+    setup: worktree HEAD unexpected
+    operation: remove
+    expected: blocked according to accepted policy
+  - id: WT-CLEAN-008
+    setup: path exists but not in Git worktree registry
+    operation: remove
+    expected: blocked; no rm fallback
+  - id: WT-CLEAN-009
+    setup: registered worktree points to different path
+    operation: remove
+    expected: blocked
+  - id: WT-CLEAN-010
+    setup: repository/path identity replaced
+    operation: remove
+    expected: blocked
+  - id: WT-CLEAN-011
+    setup: Git refuses remove
+    operation: remove
+    expected: failed/uncertain; filesystem not recursively deleted
+- id: DIFF-STATUS-PARSE
+  title: Porcelain-v2 path parsing
+  slice: CT-04D
+  governing_invariant: CT04-I20
+  protected_default: true
+  cases:
+  - id: DIFF-STAT-001
+    setup: ordinary modified/added/deleted/renamed entries
+    operation: parse
+    expected: correct typed entries
+  - id: DIFF-STAT-002
+    setup: filename contains spaces, tabs, newline, leading dash
+    operation: parse NUL output
+    expected: one correct path, no option/split confusion
+  - id: DIFF-STAT-003
+    setup: invalid UTF-8 filename bytes
+    operation: parse
+    expected: unsupported-path-encoding; no replacement-character ambiguity
+  - id: DIFF-STAT-004
+    setup: malformed/truncated porcelain record
+    operation: parse
+    expected: structured parse failure; no complete snapshot
+  - id: DIFF-STAT-005
+    setup: submodule state
+    operation: parse
+    expected: represented without recursion
+  - id: DIFF-STAT-006
+    setup: conflict/unmerged record
+    operation: parse
+    expected: explicit conflict state
+- id: DIFF-TRACKED
+  title: Tracked patch capture
+  slice: CT-04D
+  governing_invariant: CT04-I20/21
+  protected_default: true
+  cases:
+  - id: DIFF-TRK-001
+    setup: unstaged text change
+    operation: capture
+    expected: unstaged patch artifact
+  - id: DIFF-TRK-002
+    setup: staged text change
+    operation: capture
+    expected: staged patch artifact
+  - id: DIFF-TRK-003
+    setup: same file staged and unstaged
+    operation: capture
+    expected: both evidence layers retained distinctly
+  - id: DIFF-TRK-004
+    setup: binary tracked file
+    operation: capture
+    expected: binary patch/classification; no unsafe text render
+  - id: DIFF-TRK-005
+    setup: repository config defines external diff/textconv
+    operation: capture
+    expected: external commands not invoked
+  - id: DIFF-TRK-006
+    setup: patch output exceeds bound
+    operation: capture
+    expected: incomplete/truncated state; partial bytes not presented complete
+- id: DIFF-UNTRACKED
+  title: Untracked and special-file evidence
+  slice: CT-04D
+  governing_invariant: CT04-I20
+  protected_default: true
+  cases:
+  - id: DIFF-UNTR-001
+    setup: small UTF-8 regular file
+    operation: capture
+    expected: bounded untracked text evidence
+  - id: DIFF-UNTR-002
+    setup: large regular file
+    operation: capture
+    expected: oversized classification; no unbounded read
+  - id: DIFF-UNTR-003
+    setup: binary regular file
+    operation: capture
+    expected: binary classification
+  - id: DIFF-UNTR-004
+    setup: symlink points outside worktree
+    operation: capture
+    expected: record link metadata/target only; do not follow
+  - id: DIFF-UNTR-005
+    setup: FIFO/socket/device
+    operation: capture
+    expected: unsupported special-file classification; do not read
+  - id: DIFF-UNTR-006
+    setup: path changes to symlink between status and read
+    operation: capture
+    expected: identity check/lstat detects; snapshot incomplete
+  - id: DIFF-UNTR-007
+    setup: too many untracked files
+    operation: capture
+    expected: bounded/truncated classification
+- id: ARTIFACT-ATOMICITY
+  title: Artifact publish and metadata ordering
+  slice: CT-04D
+  governing_invariant: CT04-I18/19
+  protected_default: true
+  cases:
+  - id: ART-ATOM-001
+    setup: normal bounded bytes
+    operation: publish then commit metadata
+    expected: readable hash-verified artifact
+  - id: ART-ATOM-002
+    setup: crash during temp write
+    operation: restart
+    expected: no metadata; temp/orphan not API reachable
+  - id: ART-ATOM-003
+    setup: crash after fsync before rename
+    operation: restart
+    expected: no metadata; no false success
+  - id: ART-ATOM-004
+    setup: crash after rename before metadata commit
+    operation: restart
+    expected: orphan tolerated; no metadata points absent
+  - id: ART-ATOM-005
+    setup: metadata row references missing bytes by direct corruption
+    operation: read
+    expected: integrity error, never empty/incorrect content
+  - id: ART-ATOM-006
+    setup: existing final hash has wrong size/bytes
+    operation: publish
+    expected: corruption detected
+- id: OWN-DIFF
+  title: Diff ownership and immutability
+  slice: CT-04D
+  governing_invariant: CT04-I07/18
+  protected_default: true
+  cases:
+  - id: OWN-DIFF-001
+    setup: snapshot, worktree, CR, project coherent
+    operation: insert
+    expected: accepted
+  - id: OWN-DIFF-002
+    setup: snapshot uses artifact from another workspace
+    operation: insert
+    expected: database rejects
+  - id: OWN-DIFF-003
+    setup: same workspace but artifact/change request from another project
+    operation: insert
+    expected: database rejects
+  - id: OWN-DIFF-004
+    setup: same workspace/project but worktree from another CR
+    operation: insert
+    expected: database rejects
+  - id: OWN-DIFF-005
+    setup: update or delete historical snapshot/artifact metadata
+    operation: SQL
+    expected: trigger rejects
+  - id: OWN-DIFF-006
+    setup: refresh after changes
+    operation: capture
+    expected: new snapshot; old bytes/metadata unchanged
+- id: UI-ROUTE-IDENTITY
+  title: Browser temporal and workspace identity
+  slice: CT-04E
+  governing_invariant: CT04-I22
+  protected_default: true
+  cases:
+  - id: UI-ID-001
+    setup: repository request pending
+    operation: workspace picker changes
+    expected: late success/failure ignored
+  - id: UI-ID-002
+    setup: change-request request pending
+    operation: direct URL navigation
+    expected: late result ignored
+  - id: UI-ID-003
+    setup: diff request pending
+    operation: browser back/forward to another snapshot
+    expected: late result ignored
+  - id: UI-ID-004
+    setup: operation mutation pending
+    operation: navigate to another CR
+    expected: result cannot mutate other CR view
+  - id: UI-ID-005
+    setup: artifact request pending
+    operation: logout/session revocation
+    expected: content not rendered after unauthorized state
+  - id: UI-ID-006
+    setup: same resource ID shape in two workspaces
+    operation: switch workspace
+    expected: state keyed by workspace + resource, never reused
+- id: UI-RENDER-SAFETY
+  title: Diff and path rendering safety
+  slice: CT-04E
+  governing_invariant: CT04-I20/22
+  protected_default: true
+  cases:
+  - id: UI-RENDER-001
+    setup: diff contains HTML/script-like text
+    operation: render
+    expected: escaped text, no DOM execution
+  - id: UI-RENDER-002
+    setup: filename contains newline/control-like visible characters
+    operation: render
+    expected: safe bounded representation
+  - id: UI-RENDER-003
+    setup: binary/unsupported/truncated entry
+    operation: render
+    expected: explicit status, no attempted text decode
+  - id: UI-RENDER-004
+    setup: worktree path displayed
+    operation: view
+    expected: read-only daemon fact; never editable/submitted
+  - id: UI-RENDER-005
+    setup: provisioned worktree with clean diff
+    operation: view
+    expected: not labeled ready/verified/reviewed/mergeable
+- id: REGRESSION-CT01-CT03
+  title: Accepted behavior regression
+  slice: CT-04E
+  governing_invariant: accepted CT-01..03 contracts
+  protected_default: true
+  cases:
+  - id: REGRESS-001
+    setup: fresh database
+    operation: bootstrap/login/snapshot/SSE
+    expected: CT-02 behavior passes
+  - id: REGRESS-002
+    setup: AQ fixture
+    operation: import and view
+    expected: 14 items and dependency semantics unchanged
+  - id: REGRESS-003
+    setup: invalid plan fixtures
+    operation: import
+    expected: diagnostics and atomic failure unchanged
+  - id: REGRESS-004
+    setup: workspace navigation under planning routes
+    operation: switch/history
+    expected: CT-03 isolation remains
+  - id: REGRESS-005
+    setup: route inventory
+    operation: inspect
+    expected: no CT-05+ agent/check/review/merge routes
+- id: JOURNAL-REPOSITORY
+  title: Repository journal and notifier ordering
+  slice: CT-04A
+  governing_invariant: CT04-I23
+  protected_default: true
+  cases:
+  - id: JRN-REP-001
+    setup: successful repository registration
+    operation: commit command
+    expected: state + audit + workspace event commit atomically, then notifier fires
+  - id: JRN-REP-002
+    setup: registration validation fails before transaction
+    operation: command
+    expected: no repository row and no success event
+  - id: JRN-REP-003
+    setup: transaction rolls back
+    operation: command
+    expected: notifier is not called
+  - id: JRN-REP-004
+    setup: notifier is dropped after commit
+    operation: SSE replay
+    expected: durable re-query delivers event
+  - id: JRN-REP-005
+    setup: cross-workspace reader
+    operation: query event
+    expected: event is not disclosed
+- id: CR-TARGET-REF
+  title: Target-ref policy and resolution
+  slice: CT-04B
+  governing_invariant: CT04-I08/09
+  protected_default: true
+  cases:
+  - id: CR-REF-001
+    setup: configured allowed local branch exists
+    operation: select/resolve
+    expected: accepted and exact commit resolved
+  - id: CR-REF-002
+    setup: local ref exists but is outside repository allowlist
+    operation: create
+    expected: rejected
+  - id: CR-REF-003
+    setup: remote-tracking ref
+    operation: create
+    expected: rejected unless explicitly allowed local-read policy; no network contact
+  - id: CR-REF-004
+    setup: ref is deleted between display and create
+    operation: create
+    expected: server rejects current missing ref
+  - id: CR-REF-005
+    setup: ref name starts with option-like characters or invalid syntax
+    operation: validate
+    expected: cannot become Git option; rejected
+- id: CR-IDEMPOTENCY
+  title: Change-request duplicate and retry behavior
+  slice: CT-04B
+  governing_invariant: CT04-I07/10
+  protected_default: true
+  cases:
+  - id: CR-IDEMP-001
+    setup: same authenticated request key and identical semantic input
+    operation: retry create
+    expected: same change request returned
+  - id: CR-IDEMP-002
+    setup: same request key with different repository/base/input
+    operation: retry create
+    expected: conflict, never silent reuse
+  - id: CR-IDEMP-003
+    setup: different request key for same admitted work item while open CR exists
+    operation: create
+    expected: explicit conflict; one open CR
+  - id: CR-IDEMP-004
+    setup: client times out after committed create
+    operation: retry
+    expected: recovered without duplicate row/event
+- id: JOURNAL-CHANGE-REQUEST
+  title: Change-request journal ordering
+  slice: CT-04B
+  governing_invariant: CT04-I23
+  protected_default: true
+  cases:
+  - id: JRN-CR-001
+    setup: successful create
+    operation: commit
+    expected: CR + audit + event atomic, then notifier
+  - id: JRN-CR-002
+    setup: Git ref resolution fails
+    operation: create
+    expected: no success row/event; bounded failure audit according to accepted policy
+  - id: JRN-CR-003
+    setup: notifier suppressed after commit
+    operation: replay
+    expected: durable event recovered
+  - id: JRN-CR-004
+    setup: duplicate idempotent retry
+    operation: create
+    expected: no duplicate semantic event
+- id: WT-RECONCILE
+  title: Worktree observation-based reconciliation
+  slice: CT-04C
+  governing_invariant: CT04-I12
+  protected_default: true
+  cases:
+  - id: WT-REC-001
+    setup: no branch, worktree registry entry, or directory
+    operation: reconcile planned/running operation
+    expected: safe retry state, not success
+  - id: WT-REC-002
+    setup: expected branch at exact base; no worktree/path
+    operation: reconcile
+    expected: recognized partial state; explicit resume path
+  - id: WT-REC-003
+    setup: expected branch/worktree/path/HEAD all exact
+    operation: reconcile
+    expected: mark provisioned/reconciled exactly once
+  - id: WT-REC-004
+    setup: branch at wrong tip
+    operation: reconcile
+    expected: blocked
+  - id: WT-REC-005
+    setup: expected path exists but is ordinary directory
+    operation: reconcile
+    expected: blocked; never delete
+  - id: WT-REC-006
+    setup: Git worktree registry points to unexpected path
+    operation: reconcile
+    expected: blocked
+  - id: WT-REC-007
+    setup: registry entry exists but path missing
+    operation: reconcile
+    expected: blocked; no automatic prune
+- id: WT-CONCURRENCY
+  title: Repository operation concurrency
+  slice: CT-04C
+  governing_invariant: CT04-I11/12
+  protected_default: true
+  cases:
+  - id: WT-CONC-001
+    setup: two simultaneous provision requests for same CR
+    operation: execute
+    expected: one effect; other idempotent/conflict
+  - id: WT-CONC-002
+    setup: two CRs on same repository request provision simultaneously
+    operation: execute
+    expected: one active repository mutation; other waits/conflicts
+  - id: WT-CONC-003
+    setup: process-local mutex absent after restart but durable active operation exists
+    operation: new mutation
+    expected: database blocks conflict
+  - id: WT-CONC-004
+    setup: cleanup races diff/status read
+    operation: execute
+    expected: accepted plan defines serialization; no stale destructive decision
+  - id: WT-CONC-005
+    setup: reconciliation races manual retry
+    operation: execute
+    expected: one authoritative transition, no duplicate worktree
+- id: WT-REPLACEMENT
+  title: Repository/worktree identity replacement
+  slice: CT-04C
+  governing_invariant: CT04-I05/14
+  protected_default: true
+  cases:
+  - id: WT-REPL-001
+    setup: source repository top-level replaced after CR creation
+    operation: provision
+    expected: blocked
+  - id: WT-REPL-002
+    setup: managed worktree directory replaced by another directory
+    operation: cleanup
+    expected: blocked
+  - id: WT-REPL-003
+    setup: managed worktree path becomes symlink
+    operation: cleanup/status
+    expected: blocked; target not followed
+  - id: WT-REPL-004
+    setup: branch ref moved externally while worktree exists
+    operation: reconcile/cleanup
+    expected: mismatch visible and policy blocks unsafe cleanup
+  - id: WT-REPL-005
+    setup: worktree HEAD changes externally
+    operation: reconcile
+    expected: observed honestly; no old state assumed
+- id: JOURNAL-WORKTREE
+  title: Git-operation and worktree journal ordering
+  slice: CT-04C
+  governing_invariant: CT04-I11/23
+  protected_default: true
+  cases:
+  - id: JRN-WT-001
+    setup: provision requested
+    operation: commit intent
+    expected: operation intent/audit/event durable before Git effect
+  - id: JRN-WT-002
+    setup: effect succeeds
+    operation: commit outcome
+    expected: worktree/generation/outcome/event atomic, then notifier
+  - id: JRN-WT-003
+    setup: effect outcome uncertain
+    operation: commit
+    expected: uncertainty is durable and visible; no false failure/success
+  - id: JRN-WT-004
+    setup: cleanup blocked by dirty state
+    operation: commit/report
+    expected: semantic blocked outcome recorded without removing worktree
+- id: DIFF-BINARY
+  title: Binary evidence classification
+  slice: CT-04D
+  governing_invariant: CT04-I20
+  protected_default: true
+  cases:
+  - id: DIFF-BIN-001
+    setup: tracked binary modification
+    operation: capture
+    expected: binary classification/patch metadata, no UTF-8 render
+  - id: DIFF-BIN-002
+    setup: untracked binary file
+    operation: capture
+    expected: binary artifact classification within bound
+  - id: DIFF-BIN-003
+    setup: file contains NUL but otherwise UTF-8
+    operation: classify
+    expected: binary, not text
+  - id: DIFF-BIN-004
+    setup: binary artifact fetched
+    operation: HTTP
+    expected: octet-stream/nosniff or metadata-only according to accepted policy
+- id: DIFF-SYMLINK
+  title: Symlink evidence without traversal
+  slice: CT-04D
+  governing_invariant: CT04-I20
+  protected_default: true
+  cases:
+  - id: DIFF-SYM-001
+    setup: tracked symlink changed
+    operation: capture
+    expected: Git mode/target change represented
+  - id: DIFF-SYM-002
+    setup: untracked symlink to file inside worktree
+    operation: capture
+    expected: link target metadata only; no follow
+  - id: DIFF-SYM-003
+    setup: untracked symlink outside worktree
+    operation: capture
+    expected: link target metadata only; no external bytes read
+  - id: DIFF-SYM-004
+    setup: regular file replaced by symlink between status and read
+    operation: capture
+    expected: lstat/race detected; incomplete snapshot
+- id: DIFF-SUBMODULE
+  title: Submodule representation without recursion
+  slice: CT-04D
+  governing_invariant: CT04-I20
+  protected_default: true
+  cases:
+  - id: DIFF-SUB-001
+    setup: clean submodule entry
+    operation: status
+    expected: represented as submodule metadata
+  - id: DIFF-SUB-002
+    setup: submodule commit pointer changed
+    operation: capture
+    expected: pointer change represented
+  - id: DIFF-SUB-003
+    setup: dirty submodule worktree
+    operation: capture
+    expected: dirty state represented; no recursive diff
+  - id: DIFF-SUB-004
+    setup: submodule path is missing/uninitialized
+    operation: capture
+    expected: structured state, no clone/network attempt
+- id: DIFF-LIMITS
+  title: Diff and file-count resource limits
+  slice: CT-04D
+  governing_invariant: CT04-I20
+  protected_default: true
+  cases:
+  - id: DIFF-LIM-001
+    setup: tracked patch exactly below limit
+    operation: capture
+    expected: complete
+  - id: DIFF-LIM-002
+    setup: tracked patch exceeds limit
+    operation: capture
+    expected: truncated/incomplete and bounded process termination
+  - id: DIFF-LIM-003
+    setup: untracked file exceeds per-file limit
+    operation: capture
+    expected: oversized classification
+  - id: DIFF-LIM-004
+    setup: aggregate untracked bytes exceed total limit
+    operation: capture
+    expected: bounded incomplete snapshot
+  - id: DIFF-LIM-005
+    setup: changed-file count exceeds limit
+    operation: capture
+    expected: summary/truncation explicit, no unbounded allocation
+- id: DIFF-EXTERNAL-EXECUTION
+  title: Suppress repository-configured rendering/execution
+  slice: CT-04D
+  governing_invariant: CT04-I16/21
+  protected_default: true
+  cases:
+  - id: DIFF-EXEC-001
+    setup: diff.external configured to marker program
+    operation: capture
+    expected: program not invoked
+  - id: DIFF-EXEC-002
+    setup: diff driver command configured
+    operation: capture
+    expected: program not invoked
+  - id: DIFF-EXEC-003
+    setup: textconv configured
+    operation: capture
+    expected: program not invoked
+  - id: DIFF-EXEC-004
+    setup: pager configured
+    operation: capture
+    expected: pager not invoked
+  - id: DIFF-EXEC-005
+    setup: fsmonitor configured
+    operation: status/capture
+    expected: disabled or repository blocked according to accepted policy
+- id: ARTIFACT-INTEGRITY
+  title: Artifact identity, authorization, and corruption
+  slice: CT-04D
+  governing_invariant: CT04-I18/19
+  protected_default: true
+  cases:
+  - id: ART-INT-001
+    setup: same bytes published twice
+    operation: publish
+    expected: content reused with coherent metadata policy
+  - id: ART-INT-002
+    setup: artifact ID belongs to another workspace/project
+    operation: fetch
+    expected: 404 through parent authorization
+  - id: ART-INT-003
+    setup: stored bytes changed after publication
+    operation: fetch/verify
+    expected: integrity error; altered bytes not served as valid evidence
+  - id: ART-INT-004
+    setup: caller submits content hash or host path
+    operation: fetch request
+    expected: strict route ignores/rejects; opaque artifact ID required
+- id: JOURNAL-DIFF
+  title: Diff capture journal ordering
+  slice: CT-04D
+  governing_invariant: CT04-I19/23
+  protected_default: true
+  cases:
+  - id: JRN-DIFF-001
+    setup: capture succeeds
+    operation: commit
+    expected: artifact bytes durable first; metadata/snapshot/audit/event atomic; notifier after commit
+  - id: JRN-DIFF-002
+    setup: artifact publish fails
+    operation: capture
+    expected: no snapshot metadata/success event
+  - id: JRN-DIFF-003
+    setup: metadata transaction fails after artifact publish
+    operation: capture
+    expected: orphan allowed; no reachable snapshot
+  - id: JRN-DIFF-004
+    setup: notifier lost after snapshot commit
+    operation: SSE replay
+    expected: durable event recovered
+- id: UI-LATE-RESULT
+  title: Late async success/failure across resource changes
+  slice: CT-04E
+  governing_invariant: CT04-I22
+  protected_default: true
+  cases:
+  - id: UI-LATE-001
+    setup: repository fetch A pending then repository B route selected
+    operation: A succeeds late
+    expected: B view unchanged
+  - id: UI-LATE-002
+    setup: change request A mutation pending then CR B selected
+    operation: A succeeds late
+    expected: B state unchanged; A durable event may update global summary only through keyed projection
+  - id: UI-LATE-003
+    setup: diff snapshot A pending then snapshot B selected
+    operation: A fails late
+    expected: B error state unchanged
+  - id: UI-LATE-004
+    setup: workspace A request pending then workspace B selected
+    operation: A succeeds late
+    expected: B state unchanged
+  - id: UI-LATE-005
+    setup: logout while artifact fetch pending
+    operation: response arrives
+    expected: content not displayed
+  - id: UI-LATE-006
+    setup: request is aborted but transport still resolves
+    operation: response arrives
+    expected: identity guard still prevents application
+- id: UI-AUTHORIZATION
+  title: Browser/API authorization boundaries
+  slice: CT-04E
+  governing_invariant: CT04-I03/07
+  protected_default: true
+  cases:
+  - id: UI-AUTH-001
+    setup: Owner
+    operation: register repository
+    expected: allowed
+  - id: UI-AUTH-002
+    setup: Editor
+    operation: register repository path
+    expected: forbidden
+  - id: UI-AUTH-003
+    setup: Editor
+    operation: create/provision/capture/cleanup existing repository workflow
+    expected: allowed according to command policy
+  - id: UI-AUTH-004
+    setup: Viewer
+    operation: mutating control
+    expected: hidden or disabled in UI and 403 server-side
+  - id: UI-AUTH-005
+    setup: nonmember or foreign workspace URL
+    operation: read resource
+    expected: same 404 as missing
+- id: UI-OPERATION-STATE
+  title: Honest operation and reconciliation presentation
+  slice: CT-04E
+  governing_invariant: CT04-I12/24
+  protected_default: true
+  cases:
+  - id: UI-OP-001
+    setup: operation planned/running
+    operation: render
+    expected: in progress with no success claim
+  - id: UI-OP-002
+    setup: operation uncertain
+    operation: render
+    expected: uncertain and reconcile action visible
+  - id: UI-OP-003
+    setup: operation blocked
+    operation: render
+    expected: structural reason visible; no retry-as-success
+  - id: UI-OP-004
+    setup: operation reconciled
+    operation: render
+    expected: observed evidence and prior uncertainty visible
+  - id: UI-OP-005
+    setup: cleanup rejected due dirty state
+    operation: render
+    expected: worktree remains and blocker visible
+- id: UI-NONREADINESS
+  title: No premature completion/readiness semantics
+  slice: CT-04E
+  governing_invariant: CT04-I24
+  protected_default: true
+  cases:
+  - id: UI-NR-001
+    setup: worktree provisioned
+    operation: render
+    expected: not called executing/complete/ready
+  - id: UI-NR-002
+    setup: clean worktree
+    operation: render
+    expected: not called verified or mergeable
+  - id: UI-NR-003
+    setup: empty diff snapshot
+    operation: render
+    expected: not called complete
+  - id: UI-NR-004
+    setup: open generation placeholder
+    operation: render
+    expected: clearly states no commit/check/review exists
+- id: DOGFOOD-AQ01
+  title: AQ-01 end-to-end manual acceptance
+  slice: CT-04E
+  governing_invariant: CT-04 parent exit gate
+  protected_default: true
+  cases:
+  - id: DOG-AQ-001
+    setup: operator local ActionQueue repository under configured root
+    operation: register and bind to AQ project
+    expected: success
+  - id: DOG-AQ-002
+    setup: admitted AQ-01
+    operation: create CR at exact local target-ref commit
+    expected: success with visible base/branch
+  - id: DOG-AQ-003
+    setup: AQ-01 CR
+    operation: provision worktree then restart daemon
+    expected: one reconciled managed worktree
+  - id: DOG-AQ-004
+    setup: manual bounded file edit
+    operation: capture diff
+    expected: safe immutable browser evidence
+  - id: DOG-AQ-005
+    setup: dirty then cleaned worktree
+    operation: request cleanup twice
+    expected: dirty blocked; clean removal succeeds and branch remains

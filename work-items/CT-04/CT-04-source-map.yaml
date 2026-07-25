@@ -1,0 +1,82 @@
+contract: CT-04
+source_baseline: abc5f37815ad76430cae989224afde817d77a047
+generated_at: '2026-07-24'
+current_seams:
+- path: packages/git/src/index.ts
+  current: simulated RepositorySnapshot and GitService only
+  target_slice: CT-04A
+  target: typed private runner plus focused repository/worktree/status/diff boundaries
+- path: packages/domain/src/ids.ts
+  current: no Git lifecycle IDs
+  target_slice: CT-04A..D
+  target: branded repository/change-request/operation/worktree/generation/artifact/diff IDs
+- path: packages/domain/src/work-contract.ts
+  current: repository and base unresolved; draft non-executable
+  target_slice: CT-04B
+  target: resolved repository/base projection without executable claim
+- path: packages/domain/src/workspace-events.ts
+  current: planning event vocabulary
+  target_slice: CT-04A..D
+  target: semantic Git lifecycle event kinds through catalogs
+- path: packages/domain/src/audit.ts
+  current: planning command audit vocabulary
+  target_slice: CT-04A..D
+  target: repository/change-request/worktree/diff command kinds
+- path: packages/contracts/src
+  current: auth/planning/snapshot/SSE
+  target_slice: CT-04A..D
+  target: strict opaque-ID Git lifecycle contracts; no raw argv or managed paths
+- path: packages/storage/src/migrations
+  current: schema 2 planning state
+  target_slice: CT-04A..D
+  target: sequential schema additions with structural ownership and immutability
+- path: apps/server/src/config.ts
+  current: no source/worktree/artifact/Git policy
+  target_slice: CT-04A,D
+  target: canonical roots, executable, limits, startup validation
+- path: apps/server/src/composition.ts
+  current: no production Git/artifact seam
+  target_slice: CT-04A..D
+  target: compose bounded Git, artifacts, services, reconciliation
+- path: apps/server/src/routes
+  current: no path/Git/process routes
+  target_slice: CT-04A..D
+  target: typed repository/change-request/diff routes only
+- path: apps/web/src/lib/route.ts
+  current: planning routes
+  target_slice: CT-04E
+  target: workspace/resource-keyed repository/change-request/diff routes
+- path: apps/web/src/features/planning/WorkItemPage.tsx
+  current: shows non-executable admitted draft
+  target_slice: CT-04E
+  target: prepare-change-request entry without claiming execution readiness
+- path: docs/architecture.md
+  current: explicitly defers Git/process/artifact store
+  target_slice: CT-04A..E
+  target: document trusted process, operation, artifact, and projection boundaries
+- path: docs/security.md
+  current: no path/Git/process endpoints
+  target_slice: CT-04A..E
+  target: path, repo trust, subprocess, diff, and cleanup threat model
+- path: docs/operations.md
+  current: schema 2; no general artifact store
+  target_slice: CT-04A..E
+  target: roots, artifacts, recovery, cleanup, and dogfood operations
+forbidden_production_symbols_or_behaviors:
+- child_process.exec
+- 'shell: true'
+- arbitrary command request fields
+- git clone
+- git fetch
+- git pull
+- git push
+- git merge
+- git rebase
+- git reset
+- git stash
+- git branch -D
+- rm -rf fallback
+- dangerouslySetInnerHTML for diff content
+- ActionQueue runtime dependency
+- WorldInterface runtime dependency
+- Exoskeleton runtime dependency

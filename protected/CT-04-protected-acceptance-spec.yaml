@@ -1,0 +1,1387 @@
+contract: CT-04
+source_baseline: abc5f37815ad76430cae989224afde817d77a047
+version: 1
+authority: operator-owned-read-only
+rule: Implementers may read but must not modify, delete, weaken, or reclassify these cases without a separate contract
+  amendment.
+cases:
+- id: REG-PATH-001
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: accepted once with canonical identity
+- id: REG-PATH-002
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: 403; no Git inspection side effect beyond authorization policy
+- id: REG-PATH-003
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: rejected before Git
+- id: REG-PATH-004
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: rejected without row/event
+- id: REG-PATH-005
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: rejected
+- id: REG-PATH-006
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: rejected
+- id: REG-PATH-007
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: rejected
+- id: REG-PATH-008
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: rejected
+- id: REG-PATH-009
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: rejected
+- id: REG-PATH-010
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: rejected
+- id: REG-PATH-011
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: rejected or exact accepted policy result
+- id: REG-PATH-012
+  slice: CT-04A
+  category: REG-PATH
+  required: true
+  protected: true
+  expected: treated as one path argument; never shell interpreted
+- id: REG-ID-001
+  slice: CT-04A
+  category: REG-IDENTITY
+  required: true
+  protected: true
+  expected: identity matches
+- id: REG-ID-002
+  slice: CT-04A
+  category: REG-IDENTITY
+  required: true
+  protected: true
+  expected: blocked and identity-mismatch recorded
+- id: REG-ID-003
+  slice: CT-04A
+  category: REG-IDENTITY
+  required: true
+  protected: true
+  expected: rejected structurally
+- id: REG-ID-004
+  slice: CT-04A
+  category: REG-IDENTITY
+  required: true
+  protected: true
+  expected: idempotent or explicit duplicate; no second active identity
+- id: REG-ID-005
+  slice: CT-04A
+  category: REG-IDENTITY
+  required: true
+  protected: true
+  expected: unavailable, not silently retired
+- id: REG-ID-006
+  slice: CT-04A
+  category: REG-IDENTITY
+  required: true
+  protected: true
+  expected: identity mismatch
+- id: REG-ID-007
+  slice: CT-04A
+  category: REG-IDENTITY
+  required: true
+  protected: true
+  expected: identity mismatch or explicit platform policy
+- id: REG-ID-008
+  slice: CT-04A
+  category: REG-IDENTITY
+  required: true
+  protected: true
+  expected: recorded and handled per explicit accepted policy
+- id: REG-GIT-001
+  slice: CT-04A
+  category: REG-GIT-PROCESS
+  required: true
+  protected: true
+  expected: structured bounded result
+- id: REG-GIT-002
+  slice: CT-04A
+  category: REG-GIT-PROCESS
+  required: true
+  protected: true
+  expected: cannot become subcommand/option
+- id: REG-GIT-003
+  slice: CT-04A
+  category: REG-GIT-PROCESS
+  required: true
+  protected: true
+  expected: sanitized; registered repo still controls
+- id: REG-GIT-004
+  slice: CT-04A
+  category: REG-GIT-PROCESS
+  required: true
+  protected: true
+  expected: prompt disabled and operation fails boundedly
+- id: REG-GIT-005
+  slice: CT-04A
+  category: REG-GIT-PROCESS
+  required: true
+  protected: true
+  expected: overflow classified; process terminated; no partial success
+- id: REG-GIT-006
+  slice: CT-04A
+  category: REG-GIT-PROCESS
+  required: true
+  protected: true
+  expected: overflow classified
+- id: REG-GIT-007
+  slice: CT-04A
+  category: REG-GIT-PROCESS
+  required: true
+  protected: true
+  expected: timed out and terminated
+- id: REG-GIT-008
+  slice: CT-04A
+  category: REG-GIT-PROCESS
+  required: true
+  protected: true
+  expected: strict schema rejects
+- id: OWN-REP-001
+  slice: CT-04A
+  category: OWN-REPOSITORY
+  required: true
+  protected: true
+  expected: accepted
+- id: OWN-REP-002
+  slice: CT-04A
+  category: OWN-REPOSITORY
+  required: true
+  protected: true
+  expected: 404/blocked
+- id: OWN-REP-003
+  slice: CT-04A
+  category: OWN-REPOSITORY
+  required: true
+  protected: true
+  expected: rejected
+- id: OWN-REP-004
+  slice: CT-04A
+  category: OWN-REPOSITORY
+  required: true
+  protected: true
+  expected: foreign key/trigger rejects
+- id: OWN-REP-005
+  slice: CT-04A
+  category: OWN-REPOSITORY
+  required: true
+  protected: true
+  expected: '403'
+- id: OWN-REP-006
+  slice: CT-04A
+  category: OWN-REPOSITORY
+  required: true
+  protected: true
+  expected: same 404 as missing
+- id: CR-OWN-001
+  slice: CT-04B
+  category: CR-OWNERSHIP
+  required: true
+  protected: true
+  expected: accepted
+- id: CR-OWN-002
+  slice: CT-04B
+  category: CR-OWNERSHIP
+  required: true
+  protected: true
+  expected: rejected
+- id: CR-OWN-003
+  slice: CT-04B
+  category: CR-OWNERSHIP
+  required: true
+  protected: true
+  expected: rejected structurally
+- id: CR-OWN-004
+  slice: CT-04B
+  category: CR-OWNERSHIP
+  required: true
+  protected: true
+  expected: rejected structurally
+- id: CR-OWN-005
+  slice: CT-04B
+  category: CR-OWNERSHIP
+  required: true
+  protected: true
+  expected: rejected structurally
+- id: CR-OWN-006
+  slice: CT-04B
+  category: CR-OWNERSHIP
+  required: true
+  protected: true
+  expected: rejected
+- id: CR-OWN-007
+  slice: CT-04B
+  category: CR-OWNERSHIP
+  required: true
+  protected: true
+  expected: idempotent or conflict; never two open rows
+- id: CR-BASE-001
+  slice: CT-04B
+  category: CR-BASE
+  required: true
+  protected: true
+  expected: full object ID stored
+- id: CR-BASE-002
+  slice: CT-04B
+  category: CR-BASE
+  required: true
+  protected: true
+  expected: rejected as authoritative base
+- id: CR-BASE-003
+  slice: CT-04B
+  category: CR-BASE
+  required: true
+  protected: true
+  expected: rejected
+- id: CR-BASE-004
+  slice: CT-04B
+  category: CR-BASE
+  required: true
+  protected: true
+  expected: peeled to commit only according to accepted policy
+- id: CR-BASE-005
+  slice: CT-04B
+  category: CR-BASE
+  required: true
+  protected: true
+  expected: server resolves current ref and records exact result; stale client fact cannot override
+- id: CR-BASE-006
+  slice: CT-04B
+  category: CR-BASE
+  required: true
+  protected: true
+  expected: rejected unless explicit approved historical-base policy
+- id: CR-BASE-007
+  slice: CT-04B
+  category: CR-BASE
+  required: true
+  protected: true
+  expected: blocked
+- id: CR-BR-001
+  slice: CT-04B
+  category: CR-BRANCH
+  required: true
+  protected: true
+  expected: valid bounded CraftingTable branch
+- id: CR-BR-002
+  slice: CT-04B
+  category: CR-BRANCH
+  required: true
+  protected: true
+  expected: title not used as raw ref; output valid
+- id: CR-BR-003
+  slice: CT-04B
+  category: CR-BRANCH
+  required: true
+  protected: true
+  expected: collision rejected before change-request acceptance or according to accepted reservation policy
+- id: CR-BR-004
+  slice: CT-04B
+  category: CR-BRANCH
+  required: true
+  protected: true
+  expected: strict schema rejects
+- id: CR-BR-005
+  slice: CT-04B
+  category: CR-BRANCH
+  required: true
+  protected: true
+  expected: daemon refuses unsafe config
+- id: WT-PROV-001
+  slice: CT-04C
+  category: WT-PROVISION
+  required: true
+  protected: true
+  expected: one branch/worktree at expected base
+- id: WT-PROV-002
+  slice: CT-04C
+  category: WT-PROVISION
+  required: true
+  protected: true
+  expected: strict schema rejects
+- id: WT-PROV-003
+  slice: CT-04C
+  category: WT-PROVISION
+  required: true
+  protected: true
+  expected: blocked; no deletion
+- id: WT-PROV-004
+  slice: CT-04C
+  category: WT-PROVISION
+  required: true
+  protected: true
+  expected: blocked before subprocess
+- id: WT-PROV-005
+  slice: CT-04C
+  category: WT-PROVISION
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-PROV-006
+  slice: CT-04C
+  category: WT-PROVISION
+  required: true
+  protected: true
+  expected: durable conflict
+- id: WT-PROV-007
+  slice: CT-04C
+  category: WT-PROVISION
+  required: true
+  protected: true
+  expected: hooks disabled according to accepted profile or operation blocked by repository policy
+- id: WT-CRASH-001
+  slice: CT-04C
+  category: WT-CRASH
+  required: true
+  protected: true
+  expected: no operation/effect exists
+- id: WT-CRASH-002
+  slice: CT-04C
+  category: WT-CRASH
+  required: true
+  protected: true
+  expected: operation discoverable and safely resumable
+- id: WT-CRASH-003
+  slice: CT-04C
+  category: WT-CRASH
+  required: true
+  protected: true
+  expected: reconcile sees no branch/path; no blind success
+- id: WT-CRASH-004
+  slice: CT-04C
+  category: WT-CRASH
+  required: true
+  protected: true
+  expected: partial state recognized; no `-b` blind retry
+- id: WT-CRASH-005
+  slice: CT-04C
+  category: WT-CRASH
+  required: true
+  protected: true
+  expected: reconciles to provisioned if branch/head/path exact
+- id: WT-CRASH-006
+  slice: CT-04C
+  category: WT-CRASH
+  required: true
+  protected: true
+  expected: observable state controls outcome
+- id: WT-CRASH-007
+  slice: CT-04C
+  category: WT-CRASH
+  required: true
+  protected: true
+  expected: durable fallback delivers event
+- id: WT-CRASH-008
+  slice: CT-04C
+  category: WT-CRASH
+  required: true
+  protected: true
+  expected: test fails; ordering invariant enforced
+- id: WT-CLEAN-001
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: worktree removed; branch retained
+- id: WT-CLEAN-002
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-CLEAN-003
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-CLEAN-004
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-CLEAN-005
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-CLEAN-006
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-CLEAN-007
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: blocked according to accepted policy
+- id: WT-CLEAN-008
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: blocked; no rm fallback
+- id: WT-CLEAN-009
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-CLEAN-010
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-CLEAN-011
+  slice: CT-04C
+  category: WT-CLEANUP
+  required: true
+  protected: true
+  expected: failed/uncertain; filesystem not recursively deleted
+- id: DIFF-STAT-001
+  slice: CT-04D
+  category: DIFF-STATUS-PARSE
+  required: true
+  protected: true
+  expected: correct typed entries
+- id: DIFF-STAT-002
+  slice: CT-04D
+  category: DIFF-STATUS-PARSE
+  required: true
+  protected: true
+  expected: one correct path, no option/split confusion
+- id: DIFF-STAT-003
+  slice: CT-04D
+  category: DIFF-STATUS-PARSE
+  required: true
+  protected: true
+  expected: unsupported-path-encoding; no replacement-character ambiguity
+- id: DIFF-STAT-004
+  slice: CT-04D
+  category: DIFF-STATUS-PARSE
+  required: true
+  protected: true
+  expected: structured parse failure; no complete snapshot
+- id: DIFF-STAT-005
+  slice: CT-04D
+  category: DIFF-STATUS-PARSE
+  required: true
+  protected: true
+  expected: represented without recursion
+- id: DIFF-STAT-006
+  slice: CT-04D
+  category: DIFF-STATUS-PARSE
+  required: true
+  protected: true
+  expected: explicit conflict state
+- id: DIFF-TRK-001
+  slice: CT-04D
+  category: DIFF-TRACKED
+  required: true
+  protected: true
+  expected: unstaged patch artifact
+- id: DIFF-TRK-002
+  slice: CT-04D
+  category: DIFF-TRACKED
+  required: true
+  protected: true
+  expected: staged patch artifact
+- id: DIFF-TRK-003
+  slice: CT-04D
+  category: DIFF-TRACKED
+  required: true
+  protected: true
+  expected: both evidence layers retained distinctly
+- id: DIFF-TRK-004
+  slice: CT-04D
+  category: DIFF-TRACKED
+  required: true
+  protected: true
+  expected: binary patch/classification; no unsafe text render
+- id: DIFF-TRK-005
+  slice: CT-04D
+  category: DIFF-TRACKED
+  required: true
+  protected: true
+  expected: external commands not invoked
+- id: DIFF-TRK-006
+  slice: CT-04D
+  category: DIFF-TRACKED
+  required: true
+  protected: true
+  expected: incomplete/truncated state; partial bytes not presented complete
+- id: DIFF-UNTR-001
+  slice: CT-04D
+  category: DIFF-UNTRACKED
+  required: true
+  protected: true
+  expected: bounded untracked text evidence
+- id: DIFF-UNTR-002
+  slice: CT-04D
+  category: DIFF-UNTRACKED
+  required: true
+  protected: true
+  expected: oversized classification; no unbounded read
+- id: DIFF-UNTR-003
+  slice: CT-04D
+  category: DIFF-UNTRACKED
+  required: true
+  protected: true
+  expected: binary classification
+- id: DIFF-UNTR-004
+  slice: CT-04D
+  category: DIFF-UNTRACKED
+  required: true
+  protected: true
+  expected: record link metadata/target only; do not follow
+- id: DIFF-UNTR-005
+  slice: CT-04D
+  category: DIFF-UNTRACKED
+  required: true
+  protected: true
+  expected: unsupported special-file classification; do not read
+- id: DIFF-UNTR-006
+  slice: CT-04D
+  category: DIFF-UNTRACKED
+  required: true
+  protected: true
+  expected: identity check/lstat detects; snapshot incomplete
+- id: DIFF-UNTR-007
+  slice: CT-04D
+  category: DIFF-UNTRACKED
+  required: true
+  protected: true
+  expected: bounded/truncated classification
+- id: ART-ATOM-001
+  slice: CT-04D
+  category: ARTIFACT-ATOMICITY
+  required: true
+  protected: true
+  expected: readable hash-verified artifact
+- id: ART-ATOM-002
+  slice: CT-04D
+  category: ARTIFACT-ATOMICITY
+  required: true
+  protected: true
+  expected: no metadata; temp/orphan not API reachable
+- id: ART-ATOM-003
+  slice: CT-04D
+  category: ARTIFACT-ATOMICITY
+  required: true
+  protected: true
+  expected: no metadata; no false success
+- id: ART-ATOM-004
+  slice: CT-04D
+  category: ARTIFACT-ATOMICITY
+  required: true
+  protected: true
+  expected: orphan tolerated; no metadata points absent
+- id: ART-ATOM-005
+  slice: CT-04D
+  category: ARTIFACT-ATOMICITY
+  required: true
+  protected: true
+  expected: integrity error, never empty/incorrect content
+- id: ART-ATOM-006
+  slice: CT-04D
+  category: ARTIFACT-ATOMICITY
+  required: true
+  protected: true
+  expected: corruption detected
+- id: OWN-DIFF-001
+  slice: CT-04D
+  category: OWN-DIFF
+  required: true
+  protected: true
+  expected: accepted
+- id: OWN-DIFF-002
+  slice: CT-04D
+  category: OWN-DIFF
+  required: true
+  protected: true
+  expected: database rejects
+- id: OWN-DIFF-003
+  slice: CT-04D
+  category: OWN-DIFF
+  required: true
+  protected: true
+  expected: database rejects
+- id: OWN-DIFF-004
+  slice: CT-04D
+  category: OWN-DIFF
+  required: true
+  protected: true
+  expected: database rejects
+- id: OWN-DIFF-005
+  slice: CT-04D
+  category: OWN-DIFF
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: OWN-DIFF-006
+  slice: CT-04D
+  category: OWN-DIFF
+  required: true
+  protected: true
+  expected: new snapshot; old bytes/metadata unchanged
+- id: UI-ID-001
+  slice: CT-04E
+  category: UI-ROUTE-IDENTITY
+  required: true
+  protected: true
+  expected: late success/failure ignored
+- id: UI-ID-002
+  slice: CT-04E
+  category: UI-ROUTE-IDENTITY
+  required: true
+  protected: true
+  expected: late result ignored
+- id: UI-ID-003
+  slice: CT-04E
+  category: UI-ROUTE-IDENTITY
+  required: true
+  protected: true
+  expected: late result ignored
+- id: UI-ID-004
+  slice: CT-04E
+  category: UI-ROUTE-IDENTITY
+  required: true
+  protected: true
+  expected: result cannot mutate other CR view
+- id: UI-ID-005
+  slice: CT-04E
+  category: UI-ROUTE-IDENTITY
+  required: true
+  protected: true
+  expected: content not rendered after unauthorized state
+- id: UI-ID-006
+  slice: CT-04E
+  category: UI-ROUTE-IDENTITY
+  required: true
+  protected: true
+  expected: state keyed by workspace + resource, never reused
+- id: UI-RENDER-001
+  slice: CT-04E
+  category: UI-RENDER-SAFETY
+  required: true
+  protected: true
+  expected: escaped text, no DOM execution
+- id: UI-RENDER-002
+  slice: CT-04E
+  category: UI-RENDER-SAFETY
+  required: true
+  protected: true
+  expected: safe bounded representation
+- id: UI-RENDER-003
+  slice: CT-04E
+  category: UI-RENDER-SAFETY
+  required: true
+  protected: true
+  expected: explicit status, no attempted text decode
+- id: UI-RENDER-004
+  slice: CT-04E
+  category: UI-RENDER-SAFETY
+  required: true
+  protected: true
+  expected: read-only daemon fact; never editable/submitted
+- id: UI-RENDER-005
+  slice: CT-04E
+  category: UI-RENDER-SAFETY
+  required: true
+  protected: true
+  expected: not labeled ready/verified/reviewed/mergeable
+- id: REGRESS-001
+  slice: CT-04E
+  category: REGRESSION-CT01-CT03
+  required: true
+  protected: true
+  expected: CT-02 behavior passes
+- id: REGRESS-002
+  slice: CT-04E
+  category: REGRESSION-CT01-CT03
+  required: true
+  protected: true
+  expected: 14 items and dependency semantics unchanged
+- id: REGRESS-003
+  slice: CT-04E
+  category: REGRESSION-CT01-CT03
+  required: true
+  protected: true
+  expected: diagnostics and atomic failure unchanged
+- id: REGRESS-004
+  slice: CT-04E
+  category: REGRESSION-CT01-CT03
+  required: true
+  protected: true
+  expected: CT-03 isolation remains
+- id: REGRESS-005
+  slice: CT-04E
+  category: REGRESSION-CT01-CT03
+  required: true
+  protected: true
+  expected: no CT-05+ agent/check/review/merge routes
+- id: JRN-REP-001
+  slice: CT-04A
+  category: JOURNAL-REPOSITORY
+  required: true
+  protected: true
+  expected: state + audit + workspace event commit atomically, then notifier fires
+- id: JRN-REP-002
+  slice: CT-04A
+  category: JOURNAL-REPOSITORY
+  required: true
+  protected: true
+  expected: no repository row and no success event
+- id: JRN-REP-003
+  slice: CT-04A
+  category: JOURNAL-REPOSITORY
+  required: true
+  protected: true
+  expected: notifier is not called
+- id: JRN-REP-004
+  slice: CT-04A
+  category: JOURNAL-REPOSITORY
+  required: true
+  protected: true
+  expected: durable re-query delivers event
+- id: JRN-REP-005
+  slice: CT-04A
+  category: JOURNAL-REPOSITORY
+  required: true
+  protected: true
+  expected: event is not disclosed
+- id: CR-REF-001
+  slice: CT-04B
+  category: CR-TARGET-REF
+  required: true
+  protected: true
+  expected: accepted and exact commit resolved
+- id: CR-REF-002
+  slice: CT-04B
+  category: CR-TARGET-REF
+  required: true
+  protected: true
+  expected: rejected
+- id: CR-REF-003
+  slice: CT-04B
+  category: CR-TARGET-REF
+  required: true
+  protected: true
+  expected: rejected unless explicitly allowed local-read policy; no network contact
+- id: CR-REF-004
+  slice: CT-04B
+  category: CR-TARGET-REF
+  required: true
+  protected: true
+  expected: server rejects current missing ref
+- id: CR-REF-005
+  slice: CT-04B
+  category: CR-TARGET-REF
+  required: true
+  protected: true
+  expected: cannot become Git option; rejected
+- id: CR-IDEMP-001
+  slice: CT-04B
+  category: CR-IDEMPOTENCY
+  required: true
+  protected: true
+  expected: same change request returned
+- id: CR-IDEMP-002
+  slice: CT-04B
+  category: CR-IDEMPOTENCY
+  required: true
+  protected: true
+  expected: conflict, never silent reuse
+- id: CR-IDEMP-003
+  slice: CT-04B
+  category: CR-IDEMPOTENCY
+  required: true
+  protected: true
+  expected: explicit conflict; one open CR
+- id: CR-IDEMP-004
+  slice: CT-04B
+  category: CR-IDEMPOTENCY
+  required: true
+  protected: true
+  expected: recovered without duplicate row/event
+- id: JRN-CR-001
+  slice: CT-04B
+  category: JOURNAL-CHANGE-REQUEST
+  required: true
+  protected: true
+  expected: CR + audit + event atomic, then notifier
+- id: JRN-CR-002
+  slice: CT-04B
+  category: JOURNAL-CHANGE-REQUEST
+  required: true
+  protected: true
+  expected: no success row/event; bounded failure audit according to accepted policy
+- id: JRN-CR-003
+  slice: CT-04B
+  category: JOURNAL-CHANGE-REQUEST
+  required: true
+  protected: true
+  expected: durable event recovered
+- id: JRN-CR-004
+  slice: CT-04B
+  category: JOURNAL-CHANGE-REQUEST
+  required: true
+  protected: true
+  expected: no duplicate semantic event
+- id: WT-REC-001
+  slice: CT-04C
+  category: WT-RECONCILE
+  required: true
+  protected: true
+  expected: safe retry state, not success
+- id: WT-REC-002
+  slice: CT-04C
+  category: WT-RECONCILE
+  required: true
+  protected: true
+  expected: recognized partial state; explicit resume path
+- id: WT-REC-003
+  slice: CT-04C
+  category: WT-RECONCILE
+  required: true
+  protected: true
+  expected: mark provisioned/reconciled exactly once
+- id: WT-REC-004
+  slice: CT-04C
+  category: WT-RECONCILE
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-REC-005
+  slice: CT-04C
+  category: WT-RECONCILE
+  required: true
+  protected: true
+  expected: blocked; never delete
+- id: WT-REC-006
+  slice: CT-04C
+  category: WT-RECONCILE
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-REC-007
+  slice: CT-04C
+  category: WT-RECONCILE
+  required: true
+  protected: true
+  expected: blocked; no automatic prune
+- id: WT-CONC-001
+  slice: CT-04C
+  category: WT-CONCURRENCY
+  required: true
+  protected: true
+  expected: one effect; other idempotent/conflict
+- id: WT-CONC-002
+  slice: CT-04C
+  category: WT-CONCURRENCY
+  required: true
+  protected: true
+  expected: one active repository mutation; other waits/conflicts
+- id: WT-CONC-003
+  slice: CT-04C
+  category: WT-CONCURRENCY
+  required: true
+  protected: true
+  expected: database blocks conflict
+- id: WT-CONC-004
+  slice: CT-04C
+  category: WT-CONCURRENCY
+  required: true
+  protected: true
+  expected: accepted plan defines serialization; no stale destructive decision
+- id: WT-CONC-005
+  slice: CT-04C
+  category: WT-CONCURRENCY
+  required: true
+  protected: true
+  expected: one authoritative transition, no duplicate worktree
+- id: WT-REPL-001
+  slice: CT-04C
+  category: WT-REPLACEMENT
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-REPL-002
+  slice: CT-04C
+  category: WT-REPLACEMENT
+  required: true
+  protected: true
+  expected: blocked
+- id: WT-REPL-003
+  slice: CT-04C
+  category: WT-REPLACEMENT
+  required: true
+  protected: true
+  expected: blocked; target not followed
+- id: WT-REPL-004
+  slice: CT-04C
+  category: WT-REPLACEMENT
+  required: true
+  protected: true
+  expected: mismatch visible and policy blocks unsafe cleanup
+- id: WT-REPL-005
+  slice: CT-04C
+  category: WT-REPLACEMENT
+  required: true
+  protected: true
+  expected: observed honestly; no old state assumed
+- id: JRN-WT-001
+  slice: CT-04C
+  category: JOURNAL-WORKTREE
+  required: true
+  protected: true
+  expected: operation intent/audit/event durable before Git effect
+- id: JRN-WT-002
+  slice: CT-04C
+  category: JOURNAL-WORKTREE
+  required: true
+  protected: true
+  expected: worktree/generation/outcome/event atomic, then notifier
+- id: JRN-WT-003
+  slice: CT-04C
+  category: JOURNAL-WORKTREE
+  required: true
+  protected: true
+  expected: uncertainty is durable and visible; no false failure/success
+- id: JRN-WT-004
+  slice: CT-04C
+  category: JOURNAL-WORKTREE
+  required: true
+  protected: true
+  expected: semantic blocked outcome recorded without removing worktree
+- id: DIFF-BIN-001
+  slice: CT-04D
+  category: DIFF-BINARY
+  required: true
+  protected: true
+  expected: binary classification/patch metadata, no UTF-8 render
+- id: DIFF-BIN-002
+  slice: CT-04D
+  category: DIFF-BINARY
+  required: true
+  protected: true
+  expected: binary artifact classification within bound
+- id: DIFF-BIN-003
+  slice: CT-04D
+  category: DIFF-BINARY
+  required: true
+  protected: true
+  expected: binary, not text
+- id: DIFF-BIN-004
+  slice: CT-04D
+  category: DIFF-BINARY
+  required: true
+  protected: true
+  expected: octet-stream/nosniff or metadata-only according to accepted policy
+- id: DIFF-SYM-001
+  slice: CT-04D
+  category: DIFF-SYMLINK
+  required: true
+  protected: true
+  expected: Git mode/target change represented
+- id: DIFF-SYM-002
+  slice: CT-04D
+  category: DIFF-SYMLINK
+  required: true
+  protected: true
+  expected: link target metadata only; no follow
+- id: DIFF-SYM-003
+  slice: CT-04D
+  category: DIFF-SYMLINK
+  required: true
+  protected: true
+  expected: link target metadata only; no external bytes read
+- id: DIFF-SYM-004
+  slice: CT-04D
+  category: DIFF-SYMLINK
+  required: true
+  protected: true
+  expected: lstat/race detected; incomplete snapshot
+- id: DIFF-SUB-001
+  slice: CT-04D
+  category: DIFF-SUBMODULE
+  required: true
+  protected: true
+  expected: represented as submodule metadata
+- id: DIFF-SUB-002
+  slice: CT-04D
+  category: DIFF-SUBMODULE
+  required: true
+  protected: true
+  expected: pointer change represented
+- id: DIFF-SUB-003
+  slice: CT-04D
+  category: DIFF-SUBMODULE
+  required: true
+  protected: true
+  expected: dirty state represented; no recursive diff
+- id: DIFF-SUB-004
+  slice: CT-04D
+  category: DIFF-SUBMODULE
+  required: true
+  protected: true
+  expected: structured state, no clone/network attempt
+- id: DIFF-LIM-001
+  slice: CT-04D
+  category: DIFF-LIMITS
+  required: true
+  protected: true
+  expected: complete
+- id: DIFF-LIM-002
+  slice: CT-04D
+  category: DIFF-LIMITS
+  required: true
+  protected: true
+  expected: truncated/incomplete and bounded process termination
+- id: DIFF-LIM-003
+  slice: CT-04D
+  category: DIFF-LIMITS
+  required: true
+  protected: true
+  expected: oversized classification
+- id: DIFF-LIM-004
+  slice: CT-04D
+  category: DIFF-LIMITS
+  required: true
+  protected: true
+  expected: bounded incomplete snapshot
+- id: DIFF-LIM-005
+  slice: CT-04D
+  category: DIFF-LIMITS
+  required: true
+  protected: true
+  expected: summary/truncation explicit, no unbounded allocation
+- id: DIFF-EXEC-001
+  slice: CT-04D
+  category: DIFF-EXTERNAL-EXECUTION
+  required: true
+  protected: true
+  expected: program not invoked
+- id: DIFF-EXEC-002
+  slice: CT-04D
+  category: DIFF-EXTERNAL-EXECUTION
+  required: true
+  protected: true
+  expected: program not invoked
+- id: DIFF-EXEC-003
+  slice: CT-04D
+  category: DIFF-EXTERNAL-EXECUTION
+  required: true
+  protected: true
+  expected: program not invoked
+- id: DIFF-EXEC-004
+  slice: CT-04D
+  category: DIFF-EXTERNAL-EXECUTION
+  required: true
+  protected: true
+  expected: pager not invoked
+- id: DIFF-EXEC-005
+  slice: CT-04D
+  category: DIFF-EXTERNAL-EXECUTION
+  required: true
+  protected: true
+  expected: disabled or repository blocked according to accepted policy
+- id: ART-INT-001
+  slice: CT-04D
+  category: ARTIFACT-INTEGRITY
+  required: true
+  protected: true
+  expected: content reused with coherent metadata policy
+- id: ART-INT-002
+  slice: CT-04D
+  category: ARTIFACT-INTEGRITY
+  required: true
+  protected: true
+  expected: 404 through parent authorization
+- id: ART-INT-003
+  slice: CT-04D
+  category: ARTIFACT-INTEGRITY
+  required: true
+  protected: true
+  expected: integrity error; altered bytes not served as valid evidence
+- id: ART-INT-004
+  slice: CT-04D
+  category: ARTIFACT-INTEGRITY
+  required: true
+  protected: true
+  expected: strict route ignores/rejects; opaque artifact ID required
+- id: JRN-DIFF-001
+  slice: CT-04D
+  category: JOURNAL-DIFF
+  required: true
+  protected: true
+  expected: artifact bytes durable first; metadata/snapshot/audit/event atomic; notifier after commit
+- id: JRN-DIFF-002
+  slice: CT-04D
+  category: JOURNAL-DIFF
+  required: true
+  protected: true
+  expected: no snapshot metadata/success event
+- id: JRN-DIFF-003
+  slice: CT-04D
+  category: JOURNAL-DIFF
+  required: true
+  protected: true
+  expected: orphan allowed; no reachable snapshot
+- id: JRN-DIFF-004
+  slice: CT-04D
+  category: JOURNAL-DIFF
+  required: true
+  protected: true
+  expected: durable event recovered
+- id: UI-LATE-001
+  slice: CT-04E
+  category: UI-LATE-RESULT
+  required: true
+  protected: true
+  expected: B view unchanged
+- id: UI-LATE-002
+  slice: CT-04E
+  category: UI-LATE-RESULT
+  required: true
+  protected: true
+  expected: B state unchanged; A durable event may update global summary only through keyed projection
+- id: UI-LATE-003
+  slice: CT-04E
+  category: UI-LATE-RESULT
+  required: true
+  protected: true
+  expected: B error state unchanged
+- id: UI-LATE-004
+  slice: CT-04E
+  category: UI-LATE-RESULT
+  required: true
+  protected: true
+  expected: B state unchanged
+- id: UI-LATE-005
+  slice: CT-04E
+  category: UI-LATE-RESULT
+  required: true
+  protected: true
+  expected: content not displayed
+- id: UI-LATE-006
+  slice: CT-04E
+  category: UI-LATE-RESULT
+  required: true
+  protected: true
+  expected: identity guard still prevents application
+- id: UI-AUTH-001
+  slice: CT-04E
+  category: UI-AUTHORIZATION
+  required: true
+  protected: true
+  expected: allowed
+- id: UI-AUTH-002
+  slice: CT-04E
+  category: UI-AUTHORIZATION
+  required: true
+  protected: true
+  expected: forbidden
+- id: UI-AUTH-003
+  slice: CT-04E
+  category: UI-AUTHORIZATION
+  required: true
+  protected: true
+  expected: allowed according to command policy
+- id: UI-AUTH-004
+  slice: CT-04E
+  category: UI-AUTHORIZATION
+  required: true
+  protected: true
+  expected: hidden or disabled in UI and 403 server-side
+- id: UI-AUTH-005
+  slice: CT-04E
+  category: UI-AUTHORIZATION
+  required: true
+  protected: true
+  expected: same 404 as missing
+- id: UI-OP-001
+  slice: CT-04E
+  category: UI-OPERATION-STATE
+  required: true
+  protected: true
+  expected: in progress with no success claim
+- id: UI-OP-002
+  slice: CT-04E
+  category: UI-OPERATION-STATE
+  required: true
+  protected: true
+  expected: uncertain and reconcile action visible
+- id: UI-OP-003
+  slice: CT-04E
+  category: UI-OPERATION-STATE
+  required: true
+  protected: true
+  expected: structural reason visible; no retry-as-success
+- id: UI-OP-004
+  slice: CT-04E
+  category: UI-OPERATION-STATE
+  required: true
+  protected: true
+  expected: observed evidence and prior uncertainty visible
+- id: UI-OP-005
+  slice: CT-04E
+  category: UI-OPERATION-STATE
+  required: true
+  protected: true
+  expected: worktree remains and blocker visible
+- id: UI-NR-001
+  slice: CT-04E
+  category: UI-NONREADINESS
+  required: true
+  protected: true
+  expected: not called executing/complete/ready
+- id: UI-NR-002
+  slice: CT-04E
+  category: UI-NONREADINESS
+  required: true
+  protected: true
+  expected: not called verified or mergeable
+- id: UI-NR-003
+  slice: CT-04E
+  category: UI-NONREADINESS
+  required: true
+  protected: true
+  expected: not called complete
+- id: UI-NR-004
+  slice: CT-04E
+  category: UI-NONREADINESS
+  required: true
+  protected: true
+  expected: clearly states no commit/check/review exists
+- id: DOG-AQ-001
+  slice: CT-04E
+  category: DOGFOOD-AQ01
+  required: true
+  protected: true
+  expected: success
+- id: DOG-AQ-002
+  slice: CT-04E
+  category: DOGFOOD-AQ01
+  required: true
+  protected: true
+  expected: success with visible base/branch
+- id: DOG-AQ-003
+  slice: CT-04E
+  category: DOGFOOD-AQ01
+  required: true
+  protected: true
+  expected: one reconciled managed worktree
+- id: DOG-AQ-004
+  slice: CT-04E
+  category: DOGFOOD-AQ01
+  required: true
+  protected: true
+  expected: safe immutable browser evidence
+- id: DOG-AQ-005
+  slice: CT-04E
+  category: DOGFOOD-AQ01
+  required: true
+  protected: true
+  expected: dirty blocked; clean removal succeeds and branch remains
+- id: A-MIG-001
+  slice: CT-04A
+  category: migration
+  required: true
+  protected: true
+  expected: migration from accepted CT-03 schema preserves all rows, event sequences, triggers, and catalogs
+- id: B-MIG-001
+  slice: CT-04B
+  category: migration
+  required: true
+  protected: true
+  expected: migration preserves CT-04A and prior state and enforces coherent CR graph
+- id: C-MIG-001
+  slice: CT-04C
+  category: migration
+  required: true
+  protected: true
+  expected: migration preserves prior state and excludes duplicate active operations/worktrees
+- id: C-STARTUP-001
+  slice: CT-04C
+  category: recovery
+  required: true
+  protected: true
+  expected: daemon startup reconciles nonterminal Git operations before accepting conflicting mutations
+- id: D-MIG-001
+  slice: CT-04D
+  category: migration
+  required: true
+  protected: true
+  expected: artifact/diff migration preserves all prior state and freezes historical evidence
+- id: E-SCOPE-001
+  slice: CT-04E
+  category: scope
+  required: true
+  protected: true
+  expected: no agent, verification, review, readiness, merge, or remote-Git behavior appears
+- id: P-PROCESS-001
+  slice: CT-04A
+  category: process
+  required: true
+  protected: true
+  expected: accepted implementation plan exists before first code commit
+- id: P-PROCESS-002
+  slice: CT-04A
+  category: process
+  required: true
+  protected: true
+  expected: independent design review and dispositions are recorded
+- id: P-PROCESS-003
+  slice: CT-04A
+  category: process
+  required: true
+  protected: true
+  expected: completion report references real exact implementation head
+- id: P-PROCESS-004
+  slice: CT-04A
+  category: process
+  required: true
+  protected: true
+  expected: protected spec hash unchanged

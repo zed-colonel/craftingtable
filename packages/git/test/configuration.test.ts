@@ -89,14 +89,21 @@ describe('Git inspector configuration', () => {
         { terminationGraceMs: 49 },
         { commandTimeoutMs: 1000, inspectionTimeoutMs: 1999 },
         { commandTimeoutMs: 100.5 },
+        { commandTimeoutMs: null },
+        { inspectionTimeoutMs: null },
+        { stdoutLimitBytes: null },
+        { stderrLimitBytes: null },
+        { terminationGraceMs: null },
       ]) {
         const result = await createRepositoryInspector({
           ...repositoryInspectorOptions(fixture),
           ...invalid,
-        });
+        } as never);
         expect(result.ok).toBe(false);
         if (!result.ok) {
           expect(result.error.code).toBe('invalid-options');
+          expect(result.error.subject).toBe('policy-configuration');
+          expect(result.error.retryability).toBe('configuration-required');
         }
       }
     } finally {
@@ -145,6 +152,26 @@ describe('Git inspector configuration', () => {
     }
   });
 
+  it('rejects malformed executable options as policy configuration', async () => {
+    const fixture = createRepositoryFixture();
+    try {
+      const result = await createRepositoryInspector({
+        allowedSourceRoots: [fixture.sourceRoot],
+        gitExecutable: 42,
+      } as never);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatchObject({
+          code: 'invalid-options',
+          subject: 'policy-configuration',
+          retryability: 'configuration-required',
+        });
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it('rejects an explicit symlink but accepts a search-path symlink after canonicalization', async () => {
     const fixture = createRepositoryFixture();
     try {
@@ -178,11 +205,59 @@ describe('Git inspector configuration', () => {
       const oldGit = makeExecutableProxy(
         fixture.root,
         'old-git',
-        "process.stdout.write('git version 2.31.1\\n');",
+        "import fs from 'node:fs'; fs.writeSync(1, 'git version 2.31.1\\n');",
       );
       const result = await createRepositoryInspector({
         allowedSourceRoots: [fixture.sourceRoot],
         gitExecutable: oldGit,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('unsupported-git-version');
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it('selects the first search-path executable whose version probe passes', async () => {
+    const fixture = createRepositoryFixture();
+    try {
+      const oldBin = join(fixture.root, 'old-bin');
+      const currentBin = join(fixture.root, 'current-bin');
+      mkdirSync(oldBin);
+      mkdirSync(currentBin);
+      makeExecutableProxy(
+        oldBin,
+        'git',
+        "import fs from 'node:fs'; fs.writeSync(1, 'git version 2.31.1\\n');",
+      );
+      symlinkSync(GIT_EXECUTABLE, join(currentBin, 'git'));
+
+      const result = await createRepositoryInspector({
+        allowedSourceRoots: [fixture.sourceRoot],
+        executableSearchPath: `${oldBin}${process.platform === 'win32' ? ';' : ':'}${currentBin}`,
+      });
+      expect(result.ok).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it('reports the first meaningful probe failure when no search candidate is viable', async () => {
+    const fixture = createRepositoryFixture();
+    try {
+      const oldBin = join(fixture.root, 'old-bin');
+      mkdirSync(oldBin);
+      makeExecutableProxy(
+        oldBin,
+        'git',
+        "import fs from 'node:fs'; fs.writeSync(1, 'git version 2.31.1\\n');",
+      );
+
+      const result = await createRepositoryInspector({
+        allowedSourceRoots: [fixture.sourceRoot],
+        executableSearchPath: oldBin,
       });
       expect(result.ok).toBe(false);
       if (!result.ok) {

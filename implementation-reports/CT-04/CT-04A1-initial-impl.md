@@ -10,6 +10,18 @@
 **Status:** initial implementation complete; deterministic and real-Git gates pass;
 awaiting independent review
 
+## Initial-review erratum
+
+Independent review of the immutable initial head found that the final
+exit-zero strict-ancestor identity branch inverted its classification:
+well-framed ancestor output was reported as `malformed-identity-output` rather
+than `not-primary-repository`. The initial report's broad repository-class
+claim below was therefore too strong for that branch. The initial review also
+confirmed that postflight compares size and mtime, so ordinary top-level
+working-tree entry changes can produce `observation-raced`; it is not limited
+to inode or layout replacement. Both facts are carried into the remediation
+record, while this report continues to describe the immutable initial head.
+
 ## 1. Summary
 
 CT-04A1 adds one real but uncomposed local Git authority to
@@ -150,14 +162,17 @@ A repository request must:
 
 Bare repositories, ordinary subdirectories, linked worktrees, submodule
 checkout files, separate Git directories, `commondir`, redirected worktrees,
-and unsupported repository extensions are rejected with repository-class
-failures rather than parse-corruption failures.
+and unsupported repository extensions were intended to be rejected with
+repository-class failures rather than parse-corruption failures. At the
+initial reviewed head, the exit-zero strict-ancestor branch violated that
+intent as described in the erratum.
 
 Whole identity stdout must equal the expected raw bytes for success. This
 supports spaces, leading dashes, metacharacters, tabs, and embedded newlines in
 paths. On mismatch, only the three path-free tail fields are peeled for honest
 classification. A postflight lstat/stat/realpath comparison fails with
-`observation-raced` when structural or inode evidence changes.
+`observation-raced` when kind, device, inode, size, mtime, or canonical
+resolution evidence changes.
 
 Production inspection creates no temporary file, directory, lock, marker,
 log, or repository state anywhere on the host.
@@ -394,8 +409,9 @@ tests alter an expected outcome and add an extra file; both are rejected.
   layouts.
 - The trust boundary excludes root, mount administrators, and a malicious
   concurrent local owner.
-- Postflight detects path/layout/inode and ordinary metadata replacement, not
-  every possible same-inode content edit.
+- Postflight detects path/layout/inode and ordinary metadata replacement,
+  including top-level directory-entry changes; it does not detect every
+  possible same-inode content edit.
 - Risk evidence describes only the literal scanned config-name set and generic
   hook presence. It is not approval for checkout or mutation.
 - A1 is uncomposed. There is no operator-facing Git/source-root configuration

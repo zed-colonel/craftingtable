@@ -65,6 +65,17 @@ No server or browser imports the inspector in A1. Repository IDs, durable
 state, authorization, registration, project binding, audit/events, routes, and
 notification ordering remain CT-04A2.
 
+The A2 boundary must preserve three A1 constraints. Registration runs against
+a clean, quiescent working tree because top-level directory entry changes can
+produce `observation-raced`. Coherent root configuration discharges reserved
+overlap during inspector creation, so A2 must not expect an inspect-time
+`reserved-root-overlap`; it will instead receive `invalid-root-policy` or
+`outside-allowed-root` for reachable cases. Finally, the A1 SHA-256 fingerprint
+authenticates core identity only. A2 storage must protect the integrity of
+`riskScan`, environmental device evidence, `canonicalGitDirectory`, and
+`observedAt` independently unless a later reviewed inspection-policy version
+widens the fingerprint.
+
 ## Authoritative write and read paths
 
 The first workspace-domain command is bootstrap:

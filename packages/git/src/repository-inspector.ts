@@ -199,10 +199,7 @@ export function parseIdentityOutcome(
   }
   return {
     ok: false,
-    error: createInspectionError(
-      knownPrefix ? 'malformed-identity-output' : 'not-primary-repository',
-      'inspect-path',
-    ),
+    error: createInspectionError('not-primary-repository', 'inspect-path'),
   };
 }
 

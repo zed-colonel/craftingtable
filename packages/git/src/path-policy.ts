@@ -298,6 +298,14 @@ export async function admitRepositoryPath(
   if (!isNormalizedAbsolutePath(requestedPath)) {
     return { ok: false, error: createInspectionError('invalid-path', 'inspect-path') };
   }
+  if (dirname(requestedPath).includes(':')) {
+    return {
+      ok: false,
+      error: createInspectionError('invalid-path', 'inspect-path', {
+        reason: 'ambiguous-git-ceiling',
+      }),
+    };
+  }
 
   const sourceRoots = policy.allowedSourceRoots.filter(
     (root) => requestedPath !== root && equalOrWithin(requestedPath, root),

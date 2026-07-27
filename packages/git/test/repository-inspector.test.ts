@@ -217,6 +217,21 @@ describe('real Git repository observation', () => {
     }
   });
 
+  it('accepts a colon in the repository basename when the ceiling parent is unambiguous', async () => {
+    const fixture = createRepositoryFixture('repository:with-colon');
+    try {
+      const creation = await createFixedInspector(fixture);
+      expect(creation.ok).toBe(true);
+      if (!creation.ok) {
+        return;
+      }
+      const result = await creation.inspector.inspect({ requestedPath: fixture.repository });
+      expect(result.ok).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it('supports SHA-256 object-format evidence when local Git supports it', async () => {
     const fixture = createRepositoryFixture();
     try {
@@ -343,6 +358,34 @@ describe('real Git repository-class rejection', () => {
 });
 
 describe('inspection isolation and side-effect proof', () => {
+  it('rejects an ambiguous colon-bearing ceiling before any repository spawn', async () => {
+    const fixture = createRepositoryFixture('parent:with-colon');
+    try {
+      const countPath = join(fixture.root, 'colon-spawn-count');
+      const proxy = createCountingGitProxy(fixture, countPath);
+      const creation = await createFixedInspector(fixture, proxy);
+      expect(creation.ok, creation.ok ? undefined : creation.error.code).toBe(true);
+      expect(readFileSync(countPath, 'utf8').trim().split('\n')).toHaveLength(1);
+      if (!creation.ok) {
+        return;
+      }
+
+      const nested = join(fixture.repository, 'nested');
+      const result = await creation.inspector.inspect({ requestedPath: nested });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatchObject({
+          code: 'invalid-path',
+          subject: 'caller-input',
+          evidence: { reason: 'ambiguous-git-ceiling' },
+        });
+      }
+      expect(readFileSync(countPath, 'utf8').trim().split('\n')).toHaveLength(1);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it('performs exactly two repository spawns after the version probe', async () => {
     const fixture = createRepositoryFixture();
     try {

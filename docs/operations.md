@@ -29,7 +29,11 @@ Only `127.0.0.1`, `localhost`, and `::1` hosts are accepted.
 The A1 library requires a non-root POSIX daemon and Git 2.32.0 or newer.
 Production composition in A2 must supply either an explicit absolute Git
 executable or an explicit absolute search path; ambient daemon `PATH` is a
-development/test convenience only.
+development/test convenience only. Search-path resolution selects the first
+canonical executable whose version probe succeeds. It skips non-executable,
+malformed, failing, and pre-2.32 candidates in order; if none is viable, it
+reports the first candidate's probe failure. An explicit executable never
+falls back to the search path.
 
 Source roots must already exist as canonical directories with no symlink
 component. Reserved roots may be absent, but every existing component must be
@@ -38,6 +42,19 @@ contain, or descend from one another. Repository requests must be exact
 top-level primary checkouts strictly below a source root. A symlinked source
 layout is rejected before Git, even when it resolves to an otherwise valid
 repository.
+
+Git treats `GIT_CEILING_DIRECTORIES` as a colon-delimited POSIX list and
+defines no escaping for a literal colon. A repository basename may contain a
+colon when its parent is unambiguous, but inspection rejects a requested path
+whose parent contains a colon before starting a repository Git process.
+
+Inspection is intentionally conservative about concurrent working-tree
+activity. Postflight compares the repository top-level directory's size and
+mtime as well as kind, device, inode, and canonical resolution. Creating,
+deleting, or renaming a top-level entry can therefore return
+`observation-raced` even without repository-layout replacement. The operator
+has accepted this narrower personal-use policy: A2 registration must inspect a
+clean, quiescent working tree and may retry only after activity has stopped.
 
 No `CRAFTINGTABLE_*` Git or repository setting is active yet, no repository is
 registered at startup, and the daemon still starts without Git configuration.

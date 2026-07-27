@@ -1,5 +1,5 @@
-import { appendFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   argumentsFor,
@@ -8,7 +8,7 @@ import {
 } from '../src/command-runner.js';
 import { BASE_GIT_ENVIRONMENT, environmentFor } from '../src/environment.js';
 import { parseIdentityOutcome, parseRiskSignalOutcome } from '../src/repository-inspector.js';
-import { createRepositoryFixture, makeExecutableProxy } from './test-support.js';
+import { GIT_EXECUTABLE, createRepositoryFixture, makeExecutableProxy } from './test-support.js';
 
 async function runnerFor(
   executable: string,
@@ -99,13 +99,37 @@ describe('closed Git command construction', () => {
 });
 
 describe('bounded fixed process runner', () => {
+  it('uses the ceiling to prevent discovery of a plain ancestor repository', async () => {
+    const fixture = createRepositoryFixture();
+    try {
+      const nested = join(fixture.repository, 'nested');
+      mkdirSync(join(nested, '.git'), { recursive: true });
+      const runner = await runnerFor(GIT_EXECUTABLE);
+      const result = await runner.run({
+        kind: 'identity',
+        cwd: nested,
+        expectedTopLevel: nested,
+        expectedGitDirectory: join(nested, '.git'),
+        ancestorCandidates: [fixture.repository],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.outcome.exitCode).not.toBe(0);
+        expect(result.outcome.stdout).toHaveLength(0);
+        expect(result.outcome.stderr.toString('utf8')).toContain('not a git repository');
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it('passes only the reviewed version argv and ten-field environment', async () => {
     const fixture = createRepositoryFixture();
     try {
       const proxy = makeExecutableProxy(
         fixture.root,
         'capture',
-        'process.stdout.write(JSON.stringify({ argv: process.argv.slice(2), env: process.env }));',
+        "import fs from 'node:fs'; fs.writeSync(1, JSON.stringify({ argv: process.argv.slice(2), env: process.env }));",
       );
       const runner = await runnerFor(proxy);
       const result = await runner.run({ kind: 'version', cwd: fixture.sourceRoot });
@@ -126,7 +150,7 @@ describe('bounded fixed process runner', () => {
       const atBoundProxy = makeExecutableProxy(
         fixture.root,
         'stdout-at-bound',
-        "process.stdout.write('1234');",
+        "import fs from 'node:fs'; fs.writeSync(1, '1234');",
       );
       const atBoundRunner = await runnerFor(atBoundProxy, { stdoutLimitBytes: 4 });
       const atBound = await atBoundRunner.run({
@@ -141,7 +165,7 @@ describe('bounded fixed process runner', () => {
       const stdoutProxy = makeExecutableProxy(
         fixture.root,
         'stdout-overflow',
-        "process.stdout.write('12345');",
+        "import fs from 'node:fs'; fs.writeSync(1, '12345');",
       );
       const stdoutRunner = await runnerFor(stdoutProxy, { stdoutLimitBytes: 4 });
       const stdout = await stdoutRunner.run({ kind: 'version', cwd: fixture.sourceRoot });
@@ -153,7 +177,7 @@ describe('bounded fixed process runner', () => {
       const stderrProxy = makeExecutableProxy(
         fixture.root,
         'stderr-overflow',
-        "process.stderr.write('12345');",
+        "import fs from 'node:fs'; fs.writeSync(2, '12345');",
       );
       const stderrRunner = await runnerFor(stderrProxy, { stderrLimitBytes: 4 });
       const stderr = await stderrRunner.run({ kind: 'version', cwd: fixture.sourceRoot });
@@ -187,7 +211,7 @@ describe('bounded fixed process runner', () => {
       const prompt = makeExecutableProxy(
         fixture.root,
         'prompt',
-        "process.stdin.resume(); process.stdin.on('end', () => process.stdout.write('eof'));",
+        "import fs from 'node:fs'; process.stdin.resume(); process.stdin.on('end', () => fs.writeSync(1, 'eof'));",
       );
       const promptRunner = await runnerFor(prompt);
       const eof = await promptRunner.run({ kind: 'version', cwd: fixture.sourceRoot });
@@ -290,6 +314,29 @@ describe('identity and risk-output discrimination', () => {
     expect(workTree.ok).toBe(false);
     if (!workTree.ok) {
       expect(workTree.error.code).toBe('not-primary-repository');
+    }
+  });
+
+  it('classifies a supported strict-ancestor identity as a repository-class change', () => {
+    const top = '/source/outer/nested';
+    const git = `${top}/.git`;
+    const ancestor = '/source/outer';
+    const ancestorGit = `${ancestor}/.git`;
+    const parsed = parseIdentityOutcome(
+      identityOutcome(
+        Buffer.from(`${ancestor}\n${ancestorGit}\n${ancestorGit}\nfalse\ntrue\nsha1\n`),
+      ),
+      top,
+      git,
+      [ancestor],
+    );
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.error).toMatchObject({
+        code: 'not-primary-repository',
+        subject: 'repository-class-changed',
+        retryability: 'not-retryable',
+      });
     }
   });
 

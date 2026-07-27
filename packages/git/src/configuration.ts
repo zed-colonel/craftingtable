@@ -59,7 +59,7 @@ function isBoundedInteger(
   minimum: number,
   maximum: number,
 ): number | undefined {
-  const candidate = value ?? defaultValue;
+  const candidate = value === undefined ? defaultValue : value;
   return Number.isInteger(candidate) &&
     typeof candidate === 'number' &&
     candidate >= minimum &&
@@ -101,20 +101,19 @@ async function executableCandidate(
   }
 }
 
-async function resolveExecutable(
+type ExecutableResolution =
+  | {
+      readonly ok: true;
+      readonly explicit: boolean;
+      readonly candidates: readonly GitExecutableEvidence[];
+    }
+  | { readonly ok: false; readonly error: RepositoryInspectionError };
+
+async function resolveExecutableCandidates(
   options: RepositoryInspectorOptions,
   dependencies: ConfigurationDependencies,
-): Promise<
-  | { readonly ok: true; readonly executable: GitExecutableEvidence }
-  | { readonly ok: false; readonly error: RepositoryInspectionError }
-> {
+): Promise<ExecutableResolution> {
   if (options.gitExecutable !== undefined) {
-    if (typeof options.gitExecutable !== 'string') {
-      return {
-        ok: false,
-        error: createInspectionError('git-not-executable', 'create-inspector'),
-      };
-    }
     const executable = await executableCandidate(options.gitExecutable, false);
     if (executable === undefined) {
       return {
@@ -122,27 +121,27 @@ async function resolveExecutable(
         error: createInspectionError('git-not-executable', 'create-inspector'),
       };
     }
-    return { ok: true, executable };
+    return { ok: true, explicit: true, candidates: [executable] };
   }
 
   const searchPath =
     options.executableSearchPath === undefined
       ? dependencies.ambientPath
       : options.executableSearchPath;
-  if (searchPath !== undefined && typeof searchPath !== 'string') {
-    return {
-      ok: false,
-      error: createInspectionError('invalid-options', 'create-inspector'),
-    };
-  }
+  const candidates: GitExecutableEvidence[] = [];
+  const canonicalPaths = new Set<string>();
   for (const entry of searchPath?.split(delimiter) ?? []) {
     if (!isNormalizedAbsolutePath(entry)) {
       continue;
     }
     const executable = await executableCandidate(join(entry, 'git'), true);
-    if (executable !== undefined) {
-      return { ok: true, executable };
+    if (executable !== undefined && !canonicalPaths.has(executable.canonicalPath)) {
+      canonicalPaths.add(executable.canonicalPath);
+      candidates.push(executable);
     }
+  }
+  if (candidates.length > 0) {
+    return { ok: true, explicit: false, candidates };
   }
   return {
     ok: false,
@@ -182,12 +181,23 @@ function validateOptionShape(value: unknown): value is RepositoryInspectorOption
     return false;
   }
   const candidate = value as Partial<RepositoryInspectorOptions>;
+  const optionalString = (option: unknown): boolean =>
+    option === undefined || typeof option === 'string';
+  const optionalNumber = (option: unknown): boolean =>
+    option === undefined || typeof option === 'number';
   return (
     Array.isArray(candidate.allowedSourceRoots) &&
     candidate.allowedSourceRoots.every((root) => typeof root === 'string') &&
     (candidate.reservedRoots === undefined ||
       (Array.isArray(candidate.reservedRoots) &&
-        candidate.reservedRoots.every((root) => typeof root === 'string')))
+        candidate.reservedRoots.every((root) => typeof root === 'string'))) &&
+    optionalString(candidate.gitExecutable) &&
+    optionalString(candidate.executableSearchPath) &&
+    optionalNumber(candidate.commandTimeoutMs) &&
+    optionalNumber(candidate.inspectionTimeoutMs) &&
+    optionalNumber(candidate.stdoutLimitBytes) &&
+    optionalNumber(candidate.stderrLimitBytes) &&
+    optionalNumber(candidate.terminationGraceMs)
   );
 }
 
@@ -257,63 +267,74 @@ export async function resolveInspectorConfiguration(
     return rootPolicy;
   }
 
-  const executable = await resolveExecutable(value, dependencies);
-  if (!executable.ok) {
-    return executable;
-  }
-
   const runnerOptions = {
     commandTimeoutMs,
     stdoutLimitBytes,
     stderrLimitBytes,
     terminationGraceMs,
   };
-  const runner = createBoundedCommandRunner(executable.executable, runnerOptions);
-  const versionResult = await runner.run(
-    { kind: 'version', cwd: rootPolicy.policy.allowedSourceRoots[0] as string },
-    undefined,
-    'create-inspector',
-  );
-  if (!versionResult.ok) {
-    return versionResult;
+  const executableResolution = await resolveExecutableCandidates(value, dependencies);
+  if (!executableResolution.ok) {
+    return executableResolution;
   }
-  if (versionResult.outcome.exitCode !== 0) {
-    return {
-      ok: false,
-      error: createInspectionError('git-command-failed', 'create-inspector', {
+
+  let firstProbeError: RepositoryInspectionError | undefined;
+  for (const executable of executableResolution.candidates) {
+    const runner = createBoundedCommandRunner(executable, runnerOptions);
+    const versionResult = await runner.run(
+      { kind: 'version', cwd: rootPolicy.policy.allowedSourceRoots[0] as string },
+      undefined,
+      'create-inspector',
+    );
+    let probeError: RepositoryInspectionError | undefined;
+    let gitVersion: GitVersion | undefined;
+    if (!versionResult.ok) {
+      probeError = versionResult.error;
+    } else if (versionResult.outcome.exitCode !== 0) {
+      probeError = createInspectionError('git-command-failed', 'create-inspector', {
         commandKind: 'version',
         exitCode: versionResult.outcome.exitCode,
-      }),
-    };
-  }
-  const gitVersion = parseGitVersion(versionResult.outcome.stdout);
-  if (gitVersion === undefined) {
-    return {
-      ok: false,
-      error: createInspectionError('malformed-version-output', 'create-inspector'),
-    };
-  }
-  if (!meetsMinimumGitVersion(gitVersion)) {
-    return {
-      ok: false,
-      error: createInspectionError('unsupported-git-version', 'create-inspector', {
-        gitMajor: gitVersion.major,
-        gitMinor: gitVersion.minor,
-        gitPatch: gitVersion.patch,
-      }),
-    };
+      });
+    } else {
+      gitVersion = parseGitVersion(versionResult.outcome.stdout);
+      if (gitVersion === undefined) {
+        probeError = createInspectionError('malformed-version-output', 'create-inspector');
+      } else if (!meetsMinimumGitVersion(gitVersion)) {
+        probeError = createInspectionError('unsupported-git-version', 'create-inspector', {
+          gitMajor: gitVersion.major,
+          gitMinor: gitVersion.minor,
+          gitPatch: gitVersion.patch,
+        });
+      }
+    }
+
+    if (probeError === undefined && gitVersion !== undefined) {
+      return {
+        ok: true,
+        configuration: {
+          rootPolicy: rootPolicy.policy,
+          executable,
+          gitVersion,
+          runnerOptions,
+          inspectionTimeoutMs,
+          effectiveUid: dependencies.effectiveUid,
+          fs: dependencies.fs,
+        },
+      };
+    }
+    if (executableResolution.explicit) {
+      return {
+        ok: false,
+        error: probeError ?? createInspectionError('git-command-failed', 'create-inspector'),
+      };
+    }
+    if (probeError !== undefined) {
+      firstProbeError ??= probeError;
+    }
   }
 
   return {
-    ok: true,
-    configuration: {
-      rootPolicy: rootPolicy.policy,
-      executable: executable.executable,
-      gitVersion,
-      runnerOptions,
-      inspectionTimeoutMs,
-      effectiveUid: dependencies.effectiveUid,
-      fs: dependencies.fs,
-    },
+    ok: false,
+    error: firstProbeError ?? createInspectionError('git-not-found', 'create-inspector'),
   };
 }

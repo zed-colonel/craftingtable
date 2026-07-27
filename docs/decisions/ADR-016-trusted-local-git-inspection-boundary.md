@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-26
+- **Amended:** 2026-07-26 after CT-04A1 initial review
 
 ## Context
 
@@ -33,6 +34,12 @@ The inspector:
 - stores one canonical executable and revalidates its path, device, inode,
   size, and mtime before every spawn.
 
+An explicit executable is the only candidate considered. Search-path
+resolution is first-viable rather than first-match: candidates are considered
+in order and accepted only after canonical executable evidence and a successful
+Git 2.32-or-newer version probe. If none is viable, the first probe failure is
+retained.
+
 The private process boundary has a closed three-variant command union:
 
 1. `<git> --version`;
@@ -43,7 +50,11 @@ The private process boundary has a closed three-variant command union:
 It uses argument arrays and `shell: false`. Every child receives a newly
 constructed ten-field locale/prompt/pager/lock/config environment; repository
 commands add only `GIT_CEILING_DIRECTORIES` set to the canonical request
-parent. Stdin is closed. Stdout and stderr have independent byte bounds.
+parent. Because POSIX Git parses that variable as a colon-delimited list with
+no literal-colon escape, admission rejects a request whose parent contains a
+colon before any repository spawn. A colon in the repository basename remains
+valid when the parent is unambiguous. Stdin is closed. Stdout and stderr have
+independent byte bounds.
 Per-command and total inspection deadlines terminate the detached process
 group with TERM then KILL, and partial output never succeeds.
 
@@ -80,6 +91,20 @@ inspection-policy versions are not comparable.
   intent/reconciliation and a newly reviewed lifecycle.
 - Strict symlink refusal is operationally restrictive but makes the first
   local trust boundary auditable.
+- Postflight includes top-level directory size and mtime. Ordinary top-level
+  entry creation, deletion, or rename can therefore return
+  `observation-raced`. The operator accepts this conservative personal-use
+  boundary; A2 must register only clean, quiescent working trees and retry
+  after activity stops.
+- Coherent source/reserved-root topology rejects overlap during inspector
+  creation. A2 must not depend on receiving inspect-time
+  `reserved-root-overlap`; reachable failures are `invalid-root-policy` or
+  `outside-allowed-root`.
+- The core fingerprint authenticates only its versioned core-identity fields.
+  It does not authenticate risk-scan evidence, device evidence,
+  `canonicalGitDirectory`, or `observedAt`. A2 must provide full serialized
+  observation integrity for those fields, or a later reviewed policy version
+  must widen the fingerprint.
 - A2 may request and store a parsed observation but cannot construct Git argv,
   import the runner, or infer durable repository state from A1 alone.
 

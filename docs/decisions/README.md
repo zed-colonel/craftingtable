@@ -18,6 +18,7 @@ ADR-012-planning-domain-and-dependency-semantics.md
 ADR-013-journal-vocabulary-catalogs.md
 ADR-014-work-item-admission-and-draft-contracts.md
 ADR-015-browser-navigation-and-planning-views.md
+ADR-016-trusted-local-git-inspection-boundary.md
 ```
 
 Each ADR should contain:

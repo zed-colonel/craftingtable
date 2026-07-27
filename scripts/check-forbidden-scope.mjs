@@ -3,7 +3,8 @@
  * Forbidden-scope check (work-items/CT-01.md, AGENTS.md): CraftingTable must
  * not gain runtime dependencies on the Exo Stack (ActionQueue, WorldInterface,
  * Exoskeleton). Scans every workspace manifest's dependency fields and every
- * import/require specifier under the src directories of apps and packages.
+ * import/require specifier under the src and structural test directories of
+ * apps and packages.
  *
  * Exported functions are unit-tested in check-forbidden-scope.test.mjs; keep
  * the recognized module syntax and those tests in lockstep.
@@ -15,10 +16,9 @@ import { fileURLToPath } from 'node:url';
 export const FORBIDDEN_PATTERNS = [/action-?queue/i, /world-?interface/i, /exoskeleton/i];
 
 /**
- * Modules that would give CraftingTable a CT-04-or-later capability
- * (work-items/CT-03/CT-03.md §9, CT03-A70): real Git, worktrees, process and
- * shell execution, and vendor coding-agent SDKs. Checked against production
- * source only; tests may still exercise fakes.
+ * Modules that give CraftingTable process, real-Git, shell, or vendor-agent
+ * authority. Production source rejects them except for the single exact
+ * CT-04A1 Git runner path; tests may exercise wider fault proxies and fixtures.
  */
 export const FORBIDDEN_CAPABILITY_PATTERNS = [
   /^simple-git$/i,
@@ -38,8 +38,8 @@ export const FORBIDDEN_CAPABILITY_PATTERNS = [
 ];
 
 /**
- * Packages that exist as future or test seams only. Production source must not
- * import them (AGENTS.md, CT-03 §4).
+ * Packages that remain uncomposed future/test/authority seams. Composed
+ * production packages must not import them (AGENTS.md, CT-04A1).
  */
 export const NON_PRODUCTION_PACKAGES = [
   '@craftingtable/agents',
@@ -72,6 +72,14 @@ const DEPENDENCY_FIELDS = [
   'optionalDependencies',
 ];
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs'];
+const GIT_PROCESS_AUTHORITY = 'packages/git/src/command-runner.ts';
+const EXISTING_TEST_CAPABILITY_MODULES = [
+  'packages/planning/src/test-support.ts',
+  'packages/storage/src/test-support.ts',
+  'packages/storage/src/planning-test-support.ts',
+  'apps/server/src/test-support.ts',
+  'apps/server/src/multipart-test-support.ts',
+];
 
 /**
  * Matches the module specifier in all supported syntax:
@@ -112,9 +120,19 @@ export function findNulByte(buffer) {
   return buffer.indexOf(0);
 }
 
-/** True for test and test-support modules, which may use wider capabilities. */
+/**
+ * True only for structurally placed tests. A production filename containing
+ * "test-support" does not acquire test authority.
+ */
 export function isTestModule(path) {
-  return /\.test\.[cm]?[jt]sx?$/.test(path) || /test-support\.[cm]?[jt]sx?$/.test(path);
+  const normalized = path.split('\\').join('/');
+  return (
+    /(?:^|\/)packages\/[^/]+\/test\//.test(normalized) ||
+    /\.test\.[cm]?[jt]sx?$/.test(normalized) ||
+    EXISTING_TEST_CAPABILITY_MODULES.some(
+      (existing) => normalized === existing || normalized.endsWith(`/${existing}`),
+    )
+  );
 }
 
 /** Returns every forbidden module specifier referenced by the source text. */
@@ -190,7 +208,7 @@ export function runCheck(root) {
       // packages must stay clear of them.
       const isSeamPackage =
         group === 'packages' && ['agents', 'git', 'testing'].includes(entry.name);
-      walk(join(packageDir, 'src'), (path) => {
+      const checkSource = (path) => {
         if (!SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension))) {
           return;
         }
@@ -211,7 +229,11 @@ export function runCheck(root) {
         }
         for (const specifier of findImports(source)) {
           if (isForbiddenCapability(specifier)) {
-            violations.push(`${relativePath}: imports CT-04+ capability module "${specifier}"`);
+            const isAnchoredGitProcessAuthority =
+              specifier === 'node:child_process' && relativePath === GIT_PROCESS_AUTHORITY;
+            if (!isAnchoredGitProcessAuthority) {
+              violations.push(`${relativePath}: imports CT-04+ capability module "${specifier}"`);
+            }
           }
           if (!isSeamPackage && isNonProductionPackage(specifier)) {
             violations.push(
@@ -224,7 +246,13 @@ export function runCheck(root) {
             );
           }
         }
-      });
+      };
+      for (const directory of ['src', 'test']) {
+        const path = join(packageDir, directory);
+        if (existsSync(path)) {
+          walk(path, checkSource);
+        }
+      }
     }
   }
 
@@ -243,8 +271,9 @@ if (isMain) {
     process.exit(1);
   }
   console.log(
-    'Forbidden-scope check passed: no Exo Stack dependency, no CT-04+ capability module,\n' +
-      'no non-production seam in production source, no NUL byte in tracked source, and\n' +
+    'Forbidden-scope check passed: no Exo Stack dependency, only the reviewed Git\n' +
+      'process authority, no non-production seam in composed source,\n' +
+      'no NUL byte in tracked source, and\n' +
       'the planning package stays pure.',
   );
 }

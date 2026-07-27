@@ -28,6 +28,7 @@ export default defineConfig({
           environment: 'node',
           include: [
             'packages/*/src/**/*.test.ts',
+            'packages/*/test/**/*.test.ts',
             'apps/server/src/**/*.test.ts',
             'apps/web/src/**/*.test.ts',
             'scripts/**/*.test.mjs',

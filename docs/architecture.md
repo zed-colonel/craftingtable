@@ -1,4 +1,4 @@
-# Architecture boundaries (CT-03)
+# Architecture boundaries (accepted CT-03 plus CT-04A1)
 
 CraftingTable is a loopback-only supervisory workbench. The daemon owns
 authoritative state; the browser is an authenticated projection reconstructed
@@ -29,6 +29,7 @@ planning     → domain
 storage      → domain
 server       → domain + planning + contracts + storage
 web          → domain + contracts
+git          → domain + Node filesystem/process/crypto primitives
 ```
 
 `@craftingtable/planning` is the whole interpretation boundary for untrusted
@@ -37,11 +38,32 @@ opens no file, issues no SQL, spawns no process, and never throws for hostile
 input. `node:crypto`'s `createHash` is permitted because hashing is
 computation, not I/O. `check:scope` enforces this boundary mechanically.
 
-`packages/agents`, `packages/git`, and `packages/testing` remain future/test
-seams inherited from CT-01. Production server composition imports none of them.
-Only `@craftingtable/storage` imports `better-sqlite3` or owns SQL. No package
-depends on ActionQueue, WorldInterface, Exoskeleton, or another application
-runtime.
+`packages/agents` and `packages/testing` remain future/test seams inherited
+from CT-01. `@craftingtable/git` now owns one real but uncomposed authority:
+bounded observation through three closed command variants. Production server
+composition imports none of these packages. Only `@craftingtable/storage`
+imports `better-sqlite3` or owns SQL. No package depends on ActionQueue,
+WorldInterface, Exoskeleton, or another application runtime.
+
+## Trusted Git observation boundary
+
+CT-04A1 accepts an untrusted absolute path only through an explicit,
+programmatically configured inspector. It validates canonical source/reserved
+root topology and exact primary-checkout structure before running Git. The
+private runner can select only a version probe, identity probe, or local
+risk-signal-name scan. It spawns an absolute revalidated executable without a
+shell, closes stdin, constructs the entire environment, independently bounds
+stdout/stderr, and terminates the detached process group on deadline, overflow,
+or abort.
+
+The result is a runtime-validated, versioned observation. Core identity,
+environmental device evidence, and self-describing risk-scan evidence remain
+separate. Serialized observations must pass `parseRecordedObservation` before
+comparison; policy-version mismatch is not equality.
+
+No server or browser imports the inspector in A1. Repository IDs, durable
+state, authorization, registration, project binding, audit/events, routes, and
+notification ordering remain CT-04A2.
 
 ## Authoritative write and read paths
 
@@ -126,10 +148,11 @@ revisited before activated multi-user or CT-08 deployment.
 
 ## Deliberately deferred
 
-CT-03 has projects, imported plans, and an operator-admitted agenda, but no
-executable work. It adds no repository registration, Git, worktrees, diffs,
-change requests, real coding agents, process execution, verification runners,
-reviews, remediation, readiness, or merge workflow; no Planning Studio, plan
+The composed CT-03 product has projects, imported plans, and an
+operator-admitted agenda, but no executable work. CT-04A1 adds only an
+uncomposed local Git observation library. There is still no repository
+registration, worktree, diff, change request, real coding agent, verification
+runner, review, remediation, readiness, or merge workflow; no Planning Studio, plan
 version activation, or model-assisted planning; no interactive graph editing;
 no ZIP, host-path, or external-URL import; no general artifact store; and no
 LAN exposure, TLS termination, service manager integration, or backup command.

@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
@@ -154,16 +157,59 @@ describe('CT-03 capability and boundary guards', () => {
     expect(isForbiddenInPlanning('@craftingtable/domain')).toBe(false);
   });
 
-  it('recognizes test modules, which may use wider capabilities', () => {
+  it('recognizes structurally placed tests, which may use wider capabilities', () => {
     expect(isTestModule('packages/planning/src/parse.test.ts')).toBe(true);
-    expect(isTestModule('packages/planning/src/test-support.ts')).toBe(true);
+    expect(isTestModule('packages/git/test/test-support.ts')).toBe(true);
     expect(isTestModule('apps/web/src/features/planning/views.test.tsx')).toBe(true);
+    expect(isTestModule('packages/planning/src/test-support.ts')).toBe(true);
+    expect(isTestModule('packages/storage/src/x-test-support.ts')).toBe(false);
     expect(isTestModule('packages/planning/src/parse.ts')).toBe(false);
   });
 
   it('collects every import specifier, not only forbidden ones', () => {
     const source = "import { a } from 'alpha';\nexport * from 'beta';\nconst c = require('gamma');";
     expect(findImports(source)).toEqual(['alpha', 'beta', 'gamma']);
+  });
+});
+
+describe('CT-04A1 anchored process authority', () => {
+  function scopeFixture(relativeSourcePath, source) {
+    const root = mkdtempSync(join(tmpdir(), 'craftingtable-scope-'));
+    writeFileSync(join(root, 'package.json'), '{"name":"scope-fixture"}');
+    mkdirSync(join(root, 'apps'));
+    const packageRoot = join(root, 'packages', relativeSourcePath.split('/')[0]);
+    mkdirSync(join(packageRoot, 'src'), { recursive: true });
+    writeFileSync(join(packageRoot, 'package.json'), '{"name":"fixture-package"}');
+    const sourcePath = join(root, 'packages', relativeSourcePath);
+    mkdirSync(join(sourcePath, '..'), { recursive: true });
+    writeFileSync(sourcePath, source);
+    return root;
+  }
+
+  it('rejects a production filename-based test-support escape', () => {
+    const root = scopeFixture(
+      'storage/src/x-test-support.ts',
+      "import { spawn } from 'node:child_process';",
+    );
+    try {
+      expect(runCheck(root)).toContain(
+        'packages/storage/src/x-test-support.ts: imports CT-04+ capability module "node:child_process"',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows node:child_process only at the exact Git runner path', () => {
+    const root = scopeFixture(
+      'git/src/command-runner.ts',
+      "import { spawn } from 'node:child_process';",
+    );
+    try {
+      expect(runCheck(root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

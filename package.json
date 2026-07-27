@@ -19,11 +19,12 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",
-    "typecheck": "tsc -b && tsc --noEmit -p apps/web",
+    "typecheck": "tsc -b && tsc --noEmit -p apps/web && tsc --noEmit -p packages/git/tsconfig.test.json",
     "test": "vitest run",
     "test:e2e": "tsc -b && playwright test",
     "check:scope": "node scripts/check-forbidden-scope.mjs",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test && pnpm test:e2e && pnpm check:scope"
+    "check:protected": "node scripts/check-ct04-protected-package.mjs",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test && pnpm test:e2e && pnpm check:scope && pnpm check:protected"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",

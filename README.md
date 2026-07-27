@@ -6,13 +6,17 @@ It exists to make development of the Exo Stack (ActionQueue, WorldInterface, and
 
 ## Current phase
 
-This repository implements **CT-03: Plan bundle import and the project/work-item
-dashboard**, on top of CT-02's persistent daemon, authentication,
-workspaces, and durable event history**.
+The composed product currently implements accepted **CT-03: Plan bundle import
+and the project/work-item dashboard**, on top of CT-02's persistent daemon,
+authentication, workspaces, and durable event history.
 
-The normative planning artifacts are under [`init/`](init/). The active work
-contract is [`work-items/CT-03/CT-03.md`](work-items/CT-03/CT-03.md). Architectural,
-security, and operating boundaries are documented in
+The active implementation slice is **CT-04A1: Trusted Git inspection
+boundary**. It adds an observation-only `@craftingtable/git` package but does
+not compose that package into the daemon or provide repository registration.
+Its accepted contract is
+[`work-items/CT-04/CT-04A1-accepted-implementation-plan.md`](work-items/CT-04/CT-04A1-accepted-implementation-plan.md).
+The normative product planning artifacts remain under [`init/`](init/).
+Architectural, security, and operating boundaries are documented in
 [`docs/architecture.md`](docs/architecture.md), [`docs/security.md`](docs/security.md),
 [`docs/operations.md`](docs/operations.md), and [`docs/decisions/`](docs/decisions/).
 

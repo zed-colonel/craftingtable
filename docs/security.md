@@ -1,4 +1,4 @@
-# CT-03 security model
+# Security model (accepted CT-03 plus CT-04A1)
 
 CraftingTable is authenticated but remains loopback-only. Authentication does
 not make LAN exposure safe; TLS and deployment hardening remain CT-08.
@@ -56,6 +56,41 @@ as escaped text inside `<pre>`; there is no Markdown renderer, no
 ZIP archives, host filesystem paths, and external URLs are not accepted as plan
 sources, and no route accepts a path, URL, shell string, or archive.
 
+## Local Git inspection
+
+CT-04A1 does not add a route. Its uncomposed library accepts repository paths
+only from a future trusted service and applies these controls:
+
+- source and reserved roots are explicit, canonical, symlink-free, and
+  pairwise non-overlapping;
+- a request must be an exact primary checkout strictly below one source root;
+- symlinked path components, linked worktrees, bare repositories, separate Git
+  directories, ownership mismatch, unsupported extensions, and layout
+  replacement are refused;
+- effective UID 0 is unsupported, and no `safe.directory` escape exists;
+- the executable is absolute, canonical, executable, versioned, and
+  revalidated before every spawn;
+- argv comes from three closed variants, `shell` is false, stdin is closed, and
+  no user value becomes an option or command;
+- child environments contain only the ten fixed locale/prompt/pager/lock/config
+  fields, plus a per-repository discovery ceiling;
+- stdout, stderr, per-command lifetime, and total inspection lifetime are
+  bounded without exposing raw diagnostics.
+
+The risk scan records names from one literal local-config regex plus hook
+presence. It reads no config value or hook content and says
+`no-signals-in-scanned-set`, never “safe repository.” Alias, merge driver,
+credential, SSH, template, upload-pack, alternate-ref, editor, signing,
+trailer, submodule-update, attributes, include-target, and hook-content
+surfaces remain outside this read-only scan because the A1 commands cannot
+invoke them. Any future mutation requires a newly reviewed policy.
+
+The boundary does not defend against root, a mount administrator, or a
+malicious concurrent local owner. Postflight detects structural and inode
+replacement, not same-inode content edits. A detached child orphaned by a hard
+daemon kill has no claimed lifetime bound; later mutating work cannot inherit
+that assumption.
+
 ## Planning authorization and retention
 
 - Every planning read and write authorizes workspace membership in the service
@@ -92,8 +127,9 @@ sources, and no route accepts a path, URL, shell string, or archive.
 
 ## Remaining boundary
 
-CT-03 exposes no shell, SQL, filesystem, process-control, Git, agent, or
-verification endpoint. A work-contract draft is data, not authority: it carries
+The composed product exposes no shell, SQL, filesystem, process-control, Git,
+agent, or verification endpoint. CT-04A1's process authority is private and
+uncomposed. A work-contract draft is data, not authority: it carries
 no field that can be read as approval, and nothing in the system can approve,
 execute, or merge it. Users, memberships, and roles establish only a future
 schema seam; the product does not yet activate collaborative account

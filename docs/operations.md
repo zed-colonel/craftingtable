@@ -1,4 +1,4 @@
-# CT-03 local operations
+# Local operations (accepted CT-03 plus CT-04A1)
 
 ## Data location and configuration
 
@@ -23,6 +23,25 @@ CRAFTINGTABLE_LOG_LEVEL=info
 ```
 
 Only `127.0.0.1`, `localhost`, and `::1` hosts are accepted.
+
+## CT-04A1 Git boundary prerequisites
+
+The A1 library requires a non-root POSIX daemon and Git 2.32.0 or newer.
+Production composition in A2 must supply either an explicit absolute Git
+executable or an explicit absolute search path; ambient daemon `PATH` is a
+development/test convenience only.
+
+Source roots must already exist as canonical directories with no symlink
+component. Reserved roots may be absent, but every existing component must be
+canonical and symlink-free. Source roots and reserved roots cannot equal,
+contain, or descend from one another. Repository requests must be exact
+top-level primary checkouts strictly below a source root. A symlinked source
+layout is rejected before Git, even when it resolves to an otherwise valid
+repository.
+
+No `CRAFTINGTABLE_*` Git or repository setting is active yet, no repository is
+registered at startup, and the daemon still starts without Git configuration.
+CT-04A2 owns operator-facing configuration and composition.
 
 ## First start
 

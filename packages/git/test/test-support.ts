@@ -11,6 +11,10 @@ import { constants } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createGitCeilingDirectory } from '../src/environment.js';
+import type { GitCeilingDirectory } from '../src/environment.js';
+import { asCanonicalPath } from '../src/path-policy.js';
+import type { CanonicalPath } from '../src/path-policy.js';
 
 export const FIXED_OBSERVED_AT = new Date('2026-07-26T12:00:00.000Z');
 
@@ -43,6 +47,18 @@ export function findGitExecutable(): string {
 }
 
 export const GIT_EXECUTABLE = findGitExecutable();
+
+export function canonicalPathForTest(path: string): CanonicalPath {
+  return asCanonicalPath(path);
+}
+
+export function gitCeilingDirectoryForTest(cwd: string): GitCeilingDirectory {
+  const ceilingDirectory = createGitCeilingDirectory(canonicalPathForTest(cwd));
+  if (ceilingDirectory === undefined) {
+    throw new Error('Test path cannot produce an unambiguous Git ceiling.');
+  }
+  return ceilingDirectory;
+}
 
 export function runFixtureGit(
   args: readonly string[],

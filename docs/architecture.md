@@ -54,7 +54,12 @@ private runner can select only a version probe, identity probe, or local
 risk-signal-name scan. It spawns an absolute revalidated executable without a
 shell, closes stdin, constructs the entire environment, independently bounds
 stdout/stderr, and terminates the detached process group on deadline, overflow,
-or abort.
+or abort. Canonical paths and representable Git ceiling directories are
+separate internal brands: repository command variants require both, the
+version variant requires only a canonical working directory, and the
+environment module serializes rather than derives the ceiling. One aggregate
+creation deadline bounds root resolution, executable discovery, and all
+first-viable version probes.
 
 The result is a runtime-validated, versioned observation. Core identity,
 environmental device evidence, and self-describing risk-scan evidence remain

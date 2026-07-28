@@ -5,7 +5,7 @@
 **Operator disposition:** `work-items/CT-04/CT-04A1-initial-review-disposition.md`
 **Reviewed head:** `94465cb847e6571f2f10e55c0c3764bfa422646e`
 **Protected-package pin:** `06abcffe1fdcd32c72b2e4d2a3dcb849ac1d58d4`
-**New exact head SHA:** pending operator-authorized remediation commit
+**New exact head SHA:** `2180ae187edc13ed35482c07f484d910f0265a56`
 
 ## 1. Summary
 

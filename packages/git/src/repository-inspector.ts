@@ -371,6 +371,7 @@ export async function createRepositoryInspectorWithDependencies(
           {
             kind: 'identity',
             cwd: admitted.canonicalTopLevel,
+            ceilingDirectory: admitted.ceilingDirectory,
             expectedTopLevel: admitted.canonicalTopLevel,
             expectedGitDirectory: admitted.canonicalGitDirectory,
             ancestorCandidates: admitted.ancestorCandidates,
@@ -391,7 +392,11 @@ export async function createRepositoryInspectorWithDependencies(
         }
 
         const riskResult = await runner.run(
-          { kind: 'local-risk-signal-names', cwd: admitted.canonicalTopLevel },
+          {
+            kind: 'local-risk-signal-names',
+            cwd: admitted.canonicalTopLevel,
+            ceilingDirectory: admitted.ceilingDirectory,
+          },
           controller.signal,
         );
         if (!riskResult.ok) {

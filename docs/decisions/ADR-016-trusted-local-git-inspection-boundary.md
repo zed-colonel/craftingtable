@@ -3,6 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-07-26
 - **Amended:** 2026-07-26 after CT-04A1 initial review
+- **Amended:** 2026-07-27 after CT-04A1 remediation review
 
 ## Context
 
@@ -25,7 +26,8 @@ daemon in A1.
 The inspector:
 
 - accepts explicit source roots, optional reserved roots, executable policy,
-  deadlines, stream bounds, and termination grace;
+  aggregate creation and inspection deadlines, stream bounds, and termination
+  grace;
 - requires non-root POSIX execution and Git 2.32.0 or newer;
 - admits only canonical, symlink-free, exact primary checkouts owned by the
   daemon effective UID;
@@ -38,7 +40,8 @@ An explicit executable is the only candidate considered. Search-path
 resolution is first-viable rather than first-match: candidates are considered
 in order and accepted only after canonical executable evidence and a successful
 Git 2.32-or-newer version probe. If none is viable, the first probe failure is
-retained.
+retained. A single creation deadline covers root validation, candidate
+discovery, and all probes; expiry prevents every later spawn.
 
 The private process boundary has a closed three-variant command union:
 
@@ -49,11 +52,15 @@ The private process boundary has a closed three-variant command union:
 
 It uses argument arrays and `shell: false`. Every child receives a newly
 constructed ten-field locale/prompt/pager/lock/config environment; repository
-commands add only `GIT_CEILING_DIRECTORIES` set to the canonical request
-parent. Because POSIX Git parses that variable as a colon-delimited list with
+commands carry a branded ceiling that the environment module has already
+derived and proven representable, then add only
+`GIT_CEILING_DIRECTORIES` with that value. Because POSIX Git parses that
+variable as a colon-delimited list with
 no literal-colon escape, admission rejects a request whose parent contains a
 colon before any repository spawn. A colon in the repository basename remains
-valid when the parent is unambiguous. Stdin is closed. Stdout and stderr have
+valid when the parent is unambiguous, while a colon-bearing source root fails
+configuration at inspector creation. Reserved roots are not ceiling sources
+and retain no colon restriction. Stdin is closed. Stdout and stderr have
 independent byte bounds.
 Per-command and total inspection deadlines terminate the detached process
 group with TERM then KILL, and partial output never succeeds.
@@ -77,7 +84,9 @@ inspection-policy versions are not comparable.
 ## Consequences
 
 - A1 introduces one process authority and exactly two repository spawns per
-  successful inspection after lazy version validation.
+  successful inspection after lazy version validation. Explicit executable
+  policy performs one version probe; search policy may probe multiple distinct
+  canonical candidates within the aggregate creation deadline.
 - Production inspection creates no file, lock, log, temporary directory, or
   repository state.
 - No config value or hook content is read. “No signals in scanned set” is not

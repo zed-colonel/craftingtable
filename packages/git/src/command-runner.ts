@@ -8,6 +8,7 @@ import { environmentFor } from './environment.js';
 import type { FixedGitCommand } from './environment.js';
 
 export const INSPECTION_TIMEOUT_REASON = 'craftingtable-inspection-timeout';
+export const CREATION_TIMEOUT_REASON = 'craftingtable-creation-timeout';
 
 export interface GitExecutableEvidence {
   readonly canonicalPath: string;
@@ -114,7 +115,9 @@ export function argumentsFor(command: FixedGitCommand): readonly string[] {
 }
 
 function abortCode(signal: AbortSignal | undefined): 'aborted' | 'timed-out' {
-  return signal?.reason === INSPECTION_TIMEOUT_REASON ? 'timed-out' : 'aborted';
+  return signal?.reason === INSPECTION_TIMEOUT_REASON || signal?.reason === CREATION_TIMEOUT_REASON
+    ? 'timed-out'
+    : 'aborted';
 }
 
 function terminateProcessGroup(pid: number | undefined, signal: NodeJS.Signals): void {

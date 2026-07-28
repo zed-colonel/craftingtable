@@ -1,6 +1,10 @@
 import { lstat, realpath } from 'node:fs/promises';
 import { delimiter, isAbsolute, join, normalize, resolve } from 'node:path';
-import { createBoundedCommandRunner, readExecutableEvidence } from './command-runner.js';
+import {
+  CREATION_TIMEOUT_REASON,
+  createBoundedCommandRunner,
+  readExecutableEvidence,
+} from './command-runner.js';
 import type { CommandRunnerOptions, GitExecutableEvidence } from './command-runner.js';
 import { createRootPolicy, NODE_FILE_SYSTEM_BOUNDARY } from './path-policy.js';
 import type { FileSystemBoundary, RootPolicy } from './path-policy.js';
@@ -47,6 +51,7 @@ const OPTION_KEYS = new Set([
   'gitExecutable',
   'executableSearchPath',
   'commandTimeoutMs',
+  'creationTimeoutMs',
   'inspectionTimeoutMs',
   'stdoutLimitBytes',
   'stderrLimitBytes',
@@ -112,9 +117,22 @@ type ExecutableResolution =
 async function resolveExecutableCandidates(
   options: RepositoryInspectorOptions,
   dependencies: ConfigurationDependencies,
+  signal: AbortSignal,
 ): Promise<ExecutableResolution> {
+  if (signal.aborted) {
+    return {
+      ok: false,
+      error: createInspectionError('timed-out', 'create-inspector'),
+    };
+  }
   if (options.gitExecutable !== undefined) {
     const executable = await executableCandidate(options.gitExecutable, false);
+    if (signal.aborted) {
+      return {
+        ok: false,
+        error: createInspectionError('timed-out', 'create-inspector'),
+      };
+    }
     if (executable === undefined) {
       return {
         ok: false,
@@ -131,10 +149,22 @@ async function resolveExecutableCandidates(
   const candidates: GitExecutableEvidence[] = [];
   const canonicalPaths = new Set<string>();
   for (const entry of searchPath?.split(delimiter) ?? []) {
+    if (signal.aborted) {
+      return {
+        ok: false,
+        error: createInspectionError('timed-out', 'create-inspector'),
+      };
+    }
     if (!isNormalizedAbsolutePath(entry)) {
       continue;
     }
     const executable = await executableCandidate(join(entry, 'git'), true);
+    if (signal.aborted) {
+      return {
+        ok: false,
+        error: createInspectionError('timed-out', 'create-inspector'),
+      };
+    }
     if (executable !== undefined && !canonicalPaths.has(executable.canonicalPath)) {
       canonicalPaths.add(executable.canonicalPath);
       candidates.push(executable);
@@ -194,6 +224,7 @@ function validateOptionShape(value: unknown): value is RepositoryInspectorOption
     optionalString(candidate.gitExecutable) &&
     optionalString(candidate.executableSearchPath) &&
     optionalNumber(candidate.commandTimeoutMs) &&
+    optionalNumber(candidate.creationTimeoutMs) &&
     optionalNumber(candidate.inspectionTimeoutMs) &&
     optionalNumber(candidate.stdoutLimitBytes) &&
     optionalNumber(candidate.stderrLimitBytes) &&
@@ -257,14 +288,17 @@ export async function resolveInspectorConfiguration(
       error: createInspectionError('invalid-options', 'create-inspector'),
     };
   }
-
-  const rootPolicy = await createRootPolicy(
-    value.allowedSourceRoots,
-    value.reservedRoots ?? [],
-    dependencies.fs,
+  const creationTimeoutMs = isBoundedInteger(
+    value.creationTimeoutMs,
+    2 * commandTimeoutMs + 5000,
+    1000,
+    90000,
   );
-  if (!rootPolicy.ok) {
-    return rootPolicy;
+  if (creationTimeoutMs === undefined || creationTimeoutMs < commandTimeoutMs) {
+    return {
+      ok: false,
+      error: createInspectionError('invalid-options', 'create-inspector'),
+    };
   }
 
   const runnerOptions = {
@@ -273,68 +307,118 @@ export async function resolveInspectorConfiguration(
     stderrLimitBytes,
     terminationGraceMs,
   };
-  const executableResolution = await resolveExecutableCandidates(value, dependencies);
-  if (!executableResolution.ok) {
-    return executableResolution;
-  }
+  const creationController = new AbortController();
+  const creationTimer = setTimeout(() => {
+    creationController.abort(CREATION_TIMEOUT_REASON);
+  }, creationTimeoutMs);
+  creationTimer.unref();
+  const creationTimedOut = (): ConfigurationResult | undefined =>
+    creationController.signal.aborted
+      ? {
+          ok: false,
+          error: createInspectionError('timed-out', 'create-inspector'),
+        }
+      : undefined;
 
-  let firstProbeError: RepositoryInspectionError | undefined;
-  for (const executable of executableResolution.candidates) {
-    const runner = createBoundedCommandRunner(executable, runnerOptions);
-    const versionResult = await runner.run(
-      { kind: 'version', cwd: rootPolicy.policy.allowedSourceRoots[0] as string },
-      undefined,
-      'create-inspector',
+  try {
+    const rootPolicy = await createRootPolicy(
+      value.allowedSourceRoots,
+      value.reservedRoots ?? [],
+      dependencies.fs,
     );
-    let probeError: RepositoryInspectionError | undefined;
-    let gitVersion: GitVersion | undefined;
-    if (!versionResult.ok) {
-      probeError = versionResult.error;
-    } else if (versionResult.outcome.exitCode !== 0) {
-      probeError = createInspectionError('git-command-failed', 'create-inspector', {
-        commandKind: 'version',
-        exitCode: versionResult.outcome.exitCode,
-      });
-    } else {
-      gitVersion = parseGitVersion(versionResult.outcome.stdout);
-      if (gitVersion === undefined) {
-        probeError = createInspectionError('malformed-version-output', 'create-inspector');
-      } else if (!meetsMinimumGitVersion(gitVersion)) {
-        probeError = createInspectionError('unsupported-git-version', 'create-inspector', {
-          gitMajor: gitVersion.major,
-          gitMinor: gitVersion.minor,
-          gitPatch: gitVersion.patch,
+    const rootTimeout = creationTimedOut();
+    if (rootTimeout !== undefined) {
+      return rootTimeout;
+    }
+    if (!rootPolicy.ok) {
+      return rootPolicy;
+    }
+    const versionCwd = rootPolicy.policy.allowedSourceRoots[0];
+    if (versionCwd === undefined) {
+      return {
+        ok: false,
+        error: createInspectionError('invalid-root-policy', 'create-inspector'),
+      };
+    }
+
+    const executableResolution = await resolveExecutableCandidates(
+      value,
+      dependencies,
+      creationController.signal,
+    );
+    if (!executableResolution.ok) {
+      return executableResolution;
+    }
+
+    let firstProbeError: RepositoryInspectionError | undefined;
+    for (const executable of executableResolution.candidates) {
+      const beforeProbeTimeout = creationTimedOut();
+      if (beforeProbeTimeout !== undefined) {
+        return beforeProbeTimeout;
+      }
+      const runner = createBoundedCommandRunner(executable, runnerOptions);
+      const versionResult = await runner.run(
+        { kind: 'version', cwd: versionCwd },
+        creationController.signal,
+        'create-inspector',
+      );
+      const afterProbeTimeout = creationTimedOut();
+      if (afterProbeTimeout !== undefined) {
+        return afterProbeTimeout;
+      }
+
+      let probeError: RepositoryInspectionError | undefined;
+      let gitVersion: GitVersion | undefined;
+      if (!versionResult.ok) {
+        probeError = versionResult.error;
+      } else if (versionResult.outcome.exitCode !== 0) {
+        probeError = createInspectionError('git-command-failed', 'create-inspector', {
+          commandKind: 'version',
+          exitCode: versionResult.outcome.exitCode,
         });
+      } else {
+        gitVersion = parseGitVersion(versionResult.outcome.stdout);
+        if (gitVersion === undefined) {
+          probeError = createInspectionError('malformed-version-output', 'create-inspector');
+        } else if (!meetsMinimumGitVersion(gitVersion)) {
+          probeError = createInspectionError('unsupported-git-version', 'create-inspector', {
+            gitMajor: gitVersion.major,
+            gitMinor: gitVersion.minor,
+            gitPatch: gitVersion.patch,
+          });
+        }
+      }
+
+      if (probeError === undefined && gitVersion !== undefined) {
+        return {
+          ok: true,
+          configuration: {
+            rootPolicy: rootPolicy.policy,
+            executable,
+            gitVersion,
+            runnerOptions,
+            inspectionTimeoutMs,
+            effectiveUid: dependencies.effectiveUid,
+            fs: dependencies.fs,
+          },
+        };
+      }
+      if (executableResolution.explicit) {
+        return {
+          ok: false,
+          error: probeError ?? createInspectionError('git-command-failed', 'create-inspector'),
+        };
+      }
+      if (probeError !== undefined) {
+        firstProbeError ??= probeError;
       }
     }
 
-    if (probeError === undefined && gitVersion !== undefined) {
-      return {
-        ok: true,
-        configuration: {
-          rootPolicy: rootPolicy.policy,
-          executable,
-          gitVersion,
-          runnerOptions,
-          inspectionTimeoutMs,
-          effectiveUid: dependencies.effectiveUid,
-          fs: dependencies.fs,
-        },
-      };
-    }
-    if (executableResolution.explicit) {
-      return {
-        ok: false,
-        error: probeError ?? createInspectionError('git-command-failed', 'create-inspector'),
-      };
-    }
-    if (probeError !== undefined) {
-      firstProbeError ??= probeError;
-    }
+    return {
+      ok: false,
+      error: firstProbeError ?? createInspectionError('git-not-found', 'create-inspector'),
+    };
+  } finally {
+    clearTimeout(creationTimer);
   }
-
-  return {
-    ok: false,
-    error: firstProbeError ?? createInspectionError('git-not-found', 'create-inspector'),
-  };
 }

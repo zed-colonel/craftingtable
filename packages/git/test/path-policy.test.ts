@@ -8,7 +8,11 @@ import {
 } from '../src/path-policy.js';
 import { createInspectionError } from '../src/types.js';
 import { createRepositoryInspector } from '../src/index.js';
-import { createRepositoryFixture, repositoryInspectorOptions } from './test-support.js';
+import {
+  canonicalPathForTest,
+  createRepositoryFixture,
+  repositoryInspectorOptions,
+} from './test-support.js';
 
 const EFFECTIVE_UID = process.geteuid?.() ?? -1;
 
@@ -46,6 +50,33 @@ describe('source and reserved root topology', () => {
       const reserved = join(fixture.root, 'future-data', 'repositories');
       const result = await createRootPolicy([fixture.sourceRoot], [reserved]);
       expect(result.ok).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it('rejects an ambiguous source root at creation but allows a colon-bearing reserved root', async () => {
+    const fixture = createRepositoryFixture();
+    try {
+      const ambiguousSource = join(fixture.root, 'source:ambiguous');
+      const colonReserved = join(fixture.root, 'reserved:colon');
+      mkdirSync(ambiguousSource);
+      mkdirSync(colonReserved);
+
+      const sourceResult = await createRepositoryInspector({
+        allowedSourceRoots: [ambiguousSource],
+      });
+      expect(sourceResult.ok).toBe(false);
+      if (!sourceResult.ok) {
+        expect(sourceResult.error).toMatchObject({
+          code: 'invalid-root-policy',
+          subject: 'policy-configuration',
+          retryability: 'configuration-required',
+        });
+      }
+
+      const reservedResult = await createRootPolicy([fixture.sourceRoot], [colonReserved]);
+      expect(reservedResult.ok).toBe(true);
     } finally {
       fixture.cleanup();
     }
@@ -168,7 +199,7 @@ describe('repository path admission', () => {
     };
     const result = await admitRepositoryPath(
       '/source/repository',
-      { allowedSourceRoots: ['/source'], reservedRoots: [] },
+      { allowedSourceRoots: [canonicalPathForTest('/source')], reservedRoots: [] },
       1000,
       () => createInspectionError('aborted', 'inspect-path'),
       failingFs,
@@ -186,8 +217,8 @@ describe('repository path admission', () => {
       const reserved = await admitRepositoryPath(
         fixture.repository,
         {
-          allowedSourceRoots: [fixture.sourceRoot],
-          reservedRoots: [fixture.repository],
+          allowedSourceRoots: [canonicalPathForTest(fixture.sourceRoot)],
+          reservedRoots: [canonicalPathForTest(fixture.repository)],
         },
         EFFECTIVE_UID,
         () => undefined,
@@ -199,7 +230,7 @@ describe('repository path admission', () => {
 
       const ownership = await admitRepositoryPath(
         fixture.repository,
-        { allowedSourceRoots: [fixture.sourceRoot], reservedRoots: [] },
+        { allowedSourceRoots: [canonicalPathForTest(fixture.sourceRoot)], reservedRoots: [] },
         EFFECTIVE_UID + 1,
         () => undefined,
       );
@@ -218,7 +249,7 @@ describe('repository path admission', () => {
       const configPath = join(fixture.repository, '.git', 'config');
       const result = await admitRepositoryPath(
         fixture.repository,
-        { allowedSourceRoots: [fixture.sourceRoot], reservedRoots: [] },
+        { allowedSourceRoots: [canonicalPathForTest(fixture.sourceRoot)], reservedRoots: [] },
         EFFECTIVE_UID,
         () => undefined,
         {

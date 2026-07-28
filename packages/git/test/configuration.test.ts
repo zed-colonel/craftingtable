@@ -16,6 +16,15 @@ import {
   repositoryInspectorOptions,
 } from './test-support.js';
 
+function countedVersionProxyBody(countPath: string, version: string, delayMs = 0): string {
+  const writeVersion = `fs.writeSync(1, ${JSON.stringify(`git version ${version}\n`)});`;
+  return `
+import fs from 'node:fs';
+fs.appendFileSync(${JSON.stringify(countPath)}, 'probe\\n');
+${delayMs === 0 ? writeVersion : `setTimeout(() => { ${writeVersion} }, ${String(delayMs)});`}
+`;
+}
+
 describe('Git inspector configuration', () => {
   it('imports without performing executable resolution', async () => {
     const module = await import('../src/index.js');
@@ -75,21 +84,32 @@ describe('Git inspector configuration', () => {
       const accepted = await createRepositoryInspector({
         ...repositoryInspectorOptions(fixture),
         commandTimeoutMs: 100,
+        creationTimeoutMs: 1000,
         inspectionTimeoutMs: 1000,
         stdoutLimitBytes: 16384,
         stderrLimitBytes: 1024,
         terminationGraceMs: 50,
       });
       expect(accepted.ok).toBe(true);
+      const maximumCreationTimeout = await createRepositoryInspector({
+        ...repositoryInspectorOptions(fixture),
+        creationTimeoutMs: 90000,
+      });
+      expect(maximumCreationTimeout.ok).toBe(true);
 
       for (const invalid of [
         { commandTimeoutMs: 99 },
         { stdoutLimitBytes: 16383 },
         { stderrLimitBytes: 1023 },
         { terminationGraceMs: 49 },
+        { creationTimeoutMs: 999 },
+        { creationTimeoutMs: 90001 },
+        { creationTimeoutMs: 1000.5 },
+        { commandTimeoutMs: 1001, creationTimeoutMs: 1000 },
         { commandTimeoutMs: 1000, inspectionTimeoutMs: 1999 },
         { commandTimeoutMs: 100.5 },
         { commandTimeoutMs: null },
+        { creationTimeoutMs: null },
         { inspectionTimeoutMs: null },
         { stdoutLimitBytes: null },
         { stderrLimitBytes: null },
@@ -223,22 +243,26 @@ describe('Git inspector configuration', () => {
   it('selects the first search-path executable whose version probe passes', async () => {
     const fixture = createRepositoryFixture();
     try {
-      const oldBin = join(fixture.root, 'old-bin');
-      const currentBin = join(fixture.root, 'current-bin');
-      mkdirSync(oldBin);
-      mkdirSync(currentBin);
-      makeExecutableProxy(
-        oldBin,
-        'git',
-        "import fs from 'node:fs'; fs.writeSync(1, 'git version 2.31.1\\n');",
+      const staleBins = ['old-bin-1', 'old-bin-2', 'old-bin-3'].map((name) =>
+        join(fixture.root, name),
       );
-      symlinkSync(GIT_EXECUTABLE, join(currentBin, 'git'));
+      const currentBin = join(fixture.root, 'current-bin');
+      const countPath = join(fixture.root, 'viable-probe-count');
+      for (const staleBin of staleBins) {
+        mkdirSync(staleBin);
+        makeExecutableProxy(staleBin, 'git', countedVersionProxyBody(countPath, '2.31.1'));
+      }
+      mkdirSync(currentBin);
+      makeExecutableProxy(currentBin, 'git', countedVersionProxyBody(countPath, '2.54.0'));
 
       const result = await createRepositoryInspector({
         allowedSourceRoots: [fixture.sourceRoot],
-        executableSearchPath: `${oldBin}${process.platform === 'win32' ? ';' : ':'}${currentBin}`,
+        executableSearchPath: [...staleBins, currentBin].join(
+          process.platform === 'win32' ? ';' : ':',
+        ),
       });
       expect(result.ok).toBe(true);
+      expect(readFileSync(countPath, 'utf8').trim().split('\n')).toHaveLength(4);
     } finally {
       fixture.cleanup();
     }
@@ -263,6 +287,67 @@ describe('Git inspector configuration', () => {
       if (!result.ok) {
         expect(result.error.code).toBe('unsupported-git-version');
       }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it('deduplicates repeated search entries by canonical executable path', async () => {
+    const fixture = createRepositoryFixture();
+    try {
+      const oldBin = join(fixture.root, 'old-bin');
+      const countPath = join(fixture.root, 'deduplicated-probe-count');
+      mkdirSync(oldBin);
+      makeExecutableProxy(oldBin, 'git', countedVersionProxyBody(countPath, '2.31.1'));
+
+      const result = await createRepositoryInspector({
+        allowedSourceRoots: [fixture.sourceRoot],
+        executableSearchPath: [oldBin, oldBin, oldBin].join(
+          process.platform === 'win32' ? ';' : ':',
+        ),
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('unsupported-git-version');
+      }
+      expect(readFileSync(countPath, 'utf8').trim().split('\n')).toHaveLength(1);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it('bounds aggregate creation time and starts no later candidate after expiry', async () => {
+    const fixture = createRepositoryFixture();
+    try {
+      const firstBin = join(fixture.root, 'first-bin');
+      const secondBin = join(fixture.root, 'second-bin');
+      const thirdBin = join(fixture.root, 'third-bin');
+      const countPath = join(fixture.root, 'creation-timeout-probe-count');
+      for (const bin of [firstBin, secondBin, thirdBin]) {
+        mkdirSync(bin);
+      }
+      makeExecutableProxy(firstBin, 'git', countedVersionProxyBody(countPath, '2.31.1', 550));
+      makeExecutableProxy(secondBin, 'git', countedVersionProxyBody(countPath, '2.31.1', 550));
+      makeExecutableProxy(thirdBin, 'git', countedVersionProxyBody(countPath, '2.54.0'));
+
+      const result = await createRepositoryInspector({
+        allowedSourceRoots: [fixture.sourceRoot],
+        executableSearchPath: [firstBin, secondBin, thirdBin].join(
+          process.platform === 'win32' ? ';' : ':',
+        ),
+        commandTimeoutMs: 900,
+        creationTimeoutMs: 1000,
+        terminationGraceMs: 50,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatchObject({
+          code: 'timed-out',
+          subject: 'git-boundary-fault',
+          retryability: 'retryable',
+        });
+      }
+      expect(readFileSync(countPath, 'utf8').trim().split('\n')).toHaveLength(2);
     } finally {
       fixture.cleanup();
     }
@@ -302,5 +387,34 @@ describe('Git package production boundary', () => {
         readFileSync(join(dist, name), 'utf8').includes('node:child_process'),
       ),
     ).toEqual(['command-runner.js']);
+
+    const sourceDirectory = join(packageRoot, 'src');
+    const productionSources = readdirSync(sourceDirectory)
+      .filter((name) => name.endsWith('.ts'))
+      .map((name) => ({
+        name,
+        source: readFileSync(join(sourceDirectory, name), 'utf8'),
+      }));
+    expect(
+      productionSources
+        .filter(({ source }) => source.includes('GIT_CEILING_DIRECTORIES'))
+        .map(({ name }) => name),
+    ).toEqual(['environment.ts']);
+    expect(
+      productionSources
+        .filter(({ source }) => source.includes('asCanonicalPath('))
+        .map(({ name }) => name),
+    ).toEqual(['path-policy.ts']);
+    expect(
+      productionSources
+        .filter(({ source }) => source.includes('as GitCeilingDirectory'))
+        .map(({ name }) => name),
+    ).toEqual(['environment.ts']);
+    expect(readFileSync(join(sourceDirectory, 'index.ts'), 'utf8')).not.toMatch(
+      /CanonicalPath|GitCeilingDirectory|asCanonicalPath|createGitCeilingDirectory/,
+    );
+    expect(readFileSync(join(sourceDirectory, 'configuration.ts'), 'utf8')).not.toContain(
+      'as string',
+    );
   });
 });

@@ -33,7 +33,11 @@ development/test convenience only. Search-path resolution selects the first
 canonical executable whose version probe succeeds. It skips non-executable,
 malformed, failing, and pre-2.32 candidates in order; if none is viable, it
 reports the first candidate's probe failure. An explicit executable never
-falls back to the search path.
+falls back to the search path. Inspector creation has one aggregate deadline
+across root validation, candidate discovery, and every version probe. The
+optional `creationTimeoutMs` defaults to
+`2 × commandTimeoutMs + 5000`, accepts 1000–90000 ms, and cannot be shorter
+than `commandTimeoutMs`.
 
 Source roots must already exist as canonical directories with no symlink
 component. Reserved roots may be absent, but every existing component must be
@@ -41,12 +45,16 @@ canonical and symlink-free. Source roots and reserved roots cannot equal,
 contain, or descend from one another. Repository requests must be exact
 top-level primary checkouts strictly below a source root. A symlinked source
 layout is rejected before Git, even when it resolves to an otherwise valid
-repository.
+repository. A source root containing `:` anywhere in its absolute path is
+rejected as invalid policy during inspector creation. Reserved roots may
+contain `:` because they never supply a Git working directory or ceiling.
 
 Git treats `GIT_CEILING_DIRECTORIES` as a colon-delimited POSIX list and
 defines no escaping for a literal colon. A repository basename may contain a
 colon when its parent is unambiguous, but inspection rejects a requested path
 whose parent contains a colon before starting a repository Git process.
+Internally, repository commands carry a branded, prevalidated ceiling;
+environment construction only serializes it.
 
 Inspection is intentionally conservative about concurrent working-tree
 activity. Postflight compares the repository top-level directory's size and

@@ -73,6 +73,7 @@ export interface RepositoryInspectorOptions {
   readonly gitExecutable?: string;
   readonly executableSearchPath?: string;
   readonly commandTimeoutMs?: number;
+  readonly creationTimeoutMs?: number;
   readonly inspectionTimeoutMs?: number;
   readonly stdoutLimitBytes?: number;
   readonly stderrLimitBytes?: number;

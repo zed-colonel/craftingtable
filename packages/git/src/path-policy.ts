@@ -8,8 +8,20 @@ import {
   stat as nodeStat,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { createGitCeilingDirectory, isGitCeilingDirectoryRepresentable } from './environment.js';
+import type { GitCeilingDirectory } from './environment.js';
 import { createInspectionError } from './types.js';
 import type { RepositoryInspectionError } from './types.js';
+
+declare const canonicalPathBrand: unique symbol;
+
+export type CanonicalPath = string & {
+  readonly [canonicalPathBrand]: true;
+};
+
+export function asCanonicalPath(path: string): CanonicalPath {
+  return path as CanonicalPath;
+}
 
 export interface FileSystemBoundary {
   readonly lstat: (path: string) => Promise<BigIntStats>;
@@ -28,8 +40,8 @@ export const NODE_FILE_SYSTEM_BOUNDARY: FileSystemBoundary = {
 };
 
 export interface RootPolicy {
-  readonly allowedSourceRoots: readonly string[];
-  readonly reservedRoots: readonly string[];
+  readonly allowedSourceRoots: readonly CanonicalPath[];
+  readonly reservedRoots: readonly CanonicalPath[];
 }
 
 export interface PathSnapshot {
@@ -42,9 +54,10 @@ export interface PathSnapshot {
 }
 
 export interface AdmittedRepositoryPath {
-  readonly canonicalTopLevel: string;
-  readonly canonicalGitDirectory: string;
-  readonly sourceRoot: string;
+  readonly canonicalTopLevel: CanonicalPath;
+  readonly canonicalGitDirectory: CanonicalPath;
+  readonly ceilingDirectory: GitCeilingDirectory;
+  readonly sourceRoot: CanonicalPath;
   readonly ancestorCandidates: readonly string[];
   readonly hooksDirectorySymlink: boolean;
   readonly snapshots: readonly PathSnapshot[];
@@ -190,7 +203,10 @@ export async function createRootPolicy(
   }
 
   for (const root of allowedSourceRoots) {
-    if (!(await validateConfiguredPath(root, true, fs))) {
+    if (
+      !isGitCeilingDirectoryRepresentable(root) ||
+      !(await validateConfiguredPath(root, true, fs))
+    ) {
       return {
         ok: false,
         error: createInspectionError('invalid-root-policy', 'create-inspector'),
@@ -239,8 +255,8 @@ export async function createRootPolicy(
   return {
     ok: true,
     policy: {
-      allowedSourceRoots: Object.freeze([...allowedSourceRoots]),
-      reservedRoots: Object.freeze([...reservedRoots]),
+      allowedSourceRoots: Object.freeze(allowedSourceRoots.map(asCanonicalPath)),
+      reservedRoots: Object.freeze(reservedRoots.map(asCanonicalPath)),
     },
   };
 }
@@ -298,7 +314,7 @@ export async function admitRepositoryPath(
   if (!isNormalizedAbsolutePath(requestedPath)) {
     return { ok: false, error: createInspectionError('invalid-path', 'inspect-path') };
   }
-  if (dirname(requestedPath).includes(':')) {
+  if (!isGitCeilingDirectoryRepresentable(dirname(requestedPath))) {
     return {
       ok: false,
       error: createInspectionError('invalid-path', 'inspect-path', {
@@ -496,7 +512,22 @@ export async function admitRepositoryPath(
     return { ok: false, error: finalCheckpointError };
   }
 
-  const snapshots = [snapshot(requestedPath, topMetadata), snapshot(gitDirectory, gitMetadata)];
+  const canonicalTopLevel = asCanonicalPath(requestedPath);
+  const canonicalGitDirectory = asCanonicalPath(gitDirectory);
+  const ceilingDirectory = createGitCeilingDirectory(canonicalTopLevel);
+  if (ceilingDirectory === undefined) {
+    return {
+      ok: false,
+      error: createInspectionError('invalid-path', 'inspect-path', {
+        reason: 'ambiguous-git-ceiling',
+      }),
+    };
+  }
+
+  const snapshots = [
+    snapshot(canonicalTopLevel, topMetadata),
+    snapshot(canonicalGitDirectory, gitMetadata),
+  ];
   if (configMetadata !== undefined) {
     snapshots.push(snapshot(configPath, configMetadata));
   }
@@ -507,8 +538,9 @@ export async function admitRepositoryPath(
   return {
     ok: true,
     admitted: {
-      canonicalTopLevel: requestedPath,
-      canonicalGitDirectory: gitDirectory,
+      canonicalTopLevel,
+      canonicalGitDirectory,
+      ceilingDirectory,
       sourceRoot,
       ancestorCandidates,
       hooksDirectorySymlink,

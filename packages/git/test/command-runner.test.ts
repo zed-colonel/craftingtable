@@ -6,9 +6,20 @@ import {
   createBoundedCommandRunner,
   readExecutableEvidence,
 } from '../src/command-runner.js';
-import { BASE_GIT_ENVIRONMENT, environmentFor } from '../src/environment.js';
+import {
+  BASE_GIT_ENVIRONMENT,
+  createGitCeilingDirectory,
+  environmentFor,
+  isGitCeilingDirectoryRepresentable,
+} from '../src/environment.js';
 import { parseIdentityOutcome, parseRiskSignalOutcome } from '../src/repository-inspector.js';
-import { GIT_EXECUTABLE, createRepositoryFixture, makeExecutableProxy } from './test-support.js';
+import {
+  GIT_EXECUTABLE,
+  canonicalPathForTest,
+  createRepositoryFixture,
+  gitCeilingDirectoryForTest,
+  makeExecutableProxy,
+} from './test-support.js';
 
 async function runnerFor(
   executable: string,
@@ -33,14 +44,28 @@ async function runnerFor(
 }
 
 describe('closed Git command construction', () => {
+  it('constructs only representable repository discovery ceilings', () => {
+    const safe = canonicalPathForTest('/source/repository');
+    expect(isGitCeilingDirectoryRepresentable('/source')).toBe(true);
+    expect(createGitCeilingDirectory(safe)).toBe('/source');
+
+    const ambiguous = canonicalPathForTest('/source:ambiguous/repository');
+    expect(isGitCeilingDirectoryRepresentable('/source:ambiguous')).toBe(false);
+    expect(createGitCeilingDirectory(ambiguous)).toBeUndefined();
+  });
+
   it('constructs exactly the three reviewed argv variants', () => {
-    expect(argumentsFor({ kind: 'version', cwd: '/source' })).toEqual(['--version']);
+    expect(argumentsFor({ kind: 'version', cwd: canonicalPathForTest('/source') })).toEqual([
+      '--version',
+    ]);
+    const identityPath = canonicalPathForTest('/source/-repo');
     expect(
       argumentsFor({
         kind: 'identity',
-        cwd: '/source/-repo',
-        expectedTopLevel: '/source/-repo',
-        expectedGitDirectory: '/source/-repo/.git',
+        cwd: identityPath,
+        ceilingDirectory: gitCeilingDirectoryForTest(identityPath),
+        expectedTopLevel: identityPath,
+        expectedGitDirectory: canonicalPathForTest('/source/-repo/.git'),
         ancestorCandidates: [],
       }),
     ).toEqual([
@@ -55,7 +80,14 @@ describe('closed Git command construction', () => {
       '--is-inside-work-tree',
       '--show-object-format=storage',
     ]);
-    expect(argumentsFor({ kind: 'local-risk-signal-names', cwd: '/source/repository' })).toEqual([
+    const riskPath = canonicalPathForTest('/source/repository');
+    expect(
+      argumentsFor({
+        kind: 'local-risk-signal-names',
+        cwd: riskPath,
+        ceilingDirectory: gitCeilingDirectoryForTest(riskPath),
+      }),
+    ).toEqual([
       '-c',
       'core.fsmonitor=false',
       'config',
@@ -70,11 +102,13 @@ describe('closed Git command construction', () => {
 
   it('keeps hostile user paths out of argv and constructs the environment from scratch', () => {
     const hostile = '/source/--upload-pack=$(touch should-not-run)\nrepo';
+    const canonicalHostile = canonicalPathForTest(hostile);
     const command = {
       kind: 'identity',
-      cwd: hostile,
-      expectedTopLevel: hostile,
-      expectedGitDirectory: `${hostile}/.git`,
+      cwd: canonicalHostile,
+      ceilingDirectory: gitCeilingDirectoryForTest(canonicalHostile),
+      expectedTopLevel: canonicalHostile,
+      expectedGitDirectory: canonicalPathForTest(`${hostile}/.git`),
       ancestorCandidates: [],
     } as const;
     expect(argumentsFor(command).join('\0')).not.toContain(hostile);
@@ -105,11 +139,13 @@ describe('bounded fixed process runner', () => {
       const nested = join(fixture.repository, 'nested');
       mkdirSync(join(nested, '.git'), { recursive: true });
       const runner = await runnerFor(GIT_EXECUTABLE);
+      const canonicalNested = canonicalPathForTest(nested);
       const result = await runner.run({
         kind: 'identity',
-        cwd: nested,
-        expectedTopLevel: nested,
-        expectedGitDirectory: join(nested, '.git'),
+        cwd: canonicalNested,
+        ceilingDirectory: gitCeilingDirectoryForTest(canonicalNested),
+        expectedTopLevel: canonicalNested,
+        expectedGitDirectory: canonicalPathForTest(join(nested, '.git')),
         ancestorCandidates: [fixture.repository],
       });
       expect(result.ok).toBe(true);
@@ -132,7 +168,10 @@ describe('bounded fixed process runner', () => {
         "import fs from 'node:fs'; fs.writeSync(1, JSON.stringify({ argv: process.argv.slice(2), env: process.env }));",
       );
       const runner = await runnerFor(proxy);
-      const result = await runner.run({ kind: 'version', cwd: fixture.sourceRoot });
+      const result = await runner.run({
+        kind: 'version',
+        cwd: canonicalPathForTest(fixture.sourceRoot),
+      });
       expect(result.ok).toBe(true);
       if (result.ok) {
         const capture = JSON.parse(result.outcome.stdout.toString('utf8'));
@@ -155,7 +194,7 @@ describe('bounded fixed process runner', () => {
       const atBoundRunner = await runnerFor(atBoundProxy, { stdoutLimitBytes: 4 });
       const atBound = await atBoundRunner.run({
         kind: 'version',
-        cwd: fixture.sourceRoot,
+        cwd: canonicalPathForTest(fixture.sourceRoot),
       });
       expect(atBound.ok).toBe(true);
       if (atBound.ok) {
@@ -168,7 +207,10 @@ describe('bounded fixed process runner', () => {
         "import fs from 'node:fs'; fs.writeSync(1, '12345');",
       );
       const stdoutRunner = await runnerFor(stdoutProxy, { stdoutLimitBytes: 4 });
-      const stdout = await stdoutRunner.run({ kind: 'version', cwd: fixture.sourceRoot });
+      const stdout = await stdoutRunner.run({
+        kind: 'version',
+        cwd: canonicalPathForTest(fixture.sourceRoot),
+      });
       expect(stdout.ok).toBe(false);
       if (!stdout.ok) {
         expect(stdout.error.code).toBe('stdout-overflow');
@@ -180,7 +222,10 @@ describe('bounded fixed process runner', () => {
         "import fs from 'node:fs'; fs.writeSync(2, '12345');",
       );
       const stderrRunner = await runnerFor(stderrProxy, { stderrLimitBytes: 4 });
-      const stderr = await stderrRunner.run({ kind: 'version', cwd: fixture.sourceRoot });
+      const stderr = await stderrRunner.run({
+        kind: 'version',
+        cwd: canonicalPathForTest(fixture.sourceRoot),
+      });
       expect(stderr.ok).toBe(false);
       if (!stderr.ok) {
         expect(stderr.error.code).toBe('stderr-overflow');
@@ -202,7 +247,10 @@ describe('bounded fixed process runner', () => {
         commandTimeoutMs: 100,
         terminationGraceMs: 50,
       });
-      const timeout = await hangingRunner.run({ kind: 'version', cwd: fixture.sourceRoot });
+      const timeout = await hangingRunner.run({
+        kind: 'version',
+        cwd: canonicalPathForTest(fixture.sourceRoot),
+      });
       expect(timeout.ok).toBe(false);
       if (!timeout.ok) {
         expect(timeout.error.code).toBe('timed-out');
@@ -214,7 +262,10 @@ describe('bounded fixed process runner', () => {
         "import fs from 'node:fs'; process.stdin.resume(); process.stdin.on('end', () => fs.writeSync(1, 'eof'));",
       );
       const promptRunner = await runnerFor(prompt);
-      const eof = await promptRunner.run({ kind: 'version', cwd: fixture.sourceRoot });
+      const eof = await promptRunner.run({
+        kind: 'version',
+        cwd: canonicalPathForTest(fixture.sourceRoot),
+      });
       expect(eof.ok).toBe(true);
       if (eof.ok) {
         expect(eof.outcome.stdout.toString('utf8')).toBe('eof');
@@ -235,7 +286,7 @@ describe('bounded fixed process runner', () => {
       const hangingRunner = await runnerFor(hanging);
       const controller = new AbortController();
       const pending = hangingRunner.run(
-        { kind: 'version', cwd: fixture.sourceRoot },
+        { kind: 'version', cwd: canonicalPathForTest(fixture.sourceRoot) },
         controller.signal,
       );
       setTimeout(() => controller.abort(), 50);
@@ -254,7 +305,7 @@ describe('bounded fixed process runner', () => {
       appendFileSync(replaceable, '\n// replacement');
       const changed = await replaceableRunner.run({
         kind: 'version',
-        cwd: fixture.sourceRoot,
+        cwd: canonicalPathForTest(fixture.sourceRoot),
       });
       expect(changed.ok).toBe(false);
       if (!changed.ok) {

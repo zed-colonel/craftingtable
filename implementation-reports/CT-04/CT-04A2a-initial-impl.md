@@ -224,7 +224,8 @@ repositoryRegistry.queries
 ```
 
 Closed typed results distinguish created, existing, local conflict, foreign reservation,
-version conflict, non-inspectable state, non-active repository, and binding collision.
+missing repository, version conflict, non-inspectable state, non-active repository, and
+binding collision. Inspection append no longer fabricates `retired` for a missing parent.
 Foreign identity collision is exactly:
 
 ```json
@@ -233,9 +234,9 @@ Foreign identity collision is exactly:
 
 It contains no foreign workspace, ID, path, Git directory, or fingerprint.
 
-Registration, inspection append, binding insertion, reaffirmation, and retirement use
-nested-safe immediate transactions or exact guarded updates. SQLite unique errors are
-not parsed by message or index name; residual races are rolled back and reclassified.
+Registration, repository transition, inspection append, binding insertion, reaffirmation,
+and retirement use nested-safe immediate transactions. SQLite unique errors are not
+parsed by message or index name; residual races are rolled back and reclassified.
 
 Environmental-baseline adoption requires exact repository version, expected latest
 successful inspection, a fresh latest successful reaffirmation, non-empty environmental
@@ -266,18 +267,117 @@ A2b.
 
 ## 9. Permanent proof and acceptance mapping
 
-| Protected/review family | Permanent proof |
+`check:protected` derives the 91 original A2a IDs from the untouched supplement, reads
+the 13 review-added IDs from accepted-plan §15.2, expands compact range/slash title
+notation, rejects A2b title claims, and fails if any of these 104 IDs lacks a title
+anchor. The per-case permanent mapping is:
+
+| Case | Permanent proof |
 | --- | --- |
-| `A2A-STATUS-001`–`015` | `packages/domain/src/repository.test.ts`: complete ordinary and reaffirmation matrices, terminal states, retirement, and explicit unknown-input failures |
-| `A2A-REP-001`–`016` | schema/repository/transition tests: valid circular registration, deferred orphan failure, ownership, all identity reservations, typed local/foreign collision, immutability, exact versions, equal/backwards time, delete, and bounds |
-| `A2A-INSP-001`–`018` | schema/repository/transition tests: success/failure null coupling, membership, arrays/bounds, append-only history, exact bytes, stale digest, disjoint taxonomy, fixed-time sequence, and registration comparison omission |
-| `A2A-BASE-001`–`009` | repository/transition tests: initial baseline, fresh adoption, stale/version/core negatives, rollback/delete protection, and stray reaffirmation projection |
-| `A2A-BIND-001`–`013` | repository/schema tests: same-workspace binding, missing/wrong/non-active parents, one active per project, multiple projects per repository, exact retirement, sibling survival, projection across non-active status, and delete/reverse rejection |
-| `A2A-RET-001`–`008` | transition tests: atomic repository/binding retirement, forced rollback, idempotence, terminality, evidence preservation, identity reuse, unretire/delete rejection |
-| `A2A-MIG-001`–`008` | migration 0003/0002/general migration tests and snapshot tests: exact objects, preservation, active old guards, checksum failure, interruption rollback, integrity checks, reconstruction, old-byte pins |
-| `A2A-CON-001`–`010` | contract tests: minimal requests, strict hostile-field rejection, display-name bounds, complete summaries, false-claim/raw-evidence rejection, exact mutation shapes, reader/admin disclosure, required latest fields |
-| `A2-PROC-001`–`004` | committed plan/review/disposition lineage, this real-head report, and protected hash/diff checks |
-| `A2-SCOPE-001`, `A2-SCOPE-003`, `A2-SCOPE-004` | enhanced scope checker, no literal current-version pin, and domain-to-SQL literal-set parity |
+| `A2A-STATUS-001` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-002` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-003` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-004` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-005` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-006` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-007` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-008` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-009` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-010` | domain reducer ordinary assessment matrix and terminal-state test |
+| `A2A-STATUS-011` | domain reducer ordinary assessment matrix and terminal-state test |
+| `A2A-STATUS-012` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-013` | domain reducer ordinary assessment matrix |
+| `A2A-STATUS-014` | domain reducer matrix and explicit unknown-input failure test |
+| `A2A-STATUS-015` | domain environmental-reaffirmation assessment matrix |
+| `A2A-REP-001` | repository circular registration commit test |
+| `A2A-REP-002` | schema deferred-parent/orphan outer-commit test |
+| `A2A-REP-003` | schema circular-link composite-FK test |
+| `A2A-REP-004` | schema circular-link composite-FK test |
+| `A2A-REP-005` | repository identity-collision classification tests |
+| `A2A-REP-006` | repository identity-collision classification tests |
+| `A2A-REP-007` | repository identity-collision classification tests |
+| `A2A-REP-008` | identity reuse after idempotent retirement test |
+| `A2A-REP-009` | schema immutable-field direct-update test |
+| `A2A-REP-010` | schema repository direct-delete test |
+| `A2A-REP-011` | schema wrong-version-increment test |
+| `A2A-REP-012` | schema bare-version/reverse-transition test |
+| `A2A-REP-013` | schema status/reason/version coupling test |
+| `A2A-REP-014` | strict contract unsafe-display-name test |
+| `A2A-REP-015` | typed local/foreign identity-collision and non-disclosure tests |
+| `A2A-REP-016` | same-time version progression and backwards-time rejection test |
+| `A2A-INSP-001` | successful circular registration evidence test |
+| `A2A-INSP-002` | complete A1/storage-integrity failure storage test |
+| `A2A-INSP-003` | success/failure null-coupling storage test |
+| `A2A-INSP-004` | complete successful-observation storage test |
+| `A2A-INSP-005` | complete failed-observation taxonomy test |
+| `A2A-INSP-006` | schema structural composite-FK test |
+| `A2A-INSP-007` | schema actor/membership structural-FK test |
+| `A2A-INSP-008` | schema inspection direct-update rejection test |
+| `A2A-INSP-009` | schema inspection direct-delete rejection test |
+| `A2A-INSP-010` | schema sorted/unique evidence-array test |
+| `A2A-INSP-011` | schema bounded evidence-array/metadata test |
+| `A2A-INSP-012` | exact observation-byte/digest test |
+| `A2A-INSP-013` | stale exact-byte digest test |
+| `A2A-INSP-014` | digest/array/taxonomy SQL checks |
+| `A2A-INSP-015` | durable integrity-failure plus evidence-blocking transaction test |
+| `A2A-INSP-016` | same-millisecond global-sequence ordering test |
+| `A2A-INSP-017` | total evidence normalizer and direct-array bypass tests |
+| `A2A-INSP-018` | exact inspection columns and registration comparison omission test |
+| `A2A-BASE-001` | registration inspection initial-baseline test |
+| `A2A-BASE-002` | baseline success-kind and stale-precondition tests |
+| `A2A-BASE-003` | baseline same-repository composite-FK test |
+| `A2A-BASE-004` | non-evidence-changed/direct rollback rejection tests |
+| `A2A-BASE-005` | exact baseline version-increment rejection test |
+| `A2A-BASE-006` | fresh latest environmental reaffirmation adoption test |
+| `A2A-BASE-007` | core-identity rewrite rejection test |
+| `A2A-BASE-008` | baseline/evidence direct-delete rejection test |
+| `A2A-BASE-009` | stray reaffirmation non-baseline projection test |
+| `A2A-BIND-001` | same-workspace project binding test |
+| `A2A-BIND-002` | schema binding composite-FK test |
+| `A2A-BIND-003` | schema missing/wrong-project composite-FK test |
+| `A2A-BIND-004` | retired-parent bind rejection test |
+| `A2A-BIND-005` | one-active-binding-per-project test |
+| `A2A-BIND-006` | sibling-project same-repository binding test |
+| `A2A-BIND-007` | exact binding retirement test |
+| `A2A-BIND-008` | sibling binding survival test |
+| `A2A-BIND-009` | schema retired-field null-coupling test |
+| `A2A-BIND-010` | schema unretire/retarget rejection test |
+| `A2A-BIND-011` | schema binding direct-delete rejection test |
+| `A2A-BIND-012` | structural historical-membership attribution test |
+| `A2A-BIND-013` | active-binding/non-active-repository projection test |
+| `A2A-RET-001` | successful atomic repository/binding retirement test |
+| `A2A-RET-002` | forced outer retirement rollback with two bindings |
+| `A2A-RET-003` | idempotent second-retirement test |
+| `A2A-RET-004` | retired repository rejects a new binding |
+| `A2A-RET-005` | historical inspection immutability test |
+| `A2A-RET-006` | post-retirement identity reuse test |
+| `A2A-RET-007` | direct unretire rejection test |
+| `A2A-RET-008` | retired repository direct-delete rejection test |
+| `A2A-MIG-001` | exact schema-3 tables/indexes/triggers/catalog actions tests |
+| `A2A-MIG-002` | populated schema-2 row/sequence preservation test |
+| `A2A-MIG-003` | preexisting journal definition/guard preservation test |
+| `A2A-MIG-004` | changed applied-checksum fail-closed test |
+| `A2A-MIG-005` | synthetic interrupted-0003 rollback test |
+| `A2A-MIG-006` | schema-3 foreign-key/integrity checks |
+| `A2A-MIG-007` | concurrent snapshot repository-evidence regression test |
+| `A2A-MIG-008` | byte-identical migrations 0001/0002 test |
+| `A2A-CON-001` | valid bounded registration request test |
+| `A2A-CON-002` | strict authority/unknown-field rejection test |
+| `A2A-CON-003` | unsafe optional display-name rejection test |
+| `A2A-CON-004` | complete repository-summary/recency tests |
+| `A2A-CON-005` | false readiness/review/merge claim rejection tests |
+| `A2A-CON-006` | raw diagnostic/evidence rejection test |
+| `A2A-CON-007` | exact reaffirmation request-shape test |
+| `A2A-CON-008` | exact retire/unbind request-shape tests |
+| `A2A-CON-009` | reader versus Owner Git-directory disclosure test |
+| `A2A-CON-010` | all four latest ID/time fields required test |
+| `A2-PROC-001` | proposed-plan and independent design-review artifact check |
+| `A2-PROC-002` | disposition, accepted plan, and §15.2 ID-set check |
+| `A2-PROC-003` | real-head initial implementation-report artifact check |
+| `A2-PROC-004` | exact operator-owned protected-package manifest/hash test |
+| `A2-SCOPE-001` | A2a authority-free import and no-A2b-title-claim checks |
+| `A2-SCOPE-003` | no literal supported-migration-version assertion test |
+| `A2-SCOPE-004` | migration allowlist marker/domain set-equality test |
 
 The protected A2 supplement remains byte-identical:
 

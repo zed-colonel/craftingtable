@@ -263,41 +263,45 @@ class SqliteRegisteredRepositoryRepository implements RegisteredRepositoryReposi
   }
 
   applyTransition(input: ApplyRepositoryTransitionInput): RepositoryMutationResult {
-    const current = this.find(input.workspaceId, input.repositoryId);
-    if (current === undefined) {
-      return { kind: 'not-found' };
-    }
-    if (current.version !== input.expectedVersion) {
-      return { kind: 'version-conflict' };
-    }
-    if (current.status !== input.reduction.fromStatus) {
-      return { kind: 'state-conflict', status: current.status };
-    }
-    const result = this.database
-      .prepare(
-        `UPDATE registered_repositories
-         SET status = ?, status_reason = ?, status_changed_by_user_id = ?,
-             status_changed_at = ?, version = version + 1
-         WHERE workspace_id = ? AND id = ? AND status = ? AND version = ?`,
-      )
-      .run(
-        input.reduction.toStatus,
-        input.reduction.reason,
-        input.actorUserId,
-        input.changedAt,
-        input.workspaceId,
-        input.repositoryId,
-        input.reduction.fromStatus,
-        input.expectedVersion,
-      );
-    if (result.changes !== 1) {
-      return { kind: 'version-conflict' };
-    }
-    const repository = this.find(input.workspaceId, input.repositoryId);
-    if (repository === undefined) {
-      throw new Error('Repository disappeared after transition');
-    }
-    return { kind: 'changed', repository };
+    return this.database
+      .transaction(() => {
+        const current = this.find(input.workspaceId, input.repositoryId);
+        if (current === undefined) {
+          return { kind: 'not-found' } as const;
+        }
+        if (current.version !== input.expectedVersion) {
+          return { kind: 'version-conflict' } as const;
+        }
+        if (current.status !== input.reduction.fromStatus) {
+          return { kind: 'state-conflict', status: current.status } as const;
+        }
+        const result = this.database
+          .prepare(
+            `UPDATE registered_repositories
+             SET status = ?, status_reason = ?, status_changed_by_user_id = ?,
+                 status_changed_at = ?, version = version + 1
+             WHERE workspace_id = ? AND id = ? AND status = ? AND version = ?`,
+          )
+          .run(
+            input.reduction.toStatus,
+            input.reduction.reason,
+            input.actorUserId,
+            input.changedAt,
+            input.workspaceId,
+            input.repositoryId,
+            input.reduction.fromStatus,
+            input.expectedVersion,
+          );
+        if (result.changes !== 1) {
+          return { kind: 'version-conflict' } as const;
+        }
+        const repository = this.find(input.workspaceId, input.repositoryId);
+        if (repository === undefined) {
+          throw new Error('Repository disappeared after transition');
+        }
+        return { kind: 'changed', repository } as const;
+      })
+      .immediate();
   }
 
   reaffirmEnvironment(input: ReaffirmRepositoryEnvironmentInput): RepositoryReaffirmationResult {
@@ -451,7 +455,7 @@ class SqliteRepositoryInspectionRepository {
     }
     const repository = this.repositories.find(input.workspaceId, input.repositoryId);
     if (repository === undefined) {
-      return { kind: 'repository-not-inspectable', status: 'retired' };
+      return { kind: 'repository-not-found' };
     }
     if (repository.version !== input.expectedVersion) {
       return { kind: 'version-conflict' };
@@ -543,11 +547,11 @@ class SqliteProjectRepositoryBindingRepository implements ProjectRepositoryBindi
     if (repository === undefined) {
       return { kind: 'repository-not-found' };
     }
-    if (repository.version !== input.expectedRepositoryVersion) {
-      return { kind: 'repository-version-conflict' };
-    }
     if (repository.status !== 'active') {
       return { kind: 'repository-not-active', status: repository.status };
+    }
+    if (repository.version !== input.expectedRepositoryVersion) {
+      return { kind: 'repository-version-conflict' };
     }
     const existing = this.findActiveForProject(input.workspaceId, input.projectId);
     if (existing !== undefined) {

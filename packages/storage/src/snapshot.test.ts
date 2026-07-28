@@ -84,7 +84,7 @@ describe('snapshot consistency', () => {
     }
   });
 
-  it('keeps repository evidence and latest sequence in one read view during a WAL commit', () => {
+  it('keeps repository evidence and latest sequence in one read view during a WAL commit (A2A-MIG-007)', () => {
     const first = temporaryStorage();
     try {
       const userId = asUserId('repository-snapshot-user');

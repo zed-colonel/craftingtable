@@ -6,8 +6,10 @@ import {
   reduceRepositoryState,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
+import type Database from 'better-sqlite3';
 import { openDatabase } from './database.js';
 import { seedPlan, seedWorkspace, SEED_NOW } from './planning-test-support.js';
+import { repositoryRegistryRepositories } from './repositories/repository-registry/index.js';
 import { repositoryRegistrationInspection } from './repository-test-support.js';
 import { temporaryStorage, type TemporaryStorage } from './test-support.js';
 
@@ -85,6 +87,76 @@ describe('repository transition persistence', () => {
       ).toThrow(/invalid repository transition/);
     } finally {
       raw.close();
+    }
+  });
+
+  it('holds an immediate transaction through transition read-back', () => {
+    const seeded = setup('transition-read-back');
+    seeded.temporary.storage.close();
+    const database = openDatabase(seeded.temporary.databasePath);
+    const competitor = openDatabase(seeded.temporary.databasePath);
+    competitor.pragma('busy_timeout = 0');
+    let repositoryReadCount = 0;
+    let competingWriteWasBlocked = false;
+    const proxied = new Proxy(database, {
+      get(target, property) {
+        if (property === 'prepare') {
+          return (sql: string) => {
+            if (
+              sql.includes(
+                'SELECT * FROM registered_repositories WHERE workspace_id = ? AND id = ?',
+              )
+            ) {
+              repositoryReadCount += 1;
+              if (repositoryReadCount === 2) {
+                try {
+                  competitor
+                    .prepare(
+                      `UPDATE registered_repositories
+                       SET status = 'active', status_reason = 'inspection-succeeded',
+                           status_changed_at = ?, version = version + 1
+                       WHERE workspace_id = ? AND id = ?`,
+                    )
+                    .run(SEED_NOW, seeded.workspaceId, seeded.repository.id);
+                } catch (error) {
+                  competingWriteWasBlocked =
+                    typeof error === 'object' &&
+                    error !== null &&
+                    'code' in error &&
+                    (error as { code?: unknown }).code === 'SQLITE_BUSY';
+                }
+              }
+            }
+            return target.prepare(sql);
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as Database.Database;
+    try {
+      const reduction = reduceRepositoryState('active', {
+        kind: 'apply-assessment',
+        assessment: { kind: 'unavailable', reason: 'path-unavailable' },
+      });
+      if (reduction.kind !== 'transition') throw new Error(reduction.kind);
+      expect(
+        repositoryRegistryRepositories(proxied).repositories.applyTransition({
+          workspaceId: seeded.workspaceId,
+          repositoryId: seeded.repository.id,
+          expectedVersion: 1,
+          actorUserId: seeded.userId,
+          changedAt: SEED_NOW,
+          reduction,
+        }),
+      ).toMatchObject({
+        kind: 'changed',
+        repository: { status: 'unavailable', version: 2 },
+      });
+      expect(competingWriteWasBlocked).toBe(true);
+    } finally {
+      competitor.close();
+      database.close();
     }
   });
 
@@ -233,7 +305,7 @@ describe('repository transition persistence', () => {
     ]);
   });
 
-  it('rejects direct baseline rollback, core rewrite, unretire, and evidence deletion', () => {
+  it('rejects direct baseline rollback, core rewrite, unretire, and evidence deletion (A2A-BASE-004/005/007/008 A2A-RET-005/007/008)', () => {
     const seeded = setup('direct-rejections');
     const raw = openDatabase(seeded.temporary.databasePath);
     try {

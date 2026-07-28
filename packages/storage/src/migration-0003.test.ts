@@ -19,7 +19,7 @@ function databasePath() {
 }
 
 describe('migration 0003 repository model', () => {
-  it('preserves a populated schema 2 database and its journal definitions', () => {
+  it('preserves a populated schema 2 database and its journal definitions (A2A-MIG-002/003)', () => {
     const database = openDatabase(databasePath());
     const migrations = discoverMigrations();
     runMigrations(database, migrations.slice(0, 2));
@@ -102,7 +102,7 @@ describe('migration 0003 repository model', () => {
     database.close();
   });
 
-  it('registers all 19 audit actions with their exact introduction versions', () => {
+  it('registers all 19 audit actions with their exact introduction versions (A2A-MIG-001)', () => {
     const database = openDatabase(databasePath());
     const migrations = discoverMigrations();
     runMigrations(database, migrations);
@@ -118,7 +118,7 @@ describe('migration 0003 repository model', () => {
     database.close();
   });
 
-  it('keeps migrations 0001 and 0002 byte-identical and records 0003 checksum', () => {
+  it('keeps migrations 0001 and 0002 byte-identical and records 0003 checksum (A2A-MIG-008)', () => {
     const migrations = discoverMigrations();
     expect(migrations[0]?.checksum).toBe(
       '42ade0fefd2174cd79e9c2e2035eb40ce34379dca61f8654618619f6c4483273',

@@ -43,7 +43,7 @@ function setup(suffix = 'a') {
 }
 
 describe('repository registry repositories', () => {
-  it('commits the inspection-first circular registration graph', () => {
+  it('commits the inspection-first circular registration graph (A2A-REP-001 A2A-INSP-001 A2A-BASE-001)', () => {
     const seeded = setup();
     expect(seeded.repository.registrationInspectionId).toBe(seeded.inspection.id);
     expect(seeded.repository.acceptedEnvironmentInspectionId).toBe(seeded.inspection.id);
@@ -55,7 +55,7 @@ describe('repository registry repositories', () => {
     ).toBe(1);
   });
 
-  it('classifies same-workspace identity without exposing foreign identity', () => {
+  it('classifies same-workspace identity without exposing foreign identity (A2A-REP-005..008 A2A-REP-015)', () => {
     const seeded = setup('local');
     const repeated = seeded.temporary.storage.repositoryRegistry.repositories.register({
       id: asRepositoryId('new-id'),
@@ -88,7 +88,7 @@ describe('repository registry repositories', () => {
     expect(JSON.stringify(foreignResult)).toBe('{"kind":"identity-reserved-elsewhere"}');
   });
 
-  it('classifies partial local identity and exact non-active state without raw constraints', () => {
+  it('classifies partial local identity and exact non-active state without raw constraints (A2A-REP-005..007 A2A-REP-015)', () => {
     const seeded = setup('local-classification');
     const partial = repositoryRegistrationInspection({
       suffix: 'partial-candidate',
@@ -137,7 +137,7 @@ describe('repository registry repositories', () => {
     ).toEqual({ kind: 'conflicting-local-state', status: 'unavailable' });
   });
 
-  it('orders same-millisecond evidence by generated sequence', () => {
+  it('orders same-millisecond evidence by generated sequence (A2A-INSP-016)', () => {
     const seeded = setup('sequence');
     const observation = {
       ...seeded.inspection,
@@ -161,7 +161,28 @@ describe('repository registry repositories', () => {
     ).toEqual([observation.id, seeded.inspection.id]);
   });
 
-  it('binds one project, preserves projection, and retires atomically with repository', () => {
+  it('reports a nonexistent verification parent without fabricating repository status', () => {
+    const seeded = setup('missing-verification-parent');
+    const missingRepositoryId = asRepositoryId('repository-never-registered');
+    expect(
+      seeded.temporary.storage.repositoryRegistry.inspections.appendVerification({
+        workspaceId: seeded.workspaceId,
+        repositoryId: missingRepositoryId,
+        expectedVersion: 1,
+        inspection: {
+          ...seeded.inspection,
+          id: asRepositoryInspectionId('inspection-missing-parent'),
+          repositoryId: missingRepositoryId,
+          kind: 'verification',
+          coreDifferences: [],
+          environmentalDifferences: [],
+          riskDifferences: [],
+        },
+      }),
+    ).toEqual({ kind: 'repository-not-found' });
+  });
+
+  it('binds one project, preserves projection, and retires atomically with repository (A2A-BIND-001 A2A-RET-001)', () => {
     const seeded = setup('binding');
     const plan = seedPlan(seeded.temporary.storage, seeded, {
       suffix: 'binding',
@@ -191,7 +212,7 @@ describe('repository registry repositories', () => {
     });
   });
 
-  it('adopts only a fresh latest environmental reaffirmation as baseline', () => {
+  it('adopts only a fresh latest environmental reaffirmation as baseline (A2A-BASE-006)', () => {
     const seeded = setup('reaffirm');
     const reduction = reduceRepositoryState(seeded.repository.status, {
       kind: 'apply-assessment',
@@ -246,7 +267,7 @@ describe('repository registry repositories', () => {
     });
   });
 
-  it('does not append a reaffirmation when version or latest-success preconditions are stale', () => {
+  it('does not append a reaffirmation when version or latest-success preconditions are stale (A2A-BASE-002/004/005)', () => {
     const seeded = setup('stale-reaffirm');
     const reduction = reduceRepositoryState('active', {
       kind: 'apply-assessment',
@@ -302,7 +323,7 @@ describe('repository registry repositories', () => {
     ).toBeUndefined();
   });
 
-  it('keeps an active binding as history while projecting a non-active repository', () => {
+  it('keeps an active binding as history while projecting a non-active repository (A2A-BIND-013)', () => {
     const seeded = setup('projection');
     const plan = seedPlan(seeded.temporary.storage, seeded, {
       suffix: 'projection',
@@ -344,7 +365,7 @@ describe('repository registry repositories', () => {
     ]);
   });
 
-  it('enforces one active binding per project while allowing sibling projects', () => {
+  it('enforces one active binding per project while allowing sibling projects (A2A-BIND-005..008)', () => {
     const seeded = setup('binding-cardinality');
     const first = seedPlan(seeded.temporary.storage, seeded, {
       suffix: 'binding-cardinality-1',
@@ -406,14 +427,42 @@ describe('repository registry repositories', () => {
     ).toEqual(['retired', 'active']);
   });
 
-  it('hashes exact observation bytes without canonicalization overclaim', () => {
+  it('classifies a bind racing retirement as a retired non-active parent (A2A-BIND-004 A2A-RET-004)', () => {
+    const seeded = setup('retired-bind');
+    const plan = seedPlan(seeded.temporary.storage, seeded, {
+      suffix: 'retired-bind',
+      digest: '5'.repeat(64),
+    });
+    expect(
+      seeded.temporary.storage.repositoryRegistry.repositories.retireWithBindings({
+        workspaceId: seeded.workspaceId,
+        repositoryId: seeded.repository.id,
+        expectedVersion: 1,
+        actorUserId: seeded.userId,
+        changedAt: SEED_NOW,
+      }),
+    ).toMatchObject({ kind: 'changed', repository: { status: 'retired', version: 2 } });
+    expect(
+      seeded.temporary.storage.repositoryRegistry.bindings.insert({
+        id: asProjectRepositoryBindingId('binding-after-retirement'),
+        workspaceId: seeded.workspaceId,
+        projectId: plan.projectId,
+        repositoryId: seeded.repository.id,
+        expectedRepositoryVersion: 1,
+        actorUserId: seeded.userId,
+        boundAt: SEED_NOW,
+      }),
+    ).toEqual({ kind: 'repository-not-active', status: 'retired' });
+  });
+
+  it('hashes exact observation bytes without canonicalization overclaim (A2A-INSP-012)', () => {
     const left = serializeRepositoryObservation({ a: 1, b: 2 });
     const right = serializeRepositoryObservation({ b: 2, a: 1 });
     expect(left.observationJson).not.toBe(right.observationJson);
     expect(left.observationSha256).not.toBe(right.observationSha256);
   });
 
-  it('stores complete A1 and storage-integrity failures with null observation fields', () => {
+  it('stores complete A1 and storage-integrity failures with null observation fields (A2A-INSP-002..005)', () => {
     const seeded = setup('failures');
     const a1 = seeded.temporary.storage.repositoryRegistry.inspections.appendVerification({
       workspaceId: seeded.workspaceId,
@@ -492,7 +541,7 @@ describe('repository registry repositories', () => {
     ).toBe(true);
   });
 
-  it('rejects cross-origin failure taxonomy tuples at the SQL boundary', () => {
+  it('rejects cross-origin failure taxonomy tuples at the SQL boundary (A2A-INSP-014/015)', () => {
     const seeded = setup('cross-origin');
     expect(() =>
       seeded.temporary.storage.repositoryRegistry.inspections.appendVerification({

@@ -61,7 +61,7 @@ describe('ordered SQL migrations', () => {
     second.close();
   });
 
-  it('rejects a changed applied checksum without mutation', () => {
+  it('rejects a changed applied checksum without mutation (A2A-MIG-004)', () => {
     const path = databasePath();
     const database = openDatabase(path);
     const migrations = discoverMigrations();

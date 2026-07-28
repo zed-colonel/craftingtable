@@ -19,6 +19,19 @@ import {
   isTestModule,
 } from './check-forbidden-scope.mjs';
 
+function scopeFixture(relativeSourcePath, source) {
+  const root = mkdtempSync(join(tmpdir(), 'craftingtable-scope-'));
+  writeFileSync(join(root, 'package.json'), '{"name":"scope-fixture"}');
+  mkdirSync(join(root, 'apps'));
+  const packageRoot = join(root, 'packages', relativeSourcePath.split('/')[0]);
+  mkdirSync(join(packageRoot, 'src'), { recursive: true });
+  writeFileSync(join(packageRoot, 'package.json'), '{"name":"fixture-package"}');
+  const sourcePath = join(root, 'packages', relativeSourcePath);
+  mkdirSync(join(sourcePath, '..'), { recursive: true });
+  writeFileSync(sourcePath, source);
+  return root;
+}
+
 describe('isForbidden', () => {
   it('matches every forbidden repository name in any casing or hyphenation', () => {
     for (const name of [
@@ -176,19 +189,6 @@ describe('CT-03 capability and boundary guards', () => {
 });
 
 describe('CT-04A1 anchored process authority', () => {
-  function scopeFixture(relativeSourcePath, source) {
-    const root = mkdtempSync(join(tmpdir(), 'craftingtable-scope-'));
-    writeFileSync(join(root, 'package.json'), '{"name":"scope-fixture"}');
-    mkdirSync(join(root, 'apps'));
-    const packageRoot = join(root, 'packages', relativeSourcePath.split('/')[0]);
-    mkdirSync(join(packageRoot, 'src'), { recursive: true });
-    writeFileSync(join(packageRoot, 'package.json'), '{"name":"fixture-package"}');
-    const sourcePath = join(root, 'packages', relativeSourcePath);
-    mkdirSync(join(sourcePath, '..'), { recursive: true });
-    writeFileSync(sourcePath, source);
-    return root;
-  }
-
   it('rejects a production filename-based test-support escape', () => {
     const root = scopeFixture(
       'storage/src/x-test-support.ts',
@@ -226,10 +226,15 @@ describe('CT-04A2a authority-free boundary', () => {
     expect(isA2aSource('packages/git/src/types.ts')).toBe(false);
   });
 
-  it('rejects Git, process, server, route, event, notifier, and browser authority', () => {
+  it('rejects filesystem, network, Git, process, server, route, event, notifier, and browser authority (A2-SCOPE-001)', () => {
     for (const specifier of [
       '@craftingtable/git',
+      'node:fs',
+      'node:fs/promises',
       'node:child_process',
+      'node:net',
+      'node:http',
+      'node:https',
       'fastify',
       '@fastify/cookie',
       '@craftingtable/server',
@@ -246,7 +251,29 @@ describe('CT-04A2a authority-free boundary', () => {
     expect(isForbiddenInA2a('better-sqlite3')).toBe(false);
   });
 
-  it('rejects literal current-version assertions but allows discovered support', () => {
+  it('fails the workspace check for filesystem or socket authority in production A2a source', () => {
+    for (const specifier of [
+      'node:fs',
+      'node:fs/promises',
+      'node:net',
+      'node:http',
+      'node:https',
+    ]) {
+      const root = scopeFixture(
+        'storage/src/repository.ts',
+        `import authority from '${specifier}';\nvoid authority;`,
+      );
+      try {
+        expect(runCheck(root)).toContain(
+          `packages/storage/src/repository.ts: CT-04A2a authority-free source imports "${specifier}"`,
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('rejects literal current-version assertions but allows discovered support (A2-SCOPE-003)', () => {
     expect(
       hasLiteralCurrentMigrationAssertion('expect(storage.migrationStatus.currentVersion).toBe(3)'),
     ).toBe(true);

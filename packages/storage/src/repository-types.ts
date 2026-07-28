@@ -86,6 +86,7 @@ export interface AppendRepositoryVerificationInput {
 export type InspectionAppendResult =
   | { readonly kind: 'appended'; readonly inspection: RepositoryInspection }
   | { readonly kind: 'duplicate-id' }
+  | { readonly kind: 'repository-not-found' }
   | { readonly kind: 'version-conflict' }
   | { readonly kind: 'repository-not-inspectable'; readonly status: RepositoryStatus };
 

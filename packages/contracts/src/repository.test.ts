@@ -40,7 +40,7 @@ const repositorySummary = {
 } as const;
 
 describe('repository public contracts', () => {
-  it('accepts bounded command-free requests and rejects authority fields', () => {
+  it('accepts bounded command-free requests and rejects authority fields (A2A-CON-001/002)', () => {
     expect(registerRepositoryRequestSchema.parse({ requestedPath: '/source/repo' })).toEqual({
       requestedPath: '/source/repo',
     });
@@ -75,7 +75,7 @@ describe('repository public contracts', () => {
     ).toBe(false);
   });
 
-  it('separates reader identity from owner-only Git directory disclosure', () => {
+  it('separates reader identity from owner-only Git directory disclosure (A2A-CON-009)', () => {
     const reader = {
       canonicalTopLevel: '/source/repo',
       objectFormat: 'sha1',
@@ -97,7 +97,7 @@ describe('repository public contracts', () => {
     ).toBe(true);
   });
 
-  it('rejects readiness terminology on repository summaries', () => {
+  it('rejects readiness terminology on repository summaries (A2A-CON-004/005)', () => {
     expect(
       registeredRepositorySummarySchema.safeParse({
         ...repositorySummary,
@@ -188,7 +188,7 @@ describe('repository public contracts', () => {
     ).toBe(false);
   });
 
-  it('rejects unsafe optional display names at the public boundary (A2A-CON-003)', () => {
+  it('rejects unsafe optional display names at the public boundary (A2A-CON-003 A2A-REP-014)', () => {
     for (const displayName of ['', '  ', 'bad\u0000name', 'x'.repeat(121)]) {
       expect(
         registerRepositoryRequestSchema.safeParse({

@@ -50,7 +50,7 @@ function rawRegistered(suffix = 'schema') {
 }
 
 describe('schema 3 repository model', () => {
-  it('keeps machine-readable SQL allowlists equal to domain vocabulary', () => {
+  it('keeps machine-readable SQL allowlists equal to domain vocabulary (A2-SCOPE-004)', () => {
     const sql = readFileSync(
       new URL('../migrations/0003-ct04a2a-repository-model.sql', import.meta.url),
       'utf8',
@@ -95,7 +95,7 @@ describe('schema 3 repository model', () => {
     );
   });
 
-  it('creates exactly three strict tables with the exact inspection columns', () => {
+  it('creates exactly three strict tables with the exact inspection columns (A2A-MIG-001 A2A-INSP-018)', () => {
     const { database } = rawRegistered();
     const tables = database
       .prepare(
@@ -198,7 +198,7 @@ describe('schema 3 repository model', () => {
     ]);
   });
 
-  it('installs the exact reviewed trigger inventory', () => {
+  it('installs the exact reviewed trigger inventory (A2A-MIG-001)', () => {
     const { database } = rawRegistered('triggers');
     const names = (
       database
@@ -230,7 +230,7 @@ describe('schema 3 repository model', () => {
     );
   });
 
-  it('defers only the inspection parent and rejects an orphan at outer commit', () => {
+  it('defers only the inspection parent and rejects an orphan at outer commit (A2A-REP-002/003/004 A2A-BASE-003)', () => {
     const { database, inspection } = rawRegistered('deferred');
     const deferred = (
       database.prepare(`PRAGMA foreign_key_list(repository_inspections)`).all() as {
@@ -270,7 +270,7 @@ describe('schema 3 repository model', () => {
     database.exec('ROLLBACK');
   });
 
-  it('rejects update, delete, wrong version increments, and reverse transitions', () => {
+  it('rejects update, delete, wrong version increments, and reverse transitions (A2A-REP-009..013 A2A-INSP-008/009 A2A-BASE-002/004/005/007/008 A2A-BIND-009/010/011 A2A-RET-005/007/008)', () => {
     const { database, repository, inspection } = rawRegistered('immutable');
     expect(() =>
       database
@@ -294,7 +294,7 @@ describe('schema 3 repository model', () => {
     ).toThrow(/cannot be deleted/);
   });
 
-  it('rejects unsorted, duplicate, and unknown evidence arrays', () => {
+  it('rejects unsorted, duplicate, and unknown evidence arrays (A2A-INSP-010/011/014 A2A-INSP-017)', () => {
     const { database, repository, inspection } = rawRegistered('arrays');
     for (const riskSignals of [
       '["filter-smudge","filter-clean"]',
@@ -329,7 +329,7 @@ describe('schema 3 repository model', () => {
     expect(repository.status).toBe('active');
   });
 
-  it('keeps all structural foreign keys clean', () => {
+  it('keeps all structural foreign keys clean (A2A-MIG-006 A2A-INSP-006/007 A2A-BIND-002/003/012)', () => {
     const { database } = rawRegistered('fk');
     expect(database.pragma('foreign_key_check')).toEqual([]);
     expect(database.pragma('integrity_check', { simple: true })).toBe('ok');

@@ -68,8 +68,11 @@ export const PLANNING_FORBIDDEN_PATTERNS = [
 /** CT-04A2a remains an authority-free domain/contracts/storage slice. */
 export const A2A_FORBIDDEN_PATTERNS = [
   /^@craftingtable\/git$/,
+  /^node:fs(\/.*)?$/,
   /^node:child_process$/,
   /^child_process$/,
+  /^node:net$/,
+  /^node:http(s)?$/,
   /^fastify$/,
   /^@fastify\/.*$/,
   /^@craftingtable\/server$/,
@@ -79,6 +82,8 @@ export const A2A_FORBIDDEN_PATTERNS = [
   /(?:^|\/)workspace-events?(?:\/|\.|$)/,
   /(?:^|\/)notifier(?:\/|\.|$)/,
 ];
+
+const A2A_TEST_IO_PATTERNS = [/^node:fs(\/.*)?$/, /^node:net$/, /^node:http(s)?$/];
 
 const DEPENDENCY_FIELDS = [
   'dependencies',
@@ -123,6 +128,10 @@ export function isForbiddenInPlanning(specifier) {
 
 export function isForbiddenInA2a(specifier) {
   return A2A_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier));
+}
+
+function isA2aTestIoCapability(specifier) {
+  return A2A_TEST_IO_PATTERNS.some((pattern) => pattern.test(specifier));
 }
 
 export function isA2aSource(path) {
@@ -259,7 +268,10 @@ export function runCheck(root) {
         }
         if (isA2aSource(relativePath)) {
           for (const specifier of findImports(source)) {
-            if (isForbiddenInA2a(specifier)) {
+            if (
+              isForbiddenInA2a(specifier) &&
+              !(isTestModule(path) && isA2aTestIoCapability(specifier))
+            ) {
               violations.push(
                 `${relativePath}: CT-04A2a authority-free source imports "${specifier}"`,
               );

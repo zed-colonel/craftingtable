@@ -1,8 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { asEventId, asUserId, asWorkspaceId, asWorkspaceMembershipId } from '@craftingtable/domain';
+import {
+  asEventId,
+  asRepositoryId,
+  asRepositoryInspectionId,
+  asUserId,
+  asWorkspaceId,
+  asWorkspaceMembershipId,
+} from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
 import { temporaryStorage } from './test-support.js';
 import { openCraftingTableStorage } from './storage.js';
+import { repositoryRegistrationInspection } from './repository-test-support.js';
 
 describe('snapshot consistency', () => {
   it('keeps asOfSequence and activity in one read view during a concurrent WAL commit', () => {
@@ -72,6 +80,92 @@ describe('snapshot consistency', () => {
       expect(second.workspaceEvents.maxSequence()).toBe(2);
     } finally {
       second.close();
+      first.cleanup();
+    }
+  });
+
+  it('keeps repository evidence and latest sequence in one read view during a WAL commit', () => {
+    const first = temporaryStorage();
+    try {
+      const userId = asUserId('repository-snapshot-user');
+      const workspaceId = asWorkspaceId('repository-snapshot-workspace');
+      const repositoryId = asRepositoryId('repository-snapshot');
+      const occurredAt = '2026-07-24T00:00:00.000Z';
+      first.storage.transaction((tx) => {
+        tx.users.insert({
+          id: userId,
+          username: 'repository-snapshot',
+          usernameNormalized: 'repository-snapshot',
+          passwordHash: '$argon2id$test',
+          occurredAt,
+        });
+        tx.workspaces.insert({
+          id: workspaceId,
+          name: 'Repository snapshot workspace',
+          slug: 'repository-snapshot',
+          createdByUserId: userId,
+          occurredAt,
+        });
+        tx.workspaces.insertMembership({
+          id: asWorkspaceMembershipId('repository-snapshot-membership'),
+          workspaceId,
+          userId,
+          role: 'owner',
+          occurredAt,
+        });
+      });
+      const registration = repositoryRegistrationInspection({
+        suffix: 'snapshot',
+        workspaceId,
+        actorUserId: userId,
+        createdAt: occurredAt,
+      });
+      first.storage.repositoryRegistry.repositories.register({
+        id: repositoryId,
+        workspaceId,
+        displayName: 'Snapshot repository',
+        actorUserId: userId,
+        inspection: { ...registration, repositoryId },
+      });
+      const second = openCraftingTableStorage(first.storage.databasePath);
+      try {
+        const snapshot = first.storage.readTransaction((reader) => {
+          const before = reader.repositoryRegistry.queries.repositorySummary(
+            workspaceId,
+            repositoryId,
+          );
+          second.transaction((writer) => {
+            writer.repositoryRegistry.inspections.appendVerification({
+              workspaceId,
+              repositoryId,
+              expectedVersion: 1,
+              inspection: {
+                ...registration,
+                id: asRepositoryInspectionId('repository-snapshot-verification'),
+                repositoryId,
+                kind: 'verification',
+                coreDifferences: [],
+                environmentalDifferences: [],
+                riskDifferences: [],
+              },
+            });
+          });
+          const after = reader.repositoryRegistry.queries.repositorySummary(
+            workspaceId,
+            repositoryId,
+          );
+          return { before, after };
+        });
+        expect(snapshot.before?.latestInspection.sequence).toBe(1);
+        expect(snapshot.after?.latestInspection.sequence).toBe(1);
+        expect(
+          second.repositoryRegistry.inspections.latestForRepository(workspaceId, repositoryId)
+            .sequence,
+        ).toBe(2);
+      } finally {
+        second.close();
+      }
+    } finally {
       first.cleanup();
     }
   });

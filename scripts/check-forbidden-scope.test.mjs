@@ -12,6 +12,9 @@ import {
   findNulByte,
   isForbiddenCapability,
   isForbiddenInPlanning,
+  isForbiddenInA2a,
+  isA2aSource,
+  hasLiteralCurrentMigrationAssertion,
   isNonProductionPackage,
   isTestModule,
 } from './check-forbidden-scope.mjs';
@@ -210,6 +213,48 @@ describe('CT-04A1 anchored process authority', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('CT-04A2a authority-free boundary', () => {
+  it('scans A2a production and test files', () => {
+    expect(isA2aSource('packages/domain/src/repository.ts')).toBe(true);
+    expect(isA2aSource('packages/contracts/src/repository.test.ts')).toBe(true);
+    expect(isA2aSource('packages/storage/src/repositories/repository-registry/index.ts')).toBe(
+      true,
+    );
+    expect(isA2aSource('packages/git/src/types.ts')).toBe(false);
+  });
+
+  it('rejects Git, process, server, route, event, notifier, and browser authority', () => {
+    for (const specifier of [
+      '@craftingtable/git',
+      'node:child_process',
+      'fastify',
+      '@fastify/cookie',
+      '@craftingtable/server',
+      '@craftingtable/web',
+      'react',
+      '../../routes/repository.js',
+      '../workspace-events.js',
+      '../notifier.js',
+    ]) {
+      expect(isForbiddenInA2a(specifier), specifier).toBe(true);
+    }
+    expect(isForbiddenInA2a('node:crypto')).toBe(false);
+    expect(isForbiddenInA2a('@craftingtable/domain')).toBe(false);
+    expect(isForbiddenInA2a('better-sqlite3')).toBe(false);
+  });
+
+  it('rejects literal current-version assertions but allows discovered support', () => {
+    expect(
+      hasLiteralCurrentMigrationAssertion('expect(storage.migrationStatus.currentVersion).toBe(3)'),
+    ).toBe(true);
+    expect(
+      hasLiteralCurrentMigrationAssertion(
+        'expect(storage.migrationStatus.currentVersion).toBe(storage.migrationStatus.supportedVersion)',
+      ),
+    ).toBe(false);
   });
 });
 

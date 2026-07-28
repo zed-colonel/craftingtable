@@ -29,8 +29,37 @@ export const AUDIT_ACTIONS = [
   'plan.import.duplicate',
   'work-item.admitted',
   'work-contract-draft.created',
+  /* CT-04A2a (schema 3). */
+  'repository.register',
+  'repository.inspect',
+  'repository.reaffirm',
+  'repository.retire',
+  'repository.bind-project',
+  'repository.unbind-project',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
+  'admin.bootstrap': 1,
+  'admin.bootstrap.denied': 1,
+  'auth.login': 1,
+  'auth.login.failed': 1,
+  'auth.logout': 1,
+  'auth.session.revoked': 1,
+  'workspace.created': 1,
+  'workspace.access.denied': 1,
+  'plan.import.succeeded': 2,
+  'plan.import.failed': 2,
+  'plan.import.duplicate': 2,
+  'work-item.admitted': 2,
+  'work-contract-draft.created': 2,
+  'repository.register': 3,
+  'repository.inspect': 3,
+  'repository.reaffirm': 3,
+  'repository.retire': 3,
+  'repository.bind-project': 3,
+  'repository.unbind-project': 3,
+} as const satisfies Readonly<Record<AuditAction, 1 | 2 | 3>>;
 
 export function isAuditAction(value: unknown): value is AuditAction {
   return (AUDIT_ACTIONS as readonly string[]).includes(value as string);

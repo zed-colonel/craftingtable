@@ -21,8 +21,10 @@ import type {
   WorkItemId,
 } from '@craftingtable/domain';
 import type { PlanningRepositories } from './planning-types.js';
+import type { RepositoryRegistryRepositories } from './repository-types.js';
 
 export * from './planning-types.js';
+export * from './repository-types.js';
 
 export interface StoredUser extends User {
   readonly usernameNormalized: string;
@@ -179,6 +181,8 @@ export interface StorageRepositories {
   readonly workspaceEvents: WorkspaceEventRepository;
   /** CT-03 planning model; grouped so the nine repositories stay legible. */
   readonly planning: PlanningRepositories;
+  /** CT-04A2a authority-free repository registry and evidence persistence. */
+  readonly repositoryRegistry: RepositoryRegistryRepositories;
 }
 
 export interface MigrationStatus {

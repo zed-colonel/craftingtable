@@ -1,4 +1,4 @@
-# Local operations (accepted CT-03 plus CT-04A1)
+# Local operations (accepted CT-03 plus CT-04A2a)
 
 ## Data location and configuration
 
@@ -66,7 +66,7 @@ clean, quiescent working tree and may retry only after activity has stopped.
 
 No `CRAFTINGTABLE_*` Git or repository setting is active yet, no repository is
 registered at startup, and the daemon still starts without Git configuration.
-CT-04A2 owns operator-facing configuration and composition.
+CT-04A2b owns operator-facing configuration and composition.
 
 ## First start
 
@@ -85,13 +85,25 @@ refuses if any user already exists. An accepted operator amendment records
 exactly one safe `admin.bootstrap.denied` audit row for each refusal; it creates
 no other row.
 
-The schema is at version 2. Migration `0002-ct03-planning.sql` rebuilds both
+The schema is at version 3. Migration `0002-ct03-planning.sql` rebuilds both
 CT-02 journals once so their audit-action and workspace-event vocabularies
 become migration-owned catalogs, then adds the planning tables. It preserves
 every CT-02 row, both global sequences, the append-only triggers, and every
 index; an in-migration guard aborts the whole migration if a row count or
 maximum sequence fails to match. Migration `0001` is unchanged, so an existing
 database still validates.
+
+Migration `0003-ct04a2a-repository-model.sql` does not rebuild either journal.
+It adds registered repositories, immutable inspections, project bindings, and
+six audit-action catalog entries. Existing schema-2 rows, sequences, indexes,
+triggers, and journal SQL remain unchanged. Repository evidence uses exact
+stored UTF-8 JSON bytes and a digest; operators must not treat that checksum as
+protection from a writer that can alter the database itself.
+
+Inspection history is ordered by its database-generated global sequence, not by
+timestamp or identifier. No repository command is operator-usable in A2a:
+configuration, authorization, Git adaptation, audit/events, routes, and browser
+projection remain A2b.
 
 Migration `0002` was revised during CT-03 remediation to close a structural
 ownership gap and freeze the imported work graph. A local database that ran the

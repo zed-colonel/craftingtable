@@ -1,4 +1,4 @@
-# Architecture boundaries (accepted CT-03 plus CT-04A1)
+# Architecture boundaries (accepted CT-03 plus CT-04A2a)
 
 CraftingTable is a loopback-only supervisory workbench. The daemon owns
 authoritative state; the browser is an authenticated projection reconstructed
@@ -31,6 +31,13 @@ server       → domain + planning + contracts + storage
 web          → domain + contracts
 git          → domain + Node filesystem/process/crypto primitives
 ```
+
+CT-04A2a adds no dependency edge. Domain owns copied durable repository
+vocabulary and a pure reducer; contracts owns strict public shapes; storage
+owns exact observation bytes, their SHA-256 digest, structural projections,
+immutable inspection history, repository lifecycle, and project binding. None
+of those packages imports `@craftingtable/git`, server composition, routes,
+workspace events, notifier code, or browser code.
 
 `@craftingtable/planning` is the whole interpretation boundary for untrusted
 planning input. It accepts bytes plus logical metadata and returns data: it
@@ -66,9 +73,10 @@ environmental device evidence, and self-describing risk-scan evidence remain
 separate. Serialized observations must pass `parseRecordedObservation` before
 comparison; policy-version mismatch is not equality.
 
-No server or browser imports the inspector in A1. Repository IDs, durable
-state, authorization, registration, project binding, audit/events, routes, and
-notification ordering remain CT-04A2.
+No server or browser imports the inspector. A2a now supplies repository IDs,
+durable state, and project-binding persistence, but authorization,
+Git-to-storage adaptation, audit/event writes, routes, and notification
+ordering remain CT-04A2b.
 
 The A2 boundary must preserve three A1 constraints. Registration runs against
 a clean, quiescent working tree because top-level directory entry changes can
@@ -80,6 +88,29 @@ authenticates core identity only. A2 storage must protect the integrity of
 `riskScan`, environmental device evidence, `canonicalGitDirectory`, and
 `observedAt` independently unless a later reviewed inspection-policy version
 widens the fingerprint.
+
+## Repository evidence persistence
+
+Registration is one immediate SQLite transaction:
+
+```text
+successful registration inspection
+  → registered repository linking registration and environment baseline
+  → outer COMMIT validates the inspection's deferred parent
+```
+
+Repository-to-inspection links are immediate, so a repository cannot name
+missing, foreign-workspace, or sibling evidence. Inspections are immutable and
+globally ordered by `AUTOINCREMENT` sequence. Successful records store the
+exact `JSON.stringify` UTF-8 string, a SHA-256 digest of those exact bytes, and
+query projections. This is corruption detection, not canonical JSON or
+authenticity against a writer able to replace both bytes and digest.
+
+The environmental baseline advances only in the atomic reaffirmation primitive
+from `identity-evidence-changed`, with a fresh latest successful reaffirmation
+whose core projections still match the immutable registration identity.
+Binding status is history, not usability: an active binding may project a
+currently unavailable or evidence-blocked repository.
 
 ## Authoritative write and read paths
 
@@ -165,9 +196,10 @@ revisited before activated multi-user or CT-08 deployment.
 ## Deliberately deferred
 
 The composed CT-03 product has projects, imported plans, and an
-operator-admitted agenda, but no executable work. CT-04A1 adds only an
-uncomposed local Git observation library. There is still no repository
-registration, worktree, diff, change request, real coding agent, verification
+operator-admitted agenda, but no executable work. CT-04A1 adds an uncomposed
+local Git observation library and CT-04A2a adds its uncomposed durable
+repository model. There is still no repository route or browser workflow,
+worktree, diff, change request, real coding agent, verification
 runner, review, remediation, readiness, or merge workflow; no Planning Studio, plan
 version activation, or model-assisted planning; no interactive graph editing;
 no ZIP, host-path, or external-URL import; no general artifact store; and no

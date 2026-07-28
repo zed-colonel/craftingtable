@@ -6,7 +6,7 @@
 **Operator disposition and amendment:** `work-items/CT-04/CT-04A1-remediation-2-disposition-and-invariant-amendment.md`
 **Generation-1 head:** `2180ae187edc13ed35482c07f484d910f0265a56`
 **Protected-package pin:** `06abcffe1fdcd32c72b2e4d2a3dcb849ac1d58d4`
-**New exact head SHA:** pending operator-authorized generation-2 commit
+**New exact head SHA:** `7313e81a56c0188574c436322d7fedc16e08bb70`
 
 ## 1. Summary
 

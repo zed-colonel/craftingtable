@@ -1,0 +1,836 @@
+version: 1
+contract: CT-04A2
+source_runtime_head: 7313e81a56c0188574c436322d7fedc16e08bb70
+source_bundle_sha256: ee0090898b7cedb1ecd0438f607b1e8ed60f0ec28a99f58b688400f025a2aeea
+purpose: Source-grounded positive, negative, structural, concurrency, crash, and fan-in cases for A2a/A2b.
+matrices:
+- id: A2A-STATUS
+  title: Repository status reducer
+  slice: CT-04A2a
+  governing_invariant: A2 repository state table
+  protected_default: true
+  cases:
+  - id: A2A-STATUS-001
+    setup: active plus exact same evidence
+    operation: reduce
+    expected: active, no version transition
+  - id: A2A-STATUS-002
+    setup: active plus risk-only difference
+    operation: reduce
+    expected: active with evidence-change disposition, no repository version transition
+  - id: A2A-STATUS-003
+    setup: active plus environmental-only difference
+    operation: reduce
+    expected: identity-evidence-changed
+  - id: A2A-STATUS-004
+    setup: active plus core difference
+    operation: reduce
+    expected: identity-mismatch
+  - id: A2A-STATUS-005
+    setup: active plus path unavailable
+    operation: reduce
+    expected: unavailable
+  - id: A2A-STATUS-006
+    setup: active plus observation-raced
+    operation: reduce
+    expected: no state change
+  - id: A2A-STATUS-007
+    setup: unavailable plus exact accepted evidence
+    operation: reduce
+    expected: active
+  - id: A2A-STATUS-008
+    setup: unavailable plus environment difference
+    operation: reduce
+    expected: identity-evidence-changed
+  - id: A2A-STATUS-009
+    setup: identity-evidence-changed plus accepted baseline returns
+    operation: reduce
+    expected: active
+  - id: A2A-STATUS-010
+    setup: identity-mismatch plus ordinary inspect
+    operation: reduce
+    expected: terminal rejection
+  - id: A2A-STATUS-011
+    setup: evidence-blocked plus ordinary inspect
+    operation: reduce
+    expected: terminal rejection
+  - id: A2A-STATUS-012
+    setup: any non-retired plus retire
+    operation: reduce
+    expected: retired
+  - id: A2A-STATUS-013
+    setup: retired plus any recovery
+    operation: reduce
+    expected: rejected
+  - id: A2A-STATUS-014
+    setup: unsupported transition
+    operation: reduce
+    expected: explicit error, never default transition
+- id: A2A-REPOSITORY
+  title: Registered repository structural model
+  slice: CT-04A2a
+  governing_invariant: structural ownership and immutable core identity
+  protected_default: true
+  cases:
+  - id: A2A-REP-001
+    setup: coherent workspace/repository/registration evidence
+    operation: commit
+    expected: accepted
+  - id: A2A-REP-002
+    setup: repository without registration inspection
+    operation: commit
+    expected: deferred FK/constraint rejects
+  - id: A2A-REP-003
+    setup: registration inspection belongs to another repository
+    operation: commit
+    expected: composite FK rejects
+  - id: A2A-REP-004
+    setup: environment baseline belongs to another repository
+    operation: commit
+    expected: composite FK rejects
+  - id: A2A-REP-005
+    setup: same canonical path in active row another workspace
+    operation: insert
+    expected: global active uniqueness rejects
+  - id: A2A-REP-006
+    setup: same common Git directory in active row
+    operation: insert
+    expected: global active uniqueness rejects
+  - id: A2A-REP-007
+    setup: same core fingerprint in active row
+    operation: insert
+    expected: global active uniqueness rejects
+  - id: A2A-REP-008
+    setup: same identities after old row retired
+    operation: insert
+    expected: new registration permitted with new ID
+  - id: A2A-REP-009
+    setup: mutate workspace/core identity/display name/registration actor
+    operation: SQL update
+    expected: trigger rejects
+  - id: A2A-REP-010
+    setup: delete repository row
+    operation: SQL delete
+    expected: trigger rejects
+  - id: A2A-REP-011
+    setup: status transition without version+1
+    operation: SQL update
+    expected: trigger rejects
+  - id: A2A-REP-012
+    setup: version bump without allowed state/baseline transition
+    operation: SQL update
+    expected: trigger rejects
+  - id: A2A-REP-013
+    setup: partial status actor/time/reason fields
+    operation: insert/update
+    expected: check rejects
+  - id: A2A-REP-014
+    setup: malformed display name/control/length
+    operation: contract/storage
+    expected: rejected
+- id: A2A-INSPECTION
+  title: Immutable inspection evidence
+  slice: CT-04A2a
+  governing_invariant: append-only exact full-record evidence
+  protected_default: true
+  cases:
+  - id: A2A-INSP-001
+    setup: successful registration observation
+    operation: insert
+    expected: all success fields required; failure fields null
+  - id: A2A-INSP-002
+    setup: failed verification attempt
+    operation: insert
+    expected: bounded failure fields required; observation fields null
+  - id: A2A-INSP-003
+    setup: mixed success and failure fields
+    operation: insert
+    expected: check rejects
+  - id: A2A-INSP-004
+    setup: success missing JSON/digest/version/fingerprint
+    operation: insert
+    expected: check rejects
+  - id: A2A-INSP-005
+    setup: failure missing code/subject/category/retryability
+    operation: insert
+    expected: check rejects
+  - id: A2A-INSP-006
+    setup: inspection references foreign-workspace repository
+    operation: insert
+    expected: composite FK rejects
+  - id: A2A-INSP-007
+    setup: actor exists but is not workspace member
+    operation: direct SQL
+    expected: database proves user existence/membership relation per accepted boundary; service active-role remains A2b
+  - id: A2A-INSP-008
+    setup: update inspection evidence
+    operation: SQL update
+    expected: trigger rejects
+  - id: A2A-INSP-009
+    setup: delete inspection evidence
+    operation: SQL delete
+    expected: trigger rejects
+  - id: A2A-INSP-010
+    setup: unsorted/duplicate risk or difference arrays
+    operation: insert/parser
+    expected: rejected
+  - id: A2A-INSP-011
+    setup: oversized JSON/evidence metadata
+    operation: insert/contract
+    expected: rejected
+  - id: A2A-INSP-012
+    setup: exact observation bytes and digest read back
+    operation: round trip
+    expected: byte-identical
+  - id: A2A-INSP-013
+    setup: corrupt observation bytes with stale digest
+    operation: A2b read contract fixture
+    expected: integrity failure
+  - id: A2A-INSP-014
+    setup: observation digest length/case invalid
+    operation: insert
+    expected: check rejects
+- id: A2A-BASELINE
+  title: Environmental baseline and reaffirmation storage
+  slice: CT-04A2a
+  governing_invariant: baseline belongs to same repository and updates only through governed transition
+  protected_default: true
+  cases:
+  - id: A2A-BASE-001
+    setup: registration inspection accepted as initial baseline
+    operation: commit
+    expected: accepted
+  - id: A2A-BASE-002
+    setup: baseline inspection is failed attempt
+    operation: commit
+    expected: trigger rejects
+  - id: A2A-BASE-003
+    setup: baseline inspection belongs to sibling repository
+    operation: commit
+    expected: composite FK rejects
+  - id: A2A-BASE-004
+    setup: baseline update with repository not evidence-changed
+    operation: update
+    expected: trigger rejects
+  - id: A2A-BASE-005
+    setup: baseline update without version increment
+    operation: update
+    expected: trigger rejects
+  - id: A2A-BASE-006
+    setup: baseline update and active transition coherent
+    operation: update
+    expected: accepted
+  - id: A2A-BASE-007
+    setup: baseline update mutates core identity
+    operation: update
+    expected: trigger rejects
+  - id: A2A-BASE-008
+    setup: direct delete baseline relation
+    operation: delete
+    expected: rejected
+- id: A2A-BINDING
+  title: Project repository binding
+  slice: CT-04A2a
+  governing_invariant: same-workspace coherent binding and one active repository per project
+  protected_default: true
+  cases:
+  - id: A2A-BIND-001
+    setup: active repository and project same workspace
+    operation: insert
+    expected: accepted
+  - id: A2A-BIND-002
+    setup: repository and project different workspaces
+    operation: insert
+    expected: composite FK rejects
+  - id: A2A-BIND-003
+    setup: same workspace but nonexistent/wrong project ID
+    operation: insert
+    expected: rejected
+  - id: A2A-BIND-004
+    setup: repository non-active
+    operation: insert
+    expected: trigger rejects
+  - id: A2A-BIND-005
+    setup: second active repository for project
+    operation: insert
+    expected: unique conflict
+  - id: A2A-BIND-006
+    setup: same repository bound to second project
+    operation: insert
+    expected: accepted
+  - id: A2A-BIND-007
+    setup: retire one binding with version+1
+    operation: update
+    expected: accepted
+  - id: A2A-BIND-008
+    setup: retire one binding leaves sibling binding active
+    operation: update
+    expected: accepted
+  - id: A2A-BIND-009
+    setup: partial retired actor/time
+    operation: insert/update
+    expected: check rejects
+  - id: A2A-BIND-010
+    setup: unretire or retarget binding
+    operation: update
+    expected: trigger rejects
+  - id: A2A-BIND-011
+    setup: delete binding row
+    operation: delete
+    expected: trigger rejects
+  - id: A2A-BIND-012
+    setup: revoked member actor
+    operation: direct SQL/service boundary
+    expected: database behavior documented; A2b service denies active membership
+- id: A2A-RETIRE
+  title: Repository retirement storage semantics
+  slice: CT-04A2a
+  governing_invariant: retirement terminal and releases active reservation only after durable transition
+  protected_default: true
+  cases:
+  - id: A2A-RET-001
+    setup: active repository with two bindings
+    operation: retire transaction fixture
+    expected: repository and both bindings retire atomically
+  - id: A2A-RET-002
+    setup: retirement transaction rolls back
+    operation: forced rollback
+    expected: repository/bindings unchanged
+  - id: A2A-RET-003
+    setup: second retirement
+    operation: transition
+    expected: idempotent/no state rewrite
+  - id: A2A-RET-004
+    setup: retired repository used for new binding
+    operation: insert
+    expected: rejected
+  - id: A2A-RET-005
+    setup: retired repository inspection relation mutated
+    operation: update
+    expected: historical evidence remains immutable
+  - id: A2A-RET-006
+    setup: new row reuses retired path/common/fingerprint
+    operation: insert
+    expected: permitted with new ID
+  - id: A2A-RET-007
+    setup: direct SQL unretire
+    operation: update
+    expected: rejected
+  - id: A2A-RET-008
+    setup: direct SQL delete retired row
+    operation: delete
+    expected: rejected
+- id: A2A-MIGRATION
+  title: Schema 3 migration preservation
+  slice: CT-04A2a
+  governing_invariant: fresh and forward migration preserve accepted history
+  protected_default: true
+  cases:
+  - id: A2A-MIG-001
+    setup: fresh empty database
+    operation: migrate to schema 3
+    expected: all tables/indexes/triggers/catalog entries present
+  - id: A2A-MIG-002
+    setup: accepted schema 2 with users/workspaces/plans/audit/events
+    operation: apply only schema 3
+    expected: all rows and sequences unchanged
+  - id: A2A-MIG-003
+    setup: schema 2 append-only triggers/catalogs
+    operation: migrate
+    expected: remain active
+  - id: A2A-MIG-004
+    setup: migration checksum changes
+    operation: startup
+    expected: fails closed
+  - id: A2A-MIG-005
+    setup: migration interrupted
+    operation: transaction rollback
+    expected: schema remains 2
+  - id: A2A-MIG-006
+    setup: foreign keys after migration
+    operation: foreign_key_check
+    expected: clean
+  - id: A2A-MIG-007
+    setup: existing snapshot/SSE reconstruction
+    operation: regression
+    expected: unchanged
+  - id: A2A-MIG-008
+    setup: old migrations modified
+    operation: checksum test
+    expected: rejected
+- id: A2A-CONTRACT
+  title: Strict repository contracts
+  slice: CT-04A2a
+  governing_invariant: public records cannot carry process authority or false readiness
+  protected_default: true
+  cases:
+  - id: A2A-CON-001
+    setup: valid register request path/displayName
+    operation: parse
+    expected: accepted
+  - id: A2A-CON-002
+    setup: unknown command/argv/env/cwd/worktree/branch/remote fields
+    operation: parse
+    expected: rejected
+  - id: A2A-CON-003
+    setup: display name omitted with unsafe basename result
+    operation: service contract
+    expected: A2b must reject rather than store invalid name
+  - id: A2A-CON-004
+    setup: repository response contains status/evidence recency/risk summary
+    operation: parse
+    expected: accepted
+  - id: A2A-CON-005
+    setup: response claims executable/ready/reviewed/mergeable
+    operation: strict parse
+    expected: rejected
+  - id: A2A-CON-006
+    setup: inspection response carries raw stderr/environment/config values
+    operation: strict parse
+    expected: rejected
+  - id: A2A-CON-007
+    setup: reaffirm request missing expected version/inspection
+    operation: parse
+    expected: rejected
+  - id: A2A-CON-008
+    setup: retire/unbind request malformed or unknown fields
+    operation: parse
+    expected: rejected
+- id: A2B-CONFIG
+  title: Optional repository feature configuration
+  slice: CT-04A2b
+  governing_invariant: planning daemon remains available without implicit Git authority
+  protected_default: true
+  cases:
+  - id: A2B-CFG-001
+    setup: all repository feature env absent
+    operation: startup
+    expected: daemon starts; feature disabled
+  - id: A2B-CFG-002
+    setup: feature disabled then register
+    operation: request
+    expected: actionable feature-unavailable; no inspector call
+  - id: A2B-CFG-003
+    setup: explicit valid roots and executable/search path
+    operation: startup/first use
+    expected: lazy inspector succeeds
+  - id: A2B-CFG-004
+    setup: provided malformed/relative/overlapping root
+    operation: startup
+    expected: fails rather than silently disables
+  - id: A2B-CFG-005
+    setup: no ambient PATH fallback
+    operation: first use
+    expected: git-not-found/feature unavailable unless explicit search path configured
+  - id: A2B-CFG-006
+    setup: stored repositories while feature disabled
+    operation: list/detail/retire/unbind
+    expected: read/administrative operations remain available
+  - id: A2B-CFG-007
+    setup: inspector creation fails once
+    operation: subsequent operation
+    expected: bounded memoization/retry policy explicitly followed
+  - id: A2B-CFG-008
+    setup: configuration logs
+    operation: inspect
+    expected: no secrets/root inventory leaked beyond approved operations docs
+- id: A2B-AUTH
+  title: Authorization before host inspection
+  slice: CT-04A2b
+  governing_invariant: active membership and role control host access
+  protected_default: true
+  cases:
+  - id: A2B-AUTH-001
+    setup: Owner active member
+    operation: register
+    expected: inspector called
+  - id: A2B-AUTH-002
+    setup: Editor active member
+    operation: register
+    expected: 403 and zero inspector calls
+  - id: A2B-AUTH-003
+    setup: Viewer active member
+    operation: register/inspect/bind
+    expected: 403 and zero inspector calls where host access
+  - id: A2B-AUTH-004
+    setup: revoked Owner
+    operation: register
+    expected: missing/forbidden per established policy, zero inspector calls
+  - id: A2B-AUTH-005
+    setup: nonmember
+    operation: foreign repository read
+    expected: indistinguishable 404
+  - id: A2B-AUTH-006
+    setup: Owner
+    operation: reaffirm/retire
+    expected: allowed
+  - id: A2B-AUTH-007
+    setup: Editor
+    operation: reaffirm/retire
+    expected: denied
+  - id: A2B-AUTH-008
+    setup: Editor
+    operation: inspect/bind/unbind
+    expected: allowed
+  - id: A2B-AUTH-009
+    setup: Viewer
+    operation: list/detail
+    expected: allowed
+  - id: A2B-AUTH-010
+    setup: denied known-member mutation
+    operation: audit
+    expected: bounded denied audit, no workspace event/notifier
+- id: A2B-REGISTER
+  title: Double-inspection registration and idempotency
+  slice: CT-04A2b
+  governing_invariant: authorized, quiescent, atomic registration
+  protected_default: true
+  cases:
+  - id: A2B-REG-001
+    setup: Owner valid repository, two identical inspections
+    operation: register
+    expected: one repo, inspection, baseline, audit, event
+  - id: A2B-REG-002
+    setup: first/second core differ
+    operation: register
+    expected: observation-raced/conflict; no row/event/notifier
+  - id: A2B-REG-003
+    setup: first/second environment differ
+    operation: register
+    expected: rejected as non-quiescent
+  - id: A2B-REG-004
+    setup: first/second risk differ
+    operation: register
+    expected: rejected as non-quiescent
+  - id: A2B-REG-005
+    setup: same workspace active duplicate same identity
+    operation: register
+    expected: idempotent existing result, no duplicate event
+  - id: A2B-REG-006
+    setup: same workspace row non-active
+    operation: register
+    expected: conflict; use inspect/reaffirm/retire path
+  - id: A2B-REG-007
+    setup: foreign workspace owns active identity
+    operation: register
+    expected: nondisclosing 409; no foreign audit/event
+  - id: A2B-REG-008
+    setup: foreign retired row
+    operation: register
+    expected: permitted if active uniqueness released
+  - id: A2B-REG-009
+    setup: two concurrent same-path registrations
+    operation: register
+    expected: one succeeds; other idempotent/conflict; no duplicate history
+  - id: A2B-REG-010
+    setup: failure after inspection before transaction
+    operation: crash
+    expected: no state/event
+  - id: A2B-REG-011
+    setup: transaction rollback
+    operation: register
+    expected: no notifier
+  - id: A2B-REG-012
+    setup: commit before notifier crash
+    operation: replay
+    expected: durable event delivered by SSE fallback
+  - id: A2B-REG-013
+    setup: displayName omitted, safe basename
+    operation: register
+    expected: validated basename used
+  - id: A2B-REG-014
+    setup: displayName omitted, control/newline basename
+    operation: register
+    expected: actionable rejection
+- id: A2B-INSPECT
+  title: Reinspection and evidence mapping
+  slice: CT-04A2b
+  governing_invariant: exact A1 result maps to honest evidence/state
+  protected_default: true
+  cases:
+  - id: A2B-INSP-001
+    setup: same evidence
+    operation: inspect
+    expected: append success/audit, no event/version change
+  - id: A2B-INSP-002
+    setup: risk-only difference
+    operation: inspect
+    expected: append evidence and evidence-changed event, status/version unchanged
+  - id: A2B-INSP-003
+    setup: device-only difference
+    operation: inspect
+    expected: identity-evidence-changed + status event
+  - id: A2B-INSP-004
+    setup: core difference
+    operation: inspect
+    expected: identity-mismatch terminal
+  - id: A2B-INSP-005
+    setup: path unavailable
+    operation: inspect
+    expected: unavailable
+  - id: A2B-INSP-006
+    setup: observation-raced
+    operation: inspect
+    expected: failed attempt/audit, no status change
+  - id: A2B-INSP-007
+    setup: Git timeout/overflow/spawn failure
+    operation: inspect
+    expected: failed attempt/audit, no status change
+  - id: A2B-INSP-008
+    setup: ownership refused or repository-class changed
+    operation: inspect
+    expected: identity-mismatch
+  - id: A2B-INSP-009
+    setup: stored observation checksum fails
+    operation: inspect/read
+    expected: evidence-blocked; A1 compare never called
+  - id: A2B-INSP-010
+    setup: stored observation A1 parse fails
+    operation: inspect/read
+    expected: evidence-blocked
+  - id: A2B-INSP-011
+    setup: inspection policy mismatch
+    operation: inspect
+    expected: evidence-blocked
+  - id: A2B-INSP-012
+    setup: unavailable then exact evidence returns
+    operation: inspect
+    expected: active
+  - id: A2B-INSP-013
+    setup: unavailable then device difference
+    operation: inspect
+    expected: identity-evidence-changed
+  - id: A2B-INSP-014
+    setup: unavailable then core difference
+    operation: inspect
+    expected: identity-mismatch
+  - id: A2B-INSP-015
+    setup: terminal status
+    operation: inspect
+    expected: rejected without A1 call
+  - id: A2B-INSP-016
+    setup: two concurrent inspections
+    operation: inspect
+    expected: serialized/re-read state; no duplicate transition event
+- id: A2B-REAFFIRM
+  title: Environmental evidence reaffirmation
+  slice: CT-04A2b
+  governing_invariant: Owner explicitly accepts current environment without rebinding identity
+  protected_default: true
+  cases:
+  - id: A2B-REAFF-001
+    setup: identity-evidence-changed, matching expected version/inspection, fresh core match
+    operation: reaffirm
+    expected: baseline advances and status active
+  - id: A2B-REAFF-002
+    setup: Editor or Viewer
+    operation: reaffirm
+    expected: denied before A1
+  - id: A2B-REAFF-003
+    setup: stale expected repository version
+    operation: reaffirm
+    expected: conflict, no A1 or no commit per accepted sequence
+  - id: A2B-REAFF-004
+    setup: stale expected inspection ID
+    operation: reaffirm
+    expected: conflict
+  - id: A2B-REAFF-005
+    setup: fresh core differs
+    operation: reaffirm
+    expected: identity-mismatch, no reaffirm
+  - id: A2B-REAFF-006
+    setup: fresh evidence matches old baseline again
+    operation: inspect/reaffirm
+    expected: ordinary inspect may restore active; reaffirm not needed
+  - id: A2B-REAFF-007
+    setup: transaction rollback
+    operation: reaffirm
+    expected: old baseline/status remain, no notifier
+  - id: A2B-REAFF-008
+    setup: successful reaffirm
+    operation: journal
+    expected: one status event, audit, version+1, IDs/bindings preserved
+- id: A2B-BIND
+  title: Project binding and explicit unbind
+  slice: CT-04A2b
+  governing_invariant: fresh verification and isolated binding lifecycle
+  protected_default: true
+  cases:
+  - id: A2B-BIND-001
+    setup: active repository, project same workspace, fresh exact inspect
+    operation: bind
+    expected: one binding/audit/event
+  - id: A2B-BIND-002
+    setup: different workspace project/repository
+    operation: bind
+    expected: 404 and no host disclosure
+  - id: A2B-BIND-003
+    setup: repository non-active
+    operation: bind
+    expected: rejected before/after verification as appropriate
+  - id: A2B-BIND-004
+    setup: same repo/project active binding
+    operation: bind
+    expected: idempotent, no duplicate event
+  - id: A2B-BIND-005
+    setup: different active repo already bound to project
+    operation: bind
+    expected: conflict
+  - id: A2B-BIND-006
+    setup: same repository binds second project
+    operation: bind
+    expected: accepted
+  - id: A2B-BIND-007
+    setup: fresh verification reveals device change
+    operation: bind
+    expected: state transition commits; binding rejected
+  - id: A2B-BIND-008
+    setup: Owner/Editor unbind one project
+    operation: unbind
+    expected: one binding retired, repo/siblings unchanged
+  - id: A2B-BIND-009
+    setup: Viewer unbind
+    operation: unbind
+    expected: denied
+  - id: A2B-BIND-010
+    setup: repeat unbind
+    operation: unbind
+    expected: idempotent, no duplicate event
+  - id: A2B-BIND-011
+    setup: rollback
+    operation: bind/unbind
+    expected: state/audit/event all rollback, no notifier
+  - id: A2B-BIND-012
+    setup: direct event correlation
+    operation: insert wrong project/repo/binding graph
+    expected: database rejects
+- id: A2B-RETIRE
+  title: Repository retirement command
+  slice: CT-04A2b
+  governing_invariant: terminal closure with complete binding/journal effects
+  protected_default: true
+  cases:
+  - id: A2B-RET-001
+    setup: Owner active repo with two bindings
+    operation: retire
+    expected: repo + both bindings retire atomically
+  - id: A2B-RET-002
+    setup: Editor/Viewer
+    operation: retire
+    expected: denied
+  - id: A2B-RET-003
+    setup: feature disabled or path unavailable
+    operation: retire
+    expected: still succeeds from stored state
+  - id: A2B-RET-004
+    setup: second retire
+    operation: retire
+    expected: idempotent, no duplicate audit/event/notifier
+  - id: A2B-RET-005
+    setup: rollback during multi-binding retire
+    operation: retire
+    expected: nothing changes
+  - id: A2B-RET-006
+    setup: successful retire
+    operation: journal
+    expected: one status event plus one binding-retired event each; one notifier
+  - id: A2B-RET-007
+    setup: retired repo
+    operation: bind/inspect/reaffirm
+    expected: rejected
+  - id: A2B-RET-008
+    setup: new registration after retirement
+    operation: register
+    expected: new ID permitted
+- id: A2B-JOURNAL
+  title: Repository journal correlation and reconstruction
+  slice: CT-04A2b
+  governing_invariant: events structurally identify one workspace/repository/project graph
+  protected_default: true
+  cases:
+  - id: A2B-JRN-001
+    setup: schema 3 accepted database with events
+    operation: migrate schema 4
+    expected: row count and max sequence preserved
+  - id: A2B-JRN-002
+    setup: repository event foreign workspace repo
+    operation: direct SQL
+    expected: composite FK rejects
+  - id: A2B-JRN-003
+    setup: inspection event names inspection from sibling repo
+    operation: direct SQL
+    expected: composite FK rejects
+  - id: A2B-JRN-004
+    setup: binding event mixes project/repo/binding
+    operation: direct SQL
+    expected: composite FK rejects
+  - id: A2B-JRN-005
+    setup: registration transaction
+    operation: commit/notifier
+    expected: event committed before notifier
+  - id: A2B-JRN-006
+    setup: dropped notifier
+    operation: SSE replay
+    expected: durable event recovered
+  - id: A2B-JRN-007
+    setup: repository retired with two bindings
+    operation: event stream
+    expected: projects and repository invalidated
+  - id: A2B-JRN-008
+    setup: unchanged inspection
+    operation: event stream
+    expected: no event/no notifier
+  - id: A2B-JRN-009
+    setup: risk-only evidence change
+    operation: event stream
+    expected: one evidence-changed event
+  - id: A2B-JRN-010
+    setup: cross-workspace reader
+    operation: query/replay
+    expected: cannot access event
+  - id: A2B-JRN-011
+    setup: event payload unknown/malformed fields
+    operation: contract parse
+    expected: rejected
+  - id: A2B-JRN-012
+    setup: all prior CT-03 event kinds
+    operation: projection/activity
+    expected: unchanged behavior
+- id: A2B-PARENT
+  title: CT-04A composed fan-in
+  slice: CT-04A2b
+  governing_invariant: original parent contract and protected suite remain complete
+  protected_default: true
+  cases:
+  - id: A2B-PARENT-001
+    setup: valid local ActionQueue repository
+    operation: register
+    expected: parent REG-PATH-001 end-to-end passes
+  - id: A2B-PARENT-002
+    setup: Editor registration
+    operation: register
+    expected: denied before A1 call
+  - id: A2B-PARENT-003
+    setup: invalid/nonexistent path
+    operation: register
+    expected: no repo/success audit/event/notifier
+  - id: A2B-PARENT-004
+    setup: path replacement after registration
+    operation: inspect
+    expected: governed mismatch
+  - id: A2B-PARENT-005
+    setup: external-execution signals
+    operation: register/inspect
+    expected: durable evidence, no execution
+  - id: A2B-PARENT-006
+    setup: foreign workspace duplicate path
+    operation: register
+    expected: nondisclosing conflict
+  - id: A2B-PARENT-007
+    setup: retirement and unbind
+    operation: commands
+    expected: journal reconstructs every affected project
+  - id: A2B-PARENT-008
+    setup: full deterministic gate
+    operation: run
+    expected: all CT-01..A1 and protected cases pass

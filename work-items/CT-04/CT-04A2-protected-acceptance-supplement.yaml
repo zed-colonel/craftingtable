@@ -1,0 +1,1141 @@
+version: 1
+contract: CT-04A2-PROTECTED-SUPPLEMENT-1
+source_runtime_head: 7313e81a56c0188574c436322d7fedc16e08bb70
+authority: operator-owned-read-only
+rule: Implementation agents may read but must not modify, delete, weaken, or reclassify these outcomes without a separately
+  accepted contract amendment.
+cases:
+- id: A2A-STATUS-001
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: active, no version transition
+- id: A2A-STATUS-002
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: active with evidence-change disposition, no repository version transition
+- id: A2A-STATUS-003
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: identity-evidence-changed
+- id: A2A-STATUS-004
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: identity-mismatch
+- id: A2A-STATUS-005
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: unavailable
+- id: A2A-STATUS-006
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: no state change
+- id: A2A-STATUS-007
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: active
+- id: A2A-STATUS-008
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: identity-evidence-changed
+- id: A2A-STATUS-009
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: active
+- id: A2A-STATUS-010
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: terminal rejection
+- id: A2A-STATUS-011
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: terminal rejection
+- id: A2A-STATUS-012
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: retired
+- id: A2A-STATUS-013
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-STATUS-014
+  slice: CT-04A2a
+  category: A2A-STATUS
+  required: true
+  protected: true
+  expected: explicit error, never default transition
+- id: A2A-REP-001
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: accepted
+- id: A2A-REP-002
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: deferred FK/constraint rejects
+- id: A2A-REP-003
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: composite FK rejects
+- id: A2A-REP-004
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: composite FK rejects
+- id: A2A-REP-005
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: global active uniqueness rejects
+- id: A2A-REP-006
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: global active uniqueness rejects
+- id: A2A-REP-007
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: global active uniqueness rejects
+- id: A2A-REP-008
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: new registration permitted with new ID
+- id: A2A-REP-009
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-REP-010
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-REP-011
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-REP-012
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-REP-013
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: check rejects
+- id: A2A-REP-014
+  slice: CT-04A2a
+  category: A2A-REPOSITORY
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-INSP-001
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: all success fields required; failure fields null
+- id: A2A-INSP-002
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: bounded failure fields required; observation fields null
+- id: A2A-INSP-003
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: check rejects
+- id: A2A-INSP-004
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: check rejects
+- id: A2A-INSP-005
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: check rejects
+- id: A2A-INSP-006
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: composite FK rejects
+- id: A2A-INSP-007
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: database proves user existence/membership relation per accepted boundary; service active-role remains A2b
+- id: A2A-INSP-008
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-INSP-009
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-INSP-010
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-INSP-011
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-INSP-012
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: byte-identical
+- id: A2A-INSP-013
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: integrity failure
+- id: A2A-INSP-014
+  slice: CT-04A2a
+  category: A2A-INSPECTION
+  required: true
+  protected: true
+  expected: check rejects
+- id: A2A-BASE-001
+  slice: CT-04A2a
+  category: A2A-BASELINE
+  required: true
+  protected: true
+  expected: accepted
+- id: A2A-BASE-002
+  slice: CT-04A2a
+  category: A2A-BASELINE
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-BASE-003
+  slice: CT-04A2a
+  category: A2A-BASELINE
+  required: true
+  protected: true
+  expected: composite FK rejects
+- id: A2A-BASE-004
+  slice: CT-04A2a
+  category: A2A-BASELINE
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-BASE-005
+  slice: CT-04A2a
+  category: A2A-BASELINE
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-BASE-006
+  slice: CT-04A2a
+  category: A2A-BASELINE
+  required: true
+  protected: true
+  expected: accepted
+- id: A2A-BASE-007
+  slice: CT-04A2a
+  category: A2A-BASELINE
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-BASE-008
+  slice: CT-04A2a
+  category: A2A-BASELINE
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-BIND-001
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: accepted
+- id: A2A-BIND-002
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: composite FK rejects
+- id: A2A-BIND-003
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-BIND-004
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-BIND-005
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: unique conflict
+- id: A2A-BIND-006
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: accepted
+- id: A2A-BIND-007
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: accepted
+- id: A2A-BIND-008
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: accepted
+- id: A2A-BIND-009
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: check rejects
+- id: A2A-BIND-010
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-BIND-011
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: trigger rejects
+- id: A2A-BIND-012
+  slice: CT-04A2a
+  category: A2A-BINDING
+  required: true
+  protected: true
+  expected: database behavior documented; A2b service denies active membership
+- id: A2A-RET-001
+  slice: CT-04A2a
+  category: A2A-RETIRE
+  required: true
+  protected: true
+  expected: repository and both bindings retire atomically
+- id: A2A-RET-002
+  slice: CT-04A2a
+  category: A2A-RETIRE
+  required: true
+  protected: true
+  expected: repository/bindings unchanged
+- id: A2A-RET-003
+  slice: CT-04A2a
+  category: A2A-RETIRE
+  required: true
+  protected: true
+  expected: idempotent/no state rewrite
+- id: A2A-RET-004
+  slice: CT-04A2a
+  category: A2A-RETIRE
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-RET-005
+  slice: CT-04A2a
+  category: A2A-RETIRE
+  required: true
+  protected: true
+  expected: historical evidence remains immutable
+- id: A2A-RET-006
+  slice: CT-04A2a
+  category: A2A-RETIRE
+  required: true
+  protected: true
+  expected: permitted with new ID
+- id: A2A-RET-007
+  slice: CT-04A2a
+  category: A2A-RETIRE
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-RET-008
+  slice: CT-04A2a
+  category: A2A-RETIRE
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-MIG-001
+  slice: CT-04A2a
+  category: A2A-MIGRATION
+  required: true
+  protected: true
+  expected: all tables/indexes/triggers/catalog entries present
+- id: A2A-MIG-002
+  slice: CT-04A2a
+  category: A2A-MIGRATION
+  required: true
+  protected: true
+  expected: all rows and sequences unchanged
+- id: A2A-MIG-003
+  slice: CT-04A2a
+  category: A2A-MIGRATION
+  required: true
+  protected: true
+  expected: remain active
+- id: A2A-MIG-004
+  slice: CT-04A2a
+  category: A2A-MIGRATION
+  required: true
+  protected: true
+  expected: fails closed
+- id: A2A-MIG-005
+  slice: CT-04A2a
+  category: A2A-MIGRATION
+  required: true
+  protected: true
+  expected: schema remains 2
+- id: A2A-MIG-006
+  slice: CT-04A2a
+  category: A2A-MIGRATION
+  required: true
+  protected: true
+  expected: clean
+- id: A2A-MIG-007
+  slice: CT-04A2a
+  category: A2A-MIGRATION
+  required: true
+  protected: true
+  expected: unchanged
+- id: A2A-MIG-008
+  slice: CT-04A2a
+  category: A2A-MIGRATION
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-CON-001
+  slice: CT-04A2a
+  category: A2A-CONTRACT
+  required: true
+  protected: true
+  expected: accepted
+- id: A2A-CON-002
+  slice: CT-04A2a
+  category: A2A-CONTRACT
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-CON-003
+  slice: CT-04A2a
+  category: A2A-CONTRACT
+  required: true
+  protected: true
+  expected: A2b must reject rather than store invalid name
+- id: A2A-CON-004
+  slice: CT-04A2a
+  category: A2A-CONTRACT
+  required: true
+  protected: true
+  expected: accepted
+- id: A2A-CON-005
+  slice: CT-04A2a
+  category: A2A-CONTRACT
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-CON-006
+  slice: CT-04A2a
+  category: A2A-CONTRACT
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-CON-007
+  slice: CT-04A2a
+  category: A2A-CONTRACT
+  required: true
+  protected: true
+  expected: rejected
+- id: A2A-CON-008
+  slice: CT-04A2a
+  category: A2A-CONTRACT
+  required: true
+  protected: true
+  expected: rejected
+- id: A2B-CFG-001
+  slice: CT-04A2b
+  category: A2B-CONFIG
+  required: true
+  protected: true
+  expected: daemon starts; feature disabled
+- id: A2B-CFG-002
+  slice: CT-04A2b
+  category: A2B-CONFIG
+  required: true
+  protected: true
+  expected: actionable feature-unavailable; no inspector call
+- id: A2B-CFG-003
+  slice: CT-04A2b
+  category: A2B-CONFIG
+  required: true
+  protected: true
+  expected: lazy inspector succeeds
+- id: A2B-CFG-004
+  slice: CT-04A2b
+  category: A2B-CONFIG
+  required: true
+  protected: true
+  expected: fails rather than silently disables
+- id: A2B-CFG-005
+  slice: CT-04A2b
+  category: A2B-CONFIG
+  required: true
+  protected: true
+  expected: git-not-found/feature unavailable unless explicit search path configured
+- id: A2B-CFG-006
+  slice: CT-04A2b
+  category: A2B-CONFIG
+  required: true
+  protected: true
+  expected: read/administrative operations remain available
+- id: A2B-CFG-007
+  slice: CT-04A2b
+  category: A2B-CONFIG
+  required: true
+  protected: true
+  expected: bounded memoization/retry policy explicitly followed
+- id: A2B-CFG-008
+  slice: CT-04A2b
+  category: A2B-CONFIG
+  required: true
+  protected: true
+  expected: no secrets/root inventory leaked beyond approved operations docs
+- id: A2B-AUTH-001
+  slice: CT-04A2b
+  category: A2B-AUTH
+  required: true
+  protected: true
+  expected: inspector called
+- id: A2B-AUTH-002
+  slice: CT-04A2b
+  category: A2B-AUTH
+  required: true
+  protected: true
+  expected: 403 and zero inspector calls
+- id: A2B-AUTH-003
+  slice: CT-04A2b
+  category: A2B-AUTH
+  required: true
+  protected: true
+  expected: 403 and zero inspector calls where host access
+- id: A2B-AUTH-004
+  slice: CT-04A2b
+  category: A2B-AUTH
+  required: true
+  protected: true
+  expected: missing/forbidden per established policy, zero inspector calls
+- id: A2B-AUTH-005
+  slice: CT-04A2b
+  category: A2B-AUTH
+  required: true
+  protected: true
+  expected: indistinguishable 404
+- id: A2B-AUTH-006
+  slice: CT-04A2b
+  category: A2B-AUTH
+  required: true
+  protected: true
+  expected: allowed
+- id: A2B-AUTH-007
+  slice: CT-04A2b
+  category: A2B-AUTH
+  required: true
+  protected: true
+  expected: denied
+- id: A2B-AUTH-008
+  slice: CT-04A2b
+  category: A2B-AUTH
+  required: true
+  protected: true
+  expected: allowed
+- id: A2B-AUTH-009
+  slice: CT-04A2b
+  category: A2B-AUTH
+  required: true
+  protected: true
+  expected: allowed
+- id: A2B-AUTH-010
+  slice: CT-04A2b
+  category: A2B-AUTH
+  required: true
+  protected: true
+  expected: bounded denied audit, no workspace event/notifier
+- id: A2B-REG-001
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: one repo, inspection, baseline, audit, event
+- id: A2B-REG-002
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: observation-raced/conflict; no row/event/notifier
+- id: A2B-REG-003
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: rejected as non-quiescent
+- id: A2B-REG-004
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: rejected as non-quiescent
+- id: A2B-REG-005
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: idempotent existing result, no duplicate event
+- id: A2B-REG-006
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: conflict; use inspect/reaffirm/retire path
+- id: A2B-REG-007
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: nondisclosing 409; no foreign audit/event
+- id: A2B-REG-008
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: permitted if active uniqueness released
+- id: A2B-REG-009
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: one succeeds; other idempotent/conflict; no duplicate history
+- id: A2B-REG-010
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: no state/event
+- id: A2B-REG-011
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: no notifier
+- id: A2B-REG-012
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: durable event delivered by SSE fallback
+- id: A2B-REG-013
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: validated basename used
+- id: A2B-REG-014
+  slice: CT-04A2b
+  category: A2B-REGISTER
+  required: true
+  protected: true
+  expected: actionable rejection
+- id: A2B-INSP-001
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: append success/audit, no event/version change
+- id: A2B-INSP-002
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: append evidence and evidence-changed event, status/version unchanged
+- id: A2B-INSP-003
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: identity-evidence-changed + status event
+- id: A2B-INSP-004
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: identity-mismatch terminal
+- id: A2B-INSP-005
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: unavailable
+- id: A2B-INSP-006
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: failed attempt/audit, no status change
+- id: A2B-INSP-007
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: failed attempt/audit, no status change
+- id: A2B-INSP-008
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: identity-mismatch
+- id: A2B-INSP-009
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: evidence-blocked; A1 compare never called
+- id: A2B-INSP-010
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: evidence-blocked
+- id: A2B-INSP-011
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: evidence-blocked
+- id: A2B-INSP-012
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: active
+- id: A2B-INSP-013
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: identity-evidence-changed
+- id: A2B-INSP-014
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: identity-mismatch
+- id: A2B-INSP-015
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: rejected without A1 call
+- id: A2B-INSP-016
+  slice: CT-04A2b
+  category: A2B-INSPECT
+  required: true
+  protected: true
+  expected: serialized/re-read state; no duplicate transition event
+- id: A2B-REAFF-001
+  slice: CT-04A2b
+  category: A2B-REAFFIRM
+  required: true
+  protected: true
+  expected: baseline advances and status active
+- id: A2B-REAFF-002
+  slice: CT-04A2b
+  category: A2B-REAFFIRM
+  required: true
+  protected: true
+  expected: denied before A1
+- id: A2B-REAFF-003
+  slice: CT-04A2b
+  category: A2B-REAFFIRM
+  required: true
+  protected: true
+  expected: conflict, no A1 or no commit per accepted sequence
+- id: A2B-REAFF-004
+  slice: CT-04A2b
+  category: A2B-REAFFIRM
+  required: true
+  protected: true
+  expected: conflict
+- id: A2B-REAFF-005
+  slice: CT-04A2b
+  category: A2B-REAFFIRM
+  required: true
+  protected: true
+  expected: identity-mismatch, no reaffirm
+- id: A2B-REAFF-006
+  slice: CT-04A2b
+  category: A2B-REAFFIRM
+  required: true
+  protected: true
+  expected: ordinary inspect may restore active; reaffirm not needed
+- id: A2B-REAFF-007
+  slice: CT-04A2b
+  category: A2B-REAFFIRM
+  required: true
+  protected: true
+  expected: old baseline/status remain, no notifier
+- id: A2B-REAFF-008
+  slice: CT-04A2b
+  category: A2B-REAFFIRM
+  required: true
+  protected: true
+  expected: one status event, audit, version+1, IDs/bindings preserved
+- id: A2B-BIND-001
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: one binding/audit/event
+- id: A2B-BIND-002
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: 404 and no host disclosure
+- id: A2B-BIND-003
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: rejected before/after verification as appropriate
+- id: A2B-BIND-004
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: idempotent, no duplicate event
+- id: A2B-BIND-005
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: conflict
+- id: A2B-BIND-006
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: accepted
+- id: A2B-BIND-007
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: state transition commits; binding rejected
+- id: A2B-BIND-008
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: one binding retired, repo/siblings unchanged
+- id: A2B-BIND-009
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: denied
+- id: A2B-BIND-010
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: idempotent, no duplicate event
+- id: A2B-BIND-011
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: state/audit/event all rollback, no notifier
+- id: A2B-BIND-012
+  slice: CT-04A2b
+  category: A2B-BIND
+  required: true
+  protected: true
+  expected: database rejects
+- id: A2B-RET-001
+  slice: CT-04A2b
+  category: A2B-RETIRE
+  required: true
+  protected: true
+  expected: repo + both bindings retire atomically
+- id: A2B-RET-002
+  slice: CT-04A2b
+  category: A2B-RETIRE
+  required: true
+  protected: true
+  expected: denied
+- id: A2B-RET-003
+  slice: CT-04A2b
+  category: A2B-RETIRE
+  required: true
+  protected: true
+  expected: still succeeds from stored state
+- id: A2B-RET-004
+  slice: CT-04A2b
+  category: A2B-RETIRE
+  required: true
+  protected: true
+  expected: idempotent, no duplicate audit/event/notifier
+- id: A2B-RET-005
+  slice: CT-04A2b
+  category: A2B-RETIRE
+  required: true
+  protected: true
+  expected: nothing changes
+- id: A2B-RET-006
+  slice: CT-04A2b
+  category: A2B-RETIRE
+  required: true
+  protected: true
+  expected: one status event plus one binding-retired event each; one notifier
+- id: A2B-RET-007
+  slice: CT-04A2b
+  category: A2B-RETIRE
+  required: true
+  protected: true
+  expected: rejected
+- id: A2B-RET-008
+  slice: CT-04A2b
+  category: A2B-RETIRE
+  required: true
+  protected: true
+  expected: new ID permitted
+- id: A2B-JRN-001
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: row count and max sequence preserved
+- id: A2B-JRN-002
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: composite FK rejects
+- id: A2B-JRN-003
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: composite FK rejects
+- id: A2B-JRN-004
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: composite FK rejects
+- id: A2B-JRN-005
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: event committed before notifier
+- id: A2B-JRN-006
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: durable event recovered
+- id: A2B-JRN-007
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: projects and repository invalidated
+- id: A2B-JRN-008
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: no event/no notifier
+- id: A2B-JRN-009
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: one evidence-changed event
+- id: A2B-JRN-010
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: cannot access event
+- id: A2B-JRN-011
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: rejected
+- id: A2B-JRN-012
+  slice: CT-04A2b
+  category: A2B-JOURNAL
+  required: true
+  protected: true
+  expected: unchanged behavior
+- id: A2B-PARENT-001
+  slice: CT-04A2b
+  category: A2B-PARENT
+  required: true
+  protected: true
+  expected: parent REG-PATH-001 end-to-end passes
+- id: A2B-PARENT-002
+  slice: CT-04A2b
+  category: A2B-PARENT
+  required: true
+  protected: true
+  expected: denied before A1 call
+- id: A2B-PARENT-003
+  slice: CT-04A2b
+  category: A2B-PARENT
+  required: true
+  protected: true
+  expected: no repo/success audit/event/notifier
+- id: A2B-PARENT-004
+  slice: CT-04A2b
+  category: A2B-PARENT
+  required: true
+  protected: true
+  expected: governed mismatch
+- id: A2B-PARENT-005
+  slice: CT-04A2b
+  category: A2B-PARENT
+  required: true
+  protected: true
+  expected: durable evidence, no execution
+- id: A2B-PARENT-006
+  slice: CT-04A2b
+  category: A2B-PARENT
+  required: true
+  protected: true
+  expected: nondisclosing conflict
+- id: A2B-PARENT-007
+  slice: CT-04A2b
+  category: A2B-PARENT
+  required: true
+  protected: true
+  expected: journal reconstructs every affected project
+- id: A2B-PARENT-008
+  slice: CT-04A2b
+  category: A2B-PARENT
+  required: true
+  protected: true
+  expected: all CT-01..A1 and protected cases pass
+- id: A2-PROC-001
+  slice: CT-04A2a
+  category: process
+  required: true
+  protected: true
+  expected: A2a proposed plan receives independent design review before accepted plan
+- id: A2-PROC-002
+  slice: CT-04A2a
+  category: process
+  required: true
+  protected: true
+  expected: A2a accepted plan maps every disposition to plan section and proof case
+- id: A2-PROC-003
+  slice: CT-04A2a
+  category: process
+  required: true
+  protected: true
+  expected: A2a implementation report references real exact head after commit
+- id: A2-PROC-004
+  slice: CT-04A2a
+  category: process
+  required: true
+  protected: true
+  expected: A2 supplement SHA remains unchanged throughout implementation
+- id: A2-PROC-005
+  slice: CT-04A2b
+  category: process
+  required: true
+  protected: true
+  expected: A2b is replanned from accepted A2a source and honestly rechecks fan-out
+- id: A2-SCOPE-001
+  slice: CT-04A2a
+  category: scope
+  required: true
+  protected: true
+  expected: A2a production contains no Git, child process, server route, workspace event rebuild, notifier, or browser code
+- id: A2-SCOPE-002
+  slice: CT-04A2b
+  category: scope
+  required: true
+  protected: true
+  expected: A2b adds no new process authority and no CT-04B+ behavior

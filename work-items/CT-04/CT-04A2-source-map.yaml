@@ -1,0 +1,88 @@
+version: 1
+contract: CT-04A2
+source_runtime_head: 7313e81a56c0188574c436322d7fedc16e08bb70
+source_bundle_sha256: ee0090898b7cedb1ecd0438f607b1e8ed60f0ec28a99f58b688400f025a2aeea
+decomposition:
+  CT-04A2a:
+    owns:
+    - domain
+    - contracts
+    - schema-3
+    - storage
+    - pure-state-reducer
+    forbids:
+    - git-import
+    - child-process
+    - server
+    - routes
+    - journal-rebuild
+    - browser
+  CT-04A2b:
+    owns:
+    - feature-config
+    - A1-adapter
+    - authorization
+    - commands
+    - schema-4-journal
+    - audit-events
+    - notifier
+    - projection
+    forbids:
+    - new-process-authority
+    - raw-Git-output
+    - alternate-path-admission
+current_seams:
+- path: packages/git/src/index.ts
+  state: accepted A1 public observational API
+  target: A2b consumes package root only
+- path: packages/domain/src/ids.ts
+  state: no repository IDs
+  target: A2a adds repository/inspection/binding IDs
+- path: packages/domain/src/audit.ts
+  state: planning audit vocabulary
+  target: A2a adds repository audit actions
+- path: packages/domain/src/event-kinds.ts
+  state: four planning event kinds
+  target: A2b adds repository/binding event kinds
+- path: packages/domain/src/workspace-events.ts
+  state: no repository events
+  target: A2b adds typed events
+- path: packages/domain/src/work-contract.ts
+  state: repository/base unresolved immutable draft
+  target: preserve; no executable claim
+- path: packages/contracts/src/workspace-event.ts
+  state: strict four-kind union
+  target: A2b extends exhaustively
+- path: packages/storage/migrations/0002-ct03-planning.sql
+  state: schema 2 and structurally correlated planning journal
+  target: A2a schema 3, A2b schema 4 journal rebuild
+- path: packages/storage/src/repositories/workspace-events.ts
+  state: exhaustive four-kind mapper
+  target: A2b extends
+- path: apps/server/src/config.ts
+  state: no repository feature
+  target: A2b optional strict feature config
+- path: apps/server/src/composition.ts
+  state: no Git dependency
+  target: A2b lazy A1 composition
+- path: apps/server/src/services
+  state: auth/planning patterns
+  target: A2b repository service and transactions
+- path: apps/server/src/routes
+  state: no repository routes
+  target: A2b strict routes
+- path: apps/web/src/lib/workspace-projection.ts
+  state: exhaustive planning invalidation
+  target: A2b repository/binding invalidation
+- path: apps/web/src/components/ActivityPanel.tsx
+  state: exhaustive planning descriptions
+  target: A2b repository/binding descriptions
+preserve_unchanged:
+- packages/git accepted process authority
+- protected/CT-04-protected-acceptance-spec.yaml
+- CT-03 immutable work-contract drafts
+- loopback-only daemon
+- snapshot-first SSE reconstruction
+- no remote Git
+- no repository mutation
+- no CT-04B+ behavior

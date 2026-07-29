@@ -1,9 +1,11 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { builtinModules } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  A2A_ALLOWED_NODE_BUILTINS,
   findForbiddenImports,
   findManifestViolations,
   isForbidden,
@@ -14,9 +16,13 @@ import {
   isForbiddenInPlanning,
   isForbiddenInA2a,
   isA2aSource,
+  isA2aTestFixtureBuiltin,
+  isDevelopmentToolingModule,
   hasLiteralCurrentMigrationAssertion,
   isNonProductionPackage,
   isTestModule,
+  nodeBuiltinName,
+  resolvesIntoDevelopmentTooling,
 } from './check-forbidden-scope.mjs';
 
 function scopeFixture(relativeSourcePath, source) {
@@ -231,10 +237,20 @@ describe('CT-04A2a authority-free boundary', () => {
       '@craftingtable/git',
       'node:fs',
       'node:fs/promises',
+      'fs',
+      'fs/promises',
       'node:child_process',
+      'child_process',
       'node:net',
       'node:http',
       'node:https',
+      'node:dns',
+      'node:dgram',
+      'node:worker_threads',
+      'node:vm',
+      'node:v8',
+      'node:inspector',
+      'node:cluster',
       'fastify',
       '@fastify/cookie',
       '@craftingtable/server',
@@ -247,17 +263,47 @@ describe('CT-04A2a authority-free boundary', () => {
       expect(isForbiddenInA2a(specifier), specifier).toBe(true);
     }
     expect(isForbiddenInA2a('node:crypto')).toBe(false);
+    expect(isForbiddenInA2a('crypto')).toBe(false);
     expect(isForbiddenInA2a('@craftingtable/domain')).toBe(false);
     expect(isForbiddenInA2a('better-sqlite3')).toBe(false);
+    expect(isForbiddenInA2a('zod')).toBe(false);
+    expect(isForbiddenInA2a('./rows.js')).toBe(false);
+  });
+
+  it('admits only the allowlisted builtins, so an unnamed one cannot slip through', () => {
+    // The point of the allowlist: a builtin nobody thought to deny is still
+    // denied. `builtinModules` is the source of truth, and any `node:` prefixed
+    // specifier counts even if this release does not list it.
+    for (const builtin of builtinModules) {
+      const permitted = A2A_ALLOWED_NODE_BUILTINS.includes(builtin.split('/')[0]);
+      expect(isForbiddenInA2a(builtin), builtin).toBe(!permitted);
+      expect(isForbiddenInA2a(`node:${builtin}`), `node:${builtin}`).toBe(!permitted);
+    }
+    expect(nodeBuiltinName('node:not-yet-invented')).toBe('not-yet-invented');
+    expect(isForbiddenInA2a('node:not-yet-invented')).toBe(true);
+    expect(nodeBuiltinName('@craftingtable/domain')).toBeUndefined();
+    expect(nodeBuiltinName('./local.js')).toBeUndefined();
+  });
+
+  it('lets structural tests read fixtures but not open sockets', () => {
+    expect(isA2aTestFixtureBuiltin('node:fs')).toBe(true);
+    expect(isA2aTestFixtureBuiltin('fs/promises')).toBe(true);
+    expect(isA2aTestFixtureBuiltin('node:os')).toBe(true);
+    expect(isA2aTestFixtureBuiltin('node:path')).toBe(true);
+    expect(isA2aTestFixtureBuiltin('node:net')).toBe(false);
+    expect(isA2aTestFixtureBuiltin('node:child_process')).toBe(false);
   });
 
   it('fails the workspace check for filesystem or socket authority in production A2a source', () => {
     for (const specifier of [
       'node:fs',
       'node:fs/promises',
+      'fs',
       'node:net',
       'node:http',
       'node:https',
+      'node:dns',
+      'node:worker_threads',
     ]) {
       const root = scopeFixture(
         'storage/src/repository.ts',
@@ -282,6 +328,85 @@ describe('CT-04A2a authority-free boundary', () => {
         'expect(storage.migrationStatus.currentVersion).toBe(storage.migrationStatus.supportedVersion)',
       ),
     ).toBe(false);
+  });
+});
+
+describe('development tooling separation', () => {
+  it('classifies repository-root scripts as tooling and application source as shipped', () => {
+    expect(isDevelopmentToolingModule('scripts/check-forbidden-scope.mjs')).toBe(true);
+    expect(isDevelopmentToolingModule('scripts/nested/tool.mjs')).toBe(true);
+    expect(isDevelopmentToolingModule('packages/storage/src/scripts/helper.ts')).toBe(false);
+    expect(isDevelopmentToolingModule('apps/server/src/cli.ts')).toBe(false);
+  });
+
+  it('resolves specifiers rather than pattern-matching them', () => {
+    const root = '/repo';
+    expect(
+      resolvesIntoDevelopmentTooling(root, 'apps/server/src/cli.ts', '../../../scripts/tool.mjs'),
+    ).toBe(true);
+    // A package's own src/scripts directory is untouched by the rule.
+    expect(
+      resolvesIntoDevelopmentTooling(root, 'packages/storage/src/index.ts', './scripts/helper.js'),
+    ).toBe(false);
+    expect(resolvesIntoDevelopmentTooling(root, 'apps/server/src/cli.ts', 'node:fs')).toBe(false);
+    expect(
+      resolvesIntoDevelopmentTooling(root, 'apps/server/src/cli.ts', '@craftingtable/storage'),
+    ).toBe(false);
+  });
+
+  it('fails the workspace check when application source imports tooling', () => {
+    const root = scopeFixture(
+      'storage/src/index.ts',
+      "import { runCheck } from '../../../scripts/check-forbidden-scope.mjs';\nvoid runCheck;",
+    );
+    try {
+      mkdirSync(join(root, 'scripts'), { recursive: true });
+      writeFileSync(join(root, 'scripts', 'check-forbidden-scope.mjs'), 'export const a = 1;\n');
+      expect(runCheck(root)).toContain(
+        'packages/storage/src/index.ts: application source imports development tooling "../../../scripts/check-forbidden-scope.mjs"',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects unanchored process authority in tooling and permits the anchored one', () => {
+    const root = scopeFixture('storage/src/index.ts', 'export const a = 1;\n');
+    try {
+      mkdirSync(join(root, 'scripts'), { recursive: true });
+      writeFileSync(
+        join(root, 'scripts', 'rogue-tool.mjs'),
+        "import { execFileSync } from 'node:child_process';\nvoid execFileSync;",
+      );
+      expect(runCheck(root)).toContain(
+        'scripts/rogue-tool.mjs: development tooling imports unanchored capability module "node:child_process"',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+
+    const anchored = scopeFixture('storage/src/index.ts', 'export const a = 1;\n');
+    try {
+      mkdirSync(join(anchored, 'scripts'), { recursive: true });
+      writeFileSync(
+        join(anchored, 'scripts', 'check-ct04-protected-package.mjs'),
+        "import { execFileSync } from 'node:child_process';\nvoid execFileSync;",
+      );
+      expect(runCheck(anchored)).toEqual([]);
+    } finally {
+      rmSync(anchored, { recursive: true, force: true });
+    }
+  });
+
+  it('still scans tooling for Exo Stack dependencies and NUL bytes', () => {
+    const root = scopeFixture('storage/src/index.ts', 'export const a = 1;\n');
+    try {
+      mkdirSync(join(root, 'scripts'), { recursive: true });
+      writeFileSync(join(root, 'scripts', 'tool.mjs'), "import 'exoskeleton';\n");
+      expect(runCheck(root)).toContain('scripts/tool.mjs: imports forbidden module "exoskeleton"');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

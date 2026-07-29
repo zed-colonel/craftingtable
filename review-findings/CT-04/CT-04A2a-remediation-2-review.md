@@ -254,5 +254,34 @@ wrote it. The change is small, subtractive, and restores a previously reviewed s
 that is a departure from the process protocol's independent-review expectation and is
 recorded here rather than left implicit.
 
-`A2a-A-08`, `A2a-A-09`, and `A2a-A-10` remain open as advisories and are not merge
-blockers.
+`A2a-A-08`, `A2a-A-09`, and `A2a-A-10` remained open as advisories at merge and were not
+merge blockers.
+
+## Disposition of the advisories
+
+Closed in a follow-up cleanup commit after the merge, at the operator's direction.
+
+**`A2a-A-08` — tooling tier.** `runCheck` now walks `scripts/` as an explicit development
+tooling tier rather than skipping it. Tooling is scanned for Exo Stack dependencies and NUL
+bytes; `node:child_process` is permitted only at paths named in
+`DEVELOPMENT_PROCESS_AUTHORITY`, which today holds one entry with its reason recorded
+(`scripts/check-ct04-protected-package.mjs`, read-only git lineage for `A2-PROC-003`). The
+converse direction is enforced too: application source under `apps/` and `packages/` may not
+import anything that *resolves* into `scripts/`, so tooling cannot leak into the shipped
+daemon or browser. Resolution rather than pattern matching means a package's own
+`src/scripts/` directory is unaffected. The success message no longer claims a single Git
+authority repository-wide; it claims exactly one *production* Git authority and states that
+tooling is scanned and separated.
+
+**`A2a-A-09` — bare `fs`.** The A2a builtin denylist is replaced by an allowlist. Any
+specifier that resolves to a Node builtin must be in `A2A_ALLOWED_NODE_BUILTINS`, which
+holds `crypto` alone; structural tests additionally get `fs`, `os`, and `path` for fixtures,
+and notably not `net` or `http`. Builtin identity comes from `module.builtinModules`, with
+any `node:`-prefixed specifier treated as a builtin even if this release does not list it,
+so a future builtin cannot enter through the gap. A test iterates every entry of
+`builtinModules` in both bare and prefixed form and asserts the allowlist decides each one.
+
+**`A2a-A-10` — per-turn reports.** Recorded rather than retrofitted, as directed. The rule
+is now written into `work-items/CT-04/CT-04-process-protocol.md` §8: every implementation
+and remediation turn produces its own report, and a later turn never edits an earlier
+turn's report in place. The CT-04A2a round-2 miss is named there as the reason.

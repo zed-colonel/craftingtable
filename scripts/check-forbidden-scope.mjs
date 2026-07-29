@@ -10,7 +10,8 @@
  * the recognized module syntax and those tests in lockstep.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { builtinModules } from 'node:module';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const FORBIDDEN_PATTERNS = [/action-?queue/i, /world-?interface/i, /exoskeleton/i];
@@ -65,14 +66,21 @@ export const PLANNING_FORBIDDEN_PATTERNS = [
   /^@craftingtable\/(storage|server|web|agents|git|testing)$/,
 ];
 
-/** CT-04A2a remains an authority-free domain/contracts/storage slice. */
+/**
+ * CT-04A2a remains an authority-free domain/contracts/storage slice.
+ *
+ * Node builtins are governed by an allowlist rather than a denylist: a denylist
+ * silently admits every builtin nobody thought to name, so bare `fs`, `dns`,
+ * `dgram`, `vm`, and `worker_threads` would all pass. A2a production imports
+ * exactly one builtin, so the closed set is also the smaller one.
+ */
+export const A2A_ALLOWED_NODE_BUILTINS = ['crypto'];
+
+/** Structural tests may additionally read fixtures such as the migration SQL. */
+export const A2A_TEST_FIXTURE_NODE_BUILTINS = ['fs', 'os', 'path'];
+
 export const A2A_FORBIDDEN_PATTERNS = [
   /^@craftingtable\/git$/,
-  /^node:fs(\/.*)?$/,
-  /^node:child_process$/,
-  /^child_process$/,
-  /^node:net$/,
-  /^node:http(s)?$/,
   /^fastify$/,
   /^@fastify\/.*$/,
   /^@craftingtable\/server$/,
@@ -83,7 +91,20 @@ export const A2A_FORBIDDEN_PATTERNS = [
   /(?:^|\/)notifier(?:\/|\.|$)/,
 ];
 
-const A2A_TEST_IO_PATTERNS = [/^node:fs(\/.*)?$/, /^node:net$/, /^node:http(s)?$/];
+/**
+ * The builtin a specifier resolves to, or undefined for a package/relative
+ * specifier. `node:fs/promises` and bare `fs/promises` both yield `fs`. Any
+ * `node:` specifier counts even if this Node release does not list it, so a
+ * future builtin cannot enter through the gap.
+ */
+export function nodeBuiltinName(specifier) {
+  const prefixed = specifier.startsWith('node:');
+  const root = (prefixed ? specifier.slice('node:'.length) : specifier).split('/')[0];
+  if (root.length === 0) {
+    return undefined;
+  }
+  return prefixed || builtinModules.includes(root) ? root : undefined;
+}
 
 const DEPENDENCY_FIELDS = [
   'dependencies',
@@ -92,7 +113,27 @@ const DEPENDENCY_FIELDS = [
   'optionalDependencies',
 ];
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs'];
+/**
+ * The single production Git process authority. `apps` and `packages` ship in
+ * the daemon and browser; `scripts` is development and gate tooling that the
+ * shipped application must never import. Keeping the two tiers separate is what
+ * lets the production claim stay exactly one path.
+ */
 const GIT_PROCESS_AUTHORITY = 'packages/git/src/command-runner.ts';
+const APPLICATION_GROUPS = ['apps', 'packages'];
+const DEVELOPMENT_TOOLING_DIRECTORY = 'scripts';
+
+/**
+ * Development tooling permitted to spawn a process, each pinned to an exact
+ * path and a stated reason. This is gate tooling, not shipped behaviour, so it
+ * is deliberately listed separately from the production Git authority.
+ */
+const DEVELOPMENT_PROCESS_AUTHORITY = new Map([
+  [
+    'scripts/check-ct04-protected-package.mjs',
+    'read-only git lineage resolution for the CT-04A2a A2-PROC-003 control',
+  ],
+]);
 const EXISTING_TEST_CAPABILITY_MODULES = [
   'packages/planning/src/test-support.ts',
   'packages/storage/src/test-support.ts',
@@ -127,11 +168,16 @@ export function isForbiddenInPlanning(specifier) {
 }
 
 export function isForbiddenInA2a(specifier) {
+  const builtin = nodeBuiltinName(specifier);
+  if (builtin !== undefined) {
+    return !A2A_ALLOWED_NODE_BUILTINS.includes(builtin);
+  }
   return A2A_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier));
 }
 
-function isA2aTestIoCapability(specifier) {
-  return A2A_TEST_IO_PATTERNS.some((pattern) => pattern.test(specifier));
+export function isA2aTestFixtureBuiltin(specifier) {
+  const builtin = nodeBuiltinName(specifier);
+  return builtin !== undefined && A2A_TEST_FIXTURE_NODE_BUILTINS.includes(builtin);
 }
 
 export function isA2aSource(path) {
@@ -142,6 +188,28 @@ export function isA2aSource(path) {
     /packages\/storage\/src\/repository[^/]*\.ts$/.test(normalized) ||
     /packages\/storage\/src\/repositories\/repository-registry\/.*\.ts$/.test(normalized)
   );
+}
+
+/** True for repository-root development and gate tooling under `scripts/`. */
+export function isDevelopmentToolingModule(relativePath) {
+  const normalized = relativePath.split('\\').join('/');
+  return normalized === DEVELOPMENT_TOOLING_DIRECTORY
+    ? false
+    : normalized.startsWith(`${DEVELOPMENT_TOOLING_DIRECTORY}/`);
+}
+
+/**
+ * True when a relative specifier resolves into `scripts/`. Resolved rather than
+ * pattern-matched so a package's own `src/scripts/` directory is unaffected and
+ * no amount of `../` can smuggle tooling into the shipped application.
+ */
+export function resolvesIntoDevelopmentTooling(root, importingFile, specifier) {
+  if (!specifier.startsWith('.')) {
+    return false;
+  }
+  const target = resolve(dirname(resolve(root, importingFile)), specifier);
+  const toolingRoot = resolve(root, DEVELOPMENT_TOOLING_DIRECTORY);
+  return target === toolingRoot || target.startsWith(`${toolingRoot}/`);
 }
 
 export function hasLiteralCurrentMigrationAssertion(source) {
@@ -238,7 +306,47 @@ export function runCheck(root) {
       }
     });
   }
-  for (const group of ['apps', 'packages']) {
+  const toolingRoot = join(root, DEVELOPMENT_TOOLING_DIRECTORY);
+  if (existsSync(toolingRoot)) {
+    walk(toolingRoot, (path) => {
+      if (!SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension))) {
+        return;
+      }
+      const bytes = readFileSync(path);
+      const relativePath = relative(root, path).split('\\').join('/');
+      const nul = findNulByte(bytes);
+      if (nul !== -1) {
+        violations.push(
+          `${relativePath}: contains a NUL byte at offset ${nul}, which makes Git treat this source as binary`,
+        );
+      }
+      // A tooling test carries forbidden-looking specifiers as fixtures — that
+      // is precisely what this checker's own tests assert against — so only
+      // non-test tooling is import-scanned. Both tiers keep the NUL check.
+      if (isTestModule(path)) {
+        return;
+      }
+      const source = bytes.toString('utf8');
+      for (const specifier of findForbiddenImports(source)) {
+        violations.push(`${relativePath}: imports forbidden module "${specifier}"`);
+      }
+      for (const specifier of findImports(source)) {
+        if (!isForbiddenCapability(specifier)) {
+          continue;
+        }
+        const anchored =
+          nodeBuiltinName(specifier) === 'child_process' &&
+          DEVELOPMENT_PROCESS_AUTHORITY.has(relativePath);
+        if (!anchored) {
+          violations.push(
+            `${relativePath}: development tooling imports unanchored capability module "${specifier}"`,
+          );
+        }
+      }
+    });
+  }
+
+  for (const group of APPLICATION_GROUPS) {
     for (const entry of readdirSync(join(root, group), { withFileTypes: true })) {
       if (!entry.isDirectory()) {
         continue;
@@ -270,7 +378,7 @@ export function runCheck(root) {
           for (const specifier of findImports(source)) {
             if (
               isForbiddenInA2a(specifier) &&
-              !(isTestModule(path) && isA2aTestIoCapability(specifier))
+              !(isTestModule(path) && isA2aTestFixtureBuiltin(specifier))
             ) {
               violations.push(
                 `${relativePath}: CT-04A2a authority-free source imports "${specifier}"`,
@@ -282,6 +390,13 @@ export function runCheck(root) {
           violations.push(
             `${relativePath}: asserts a literal current migration version instead of the discovered supported version`,
           );
+        }
+        for (const specifier of findImports(source)) {
+          if (resolvesIntoDevelopmentTooling(root, relativePath, specifier)) {
+            violations.push(
+              `${relativePath}: application source imports development tooling "${specifier}"`,
+            );
+          }
         }
         if (isTestModule(path)) {
           return;
@@ -330,8 +445,9 @@ if (isMain) {
     process.exit(1);
   }
   console.log(
-    'Forbidden-scope check passed: no Exo Stack dependency, only the reviewed Git\n' +
-      'process authority, no non-production seam in composed source,\n' +
+    'Forbidden-scope check passed: no Exo Stack dependency, exactly one production\n' +
+      'Git process authority, development tooling scanned and separated from the\n' +
+      'shipped application, no non-production seam in composed source,\n' +
       'no NUL byte in tracked source, and\n' +
       'the planning package and CT-04A2a repository model stay pure.',
   );

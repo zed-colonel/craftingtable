@@ -23,8 +23,24 @@ All four advisory findings were also remediated deliberately:
 - production A2a source cannot import filesystem or socket authority;
 - repository transitions retain their write lock through read-back.
 
-No schema, migration, domain, public contract, route, server production, workspace-event,
-notifier, Git, process, or browser behavior changed.
+At the first remediation head, no schema, migration, domain, public contract, route,
+server production, workspace-event, notifier, Git, process, or browser behavior changed.
+
+### Follow-up correction after remediation review
+
+The independent remediation review found that ten title anchors named scenarios their
+tests did not attempt. That finding was correct. The follow-up adds the missing direct-SQL
+assertions and removes every surplus title claim.
+
+It also supersedes this report's original statement that all 104 cases are test-title
+anchors. There are now 101 behavioral title anchors and three documentary process
+controls. `A2-PROC-001..003` are proved by artifact hashes and Git history, not by file
+existence or by treating a document as a behavior test.
+
+A schema change was attempted for `A2A-REP-013` and then reverted. See §2 below and
+`review-findings/CT-04/CT-04A2a-remediation-2-review.md` finding `A2a-R-03`. Migration
+0003 is byte-identical to its first-remediation form and no migration changed in this
+follow-up.
 
 ## 2. Finding closure
 
@@ -40,24 +56,57 @@ ID sets.
 
 **Repair.**
 
-1. Existing behavioral tests now carry the applicable protected/review IDs. Existing
+1. Behavioral tests carry only the protected/review IDs they actually exercise. Existing
    compact `001..014` and `003/006` notation remains supported.
 2. `check:protected` reads the 91 CT-04A2a cases directly from the operator-owned
    supplement.
 3. It reads accepted-plan §15.2 and requires its exact 13 review-added IDs.
 4. It scans only the twelve nominated proof files' `describe`/`it`/`test` titles,
-   expands compact ranges and slash lists, and fails for any missing ID.
+   expands compact ranges and slash lists, and fails for any missing behavioral ID.
 5. It rejects an A2b ID claimed in an A2a test title.
 6. Its own negative test removes `A2A-REP-016` from a scratch proof package and proves
    the gate fails.
+7. It separately validates `A2-PROC-001..003` through the artifact/Git lineage described
+   below.
 
-The resulting required set is exactly 104 title anchors: 91 protected plus 13
-review-added. The initial completion report §9 now gives an explicit row for every case
-instead of implying per-case proof from family ranges.
+The resulting required set is exactly 101 title anchors plus three documentary lineage
+controls. The initial completion report §9 gives an explicit row for every case instead
+of implying per-case proof from family ranges.
 
 **Scope.** The R-01 repair itself is confined to test titles, the protected checker and
 its tests, and the report correction. It does not touch the schema, migration, domain,
 public contracts, or storage production implementation.
+
+### A2a-R-02 — truthful per-case proof
+
+The schema tests now directly attempt and assert every relationship/lifecycle scenario
+identified by the remediation reviewer:
+
+- cross-workspace inspection parent and valid-user/non-member inspection actor;
+- cross-workspace and missing binding project;
+- partial binding retirement, retarget, unretire, and delete;
+- revoked historical binding attribution plus membership delete restriction;
+- post-retirement inspection mutation;
+- repository status NULL/coupling failures and stale attribution-pair reuse.
+
+The broad schema titles retain only the IDs their bodies actually exercise. The retired
+history test first retires the repository before attempting inspection mutation,
+unretire, and repository delete.
+
+For `A2A-REP-013`, a trigger clause requiring the attribution pair to change was added to
+migration 0003 and then **reverted** during review as `A2a-R-03`. It made every
+same-actor, same-millisecond transition fail with a raw `SqliteError` out of
+`applyTransition`, `reaffirmEnvironment`, and `retireWithBindings`, and it silently
+narrowed accepted plan §11.1 and `A2A-REP-016` to different-actor transitions only. A
+trigger sees only `OLD` and `NEW` values, so an `UPDATE` that omits the attribution
+columns is indistinguishable from a genuine same-millisecond action by the same actor;
+the check cannot be made precise at that layer.
+
+`A2A-REP-013` is therefore discharged by what SQL does prove — `NOT NULL` on both
+attribution columns and the status/reason coupling `CHECK` — with the direct-SQL
+stale-pair case recorded as an accepted limitation in
+`packages/storage/src/repository-schema.test.ts`. No storage API path can produce it:
+all three mutators always write both attribution columns from their arguments.
 
 ### A2a-A-01 — fabricated retired status for a missing repository
 
@@ -121,11 +170,41 @@ outer immediate transaction, that competing update can commit before the read-ba
 transactions. This closes the residual return-value race without altering transition
 vocabulary or SQL invariants.
 
+### A2a-A-05 — broader host-module denylist
+
+No current A2a source imports bare `fs`, DNS/datagram, worker-thread, or VM modules. The
+follow-up does not extend the pattern denylist case by case: the reviewer correctly notes
+that doing so still would not create a structural authority boundary. A2b must decide the
+complete production-module policy when it composes the repository feature. The current
+filesystem/socket cases accepted in the first remediation remain enforced.
+
+### A2a-A-06 — valid competing transition
+
+The read-back race probe now attempts the valid
+`unavailable → active/evidence-matches` transition with a later attribution timestamp.
+`SQLITE_BUSY` therefore proves lock holding without relying on an independently invalid
+status reason.
+
+### A2a-A-07 — documentary process controls
+
+`A2-PROC-001..003` are no longer categorized as behavior title anchors.
+
+- `A2-PROC-001` recomputes the proposed plan, design review, and disposition SHA-256
+  values and requires the review → disposition → accepted-plan hash dependency chain.
+- `A2-PROC-002` derives all 18 `A2a-F-*` findings from the design review and requires
+  every one in accepted-plan §20's reconciliation appendix.
+- `A2-PROC-003` resolves the report-named implementation commit with Git, requires it to
+  be an ancestor of `HEAD`, locates the report's introduction commit, and requires the
+  named implementation head to be that commit's parent.
+
+The Git call is developer verification tooling using fixed argument arrays. It adds no
+Git or process authority to domain, contracts, storage, server, or browser code.
+
 ## 3. Permanent proof
 
 The complete per-case mapping is in
-`implementation-reports/CT-04/CT-04A2a-initial-impl.md` §9. Its 104 explicit rows are
-mechanically checked by:
+`implementation-reports/CT-04/CT-04A2a-initial-impl.md` §9. Its 101 behavioral title
+anchors and three documentary controls are mechanically checked by:
 
 ```text
 node scripts/check-ct04-protected-package.mjs
@@ -140,6 +219,8 @@ Finding-specific regression proof:
 | `A2a-A-02` | `packages/storage/src/repository-repositories.test.ts` — bind racing retirement |
 | `A2a-A-03` | `scripts/check-forbidden-scope.{mjs,test.mjs}` — production filesystem/socket fixtures |
 | `A2a-A-04` | `packages/storage/src/repository-transitions.test.ts` — second-connection read-back race |
+| `A2a-R-02` | schema/transition direct-SQL relationship, attribution, binding-lifecycle, and retired-history tests |
+| `A2a-A-07` | content-hash dependency chain, 18-finding reconciliation, and Git commit ancestry checks |
 
 ## 4. Verification actually run
 
@@ -220,9 +301,15 @@ migration 0003
 the protected package, protected supplement, and migrations 0001–0003. The
 operator-owned supplement was not edited, renumbered, weakened, or reclassified.
 
+These values still hold. The follow-up briefly amended migration 0003 to
+`fa088c2a2dfbc102f03b9382f2720dd27ac6e0df17dc1eaef096bf6c2c72f9af` under the operator's
+`A2A-REP-013` decision; that amendment was reverted during review as `A2a-R-03`, so all
+three migrations, the protected package, and the supplement are unchanged from
+`e49a5aafeeeb73eacea25c70d0b1ef9d44cb5a0c`. No local database needs a reset.
+
 ## 6. Scope and remaining boundaries
 
-The remediation does not import or compose:
+Domain, contracts, storage production, server, and browser code do not import or compose:
 
 ```text
 @craftingtable/git
@@ -237,6 +324,7 @@ It adds no dependency and no CT-04A2b behavior. The exact-byte digest remains co
 detection, not hostile-database authenticity, and no stored status or binding conveys
 readiness, executability, approval, review, or merge authority.
 
-The review verdict is invalidated by the new implementation head. Independent final
-review must evaluate exact commit
-`ccb9c7951f6143819e3c5ab30bd4d57157e8d658`.
+The first remediation review evaluated
+`ccb9c7951f6143819e3c5ab30bd4d57157e8d658`. This follow-up invalidates that verdict.
+Independent final review must evaluate the eventual committed follow-up head; this report
+does not invent one before the operator requests a commit.

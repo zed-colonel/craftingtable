@@ -3,6 +3,7 @@ import {
   A1_REPOSITORY_INSPECTION_ERROR_CODES,
   A1_REPOSITORY_INSPECTION_ERROR_SUBJECTS,
   A1_REPOSITORY_INSPECTION_OPERATIONS,
+  asProjectRepositoryBindingId,
   asRepositoryId,
   STORED_CORE_EVIDENCE_DIFFERENCES,
   STORED_ENVIRONMENTAL_EVIDENCE_DIFFERENCES,
@@ -14,7 +15,7 @@ import {
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from './database.js';
-import { seedWorkspace, SEED_NOW } from './planning-test-support.js';
+import { seedPlan, seedWorkspace, SEED_NOW } from './planning-test-support.js';
 import { repositoryRegistrationInspection } from './repository-test-support.js';
 import { temporaryStorage, type TemporaryStorage } from './test-support.js';
 
@@ -47,6 +48,114 @@ function rawRegistered(suffix = 'schema') {
   const database = openDatabase(temporary.databasePath);
   databases.push(database);
   return { database, seed, repository: result.repository, inspection };
+}
+
+function rawRelationshipContext(suffix: string) {
+  const temporary = temporaryStorage();
+  temporaries.push(temporary);
+  const primary = seedWorkspace(temporary.storage, `${suffix}-primary`);
+  const primaryInspection = repositoryRegistrationInspection({
+    suffix: `${suffix}-primary`,
+    workspaceId: primary.workspaceId,
+    actorUserId: primary.userId,
+    createdAt: SEED_NOW,
+  });
+  const primaryRepository = temporary.storage.repositoryRegistry.repositories.register({
+    id: primaryInspection.repositoryId,
+    workspaceId: primary.workspaceId,
+    displayName: 'Primary repository',
+    actorUserId: primary.userId,
+    inspection: primaryInspection,
+  });
+  if (primaryRepository.kind !== 'created') throw new Error(primaryRepository.kind);
+  const primaryPlan = seedPlan(temporary.storage, primary, {
+    suffix: `${suffix}-primary`,
+    digest: 'a'.repeat(64),
+  });
+  const binding = temporary.storage.repositoryRegistry.bindings.insert({
+    id: asProjectRepositoryBindingId(`binding-${suffix}`),
+    workspaceId: primary.workspaceId,
+    projectId: primaryPlan.projectId,
+    repositoryId: primaryRepository.repository.id,
+    expectedRepositoryVersion: 1,
+    actorUserId: primary.userId,
+    boundAt: SEED_NOW,
+  });
+  if (binding.kind !== 'created') throw new Error(binding.kind);
+
+  const foreign = seedWorkspace(temporary.storage, `${suffix}-foreign`);
+  const foreignInspection = repositoryRegistrationInspection({
+    suffix: `${suffix}-foreign`,
+    workspaceId: foreign.workspaceId,
+    actorUserId: foreign.userId,
+    createdAt: SEED_NOW,
+  });
+  const foreignRepository = temporary.storage.repositoryRegistry.repositories.register({
+    id: foreignInspection.repositoryId,
+    workspaceId: foreign.workspaceId,
+    displayName: 'Foreign repository',
+    actorUserId: foreign.userId,
+    inspection: foreignInspection,
+  });
+  if (foreignRepository.kind !== 'created') throw new Error(foreignRepository.kind);
+  const foreignPlan = seedPlan(temporary.storage, foreign, {
+    suffix: `${suffix}-foreign`,
+    digest: 'b'.repeat(64),
+  });
+
+  temporary.storage.close();
+  const database = openDatabase(temporary.databasePath);
+  databases.push(database);
+  return {
+    database,
+    primary,
+    primaryInspection,
+    primaryRepository: primaryRepository.repository,
+    primaryPlan,
+    binding: binding.binding,
+    foreign,
+    foreignRepository: foreignRepository.repository,
+    foreignPlan,
+  };
+}
+
+function insertVerificationFromRegistration(
+  database: Database.Database,
+  input: {
+    readonly id: string;
+    readonly workspaceId: string;
+    readonly repositoryId: string;
+    readonly actorUserId: string;
+    readonly sourceInspectionId: string;
+  },
+) {
+  return database
+    .prepare(
+      `INSERT INTO repository_inspections (
+         id, workspace_id, repository_id, actor_user_id, kind, outcome, created_at,
+         observation_json, observation_sha256, observation_version,
+         inspection_policy_version, observed_at, canonical_top_level,
+         canonical_git_directory, canonical_common_git_directory, object_format,
+         top_level_inode, common_directory_inode, core_fingerprint_sha256,
+         top_level_device, common_directory_device, risk_scan_scope_version,
+         risk_scanned_key_pattern, risk_classification, risk_signals_json,
+         core_differences_json, environmental_differences_json, risk_differences_json)
+       SELECT ?, ?, ?, ?, 'verification', outcome, created_at, observation_json,
+         observation_sha256, observation_version, inspection_policy_version,
+         observed_at, canonical_top_level, canonical_git_directory,
+         canonical_common_git_directory, object_format, top_level_inode,
+         common_directory_inode, core_fingerprint_sha256, top_level_device,
+         common_directory_device, risk_scan_scope_version, risk_scanned_key_pattern,
+         risk_classification, risk_signals_json, '[]', '[]', '[]'
+       FROM repository_inspections WHERE id = ?`,
+    )
+    .run(
+      input.id,
+      input.workspaceId,
+      input.repositoryId,
+      input.actorUserId,
+      input.sourceInspectionId,
+    );
 }
 
 describe('schema 3 repository model', () => {
@@ -270,7 +379,7 @@ describe('schema 3 repository model', () => {
     database.exec('ROLLBACK');
   });
 
-  it('rejects update, delete, wrong version increments, and reverse transitions (A2A-REP-009..013 A2A-INSP-008/009 A2A-BASE-002/004/005/007/008 A2A-BIND-009/010/011 A2A-RET-005/007/008)', () => {
+  it('rejects immutable rewrites, delete, wrong version increments, and bare version bumps (A2A-REP-009..012 A2A-INSP-008/009)', () => {
     const { database, repository, inspection } = rawRegistered('immutable');
     expect(() =>
       database
@@ -282,6 +391,11 @@ describe('schema 3 repository model', () => {
     ).toThrow(/append-only/);
     expect(() =>
       database
+        .prepare(`UPDATE registered_repositories SET display_name = 'Rewritten' WHERE id = ?`)
+        .run(repository.id),
+    ).toThrow(/invalid repository transition/);
+    expect(() =>
+      database
         .prepare(
           `UPDATE registered_repositories SET status = 'unavailable',
              status_reason = 'path-unavailable', version = version + 2
@@ -290,8 +404,99 @@ describe('schema 3 repository model', () => {
         .run(repository.id),
     ).toThrow(/invalid repository transition/);
     expect(() =>
+      database
+        .prepare(`UPDATE registered_repositories SET version = version + 1 WHERE id = ?`)
+        .run(repository.id),
+    ).toThrow(/invalid repository transition/);
+    expect(() =>
       database.prepare(`DELETE FROM registered_repositories WHERE id = ?`).run(repository.id),
     ).toThrow(/cannot be deleted/);
+  });
+
+  it('rejects partial status attribution and records the direct-SQL stale-pair limitation (A2A-REP-013)', () => {
+    const { database, repository } = rawRegistered('status-attribution');
+    expect(() =>
+      database
+        .prepare(
+          `UPDATE registered_repositories
+           SET status = 'unavailable', status_reason = 'path-unavailable',
+               status_changed_by_user_id = NULL, version = version + 1
+           WHERE id = ?`,
+        )
+        .run(repository.id),
+    ).toThrow();
+    expect(() =>
+      database
+        .prepare(
+          `UPDATE registered_repositories
+           SET status = 'unavailable', status_reason = 'path-unavailable',
+               status_changed_at = NULL, version = version + 1
+           WHERE id = ?`,
+        )
+        .run(repository.id),
+    ).toThrow();
+    expect(() =>
+      database
+        .prepare(
+          `UPDATE registered_repositories
+           SET status = 'unavailable', version = version + 1 WHERE id = ?`,
+        )
+        .run(repository.id),
+    ).toThrow(/invalid repository transition/);
+
+    // Accepted limitation, deliberately admitted rather than rejected. A direct
+    // UPDATE that omits the attribution columns leaves them at their prior
+    // values, and the resulting row is indistinguishable from a genuine second
+    // action by the same actor inside the same millisecond. A trigger sees only
+    // OLD and NEW values, so it cannot separate the two; rejecting the pair
+    // would also reject legitimate same-millisecond transitions. No storage API
+    // path can produce a stale pair: applyTransition, reaffirmEnvironment, and
+    // retireWithBindings always write both attribution columns from their
+    // arguments. The durable per-action record is the append-only inspection
+    // journal and, from A2b, the audit event.
+    database
+      .prepare(
+        `UPDATE registered_repositories
+         SET status = 'unavailable', status_reason = 'path-unavailable',
+             version = version + 1 WHERE id = ?`,
+      )
+      .run(repository.id);
+    expect(
+      database
+        .prepare(
+          `SELECT status, status_changed_by_user_id, status_changed_at, version
+           FROM registered_repositories WHERE id = ?`,
+        )
+        .get(repository.id),
+    ).toEqual({
+      status: 'unavailable',
+      status_changed_by_user_id: repository.registeredByUserId,
+      status_changed_at: repository.registeredAt,
+      version: 2,
+    });
+
+    // Equal-millisecond transitions remain valid for the same actor, which is
+    // what accepted plan section 11.1 requires.
+    database
+      .prepare(
+        `UPDATE registered_repositories
+         SET status = 'active', status_reason = 'evidence-matches',
+             status_changed_by_user_id = ?, status_changed_at = ?,
+             version = version + 1
+         WHERE id = ?`,
+      )
+      .run(repository.registeredByUserId, repository.registeredAt, repository.id);
+    expect(
+      database
+        .prepare(
+          `SELECT status, status_changed_at, version FROM registered_repositories WHERE id = ?`,
+        )
+        .get(repository.id),
+    ).toEqual({
+      status: 'active',
+      status_changed_at: repository.registeredAt,
+      version: 3,
+    });
   });
 
   it('rejects unsorted, duplicate, and unknown evidence arrays (A2A-INSP-010/011/014 A2A-INSP-017)', () => {
@@ -329,7 +534,121 @@ describe('schema 3 repository model', () => {
     expect(repository.status).toBe('active');
   });
 
-  it('keeps all structural foreign keys clean (A2A-MIG-006 A2A-INSP-006/007 A2A-BIND-002/003/012)', () => {
+  it('rejects cross-workspace inspection parents and non-member actors (A2A-INSP-006/007)', () => {
+    const context = rawRelationshipContext('inspection-relationships');
+    expect(() =>
+      insertVerificationFromRegistration(context.database, {
+        id: 'inspection-foreign-parent',
+        workspaceId: context.primary.workspaceId,
+        repositoryId: context.foreignRepository.id,
+        actorUserId: context.primary.userId,
+        sourceInspectionId: context.primaryInspection.id,
+      }),
+    ).toThrow(/repository state|FOREIGN KEY/);
+    expect(() =>
+      insertVerificationFromRegistration(context.database, {
+        id: 'inspection-non-member',
+        workspaceId: context.primary.workspaceId,
+        repositoryId: context.primaryRepository.id,
+        actorUserId: context.foreign.userId,
+        sourceInspectionId: context.primaryInspection.id,
+      }),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it('rejects cross-workspace and missing binding projects (A2A-BIND-002/003)', () => {
+    const context = rawRelationshipContext('binding-parents');
+    const statement = context.database.prepare(
+      `INSERT INTO project_repository_bindings (
+         id, workspace_id, project_id, repository_id, status, bound_by_user_id,
+         bound_at, retired_by_user_id, retired_at, version)
+       VALUES (?, ?, ?, ?, 'active', ?, ?, NULL, NULL, 1)`,
+    );
+    expect(() =>
+      statement.run(
+        'binding-cross-workspace',
+        context.primary.workspaceId,
+        context.foreignPlan.projectId,
+        context.primaryRepository.id,
+        context.primary.userId,
+        SEED_NOW,
+      ),
+    ).toThrow(/FOREIGN KEY/);
+    expect(() =>
+      statement.run(
+        'binding-missing-project',
+        context.primary.workspaceId,
+        'project-never-created',
+        context.primaryRepository.id,
+        context.primary.userId,
+        SEED_NOW,
+      ),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it('rejects partial retirement, retarget, unretire, and delete (A2A-BIND-009/010/011)', () => {
+    const context = rawRelationshipContext('binding-lifecycle');
+    expect(() =>
+      context.database
+        .prepare(
+          `UPDATE project_repository_bindings
+           SET status = 'retired', retired_at = ?, version = version + 1 WHERE id = ?`,
+        )
+        .run(SEED_NOW, context.binding.id),
+    ).toThrow(/active-to-retired|CHECK constraint/);
+    expect(() =>
+      context.database
+        .prepare(
+          `UPDATE project_repository_bindings
+           SET repository_id = ?, version = version + 1 WHERE id = ?`,
+        )
+        .run(context.foreignRepository.id, context.binding.id),
+    ).toThrow(/active-to-retired|FOREIGN KEY/);
+    context.database
+      .prepare(
+        `UPDATE project_repository_bindings
+         SET status = 'retired', retired_by_user_id = ?, retired_at = ?,
+             version = version + 1 WHERE id = ?`,
+      )
+      .run(context.primary.userId, SEED_NOW, context.binding.id);
+    expect(() =>
+      context.database
+        .prepare(
+          `UPDATE project_repository_bindings
+           SET status = 'active', retired_by_user_id = NULL, retired_at = NULL,
+               version = version + 1 WHERE id = ?`,
+        )
+        .run(context.binding.id),
+    ).toThrow(/active-to-retired/);
+    expect(() =>
+      context.database
+        .prepare(`DELETE FROM project_repository_bindings WHERE id = ?`)
+        .run(context.binding.id),
+    ).toThrow(/cannot be deleted/);
+  });
+
+  it('retains structural attribution for a revoked binding actor (A2A-BIND-012)', () => {
+    const context = rawRelationshipContext('binding-attribution');
+    context.database
+      .prepare(
+        `UPDATE workspace_memberships
+         SET status = 'revoked', revoked_at = ?, version = version + 1
+         WHERE workspace_id = ? AND user_id = ?`,
+      )
+      .run(SEED_NOW, context.primary.workspaceId, context.primary.userId);
+    expect(() =>
+      context.database
+        .prepare(`DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?`)
+        .run(context.primary.workspaceId, context.primary.userId),
+    ).toThrow(/FOREIGN KEY/);
+    expect(
+      context.database
+        .prepare(`SELECT status FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?`)
+        .get(context.primary.workspaceId, context.primary.userId),
+    ).toEqual({ status: 'revoked' });
+  });
+
+  it('keeps all structural foreign keys clean (A2A-MIG-006)', () => {
     const { database } = rawRegistered('fk');
     expect(database.pragma('foreign_key_check')).toEqual([]);
     expect(database.pragma('integrity_check', { simple: true })).toBe('ok');

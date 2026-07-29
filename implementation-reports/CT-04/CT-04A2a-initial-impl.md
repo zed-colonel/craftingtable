@@ -37,7 +37,7 @@ was edited.
 
 ## 2. Authority and dependency boundary
 
-A2a production and test source does not import:
+A2a domain, contracts, and storage production/test source does not import:
 
 ```text
 @craftingtable/git
@@ -55,8 +55,13 @@ surface, and tests. It also rejects literal current-migration assertions in serv
 Domain owns copied durable vocabulary; it does not import A1. Domain-to-A1 package-root
 parity and all Git adaptation remain A2b.
 
-No Git subcommand, process execution, filesystem inspection, HTTP endpoint, browser
-projection, or notification path was introduced.
+The initial product implementation introduced no Git subcommand, process execution,
+filesystem inspection, HTTP endpoint, browser projection, or notification path.
+
+The later documentary process-lineage control invokes the local `git` executable from a
+developer check script with fixed argument arrays. That verification-only tooling is not
+imported by domain, contracts, storage, server, or browser code and adds no product
+authority.
 
 ## 3. Domain and reducer inventory
 
@@ -269,8 +274,10 @@ A2b.
 
 `check:protected` derives the 91 original A2a IDs from the untouched supplement, reads
 the 13 review-added IDs from accepted-plan §15.2, expands compact range/slash title
-notation, rejects A2b title claims, and fails if any of these 104 IDs lacks a title
-anchor. The per-case permanent mapping is:
+notation, and rejects A2b title claims. It requires 101 behavioral cases to have truthful
+test-title anchors. The three documentary cases `A2-PROC-001..003` instead require a
+cryptographic artifact chain and actual Git ancestry; file existence and a test title do
+not discharge them. The per-case permanent mapping is:
 
 | Case | Permanent proof |
 | --- | --- |
@@ -301,7 +308,7 @@ anchor. The per-case permanent mapping is:
 | `A2A-REP-010` | schema repository direct-delete test |
 | `A2A-REP-011` | schema wrong-version-increment test |
 | `A2A-REP-012` | schema bare-version/reverse-transition test |
-| `A2A-REP-013` | schema status/reason/version coupling test |
+| `A2A-REP-013` | schema status-attribution NULL and status/reason coupling rejections, with the direct-SQL stale-pair case recorded as an accepted limitation |
 | `A2A-REP-014` | strict contract unsafe-display-name test |
 | `A2A-REP-015` | typed local/foreign identity-collision and non-disclosure tests |
 | `A2A-REP-016` | same-time version progression and backwards-time rejection test |
@@ -310,8 +317,8 @@ anchor. The per-case permanent mapping is:
 | `A2A-INSP-003` | success/failure null-coupling storage test |
 | `A2A-INSP-004` | complete successful-observation storage test |
 | `A2A-INSP-005` | complete failed-observation taxonomy test |
-| `A2A-INSP-006` | schema structural composite-FK test |
-| `A2A-INSP-007` | schema actor/membership structural-FK test |
+| `A2A-INSP-006` | direct cross-workspace inspection-parent rejection test |
+| `A2A-INSP-007` | direct valid-user/non-member inspection-actor rejection test |
 | `A2A-INSP-008` | schema inspection direct-update rejection test |
 | `A2A-INSP-009` | schema inspection direct-delete rejection test |
 | `A2A-INSP-010` | schema sorted/unique evidence-array test |
@@ -333,23 +340,23 @@ anchor. The per-case permanent mapping is:
 | `A2A-BASE-008` | baseline/evidence direct-delete rejection test |
 | `A2A-BASE-009` | stray reaffirmation non-baseline projection test |
 | `A2A-BIND-001` | same-workspace project binding test |
-| `A2A-BIND-002` | schema binding composite-FK test |
-| `A2A-BIND-003` | schema missing/wrong-project composite-FK test |
+| `A2A-BIND-002` | direct cross-workspace project-binding rejection test |
+| `A2A-BIND-003` | direct missing-project binding rejection test |
 | `A2A-BIND-004` | retired-parent bind rejection test |
 | `A2A-BIND-005` | one-active-binding-per-project test |
 | `A2A-BIND-006` | sibling-project same-repository binding test |
 | `A2A-BIND-007` | exact binding retirement test |
 | `A2A-BIND-008` | sibling binding survival test |
-| `A2A-BIND-009` | schema retired-field null-coupling test |
-| `A2A-BIND-010` | schema unretire/retarget rejection test |
-| `A2A-BIND-011` | schema binding direct-delete rejection test |
-| `A2A-BIND-012` | structural historical-membership attribution test |
+| `A2A-BIND-009` | direct partial-retirement null-coupling rejection test |
+| `A2A-BIND-010` | direct retarget and unretire rejection test |
+| `A2A-BIND-011` | direct binding-delete rejection test |
+| `A2A-BIND-012` | revoked historical attribution plus referenced-membership delete restriction test |
 | `A2A-BIND-013` | active-binding/non-active-repository projection test |
 | `A2A-RET-001` | successful atomic repository/binding retirement test |
 | `A2A-RET-002` | forced outer retirement rollback with two bindings |
 | `A2A-RET-003` | idempotent second-retirement test |
 | `A2A-RET-004` | retired repository rejects a new binding |
-| `A2A-RET-005` | historical inspection immutability test |
+| `A2A-RET-005` | post-retirement inspection-update rejection test |
 | `A2A-RET-006` | post-retirement identity reuse test |
 | `A2A-RET-007` | direct unretire rejection test |
 | `A2A-RET-008` | retired repository direct-delete rejection test |
@@ -371,9 +378,9 @@ anchor. The per-case permanent mapping is:
 | `A2A-CON-008` | exact retire/unbind request-shape tests |
 | `A2A-CON-009` | reader versus Owner Git-directory disclosure test |
 | `A2A-CON-010` | all four latest ID/time fields required test |
-| `A2-PROC-001` | proposed-plan and independent design-review artifact check |
-| `A2-PROC-002` | disposition, accepted plan, and §15.2 ID-set check |
-| `A2-PROC-003` | real-head initial implementation-report artifact check |
+| `A2-PROC-001` | live proposed/review/disposition/accepted-plan SHA-256 dependency chain |
+| `A2-PROC-002` | accepted-plan reconciliation appendix contains all 18 design findings |
+| `A2-PROC-003` | report-named commit exists, is an ancestor of HEAD, and is the report-introduction commit's parent |
 | `A2-PROC-004` | exact operator-owned protected-package manifest/hash test |
 | `A2-SCOPE-001` | A2a authority-free import and no-A2b-title-claim checks |
 | `A2-SCOPE-003` | no literal supported-migration-version assertion test |

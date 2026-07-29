@@ -14,6 +14,7 @@ import { repositoryRegistrationInspection } from './repository-test-support.js';
 import { temporaryStorage, type TemporaryStorage } from './test-support.js';
 
 const temporaries: TemporaryStorage[] = [];
+const STATUS_NOW = '2026-07-24T00:00:00.001Z';
 afterEach(() => {
   for (const temporary of temporaries.splice(0)) temporary.cleanup();
 });
@@ -113,11 +114,12 @@ describe('repository transition persistence', () => {
                   competitor
                     .prepare(
                       `UPDATE registered_repositories
-                       SET status = 'active', status_reason = 'inspection-succeeded',
-                           status_changed_at = ?, version = version + 1
+                       SET status = 'active', status_reason = 'evidence-matches',
+                           status_changed_at = '2026-07-24T00:00:00.002Z',
+                           version = version + 1
                        WHERE workspace_id = ? AND id = ?`,
                     )
-                    .run(SEED_NOW, seeded.workspaceId, seeded.repository.id);
+                    .run(seeded.workspaceId, seeded.repository.id);
                 } catch (error) {
                   competingWriteWasBlocked =
                     typeof error === 'object' &&
@@ -146,7 +148,7 @@ describe('repository transition persistence', () => {
           repositoryId: seeded.repository.id,
           expectedVersion: 1,
           actorUserId: seeded.userId,
-          changedAt: SEED_NOW,
+          changedAt: STATUS_NOW,
           reduction,
         }),
       ).toMatchObject({
@@ -188,7 +190,7 @@ describe('repository transition persistence', () => {
           repositoryId: seeded.repository.id,
           expectedVersion: 1,
           actorUserId: seeded.userId,
-          changedAt: SEED_NOW,
+          changedAt: STATUS_NOW,
         });
         throw new Error('force outer rollback');
       }),
@@ -213,7 +215,7 @@ describe('repository transition persistence', () => {
       repositoryId: seeded.repository.id,
       expectedVersion: 1,
       actorUserId: seeded.userId,
-      changedAt: SEED_NOW,
+      changedAt: STATUS_NOW,
     });
     expect(first).toMatchObject({ kind: 'changed', repository: { status: 'retired', version: 2 } });
     expect(
@@ -222,7 +224,7 @@ describe('repository transition persistence', () => {
         repositoryId: seeded.repository.id,
         expectedVersion: 2,
         actorUserId: seeded.userId,
-        changedAt: SEED_NOW,
+        changedAt: STATUS_NOW,
       }),
     ).toMatchObject({ kind: 'unchanged', repository: { version: 2 } });
 
@@ -255,7 +257,7 @@ describe('repository transition persistence', () => {
       repositoryId: seeded.repository.id,
       expectedVersion: 1,
       actorUserId: seeded.userId,
-      changedAt: SEED_NOW,
+      changedAt: STATUS_NOW,
       reduction,
     });
 
@@ -305,7 +307,7 @@ describe('repository transition persistence', () => {
     ]);
   });
 
-  it('rejects direct baseline rollback, core rewrite, unretire, and evidence deletion (A2A-BASE-004/005/007/008 A2A-RET-005/007/008)', () => {
+  it('rejects direct core rewrite and baseline evidence deletion (A2A-BASE-007/008)', () => {
     const seeded = setup('direct-rejections');
     const raw = openDatabase(seeded.temporary.databasePath);
     try {
@@ -331,6 +333,42 @@ describe('repository transition persistence', () => {
       expect(() =>
         raw.prepare(`DELETE FROM repository_inspections WHERE id = ?`).run(seeded.inspection.id),
       ).toThrow(/append-only/);
+    } finally {
+      raw.close();
+    }
+  });
+
+  it('keeps retired repository evidence immutable and rejects unretire/delete (A2A-RET-005/007/008)', () => {
+    const seeded = setup('retired-history');
+    expect(
+      seeded.temporary.storage.repositoryRegistry.repositories.retireWithBindings({
+        workspaceId: seeded.workspaceId,
+        repositoryId: seeded.repository.id,
+        expectedVersion: 1,
+        actorUserId: seeded.userId,
+        changedAt: STATUS_NOW,
+      }),
+    ).toMatchObject({ kind: 'changed', repository: { status: 'retired', version: 2 } });
+    const raw = openDatabase(seeded.temporary.databasePath);
+    try {
+      expect(() =>
+        raw
+          .prepare(`UPDATE repository_inspections SET created_at = ? WHERE id = ?`)
+          .run(STATUS_NOW, seeded.inspection.id),
+      ).toThrow(/append-only/);
+      expect(() =>
+        raw
+          .prepare(
+            `UPDATE registered_repositories
+             SET status = 'active', status_reason = 'evidence-matches',
+                 status_changed_at = '2026-07-24T00:00:00.002Z',
+                 version = version + 1 WHERE id = ?`,
+          )
+          .run(seeded.repository.id),
+      ).toThrow(/invalid repository transition/);
+      expect(() =>
+        raw.prepare(`DELETE FROM registered_repositories WHERE id = ?`).run(seeded.repository.id),
+      ).toThrow(/cannot be deleted/);
     } finally {
       raw.close();
     }
@@ -373,7 +411,7 @@ describe('repository transition persistence', () => {
         repositoryId: seeded.repository.id,
         expectedVersion: 1,
         actorUserId: seeded.userId,
-        changedAt: SEED_NOW,
+        changedAt: STATUS_NOW,
         reduction,
       });
       return { appended, changed };

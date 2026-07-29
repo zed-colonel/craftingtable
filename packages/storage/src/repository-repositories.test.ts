@@ -15,6 +15,8 @@ import { verifyExactUtf8Sha256 } from './repository-types.js';
 import { temporaryStorage, type TemporaryStorage } from './test-support.js';
 
 const temporaries: TemporaryStorage[] = [];
+const STATUS_NOW = '2026-07-24T00:00:00.001Z';
+const REAFFIRM_NOW = '2026-07-24T00:00:00.002Z';
 afterEach(() => {
   for (const temporary of temporaries.splice(0)) temporary.cleanup();
 });
@@ -119,7 +121,7 @@ describe('repository registry repositories', () => {
       repositoryId: seeded.repository.id,
       expectedVersion: 1,
       actorUserId: seeded.userId,
-      changedAt: SEED_NOW,
+      changedAt: STATUS_NOW,
       reduction,
     });
     expect(
@@ -203,7 +205,7 @@ describe('repository registry repositories', () => {
       repositoryId: seeded.repository.id,
       expectedVersion: 1,
       actorUserId: seeded.userId,
-      changedAt: SEED_NOW,
+      changedAt: STATUS_NOW,
     });
     expect(retired).toMatchObject({
       kind: 'changed',
@@ -227,7 +229,7 @@ describe('repository registry repositories', () => {
       repositoryId: seeded.repository.id,
       expectedVersion: 1,
       actorUserId: seeded.userId,
-      changedAt: SEED_NOW,
+      changedAt: STATUS_NOW,
       reduction,
     });
     expect(changed).toMatchObject({
@@ -251,7 +253,7 @@ describe('repository registry repositories', () => {
         expectedVersion: 2,
         expectedLatestSuccessfulInspectionId: seeded.inspection.id,
         actorUserId: seeded.userId,
-        changedAt: SEED_NOW,
+        changedAt: REAFFIRM_NOW,
         inspection: reaffirmation,
       },
     );
@@ -282,7 +284,7 @@ describe('repository registry repositories', () => {
       repositoryId: seeded.repository.id,
       expectedVersion: 1,
       actorUserId: seeded.userId,
-      changedAt: SEED_NOW,
+      changedAt: STATUS_NOW,
       reduction,
     });
     const inspection = {
@@ -300,7 +302,7 @@ describe('repository registry repositories', () => {
         expectedVersion: 1,
         expectedLatestSuccessfulInspectionId: seeded.inspection.id,
         actorUserId: seeded.userId,
-        changedAt: SEED_NOW,
+        changedAt: REAFFIRM_NOW,
         inspection,
       }),
     ).toEqual({ kind: 'version-conflict' });
@@ -311,7 +313,7 @@ describe('repository registry repositories', () => {
         expectedVersion: 2,
         expectedLatestSuccessfulInspectionId: asRepositoryInspectionId('wrong-latest'),
         actorUserId: seeded.userId,
-        changedAt: SEED_NOW,
+        changedAt: REAFFIRM_NOW,
         inspection,
       }),
     ).toEqual({ kind: 'latest-successful-conflict' });
@@ -348,7 +350,7 @@ describe('repository registry repositories', () => {
       repositoryId: seeded.repository.id,
       expectedVersion: 1,
       actorUserId: seeded.userId,
-      changedAt: SEED_NOW,
+      changedAt: STATUS_NOW,
       reduction,
     });
     expect(
@@ -439,7 +441,7 @@ describe('repository registry repositories', () => {
         repositoryId: seeded.repository.id,
         expectedVersion: 1,
         actorUserId: seeded.userId,
-        changedAt: SEED_NOW,
+        changedAt: STATUS_NOW,
       }),
     ).toMatchObject({ kind: 'changed', repository: { status: 'retired', version: 2 } });
     expect(

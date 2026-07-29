@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +48,12 @@ export const CT04A2A_REVIEW_ADDED_PROOF_IDS = Object.freeze([
   'A2A-CON-010',
   'A2-SCOPE-003',
   'A2-SCOPE-004',
+]);
+
+export const CT04A2A_DOCUMENTARY_PROCESS_IDS = Object.freeze([
+  'A2-PROC-001',
+  'A2-PROC-002',
+  'A2-PROC-003',
 ]);
 
 function sha256(path) {
@@ -153,6 +160,131 @@ export function verifyCt04ProtectedPackage(protectedDirectory) {
   return { ok: errors.length === 0, errors };
 }
 
+function readProcessSources(repositoryRoot) {
+  return Object.fromEntries(
+    CT04A2A_PROCESS_FILES.map((relativePath) => [
+      relativePath,
+      readFileSync(join(repositoryRoot, relativePath), 'utf8'),
+    ]),
+  );
+}
+
+export function verifyCt04A2aDocumentLineage(repositoryRoot) {
+  let sources;
+  try {
+    sources = readProcessSources(repositoryRoot);
+  } catch {
+    return {
+      ok: false,
+      errors: ['CT-04A2a process lineage is missing or unreadable'],
+    };
+  }
+  const proposedPath = CT04A2A_PROCESS_FILES[0];
+  const reviewPath = CT04A2A_PROCESS_FILES[1];
+  const dispositionPath = CT04A2A_PROCESS_FILES[2];
+  const acceptedPath = CT04A2A_PROCESS_FILES[3];
+  const proposedHash = sha256(join(repositoryRoot, proposedPath));
+  const reviewHash = sha256(join(repositoryRoot, reviewPath));
+  const dispositionHash = sha256(join(repositoryRoot, dispositionPath));
+  const review = sources[reviewPath];
+  const disposition = sources[dispositionPath];
+  const accepted = sources[acceptedPath];
+  const errors = [];
+
+  if (!review.includes(proposedHash)) {
+    errors.push('A2-PROC-001 design review does not pin the live proposed-plan SHA-256');
+  }
+  if (!disposition.includes(proposedHash) || !disposition.includes(reviewHash)) {
+    errors.push('A2-PROC-001 disposition does not pin the reviewed plan and design review');
+  }
+  if (
+    !accepted.includes(proposedHash) ||
+    !accepted.includes(reviewHash) ||
+    !accepted.includes(dispositionHash)
+  ) {
+    errors.push('A2-PROC-001 accepted plan does not carry the complete prior-artifact hash chain');
+  }
+
+  const appendixStart = accepted.indexOf('## 20. Review reconciliation appendix');
+  const appendixEnd = accepted.indexOf('\n## 21.', appendixStart);
+  const appendix =
+    appendixStart >= 0 && appendixEnd > appendixStart
+      ? accepted.slice(appendixStart, appendixEnd)
+      : '';
+  const findingIds = [...new Set(sources[reviewPath].match(/\bA2a-F-\d{2}\b/g) ?? [])].toSorted();
+  if (findingIds.length !== 18 || findingIds.some((id) => !appendix.includes(`| ${id} |`))) {
+    errors.push('A2-PROC-002 accepted-plan appendix does not map all 18 design findings');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function git(repositoryRoot, args) {
+  return execFileSync('git', ['-C', repositoryRoot, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+}
+
+export function verifyCt04A2aGitLineage(repositoryRoot) {
+  const reportPath = CT04A2A_PROCESS_FILES[4];
+  let report;
+  try {
+    report = readFileSync(join(repositoryRoot, reportPath), 'utf8');
+  } catch {
+    return { ok: false, errors: ['A2-PROC-003 completion report is missing or unreadable'] };
+  }
+  const claimedHead = report.match(
+    /\*\*Implementation head for independent review:\*\* `([0-9a-f]{40})`/,
+  )?.[1];
+  if (claimedHead === undefined) {
+    return {
+      ok: false,
+      errors: ['A2-PROC-003 completion report has no exact implementation head'],
+    };
+  }
+  const errors = [];
+  try {
+    git(repositoryRoot, ['cat-file', '-e', `${claimedHead}^{commit}`]);
+  } catch {
+    errors.push(`A2-PROC-003 claimed implementation head ${claimedHead} is not a commit`);
+    return { ok: false, errors };
+  }
+  try {
+    git(repositoryRoot, ['merge-base', '--is-ancestor', claimedHead, 'HEAD']);
+  } catch {
+    errors.push(
+      `A2-PROC-003 claimed implementation head ${claimedHead} is not an ancestor of HEAD`,
+    );
+  }
+  try {
+    const introductionCommit = git(repositoryRoot, [
+      'log',
+      '--diff-filter=A',
+      '--format=%H',
+      '--',
+      reportPath,
+    ])
+      .split('\n')
+      .filter(Boolean)[0];
+    const introductionParent = git(repositoryRoot, ['rev-parse', `${introductionCommit}^`]);
+    if (introductionParent !== claimedHead) {
+      errors.push(
+        'A2-PROC-003 completion report was not introduced immediately after its claimed implementation head',
+      );
+    }
+  } catch {
+    errors.push('A2-PROC-003 completion-report introduction commit cannot be resolved');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+export function verifyCt04A2aProcessLineage(repositoryRoot) {
+  const documentResult = verifyCt04A2aDocumentLineage(repositoryRoot);
+  const gitResult = verifyCt04A2aGitLineage(repositoryRoot);
+  const errors = [...documentResult.errors, ...gitResult.errors];
+  return { ok: errors.length === 0, errors };
+}
+
 export function verifyCt04A2aProofAnchors(repositoryRoot) {
   const errors = [];
   let supplementSource;
@@ -184,16 +316,6 @@ export function verifyCt04A2aProofAnchors(repositoryRoot) {
   ) {
     errors.push('accepted-plan section 15.2 review-added ID set differs from the pinned set');
   }
-  for (const relativePath of CT04A2A_PROCESS_FILES) {
-    try {
-      if (!statSync(join(repositoryRoot, relativePath)).isFile()) {
-        errors.push(`${relativePath} is not a regular file`);
-      }
-    } catch {
-      errors.push(`${relativePath} is missing or unreadable`);
-    }
-  }
-
   const sources = [];
   for (const relativePath of CT04A2A_PROOF_FILES) {
     try {
@@ -203,7 +325,10 @@ export function verifyCt04A2aProofAnchors(repositoryRoot) {
     }
   }
   const titleIds = ct04a2aTestTitleIds(sources);
-  for (const id of [...protectedIds, ...CT04A2A_REVIEW_ADDED_PROOF_IDS]) {
+  const titleRequiredIds = [...protectedIds, ...CT04A2A_REVIEW_ADDED_PROOF_IDS].filter(
+    (id) => !CT04A2A_DOCUMENTARY_PROCESS_IDS.includes(id),
+  );
+  for (const id of titleRequiredIds) {
     if (!titleIds.has(id)) {
       errors.push(`${id} has no test-title anchor`);
     }
@@ -223,7 +348,8 @@ if (isMain) {
   const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
   const packageResult = verifyCt04ProtectedPackage(join(repositoryRoot, 'protected'));
   const proofResult = verifyCt04A2aProofAnchors(repositoryRoot);
-  const errors = [...packageResult.errors, ...proofResult.errors];
+  const processResult = verifyCt04A2aProcessLineage(repositoryRoot);
+  const errors = [...packageResult.errors, ...proofResult.errors, ...processResult.errors];
   if (errors.length > 0) {
     console.error('CT-04 protected-package verification FAILED:');
     for (const error of errors) {
@@ -232,6 +358,6 @@ if (isMain) {
     process.exit(1);
   }
   console.log(
-    'CT-04 protected-package verification passed: exact two-file manifest, hashes, and 104 A2a proof anchors.',
+    'CT-04 protected-package verification passed: exact package and hashes, 101 A2a test-title anchors, and 3 documentary process-lineage controls.',
   );
 }

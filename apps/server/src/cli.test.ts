@@ -59,13 +59,13 @@ describe('CLI argument parsing', () => {
 
       const futurePath = join(directory, 'future.sqlite');
       const future = openDatabase(futurePath);
-      runMigrations(future);
+      const migrationStatus = runMigrations(future);
       future
         .prepare(
           `INSERT INTO schema_migrations (version, name, checksum, applied_at)
-           VALUES (4, 'future', ?, ?)`,
+           VALUES (?, 'future', ?, ?)`,
         )
-        .run('f'.repeat(64), '2026-07-24T00:00:00.000Z');
+        .run(migrationStatus.supportedVersion + 1, 'f'.repeat(64), '2026-07-24T00:00:00.000Z');
       future.close();
       output.stderr = '';
       expect(runDatabaseCommand('db-status', futurePath, streams)).toBe(

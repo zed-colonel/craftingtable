@@ -13,6 +13,97 @@ import { openCraftingTableStorage } from './storage.js';
 import { repositoryRegistrationInspection } from './repository-test-support.js';
 
 describe('snapshot consistency', () => {
+  it('B1-REGRESS-002 keeps a mixed legacy/repository activity cursor in one snapshot', () => {
+    const temporary = temporaryStorage();
+    try {
+      const userId = asUserId('mixed-snapshot-user');
+      const workspaceId = asWorkspaceId('mixed-snapshot-workspace');
+      const repositoryId = asRepositoryId('repository-mixed-snapshot');
+      const occurredAt = '2026-07-29T00:00:00.000Z';
+      temporary.storage.transaction((tx) => {
+        tx.users.insert({
+          id: userId,
+          username: 'mixed-snapshot',
+          usernameNormalized: 'mixed-snapshot',
+          passwordHash: '$argon2id$test',
+          occurredAt,
+        });
+        tx.workspaces.insert({
+          id: workspaceId,
+          name: 'Mixed snapshot workspace',
+          slug: 'mixed-snapshot',
+          createdByUserId: userId,
+          occurredAt,
+        });
+        tx.workspaces.insertMembership({
+          id: asWorkspaceMembershipId('mixed-snapshot-membership'),
+          workspaceId,
+          userId,
+          role: 'owner',
+          occurredAt,
+        });
+        tx.workspaceEvents.appendWorkspaceCreated({
+          id: asEventId('mixed-snapshot-created'),
+          occurredAt,
+          workspaceId,
+          actorUserId: userId,
+          name: 'Mixed snapshot workspace',
+          slug: 'mixed-snapshot',
+        });
+      });
+      const registration = repositoryRegistrationInspection({
+        suffix: 'mixed-snapshot',
+        workspaceId,
+        actorUserId: userId,
+        createdAt: occurredAt,
+      });
+      temporary.storage.repositoryRegistry.repositories.register({
+        id: repositoryId,
+        workspaceId,
+        displayName: 'Mixed snapshot repository',
+        actorUserId: userId,
+        inspection: { ...registration, repositoryId },
+      });
+      temporary.storage.workspaceEvents.appendEvent({
+        id: asEventId('mixed-snapshot-repository-registered'),
+        occurredAt: '2026-07-29T00:00:01.000Z',
+        workspaceId,
+        actorUserId: userId,
+        repositoryId,
+        repositoryInspectionId: registration.id,
+        kind: 'repository-registered',
+        payload: {
+          repositoryId,
+          inspectionId: registration.id,
+          displayName: 'Mixed snapshot repository',
+          status: 'active',
+          statusReason: 'registration-accepted',
+          version: 1,
+        },
+      });
+
+      const snapshot = temporary.storage.readTransaction((tx) => {
+        const asOfSequence = tx.workspaceEvents.maxSequence();
+        return {
+          asOfSequence,
+          events: tx.workspaceEvents.listRecentAtOrBefore({
+            workspaceId,
+            asOfSequence,
+            limit: 50,
+          }),
+        };
+      });
+
+      expect(snapshot.asOfSequence).toBe(2);
+      expect(snapshot.events.map(({ sequence, kind }) => ({ sequence, kind }))).toEqual([
+        { sequence: 1, kind: 'workspace-created' },
+        { sequence: 2, kind: 'repository-registered' },
+      ]);
+    } finally {
+      temporary.cleanup();
+    }
+  });
+
   it('keeps asOfSequence and activity in one read view during a concurrent WAL commit', () => {
     const first = temporaryStorage();
     const second = openCraftingTableStorage(first.storage.databasePath);

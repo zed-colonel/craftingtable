@@ -149,7 +149,73 @@ const EXISTING_TEST_CAPABILITY_MODULES = [
  * Over-matching (e.g. inside comments) is acceptable for a guard; silent
  * under-matching is not (CT01-R4).
  */
-export const IMPORT_PATTERN = /(?:\bimport\s*\(?\s*|\bfrom\s+|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
+export const IMPORT_PATTERN =
+  /(?:\bimport\s+(?:type\s+)?(?:[^'"\n;]+?\s+from\s+)?|\bexport\s+(?:type\s+)?(?:[^'"\n;]+?\s+from\s+)|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
+
+/**
+ * B1's complete production target is closed by exact path and exact module
+ * specifier. This checks dependency edges only; route/service/command absence
+ * is proved separately by the CT-04 protected-package inventory check.
+ */
+export const B1_ALLOWED_IMPORTS = new Map([
+  ['packages/domain/src/workspace-events.ts', new Set(['./ids.js', './repository.js'])],
+  [
+    'packages/contracts/src/workspace-event.ts',
+    new Set(['@craftingtable/domain', 'zod', './ids.js', './repository.js']),
+  ],
+  [
+    'packages/storage/src/types.ts',
+    new Set(['@craftingtable/domain', './planning-types.js', './repository-types.js']),
+  ],
+  [
+    'packages/storage/src/repositories/workspace-events.ts',
+    new Set(['@craftingtable/domain', 'better-sqlite3', '../types.js']),
+  ],
+  [
+    'apps/web/src/lib/workspace-projection.ts',
+    new Set(['@craftingtable/contracts', '@craftingtable/domain']),
+  ],
+  [
+    'apps/web/src/components/ActivityPanel.tsx',
+    new Set(['@craftingtable/contracts', '../lib/workspace-projection.js']),
+  ],
+  [
+    'apps/web/src/App.tsx',
+    new Set([
+      '@craftingtable/contracts',
+      '@craftingtable/domain',
+      'react',
+      './components/ActivityPanel.js',
+      './components/AuditPanel.js',
+      './components/LoginPage.js',
+      './components/SessionPanel.js',
+      './components/StatusRegions.js',
+      './components/WorkspaceShell.js',
+      './features/planning/ImportPlanPage.js',
+      './features/planning/PlanVersionPage.js',
+      './features/planning/ProjectCards.js',
+      './features/planning/ProjectPage.js',
+      './features/planning/SourceText.js',
+      './features/planning/WorkItemPage.js',
+      './lib/api-client.js',
+      './lib/auth-state.js',
+      './lib/planning-api.js',
+      './lib/route.js',
+      './lib/use-route.js',
+      './lib/use-workspace-event-stream.js',
+      './lib/workspace-projection.js',
+    ]),
+  ],
+]);
+
+export function b1DisallowedImports(relativePath, source) {
+  const normalized = relativePath.split('\\').join('/');
+  const allowed = B1_ALLOWED_IMPORTS.get(normalized);
+  if (allowed === undefined) {
+    return [];
+  }
+  return findImports(source).filter((specifier) => !allowed.has(specifier));
+}
 
 export function isForbidden(specifier) {
   return FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier));
@@ -371,6 +437,11 @@ export function runCheck(root) {
           );
         }
         const source = bytes.toString('utf8');
+        for (const specifier of b1DisallowedImports(relativePath, source)) {
+          violations.push(
+            `${relativePath}: CT-04A2b1 exact-path source imports unapproved module "${specifier}"`,
+          );
+        }
         for (const specifier of findForbiddenImports(source)) {
           violations.push(`${relativePath}: imports forbidden module "${specifier}"`);
         }
@@ -449,6 +520,7 @@ if (isMain) {
       'Git process authority, development tooling scanned and separated from the\n' +
       'shipped application, no non-production seam in composed source,\n' +
       'no NUL byte in tracked source, and\n' +
-      'the planning package and CT-04A2a repository model stay pure.',
+      'the planning package and CT-04A2a repository model stay pure, while\n' +
+      'CT-04A2b1 production dependency edges match exact path allowlists.',
   );
 }

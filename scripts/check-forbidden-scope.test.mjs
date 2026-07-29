@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   A2A_ALLOWED_NODE_BUILTINS,
+  B1_ALLOWED_IMPORTS,
+  b1DisallowedImports,
   findForbiddenImports,
   findManifestViolations,
   isForbidden,
@@ -328,6 +330,68 @@ describe('CT-04A2a authority-free boundary', () => {
         'expect(storage.migrationStatus.currentVersion).toBe(storage.migrationStatus.supportedVersion)',
       ),
     ).toBe(false);
+  });
+});
+
+describe('CT-04A2b1 exact-path dependency boundary', () => {
+  it('B1-SCOPE-001 pins every production target to an exact allowed-specifier set', () => {
+    expect([...B1_ALLOWED_IMPORTS.keys()].toSorted()).toEqual(
+      [
+        'packages/domain/src/workspace-events.ts',
+        'packages/contracts/src/workspace-event.ts',
+        'packages/storage/src/types.ts',
+        'packages/storage/src/repositories/workspace-events.ts',
+        'apps/web/src/lib/workspace-projection.ts',
+        'apps/web/src/components/ActivityPanel.tsx',
+        'apps/web/src/App.tsx',
+      ].toSorted(),
+    );
+    expect(
+      b1DisallowedImports(
+        'packages/storage/src/types.ts',
+        "import type { A } from './repository-types.js';",
+      ),
+    ).toEqual([]);
+    expect(
+      b1DisallowedImports(
+        'packages/contracts/src/workspace-event.ts',
+        "import type { A } from './repository.js';",
+      ),
+    ).toEqual([]);
+  });
+
+  it('rejects Git, process, Fastify, server-service, and reverse event edges', () => {
+    const cases = [
+      ['packages/domain/src/workspace-events.ts', '@craftingtable/git'],
+      ['packages/contracts/src/workspace-event.ts', 'node:child_process'],
+      ['packages/storage/src/repositories/workspace-events.ts', 'fastify'],
+      ['apps/web/src/lib/workspace-projection.ts', '@craftingtable/server'],
+      ['apps/web/src/components/ActivityPanel.tsx', '../../server/src/services/repository.js'],
+      ['packages/storage/src/repository-types.ts', './workspace-event.js'],
+    ];
+    for (const [path, specifier] of cases) {
+      if (path === 'packages/storage/src/repository-types.ts') {
+        expect(isForbiddenInA2a(specifier), specifier).toBe(true);
+        continue;
+      }
+      expect(b1DisallowedImports(path, `import value from '${specifier}';`), specifier).toEqual([
+        specifier,
+      ]);
+    }
+  });
+
+  it('fails the workspace check for an unapproved B1 dependency edge', () => {
+    const root = scopeFixture(
+      'domain/src/workspace-events.ts',
+      "import { repository } from '@craftingtable/git';\nvoid repository;",
+    );
+    try {
+      expect(runCheck(root)).toContain(
+        'packages/domain/src/workspace-events.ts: CT-04A2b1 exact-path source imports unapproved module "@craftingtable/git"',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

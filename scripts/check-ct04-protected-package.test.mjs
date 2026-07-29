@@ -6,10 +6,17 @@ import { describe, expect, it } from 'vitest';
 import {
   CT04A2A_PROCESS_FILES,
   CT04A2A_PROOF_FILES,
+  CT04A2B1_PROCESS_FILES,
+  CT04A2B1_PROOF_FILES,
+  b1ChangedPathViolations,
+  ct04a2b1ProtectedIds,
   ct04a2aTestTitleIds,
   verifyCt04A2aDocumentLineage,
   verifyCt04A2aProofAnchors,
   verifyCt04A2aProcessLineage,
+  verifyCt04A2b1DocumentLineage,
+  verifyCt04A2b1Inventory,
+  verifyCt04A2b1ProofAnchors,
   verifyCt04ProtectedPackage,
 } from './check-ct04-protected-package.mjs';
 
@@ -114,5 +121,41 @@ describe('CT-04A2a proof-anchor verifier', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('CT-04A2b1 proof and inventory verifier', () => {
+  it('B1-SCOPE-002/B1-SCOPE-003 finds the exact protected B1 case set', () => {
+    const source = readFileSync(
+      join(repositoryRoot, 'work-items/CT-04/CT-04A2b-protected-acceptance-supplement.yaml'),
+      'utf8',
+    );
+    expect(ct04a2b1ProtectedIds(source)).toHaveLength(66);
+    expect(verifyCt04A2b1ProofAnchors(repositoryRoot)).toEqual({ ok: true, errors: [] });
+  });
+
+  it('B1-PROC-001/B1-PROC-002 verifies the review hash chain and reconciliation appendix', () => {
+    expect(CT04A2B1_PROCESS_FILES).toHaveLength(4);
+    expect(CT04A2B1_PROOF_FILES.length).toBeGreaterThan(0);
+    expect(verifyCt04A2b1DocumentLineage(repositoryRoot)).toEqual({ ok: true, errors: [] });
+  });
+
+  it('B1-SCOPE-005 rejects manifests, routes, services, configuration, and A2a state paths', () => {
+    expect(
+      b1ChangedPathViolations([
+        'package.json',
+        'pnpm-lock.yaml',
+        'apps/server/src/routes/repository.ts',
+        'apps/server/src/services/repository-service.ts',
+        'packages/storage/src/repositories/repository-registry/repositories.ts',
+      ]),
+    ).toEqual([
+      'B1-SCOPE-005 changed path is outside the accepted B1 tree: package.json',
+      'B1-SCOPE-005 changed path is outside the accepted B1 tree: pnpm-lock.yaml',
+      'B1-SCOPE-005 changed path is outside the accepted B1 tree: apps/server/src/routes/repository.ts',
+      'B1-SCOPE-005 changed path is outside the accepted B1 tree: apps/server/src/services/repository-service.ts',
+      'B1-SCOPE-005 changed path is outside the accepted B1 tree: packages/storage/src/repositories/repository-registry/repositories.ts',
+    ]);
+    expect(verifyCt04A2b1Inventory(repositoryRoot)).toEqual({ ok: true, errors: [] });
   });
 });

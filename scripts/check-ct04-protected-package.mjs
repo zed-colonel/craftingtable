@@ -56,6 +56,101 @@ export const CT04A2A_DOCUMENTARY_PROCESS_IDS = Object.freeze([
   'A2-PROC-003',
 ]);
 
+export const CT04A2B1_PROOF_FILES = Object.freeze([
+  'packages/domain/src/workspace-events.test.ts',
+  'packages/contracts/src/workspace-event.test.ts',
+  'packages/storage/src/migration-0002.test.ts',
+  'packages/storage/src/migration-0004.test.ts',
+  'packages/storage/src/repositories.test.ts',
+  'packages/storage/src/snapshot.test.ts',
+  'apps/server/src/services/workspace-event-stream-service.test.ts',
+  'apps/server/src/cli.test.ts',
+  'apps/web/src/lib/workspace-projection.test.ts',
+  'apps/web/src/components/ActivityPanel.test.tsx',
+  'scripts/check-forbidden-scope.test.mjs',
+]);
+
+export const CT04A2B1_PROCESS_FILES = Object.freeze([
+  'work-items/CT-04/CT-04A2b1-proposed-implementation-plan.md',
+  'review-findings/CT-04/CT-04A2b1-design-review.md',
+  'work-items/CT-04/CT-04A2b1-design-review-disposition.md',
+  'work-items/CT-04/CT-04A2b1-accepted-implementation-plan.md',
+]);
+
+const CT04A2B1_REVIEW_ADDED_PROOF_IDS = Object.freeze([
+  'B1-MIG-009',
+  'B1-MIG-010',
+  'B1-COR-013',
+  'B1-COR-014',
+  'B1-CON-011',
+  'B1-CON-012',
+  'B1-STO-009',
+  'B1-STO-010',
+  'B1-STO-011',
+  'B1-UI-011',
+  'B1-UI-013',
+]);
+
+const CT04A2B1_DOCUMENTARY_IDS = new Set([
+  'B1-SCOPE-002',
+  'B1-SCOPE-003',
+  'B1-SCOPE-004',
+  'B1-SCOPE-005',
+  'B1-SCOPE-006',
+  'B1-PROC-001',
+  'B1-PROC-002',
+  'B1-PROC-003',
+  'B1-REGRESS-001',
+  'B1-UI-012',
+]);
+
+const CT04A2B1_ALLOWED_CHANGED_PATHS = new Set([
+  'README.md',
+  'CLAUDE.md',
+  'docs/architecture.md',
+  'docs/security.md',
+  'docs/operations.md',
+  'docs/decisions/README.md',
+  'docs/decisions/ADR-018-repository-journal-correlation.md',
+  'packages/domain/src/workspace-events.ts',
+  'packages/domain/src/workspace-events.test.ts',
+  'packages/contracts/src/workspace-event.ts',
+  'packages/contracts/src/workspace-event.test.ts',
+  'packages/storage/migrations/0004-ct04a2b-repository-journal.sql',
+  'packages/storage/src/types.ts',
+  'packages/storage/src/repositories/workspace-events.ts',
+  'packages/storage/src/migrations.test.ts',
+  'packages/storage/src/migration-0002.test.ts',
+  'packages/storage/src/migration-0003.test.ts',
+  'packages/storage/src/migration-0004.test.ts',
+  'packages/storage/src/repositories.test.ts',
+  'packages/storage/src/snapshot.test.ts',
+  'apps/server/src/services/workspace-event-stream-service.test.ts',
+  'apps/server/src/cli.test.ts',
+  'apps/web/src/App.tsx',
+  'apps/web/src/lib/workspace-projection.ts',
+  'apps/web/src/lib/workspace-projection.test.ts',
+  'apps/web/src/components/ActivityPanel.tsx',
+  'apps/web/src/components/ActivityPanel.test.tsx',
+  'scripts/check-forbidden-scope.mjs',
+  'scripts/check-forbidden-scope.test.mjs',
+  'scripts/check-ct04-protected-package.mjs',
+  'scripts/check-ct04-protected-package.test.mjs',
+  ...CT04A2B1_PROCESS_FILES,
+  'work-items/CT-04/CT-04A2b-a2a-handoff.yaml',
+  'work-items/CT-04/CT-04A2b-acceptance-matrix.yaml',
+  'work-items/CT-04/CT-04A2b-adversarial-matrices.yaml',
+  'work-items/CT-04/CT-04A2b-implementation-guidance.md',
+  'work-items/CT-04/CT-04A2b-protected-acceptance-supplement.yaml',
+  'work-items/CT-04/CT-04A2b-source-assessment.md',
+  'work-items/CT-04/CT-04A2b-source-map.yaml',
+  'work-items/CT-04/CT-04A2b.md',
+  'work-items/CT-04/CT-04A2b1.md',
+  'work-items/CT-04/CT-04A2b2.md',
+  'work-items/CT-04/CT-04A2b1-implementation-checkpoint-1-report.md',
+  'work-items/CT-04/CT-04A2b1-implementation-report.md',
+]);
+
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
@@ -72,7 +167,7 @@ function testTitles(source) {
 function expandProofIds(title) {
   const ids = new Set();
   const rangePattern =
-    /\b((?:A2A-(?:STATUS|REP|INSP|BASE|BIND|RET|MIG|CON)|A2-(?:PROC|SCOPE)))-(\d{3})\.\.(\d{3})\b/g;
+    /\b((?:A2A-(?:STATUS|REP|INSP|BASE|BIND|RET|MIG|CON)|A2-(?:PROC|SCOPE)|B1-(?:MIG|COR|CON|STO|UI|SCOPE|PROC|REGRESS)|A2B-JRN))-(\d{3})\.\.(\d{3})\b/g;
   for (const match of title.matchAll(rangePattern)) {
     const start = Number(match[2]);
     const end = Number(match[3]);
@@ -81,7 +176,7 @@ function expandProofIds(title) {
     }
   }
   const slashPattern =
-    /\b((?:A2A-(?:STATUS|REP|INSP|BASE|BIND|RET|MIG|CON)|A2-(?:PROC|SCOPE)))-(\d{3})((?:\/\d{3})+)\b/g;
+    /\b((?:A2A-(?:STATUS|REP|INSP|BASE|BIND|RET|MIG|CON)|A2-(?:PROC|SCOPE)|B1-(?:MIG|COR|CON|STO|UI|SCOPE|PROC|REGRESS)|A2B-JRN))-(\d{3})((?:\/\d{3})+)\b/g;
   for (const match of title.matchAll(slashPattern)) {
     ids.add(`${match[1]}-${match[2]}`);
     for (const suffix of match[3].slice(1).split('/')) {
@@ -89,7 +184,7 @@ function expandProofIds(title) {
     }
   }
   const exactPattern =
-    /\b(?:A2A-(?:STATUS|REP|INSP|BASE|BIND|RET|MIG|CON)|A2-(?:PROC|SCOPE))-\d{3}\b/g;
+    /\b(?:A2A-(?:STATUS|REP|INSP|BASE|BIND|RET|MIG|CON)|A2-(?:PROC|SCOPE)|B1-(?:MIG|COR|CON|STO|UI|SCOPE|PROC|REGRESS)|A2B-JRN)-\d{3}\b/g;
   for (const match of title.matchAll(exactPattern)) {
     ids.add(match[0]);
   }
@@ -125,6 +220,25 @@ export function ct04a2aTestTitleIds(sources) {
     }
   }
   return ids;
+}
+
+export function ct04a2b1ProtectedIds(supplementSource) {
+  const ids = [];
+  const casePattern = /^- id: (\S+)\n {2}slice: CT-04A2b1$/gm;
+  for (const match of supplementSource.matchAll(casePattern)) {
+    ids.push(match[1]);
+  }
+  return ids;
+}
+
+export function b1ChangedPathViolations(paths) {
+  return paths
+    .filter(
+      (path) =>
+        !CT04A2B1_ALLOWED_CHANGED_PATHS.has(path) &&
+        !/^work-items\/CT-04\/CT-04A2b1-(?:implementation|remediation)-.*report\.md$/.test(path),
+    )
+    .map((path) => `B1-SCOPE-005 changed path is outside the accepted B1 tree: ${path}`);
 }
 
 export function verifyCt04ProtectedPackage(protectedDirectory) {
@@ -343,13 +457,152 @@ export function verifyCt04A2aProofAnchors(repositoryRoot) {
   return { ok: errors.length === 0, errors };
 }
 
+export function verifyCt04A2b1DocumentLineage(repositoryRoot) {
+  let sources;
+  try {
+    sources = Object.fromEntries(
+      CT04A2B1_PROCESS_FILES.map((relativePath) => [
+        relativePath,
+        readFileSync(join(repositoryRoot, relativePath), 'utf8'),
+      ]),
+    );
+  } catch {
+    return { ok: false, errors: ['CT-04A2b1 process lineage is missing or unreadable'] };
+  }
+  const [proposedPath, reviewPath, dispositionPath, acceptedPath] = CT04A2B1_PROCESS_FILES;
+  const proposedHash = sha256(join(repositoryRoot, proposedPath));
+  const reviewHash = sha256(join(repositoryRoot, reviewPath));
+  const dispositionHash = sha256(join(repositoryRoot, dispositionPath));
+  const errors = [];
+  if (!sources[reviewPath].includes(proposedHash)) {
+    errors.push('B1-PROC-001 design review does not pin the live proposed-plan SHA-256');
+  }
+  if (
+    !sources[dispositionPath].includes(proposedHash) ||
+    !sources[dispositionPath].includes(reviewHash)
+  ) {
+    errors.push('B1-PROC-001 disposition does not pin the proposal and design review');
+  }
+  if (
+    !sources[acceptedPath].includes(proposedHash) ||
+    !sources[acceptedPath].includes(reviewHash) ||
+    !sources[acceptedPath].includes(dispositionHash)
+  ) {
+    errors.push('B1-PROC-001 accepted plan does not carry the complete artifact hash chain');
+  }
+  const appendix = sources[acceptedPath].slice(
+    sources[acceptedPath].indexOf('## Appendix A'),
+    sources[acceptedPath].indexOf('## Appendix B'),
+  );
+  const findings = [...new Set(sources[reviewPath].match(/\bB1-F-\d{2}\b/g) ?? [])].toSorted();
+  if (findings.length !== 14 || findings.some((id) => !appendix.includes(`| \`${id}\` |`))) {
+    errors.push('B1-PROC-002 reconciliation appendix does not map all 14 design findings');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+export function verifyCt04A2b1ProofAnchors(repositoryRoot) {
+  const errors = [];
+  let supplementSource;
+  const sources = [];
+  const supplementPath = join(
+    repositoryRoot,
+    'work-items',
+    'CT-04',
+    'CT-04A2b-protected-acceptance-supplement.yaml',
+  );
+  try {
+    supplementSource = readFileSync(supplementPath, 'utf8');
+    for (const relativePath of CT04A2B1_PROOF_FILES) {
+      sources.push(readFileSync(join(repositoryRoot, relativePath), 'utf8'));
+    }
+  } catch {
+    return { ok: false, errors: ['CT-04A2b1 supplement or proof source is unreadable'] };
+  }
+  if (
+    sha256(supplementPath) !== '255fe8b61ede97aa3366ab5e81214031ef2053e89c0246b0b9c4c7b14278ebad'
+  ) {
+    errors.push('B1-SCOPE-002 A2b protected supplement differs from its accepted hash');
+  }
+  const protectedIds = ct04a2b1ProtectedIds(supplementSource);
+  if (protectedIds.length !== 66) {
+    errors.push(`expected 66 protected CT-04A2b1 IDs, found ${protectedIds.length}`);
+  }
+  const titleIds = ct04a2aTestTitleIds(sources);
+  for (const id of [...protectedIds, ...CT04A2B1_REVIEW_ADDED_PROOF_IDS]) {
+    if (!CT04A2B1_DOCUMENTARY_IDS.has(id) && !titleIds.has(id)) {
+      errors.push(`${id} has no B1 test-title anchor`);
+    }
+  }
+  for (const inherited of [
+    'A2B-JRN-001',
+    'A2B-JRN-002',
+    'A2B-JRN-003',
+    'A2B-JRN-004',
+    'A2B-JRN-007',
+    'A2B-JRN-011',
+    'A2B-JRN-012',
+  ]) {
+    if (!titleIds.has(inherited)) {
+      errors.push(`${inherited} has no B1-owned test-title anchor`);
+    }
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+export function verifyCt04A2b1Inventory(repositoryRoot) {
+  const errors = [];
+  try {
+    const paths = [
+      ...git(repositoryRoot, ['diff', '--name-only', 'e3b69c612a51b0b2a8d436ae3ea5355abd40745e'])
+        .split('\n')
+        .filter(Boolean),
+      ...git(repositoryRoot, ['ls-files', '--others', '--exclude-standard'])
+        .split('\n')
+        .filter(Boolean),
+    ];
+    errors.push(...b1ChangedPathViolations(paths));
+  } catch {
+    errors.push('B1-SCOPE-005 could not resolve the changed-path inventory');
+  }
+  for (const [relativePath, expectedHash] of [
+    [
+      'packages/storage/migrations/0003-ct04a2a-repository-model.sql',
+      '526df194257806b2a2e9582da8df8058ad86e819d52eae6b9b2525f972123bc4',
+    ],
+    [
+      'work-items/CT-04/CT-04A2-protected-acceptance-supplement.yaml',
+      '1000d564f01712b7dc2c59570dbfd6c498192f77c1cc5c13715e55c4b656429c',
+    ],
+  ]) {
+    try {
+      if (sha256(join(repositoryRoot, relativePath)) !== expectedHash) {
+        errors.push(`B1-SCOPE-003 ${relativePath} differs from its accepted hash`);
+      }
+    } catch {
+      errors.push(`B1-SCOPE-003 ${relativePath} is missing or unreadable`);
+    }
+  }
+  return { ok: errors.length === 0, errors };
+}
+
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMain) {
   const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
   const packageResult = verifyCt04ProtectedPackage(join(repositoryRoot, 'protected'));
   const proofResult = verifyCt04A2aProofAnchors(repositoryRoot);
   const processResult = verifyCt04A2aProcessLineage(repositoryRoot);
-  const errors = [...packageResult.errors, ...proofResult.errors, ...processResult.errors];
+  const b1ProofResult = verifyCt04A2b1ProofAnchors(repositoryRoot);
+  const b1ProcessResult = verifyCt04A2b1DocumentLineage(repositoryRoot);
+  const b1InventoryResult = verifyCt04A2b1Inventory(repositoryRoot);
+  const errors = [
+    ...packageResult.errors,
+    ...proofResult.errors,
+    ...processResult.errors,
+    ...b1ProofResult.errors,
+    ...b1ProcessResult.errors,
+    ...b1InventoryResult.errors,
+  ];
   if (errors.length > 0) {
     console.error('CT-04 protected-package verification FAILED:');
     for (const error of errors) {
@@ -358,6 +611,6 @@ if (isMain) {
     process.exit(1);
   }
   console.log(
-    'CT-04 protected-package verification passed: exact package and hashes, 101 A2a test-title anchors, and 3 documentary process-lineage controls.',
+    'CT-04 protected-package verification passed: immutable package, A2a/B1 proof anchors, B1 changed-path inventory, and accepted process lineage.',
   );
 }

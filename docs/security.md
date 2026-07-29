@@ -1,4 +1,4 @@
-# Security model (accepted CT-03 plus CT-04A2a)
+# Security model (accepted CT-03 plus CT-04A2b1 foundation)
 
 CraftingTable is authenticated but remains loopback-only. Authentication does
 not make LAN exposure safe; TLS and deployment hardening remain CT-08.
@@ -144,12 +144,23 @@ that assumption.
 - Archived workspaces and revoked membership rows remain structurally valid
   history. Their foreign keys do not authorize a new action; A2b must require
   current workspace and role state before invoking any repository mutation.
+- Schema 4 correlates repository journal rows through composite workspace
+  foreign keys. The database proves ownership, while strict Zod contracts,
+  append assertions, and fail-closed row mapping prove semantic agreement.
+  Payload JSON contains display and lifecycle summaries only: no raw
+  observation, Git directory, command output, environment, error evidence, or
+  readiness claim.
+- Repository display names are rendered as React text children. Activity
+  descriptions use no raw HTML and make no ready, verified, reviewed,
+  approved, executable, mergeable, or safe claim.
 
 ## Remaining boundary
 
 The composed product exposes no shell, SQL, filesystem, process-control, Git,
 agent, or verification endpoint. CT-04A1's process authority and A2a's
-repository persistence are private and uncomposed. A work-contract draft is
+repository persistence remain private and uncomposed. B1 adds durable
+correlation and bounded browser invalidation vocabulary, but no repository
+service, route, command, notifier producer, fetch, or view. A work-contract draft is
 data, not authority: it carries
 no field that can be read as approval, and nothing in the system can approve,
 execute, or merge it. Users, memberships, and roles establish only a future

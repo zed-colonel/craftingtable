@@ -223,10 +223,25 @@ export function App() {
    * queries. Event payloads are never treated as the planning model (CT03-A66).
    */
   useEffect(() => {
-    if (!projection.stale.workspaceSummary && projection.stale.workItemIds.length === 0) {
+    if (
+      !projection.stale.workspaceSummary &&
+      projection.stale.projectIds.length === 0 &&
+      projection.stale.workItemIds.length === 0
+    ) {
       return;
     }
-    dispatch({ type: 'stale-consumed' });
+    dispatch({
+      type: 'stale-consumed',
+      consumed: {
+        ...(projection.stale.workspaceSummary ? { workspaceSummary: true } : {}),
+        ...(projection.stale.projectIds.length === 0
+          ? {}
+          : { projectIds: projection.stale.projectIds }),
+        ...(projection.stale.workItemIds.length === 0
+          ? {}
+          : { workItemIds: projection.stale.workItemIds }),
+      },
+    });
     setRefreshToken((current) => current + 1);
   }, [projection.stale]);
 

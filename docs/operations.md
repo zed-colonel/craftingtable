@@ -1,4 +1,4 @@
-# Local operations (accepted CT-03 plus CT-04A2a)
+# Local operations (accepted CT-03 plus CT-04A2b1 foundation)
 
 ## Data location and configuration
 
@@ -85,7 +85,7 @@ refuses if any user already exists. An accepted operator amendment records
 exactly one safe `admin.bootstrap.denied` audit row for each refusal; it creates
 no other row.
 
-The schema is at version 3. Migration `0002-ct03-planning.sql` rebuilds both
+The schema is at version 4. Migration `0002-ct03-planning.sql` rebuilds both
 CT-02 journals once so their audit-action and workspace-event vocabularies
 become migration-owned catalogs, then adds the planning tables. It preserves
 every CT-02 row, both global sequences, the append-only triggers, and every
@@ -104,6 +104,22 @@ Inspection history is ordered by its database-generated global sequence, not by
 timestamp or identifier. No repository command is operator-usable in A2a:
 configuration, authorization, Git adaptation, audit/events, routes, and browser
 projection remain A2b.
+
+Migration `0004-ct04a2b-repository-journal.sql` rebuilds only
+`workspace_events`. It preserves every legacy sequence and exact payload byte,
+restores the captured `sqlite_sequence` high-water mark (including deleted
+high-water values), and restores the append-only triggers and index. It adds
+three nullable structural correlation columns, their composite ownership
+foreign keys, and five schema-4 event kinds. Its CHECK constraints govern
+kind-scoped column presence only; payload ID agreement and retirement coupling
+are runtime contract/mapper semantics, not payload-aware SQL.
+
+The five B1 kinds do not form a complete inspection-history feed. Verification
+outcomes such as `verified`, `environment-evidence-still-changed`, and
+`failure-recorded` can append an inspection without a workspace event. A later
+repository view must fetch authoritative inspection history rather than infer
+freshness from this journal. There is still no usable repository lifecycle
+command, service, route, notifier producer, configuration, fetch, or UI.
 
 Migration `0002` was revised during CT-03 remediation to close a structural
 ownership gap and freeze the imported work graph. A local database that ran the

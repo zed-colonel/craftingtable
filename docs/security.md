@@ -1,4 +1,4 @@
-# Security model (accepted CT-03 plus CT-04A1)
+# Security model (accepted CT-03 plus CT-04A2a)
 
 CraftingTable is authenticated but remains loopback-only. Authentication does
 not make LAN exposure safe; TLS and deployment hardening remain CT-08.
@@ -125,11 +125,32 @@ that assumption.
   authorized diagnostics views. There is no retention or deletion feature yet;
   a future work item must decide one.
 
+## Repository evidence and disclosure
+
+- A2a adds no filesystem, Git, process, route, notifier, or browser authority.
+  A scope gate scans its production and test sources for those imports.
+- Global partial unique indexes reserve each non-retired canonical top level,
+  common Git directory, and core fingerprint. A collision in another workspace
+  returns only `identity-reserved-elsewhere`, with no foreign ID, workspace,
+  path, or fingerprint.
+- Reader contracts expose canonical top level, object format, and core
+  fingerprint. Canonical Git and common-Git directories exist only in a
+  separate Owner-only administrative contract for A2b to authorize.
+- Exact stored observation bytes and their digest detect accidental corruption;
+  they do not authenticate a hostile database writer. Normalized failure
+  evidence is scalar-only, deterministic, and bounded.
+- Repository `active` and binding `active` are persistence states. They do not
+  mean ready, executable, approved, reviewed, verified, mergeable, or safe.
+- Archived workspaces and revoked membership rows remain structurally valid
+  history. Their foreign keys do not authorize a new action; A2b must require
+  current workspace and role state before invoking any repository mutation.
+
 ## Remaining boundary
 
 The composed product exposes no shell, SQL, filesystem, process-control, Git,
-agent, or verification endpoint. CT-04A1's process authority is private and
-uncomposed. A work-contract draft is data, not authority: it carries
+agent, or verification endpoint. CT-04A1's process authority and A2a's
+repository persistence are private and uncomposed. A work-contract draft is
+data, not authority: it carries
 no field that can be read as approval, and nothing in the system can approve,
 execute, or merge it. Users, memberships, and roles establish only a future
 schema seam; the product does not yet activate collaborative account

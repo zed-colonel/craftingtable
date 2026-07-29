@@ -65,6 +65,26 @@ export const PLANNING_FORBIDDEN_PATTERNS = [
   /^@craftingtable\/(storage|server|web|agents|git|testing)$/,
 ];
 
+/** CT-04A2a remains an authority-free domain/contracts/storage slice. */
+export const A2A_FORBIDDEN_PATTERNS = [
+  /^@craftingtable\/git$/,
+  /^node:fs(\/.*)?$/,
+  /^node:child_process$/,
+  /^child_process$/,
+  /^node:net$/,
+  /^node:http(s)?$/,
+  /^fastify$/,
+  /^@fastify\/.*$/,
+  /^@craftingtable\/server$/,
+  /^@craftingtable\/web$/,
+  /^react(-dom)?$/,
+  /(?:^|\/)routes?(?:\/|\.|$)/,
+  /(?:^|\/)workspace-events?(?:\/|\.|$)/,
+  /(?:^|\/)notifier(?:\/|\.|$)/,
+];
+
+const A2A_TEST_IO_PATTERNS = [/^node:fs(\/.*)?$/, /^node:net$/, /^node:http(s)?$/];
+
 const DEPENDENCY_FIELDS = [
   'dependencies',
   'devDependencies',
@@ -104,6 +124,28 @@ export function isNonProductionPackage(specifier) {
 
 export function isForbiddenInPlanning(specifier) {
   return PLANNING_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier));
+}
+
+export function isForbiddenInA2a(specifier) {
+  return A2A_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier));
+}
+
+function isA2aTestIoCapability(specifier) {
+  return A2A_TEST_IO_PATTERNS.some((pattern) => pattern.test(specifier));
+}
+
+export function isA2aSource(path) {
+  const normalized = path.split('\\').join('/');
+  return (
+    /packages\/domain\/src\/repository(?:\.test)?\.ts$/.test(normalized) ||
+    /packages\/contracts\/src\/repository(?:\.test)?\.ts$/.test(normalized) ||
+    /packages\/storage\/src\/repository[^/]*\.ts$/.test(normalized) ||
+    /packages\/storage\/src\/repositories\/repository-registry\/.*\.ts$/.test(normalized)
+  );
+}
+
+export function hasLiteralCurrentMigrationAssertion(source) {
+  return /migrationStatus\.currentVersion\)\.toBe\(\s*\d+\s*\)/.test(source);
 }
 
 /** Returns every module specifier the source imports. */
@@ -224,6 +266,23 @@ export function runCheck(root) {
         for (const specifier of findForbiddenImports(source)) {
           violations.push(`${relativePath}: imports forbidden module "${specifier}"`);
         }
+        if (isA2aSource(relativePath)) {
+          for (const specifier of findImports(source)) {
+            if (
+              isForbiddenInA2a(specifier) &&
+              !(isTestModule(path) && isA2aTestIoCapability(specifier))
+            ) {
+              violations.push(
+                `${relativePath}: CT-04A2a authority-free source imports "${specifier}"`,
+              );
+            }
+          }
+        }
+        if (isTestModule(path) && hasLiteralCurrentMigrationAssertion(source)) {
+          violations.push(
+            `${relativePath}: asserts a literal current migration version instead of the discovered supported version`,
+          );
+        }
         if (isTestModule(path)) {
           return;
         }
@@ -274,6 +333,6 @@ if (isMain) {
     'Forbidden-scope check passed: no Exo Stack dependency, only the reviewed Git\n' +
       'process authority, no non-production seam in composed source,\n' +
       'no NUL byte in tracked source, and\n' +
-      'the planning package stays pure.',
+      'the planning package and CT-04A2a repository model stay pure.',
   );
 }

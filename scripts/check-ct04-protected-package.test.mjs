@@ -1,9 +1,17 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { verifyCt04ProtectedPackage } from './check-ct04-protected-package.mjs';
+import {
+  CT04A2A_PROCESS_FILES,
+  CT04A2A_PROOF_FILES,
+  ct04a2aTestTitleIds,
+  verifyCt04A2aDocumentLineage,
+  verifyCt04A2aProofAnchors,
+  verifyCt04A2aProcessLineage,
+  verifyCt04ProtectedPackage,
+} from './check-ct04-protected-package.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
 const protectedDirectory = join(repositoryRoot, 'protected');
@@ -15,8 +23,23 @@ function scratchProtectedPackage() {
   return { root, scratch };
 }
 
+function scratchProofPackage() {
+  const root = mkdtempSync(join(tmpdir(), 'craftingtable-proof-'));
+  const paths = [
+    ...CT04A2A_PROCESS_FILES,
+    ...CT04A2A_PROOF_FILES,
+    'work-items/CT-04/CT-04A2-protected-acceptance-supplement.yaml',
+  ];
+  for (const relativePath of paths) {
+    const destination = join(root, relativePath);
+    mkdirSync(join(destination, '..'), { recursive: true });
+    cpSync(join(repositoryRoot, relativePath), destination);
+  }
+  return root;
+}
+
 describe('CT-04 protected-package verifier', () => {
-  it('accepts the literal operator-owned package', () => {
+  it('accepts the literal operator-owned package (A2-PROC-004)', () => {
     expect(verifyCt04ProtectedPackage(protectedDirectory)).toEqual({ ok: true, errors: [] });
   });
 
@@ -37,6 +60,57 @@ describe('CT-04 protected-package verifier', () => {
     try {
       writeFileSync(join(scratch, 'extra.yaml'), 'unexpected');
       expect(verifyCt04ProtectedPackage(scratch).ok).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('CT-04A2a proof-anchor verifier', () => {
+  it('expands range and slash title forms', () => {
+    expect(
+      ct04a2aTestTitleIds([
+        "it('range (A2A-REP-001..003)', () => {})",
+        "it('slash (A2A-RET-003/006)', () => {})",
+      ]),
+    ).toEqual(new Set(['A2A-REP-001', 'A2A-REP-002', 'A2A-REP-003', 'A2A-RET-003', 'A2A-RET-006']));
+  });
+
+  it('finds every behavior proof required to have a test-title anchor (A2-SCOPE-001)', () => {
+    expect(verifyCt04A2aProofAnchors(repositoryRoot)).toEqual({ ok: true, errors: [] });
+  });
+
+  it('verifies process chronology through artifact hashes and actual Git ancestry', () => {
+    expect(verifyCt04A2aProcessLineage(repositoryRoot)).toEqual({ ok: true, errors: [] });
+  });
+
+  it('rejects a design review that no longer pins the live proposed plan', () => {
+    const root = scratchProofPackage();
+    try {
+      const path = join(root, 'review-findings/CT-04/CT-04A2a-design-review.md');
+      writeFileSync(
+        path,
+        readFileSync(path, 'utf8').replace(
+          '67c6444ca23ba8d19902ad01a05ef4d31a5c990e4d8d02b1049cde458fcd2c81',
+          '0'.repeat(64),
+        ),
+      );
+      expect(verifyCt04A2aDocumentLineage(root).errors).toContain(
+        'A2-PROC-001 design review does not pin the live proposed-plan SHA-256',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when one required test-title anchor is removed', () => {
+    const root = scratchProofPackage();
+    try {
+      const path = join(root, 'packages/storage/src/repository-transitions.test.ts');
+      writeFileSync(path, readFileSync(path, 'utf8').replace('A2A-REP-016', 'REMOVED-REP-016'));
+      expect(verifyCt04A2aProofAnchors(root).errors).toContain(
+        'A2A-REP-016 has no test-title anchor',
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

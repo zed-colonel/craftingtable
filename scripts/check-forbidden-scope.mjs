@@ -150,7 +150,7 @@ const EXISTING_TEST_CAPABILITY_MODULES = [
  * under-matching is not (CT01-R4).
  */
 export const IMPORT_PATTERN =
-  /(?:\bimport\s+(?:type\s+)?(?:[^'"\n;]+?\s+from\s+)?|\bexport\s+(?:type\s+)?(?:[^'"\n;]+?\s+from\s+)|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
+  /(?:\bimport\s+(?:type\s+)?(?:[^;'"]*?\s+from\s+)?|\bexport\s+(?:type\s+)?[^;'"]*?\s+from\s+|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
 
 /**
  * B1's complete production target is closed by exact path and exact module

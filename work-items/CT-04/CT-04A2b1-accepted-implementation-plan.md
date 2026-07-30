@@ -1,11 +1,13 @@
 # CT-04A2b1 accepted implementation plan
 
-**Status:** Accepted-plan candidate; source implementation remains unauthorized pending
-operator approval and commit
+**Status:** Accepted and implemented; amended after independent implementation review
+under the operator's 2026-07-29 remediation disposition
 **Slice:** CT-04A2b1 — Repository journal correlation and browser projection
 **Parent:** CT-04A2b — Repository lifecycle and event integration
 **Planning checkout:** `6aed9bda58fac0824f707691106aff0abbf35cdb`
 **Accepted source head:** `e3b69c612a51b0b2a8d436ae3ea5355abd40745e`
+**Implementation review:** `review-findings/CT-04/CT-04A2b1-initial-review.md`,
+SHA-256 `b8a70cb1793775d93b72b8923d01242e55751eb25d1621b1213a3eb07e1d2f66`
 
 ## 1. Authority, lineage, and stop condition
 
@@ -87,6 +89,7 @@ packages/storage/src/migration-0004.test.ts
 packages/storage/src/repositories.test.ts
 packages/storage/src/snapshot.test.ts
 
+apps/server/src/cli.test.ts
 apps/server/src/services/workspace-event-stream-service.test.ts
 
 apps/web/src/App.tsx
@@ -101,9 +104,10 @@ scripts/check-ct04-protected-package.mjs
 scripts/check-ct04-protected-package.test.mjs
 ```
 
-Prediction: 30 implementation/documentation files and approximately 2,700–3,700 changed
-lines. The review replaces the proposed ADR-013 amendment with `App.tsx`; it does not
-increase the file count.
+Amended exact tree: 31 implementation/documentation files. The implementation review
+confirmed that `apps/server/src/cli.test.ts` is a necessary schema-4 regression repair:
+the unsupported-version fixture must derive `supportedVersion + 1`. The original
+2,700–3,700-line prediction is retained as historical planning evidence.
 
 Governance and immutable reports remain separate:
 
@@ -692,15 +696,20 @@ No repository page, repository model projection, or repository fetch is added.
 `ActivityPanel` exposes a small description helper with an exhaustive switch and explicit
 unreachable failure.
 
-Descriptions:
+All nine descriptions:
 
-- are nonempty and no longer than 256 characters;
+- are nonempty;
 - use validated display names as React text children;
 - use no raw HTML;
 - disclose no administrative path or Git evidence;
 - make no ready, verified, reviewed, approved, executable, or mergeable claim;
 - distinguish registration, status transition, risk evidence change, binding, and
   binding retirement.
+
+The five B1 repository-event descriptions, whose display names are bounded to 120
+characters, are no longer than 256 characters. This bound is not asserted for the
+pre-existing `plan-version-imported` description because its document field may contain
+300 characters.
 
 The hostile-display test asserts literal text, absence of injected elements, and absence
 of handler execution. A single nine-kind fixture is shared by exhaustive description and
@@ -853,7 +862,7 @@ repository/project/binding, missing parent, and each legal/illegal nullable dime
 | `B1-UI-003` | Binding invalidates structural project/repository |
 | `B1-UI-004/005` | Duplicate/lower and foreign-workspace behavior |
 | `B1-UI-006/007` | Same-workspace retention and workspace-switch clearing |
-| `B1-UI-008/009/010` | Hostile render, bounded descriptions, exhaustive switches |
+| `B1-UI-008/009/010` | Hostile render, five bounded repository descriptions, exhaustive switches |
 | `B1-UI-011` | 100-ID bound, stable dedup, and exact parameterized consumption |
 | `B1-UI-012` | Documentary five-kind/no-inspection-feed limit; executable lifecycle proof remains B2 |
 | `B1-UI-013` | Reducer helper selects structural project/repository on mismatch; Zod rejects mismatch at wire |
@@ -1007,7 +1016,7 @@ that records that exact head. Each remediation repeats this rule.
 ## 18. Fan-out and explicit completion boundary
 
 No further B1 fan-out is required. The accepted design remains one authority-free schema
-and projection boundary, with approximately 30 files, one migration, and no new service
+and projection boundary, with the amended 31-file tree, one migration, and no new service
 or process authority.
 
 Stop and replan if implementation requires:
@@ -1045,7 +1054,26 @@ B1 completion must state directly:
 | `B1-F-12` | Import checker limited to specifiers; behavior proven by inventory/diff |
 | `B1-F-13` | Target tree, empty sequence, structural round-trip, claim scope, and fan-out corrected |
 
-## Appendix B — proof that B2 remains absent
+## Appendix B — post-implementation review amendment
+
+The independent implementation review at
+`7c8bcd34c0c4822e1b37cf2f2ea05acc7d9c4056` found two blockers and six advisories.
+The operator directed one remediation turn with this disposition:
+
+| Finding | Disposition |
+|---|---|
+| `B1-R-01` | required: repair multi-line import detection and add multi-line negative fixtures |
+| `B1-R-02` | required: exclude only the exact root CT-04A Git-test scratch namespace from untracked inventory |
+| `B1-A-01` | close now: amend §3 to include `apps/server/src/cli.test.ts` |
+| `B1-A-02` | close now: add exact pre-drop and post-drop composite-FK catalog guards |
+| `B1-A-03` | close now: scope the 256-character bound to the five B1 repository descriptions |
+| `B1-A-04` | no change |
+| `B1-A-05` | no change; retain the original line-count prediction as historical evidence |
+| `B1-A-06` | close now: admit the required initial and remediation review artifact paths |
+
+This amendment changes no protected specification and authorizes no B2 behavior.
+
+## Appendix C — proof that B2 remains absent
 
 The planned production changes are limited to domain event vocabulary, contracts,
 workspace-event storage, browser reducer/App consumption, and safe activity descriptions.

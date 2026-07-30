@@ -351,6 +351,65 @@ SELECT 'schema-catalog', CASE WHEN
     )
   THEN 1 ELSE 0 END;
 
+WITH actual(parent_table, on_delete, parts, from_columns, to_columns) AS (
+  SELECT
+    "table",
+    on_delete,
+    COUNT(*),
+    group_concat("from", ',' ORDER BY seq),
+    group_concat("to", ',' ORDER BY seq)
+  FROM pragma_foreign_key_list('workspace_events')
+  GROUP BY id, "table", on_delete
+  HAVING COUNT(*) > 1
+),
+expected(parent_table, on_delete, parts, from_columns, to_columns) AS (
+  VALUES
+    ('projects', 'RESTRICT', 2, 'workspace_id,project_id', 'workspace_id,id'),
+    ('work_items', 'RESTRICT', 2, 'workspace_id,work_item_id', 'workspace_id,id'),
+    (
+      'work_items',
+      'RESTRICT',
+      3,
+      'workspace_id,project_id,work_item_id',
+      'workspace_id,project_id,id'
+    ),
+    (
+      'registered_repositories',
+      'RESTRICT',
+      2,
+      'workspace_id,repository_id',
+      'workspace_id,id'
+    ),
+    (
+      'repository_inspections',
+      'RESTRICT',
+      3,
+      'workspace_id,repository_id,repository_inspection_id',
+      'workspace_id,repository_id,id'
+    ),
+    (
+      'project_repository_bindings',
+      'RESTRICT',
+      4,
+      'workspace_id,project_id,repository_id,repository_binding_id',
+      'workspace_id,project_id,repository_id,id'
+    )
+)
+INSERT INTO migration_0004_guard (checkpoint, ok)
+SELECT 'composite-foreign-key-catalog', CASE WHEN
+    (SELECT COUNT(*) FROM actual) = 6
+    AND NOT EXISTS (
+      SELECT parent_table, on_delete, parts, from_columns, to_columns FROM expected
+      EXCEPT
+      SELECT parent_table, on_delete, parts, from_columns, to_columns FROM actual
+    )
+    AND NOT EXISTS (
+      SELECT parent_table, on_delete, parts, from_columns, to_columns FROM actual
+      EXCEPT
+      SELECT parent_table, on_delete, parts, from_columns, to_columns FROM expected
+    )
+  THEN 1 ELSE 0 END;
+
 INSERT INTO migration_0004_guard (checkpoint, ok)
 SELECT 'pre-drop-database-checks', CASE WHEN
     NOT EXISTS (SELECT 1 FROM pragma_foreign_key_check)
@@ -361,6 +420,65 @@ SELECT 'pre-drop-database-checks', CASE WHEN
   THEN 1 ELSE 0 END;
 
 DROP TABLE workspace_events_schema3;
+
+WITH actual(parent_table, on_delete, parts, from_columns, to_columns) AS (
+  SELECT
+    "table",
+    on_delete,
+    COUNT(*),
+    group_concat("from", ',' ORDER BY seq),
+    group_concat("to", ',' ORDER BY seq)
+  FROM pragma_foreign_key_list('workspace_events')
+  GROUP BY id, "table", on_delete
+  HAVING COUNT(*) > 1
+),
+expected(parent_table, on_delete, parts, from_columns, to_columns) AS (
+  VALUES
+    ('projects', 'RESTRICT', 2, 'workspace_id,project_id', 'workspace_id,id'),
+    ('work_items', 'RESTRICT', 2, 'workspace_id,work_item_id', 'workspace_id,id'),
+    (
+      'work_items',
+      'RESTRICT',
+      3,
+      'workspace_id,project_id,work_item_id',
+      'workspace_id,project_id,id'
+    ),
+    (
+      'registered_repositories',
+      'RESTRICT',
+      2,
+      'workspace_id,repository_id',
+      'workspace_id,id'
+    ),
+    (
+      'repository_inspections',
+      'RESTRICT',
+      3,
+      'workspace_id,repository_id,repository_inspection_id',
+      'workspace_id,repository_id,id'
+    ),
+    (
+      'project_repository_bindings',
+      'RESTRICT',
+      4,
+      'workspace_id,project_id,repository_id,repository_binding_id',
+      'workspace_id,project_id,repository_id,id'
+    )
+)
+INSERT INTO migration_0004_guard (checkpoint, ok)
+SELECT 'post-drop-composite-foreign-key-catalog', CASE WHEN
+    (SELECT COUNT(*) FROM actual) = 6
+    AND NOT EXISTS (
+      SELECT parent_table, on_delete, parts, from_columns, to_columns FROM expected
+      EXCEPT
+      SELECT parent_table, on_delete, parts, from_columns, to_columns FROM actual
+    )
+    AND NOT EXISTS (
+      SELECT parent_table, on_delete, parts, from_columns, to_columns FROM actual
+      EXCEPT
+      SELECT parent_table, on_delete, parts, from_columns, to_columns FROM expected
+    )
+  THEN 1 ELSE 0 END;
 
 INSERT INTO migration_0004_guard (checkpoint, ok)
 SELECT 'post-drop-state', CASE WHEN

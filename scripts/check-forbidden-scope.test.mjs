@@ -93,6 +93,27 @@ describe('findForbiddenImports', () => {
     `;
     expect(findForbiddenImports(clean)).toEqual([]);
   });
+
+  it('detects Biome-formatted multi-line import and export variants (B1-R-01)', () => {
+    const source = `
+      import {
+        spawn,
+        execFile,
+      } from 'node:child_process';
+      import type {
+        RepositoryInspector,
+      } from "@craftingtable/git";
+      export {
+        dangerous,
+      } from 'exoskeleton';
+    `;
+    expect(findImports(source)).toEqual([
+      'node:child_process',
+      '@craftingtable/git',
+      'exoskeleton',
+    ]);
+    expect(findForbiddenImports(source)).toEqual(['exoskeleton']);
+  });
 });
 
 describe('findManifestViolations', () => {
@@ -388,6 +409,32 @@ describe('CT-04A2b1 exact-path dependency boundary', () => {
     try {
       expect(runCheck(root)).toContain(
         'packages/domain/src/workspace-events.ts: CT-04A2b1 exact-path source imports unapproved module "@craftingtable/git"',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails end to end for multi-line process and Git imports in B1 source (B1-R-01)', () => {
+    const root = scopeFixture(
+      'storage/src/repositories/workspace-events.ts',
+      `import {
+         spawn,
+       } from 'node:child_process';
+       import {
+         inspect,
+       } from '@craftingtable/git';
+       void spawn;
+       void inspect;`,
+    );
+    try {
+      expect(runCheck(root)).toEqual(
+        expect.arrayContaining([
+          'packages/storage/src/repositories/workspace-events.ts: CT-04A2b1 exact-path source imports unapproved module "node:child_process"',
+          'packages/storage/src/repositories/workspace-events.ts: CT-04A2b1 exact-path source imports unapproved module "@craftingtable/git"',
+          'packages/storage/src/repositories/workspace-events.ts: imports CT-04+ capability module "node:child_process"',
+          'packages/storage/src/repositories/workspace-events.ts: production source imports non-production seam "@craftingtable/git"',
+        ]),
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

@@ -651,6 +651,40 @@ describe('migration 0004 repository journal', () => {
     database.close();
   });
 
+  it('B1-MIG-010/B1-A-02 rolls back when one composite FK definition is omitted', () => {
+    const { database, migrations } = schemaThreeDatabase();
+    const migration = migrations[3];
+    if (migration === undefined) throw new Error('Expected migration 0004');
+    const repositoryForeignKey = `    FOREIGN KEY (workspace_id, repository_id)
+      REFERENCES registered_repositories(workspace_id, id) ON DELETE RESTRICT,
+`;
+    expect(migration.sql.split(repositoryForeignKey)).toHaveLength(2);
+    const failedSql = migration.sql.replace(repositoryForeignKey, '');
+
+    expect(() =>
+      runMigrations(database, [
+        ...migrations.slice(0, 3),
+        { ...migration, sql: failedSql, checksum: checksumSql(failedSql) },
+      ]),
+    ).toThrow(/CHECK constraint failed/);
+    expect(migrationStatus(database, migrations.slice(0, 3))).toEqual({
+      currentVersion: 3,
+      supportedVersion: 3,
+      pendingVersions: [],
+    });
+    expect(
+      database
+        .prepare(
+          `SELECT name FROM pragma_table_info('workspace_events')
+           WHERE name IN ('repository_id', 'repository_inspection_id', 'repository_binding_id')`,
+        )
+        .all(),
+    ).toEqual([]);
+    expect(workspaceEventSchemaObjects(database)).toHaveLength(3);
+    expect(database.pragma('foreign_key_check')).toEqual([]);
+    database.close();
+  });
+
   it('B1-COR-001 accepts every legal same-workspace structural correlation', () => {
     const { database, migrations } = schemaThreeDatabase();
     const graph = seedGraph(database, 'legal');

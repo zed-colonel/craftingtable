@@ -158,4 +158,36 @@ describe('CT-04A2b1 proof and inventory verifier', () => {
     ]);
     expect(verifyCt04A2b1Inventory(repositoryRoot)).toEqual({ ok: true, errors: [] });
   });
+
+  it('B1-R-02 ignores only the exact concurrent CT-04A Git-test scratch namespace', () => {
+    expect(
+      b1ChangedPathViolations([
+        '.ct04a-git-test-f9NlNr/budget-spawn-count',
+        '.ct04a-git-test-f9NlNr/counting-git',
+        '.ct04a-git-test-f9NlNr/sources/repository/file',
+      ]),
+    ).toEqual([]);
+    expect(
+      b1ChangedPathViolations([
+        '.ct04a-git-test-source.ts',
+        'nested/.ct04a-git-test-f9NlNr/counting-git',
+      ]),
+    ).toEqual([
+      'B1-SCOPE-005 changed path is outside the accepted B1 tree: .ct04a-git-test-source.ts',
+      'B1-SCOPE-005 changed path is outside the accepted B1 tree: nested/.ct04a-git-test-f9NlNr/counting-git',
+    ]);
+  });
+
+  it('B1-A-06 admits required B1 implementation and remediation review artifacts', () => {
+    expect(
+      b1ChangedPathViolations([
+        'review-findings/CT-04/CT-04A2b1-initial-review.md',
+        'review-findings/CT-04/CT-04A2b1-remediation-review.md',
+        'review-findings/CT-04/CT-04A2b1-remediation-2-review.md',
+      ]),
+    ).toEqual([]);
+    expect(b1ChangedPathViolations(['review-findings/CT-04/CT-04A2b2-initial-review.md'])).toEqual([
+      'B1-SCOPE-005 changed path is outside the accepted B1 tree: review-findings/CT-04/CT-04A2b2-initial-review.md',
+    ]);
+  });
 });

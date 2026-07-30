@@ -135,12 +135,11 @@ const NINE_KIND_FIXTURE = [
 afterEach(cleanup);
 
 describe('ActivityPanel repository events', () => {
-  it('B1-STO-010/B1-UI-009/B1-UI-010 describes every journal kind safely and boundedly', () => {
+  it('B1-STO-010/B1-UI-009/B1-UI-010 describes every kind and bounds repository descriptions', () => {
     const descriptions = NINE_KIND_FIXTURE.map(describeEvent);
     expect(descriptions).toHaveLength(9);
     for (const description of descriptions) {
       expect(description.length).toBeGreaterThan(0);
-      expect(description.length).toBeLessThanOrEqual(256);
     }
     expect(descriptions.slice(4)).toEqual([
       'Repository registered: Repository',
@@ -152,6 +151,36 @@ describe('ActivityPanel repository events', () => {
     expect(descriptions.slice(4).join(' ').toLowerCase()).not.toMatch(
       /\b(ready|verified|reviewed|approved|executable|mergeable)\b/,
     );
+
+    const maximumDisplayName = 'R'.repeat(120);
+    const maximumRepositoryDescriptions = NINE_KIND_FIXTURE.slice(4).map((repositoryEvent) => {
+      const displayNameKey = repositoryEvent.kind.startsWith('project-')
+        ? 'repositoryDisplayName'
+        : 'displayName';
+      return describeEvent({
+        ...repositoryEvent,
+        payload: {
+          ...repositoryEvent.payload,
+          [displayNameKey]: maximumDisplayName,
+        },
+      } as WorkspaceEventEnvelope);
+    });
+    for (const description of maximumRepositoryDescriptions) {
+      expect(description.length).toBeLessThanOrEqual(256);
+    }
+  });
+
+  it('B1-A-03 does not claim the repository description bound for legacy imports', () => {
+    const imported = NINE_KIND_FIXTURE[2];
+    if (imported?.kind !== 'plan-version-imported') {
+      throw new Error('Expected plan-version-imported fixture');
+    }
+    expect(
+      describeEvent({
+        ...imported,
+        payload: { ...imported.payload, document: 'D'.repeat(300) },
+      } as WorkspaceEventEnvelope).length,
+    ).toBeGreaterThan(256);
   });
 
   it('B1-UI-008 renders a hostile display name literally without injected elements', () => {

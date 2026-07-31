@@ -1,0 +1,50 @@
+contract: CT-04A2b2
+source_bundle:
+  archive_head: dd9c9699f0d86cae00fc1bf0d054224880c8dbed
+  sha256: 104f780533687b3eee19c76995256567b2bea5a1145158e3f4f36199ca18971f
+  files: 390
+  source_like_files: 196
+accepted_b1:
+  reviewed_code_head: b8a5493b9e33a82c3e4d6b43e39d6e4422d05576
+  report_head: e2be367d443294e83f7b7d5d9584dad60256abf3
+  accepted_plan_sha256: 9df50c1da04fd7a4b2351245724105a5c3a11e02bcd5d66c09f10886cb43d658
+  final_review_sha256: cd0a77f5383d5936a229c3ad10311b522e9fbf1f45ec78acd32d3b946c3492a3
+  migration_0004_sha256: 409553eb1c6a7eb978be9fc2dae6ddb9eb1d51e0f016f4b5c6d571edbaf5f29e
+  event_kinds:
+  - repository-registered
+  - repository-status-changed
+  - repository-evidence-changed
+  - project-repository-bound
+  - project-repository-binding-retired
+accepted_a2a:
+  migration_0003_sha256: 526df194257806b2a2e9582da8df8058ad86e819d52eae6b9b2525f972123bc4
+  repository_statuses:
+  - active
+  - unavailable
+  - identity-evidence-changed
+  - identity-mismatch
+  - evidence-blocked
+  - retired
+  source_gaps:
+  - RepositoryObservationAssessment lacks repository-class-changed
+  - storage cannot append standalone failed/non-advancing reaffirmation attempt
+  - retirement result exposes only binding IDs, not event-complete transition evidence
+protected_pins:
+  ct04: ce7a101ca3a988cc1b6395653baa0bfca885d057109eae12f9c5d9544f090f64
+  ct04a2: 1000d564f01712b7dc2c59570dbfd6c498192f77c1cc5c13715e55c4b656429c
+  ct04a2b: 255fe8b61ede97aa3366ab5e81214031ef2053e89c0246b0b9c4c7b14278ebad
+decomposition:
+- id: CT-04A2b2a
+  title: Repository feature and evidence boundary
+  depends_on: []
+- id: CT-04A2b2b
+  title: Registration, inspection, and environmental reaffirmation lifecycle
+  depends_on:
+  - CT-04A2b2a
+- id: CT-04A2b2c
+  title: Retirement, project binding, and CT-04A parent fan-in
+  depends_on:
+  - CT-04A2b2b
+out_of_scope_advisories:
+- A1 test scratch placement under worktree
+- B1 import scanner regex character class advisory

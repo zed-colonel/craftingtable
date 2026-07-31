@@ -105,6 +105,7 @@ const CT04A2B1_DOCUMENTARY_IDS = new Set([
 ]);
 
 const CT04A2B1_ALLOWED_CHANGED_PATHS = new Set([
+  '.gitignore',
   'README.md',
   'CLAUDE.md',
   'docs/architecture.md',
@@ -240,11 +241,7 @@ export function b1ChangedPathViolations(paths) {
         !/^work-items\/CT-04\/CT-04A2b1-(?:implementation|remediation)-.*report\.md$/.test(path) &&
         !/^review-findings\/CT-04\/CT-04A2b1-(?:initial|remediation(?:-\d+)?)-review\.md$/.test(
           path,
-        ) &&
-        // Existing CT-04A Git tests create this exact root scratch namespace.
-        // It contains no repository source and may coexist with this check in
-        // another Vitest worker. Near-miss or nested names remain violations.
-        !/^\.ct04a-git-test-[^/]+\//.test(path),
+        ),
     )
     .map((path) => `B1-SCOPE-005 changed path is outside the accepted B1 tree: ${path}`);
 }

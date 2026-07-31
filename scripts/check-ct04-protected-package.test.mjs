@@ -159,21 +159,30 @@ describe('CT-04A2b1 proof and inventory verifier', () => {
     expect(verifyCt04A2b1Inventory(repositoryRoot)).toEqual({ ok: true, errors: [] });
   });
 
-  it('B1-R-02 ignores only the exact concurrent CT-04A Git-test scratch namespace', () => {
-    expect(
-      b1ChangedPathViolations([
-        '.ct04a-git-test-f9NlNr/budget-spawn-count',
-        '.ct04a-git-test-f9NlNr/counting-git',
-        '.ct04a-git-test-f9NlNr/sources/repository/file',
-      ]),
-    ).toEqual([]);
+  it('B1-R-02 excludes the complete root CT-04A scratch class through Git inventory', () => {
+    const gitScratch = mkdtempSync(join(repositoryRoot, '.ct04a-git-test-'));
+    const hostileHomeScratch = mkdtempSync(join(repositoryRoot, '.ct04a-hostile-home-'));
+    try {
+      writeFileSync(join(gitScratch, 'counting-git'), 'scratch');
+      mkdirSync(join(hostileHomeScratch, 'template', 'hooks'), { recursive: true });
+      writeFileSync(join(hostileHomeScratch, 'template', 'hooks', 'hostile-hook'), 'scratch');
+      writeFileSync(join(hostileHomeScratch, 'hostile-gitconfig'), 'scratch');
+
+      expect(verifyCt04A2b1Inventory(repositoryRoot)).toEqual({ ok: true, errors: [] });
+    } finally {
+      rmSync(gitScratch, { recursive: true, force: true });
+      rmSync(hostileHomeScratch, { recursive: true, force: true });
+    }
+
     expect(
       b1ChangedPathViolations([
         '.ct04a-git-test-source.ts',
+        '.ct04a-git-testX/evil.ts',
         'nested/.ct04a-git-test-f9NlNr/counting-git',
       ]),
     ).toEqual([
       'B1-SCOPE-005 changed path is outside the accepted B1 tree: .ct04a-git-test-source.ts',
+      'B1-SCOPE-005 changed path is outside the accepted B1 tree: .ct04a-git-testX/evil.ts',
       'B1-SCOPE-005 changed path is outside the accepted B1 tree: nested/.ct04a-git-test-f9NlNr/counting-git',
     ]);
   });

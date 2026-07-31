@@ -65,6 +65,7 @@ and A1 adapter boundary remain unchanged.
 ## 3. Exact implementation tree and size
 
 ```text
+.gitignore
 README.md
 CLAUDE.md
 docs/architecture.md
@@ -104,10 +105,12 @@ scripts/check-ct04-protected-package.mjs
 scripts/check-ct04-protected-package.test.mjs
 ```
 
-Amended exact tree: 31 implementation/documentation files. The implementation review
+Amended exact tree: 32 implementation/documentation files. The implementation review
 confirmed that `apps/server/src/cli.test.ts` is a necessary schema-4 regression repair:
 the unsupported-version fixture must derive `supportedVersion + 1`. The original
-2,700–3,700-line prediction is retained as historical planning evidence.
+2,700–3,700-line prediction is retained as historical planning evidence. The remediation
+review added `.gitignore` so Git itself excludes the complete root `.ct04a-*` test-scratch
+class from the B1 changed-path inventory.
 
 Governance and immutable reports remain separate:
 
@@ -1016,7 +1019,7 @@ that records that exact head. Each remediation repeats this rule.
 ## 18. Fan-out and explicit completion boundary
 
 No further B1 fan-out is required. The accepted design remains one authority-free schema
-and projection boundary, with the amended 31-file tree, one migration, and no new service
+and projection boundary, with the amended 32-file tree, one migration, and no new service
 or process authority.
 
 Stop and replan if implementation requires:
@@ -1063,13 +1066,20 @@ The operator directed one remediation turn with this disposition:
 | Finding | Disposition |
 |---|---|
 | `B1-R-01` | required: repair multi-line import detection and add multi-line negative fixtures |
-| `B1-R-02` | required: exclude only the exact root CT-04A Git-test scratch namespace from untracked inventory |
+| `B1-R-02` | required, superseded by remediation-review evidence: use `.gitignore` to exclude the complete root `.ct04a-*` test-scratch class from Git's untracked inventory; remove the checker carve-out and prove both known namespaces plus a near-miss |
 | `B1-A-01` | close now: amend §3 to include `apps/server/src/cli.test.ts` |
 | `B1-A-02` | close now: add exact pre-drop and post-drop composite-FK catalog guards |
 | `B1-A-03` | close now: scope the 256-character bound to the five B1 repository descriptions |
 | `B1-A-04` | no change |
 | `B1-A-05` | no change; retain the original line-count prediction as historical evidence |
 | `B1-A-06` | close now: admit the required initial and remediation review artifact paths |
+| `B1-A-07` | close now by operator disposition: strip comments lexically before import scanning so comment punctuation cannot hide an import |
+
+The remediation-1 independent review is
+`review-findings/CT-04/CT-04A2b1-remediation-1-review.md`, SHA-256
+`4d35f08915b279918e3809cddeff6ebfac6cb45f213abca113513a0a0a83a8f8`.
+The operator directed the sequenced `B1-R-02` replacement and elected to close
+`B1-A-07` structurally in the same remediation turn.
 
 This amendment changes no protected specification and authorizes no B2 behavior.
 

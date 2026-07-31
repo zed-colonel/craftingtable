@@ -11,6 +11,7 @@ import {
   asWorkspaceMembershipId,
   AUDIT_ACTIONS,
   AUDIT_ACTION_INTRODUCED_IN_SCHEMA,
+  WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA,
   WORKSPACE_EVENT_KINDS,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
@@ -232,7 +233,11 @@ describe('migration 0002 journal preservation', () => {
     expect(actions).toEqual(
       AUDIT_ACTIONS.filter((action) => AUDIT_ACTION_INTRODUCED_IN_SCHEMA[action] <= 2).toSorted(),
     );
-    expect(kinds).toEqual([...WORKSPACE_EVENT_KINDS].toSorted());
+    expect(kinds).toEqual(
+      WORKSPACE_EVENT_KINDS.filter(
+        (kind) => WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA[kind] <= 2,
+      ).toSorted(),
+    );
     seeded.database.close();
   });
 
@@ -306,7 +311,7 @@ describe('migration 0002 journal preservation', () => {
     seeded.database.close();
   });
 
-  it('rejects a workspace-event payload that is not a JSON object', () => {
+  it('B1-STO-008 rejects a workspace-event payload that is not a JSON object', () => {
     const seeded = seedSchemaOne();
     migrateToTwo(seeded.database);
     expect(() =>
@@ -363,6 +368,7 @@ describe('migration 0002 journal preservation', () => {
       'ct02-foundation',
       'ct03-planning',
       'ct04a2a-repository-model',
+      'ct04a2b-repository-journal',
     ]);
     // The recorded checksum of 0001 is what every already-migrated installation
     // validates against; changing that file would lock operators out.

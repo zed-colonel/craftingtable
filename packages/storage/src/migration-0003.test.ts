@@ -71,7 +71,7 @@ describe('migration 0003 repository model', () => {
       ).sql,
     };
 
-    expect(runMigrations(database, migrations)).toEqual({
+    expect(runMigrations(database, migrations.slice(0, 3))).toEqual({
       currentVersion: 3,
       supportedVersion: 3,
       pendingVersions: [],
@@ -105,7 +105,7 @@ describe('migration 0003 repository model', () => {
   it('registers all 19 audit actions with their exact introduction versions (A2A-MIG-001)', () => {
     const database = openDatabase(databasePath());
     const migrations = discoverMigrations();
-    runMigrations(database, migrations);
+    runMigrations(database, migrations.slice(0, 3));
     const rows = database
       .prepare(`SELECT action, introduced_in_schema FROM audit_action_kinds ORDER BY action`)
       .all() as { action: (typeof AUDIT_ACTIONS)[number]; introduced_in_schema: 1 | 2 | 3 }[];

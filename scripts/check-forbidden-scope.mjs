@@ -146,10 +146,77 @@ const EXISTING_TEST_CAPABILITY_MODULES = [
  * Matches the module specifier in all supported syntax:
  *   import x from 'mod';   import { y } from 'mod';   export * from 'mod';
  *   import 'mod';          import('mod')              require('mod')
- * Over-matching (e.g. inside comments) is acceptable for a guard; silent
- * under-matching is not (CT01-R4).
+ * Source comments are removed before this pattern runs so punctuation in a
+ * comment cannot hide a real dependency edge and commented-out code cannot
+ * create a spurious edge.
  */
-export const IMPORT_PATTERN = /(?:\bimport\s*\(?\s*|\bfrom\s+|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
+export const IMPORT_PATTERN =
+  /(?:\bimport\s+(?:type\s+)?(?:[^;'"]*?\s+from\s+)?|\bexport\s+(?:type\s+)?[^;'"]*?\s+from\s+|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
+
+/**
+ * B1's complete production target is closed by exact path and exact module
+ * specifier. This checks dependency edges only; route/service/command absence
+ * is proved separately by the CT-04 protected-package inventory check.
+ */
+export const B1_ALLOWED_IMPORTS = new Map([
+  ['packages/domain/src/workspace-events.ts', new Set(['./ids.js', './repository.js'])],
+  [
+    'packages/contracts/src/workspace-event.ts',
+    new Set(['@craftingtable/domain', 'zod', './ids.js', './repository.js']),
+  ],
+  [
+    'packages/storage/src/types.ts',
+    new Set(['@craftingtable/domain', './planning-types.js', './repository-types.js']),
+  ],
+  [
+    'packages/storage/src/repositories/workspace-events.ts',
+    new Set(['@craftingtable/domain', 'better-sqlite3', '../types.js']),
+  ],
+  [
+    'apps/web/src/lib/workspace-projection.ts',
+    new Set(['@craftingtable/contracts', '@craftingtable/domain']),
+  ],
+  [
+    'apps/web/src/components/ActivityPanel.tsx',
+    new Set(['@craftingtable/contracts', '../lib/workspace-projection.js']),
+  ],
+  [
+    'apps/web/src/App.tsx',
+    new Set([
+      '@craftingtable/contracts',
+      '@craftingtable/domain',
+      'react',
+      './components/ActivityPanel.js',
+      './components/AuditPanel.js',
+      './components/LoginPage.js',
+      './components/SessionPanel.js',
+      './components/StatusRegions.js',
+      './components/WorkspaceShell.js',
+      './features/planning/ImportPlanPage.js',
+      './features/planning/PlanVersionPage.js',
+      './features/planning/ProjectCards.js',
+      './features/planning/ProjectPage.js',
+      './features/planning/SourceText.js',
+      './features/planning/WorkItemPage.js',
+      './lib/api-client.js',
+      './lib/auth-state.js',
+      './lib/planning-api.js',
+      './lib/route.js',
+      './lib/use-route.js',
+      './lib/use-workspace-event-stream.js',
+      './lib/workspace-projection.js',
+    ]),
+  ],
+]);
+
+export function b1DisallowedImports(relativePath, source) {
+  const normalized = relativePath.split('\\').join('/');
+  const allowed = B1_ALLOWED_IMPORTS.get(normalized);
+  if (allowed === undefined) {
+    return [];
+  }
+  return findImports(source).filter((specifier) => !allowed.has(specifier));
+}
 
 export function isForbidden(specifier) {
   return FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier));
@@ -216,9 +283,77 @@ export function hasLiteralCurrentMigrationAssertion(source) {
   return /migrationStatus\.currentVersion\)\.toBe\(\s*\d+\s*\)/.test(source);
 }
 
+/**
+ * Replaces JavaScript/TypeScript comments with whitespace while preserving
+ * newlines and quoted text. Preserving source shape keeps import matching
+ * predictable, and preserving quoted text retains the module specifiers that
+ * IMPORT_PATTERN extracts. This is intentionally a lexical preprocessing pass,
+ * not a second import grammar.
+ */
+export function stripComments(source) {
+  let result = '';
+  let state = 'code';
+  let quote = '';
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const next = source[index + 1];
+
+    if (state === 'line-comment') {
+      if (character === '\n' || character === '\r') {
+        result += character;
+        state = 'code';
+      } else {
+        result += ' ';
+      }
+      continue;
+    }
+
+    if (state === 'block-comment') {
+      if (character === '*' && next === '/') {
+        result += '  ';
+        index += 1;
+        state = 'code';
+      } else {
+        result += character === '\n' || character === '\r' ? character : ' ';
+      }
+      continue;
+    }
+
+    if (state === 'quoted') {
+      result += character;
+      if (character === '\\' && next !== undefined) {
+        result += next;
+        index += 1;
+      } else if (character === quote) {
+        state = 'code';
+      }
+      continue;
+    }
+
+    if (character === "'" || character === '"' || character === '`') {
+      result += character;
+      quote = character;
+      state = 'quoted';
+    } else if (character === '/' && next === '/') {
+      result += '  ';
+      index += 1;
+      state = 'line-comment';
+    } else if (character === '/' && next === '*') {
+      result += '  ';
+      index += 1;
+      state = 'block-comment';
+    } else {
+      result += character;
+    }
+  }
+
+  return result;
+}
+
 /** Returns every module specifier the source imports. */
 export function findImports(source) {
-  return [...source.matchAll(IMPORT_PATTERN)].map((match) => match[1]);
+  return [...stripComments(source).matchAll(IMPORT_PATTERN)].map((match) => match[1]);
 }
 
 /**
@@ -247,13 +382,7 @@ export function isTestModule(path) {
 
 /** Returns every forbidden module specifier referenced by the source text. */
 export function findForbiddenImports(source) {
-  const hits = [];
-  for (const match of source.matchAll(IMPORT_PATTERN)) {
-    if (isForbidden(match[1])) {
-      hits.push(match[1]);
-    }
-  }
-  return hits;
+  return findImports(source).filter((specifier) => isForbidden(specifier));
 }
 
 export function findManifestViolations(manifest) {
@@ -371,6 +500,11 @@ export function runCheck(root) {
           );
         }
         const source = bytes.toString('utf8');
+        for (const specifier of b1DisallowedImports(relativePath, source)) {
+          violations.push(
+            `${relativePath}: CT-04A2b1 exact-path source imports unapproved module "${specifier}"`,
+          );
+        }
         for (const specifier of findForbiddenImports(source)) {
           violations.push(`${relativePath}: imports forbidden module "${specifier}"`);
         }
@@ -449,6 +583,7 @@ if (isMain) {
       'Git process authority, development tooling scanned and separated from the\n' +
       'shipped application, no non-production seam in composed source,\n' +
       'no NUL byte in tracked source, and\n' +
-      'the planning package and CT-04A2a repository model stay pure.',
+      'the planning package and CT-04A2a repository model stay pure, while\n' +
+      'CT-04A2b1 production dependency edges match exact path allowlists.',
   );
 }

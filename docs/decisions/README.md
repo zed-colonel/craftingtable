@@ -20,6 +20,7 @@ ADR-014-work-item-admission-and-draft-contracts.md
 ADR-015-browser-navigation-and-planning-views.md
 ADR-016-trusted-local-git-inspection-boundary.md
 ADR-017-repository-evidence-and-persistence.md
+ADR-018-repository-journal-correlation.md
 ```
 
 Each ADR should contain:

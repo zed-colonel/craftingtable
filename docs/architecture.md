@@ -1,4 +1,4 @@
-# Architecture boundaries (accepted CT-03 plus CT-04A2a)
+# Architecture boundaries (accepted CT-03 plus CT-04A2b1 foundation)
 
 CraftingTable is a loopback-only supervisory workbench. The daemon owns
 authoritative state; the browser is an authenticated projection reconstructed
@@ -38,6 +38,21 @@ owns exact observation bytes, their SHA-256 digest, structural projections,
 immutable inspection history, repository lifecycle, and project binding. None
 of those packages imports `@craftingtable/git`, server composition, routes,
 workspace events, notifier code, or browser code.
+
+CT-04A2b1 extends the existing domain/contracts/storage/web edges without
+adding a package edge. The journal now has three nullable repository
+correlations and exactly five repository event kinds. Composite foreign keys
+prove that correlated repository, inspection, binding, project, and workspace
+rows share ownership. Strict contracts, append assertions, and the read mapper
+prove payload/structural ID agreement and retirement semantics. This applies
+ADR-003's division to correlations: SQLite proves ownership; runtime contracts
+prove semantics.
+
+The browser still treats events only as invalidation signals. Repository
+events add a repository-list bit and at most 100 stable unique pending
+repository IDs; binding events use structural project and repository IDs.
+`App.tsx` consumes only its existing planning scopes, so B1 adds no repository
+fetch or model projection.
 
 `@craftingtable/planning` is the whole interpretation boundary for untrusted
 planning input. It accepts bytes plus logical metadata and returns data: it
@@ -197,8 +212,9 @@ revisited before activated multi-user or CT-08 deployment.
 
 The composed CT-03 product has projects, imported plans, and an
 operator-admitted agenda, but no executable work. CT-04A1 adds an uncomposed
-local Git observation library and CT-04A2a adds its uncomposed durable
-repository model. There is still no repository route or browser workflow,
+local Git observation library, CT-04A2a adds its uncomposed durable repository
+model, and CT-04A2b1 adds the durable journal/projection boundary. There is
+still no repository route or browser workflow,
 worktree, diff, change request, real coding agent, verification
 runner, review, remediation, readiness, or merge workflow; no Planning Studio, plan
 version activation, or model-assisted planning; no interactive graph editing;

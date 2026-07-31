@@ -5,7 +5,6 @@ import type {
   AuditOutcome,
   EventId,
   JsonValue,
-  ProjectId,
   Session,
   SessionId,
   User,
@@ -13,12 +12,10 @@ import type {
   Workspace,
   WorkspaceEvent,
   WorkspaceEventKind,
-  WorkspaceEventPayload,
   WorkspaceId,
   WorkspaceMembership,
   WorkspaceMembershipId,
   WorkspaceRole,
-  WorkItemId,
 } from '@craftingtable/domain';
 import type { PlanningRepositories } from './planning-types.js';
 import type { RepositoryRegistryRepositories } from './repository-types.js';
@@ -103,19 +100,44 @@ export interface AppendWorkspaceCreatedInput {
 }
 
 /**
- * Kind-generic append. The payload type is selected by the kind, so a mismatched
- * payload is a compile error rather than an unreadable journal row; the database
- * additionally rejects any kind absent from `workspace_event_kinds`.
+ * Kind-discriminated append input.
+ *
+ * Structural correlations and payload are selected together from the domain
+ * variant. Storage receives both copies independently and asserts their
+ * agreement; it never infers ownership columns from payload JSON.
  */
-export interface AppendWorkspaceEventInput<K extends WorkspaceEventKind = WorkspaceEventKind> {
-  readonly id: EventId;
-  readonly occurredAt: string;
-  readonly workspaceId: WorkspaceId;
-  readonly actorUserId?: UserId;
-  readonly projectId?: ProjectId;
-  readonly workItemId?: WorkItemId;
-  readonly kind: K;
-  readonly payload: WorkspaceEventPayload<K>;
+export type AppendWorkspaceEventInput<K extends WorkspaceEventKind = WorkspaceEventKind> =
+  K extends WorkspaceEventKind
+    ? Omit<Extract<WorkspaceEvent, { readonly kind: K }>, 'sequence' | 'schemaVersion'>
+    : never;
+
+export type WorkspaceEventAppendFailure = 'payload-correlation-mismatch';
+
+export class WorkspaceEventAppendError extends Error {
+  constructor(
+    readonly failure: WorkspaceEventAppendFailure,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'WorkspaceEventAppendError';
+  }
+}
+
+export type WorkspaceEventMappingFailure =
+  | 'unknown-kind'
+  | 'invalid-json'
+  | 'invalid-structural-correlations'
+  | 'payload-correlation-mismatch'
+  | 'invalid-retirement-correlation';
+
+export class WorkspaceEventMappingError extends Error {
+  constructor(
+    readonly failure: WorkspaceEventMappingFailure,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'WorkspaceEventMappingError';
+  }
 }
 
 export interface UserRepository {
@@ -158,7 +180,7 @@ export interface AuditRepository {
 
 export interface WorkspaceEventRepository {
   appendWorkspaceCreated(input: AppendWorkspaceCreatedInput): WorkspaceEvent;
-  appendEvent<K extends WorkspaceEventKind>(input: AppendWorkspaceEventInput<K>): WorkspaceEvent;
+  appendEvent(input: AppendWorkspaceEventInput): WorkspaceEvent;
   count(): number;
   maxSequence(): number;
   listAfter(input: {

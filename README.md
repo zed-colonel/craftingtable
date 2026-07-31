@@ -10,12 +10,14 @@ The composed product currently implements accepted **CT-03: Plan bundle import
 and the project/work-item dashboard**, on top of CT-02's persistent daemon,
 authentication, workspaces, and durable event history.
 
-The active implementation slice is **CT-04A2a: Repository domain, evidence
-model, and persistence**. It adds the authority-free repository registry
-domain/contracts and schema 3 persistence on top of A1's observation library.
-It does not compose Git into the daemon or add routes or browser behavior.
+The active implementation slice is **CT-04A2b1: Repository journal correlation
+and browser projection**. It adds schema-4 structural repository correlations,
+five strict repository event contracts, fail-closed storage reconstruction, and
+bounded browser invalidation vocabulary on top of A2a persistence. It does not
+compose Git into the daemon or add repository commands, services, routes,
+configuration, notifier producers, fetches, or views.
 Its accepted contract is
-[`work-items/CT-04/CT-04A2a-accepted-implementation-plan.md`](work-items/CT-04/CT-04A2a-accepted-implementation-plan.md).
+[`work-items/CT-04/CT-04A2b1-accepted-implementation-plan.md`](work-items/CT-04/CT-04A2b1-accepted-implementation-plan.md).
 The normative product planning artifacts remain under [`init/`](init/).
 Architectural, security, and operating boundaries are documented in
 [`docs/architecture.md`](docs/architecture.md), [`docs/security.md`](docs/security.md),

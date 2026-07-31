@@ -23,6 +23,9 @@ tmp/
 *.sqlite-wal
 *.sqlite-shm
 
+# CT-04A test scratch
+.ct04a-*/
+
 # Editor and OS files
 .DS_Store
 .idea/

@@ -12,6 +12,7 @@ describe('repository state reducer', () => {
     { kind: 'risk-evidence-changed', differences: ['signals'] },
     { kind: 'environment-evidence-changed', differences: ['top-level-device'] },
     { kind: 'core-identity-changed', differences: ['fingerprint'] },
+    { kind: 'repository-class-changed', reason: 'not-git-repository' },
     { kind: 'unavailable', reason: 'path-unavailable' },
     { kind: 'evidence-invalid', reason: 'stored-evidence-invalid' },
     { kind: 'no-state-change-failure' },
@@ -27,6 +28,7 @@ describe('repository state reducer', () => {
       { kind: 'unchanged', status: 'active' },
       { kind: 'transition', toStatus: 'identity-evidence-changed' },
       { kind: 'transition', toStatus: 'identity-mismatch' },
+      { kind: 'transition', toStatus: 'identity-mismatch', reason: 'repository-class-changed' },
       { kind: 'transition', toStatus: 'unavailable' },
       { kind: 'transition', toStatus: 'evidence-blocked' },
       { kind: 'unchanged', status: 'active' },
@@ -40,6 +42,7 @@ describe('repository state reducer', () => {
       { kind: 'transition', toStatus: 'active' },
       { kind: 'transition', toStatus: 'identity-evidence-changed' },
       { kind: 'transition', toStatus: 'identity-mismatch' },
+      { kind: 'transition', toStatus: 'identity-mismatch', reason: 'repository-class-changed' },
       { kind: 'unchanged', status: 'unavailable' },
       { kind: 'transition', toStatus: 'evidence-blocked' },
       { kind: 'unchanged', status: 'unavailable' },
@@ -56,6 +59,7 @@ describe('repository state reducer', () => {
       { kind: 'transition', toStatus: 'active' },
       { kind: 'unchanged', status: 'identity-evidence-changed' },
       { kind: 'transition', toStatus: 'identity-mismatch' },
+      { kind: 'transition', toStatus: 'identity-mismatch', reason: 'repository-class-changed' },
       { kind: 'transition', toStatus: 'unavailable' },
       { kind: 'transition', toStatus: 'evidence-blocked' },
       { kind: 'unchanged', status: 'identity-evidence-changed' },
@@ -78,6 +82,40 @@ describe('repository state reducer', () => {
       } else if (assessment.kind === 'same' || assessment.kind === 'risk-evidence-changed') {
         expect(result).toEqual({ kind: 'rejected', reason: 'reaffirmation-not-required' });
       }
+    }
+  });
+
+  it('maps all class errors explicitly in ordinary and reaffirmation flows (B2-ADP-007 B2A-SRC-001 B2A-SRC-006 B2A-ASMT-001)', () => {
+    const reasons = [
+      'symlink-rejected',
+      'ownership-refused',
+      'not-primary-repository',
+      'not-git-repository',
+      'unsupported-object-format',
+      'unsupported-repository-extension',
+    ] as const;
+    for (const reason of reasons) {
+      const assessment = { kind: 'repository-class-changed', reason } as const;
+      for (const status of ['active', 'unavailable', 'identity-evidence-changed'] as const) {
+        expect(
+          reduceRepositoryState(status, { kind: 'apply-assessment', assessment }),
+        ).toMatchObject({
+          kind: 'transition',
+          fromStatus: status,
+          toStatus: 'identity-mismatch',
+          reason: 'repository-class-changed',
+        });
+      }
+      expect(
+        reduceRepositoryState('identity-evidence-changed', {
+          kind: 'reaffirm-environment',
+          assessment,
+        }),
+      ).toMatchObject({
+        kind: 'transition',
+        toStatus: 'identity-mismatch',
+        reason: 'repository-class-changed',
+      });
     }
   });
 
@@ -122,6 +160,12 @@ describe('repository state reducer', () => {
         assessment: { kind: 'unavailable', reason: 'invented' } as never,
       }),
     ).toThrow(/unavailable reason/);
+    expect(() =>
+      reduceRepositoryState('active', {
+        kind: 'apply-assessment',
+        assessment: { kind: 'repository-class-changed', reason: 'invented' } as never,
+      }),
+    ).toThrow(/class-changed reason/);
     expect(() =>
       reduceRepositoryState('active', {
         kind: 'apply-assessment',

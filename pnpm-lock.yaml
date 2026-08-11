@@ -32,6 +32,9 @@ importers:
       '@craftingtable/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@craftingtable/git':
+        specifier: workspace:*
+        version: link:../../packages/git
       '@craftingtable/planning':
         specifier: workspace:*
         version: link:../../packages/planning

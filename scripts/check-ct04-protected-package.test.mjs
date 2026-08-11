@@ -10,9 +10,14 @@ import {
   CT04A2B1_PROCESS_FILES,
   CT04A2B1_PROOF_FILES,
   CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS,
+  CT04A2B2A_IMPLEMENTATION_PATHS,
+  CT04A2B2A_B2B_RESIDUALS,
+  CT04A2B2A_PROOF_FILES,
+  a2b2aResidualClosureViolations,
   a2b2aPlanIndependentChangedPathViolations,
   b1ChangedPathViolations,
   ct04a2b1ProtectedIds,
+  ct04a2b2aProtectedIds,
   ct04a2aTestTitleIds,
   verifyCt04A2aDocumentLineage,
   verifyCt04A2aProofAnchors,
@@ -20,6 +25,7 @@ import {
   verifyCt04A2b1DocumentLineage,
   verifyCt04A2b1Inventory,
   verifyCt04A2b1ProofAnchors,
+  verifyCt04A2b2aProofAnchors,
   verifyCt04ProtectedPackage,
 } from './check-ct04-protected-package.mjs';
 
@@ -216,9 +222,11 @@ describe('CT-04A2b1 proof and inventory verifier', () => {
 describe('CT-04A2b2a plan-independent inventory verifier', () => {
   it('B2A-SRC-010 admits the exact planning package, gate repair, and process classes', () => {
     expect(CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS.size).toBe(14);
+    expect(CT04A2B2A_IMPLEMENTATION_PATHS.size).toBe(27);
     expect(
       a2b2aPlanIndependentChangedPathViolations([
         ...CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS,
+        ...CT04A2B2A_IMPLEMENTATION_PATHS,
         'review-findings/CT-04/CT-04A2b2a-design-review.md',
         'review-findings/CT-04/CT-04A2b2a-code-review.md',
         'review-findings/CT-04/CT-04A2b2a-remediation-2-review.md',
@@ -234,15 +242,32 @@ describe('CT-04A2b2a plan-independent inventory verifier', () => {
     expect(
       a2b2aPlanIndependentChangedPathViolations([
         'apps/server/src/routes/repositories.ts',
-        'apps/server/src/services/repository-observation-adapter.ts',
+        'apps/server/src/services/repository-lifecycle-service.ts',
         'review-findings/CT-04/CT-04A2b2b-design-review.md',
         'work-items/CT-04/CT-04A2b2a-arbitrary-note.md',
       ]),
     ).toEqual([
       'B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: apps/server/src/routes/repositories.ts',
-      'B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: apps/server/src/services/repository-observation-adapter.ts',
+      'B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: apps/server/src/services/repository-lifecycle-service.ts',
       'B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: review-findings/CT-04/CT-04A2b2b-design-review.md',
       'B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: work-items/CT-04/CT-04A2b2a-arbitrary-note.md',
+    ]);
+  });
+
+  it('B2-SCOPE-001/B2A-SRC-010 finds all protected IDs, anchors, and explicit B2b residuals', () => {
+    const source = readFileSync(
+      join(repositoryRoot, 'work-items/CT-04/CT-04A2b2-protected-acceptance-supplement.yaml'),
+      'utf8',
+    );
+    expect(ct04a2b2aProtectedIds(source)).toHaveLength(38);
+    expect(CT04A2B2A_PROOF_FILES).toHaveLength(8);
+    expect(CT04A2B2A_B2B_RESIDUALS.size).toBe(7);
+    expect(verifyCt04A2b2aProofAnchors(repositoryRoot)).toEqual({ ok: true, errors: [] });
+  });
+
+  it('rejects treating a residual-bearing protected ID as fully closed', () => {
+    expect(a2b2aResidualClosureViolations(['B2-CFG-002', 'B2-ADP-001'])).toEqual([
+      'B2-CFG-002 retains a B2b residual and cannot be closed by A2b2a',
     ]);
   });
 });

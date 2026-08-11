@@ -120,6 +120,7 @@ const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs']
  * lets the production claim stay exactly one path.
  */
 const GIT_PROCESS_AUTHORITY = 'packages/git/src/command-runner.ts';
+export const REPOSITORY_GIT_ADAPTER = 'apps/server/src/services/repository-observation-adapter.ts';
 const APPLICATION_GROUPS = ['apps', 'packages'];
 const DEVELOPMENT_TOOLING_DIRECTORY = 'scripts';
 
@@ -397,6 +398,34 @@ export function findManifestViolations(manifest) {
   return violations;
 }
 
+export function findA2b2aManifestViolations(manifest) {
+  const packageName = manifest.name;
+  const occurrences = [];
+  for (const field of DEPENDENCY_FIELDS) {
+    if (Object.hasOwn(manifest[field] ?? {}, '@craftingtable/git')) {
+      occurrences.push({ field, version: manifest[field]['@craftingtable/git'] });
+    }
+  }
+  if (packageName === '@craftingtable/server' || packageName === '@craftingtable/testing') {
+    return occurrences.length === 1 &&
+      occurrences[0].field === 'dependencies' &&
+      occurrences[0].version === 'workspace:*'
+      ? []
+      : [`${packageName} must retain one @craftingtable/git workspace dependency`];
+  }
+  return occurrences.length === 0
+    ? []
+    : [`${String(packageName)} must not depend on @craftingtable/git`];
+}
+
+export function isPermittedA2b2aGitImport(relativePath, specifier) {
+  const normalized = relativePath.split('\\').join('/');
+  return (
+    specifier === '@craftingtable/git' &&
+    (normalized === REPOSITORY_GIT_ADAPTER || normalized.startsWith('packages/testing/src/'))
+  );
+}
+
 function walk(directory, visit) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.name === 'node_modules' || entry.name === 'dist') {
@@ -419,6 +448,9 @@ export function runCheck(root) {
     const manifest = JSON.parse(readFileSync(path, 'utf8'));
     for (const { field, name } of findManifestViolations(manifest)) {
       violations.push(`${relative(root, path)}: ${field} contains forbidden package "${name}"`);
+    }
+    for (const violation of findA2b2aManifestViolations(manifest)) {
+      violations.push(`${relative(root, path)}: ${violation}`);
     }
   };
 
@@ -536,6 +568,14 @@ export function runCheck(root) {
           return;
         }
         for (const specifier of findImports(source)) {
+          if (
+            (specifier === '@craftingtable/git' || specifier.startsWith('@craftingtable/git/')) &&
+            !isPermittedA2b2aGitImport(relativePath, specifier)
+          ) {
+            violations.push(
+              `${relativePath}: @craftingtable/git is permitted only in the exact A2b2a adapter or accepted testing seam`,
+            );
+          }
           if (isForbiddenCapability(specifier)) {
             const isAnchoredGitProcessAuthority =
               specifier === 'node:child_process' && relativePath === GIT_PROCESS_AUTHORITY;
@@ -543,7 +583,11 @@ export function runCheck(root) {
               violations.push(`${relativePath}: imports CT-04+ capability module "${specifier}"`);
             }
           }
-          if (!isSeamPackage && isNonProductionPackage(specifier)) {
+          if (
+            !isSeamPackage &&
+            isNonProductionPackage(specifier) &&
+            !isPermittedA2b2aGitImport(relativePath, specifier)
+          ) {
             violations.push(
               `${relativePath}: production source imports non-production seam "${specifier}"`,
             );

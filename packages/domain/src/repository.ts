@@ -62,6 +62,7 @@ export const PROJECT_REPOSITORY_BINDING_STATUSES = ['active', 'retired'] as cons
 export type ProjectRepositoryBindingStatus = (typeof PROJECT_REPOSITORY_BINDING_STATUSES)[number];
 
 export const STORED_REPOSITORY_OBSERVATION_VERSION = 1 as const;
+export const CURRENT_REPOSITORY_INSPECTION_POLICY_VERSION = 1 as const;
 export const STORED_REPOSITORY_RISK_SCAN_SCOPE_VERSION = 1 as const;
 export const STORED_REPOSITORY_RISK_SCAN_PATTERN =
   '^(extensions\\.worktreeconfig|core\\.(hookspath|fsmonitor|worktree)|diff\\.external|diff\\..*\\.(command|textconv)|filter\\..*\\.(clean|smudge|process)|include\\.path|includeif\\..*\\.path)$' as const;
@@ -406,6 +407,16 @@ export type RepositoryObservationAssessment =
       readonly differences: readonly StoredCoreEvidenceDifference[];
     }
   | {
+      readonly kind: 'repository-class-changed';
+      readonly reason:
+        | 'symlink-rejected'
+        | 'ownership-refused'
+        | 'not-primary-repository'
+        | 'not-git-repository'
+        | 'unsupported-object-format'
+        | 'unsupported-repository-extension';
+    }
+  | {
       readonly kind: 'unavailable';
       readonly reason: 'path-unavailable' | 'metadata-unreadable';
     }
@@ -504,6 +515,20 @@ function validateAssessment(assessment: RepositoryObservationAssessment): void {
         'core differences',
       );
       return;
+    case 'repository-class-changed':
+      if (
+        ![
+          'symlink-rejected',
+          'ownership-refused',
+          'not-primary-repository',
+          'not-git-repository',
+          'unsupported-object-format',
+          'unsupported-repository-extension',
+        ].includes(assessment.reason)
+      ) {
+        throw new Error('Unsupported repository class-changed reason');
+      }
+      return;
     case 'unavailable':
       if (!['path-unavailable', 'metadata-unreadable'].includes(assessment.reason)) {
         throw new Error('Unsupported repository unavailable reason');
@@ -566,6 +591,8 @@ function applyAssessment(
         : transition(status, 'identity-evidence-changed', 'environment-evidence-changed');
     case 'core-identity-changed':
       return transition(status, 'identity-mismatch', 'core-identity-changed');
+    case 'repository-class-changed':
+      return transition(status, 'identity-mismatch', 'repository-class-changed');
     case 'unavailable':
       return status === 'unavailable'
         ? { kind: 'unchanged', status, evidenceDisposition: 'failure-recorded' }
@@ -612,6 +639,7 @@ export function reduceRepositoryState(
       case 'environment-evidence-changed':
         return transition(status, 'active', 'environment-evidence-reaffirmed', 'none', true);
       case 'core-identity-changed':
+      case 'repository-class-changed':
       case 'unavailable':
       case 'evidence-invalid':
       case 'no-state-change-failure':

@@ -153,14 +153,28 @@ that assumption.
 - Repository display names are rendered as React text children. Activity
   descriptions use no raw HTML and make no ready, verified, reviewed,
   approved, executable, mergeable, or safe claim.
+- A2b2a's repository feature is absent by default. An explicit group requires
+  source roots and at least one explicit Git executable/search path; production
+  never falls back to ambient `PATH`.
+- Only the exact server observation adapter imports `@craftingtable/git`.
+  Server ports expose inspect/verify/compare operations and closed results, not
+  inspector options, argv, environment, stdout/stderr, executable paths, or
+  process handles.
+- Stored observation verification checks the storage-owned exact UTF-8 digest,
+  A1 parsing, all 16 inspection projections, and all nine repository identity
+  projections before comparison. Values are never included in mismatch results.
+- Vocabulary/tuple drift and defensive reparse failure are systemic adapter
+  faults. They permanently latch the provider unavailable until restart and
+  produce no guessed repository assessment or fabricated durable A1 evidence.
 
 ## Remaining boundary
 
 The composed product exposes no shell, SQL, filesystem, process-control, Git,
-agent, or verification endpoint. CT-04A1's process authority and A2a's
-repository persistence remain private and uncomposed. B1 adds durable
-correlation and bounded browser invalidation vocabulary, but no repository
-service, route, command, notifier producer, fetch, or view. A work-contract draft is
+agent, or verification endpoint. CT-04A1's process authority is reachable only
+through A2b2a's internal lazy observation boundary; A2a persistence remains
+unmutated by it. B1 adds durable correlation and bounded browser invalidation
+vocabulary, but no repository lifecycle service, route, command, notifier
+producer, fetch, or view. A work-contract draft is
 data, not authority: it carries
 no field that can be read as approval, and nothing in the system can approve,
 execute, or merge it. Users, memberships, and roles establish only a future

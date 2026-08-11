@@ -8,6 +8,7 @@ import {
   A2A_ALLOWED_NODE_BUILTINS,
   B1_ALLOWED_IMPORTS,
   b1DisallowedImports,
+  findA2b2aManifestViolations,
   findForbiddenImports,
   findManifestViolations,
   isForbidden,
@@ -22,6 +23,7 @@ import {
   isDevelopmentToolingModule,
   hasLiteralCurrentMigrationAssertion,
   isNonProductionPackage,
+  isPermittedA2b2aGitImport,
   isTestModule,
   nodeBuiltinName,
   resolvesIntoDevelopmentTooling,
@@ -153,6 +155,53 @@ describe('findManifestViolations', () => {
 
   it('passes a clean manifest', () => {
     expect(findManifestViolations({ dependencies: { zod: '^4.0.0' } })).toEqual([]);
+  });
+});
+
+describe('CT-04A2b2a Git dependency boundary', () => {
+  it('B2-SCOPE-001 preserves the server and testing workspace edges only', () => {
+    for (const name of ['@craftingtable/server', '@craftingtable/testing']) {
+      expect(
+        findA2b2aManifestViolations({
+          name,
+          dependencies: { '@craftingtable/git': 'workspace:*' },
+        }),
+      ).toEqual([]);
+      expect(findA2b2aManifestViolations({ name, dependencies: {} })).toHaveLength(1);
+    }
+    for (const name of ['@craftingtable/web', '@craftingtable/storage']) {
+      expect(
+        findA2b2aManifestViolations({
+          name,
+          dependencies: { '@craftingtable/git': 'workspace:*' },
+        }),
+      ).toHaveLength(1);
+    }
+  });
+
+  it('B2-SCOPE-001 permits only the exact adapter and accepted testing seam imports', () => {
+    expect(
+      isPermittedA2b2aGitImport(
+        'apps/server/src/services/repository-observation-adapter.ts',
+        '@craftingtable/git',
+      ),
+    ).toBe(true);
+    expect(
+      isPermittedA2b2aGitImport('packages/testing/src/fake-git-service.ts', '@craftingtable/git'),
+    ).toBe(true);
+    for (const [path, specifier] of [
+      ['apps/server/src/services/repository-observation-port.ts', '@craftingtable/git'],
+      ['apps/server/src/services/repository-inspector-provider.ts', '@craftingtable/git'],
+      ['apps/server/src/composition.ts', '@craftingtable/git'],
+      ['packages/storage/src/repository-types.ts', '@craftingtable/git'],
+      ['apps/web/src/repository.ts', '@craftingtable/git'],
+      [
+        'apps/server/src/services/repository-observation-adapter.ts',
+        '@craftingtable/git/comparison',
+      ],
+    ]) {
+      expect(isPermittedA2b2aGitImport(path, specifier), `${path}: ${specifier}`).toBe(false);
+    }
   });
 });
 

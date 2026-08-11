@@ -13,6 +13,7 @@
   "dependencies": {
     "@craftingtable/contracts": "workspace:*",
     "@craftingtable/domain": "workspace:*",
+    "@craftingtable/git": "workspace:*",
     "@craftingtable/planning": "workspace:*",
     "@craftingtable/storage": "workspace:*",
     "@fastify/cookie": "11.1.2",

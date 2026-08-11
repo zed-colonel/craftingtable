@@ -4,10 +4,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  CT04A2B1_ALLOWED_CHANGED_PATHS,
   CT04A2A_PROCESS_FILES,
   CT04A2A_PROOF_FILES,
   CT04A2B1_PROCESS_FILES,
   CT04A2B1_PROOF_FILES,
+  CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS,
+  a2b2aPlanIndependentChangedPathViolations,
   b1ChangedPathViolations,
   ct04a2b1ProtectedIds,
   ct04a2aTestTitleIds,
@@ -197,6 +200,49 @@ describe('CT-04A2b1 proof and inventory verifier', () => {
     ).toEqual([]);
     expect(b1ChangedPathViolations(['review-findings/CT-04/CT-04A2b2-initial-review.md'])).toEqual([
       'B1-SCOPE-005 changed path is outside the accepted B1 tree: review-findings/CT-04/CT-04A2b2-initial-review.md',
+    ]);
+  });
+
+  it('B1-SCOPE-005 freezes the B1 allowlist without any A2b2a path', () => {
+    expect([...CT04A2B1_ALLOWED_CHANGED_PATHS].filter((path) => path.includes('A2b2a'))).toEqual(
+      [],
+    );
+    expect(b1ChangedPathViolations(['work-items/CT-04/CT-04A2b2a.md'])).toEqual([
+      'B1-SCOPE-005 changed path is outside the accepted B1 tree: work-items/CT-04/CT-04A2b2a.md',
+    ]);
+  });
+});
+
+describe('CT-04A2b2a plan-independent inventory verifier', () => {
+  it('B2A-SRC-010 admits the exact planning package, gate repair, and process classes', () => {
+    expect(CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS.size).toBe(14);
+    expect(
+      a2b2aPlanIndependentChangedPathViolations([
+        ...CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS,
+        'review-findings/CT-04/CT-04A2b2a-design-review.md',
+        'review-findings/CT-04/CT-04A2b2a-code-review.md',
+        'review-findings/CT-04/CT-04A2b2a-remediation-2-review.md',
+        'work-items/CT-04/CT-04A2b2a-design-review-disposition.md',
+        'work-items/CT-04/CT-04A2b2a-accepted-implementation-plan.md',
+        'work-items/CT-04/CT-04A2b2a-implementation-commit-report.md',
+        'implementation-reports/CT-04/CT-04A2b2a-initial-impl.md',
+      ]),
+    ).toEqual([]);
+  });
+
+  it('B2A-SRC-010 rejects production paths and near-miss process artifacts', () => {
+    expect(
+      a2b2aPlanIndependentChangedPathViolations([
+        'apps/server/src/routes/repositories.ts',
+        'apps/server/src/services/repository-observation-adapter.ts',
+        'review-findings/CT-04/CT-04A2b2b-design-review.md',
+        'work-items/CT-04/CT-04A2b2a-arbitrary-note.md',
+      ]),
+    ).toEqual([
+      'B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: apps/server/src/routes/repositories.ts',
+      'B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: apps/server/src/services/repository-observation-adapter.ts',
+      'B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: review-findings/CT-04/CT-04A2b2b-design-review.md',
+      'B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: work-items/CT-04/CT-04A2b2a-arbitrary-note.md',
     ]);
   });
 });

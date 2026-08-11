@@ -104,7 +104,7 @@ const CT04A2B1_DOCUMENTARY_IDS = new Set([
   'B1-UI-012',
 ]);
 
-const CT04A2B1_ALLOWED_CHANGED_PATHS = new Set([
+export const CT04A2B1_ALLOWED_CHANGED_PATHS = new Set([
   '.gitignore',
   'README.md',
   'CLAUDE.md',
@@ -151,6 +151,23 @@ const CT04A2B1_ALLOWED_CHANGED_PATHS = new Set([
   'work-items/CT-04/CT-04A2b1-initial-review-disposition.md',
   'work-items/CT-04/CT-04A2b1-implementation-checkpoint-1-report.md',
   'work-items/CT-04/CT-04A2b1-implementation-report.md',
+]);
+
+export const CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS = new Set([
+  'scripts/check-ct04-protected-package.mjs',
+  'scripts/check-ct04-protected-package.test.mjs',
+  'work-items/CT-04/CT-04A2b2-acceptance-matrix.yaml',
+  'work-items/CT-04/CT-04A2b2-adversarial-matrices.yaml',
+  'work-items/CT-04/CT-04A2b2-implementation-guidance.md',
+  'work-items/CT-04/CT-04A2b2-protected-acceptance-supplement.yaml',
+  'work-items/CT-04/CT-04A2b2-source-assessment.md',
+  'work-items/CT-04/CT-04A2b2-source-handoff.yaml',
+  'work-items/CT-04/CT-04A2b2-source-map.yaml',
+  'work-items/CT-04/CT-04A2b2.md',
+  'work-items/CT-04/CT-04A2b2a-proposed-implementation-plan.md',
+  'work-items/CT-04/CT-04A2b2a.md',
+  'work-items/CT-04/CT-04A2b2b.md',
+  'work-items/CT-04/CT-04A2b2c.md',
 ]);
 
 function sha256(path) {
@@ -233,17 +250,38 @@ export function ct04a2b1ProtectedIds(supplementSource) {
   return ids;
 }
 
+function isB1DynamicProcessArtifact(path) {
+  return (
+    /^work-items\/CT-04\/CT-04A2b1-(?:implementation|remediation)-.*report\.md$/.test(path) ||
+    /^review-findings\/CT-04\/CT-04A2b1-(?:initial|remediation(?:-\d+)?)-review\.md$/.test(path)
+  );
+}
+
 export function b1ChangedPathViolations(paths) {
   return paths
     .filter(
+      (path) => !CT04A2B1_ALLOWED_CHANGED_PATHS.has(path) && !isB1DynamicProcessArtifact(path),
+    )
+    .map((path) => `B1-SCOPE-005 changed path is outside the accepted B1 tree: ${path}`);
+}
+
+export function a2b2aPlanIndependentChangedPathViolations(paths) {
+  return paths
+    .filter(
       (path) =>
-        !CT04A2B1_ALLOWED_CHANGED_PATHS.has(path) &&
-        !/^work-items\/CT-04\/CT-04A2b1-(?:implementation|remediation)-.*report\.md$/.test(path) &&
-        !/^review-findings\/CT-04\/CT-04A2b1-(?:initial|remediation(?:-\d+)?)-review\.md$/.test(
+        !CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS.has(path) &&
+        !isB1DynamicProcessArtifact(path) &&
+        !/^review-findings\/CT-04\/CT-04A2b2a-(?:design|initial|code|implementation|remediation(?:-\d+)?)-review\.md$/.test(
+          path,
+        ) &&
+        !/^work-items\/CT-04\/CT-04A2b2a-(?:design-review-disposition|review-disposition|accepted-implementation-plan|(?:implementation|remediation(?:-\d+)?)(?:-commit)?-report)\.md$/.test(
+          path,
+        ) &&
+        !/^implementation-reports\/CT-04\/CT-04A2b2a-(?:initial-impl|(?:implementation|remediation(?:-\d+)?)(?:-commit)?-report)\.md$/.test(
           path,
         ),
     )
-    .map((path) => `B1-SCOPE-005 changed path is outside the accepted B1 tree: ${path}`);
+    .map((path) => `B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: ${path}`);
 }
 
 export function verifyCt04ProtectedPackage(protectedDirectory) {
@@ -558,15 +596,23 @@ export function verifyCt04A2b1ProofAnchors(repositoryRoot) {
 export function verifyCt04A2b1Inventory(repositoryRoot) {
   const errors = [];
   try {
-    const paths = [
-      ...git(repositoryRoot, ['diff', '--name-only', 'e3b69c612a51b0b2a8d436ae3ea5355abd40745e'])
-        .split('\n')
-        .filter(Boolean),
+    const frozenB1Paths = git(repositoryRoot, [
+      'diff',
+      '--name-only',
+      'e3b69c612a51b0b2a8d436ae3ea5355abd40745e',
+      'b8a5493',
+    ])
+      .split('\n')
+      .filter(Boolean);
+    errors.push(...b1ChangedPathViolations(frozenB1Paths));
+
+    const liveA2b2aPaths = [
+      ...git(repositoryRoot, ['diff', '--name-only', 'b8a5493']).split('\n').filter(Boolean),
       ...git(repositoryRoot, ['ls-files', '--others', '--exclude-standard'])
         .split('\n')
         .filter(Boolean),
     ];
-    errors.push(...b1ChangedPathViolations(paths));
+    errors.push(...a2b2aPlanIndependentChangedPathViolations(liveA2b2aPaths));
   } catch {
     errors.push('B1-SCOPE-005 could not resolve the changed-path inventory');
   }
@@ -616,6 +662,6 @@ if (isMain) {
     process.exit(1);
   }
   console.log(
-    'CT-04 protected-package verification passed: immutable package, A2a/B1 proof anchors, B1 changed-path inventory, and accepted process lineage.',
+    'CT-04 protected-package verification passed: immutable package, A2a/B1 proof anchors, frozen B1 inventory, live A2b2a process inventory, and accepted process lineage.',
   );
 }

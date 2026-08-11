@@ -3,7 +3,7 @@ source_head: dd9c9699f0d86cae00fc1bf0d054224880c8dbed
 entries:
 - path: packages/git/src/index.ts
   child: CT-04A2b2a
-  target: consume accepted package-root API through one server adapter; no source change expected
+  target: add the calculateCoreIdentityFingerprint package-root re-export, then consume the accepted API through one server adapter
 - path: packages/domain/src/repository.ts
   child: CT-04A2b2a
   target: add repository-class-changed assessment and reducer tests

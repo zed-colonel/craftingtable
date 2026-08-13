@@ -153,6 +153,11 @@ export const CT04A2B1_ALLOWED_CHANGED_PATHS = new Set([
   'work-items/CT-04/CT-04A2b1-implementation-report.md',
 ]);
 
+// The last two entries are post-A2b2a governance corrections, not A2b2a work: they
+// de-slice `CLAUDE.md`, promote its two durable rules into the canonical guidance both
+// agents read, and correct the merge-target wording. They are admitted here because this
+// set is the branch's plan-independent channel, and the A2b2a implementation inventory
+// must keep meaning exactly the accepted 27-file tree.
 export const CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS = new Set([
   'scripts/check-ct04-protected-package.mjs',
   'scripts/check-ct04-protected-package.test.mjs',
@@ -168,6 +173,8 @@ export const CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS = new Set([
   'work-items/CT-04/CT-04A2b2a.md',
   'work-items/CT-04/CT-04A2b2b.md',
   'work-items/CT-04/CT-04A2b2c.md',
+  'AGENTS.md',
+  'work-items/CT-04/CT-04-process-protocol.md',
 ]);
 
 export const CT04A2B2A_IMPLEMENTATION_PATHS = new Set([

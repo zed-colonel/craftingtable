@@ -6,12 +6,20 @@ This file is the canonical repository-wide guidance for human and machine contri
 
 Before changing code, read:
 
-1. the active work contract under `work-items/`;
-2. `init/craftingtable-implementation-plan.md` for architectural context;
-3. `docs/ui-principles.md` for visual direction;
-4. relevant ADRs under `docs/decisions/`.
+1. the active work contract under `work-items/`, and the accepted implementation plan it references;
+2. the active process protocol under `work-items/` for the planning, review, and remediation sequence;
+3. `init/craftingtable-implementation-plan.md` for architectural context;
+4. `docs/ui-principles.md` for visual direction;
+5. relevant ADRs under `docs/decisions/`.
 
-The active work contract controls scope. The implementation plan supplies context but does not authorize work outside the contract.
+The current branch names the active slice; its contract and accepted plan are the ones matching that name. If the active slice is ambiguous, stop and ask rather than inferring one.
+
+The active work contract controls scope. The implementation plan supplies context but does not authorize work outside the contract. No other file may restate a slice's scope: a paraphrase that drifts from the hash-pinned contract competes with it, so scope fences live in the contract and accepted plan alone.
+
+## Working method
+
+- Work in two phases: first inspect and propose a concrete file-level plan; then edit only after the operator approves that plan. The active process protocol states the full requirements for that plan and for the review and remediation that follow it.
+- Keep each slice small enough that a different coding agent can understand it entirely from committed repository artifacts. Conversation context is not a deliverable; if a decision matters, it belongs in a committed file.
 
 ## Product boundary
 
@@ -50,7 +58,7 @@ Features are admitted only when they address immediate development friction. Pre
 
 ## Git expectations
 
-For CT-01, do not create or merge branches, rewrite history, or make commits unless the operator explicitly asks. Leave the worktree in a cleanly reviewable state and report changed files, commands run, and unresolved issues.
+Do not create or merge branches, rewrite history, push, or make commits unless the operator explicitly asks. Merge authority is the operator's alone; the active process protocol states the evidence a slice must carry before the operator merges it, and into which branch. Leave the worktree in a cleanly reviewable state and report changed files, commands run, and unresolved issues.
 
 ## Escalation
 

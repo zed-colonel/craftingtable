@@ -223,7 +223,7 @@ describe('CT-04A2b1 proof and inventory verifier', () => {
 
 describe('CT-04A2b2a plan-independent inventory verifier', () => {
   it('B2A-SRC-010 admits the exact planning package, gate repair, and process classes', () => {
-    expect(CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS.size).toBe(14);
+    expect(CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS.size).toBe(16);
     expect(CT04A2B2A_IMPLEMENTATION_PATHS.size).toBe(27);
     expect(
       a2b2aPlanIndependentChangedPathViolations([

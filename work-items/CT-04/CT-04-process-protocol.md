@@ -228,7 +228,11 @@ The maximum of three remediation generations remains a hard ceiling, not a targe
 
 ## 12. Merge policy
 
-Only Keith merges a slice into `ct-04`.
+Only Keith merges a slice, and only he authorizes the merge; no agent may self-authorize one.
+
+A slice merges into its immediate parent branch, not directly into `ct-04`. A-tier slices
+therefore merge into `ct-04a-git-foundation`, which merges into `ct-04` when the A tier
+completes. The same rule applies to any later tier's integration branch.
 
 Required evidence:
 

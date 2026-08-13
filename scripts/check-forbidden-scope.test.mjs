@@ -23,6 +23,7 @@ import {
   isDevelopmentToolingModule,
   hasLiteralCurrentMigrationAssertion,
   isNonProductionPackage,
+  isA2b2aGitBoundaryImport,
   isPermittedA2b2aGitImport,
   isTestModule,
   nodeBuiltinName,
@@ -201,6 +202,44 @@ describe('CT-04A2b2a Git dependency boundary', () => {
       ],
     ]) {
       expect(isPermittedA2b2aGitImport(path, specifier), `${path}: ${specifier}`).toBe(false);
+    }
+  });
+
+  it('B2-SCOPE-001 resolves and rejects relative traversals into the Git authority package', () => {
+    expect(
+      isA2b2aGitBoundaryImport(
+        '/repository',
+        'apps/server/src/services/rogue.ts',
+        '../../../../packages/git/src/command-runner.js',
+      ),
+    ).toBe(true);
+    expect(
+      isA2b2aGitBoundaryImport('/repository', 'packages/git/src/index.ts', './command-runner.js'),
+    ).toBe(false);
+
+    const root = mkdtempSync(join(tmpdir(), 'craftingtable-relative-git-scope-'));
+    try {
+      writeFileSync(join(root, 'package.json'), '{"name":"scope-fixture"}');
+      mkdirSync(join(root, 'apps/server/src/services'), { recursive: true });
+      mkdirSync(join(root, 'packages/git/src'), { recursive: true });
+      writeFileSync(
+        join(root, 'apps/server/package.json'),
+        '{"name":"@craftingtable/server","dependencies":{"@craftingtable/git":"workspace:*"}}',
+      );
+      writeFileSync(join(root, 'packages/git/package.json'), '{"name":"@craftingtable/git"}');
+      writeFileSync(
+        join(root, 'packages/git/src/command-runner.ts'),
+        'export const runner = true;',
+      );
+      writeFileSync(
+        join(root, 'apps/server/src/services/rogue.ts'),
+        "import '../../../../packages/git/src/command-runner.js';",
+      );
+      expect(runCheck(root)).toContain(
+        'apps/server/src/services/rogue.ts: @craftingtable/git is permitted only in the exact A2b2a adapter or accepted testing seam',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

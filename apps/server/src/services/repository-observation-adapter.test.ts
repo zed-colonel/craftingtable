@@ -33,10 +33,16 @@ const a1 = vi.hoisted(() => ({
   codes: [] as string[],
   subjects: {} as Record<string, string>,
   signals: [] as string[],
+  realCodes: [] as string[],
+  realSubjects: {} as Record<string, string>,
+  realSignals: [] as string[],
 }));
 
 vi.mock('@craftingtable/git', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@craftingtable/git')>();
+  a1.realCodes.splice(0, a1.realCodes.length, ...actual.ALL_REPOSITORY_INSPECTION_ERROR_CODES);
+  Object.assign(a1.realSubjects, actual.REPOSITORY_INSPECTION_ERROR_SUBJECTS);
+  a1.realSignals.splice(0, a1.realSignals.length, ...actual.REPOSITORY_RISK_SIGNALS);
   a1.codes.splice(0, a1.codes.length, ...actual.ALL_REPOSITORY_INSPECTION_ERROR_CODES);
   Object.assign(a1.subjects, actual.REPOSITORY_INSPECTION_ERROR_SUBJECTS);
   a1.signals.splice(0, a1.signals.length, ...actual.REPOSITORY_RISK_SIGNALS);
@@ -171,16 +177,19 @@ async function portFor(observation = parsedObservation(), onFault = vi.fn()) {
 
 beforeEach(() => {
   a1.createRepositoryInspector.mockReset();
-  a1.codes.splice(0, a1.codes.length, ...A1_REPOSITORY_INSPECTION_ERROR_CODES);
+  a1.codes.splice(0, a1.codes.length, ...a1.realCodes);
   for (const key of Object.keys(a1.subjects)) {
     delete a1.subjects[key];
   }
-  Object.assign(a1.subjects, A1_REPOSITORY_INSPECTION_ERROR_SUBJECT_BY_CODE);
-  a1.signals.splice(0, a1.signals.length, ...STORED_REPOSITORY_RISK_SIGNALS);
+  Object.assign(a1.subjects, a1.realSubjects);
+  a1.signals.splice(0, a1.signals.length, ...a1.realSignals);
 });
 
 describe('repository observation adapter', () => {
   it('uses the real package-root fingerprint and parser for valid fixtures (B2-ADP-001/003 B2A-EVID-001)', () => {
+    expect(a1.realCodes).toEqual(A1_REPOSITORY_INSPECTION_ERROR_CODES);
+    expect(a1.realSubjects).toEqual(A1_REPOSITORY_INSPECTION_ERROR_SUBJECT_BY_CODE);
+    expect(a1.realSignals).toEqual(STORED_REPOSITORY_RISK_SIGNALS);
     expect(parseRecordedObservation(validObservation()).ok).toBe(true);
     expect(repositoryObservationVocabularyMatches()).toBe(true);
   });

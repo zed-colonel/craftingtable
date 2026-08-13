@@ -88,6 +88,9 @@ relative, non-normalized, overlapping, or incoherent configuration fails
 startup rather than silently disabling. Enabled explicit `CRAFTINGTABLE_DATA_DIR`
 must also be normalized absolute. Artifact and worktree roots default beneath
 the data directory and are reserved only; the daemon creates neither here.
+Root and search-path lists use the host `node:path.delimiter` with no escape
+syntax. A path containing that delimiter cannot be represented as one entry and
+therefore fails startup; it is not deferred to lazy A1 validation.
 
 Numeric defaults/bounds are: command timeout 5000 ms (100-30000), creation and
 inspection timeout `2 * command + 5000` ms (1000-90000, with creation at least

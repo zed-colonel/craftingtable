@@ -459,17 +459,18 @@ class A1RepositoryObservationAdapter implements RepositoryObservationPort {
     if (fault !== undefined) {
       return { ok: false, failure: fault };
     }
-    const recordedJson = parseEvidenceJson(baseline.observation.evidence.observationJson);
-    const currentJson = parseEvidenceJson(current.observationJson);
     if (
       !verifyExactUtf8Sha256(
         baseline.observation.evidence.observationJson,
         baseline.observation.evidence.observationSha256,
       ) ||
-      !verifyExactUtf8Sha256(current.observationJson, current.observationSha256) ||
-      recordedJson === undefined ||
-      currentJson === undefined
+      !verifyExactUtf8Sha256(current.observationJson, current.observationSha256)
     ) {
+      return { ok: false, failure: this.invariantFault() };
+    }
+    const recordedJson = parseEvidenceJson(baseline.observation.evidence.observationJson);
+    const currentJson = parseEvidenceJson(current.observationJson);
+    if (recordedJson === undefined || currentJson === undefined) {
       return { ok: false, failure: this.invariantFault() };
     }
     const recorded = parseRecordedObservation(recordedJson);

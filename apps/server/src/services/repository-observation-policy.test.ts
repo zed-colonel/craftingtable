@@ -7,6 +7,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import {
   A1_ERROR_ASSESSMENT_POLICY,
+  A1_ERROR_OPERATION_POLICY,
   assessObservationDifferences,
   normalizeAndAssessA1Error,
 } from './repository-observation-policy.js';
@@ -47,12 +48,7 @@ function actualError(code: A1RepositoryInspectionErrorCode) {
     code,
     subject,
     category: category(subject),
-    operation:
-      code === 'recorded-observation-invalid' || code === 'unsupported-observation-version'
-        ? 'parse-recorded-observation'
-        : code === 'inspection-policy-version-mismatch'
-          ? 'compare-observations'
-          : 'inspect-path',
+    operation: A1_ERROR_OPERATION_POLICY[code][0],
     retryability: retryability(subject),
     evidence: {},
   } as const;
@@ -93,6 +89,7 @@ describe('repository observation policy', () => {
       { ...valid, category: 'configuration' },
       { ...valid, retryability: 'not-retryable' },
       { ...valid, subject: 'host-environment' },
+      { ...valid, operation: 'compare-observations' },
       { ...valid, operation: 'invented' },
       { ...valid, code: 'invented' },
     ]) {
@@ -100,6 +97,18 @@ describe('repository observation policy', () => {
         kind: 'adapter-error',
         reason: 'adapter-invariant-fault',
       });
+    }
+  });
+
+  it('accepts only the exact operation set for each A1 code', () => {
+    for (const code of A1_REPOSITORY_INSPECTION_ERROR_CODES) {
+      for (const operation of A1_ERROR_OPERATION_POLICY[code]) {
+        expect(normalizeAndAssessA1Error({ ...actualError(code), operation })).toMatchObject({
+          kind: 'a1-error',
+          code,
+          operation,
+        });
+      }
     }
   });
 

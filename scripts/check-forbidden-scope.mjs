@@ -11,7 +11,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { builtinModules } from 'node:module';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const FORBIDDEN_PATTERNS = [/action-?queue/i, /world-?interface/i, /exoskeleton/i];
@@ -426,6 +426,22 @@ export function isPermittedA2b2aGitImport(relativePath, specifier) {
   );
 }
 
+export function isA2b2aGitBoundaryImport(root, importingFile, specifier) {
+  if (specifier === '@craftingtable/git' || specifier.startsWith('@craftingtable/git/')) {
+    return true;
+  }
+  if (!specifier.startsWith('.')) {
+    return false;
+  }
+  const normalizedImporter = importingFile.split('\\').join('/');
+  if (normalizedImporter.startsWith('packages/git/')) {
+    return false;
+  }
+  const target = resolve(dirname(resolve(root, importingFile)), specifier);
+  const gitRoot = resolve(root, 'packages/git');
+  return target === gitRoot || target.startsWith(`${gitRoot}${sep}`);
+}
+
 function walk(directory, visit) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.name === 'node_modules' || entry.name === 'dist') {
@@ -569,7 +585,7 @@ export function runCheck(root) {
         }
         for (const specifier of findImports(source)) {
           if (
-            (specifier === '@craftingtable/git' || specifier.startsWith('@craftingtable/git/')) &&
+            isA2b2aGitBoundaryImport(root, relativePath, specifier) &&
             !isPermittedA2b2aGitImport(relativePath, specifier)
           ) {
             violations.push(

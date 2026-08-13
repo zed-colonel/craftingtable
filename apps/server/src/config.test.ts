@@ -85,6 +85,8 @@ describe('configFromEnv', () => {
     for (const roots of [
       'relative',
       '/srv/repositories/../repositories',
+      '/srv/repositories\0child',
+      '/srv/repositories:colon',
       '/srv/repositories:/srv/repositories',
       '/srv:/srv/repositories',
       '/var/lib/craftingtable/source',

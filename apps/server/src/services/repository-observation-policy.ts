@@ -80,6 +80,47 @@ const A1_RETRYABILITY_KEYS = {
   'not-retryable': true,
 } as const satisfies Record<StoredRepositoryInspectionRetryability, true>;
 
+const OPERATIONS_BY_CODE = {
+  'invalid-options': ['create-inspector'],
+  'unsupported-platform': ['create-inspector'],
+  'root-daemon-refused': ['create-inspector'],
+  'invalid-root-policy': ['create-inspector'],
+  'git-not-found': ['create-inspector'],
+  'git-not-executable': ['create-inspector'],
+  'git-executable-changed': ['create-inspector', 'inspect-path'],
+  'unsupported-git-version': ['create-inspector'],
+  'invalid-path': ['inspect-path'],
+  'outside-allowed-root': ['inspect-path'],
+  'reserved-root-overlap': ['inspect-path'],
+  'path-unavailable': ['inspect-path'],
+  'symlink-rejected': ['inspect-path'],
+  'ownership-refused': ['inspect-path'],
+  'repository-metadata-unreadable': ['inspect-path'],
+  'not-primary-repository': ['inspect-path'],
+  'not-git-repository': ['inspect-path'],
+  'unsupported-object-format': ['inspect-path'],
+  'unsupported-repository-extension': ['inspect-path'],
+  'spawn-failed': ['create-inspector', 'inspect-path'],
+  aborted: ['inspect-path'],
+  'timed-out': ['create-inspector', 'inspect-path'],
+  'stdout-overflow': ['create-inspector', 'inspect-path'],
+  'stderr-overflow': ['create-inspector', 'inspect-path'],
+  'signal-terminated': ['create-inspector', 'inspect-path'],
+  'git-command-failed': ['create-inspector', 'inspect-path'],
+  'invalid-output-encoding': ['inspect-path'],
+  'malformed-version-output': ['create-inspector'],
+  'malformed-identity-output': ['inspect-path'],
+  'malformed-feature-output': ['inspect-path'],
+  'feature-count-exceeded': ['inspect-path'],
+  'observation-raced': ['inspect-path'],
+  'recorded-observation-invalid': ['parse-recorded-observation'],
+  'unsupported-observation-version': ['parse-recorded-observation'],
+  'inspection-policy-version-mismatch': ['compare-observations'],
+} as const satisfies Record<
+  A1RepositoryInspectionErrorCode,
+  readonly A1RepositoryInspectionOperation[]
+>;
+
 function hasOwnKey(record: Readonly<Record<string, true>>, key: string): boolean {
   return Object.hasOwn(record, key);
 }
@@ -199,6 +240,7 @@ export function normalizeAndAssessA1Error(
     !hasOwnKey(A1_SUBJECT_KEYS, error.subject) ||
     !hasOwnKey(A1_CATEGORY_KEYS, error.category) ||
     !hasOwnKey(A1_OPERATION_KEYS, error.operation) ||
+    !(OPERATIONS_BY_CODE[code] as readonly string[]).includes(error.operation) ||
     !hasOwnKey(A1_RETRYABILITY_KEYS, error.retryability)
   ) {
     return { kind: 'adapter-error', reason: 'adapter-invariant-fault' };
@@ -236,3 +278,4 @@ export function assessObservationDifferences(input: {
 }
 
 export const A1_ERROR_ASSESSMENT_POLICY = ASSESSMENT_BY_CODE;
+export const A1_ERROR_OPERATION_POLICY = OPERATIONS_BY_CODE;

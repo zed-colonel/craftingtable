@@ -210,6 +210,40 @@ export const CT04A2B2A_B2B_RESIDUALS = new Map([
   ['A2B-CFG-008', 'HTTP and audit metadata preserve non-disclosure'],
 ]);
 
+export const CT04A2B2A_DECLARED_CLOSED_IDS = new Set([
+  'B2-CFG-001',
+  'B2-CFG-004',
+  'B2-CFG-005',
+  'B2-CFG-006',
+  'B2-CFG-007',
+  'B2-ADP-001',
+  'B2-ADP-002',
+  'B2-ADP-003',
+  'B2-ADP-004',
+  'B2-ADP-005',
+  'B2-ADP-006',
+  'B2-ADP-007',
+  'B2-ADP-008',
+  'B2-ADP-009',
+  'B2-ADP-010',
+  'A2B-CFG-001',
+  'A2B-CFG-004',
+  'A2B-CFG-005',
+  'A2B-CFG-007',
+  'B2-PROC-001',
+  'B2-SCOPE-001',
+  'B2A-SRC-001',
+  'B2A-SRC-002',
+  'B2A-SRC-003',
+  'B2A-SRC-004',
+  'B2A-SRC-005',
+  'B2A-SRC-006',
+  'B2A-SRC-007',
+  'B2A-SRC-008',
+  'B2A-SRC-009',
+  'B2A-SRC-010',
+]);
+
 export const CT04A2B2A_PROOF_FILES = Object.freeze([
   'apps/server/src/config.test.ts',
   'apps/server/src/composition.test.ts',
@@ -369,6 +403,26 @@ export function a2b2aResidualClosureViolations(closedIds) {
     .map((id) => `${id} retains a B2b residual and cannot be closed by A2b2a`);
 }
 
+export function a2b2aClosureRegisterViolations(
+  protectedIds,
+  closedIds = CT04A2B2A_DECLARED_CLOSED_IDS,
+) {
+  const protectedSet = new Set(protectedIds);
+  const declaredIds = new Set([...closedIds, ...CT04A2B2A_B2B_RESIDUALS.keys()]);
+  const errors = a2b2aResidualClosureViolations([...closedIds]);
+  for (const id of protectedSet) {
+    if (!declaredIds.has(id)) {
+      errors.push(`${id} has no A2b2a closure or B2b-residual disposition`);
+    }
+  }
+  for (const id of declaredIds) {
+    if (!protectedSet.has(id)) {
+      errors.push(`${id} is declared by A2b2a but is not a protected A2b2a ID`);
+    }
+  }
+  return errors;
+}
+
 export function verifyCt04A2b2aProofAnchors(repositoryRoot) {
   const errors = [];
   const supplementPath = join(
@@ -405,11 +459,7 @@ export function verifyCt04A2b2aProofAnchors(repositoryRoot) {
       errors.push(`${id} has no recorded B2b residual obligation`);
     }
   }
-  errors.push(
-    ...a2b2aResidualClosureViolations(
-      protectedIds.filter((id) => !CT04A2B2A_B2B_RESIDUALS.has(id)),
-    ),
-  );
+  errors.push(...a2b2aClosureRegisterViolations(protectedIds));
   return { ok: errors.length === 0, errors };
 }
 

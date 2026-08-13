@@ -94,7 +94,7 @@ describe('RepositoryInspectorProvider', () => {
     expect(factory).toHaveBeenCalledTimes(2);
   });
 
-  it('caches configuration and environmental invalidity permanently but rechecks in a new process instance (B2-CFG-005/007)', async () => {
+  it('caches configuration-required creation failures permanently but rechecks in a new process instance (B2-CFG-005/007)', async () => {
     const factory = vi.fn<RepositoryObservationPortFactory>().mockResolvedValue({
       ok: false,
       failure: { reason: 'creation-failed', retryability: 'configuration-required' },

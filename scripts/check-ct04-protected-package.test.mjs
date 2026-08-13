@@ -12,8 +12,10 @@ import {
   CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS,
   CT04A2B2A_IMPLEMENTATION_PATHS,
   CT04A2B2A_B2B_RESIDUALS,
+  CT04A2B2A_DECLARED_CLOSED_IDS,
   CT04A2B2A_PROOF_FILES,
   a2b2aResidualClosureViolations,
+  a2b2aClosureRegisterViolations,
   a2b2aPlanIndependentChangedPathViolations,
   b1ChangedPathViolations,
   ct04a2b1ProtectedIds,
@@ -262,12 +264,36 @@ describe('CT-04A2b2a plan-independent inventory verifier', () => {
     expect(ct04a2b2aProtectedIds(source)).toHaveLength(38);
     expect(CT04A2B2A_PROOF_FILES).toHaveLength(8);
     expect(CT04A2B2A_B2B_RESIDUALS.size).toBe(7);
+    expect(CT04A2B2A_DECLARED_CLOSED_IDS.size).toBe(31);
+    expect(a2b2aClosureRegisterViolations(ct04a2b2aProtectedIds(source))).toEqual([]);
     expect(verifyCt04A2b2aProofAnchors(repositoryRoot)).toEqual({ ok: true, errors: [] });
   });
 
-  it('rejects treating a residual-bearing protected ID as fully closed', () => {
+  it('rejects treating a residual-bearing protected ID as fully closed through the live register', () => {
     expect(a2b2aResidualClosureViolations(['B2-CFG-002', 'B2-ADP-001'])).toEqual([
       'B2-CFG-002 retains a B2b residual and cannot be closed by A2b2a',
     ]);
+    const source = readFileSync(
+      join(repositoryRoot, 'work-items/CT-04/CT-04A2b2-protected-acceptance-supplement.yaml'),
+      'utf8',
+    );
+    expect(
+      a2b2aClosureRegisterViolations(ct04a2b2aProtectedIds(source), [
+        ...CT04A2B2A_DECLARED_CLOSED_IDS,
+        'B2-CFG-002',
+      ]),
+    ).toContain('B2-CFG-002 retains a B2b residual and cannot be closed by A2b2a');
+    expect(
+      a2b2aClosureRegisterViolations(
+        ct04a2b2aProtectedIds(source),
+        [...CT04A2B2A_DECLARED_CLOSED_IDS].filter((id) => id !== 'B2-ADP-001'),
+      ),
+    ).toContain('B2-ADP-001 has no A2b2a closure or B2b-residual disposition');
+    expect(
+      a2b2aClosureRegisterViolations(ct04a2b2aProtectedIds(source), [
+        ...CT04A2B2A_DECLARED_CLOSED_IDS,
+        'B2-INVENTED-001',
+      ]),
+    ).toContain('B2-INVENTED-001 is declared by A2b2a but is not a protected A2b2a ID');
   });
 });

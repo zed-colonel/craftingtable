@@ -12,6 +12,12 @@
 
 **Date:** 2026-08-11
 
+**Remediation consistency amendment:** 2026-08-12. Independent code review
+observations O-2 and O-4 clarify that host-delimiter-bearing list entries fail
+synchronously and that runtime operation validity is checked against an exact
+per-code operation table. Protected specifications and later-child contracts
+remain unchanged.
+
 ## 1. Authority, lineage, and stop condition
 
 This plan reconciles:
@@ -304,11 +310,12 @@ Exact synchronous startup failures include:
 - malformed, fractional, out-of-range, or incoherent numbers;
 - enabled non-normalized `dataDir`, including trailing separator and `.`/`..` cases.
 
-Existence, realpath, directory kind, symlink components, POSIX/UID/platform, colon ceiling
-representability, executable evidence, and Git version stay solely in A1 and occur on
-first use. A missing, symlinked, or colon-containing root starts enabled/idle, then A1
-returns `invalid-root-policy`; the provider becomes permanently unavailable, never
-disabled.
+Existence, realpath, directory kind, symlink components, POSIX/UID/platform, executable
+evidence, and Git version stay solely in A1 and occur on first use. A missing or
+symlinked root starts enabled/idle, then A1 returns `invalid-root-policy`; the provider
+becomes permanently unavailable, never disabled. Root lists use `node:path.delimiter`
+without an escape syntax, so a path containing the host delimiter is not representable
+as one entry and fails synchronously during lexical configuration parsing.
 
 ### 5.4 Numeric defaults and bounds
 
@@ -664,7 +671,7 @@ but cannot automatically mutate repository identity. A2b2a performs no write.
 | Concern | Permanent location and proof |
 |---|---|
 | optional config | `config.test.ts`: absent, every partial combination, bin-only/search-only/both/neither, numeric bounds, all enumerated lexical failures, enabled dataDir normalization |
-| lazy environmental failure | provider/adapter tests: missing, symlinked, and colon-containing root starts idle then permanent, never disabled |
+| lexical/lazy root split | config tests reject a host-delimiter-bearing entry; inherited A1 tests cover missing/symlinked roots, while provider tests prove configuration-required creation failures cache permanently and never become disabled |
 | composition/injection | `composition.test.ts`: provider override, default disabled planning/auth behavior, zero eager calls, no buildServer dependency |
 | provider states | `repository-inspector-provider.test.ts`: shared promise/result, success memoization, cooldown edges, permanent cache, restart/new instance, available fault latch, same bounded failure |
 | fixture provenance | adapter test calls package-root fingerprint calculator and real parser; no deep import |

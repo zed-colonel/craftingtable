@@ -104,7 +104,7 @@ const CT04A2B1_DOCUMENTARY_IDS = new Set([
   'B1-UI-012',
 ]);
 
-const CT04A2B1_ALLOWED_CHANGED_PATHS = new Set([
+export const CT04A2B1_ALLOWED_CHANGED_PATHS = new Set([
   '.gitignore',
   'README.md',
   'CLAUDE.md',
@@ -153,6 +153,108 @@ const CT04A2B1_ALLOWED_CHANGED_PATHS = new Set([
   'work-items/CT-04/CT-04A2b1-implementation-report.md',
 ]);
 
+export const CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS = new Set([
+  'scripts/check-ct04-protected-package.mjs',
+  'scripts/check-ct04-protected-package.test.mjs',
+  'work-items/CT-04/CT-04A2b2-acceptance-matrix.yaml',
+  'work-items/CT-04/CT-04A2b2-adversarial-matrices.yaml',
+  'work-items/CT-04/CT-04A2b2-implementation-guidance.md',
+  'work-items/CT-04/CT-04A2b2-protected-acceptance-supplement.yaml',
+  'work-items/CT-04/CT-04A2b2-source-assessment.md',
+  'work-items/CT-04/CT-04A2b2-source-handoff.yaml',
+  'work-items/CT-04/CT-04A2b2-source-map.yaml',
+  'work-items/CT-04/CT-04A2b2.md',
+  'work-items/CT-04/CT-04A2b2a-proposed-implementation-plan.md',
+  'work-items/CT-04/CT-04A2b2a.md',
+  'work-items/CT-04/CT-04A2b2b.md',
+  'work-items/CT-04/CT-04A2b2c.md',
+]);
+
+export const CT04A2B2A_IMPLEMENTATION_PATHS = new Set([
+  'README.md',
+  'CLAUDE.md',
+  'apps/server/package.json',
+  'pnpm-lock.yaml',
+  'packages/git/src/index.ts',
+  'apps/server/src/config.ts',
+  'apps/server/src/config.test.ts',
+  'apps/server/src/composition.ts',
+  'apps/server/src/composition.test.ts',
+  'apps/server/src/services/repository-observation-port.ts',
+  'apps/server/src/services/repository-observation-policy.ts',
+  'apps/server/src/services/repository-observation-policy.test.ts',
+  'apps/server/src/services/repository-observation-adapter.ts',
+  'apps/server/src/services/repository-observation-adapter.test.ts',
+  'apps/server/src/services/repository-inspector-provider.ts',
+  'apps/server/src/services/repository-inspector-provider.test.ts',
+  'packages/domain/src/repository.ts',
+  'packages/domain/src/repository.test.ts',
+  'scripts/check-forbidden-scope.mjs',
+  'scripts/check-forbidden-scope.test.mjs',
+  'scripts/check-ct04-protected-package.mjs',
+  'scripts/check-ct04-protected-package.test.mjs',
+  'docs/architecture.md',
+  'docs/security.md',
+  'docs/operations.md',
+  'docs/decisions/README.md',
+  'docs/decisions/ADR-019-optional-repository-feature-and-evidence-translation.md',
+]);
+
+export const CT04A2B2A_B2B_RESIDUALS = new Map([
+  ['B2-CFG-002', 'authorized HTTP unavailable response; unauthorized requests return first'],
+  ['B2-CFG-003', 'authorization, membership, and role checks complete before provider get'],
+  ['B2-CFG-008', 'common and administrative HTTP responses preserve non-disclosure'],
+  ['A2B-CFG-002', 'authorized HTTP unavailable response; unauthorized requests return first'],
+  ['A2B-CFG-003', 'authorization, membership, and role checks complete before provider get'],
+  ['A2B-CFG-006', 'repository read and administrative HTTP operations remain available'],
+  ['A2B-CFG-008', 'HTTP and audit metadata preserve non-disclosure'],
+]);
+
+export const CT04A2B2A_DECLARED_CLOSED_IDS = new Set([
+  'B2-CFG-001',
+  'B2-CFG-004',
+  'B2-CFG-005',
+  'B2-CFG-006',
+  'B2-CFG-007',
+  'B2-ADP-001',
+  'B2-ADP-002',
+  'B2-ADP-003',
+  'B2-ADP-004',
+  'B2-ADP-005',
+  'B2-ADP-006',
+  'B2-ADP-007',
+  'B2-ADP-008',
+  'B2-ADP-009',
+  'B2-ADP-010',
+  'A2B-CFG-001',
+  'A2B-CFG-004',
+  'A2B-CFG-005',
+  'A2B-CFG-007',
+  'B2-PROC-001',
+  'B2-SCOPE-001',
+  'B2A-SRC-001',
+  'B2A-SRC-002',
+  'B2A-SRC-003',
+  'B2A-SRC-004',
+  'B2A-SRC-005',
+  'B2A-SRC-006',
+  'B2A-SRC-007',
+  'B2A-SRC-008',
+  'B2A-SRC-009',
+  'B2A-SRC-010',
+]);
+
+export const CT04A2B2A_PROOF_FILES = Object.freeze([
+  'apps/server/src/config.test.ts',
+  'apps/server/src/composition.test.ts',
+  'apps/server/src/services/repository-observation-policy.test.ts',
+  'apps/server/src/services/repository-observation-adapter.test.ts',
+  'apps/server/src/services/repository-inspector-provider.test.ts',
+  'packages/domain/src/repository.test.ts',
+  'scripts/check-forbidden-scope.test.mjs',
+  'scripts/check-ct04-protected-package.test.mjs',
+]);
+
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
@@ -188,6 +290,24 @@ function expandProofIds(title) {
   const exactPattern =
     /\b(?:A2A-(?:STATUS|REP|INSP|BASE|BIND|RET|MIG|CON)|A2-(?:PROC|SCOPE)|B1-(?:MIG|COR|CON|STO|UI|SCOPE|PROC|REGRESS)|A2B-JRN)-\d{3}\b/g;
   for (const match of title.matchAll(exactPattern)) {
+    ids.add(match[0]);
+  }
+  const a2b2aPrefix = '(?:B2-(?:CFG|ADP|PROC|SCOPE)|A2B-CFG|B2A-(?:SRC|EVID|ASMT))';
+  const a2b2aRange = new RegExp(`\\b(${a2b2aPrefix})-(\\d{3})\\.\\.(\\d{3})\\b`, 'g');
+  for (const match of title.matchAll(a2b2aRange)) {
+    for (let value = Number(match[2]); value <= Number(match[3]); value += 1) {
+      ids.add(`${match[1]}-${String(value).padStart(3, '0')}`);
+    }
+  }
+  const a2b2aSlash = new RegExp(`\\b(${a2b2aPrefix})-(\\d{3})((?:/\\d{3})+)\\b`, 'g');
+  for (const match of title.matchAll(a2b2aSlash)) {
+    ids.add(`${match[1]}-${match[2]}`);
+    for (const suffix of match[3].slice(1).split('/')) {
+      ids.add(`${match[1]}-${suffix}`);
+    }
+  }
+  const a2b2aExact = new RegExp(`\\b${a2b2aPrefix}-\\d{3}\\b`, 'g');
+  for (const match of title.matchAll(a2b2aExact)) {
     ids.add(match[0]);
   }
   return ids;
@@ -233,17 +353,114 @@ export function ct04a2b1ProtectedIds(supplementSource) {
   return ids;
 }
 
+function isB1DynamicProcessArtifact(path) {
+  return (
+    /^work-items\/CT-04\/CT-04A2b1-(?:implementation|remediation)-.*report\.md$/.test(path) ||
+    /^review-findings\/CT-04\/CT-04A2b1-(?:initial|remediation(?:-\d+)?)-review\.md$/.test(path)
+  );
+}
+
 export function b1ChangedPathViolations(paths) {
   return paths
     .filter(
+      (path) => !CT04A2B1_ALLOWED_CHANGED_PATHS.has(path) && !isB1DynamicProcessArtifact(path),
+    )
+    .map((path) => `B1-SCOPE-005 changed path is outside the accepted B1 tree: ${path}`);
+}
+
+export function a2b2aPlanIndependentChangedPathViolations(paths) {
+  return paths
+    .filter(
       (path) =>
-        !CT04A2B1_ALLOWED_CHANGED_PATHS.has(path) &&
-        !/^work-items\/CT-04\/CT-04A2b1-(?:implementation|remediation)-.*report\.md$/.test(path) &&
-        !/^review-findings\/CT-04\/CT-04A2b1-(?:initial|remediation(?:-\d+)?)-review\.md$/.test(
+        !CT04A2B2A_PLAN_INDEPENDENT_CHANGED_PATHS.has(path) &&
+        !CT04A2B2A_IMPLEMENTATION_PATHS.has(path) &&
+        !isB1DynamicProcessArtifact(path) &&
+        !/^review-findings\/CT-04\/CT-04A2b2a-(?:design|initial|code|implementation|remediation(?:-\d+)?)-review\.md$/.test(
+          path,
+        ) &&
+        !/^work-items\/CT-04\/CT-04A2b2a-(?:design-review-disposition|review-disposition|accepted-implementation-plan|(?:implementation|remediation(?:-\d+)?)(?:-commit)?-report)\.md$/.test(
+          path,
+        ) &&
+        !/^implementation-reports\/CT-04\/CT-04A2b2a-(?:initial-impl|(?:implementation|remediation(?:-\d+)?)(?:-commit)?-report)\.md$/.test(
           path,
         ),
     )
-    .map((path) => `B1-SCOPE-005 changed path is outside the accepted B1 tree: ${path}`);
+    .map((path) => `B2A-SRC-010 changed path is outside the plan-independent A2b2a tree: ${path}`);
+}
+
+export function ct04a2b2aProtectedIds(supplementSource) {
+  const ids = [];
+  const casePattern = /^- id: (\S+)\n {2}slice: CT-04A2b2a$/gm;
+  for (const match of supplementSource.matchAll(casePattern)) {
+    ids.push(match[1]);
+  }
+  return ids;
+}
+
+export function a2b2aResidualClosureViolations(closedIds) {
+  return closedIds
+    .filter((id) => CT04A2B2A_B2B_RESIDUALS.has(id))
+    .map((id) => `${id} retains a B2b residual and cannot be closed by A2b2a`);
+}
+
+export function a2b2aClosureRegisterViolations(
+  protectedIds,
+  closedIds = CT04A2B2A_DECLARED_CLOSED_IDS,
+) {
+  const protectedSet = new Set(protectedIds);
+  const declaredIds = new Set([...closedIds, ...CT04A2B2A_B2B_RESIDUALS.keys()]);
+  const errors = a2b2aResidualClosureViolations([...closedIds]);
+  for (const id of protectedSet) {
+    if (!declaredIds.has(id)) {
+      errors.push(`${id} has no A2b2a closure or B2b-residual disposition`);
+    }
+  }
+  for (const id of declaredIds) {
+    if (!protectedSet.has(id)) {
+      errors.push(`${id} is declared by A2b2a but is not a protected A2b2a ID`);
+    }
+  }
+  return errors;
+}
+
+export function verifyCt04A2b2aProofAnchors(repositoryRoot) {
+  const errors = [];
+  const supplementPath = join(
+    repositoryRoot,
+    'work-items/CT-04/CT-04A2b2-protected-acceptance-supplement.yaml',
+  );
+  let supplementSource;
+  const sources = [];
+  try {
+    supplementSource = readFileSync(supplementPath, 'utf8');
+    for (const relativePath of CT04A2B2A_PROOF_FILES) {
+      sources.push(readFileSync(join(repositoryRoot, relativePath), 'utf8'));
+    }
+  } catch {
+    return { ok: false, errors: ['CT-04A2b2a supplement or proof source is unreadable'] };
+  }
+  if (
+    sha256(supplementPath) !== 'd5ec533cf3187511e6709c989b6c525a9297dd7cfd8795b04871a814006a8879'
+  ) {
+    errors.push('B2-SCOPE-001 A2b2 protected supplement differs from its accepted hash');
+  }
+  const protectedIds = ct04a2b2aProtectedIds(supplementSource);
+  if (protectedIds.length !== 38) {
+    errors.push(`expected 38 protected CT-04A2b2a IDs, found ${protectedIds.length}`);
+  }
+  const titleIds = ct04a2aTestTitleIds(sources);
+  for (const id of protectedIds) {
+    if (id !== 'B2-PROC-001' && !titleIds.has(id)) {
+      errors.push(`${id} has no A2b2a test-title anchor`);
+    }
+  }
+  for (const [id, residual] of CT04A2B2A_B2B_RESIDUALS) {
+    if (!protectedIds.includes(id) || residual.length === 0) {
+      errors.push(`${id} has no recorded B2b residual obligation`);
+    }
+  }
+  errors.push(...a2b2aClosureRegisterViolations(protectedIds));
+  return { ok: errors.length === 0, errors };
 }
 
 export function verifyCt04ProtectedPackage(protectedDirectory) {
@@ -558,15 +775,23 @@ export function verifyCt04A2b1ProofAnchors(repositoryRoot) {
 export function verifyCt04A2b1Inventory(repositoryRoot) {
   const errors = [];
   try {
-    const paths = [
-      ...git(repositoryRoot, ['diff', '--name-only', 'e3b69c612a51b0b2a8d436ae3ea5355abd40745e'])
-        .split('\n')
-        .filter(Boolean),
+    const frozenB1Paths = git(repositoryRoot, [
+      'diff',
+      '--name-only',
+      'e3b69c612a51b0b2a8d436ae3ea5355abd40745e',
+      'b8a5493',
+    ])
+      .split('\n')
+      .filter(Boolean);
+    errors.push(...b1ChangedPathViolations(frozenB1Paths));
+
+    const liveA2b2aPaths = [
+      ...git(repositoryRoot, ['diff', '--name-only', 'b8a5493']).split('\n').filter(Boolean),
       ...git(repositoryRoot, ['ls-files', '--others', '--exclude-standard'])
         .split('\n')
         .filter(Boolean),
     ];
-    errors.push(...b1ChangedPathViolations(paths));
+    errors.push(...a2b2aPlanIndependentChangedPathViolations(liveA2b2aPaths));
   } catch {
     errors.push('B1-SCOPE-005 could not resolve the changed-path inventory');
   }
@@ -600,6 +825,7 @@ if (isMain) {
   const b1ProofResult = verifyCt04A2b1ProofAnchors(repositoryRoot);
   const b1ProcessResult = verifyCt04A2b1DocumentLineage(repositoryRoot);
   const b1InventoryResult = verifyCt04A2b1Inventory(repositoryRoot);
+  const a2b2aProofResult = verifyCt04A2b2aProofAnchors(repositoryRoot);
   const errors = [
     ...packageResult.errors,
     ...proofResult.errors,
@@ -607,6 +833,7 @@ if (isMain) {
     ...b1ProofResult.errors,
     ...b1ProcessResult.errors,
     ...b1InventoryResult.errors,
+    ...a2b2aProofResult.errors,
   ];
   if (errors.length > 0) {
     console.error('CT-04 protected-package verification FAILED:');
@@ -616,6 +843,6 @@ if (isMain) {
     process.exit(1);
   }
   console.log(
-    'CT-04 protected-package verification passed: immutable package, A2a/B1 proof anchors, B1 changed-path inventory, and accepted process lineage.',
+    'CT-04 protected-package verification passed: immutable package, A2a/B1 proof anchors, frozen B1 inventory, live A2b2a process inventory, and accepted process lineage.',
   );
 }

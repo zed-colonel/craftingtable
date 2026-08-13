@@ -6,6 +6,13 @@ import { SessionTokenService } from './security/session-tokens.js';
 import { BootstrapService } from './services/bootstrap-service.js';
 import { PlanImportService } from './services/plan-import-service.js';
 import { PlanningQueryService } from './services/planning-query-service.js';
+import { createRepositoryObservationPort } from './services/repository-observation-adapter.js';
+import {
+  PERFORMANCE_MONOTONIC_CLOCK,
+  RepositoryInspectorProvider,
+  type MonotonicClock,
+  type RepositoryObservationPortFactory,
+} from './services/repository-inspector-provider.js';
 import { WorkItemService } from './services/work-item-service.js';
 import { AuthService } from './services/auth-service.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
@@ -25,12 +32,16 @@ export interface ServiceSet {
   readonly workItemService: WorkItemService;
   readonly workspaceEventNotifier: WorkspaceEventNotifier;
   readonly workspaceEventStreamService: WorkspaceEventStreamService;
+  readonly repositoryInspectorProvider: RepositoryInspectorProvider;
 }
 
 export interface ServiceOverrides {
   readonly passwordHasher?: PasswordHasher;
   readonly now?: () => Date;
   readonly streamHooks?: WorkspaceEventStreamHooks;
+  readonly repositoryInspectorProvider?: RepositoryInspectorProvider;
+  readonly repositoryObservationPortFactory?: RepositoryObservationPortFactory;
+  readonly repositoryProviderClock?: MonotonicClock;
 }
 
 export async function createServices(
@@ -55,6 +66,20 @@ export async function createServices(
   const planImportService = new PlanImportService(storage, workspaceService, notifier, now);
   const planningQueryService = new PlanningQueryService(storage, workspaceService);
   const workItemService = new WorkItemService(storage, workspaceService, notifier, now);
+  const repositoryFeature = config.repositoryFeature;
+  const repositoryInspectorProvider =
+    overrides.repositoryInspectorProvider ??
+    new RepositoryInspectorProvider(
+      repositoryFeature,
+      overrides.repositoryObservationPortFactory ??
+        (repositoryFeature.enabled
+          ? async (onInvariantFault) =>
+              await createRepositoryObservationPort(repositoryFeature, onInvariantFault)
+          : async () => {
+              throw new Error('Disabled repository provider factory must not be called');
+            }),
+      overrides.repositoryProviderClock ?? PERFORMANCE_MONOTONIC_CLOCK,
+    );
   return {
     bootstrapService: new BootstrapService(storage, passwordHasher, notifier, now),
     authService,
@@ -70,6 +95,7 @@ export async function createServices(
       notifier,
       overrides.streamHooks,
     ),
+    repositoryInspectorProvider,
   };
 }
 

@@ -163,6 +163,25 @@ than the test, so any event that arrives must have arrived through same-process
 notification. A separate case suppresses the notification entirely and confirms
 CT-02's durable timeout still recovers it.
 
+CT-04A2b2a composes the accepted observation-only Git library behind one server
+adapter and one lazy provider. Configuration and all port/result types are
+server-owned; only
+`apps/server/src/services/repository-observation-adapter.ts` imports
+`@craftingtable/git`. The adapter reuses storage's exact observation
+serializer/digest verifier but calls no repository mutator.
+
+```text
+optional immutable config
+  -> lazy concurrency-deduplicated provider
+      -> server-owned observation port
+          -> sole A1 adapter -> fixed read-only Git inspector
+```
+
+Composition creates the provider without calling it. `buildServer` and the
+route inventory receive no repository dependency. Later B2b services must
+authorize before `get()` and receive observation operations, never inspector or
+process authority.
+
 Bootstrap still runs in the separate CLI process, so its daemon visibility
 correctly relies on the durable re-query.
 
@@ -211,9 +230,10 @@ revisited before activated multi-user or CT-08 deployment.
 ## Deliberately deferred
 
 The composed CT-03 product has projects, imported plans, and an
-operator-admitted agenda, but no executable work. CT-04A1 adds an uncomposed
-local Git observation library, CT-04A2a adds its uncomposed durable repository
-model, and CT-04A2b1 adds the durable journal/projection boundary. There is
+operator-admitted agenda, but no executable work. CT-04A1 adds a local Git
+observation library, CT-04A2a adds its durable repository model, CT-04A2b1 adds
+the durable journal/projection boundary, and A2b2a composes only an internal
+lazy observation/evidence seam. There is
 still no repository route or browser workflow,
 worktree, diff, change request, real coding agent, verification
 runner, review, remediation, readiness, or merge workflow; no Planning Studio, plan

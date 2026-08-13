@@ -17,6 +17,7 @@ export interface GitService {
 }
 
 export {
+  calculateCoreIdentityFingerprint,
   compareRepositoryObservations,
   parseRecordedObservation,
 } from './comparison.js';

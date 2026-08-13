@@ -64,9 +64,47 @@ deleting, or renaming a top-level entry can therefore return
 has accepted this narrower personal-use policy: A2 registration must inspect a
 clean, quiescent working tree and may retry only after activity has stopped.
 
-No `CRAFTINGTABLE_*` Git or repository setting is active yet, no repository is
-registered at startup, and the daemon still starts without Git configuration.
-CT-04A2b owns operator-facing configuration and composition.
+Repository inspection remains disabled when none of these variables is present:
+
+```text
+CRAFTINGTABLE_REPOSITORY_ROOTS
+CRAFTINGTABLE_ARTIFACT_ROOT
+CRAFTINGTABLE_MANAGED_WORKTREE_ROOT
+CRAFTINGTABLE_GIT_BIN
+CRAFTINGTABLE_GIT_SEARCH_PATH
+CRAFTINGTABLE_GIT_TIMEOUT_MS
+CRAFTINGTABLE_GIT_CREATION_TIMEOUT_MS
+CRAFTINGTABLE_GIT_INSPECTION_TIMEOUT_MS
+CRAFTINGTABLE_GIT_STDOUT_LIMIT_BYTES
+CRAFTINGTABLE_GIT_STDERR_LIMIT_BYTES
+CRAFTINGTABLE_GIT_TERMINATION_GRACE_MS
+CRAFTINGTABLE_REPOSITORY_PROVIDER_RETRY_DELAY_MS
+```
+
+Presence of any variable requests the complete feature group. Roots and at
+least one of `GIT_BIN` or `GIT_SEARCH_PATH` are required; bin only, search only,
+and both are valid, with bin winning when both are present. Empty, partial,
+relative, non-normalized, overlapping, or incoherent configuration fails
+startup rather than silently disabling. Enabled explicit `CRAFTINGTABLE_DATA_DIR`
+must also be normalized absolute. Artifact and worktree roots default beneath
+the data directory and are reserved only; the daemon creates neither here.
+Root and search-path lists use the host `node:path.delimiter` with no escape
+syntax. A path containing that delimiter cannot be represented as one entry and
+therefore fails startup; it is not deferred to lazy A1 validation.
+
+Numeric defaults/bounds are: command timeout 5000 ms (100-30000), creation and
+inspection timeout `2 * command + 5000` ms (1000-90000, with creation at least
+one command and inspection at least two), stdout 65536 bytes
+(16384-1048576), stderr 65536 bytes (1024-1048576), termination grace 250 ms
+(50-2000), and provider retry delay 5000 ms (100-60000).
+
+Configuration parsing is lexical. Directory existence, realpath/symlink and
+ownership policy, platform/UID, executable evidence, and Git version are checked
+lazily by A1 on the first later authorized use. Concurrent first uses share one
+creation. Success is memoized for the process lifetime; retryable creation
+failure is cached for the configured delay; configuration/nonretryable or
+adapter-invariant failure is cached until restart. No repository is registered
+at startup and no lifecycle command or route exists in A2b2a.
 
 ## First start
 

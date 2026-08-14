@@ -1,0 +1,65 @@
+version: 1
+contract: CT-04A2b2b
+source_archive_head: 094c78382e4bd7f00e397cdfe3ec6284a9c9f04f
+source_archive_sha256: e44813b5d9f1d67573e83ec6848ff3811afa031dc68db73c44e60f5d3b53d128
+no_fanout_recommended: true
+current_to_target:
+- path: apps/server/src/services/repository-observation-port.ts
+  current: stored-baseline compare only
+  target: add fresh-evidence compare
+- path: apps/server/src/services/repository-observation-adapter.ts
+  current: accepted A1 adapter
+  target: verify and compare two fresh observations through A1
+- path: apps/server/src/services/repository-inspector-provider.ts
+  current: accepted lazy provider
+  target: consume unchanged
+- path: packages/domain/src/repository.ts
+  current: accepted reducer and error vocabulary
+  target: consume unchanged
+- path: packages/contracts/src/repository.ts
+  current: all route contracts; reaffirm success-only
+  target: truthful reaffirm inspection union + baselineAdvanced
+- path: packages/contracts/src/auth.ts
+  current: no 503 error code
+  target: add generic service-unavailable
+- path: packages/storage/src/repository-types.ts
+  current: appendVerification only
+  target: append verification/reaffirmation attempt
+- path: packages/storage/src/repositories/repository-registry/index.ts
+  current: accepted A2a primitives
+  target: generalize append narrowly; no migration
+- path: packages/storage/migrations/0003-ct04a2a-repository-model.sql
+  current: accepted schema 3
+  target: frozen
+- path: packages/storage/migrations/0004-ct04a2b-repository-journal.sql
+  current: accepted schema 4
+  target: frozen
+- path: apps/server/src/config.ts
+  current: accepted optional feature config
+  target: consume unchanged
+- path: apps/server/src/composition.ts
+  current: provider composed only
+  target: compose query/lifecycle services
+- path: apps/server/src/server.ts
+  current: no repository routes/errors
+  target: inject/register routes and typed errors
+- path: apps/server/src/routes
+  current: no repository route module
+  target: add exactly seven strict routes
+- path: apps/server/src/services
+  current: no lifecycle/query services
+  target: add repository services and response mapper
+- path: apps/web
+  current: B1 event support only
+  target: no B2b change expected
+forbidden:
+- node:child_process outside accepted A1
+- '@craftingtable/git outside repository-observation-adapter.ts'
+- new migration
+- new workspace-event kind
+- browser repository page
+- retirement
+- project binding
+- branch/worktree/diff/agent/check/review/merge
+- raw Git stdout/stderr in API or audit
+- generic command/argv/env endpoint

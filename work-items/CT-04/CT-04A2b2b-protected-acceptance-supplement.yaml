@@ -1,0 +1,1485 @@
+version: 1
+contract: CT-04A2B2B-PROTECTED-SUPPLEMENT-1
+source_archive_head: 094c78382e4bd7f00e397cdfe3ec6284a9c9f04f
+authority: operator-owned-read-only
+rule: Implementation agents may read but must not modify, delete, weaken, or reclassify these outcomes without a separately
+  accepted contract amendment.
+cases:
+- id: B2-AUTH-001
+  slice: CT-04A2b2b
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: A1 may be created/called
+  origin: CT-04A2b2 supplement
+- id: B2-AUTH-002
+  slice: CT-04A2b2b
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: 403 before provider/host access
+  origin: CT-04A2b2 supplement
+- id: B2-AUTH-003
+  slice: CT-04A2b2b
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: allowed by exact operation policy
+  origin: CT-04A2b2 supplement
+- id: B2-AUTH-004
+  slice: CT-04A2b2b
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: denied before A1
+  origin: CT-04A2b2 supplement
+- id: B2-AUTH-005
+  slice: CT-04A2b2b
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: indistinguishable 404; zero A1 calls
+  origin: CT-04A2b2 supplement
+- id: B2-AUTH-006
+  slice: CT-04A2b2b
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: denied before A1 despite structural historical FK
+  origin: CT-04A2b2 supplement
+- id: B2-AUTH-007
+  slice: CT-04A2b2b
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: allowed
+  origin: CT-04A2b2 supplement
+- id: B2-AUTH-008
+  slice: CT-04A2b2b
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: denied
+  origin: CT-04A2b2 supplement
+- id: B2-AUTH-009
+  slice: CT-04A2b2b
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: bounded denied audit; no event/notifier
+  origin: CT-04A2b2 supplement
+- id: B2-AUTH-010
+  slice: CT-04A2b2b
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: existing authentication behavior; no A1
+  origin: CT-04A2b2 supplement
+- id: B2-REG-001
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: one repo+inspection+audit+event; notify after commit
+  origin: CT-04A2b2 supplement
+- id: B2-REG-002
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: retryable conflict; no repository/event/notifier
+  origin: CT-04A2b2 supplement
+- id: B2-REG-003
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: failed audit only; no accepted state
+  origin: CT-04A2b2 supplement
+- id: B2-REG-004
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: rejected before A1 where derivable
+  origin: CT-04A2b2 supplement
+- id: B2-REG-005
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: existing result; no duplicate event
+  origin: CT-04A2b2 supplement
+- id: B2-REG-006
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: conflict; use lifecycle command
+  origin: CT-04A2b2 supplement
+- id: B2-REG-007
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: non-disclosing conflict; no foreign audit/event
+  origin: CT-04A2b2 supplement
+- id: B2-REG-008
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: fresh RepositoryId allowed
+  origin: CT-04A2b2 supplement
+- id: B2-REG-009
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: one create; typed idempotent/conflict loser
+  origin: CT-04A2b2 supplement
+- id: B2-REG-010
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: no state/audit/event/notifier
+  origin: CT-04A2b2 supplement
+- id: B2-REG-011
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: durable event replayed
+  origin: CT-04A2b2 supplement
+- id: B2-REG-012
+  slice: CT-04A2b2b
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: both observation digests/comparison booleans bounded; no raw observation/stderr
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-001
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: evidence+audit; no state event/version/notifier
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-002
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: evidence event; repository version unchanged
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-003
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: identity-evidence-changed + status event
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-004
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: identity-mismatch/core-identity-changed
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-005
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: identity-mismatch/repository-class-changed
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-006
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: unavailable according to exact mapping
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-007
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: failed evidence/audit; no state change
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-008
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: evidence-blocked; no A1 call
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-009
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: active/evidence-matches
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-010
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: identity-mismatch, never active
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-011
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: rejected before A1
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-012
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: conflict before A1 and rechecked in transaction
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-013
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: immutable ordered evidence; at most one state transition event per version
+  origin: CT-04A2b2 supplement
+- id: B2-INSP-014
+  slice: CT-04A2b2b
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: all state/audit/event/evidence rollback; no notifier
+  origin: CT-04A2b2 supplement
+- id: B2-REAFF-001
+  slice: CT-04A2b2b
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: baseline advances, active, IDs/bindings preserved
+  origin: CT-04A2b2 supplement
+- id: B2-REAFF-002
+  slice: CT-04A2b2b
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: denied before A1
+  origin: CT-04A2b2 supplement
+- id: B2-REAFF-003
+  slice: CT-04A2b2b
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: conflict before A1
+  origin: CT-04A2b2 supplement
+- id: B2-REAFF-004
+  slice: CT-04A2b2b
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: conflict before/inside transaction
+  origin: CT-04A2b2 supplement
+- id: B2-REAFF-005
+  slice: CT-04A2b2b
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: identity-mismatch; no baseline advance
+  origin: CT-04A2b2 supplement
+- id: B2-REAFF-006
+  slice: CT-04A2b2b
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: not required; no baseline/state event
+  origin: CT-04A2b2 supplement
+- id: B2-REAFF-007
+  slice: CT-04A2b2b
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: failure evidence; old baseline preserved
+  origin: CT-04A2b2 supplement
+- id: B2-REAFF-008
+  slice: CT-04A2b2b
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: baseline/status/audit/event all unchanged; no notifier
+  origin: CT-04A2b2 supplement
+- id: A2B-AUTH-001
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: inspector called
+  origin: CT-04A2b2 supplement
+- id: A2B-AUTH-002
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: 403 and zero inspector calls
+  origin: CT-04A2b2 supplement
+- id: A2B-AUTH-003
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: 403 and zero inspector calls where host access
+  origin: CT-04A2b2 supplement
+- id: A2B-AUTH-004
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: missing/forbidden per established policy, zero inspector calls
+  origin: CT-04A2b2 supplement
+- id: A2B-AUTH-005
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: indistinguishable 404
+  origin: CT-04A2b2 supplement
+- id: A2B-AUTH-006
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: allowed
+  origin: CT-04A2b2 supplement
+- id: A2B-AUTH-007
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: denied
+  origin: CT-04A2b2 supplement
+- id: A2B-AUTH-008
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: allowed
+  origin: CT-04A2b2 supplement
+- id: A2B-AUTH-009
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: allowed
+  origin: CT-04A2b2 supplement
+- id: A2B-AUTH-010
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: bounded denied audit, no workspace event/notifier
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-001
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: one repo, inspection, baseline, audit, event
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-002
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: observation-raced/conflict; no row/event/notifier
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-003
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: rejected as non-quiescent
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-004
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: rejected as non-quiescent
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-005
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: idempotent existing result, no duplicate event
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-006
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: conflict; use inspect/reaffirm/retire path
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-007
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: nondisclosing 409; no foreign audit/event
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-008
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: permitted if active uniqueness released
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-009
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: one succeeds; other idempotent/conflict; no duplicate history
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-010
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: no state/event
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-011
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: no notifier
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-012
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: durable event delivered by SSE fallback
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-013
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: validated basename used
+  origin: CT-04A2b2 supplement
+- id: A2B-REG-014
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: actionable rejection
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-001
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: append success/audit, no event/version change
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-002
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: append evidence and evidence-changed event, status/version unchanged
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-003
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-evidence-changed + status event
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-004
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-mismatch terminal
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-005
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: unavailable
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-006
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: failed attempt/audit, no status change
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-007
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: failed attempt/audit, no status change
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-008
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-mismatch
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-009
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: evidence-blocked; A1 compare never called
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-010
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: evidence-blocked
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-011
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: evidence-blocked
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-012
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: active
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-013
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-evidence-changed
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-014
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-mismatch
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-015
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: rejected without A1 call
+  origin: CT-04A2b2 supplement
+- id: A2B-INSP-016
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: serialized/re-read state; no duplicate transition event
+  origin: CT-04A2b2 supplement
+- id: A2B-REAFF-001
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: baseline advances and status active
+  origin: CT-04A2b2 supplement
+- id: A2B-REAFF-002
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: denied before A1
+  origin: CT-04A2b2 supplement
+- id: A2B-REAFF-003
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: conflict, no A1 or no commit per accepted sequence
+  origin: CT-04A2b2 supplement
+- id: A2B-REAFF-004
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: conflict
+  origin: CT-04A2b2 supplement
+- id: A2B-REAFF-005
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-mismatch, no reaffirm
+  origin: CT-04A2b2 supplement
+- id: A2B-REAFF-006
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: ordinary inspect may restore active; reaffirm not needed
+  origin: CT-04A2b2 supplement
+- id: A2B-REAFF-007
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: old baseline/status remain, no notifier
+  origin: CT-04A2b2 supplement
+- id: A2B-REAFF-008
+  slice: CT-04A2b2b
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: one status event, audit, version+1, IDs/bindings preserved
+  origin: CT-04A2b2 supplement
+- id: B2-CSRF-001
+  slice: CT-04A2b2b
+  category: security
+  required: true
+  protected: true
+  expected: all mutations require existing CSRF/origin/session policy
+  origin: CT-04A2b2 supplement
+- id: B2-DISCLOSURE-001
+  slice: CT-04A2b2b
+  category: security
+  required: true
+  protected: true
+  expected: common reader response excludes Git/common directories; Owner admin response is separately authorized
+  origin: CT-04A2b2 supplement
+- id: B2-AUDIT-001
+  slice: CT-04A2b2b
+  category: audit
+  required: true
+  protected: true
+  expected: metadata is bounded and excludes raw A1 observation, stderr, environment, config values, tokens, and foreign identifiers
+  origin: CT-04A2b2 supplement
+- id: B2B-REAFF-EVID-001
+  slice: CT-04A2b2b
+  category: source-gap
+  required: true
+  protected: true
+  expected: successful reaffirmation that no longer requires baseline advance remains a reaffirmation inspection, not verification
+  origin: CT-04A2b2 supplement
+- id: B2B-REAFF-EVID-002
+  slice: CT-04A2b2b
+  category: source-gap
+  required: true
+  protected: true
+  expected: failed reaffirmation appends one failed reaffirmation inspection without baseline advance
+  origin: CT-04A2b2 supplement
+- id: B2B-REAFF-EVID-003
+  slice: CT-04A2b2b
+  category: source-gap
+  required: true
+  protected: true
+  expected: core/class/unavailable result during reaffirmation preserves reaffirmation evidence and governed state result
+  origin: CT-04A2b2 supplement
+- id: B2B-TX-001
+  slice: CT-04A2b2b
+  category: transaction
+  required: true
+  protected: true
+  expected: failure after nested inspection insert and before outer commit rolls back evidence, state, audit, and event
+  origin: CT-04A2b2 supplement
+- id: B2B-TX-002
+  slice: CT-04A2b2b
+  category: transaction
+  required: true
+  protected: true
+  expected: failure after state transition and before event rolls back all and calls no notifier
+  origin: CT-04A2b2 supplement
+- id: B2B-HISTORY-001
+  slice: CT-04A2b2b
+  category: history
+  required: true
+  protected: true
+  expected: unchanged, environment-still-changed, and failed inspections appear in ordered history despite zero workspace
+    event
+  origin: CT-04A2b2 supplement
+- id: B2B-READ-001
+  slice: CT-04A2b2b
+  category: feature-disabled
+  required: true
+  protected: true
+  expected: common and owner-authorized stored reads work while feature disabled; host mutations are unavailable
+  origin: CT-04A2b2 supplement
+- id: B2B-DISC-001
+  slice: CT-04A2b2b
+  category: disclosure
+  required: true
+  protected: true
+  expected: common detail excludes Git/common directories and exact observation JSON; owner admin detail is separately authorized
+  origin: CT-04A2b2 supplement
+- id: B2B-REG-DOUBLE-001
+  slice: CT-04A2b2b
+  category: registration
+  required: true
+  protected: true
+  expected: audit attests both exact observation digests and comparison booleans without raw observations
+  origin: CT-04A2b2 supplement
+- id: B2B-CLASS-001
+  slice: CT-04A2b2b
+  category: inspection
+  required: true
+  protected: true
+  expected: accepted A1 repository-class failure produces terminal repository-class-changed reason
+  origin: CT-04A2b2 supplement
+- id: B2B-NOTIFY-001
+  slice: CT-04A2b2b
+  category: journal
+  required: true
+  protected: true
+  expected: unchanged success and no-state-change failure append no event and never notify; durable inspection remains queryable
+  origin: CT-04A2b2 supplement
+- id: B2B-FRESH-001
+  slice: CT-04A2b2b
+  category: B2B-FRESH-COMPARE
+  required: true
+  protected: true
+  expected: same booleans true and assessment same
+  origin: source-grounded B2b package
+- id: B2B-FRESH-002
+  slice: CT-04A2b2b
+  category: B2B-FRESH-COMPARE
+  required: true
+  protected: true
+  expected: core difference returned
+  origin: source-grounded B2b package
+- id: B2B-FRESH-003
+  slice: CT-04A2b2b
+  category: B2B-FRESH-COMPARE
+  required: true
+  protected: true
+  expected: environment difference returned
+  origin: source-grounded B2b package
+- id: B2B-FRESH-004
+  slice: CT-04A2b2b
+  category: B2B-FRESH-COMPARE
+  required: true
+  protected: true
+  expected: risk difference returned
+  origin: source-grounded B2b package
+- id: B2B-FRESH-005
+  slice: CT-04A2b2b
+  category: B2B-FRESH-COMPARE
+  required: true
+  protected: true
+  expected: integrity failure before A1 compare
+  origin: source-grounded B2b package
+- id: B2B-FRESH-006
+  slice: CT-04A2b2b
+  category: B2B-FRESH-COMPARE
+  required: true
+  protected: true
+  expected: projected mismatch
+  origin: source-grounded B2b package
+- id: B2B-FRESH-007
+  slice: CT-04A2b2b
+  category: B2B-FRESH-COMPARE
+  required: true
+  protected: true
+  expected: comparison policy failure
+  origin: source-grounded B2b package
+- id: B2B-FRESH-008
+  slice: CT-04A2b2b
+  category: B2B-FRESH-COMPARE
+  required: true
+  protected: true
+  expected: same permanent adapter failure
+  origin: source-grounded B2b package
+- id: B2B-PROV-001
+  slice: CT-04A2b2b
+  category: B2B-PROVIDER
+  required: true
+  protected: true
+  expected: failed audit, 503, no inspection/state/event/notifier
+  origin: source-grounded B2b package
+- id: B2B-PROV-002
+  slice: CT-04A2b2b
+  category: B2B-PROVIDER
+  required: true
+  protected: true
+  expected: failed audit, 503, no inspection/state/event/notifier
+  origin: source-grounded B2b package
+- id: B2B-PROV-003
+  slice: CT-04A2b2b
+  category: B2B-PROVIDER
+  required: true
+  protected: true
+  expected: failed audit, 503, no inspection/state/event/notifier
+  origin: source-grounded B2b package
+- id: B2B-PROV-004
+  slice: CT-04A2b2b
+  category: B2B-PROVIDER
+  required: true
+  protected: true
+  expected: 503 and no fabricated repository evidence
+  origin: source-grounded B2b package
+- id: B2B-PROV-005
+  slice: CT-04A2b2b
+  category: B2B-PROVIDER
+  required: true
+  protected: true
+  expected: one creation promise; each command remains independently authorized/audited
+  origin: source-grounded B2b package
+- id: B2B-PROV-006
+  slice: CT-04A2b2b
+  category: B2B-PROVIDER
+  required: true
+  protected: true
+  expected: stored reads remain 200
+  origin: source-grounded B2b package
+- id: B2B-QUERY-001
+  slice: CT-04A2b2b
+  category: B2B-QUERY
+  required: true
+  protected: true
+  expected: bounded common summaries, no provider calls
+  origin: source-grounded B2b package
+- id: B2B-QUERY-002
+  slice: CT-04A2b2b
+  category: B2B-QUERY
+  required: true
+  protected: true
+  expected: indistinguishable 404
+  origin: source-grounded B2b package
+- id: B2B-QUERY-003
+  slice: CT-04A2b2b
+  category: B2B-QUERY
+  required: true
+  protected: true
+  expected: '403'
+  origin: source-grounded B2b package
+- id: B2B-QUERY-004
+  slice: CT-04A2b2b
+  category: B2B-QUERY
+  required: true
+  protected: true
+  expected: admin identity only; no exact observation JSON
+  origin: source-grounded B2b package
+- id: B2B-QUERY-005
+  slice: CT-04A2b2b
+  category: B2B-QUERY
+  required: true
+  protected: true
+  expected: descending immutable summaries
+  origin: source-grounded B2b package
+- id: B2B-QUERY-006
+  slice: CT-04A2b2b
+  category: B2B-QUERY
+  required: true
+  protected: true
+  expected: succeed without provider access
+  origin: source-grounded B2b package
+- id: B2B-QUERY-007
+  slice: CT-04A2b2b
+  category: B2B-QUERY
+  required: true
+  protected: true
+  expected: bounded newest page only
+  origin: source-grounded B2b package
+- id: B2B-QUERY-008
+  slice: CT-04A2b2b
+  category: B2B-QUERY
+  required: true
+  protected: true
+  expected: internal integrity failure, no partial response
+  origin: source-grounded B2b package
+- id: B2B-REGX-001
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: one repository/registration inspection/audit/event, notify after commit
+  origin: source-grounded B2b package
+- id: B2B-REGX-002
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: 403 and zero provider/port calls
+  origin: source-grounded B2b package
+- id: B2B-REGX-003
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: 404 and zero provider/port calls
+  origin: source-grounded B2b package
+- id: B2B-REGX-004
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: validated basename stored
+  origin: source-grounded B2b package
+- id: B2B-REGX-005
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: 400 before commit
+  origin: source-grounded B2b package
+- id: B2B-REGX-006
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: failed audit only; no repository inspection parent
+  origin: source-grounded B2b package
+- id: B2B-REGX-007
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: failed audit with bounded first digest; no state/event
+  origin: source-grounded B2b package
+- id: B2B-REGX-008
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: conflict/non-quiescent, no state/event
+  origin: source-grounded B2b package
+- id: B2B-REGX-009
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: created false; no duplicate event/notifier
+  origin: source-grounded B2b package
+- id: B2B-REGX-010
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: 409 lifecycle conflict
+  origin: source-grounded B2b package
+- id: B2B-REGX-011
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: nondisclosing 409; no foreign audit/event
+  origin: source-grounded B2b package
+- id: B2B-REGX-012
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: new RepositoryId allowed
+  origin: source-grounded B2b package
+- id: B2B-REGX-013
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: one creation and one existing/conflict; one event
+  origin: source-grounded B2b package
+- id: B2B-REGX-014
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: all state rolls back
+  origin: source-grounded B2b package
+- id: B2B-REGX-015
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: durable event replay
+  origin: source-grounded B2b package
+- id: B2B-REGX-016
+  slice: CT-04A2b2b
+  category: B2B-REGISTER-TX
+  required: true
+  protected: true
+  expected: two digests and booleans only; no raw observations
+  origin: source-grounded B2b package
+- id: B2B-INSPX-001
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: 409 before provider
+  origin: source-grounded B2b package
+- id: B2B-INSPX-002
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: 409 before provider
+  origin: source-grounded B2b package
+- id: B2B-INSPX-003
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: failed storage-integrity inspection + evidence-blocked; no A1
+  origin: source-grounded B2b package
+- id: B2B-INSPX-004
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: failed storage-integrity inspection + evidence-blocked; no A1
+  origin: source-grounded B2b package
+- id: B2B-INSPX-005
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: successful evidence/audit, changed false, no event/notifier
+  origin: source-grounded B2b package
+- id: B2B-INSPX-006
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: successful evidence + evidence event, repository version unchanged
+  origin: source-grounded B2b package
+- id: B2B-INSPX-007
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: successful evidence + status transition/event
+  origin: source-grounded B2b package
+- id: B2B-INSPX-008
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: successful evidence + terminal mismatch
+  origin: source-grounded B2b package
+- id: B2B-INSPX-009
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: failed inspection + repository-class-changed mismatch
+  origin: source-grounded B2b package
+- id: B2B-INSPX-010
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: failed inspection + unavailable transition where needed
+  origin: source-grounded B2b package
+- id: B2B-INSPX-011
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: failed inspection/audit, no state event
+  origin: source-grounded B2b package
+- id: B2B-INSPX-012
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: audit-only 503, no inspection/state
+  origin: source-grounded B2b package
+- id: B2B-INSPX-013
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: outer transaction conflict; no orphan inspection
+  origin: source-grounded B2b package
+- id: B2B-INSPX-014
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: outer rollback removes all
+  origin: source-grounded B2b package
+- id: B2B-INSPX-015
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: one notifier after commit
+  origin: source-grounded B2b package
+- id: B2B-INSPX-016
+  slice: CT-04A2b2b
+  category: B2B-INSPECT-TX
+  required: true
+  protected: true
+  expected: zero notifier; history still shows attempt
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-001
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: 403 before provider
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-002
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: 409 before provider
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-003
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: 409 before provider
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-004
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: 409 before provider
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-005
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: failed reaffirmation storage-integrity + evidence-blocked; no A1
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-006
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: successful reaffirmation, baseline advances, active, version+1
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-007
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: successful reaffirmation attempt, baselineAdvanced false, no state event
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-008
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: successful reaffirmation, no baseline advance, evidence event only
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-009
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: successful reaffirmation + identity mismatch
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-010
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: failed reaffirmation + repository-class mismatch
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-011
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: failed reaffirmation + unavailable transition
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-012
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: failed reaffirmation, baseline unchanged, no event
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-013
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: audit-only 503, no inspection
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-014
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: outer conflict and no orphan inspection
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-015
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: outer rollback removes attempt/audit/event
+  origin: source-grounded B2b package
+- id: B2B-REAFFX-016
+  slice: CT-04A2b2b
+  category: B2B-REAFF-TX
+  required: true
+  protected: true
+  expected: baselineAdvanced true; IDs and bindings preserved
+  origin: source-grounded B2b package
+- id: B2B-JRNX-001
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: registered event structurally correlates repo + registration inspection
+  origin: source-grounded B2b package
+- id: B2B-JRNX-002
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: status event carries prior/result versions and optional inspection
+  origin: source-grounded B2b package
+- id: B2B-JRNX-003
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: evidence event carries inspection and version remains unchanged
+  origin: source-grounded B2b package
+- id: B2B-JRNX-004
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: audit + inspection only, no event/notifier
+  origin: source-grounded B2b package
+- id: B2B-JRNX-005
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: failed audit + inspection only, no event/notifier
+  origin: source-grounded B2b package
+- id: B2B-JRNX-006
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: failed audit only, no event/notifier
+  origin: source-grounded B2b package
+- id: B2B-JRNX-007
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: denied action audit, no host/event/notifier
+  origin: source-grounded B2b package
+- id: B2B-JRNX-008
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: no foreign repository audit/event disclosure
+  origin: source-grounded B2b package
+- id: B2B-JRNX-009
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: no durable audit/event/inspection/state and no notify
+  origin: source-grounded B2b package
+- id: B2B-JRNX-010
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: poll/reconnect recovers
+  origin: source-grounded B2b package
+- id: B2B-JRNX-011
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: bounded/allowlisted, no raw diagnostic leakage
+  origin: source-grounded B2b package
+- id: B2B-JRNX-012
+  slice: CT-04A2b2b
+  category: B2B-JOURNAL
+  required: true
+  protected: true
+  expected: exactly one notifier call after commit
+  origin: source-grounded B2b package
+- id: B2B-ROUTE-001
+  slice: CT-04A2b2b
+  category: B2B-ROUTES
+  required: true
+  protected: true
+  expected: exact seven new routes, no retire/bind/generic Git
+  origin: source-grounded B2b package
+- id: B2B-ROUTE-002
+  slice: CT-04A2b2b
+  category: B2B-ROUTES
+  required: true
+  protected: true
+  expected: '400'
+  origin: source-grounded B2b package
+- id: B2B-ROUTE-003
+  slice: CT-04A2b2b
+  category: B2B-ROUTES
+  required: true
+  protected: true
+  expected: 403 before service/provider
+  origin: source-grounded B2b package
+- id: B2B-ROUTE-004
+  slice: CT-04A2b2b
+  category: B2B-ROUTES
+  required: true
+  protected: true
+  expected: 503 service-unavailable, bounded body
+  origin: source-grounded B2b package
+- id: B2B-ROUTE-005
+  slice: CT-04A2b2b
+  category: B2B-ROUTES
+  required: true
+  protected: true
+  expected: 409 conflict
+  origin: source-grounded B2b package
+- id: B2B-ROUTE-006
+  slice: CT-04A2b2b
+  category: B2B-ROUTES
+  required: true
+  protected: true
+  expected: 200 strict result, not 500
+  origin: source-grounded B2b package
+- id: B2B-ROUTE-007
+  slice: CT-04A2b2b
+  category: B2B-ROUTES
+  required: true
+  protected: true
+  expected: no admin identity/raw evidence
+  origin: source-grounded B2b package
+- id: B2B-ROUTE-008
+  slice: CT-04A2b2b
+  category: B2B-ROUTES
+  required: true
+  protected: true
+  expected: inspection union + baselineAdvanced truthfully represented
+  origin: source-grounded B2b package
+- id: B2B-ROUTE-009
+  slice: CT-04A2b2b
+  category: B2B-ROUTES
+  required: true
+  protected: true
+  expected: no cookie/token/path diagnostics/raw A1 errors
+  origin: source-grounded B2b package
+- id: B2B-ROUTE-010
+  slice: CT-04A2b2b
+  category: B2B-ROUTES
+  required: true
+  protected: true
+  expected: 404/not registered
+  origin: source-grounded B2b package
+- id: B2B-SCOPEX-001
+  slice: CT-04A2b2b
+  category: B2B-SCOPE
+  required: true
+  protected: true
+  expected: '@craftingtable/git imported only by accepted adapter'
+  origin: source-grounded B2b package
+- id: B2B-SCOPEX-002
+  slice: CT-04A2b2b
+  category: B2B-SCOPE
+  required: true
+  protected: true
+  expected: node:child_process only accepted A1 boundary
+  origin: source-grounded B2b package
+- id: B2B-SCOPEX-003
+  slice: CT-04A2b2b
+  category: B2B-SCOPE
+  required: true
+  protected: true
+  expected: 0001-0004 unchanged; no migration 0005
+  origin: source-grounded B2b package
+- id: B2B-SCOPEX-004
+  slice: CT-04A2b2b
+  category: B2B-SCOPE
+  required: true
+  protected: true
+  expected: no new kind beyond accepted B1
+  origin: source-grounded B2b package
+- id: B2B-SCOPEX-005
+  slice: CT-04A2b2b
+  category: B2B-SCOPE
+  required: true
+  protected: true
+  expected: no repository page/fetch change
+  origin: source-grounded B2b package
+- id: B2B-SCOPEX-006
+  slice: CT-04A2b2b
+  category: B2B-SCOPE
+  required: true
+  protected: true
+  expected: no retirement/binding/CT-04B+
+  origin: source-grounded B2b package
+- id: B2B-SCOPEX-007
+  slice: CT-04A2b2b
+  category: B2B-SCOPE
+  required: true
+  protected: true
+  expected: original and cumulative supplements unchanged
+  origin: source-grounded B2b package
+- id: B2B-SCOPEX-008
+  slice: CT-04A2b2b
+  category: B2B-SCOPE
+  required: true
+  protected: true
+  expected: proposal, design review, disposition, accepted plan precede source code
+  origin: source-grounded B2b package
+- id: B2B-PROCESS-001
+  slice: CT-04A2b2b
+  category: process
+  required: true
+  protected: true
+  expected: proposed plan receives independent design review before accepted plan
+  origin: process
+- id: B2B-PROCESS-002
+  slice: CT-04A2b2b
+  category: process
+  required: true
+  protected: true
+  expected: accepted plan maps every disposition to plan section and proof case
+  origin: process
+- id: B2B-PROCESS-003
+  slice: CT-04A2b2b
+  category: process
+  required: true
+  protected: true
+  expected: completion report records real exact implementation head after commit
+  origin: process
+- id: B2B-PROCESS-004
+  slice: CT-04A2b2b
+  category: process
+  required: true
+  protected: true
+  expected: new protected supplement and all prior protected specifications remain unchanged
+  origin: process
+- id: B2B-FANOUT-001
+  slice: CT-04A2b2b
+  category: process
+  required: true
+  protected: true
+  expected: Phase A explicitly confirms one slice or proposes a reviewed fan-out before code
+  origin: process

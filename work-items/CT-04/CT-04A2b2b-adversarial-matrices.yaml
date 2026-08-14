@@ -1,0 +1,460 @@
+version: 1
+contract: CT-04A2b2b
+source_archive_head: 094c78382e4bd7f00e397cdfe3ec6284a9c9f04f
+source_archive_sha256: e44813b5d9f1d67573e83ec6848ff3811afa031dc68db73c44e60f5d3b53d128
+purpose: Source-grounded authorization, evidence, transaction, HTTP, and scope cases for repository registration/inspection/reaffirmation.
+matrices:
+- id: B2B-FRESH-COMPARE
+  title: Fresh-observation registration comparison
+  slice: CT-04A2b2b
+  governing_invariant: accepted A1 semantics are reused, not duplicated
+  protected_default: true
+  cases:
+  - id: B2B-FRESH-001
+    setup: two direct A1 observations with equal core/environment/risk and different observedAt
+    operation: compareFresh
+    expected: same booleans true and assessment same
+  - id: B2B-FRESH-002
+    setup: first/second core differ
+    operation: compareFresh
+    expected: core difference returned
+  - id: B2B-FRESH-003
+    setup: first/second environment differ
+    operation: compareFresh
+    expected: environment difference returned
+  - id: B2B-FRESH-004
+    setup: first/second risk differ
+    operation: compareFresh
+    expected: risk difference returned
+  - id: B2B-FRESH-005
+    setup: first evidence digest corrupt
+    operation: compareFresh
+    expected: integrity failure before A1 compare
+  - id: B2B-FRESH-006
+    setup: second evidence projection disagrees with JSON
+    operation: compareFresh
+    expected: projected mismatch
+  - id: B2B-FRESH-007
+    setup: policy versions differ
+    operation: compareFresh
+    expected: comparison policy failure
+  - id: B2B-FRESH-008
+    setup: adapter already latched
+    operation: compareFresh
+    expected: same permanent adapter failure
+- id: B2B-PROVIDER
+  title: Provider acquisition and feature availability
+  slice: CT-04A2b2b
+  governing_invariant: no fictional inspection exists before an observation port exists
+  protected_default: true
+  cases:
+  - id: B2B-PROV-001
+    setup: feature disabled, authenticated Owner
+    operation: register
+    expected: failed audit, 503, no inspection/state/event/notifier
+  - id: B2B-PROV-002
+    setup: provider temporary cooldown
+    operation: inspect
+    expected: failed audit, 503, no inspection/state/event/notifier
+  - id: B2B-PROV-003
+    setup: provider permanent creation failure
+    operation: reaffirm
+    expected: failed audit, 503, no inspection/state/event/notifier
+  - id: B2B-PROV-004
+    setup: adapter invariant fault latches after acquisition
+    operation: next command
+    expected: 503 and no fabricated repository evidence
+  - id: B2B-PROV-005
+    setup: two concurrent first lifecycle commands
+    operation: provider get
+    expected: one creation promise; each command remains independently authorized/audited
+  - id: B2B-PROV-006
+    setup: feature disabled
+    operation: list/detail/history
+    expected: stored reads remain 200
+- id: B2B-QUERY
+  title: Repository query and disclosure boundary
+  slice: CT-04A2b2b
+  governing_invariant: read authority is workspace scoped and does not touch host
+  protected_default: true
+  cases:
+  - id: B2B-QUERY-001
+    setup: Owner/Editor/Viewer active member
+    operation: list
+    expected: bounded common summaries, no provider calls
+  - id: B2B-QUERY-002
+    setup: nonmember or foreign repository ID
+    operation: detail
+    expected: indistinguishable 404
+  - id: B2B-QUERY-003
+    setup: Viewer
+    operation: admin detail
+    expected: '403'
+  - id: B2B-QUERY-004
+    setup: Owner
+    operation: admin detail
+    expected: admin identity only; no exact observation JSON
+  - id: B2B-QUERY-005
+    setup: history contains unchanged success, failed A1, failed storage integrity, reaffirmation
+    operation: history
+    expected: descending immutable summaries
+  - id: B2B-QUERY-006
+    setup: feature disabled/provider unavailable
+    operation: all stored reads
+    expected: succeed without provider access
+  - id: B2B-QUERY-007
+    setup: history exceeds contract max
+    operation: history
+    expected: bounded newest page only
+  - id: B2B-QUERY-008
+    setup: corrupt stored summary relation
+    operation: read
+    expected: internal integrity failure, no partial response
+- id: B2B-REGISTER-TX
+  title: Registration authorization, double observation, and atomicity
+  slice: CT-04A2b2b
+  governing_invariant: registration is quiescent, idempotent, and one transaction
+  protected_default: true
+  cases:
+  - id: B2B-REGX-001
+    setup: Owner, safe display name, two equal observations
+    operation: register
+    expected: one repository/registration inspection/audit/event, notify after commit
+  - id: B2B-REGX-002
+    setup: Editor/Viewer
+    operation: register
+    expected: 403 and zero provider/port calls
+  - id: B2B-REGX-003
+    setup: nonmember
+    operation: register
+    expected: 404 and zero provider/port calls
+  - id: B2B-REGX-004
+    setup: omitted safe basename
+    operation: register
+    expected: validated basename stored
+  - id: B2B-REGX-005
+    setup: omitted unsafe basename
+    operation: register
+    expected: 400 before commit
+  - id: B2B-REGX-006
+    setup: first inspection fails
+    operation: register
+    expected: failed audit only; no repository inspection parent
+  - id: B2B-REGX-007
+    setup: second inspection fails
+    operation: register
+    expected: failed audit with bounded first digest; no state/event
+  - id: B2B-REGX-008
+    setup: two observations differ
+    operation: register
+    expected: conflict/non-quiescent, no state/event
+  - id: B2B-REGX-009
+    setup: same-workspace exact active duplicate
+    operation: register
+    expected: created false; no duplicate event/notifier
+  - id: B2B-REGX-010
+    setup: same-workspace non-active row
+    operation: register
+    expected: 409 lifecycle conflict
+  - id: B2B-REGX-011
+    setup: foreign active reservation
+    operation: register
+    expected: nondisclosing 409; no foreign audit/event
+  - id: B2B-REGX-012
+    setup: retired prior row
+    operation: register
+    expected: new RepositoryId allowed
+  - id: B2B-REGX-013
+    setup: concurrent same identity
+    operation: register
+    expected: one creation and one existing/conflict; one event
+  - id: B2B-REGX-014
+    setup: failure after nested register before audit/event outer commit
+    operation: inject
+    expected: all state rolls back
+  - id: B2B-REGX-015
+    setup: commit then notifier lost
+    operation: reconnect
+    expected: durable event replay
+  - id: B2B-REGX-016
+    setup: success audit
+    operation: inspect metadata
+    expected: two digests and booleans only; no raw observations
+- id: B2B-INSPECT-TX
+  title: Explicit inspection lifecycle
+  slice: CT-04A2b2b
+  governing_invariant: every reached-port attempt is immutable and state is honest
+  protected_default: true
+  cases:
+  - id: B2B-INSPX-001
+    setup: expected version stale
+    operation: inspect
+    expected: 409 before provider
+  - id: B2B-INSPX-002
+    setup: terminal repository status
+    operation: inspect
+    expected: 409 before provider
+  - id: B2B-INSPX-003
+    setup: stored baseline digest corrupt
+    operation: inspect
+    expected: failed storage-integrity inspection + evidence-blocked; no A1
+  - id: B2B-INSPX-004
+    setup: stored baseline parse/projection invalid
+    operation: inspect
+    expected: failed storage-integrity inspection + evidence-blocked; no A1
+  - id: B2B-INSPX-005
+    setup: same evidence
+    operation: inspect
+    expected: successful evidence/audit, changed false, no event/notifier
+  - id: B2B-INSPX-006
+    setup: risk-only change
+    operation: inspect
+    expected: successful evidence + evidence event, repository version unchanged
+  - id: B2B-INSPX-007
+    setup: environment change
+    operation: inspect
+    expected: successful evidence + status transition/event
+  - id: B2B-INSPX-008
+    setup: core change
+    operation: inspect
+    expected: successful evidence + terminal mismatch
+  - id: B2B-INSPX-009
+    setup: repository class failure
+    operation: inspect
+    expected: failed inspection + repository-class-changed mismatch
+  - id: B2B-INSPX-010
+    setup: path unavailable
+    operation: inspect
+    expected: failed inspection + unavailable transition where needed
+  - id: B2B-INSPX-011
+    setup: observation-raced/timeout/overflow
+    operation: inspect
+    expected: failed inspection/audit, no state event
+  - id: B2B-INSPX-012
+    setup: adapter failure after port
+    operation: inspect
+    expected: audit-only 503, no inspection/state
+  - id: B2B-INSPX-013
+    setup: version changes after host observation before transaction
+    operation: inspect
+    expected: outer transaction conflict; no orphan inspection
+  - id: B2B-INSPX-014
+    setup: failure after inspection append before transition/audit/event
+    operation: inject
+    expected: outer rollback removes all
+  - id: B2B-INSPX-015
+    setup: transition + event committed
+    operation: notify
+    expected: one notifier after commit
+  - id: B2B-INSPX-016
+    setup: unchanged/failed no-state result
+    operation: notify
+    expected: zero notifier; history still shows attempt
+- id: B2B-REAFF-TX
+  title: Environmental reaffirmation lifecycle
+  slice: CT-04A2b2b
+  governing_invariant: operator action remains typed and baseline advances only when warranted
+  protected_default: true
+  cases:
+  - id: B2B-REAFFX-001
+    setup: Editor/Viewer
+    operation: reaffirm
+    expected: 403 before provider
+  - id: B2B-REAFFX-002
+    setup: status not identity-evidence-changed
+    operation: reaffirm
+    expected: 409 before provider
+  - id: B2B-REAFFX-003
+    setup: stale expected version
+    operation: reaffirm
+    expected: 409 before provider
+  - id: B2B-REAFFX-004
+    setup: stale expected latest successful inspection
+    operation: reaffirm
+    expected: 409 before provider
+  - id: B2B-REAFFX-005
+    setup: stored baseline corrupt
+    operation: reaffirm
+    expected: failed reaffirmation storage-integrity + evidence-blocked; no A1
+  - id: B2B-REAFFX-006
+    setup: environment still differs, core same
+    operation: reaffirm
+    expected: successful reaffirmation, baseline advances, active, version+1
+  - id: B2B-REAFFX-007
+    setup: same evidence
+    operation: reaffirm
+    expected: successful reaffirmation attempt, baselineAdvanced false, no state event
+  - id: B2B-REAFFX-008
+    setup: risk-only difference
+    operation: reaffirm
+    expected: successful reaffirmation, no baseline advance, evidence event only
+  - id: B2B-REAFFX-009
+    setup: core difference
+    operation: reaffirm
+    expected: successful reaffirmation + identity mismatch
+  - id: B2B-REAFFX-010
+    setup: repository class failure
+    operation: reaffirm
+    expected: failed reaffirmation + repository-class mismatch
+  - id: B2B-REAFFX-011
+    setup: unavailable
+    operation: reaffirm
+    expected: failed reaffirmation + unavailable transition
+  - id: B2B-REAFFX-012
+    setup: no-state operational failure
+    operation: reaffirm
+    expected: failed reaffirmation, baseline unchanged, no event
+  - id: B2B-REAFFX-013
+    setup: provider unavailable before port
+    operation: reaffirm
+    expected: audit-only 503, no inspection
+  - id: B2B-REAFFX-014
+    setup: version/latest-success changes before transaction
+    operation: reaffirm
+    expected: outer conflict and no orphan inspection
+  - id: B2B-REAFFX-015
+    setup: failure after standalone reaffirmation append
+    operation: inject
+    expected: outer rollback removes attempt/audit/event
+  - id: B2B-REAFFX-016
+    setup: successful baseline advancement
+    operation: response
+    expected: baselineAdvanced true; IDs and bindings preserved
+- id: B2B-JOURNAL
+  title: Audit, event, and notifier semantics
+  slice: CT-04A2b2b
+  governing_invariant: journal records consequences, not every inspection attempt
+  protected_default: true
+  cases:
+  - id: B2B-JRNX-001
+    setup: repository created
+    operation: transaction
+    expected: registered event structurally correlates repo + registration inspection
+  - id: B2B-JRNX-002
+    setup: repository status transition
+    operation: transaction
+    expected: status event carries prior/result versions and optional inspection
+  - id: B2B-JRNX-003
+    setup: risk-only change
+    operation: transaction
+    expected: evidence event carries inspection and version remains unchanged
+  - id: B2B-JRNX-004
+    setup: unchanged success
+    operation: transaction
+    expected: audit + inspection only, no event/notifier
+  - id: B2B-JRNX-005
+    setup: no-state A1 failure
+    operation: transaction
+    expected: failed audit + inspection only, no event/notifier
+  - id: B2B-JRNX-006
+    setup: provider failure before port
+    operation: transaction
+    expected: failed audit only, no event/notifier
+  - id: B2B-JRNX-007
+    setup: denied known member
+    operation: transaction
+    expected: denied action audit, no host/event/notifier
+  - id: B2B-JRNX-008
+    setup: foreign resource/nonmember
+    operation: query/mutation
+    expected: no foreign repository audit/event disclosure
+  - id: B2B-JRNX-009
+    setup: transaction rollback
+    operation: command
+    expected: no durable audit/event/inspection/state and no notify
+  - id: B2B-JRNX-010
+    setup: event committed, notify omitted
+    operation: SSE
+    expected: poll/reconnect recovers
+  - id: B2B-JRNX-011
+    setup: audit metadata adversarial strings
+    operation: append
+    expected: bounded/allowlisted, no raw diagnostic leakage
+  - id: B2B-JRNX-012
+    setup: one command appends one or more events
+    operation: notify
+    expected: exactly one notifier call after commit
+- id: B2B-ROUTES
+  title: Strict route and error surface
+  slice: CT-04A2b2b
+  governing_invariant: HTTP exposes lifecycle, not Git/process authority
+  protected_default: true
+  cases:
+  - id: B2B-ROUTE-001
+    setup: route inventory
+    operation: inspect
+    expected: exact seven new routes, no retire/bind/generic Git
+  - id: B2B-ROUTE-002
+    setup: unknown request fields command/argv/env/cwd/worktree/branch/remote
+    operation: parse
+    expected: '400'
+  - id: B2B-ROUTE-003
+    setup: mutation without CSRF or allowed origin
+    operation: request
+    expected: 403 before service/provider
+  - id: B2B-ROUTE-004
+    setup: feature unavailable
+    operation: mutation
+    expected: 503 service-unavailable, bounded body
+  - id: B2B-ROUTE-005
+    setup: expected domain conflict
+    operation: mutation
+    expected: 409 conflict
+  - id: B2B-ROUTE-006
+    setup: recorded failed inspection
+    operation: inspect/reaffirm
+    expected: 200 strict result, not 500
+  - id: B2B-ROUTE-007
+    setup: common response
+    operation: validate
+    expected: no admin identity/raw evidence
+  - id: B2B-ROUTE-008
+    setup: reaffirm response
+    operation: validate
+    expected: inspection union + baselineAdvanced truthfully represented
+  - id: B2B-ROUTE-009
+    setup: repository route logs
+    operation: inspect
+    expected: no cookie/token/path diagnostics/raw A1 errors
+  - id: B2B-ROUTE-010
+    setup: retire/bind route attempted
+    operation: route inventory
+    expected: 404/not registered
+- id: B2B-SCOPE
+  title: Source and process containment
+  slice: CT-04A2b2b
+  governing_invariant: B2b remains the accepted lifecycle slice
+  protected_default: true
+  cases:
+  - id: B2B-SCOPEX-001
+    setup: production import graph
+    operation: scan
+    expected: '@craftingtable/git imported only by accepted adapter'
+  - id: B2B-SCOPEX-002
+    setup: production source
+    operation: scan
+    expected: node:child_process only accepted A1 boundary
+  - id: B2B-SCOPEX-003
+    setup: migrations
+    operation: diff
+    expected: 0001-0004 unchanged; no migration 0005
+  - id: B2B-SCOPEX-004
+    setup: event vocabulary
+    operation: diff
+    expected: no new kind beyond accepted B1
+  - id: B2B-SCOPEX-005
+    setup: apps/web
+    operation: diff
+    expected: no repository page/fetch change
+  - id: B2B-SCOPEX-006
+    setup: routes
+    operation: inventory
+    expected: no retirement/binding/CT-04B+
+  - id: B2B-SCOPEX-007
+    setup: protected specifications
+    operation: hash/diff
+    expected: original and cumulative supplements unchanged
+  - id: B2B-SCOPEX-008
+    setup: planning process
+    operation: artifacts
+    expected: proposal, design review, disposition, accepted plan precede source code

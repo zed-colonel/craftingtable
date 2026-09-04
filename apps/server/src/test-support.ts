@@ -1,6 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { AgentBackend } from '@craftingtable/agents';
+import type { GitOperations } from '@craftingtable/git';
 import { openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import { configFromEnv, SESSION_COOKIE_NAME, type ServerConfig } from './config.js';
@@ -42,6 +44,9 @@ export async function createTestContext(
     readonly publicOrigin?: string;
     readonly loggerStream?: { write(message: string): void };
     readonly streamHooks?: WorkspaceEventStreamHooks;
+    readonly gitOperations?: GitOperations | null;
+    readonly agentBackend?: AgentBackend | null;
+    readonly env?: Readonly<Record<string, string>>;
   } = {},
 ): Promise<TestContext> {
   const directory = mkdtempSync(join(tmpdir(), 'craftingtable-server-test-'));
@@ -49,12 +54,16 @@ export async function createTestContext(
     CRAFTINGTABLE_DATA_DIR: directory,
     CRAFTINGTABLE_PUBLIC_ORIGIN: options.publicOrigin ?? 'http://127.0.0.1:5173',
     CRAFTINGTABLE_LOG_LEVEL: 'silent',
+    ...options.env,
   });
   const storage = openCraftingTableStorage(config.databasePath);
   const services = await createServices(storage, config, {
     passwordHasher: options.passwordHasher ?? new FastTestPasswordHasher(),
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.streamHooks === undefined ? {} : { streamHooks: options.streamHooks }),
+    // Tests never reach the real Git or Claude executables unless they opt in.
+    gitOperations: options.gitOperations === undefined ? null : options.gitOperations,
+    agentBackend: options.agentBackend === undefined ? null : options.agentBackend,
   });
   const app = buildServer(
     {
@@ -64,6 +73,10 @@ export async function createTestContext(
       planningQueryService: services.planningQueryService,
       workItemService: services.workItemService,
       workspaceEventStreamService: services.workspaceEventStreamService,
+      executionService: services.executionService,
+      agentRunService: services.agentRunService,
+      runEventStreamService: services.runEventStreamService,
+      executionStatus: services.executionStatus,
     },
     config,
     options.loggerStream === undefined

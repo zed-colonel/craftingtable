@@ -1,19 +1,26 @@
+import { readFileSync } from 'node:fs';
 import cookie from '@fastify/cookie';
 import { fastify, type FastifyInstance } from 'fastify';
 import type { ServerConfig } from './config.js';
+import { registerAgentRunRoutes } from './routes/agent-runs.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerExecutionRoutes } from './routes/execution.js';
 import { sendApiError } from './routes/http.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerWorkspaceEventRoute } from './routes/workspace-events.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { registerHealthRoute } from './routes/health.js';
+import type { AgentRunService } from './services/agent-run-service.js';
 import type { AuthService } from './services/auth-service.js';
 import {
   AuthenticationError,
+  ExecutionRequestError,
   ForbiddenError,
   NotFoundError,
   UnauthenticatedError,
 } from './services/errors.js';
+import type { ExecutionService, ExecutionStatus } from './services/execution-service.js';
+import type { RunEventStreamService } from './services/run-event-stream-service.js';
 import type { WorkspaceEventStreamService } from './services/workspace-event-stream-service.js';
 import type { PlanImportService } from './services/plan-import-service.js';
 import type { PlanningQueryService } from './services/planning-query-service.js';
@@ -27,6 +34,10 @@ export interface ServerDependencies {
   readonly planningQueryService: PlanningQueryService;
   readonly workItemService: WorkItemService;
   readonly workspaceEventStreamService: WorkspaceEventStreamService;
+  readonly executionService: ExecutionService;
+  readonly agentRunService: AgentRunService;
+  readonly runEventStreamService: RunEventStreamService;
+  readonly executionStatus: () => ExecutionStatus;
 }
 
 export interface BuildServerOptions {
@@ -50,7 +61,18 @@ export function buildServer(
           },
           ...(options.loggerStream === undefined ? {} : { stream: options.loggerStream }),
         };
-  const app = fastify({ logger });
+  // The HTTPS and HTTP instances differ only in the raw server generic; the
+  // routes never touch it, so one FastifyInstance type serves both.
+  const app: FastifyInstance =
+    config.tls === undefined
+      ? fastify({ logger })
+      : (fastify({
+          logger,
+          https: {
+            cert: readFileSync(config.tls.certPath),
+            key: readFileSync(config.tls.keyPath),
+          },
+        }) as unknown as FastifyInstance);
   void app.register(cookie);
 
   registerHealthRoute(app);
@@ -69,6 +91,22 @@ export function buildServer(
     deps.authService,
     deps.workspaceService,
     deps.workspaceEventStreamService,
+    config,
+  );
+  registerExecutionRoutes(
+    app,
+    deps.authService,
+    deps.executionService,
+    deps.agentRunService,
+    deps.executionStatus,
+    config,
+  );
+  registerAgentRunRoutes(
+    app,
+    deps.authService,
+    deps.workspaceService,
+    deps.agentRunService,
+    deps.runEventStreamService,
     config,
   );
 
@@ -92,6 +130,16 @@ export function buildServer(
     }
     if (error instanceof NotFoundError) {
       return sendApiError(reply, 404, 'not-found', 'Resource not found');
+    }
+    if (error instanceof ExecutionRequestError) {
+      switch (error.code) {
+        case 'invalid-request':
+          return sendApiError(reply, 400, 'invalid-request', error.message);
+        case 'conflict':
+          return sendApiError(reply, 409, 'conflict', error.message);
+        case 'unavailable':
+          return sendApiError(reply, 503, 'unavailable', error.message);
+      }
     }
     request.log.error(
       { err: { name: error instanceof Error ? error.name : 'Error' } },

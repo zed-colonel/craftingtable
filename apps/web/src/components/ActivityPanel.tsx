@@ -21,6 +21,16 @@ export function describeEvent(event: WorkspaceEventEnvelope): string {
       return `Repository bound to project: ${event.payload.repositoryDisplayName}`;
     case 'project-repository-binding-retired':
       return `Repository binding retired: ${event.payload.repositoryDisplayName}`;
+    case 'source-repository-registered':
+      return `Repository registered: ${event.payload.displayName} (${event.payload.rootPath})`;
+    case 'worktree-created':
+      return `Worktree created on ${event.payload.branchName}`;
+    case 'worktree-removed':
+      return `Worktree removed: ${event.payload.branchName}`;
+    case 'agent-run-started':
+      return `Agent run started: ${event.payload.role} with ${event.payload.backend}`;
+    case 'agent-run-status-changed':
+      return `Agent run ${event.payload.toStatus} (was ${event.payload.fromStatus})`;
     default: {
       const unreachable: never = event;
       throw new TypeError(`Unsupported workspace event: ${String(unreachable)}`);

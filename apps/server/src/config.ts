@@ -1,5 +1,7 @@
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export type RepositoryFeatureConfig =
   | { readonly enabled: false }
@@ -20,16 +22,41 @@ export type RepositoryFeatureConfig =
       readonly retryDelayMs: number;
     };
 
+/** Worktree, run, Git, and agent-backend settings for the execution loop. */
+export interface ExecutionConfig {
+  /** Explicit Git executable; when absent the daemon searches PATH at startup. */
+  readonly gitExecutable?: string;
+  /** Explicit Claude Code executable; when absent the daemon searches PATH and ~/.local/bin. */
+  readonly claudeExecutable?: string;
+  /** Linked worktrees are created strictly below this directory. */
+  readonly worktreeRoot: string;
+  /** Per-run brief and plan documents are written strictly below this directory. */
+  readonly runsRoot: string;
+  /** Upper bound on a single diff response's patch text. */
+  readonly maxPatchBytes: number;
+}
+
+export interface TlsConfig {
+  readonly certPath: string;
+  readonly keyPath: string;
+}
+
 export interface ServerConfig {
-  readonly host: '127.0.0.1' | 'localhost' | '::1';
+  readonly host: string;
   readonly port: number;
   readonly dataDir: string;
   readonly databasePath: string;
   readonly publicOrigin: string;
   readonly secureCookies: boolean;
+  /** True when the daemon listens on something other than a loopback address. */
+  readonly lanExposed: boolean;
+  readonly tls?: TlsConfig;
+  /** Built browser app to serve from the daemon; absent means API only. */
+  readonly webDistDir?: string;
   readonly sessionLifetimeSeconds: number;
   readonly logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   readonly repositoryFeature: RepositoryFeatureConfig;
+  readonly execution: ExecutionConfig;
 }
 
 export const SERVER_VERSION = '0.3.0';
@@ -37,7 +64,10 @@ export const SESSION_COOKIE_NAME = 'craftingtable_session';
 export const CSRF_HEADER_NAME = 'x-craftingtable-csrf';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
-const URL_LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+const HOSTNAME_PATTERN =
+  /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
+const IPV4_PATTERN = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
+const IPV6_PATTERN = /^[0-9a-f:]+$/i;
 const LOG_LEVELS = new Set<ServerConfig['logLevel']>([
   'fatal',
   'error',
@@ -249,14 +279,66 @@ function repositoryFeatureConfig(env: NodeJS.ProcessEnv, dataDir: string): Repos
   });
 }
 
-export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const configuredHost = env.CRAFTINGTABLE_HOST ?? '127.0.0.1';
-  if (!LOOPBACK_HOSTS.has(configuredHost)) {
-    throw new Error(
-      `CRAFTINGTABLE_HOST must be loopback-only until CT-08; got "${configuredHost}"`,
-    );
+function isListenableHost(value: string): boolean {
+  return (
+    LOOPBACK_HOSTS.has(value) ||
+    HOSTNAME_PATTERN.test(value) ||
+    IPV4_PATTERN.test(value) ||
+    (value.includes(':') && IPV6_PATTERN.test(value))
+  );
+}
+
+function defaultWebDistDir(): string | undefined {
+  // apps/server/src/config.ts (or dist/config.js) → apps/web/dist.
+  const candidate = fileURLToPath(new URL('../../web/dist/', import.meta.url)).replace(/\/$/, '');
+  return existsSync(join(candidate, 'index.html')) ? candidate : undefined;
+}
+
+function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConfig {
+  const gitExecutable = env.CRAFTINGTABLE_GIT_EXECUTABLE;
+  const claudeExecutable = env.CRAFTINGTABLE_CLAUDE_EXECUTABLE;
+  for (const [label, value] of [
+    ['CRAFTINGTABLE_GIT_EXECUTABLE', gitExecutable],
+    ['CRAFTINGTABLE_CLAUDE_EXECUTABLE', claudeExecutable],
+  ] as const) {
+    if (value !== undefined && !isNormalizedAbsolutePath(value)) {
+      throw new Error(`${label} must be a normalized absolute path`);
+    }
   }
-  const host = configuredHost as ServerConfig['host'];
+  const worktreeRoot = env.CRAFTINGTABLE_WORKTREE_ROOT ?? join(dataDir, 'worktrees');
+  const runsRoot = env.CRAFTINGTABLE_RUNS_ROOT ?? join(dataDir, 'runs');
+  for (const [label, value] of [
+    ['CRAFTINGTABLE_WORKTREE_ROOT', worktreeRoot],
+    ['CRAFTINGTABLE_RUNS_ROOT', runsRoot],
+  ] as const) {
+    if (!isNormalizedAbsolutePath(value)) {
+      throw new Error(`${label} must be a normalized absolute path`);
+    }
+  }
+  if (pathsOverlap(worktreeRoot, runsRoot)) {
+    throw new Error('Worktree and runs roots must not overlap');
+  }
+  return Object.freeze({
+    ...(gitExecutable === undefined ? {} : { gitExecutable }),
+    ...(claudeExecutable === undefined ? {} : { claudeExecutable }),
+    worktreeRoot,
+    runsRoot,
+    maxPatchBytes: boundedInteger(
+      env.CRAFTINGTABLE_DIFF_LIMIT_BYTES,
+      4 * 1024 * 1024,
+      64 * 1024,
+      64 * 1024 * 1024,
+      'CRAFTINGTABLE_DIFF_LIMIT_BYTES',
+    ),
+  });
+}
+
+export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
+  const host = env.CRAFTINGTABLE_HOST ?? '127.0.0.1';
+  if (!isListenableHost(host)) {
+    throw new Error(`CRAFTINGTABLE_HOST must be a hostname or IP address; got "${host}"`);
+  }
+  const lanExposed = !LOOPBACK_HOSTS.has(host);
 
   const port = Number(env.CRAFTINGTABLE_PORT ?? 4600);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -265,19 +347,43 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     );
   }
 
-  const publicOriginUrl = new URL(env.CRAFTINGTABLE_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5173');
+  let publicOriginUrl: URL;
+  try {
+    publicOriginUrl = new URL(env.CRAFTINGTABLE_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5173');
+  } catch {
+    throw new Error('CRAFTINGTABLE_PUBLIC_ORIGIN must be an HTTP(S) origin');
+  }
   if (
     !['http:', 'https:'].includes(publicOriginUrl.protocol) ||
-    !URL_LOOPBACK_HOSTS.has(publicOriginUrl.hostname) ||
     publicOriginUrl.username !== '' ||
     publicOriginUrl.password !== '' ||
     publicOriginUrl.pathname !== '/' ||
     publicOriginUrl.search !== '' ||
     publicOriginUrl.hash !== ''
   ) {
-    throw new Error('CRAFTINGTABLE_PUBLIC_ORIGIN must be an HTTP(S) loopback origin');
+    throw new Error('CRAFTINGTABLE_PUBLIC_ORIGIN must be an HTTP(S) origin');
   }
   const publicOrigin = publicOriginUrl.origin;
+
+  const certPath = env.CRAFTINGTABLE_TLS_CERT;
+  const keyPath = env.CRAFTINGTABLE_TLS_KEY;
+  if ((certPath === undefined) !== (keyPath === undefined)) {
+    throw new Error('CRAFTINGTABLE_TLS_CERT and CRAFTINGTABLE_TLS_KEY must be set together');
+  }
+  const tls = certPath === undefined || keyPath === undefined ? undefined : { certPath, keyPath };
+  if (tls !== undefined && (!isAbsolute(tls.certPath) || !isAbsolute(tls.keyPath))) {
+    throw new Error('CRAFTINGTABLE_TLS_CERT and CRAFTINGTABLE_TLS_KEY must be absolute paths');
+  }
+  if (lanExposed && tls === undefined && publicOriginUrl.protocol !== 'https:') {
+    throw new Error(
+      'Listening on a non-loopback host requires TLS (CRAFTINGTABLE_TLS_CERT/KEY) or an HTTPS public origin served by a TLS proxy',
+    );
+  }
+
+  const webDistDir = env.CRAFTINGTABLE_WEB_DIST ?? defaultWebDistDir();
+  if (webDistDir !== undefined && !isAbsolute(webDistDir)) {
+    throw new Error('CRAFTINGTABLE_WEB_DIST must be an absolute path');
+  }
 
   const sessionLifetimeSeconds = Number(env.CRAFTINGTABLE_SESSION_LIFETIME_SECONDS ?? 2_592_000);
   if (
@@ -297,6 +403,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
 
   const dataDir = dataDirectory(env);
   const repositoryFeature = repositoryFeatureConfig(env, dataDir);
+  const execution = executionConfig(env, dataDir);
   return {
     host,
     port,
@@ -304,8 +411,12 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     databasePath: join(dataDir, 'state', 'craftingtable.sqlite'),
     publicOrigin,
     secureCookies: publicOriginUrl.protocol === 'https:',
+    lanExposed,
+    ...(tls === undefined ? {} : { tls }),
+    ...(webDistDir === undefined ? {} : { webDistDir }),
     sessionLifetimeSeconds,
     logLevel: configuredLogLevel as ServerConfig['logLevel'],
     repositoryFeature,
+    execution,
   };
 }

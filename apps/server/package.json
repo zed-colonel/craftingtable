@@ -11,6 +11,7 @@
     "e2e:start": "tsx src/e2e-entry.ts"
   },
   "dependencies": {
+    "@craftingtable/agents": "workspace:*",
     "@craftingtable/contracts": "workspace:*",
     "@craftingtable/domain": "workspace:*",
     "@craftingtable/git": "workspace:*",

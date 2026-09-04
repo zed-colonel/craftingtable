@@ -1,6 +1,14 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { type AgentBackend, ClaudeCodeBackend } from '@craftingtable/agents';
+import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { openCraftingTableStorage, type CraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from './config.js';
+import { AgentRunService, type RunLog } from './services/agent-run-service.js';
+import { resolveExecutable } from './services/executables.js';
+import { ExecutionService, type ExecutionStatus } from './services/execution-service.js';
+import { RunEventStreamService } from './services/run-event-stream-service.js';
 import { Argon2PasswordHasher, type PasswordHasher } from './security/password-hasher.js';
 import { SessionTokenService } from './security/session-tokens.js';
 import { BootstrapService } from './services/bootstrap-service.js';
@@ -33,6 +41,10 @@ export interface ServiceSet {
   readonly workspaceEventNotifier: WorkspaceEventNotifier;
   readonly workspaceEventStreamService: WorkspaceEventStreamService;
   readonly repositoryInspectorProvider: RepositoryInspectorProvider;
+  readonly executionService: ExecutionService;
+  readonly agentRunService: AgentRunService;
+  readonly runEventStreamService: RunEventStreamService;
+  readonly executionStatus: () => ExecutionStatus;
 }
 
 export interface ServiceOverrides {
@@ -42,6 +54,11 @@ export interface ServiceOverrides {
   readonly repositoryInspectorProvider?: RepositoryInspectorProvider;
   readonly repositoryObservationPortFactory?: RepositoryObservationPortFactory;
   readonly repositoryProviderClock?: MonotonicClock;
+  /** Test seam: a Git operations implementation or `null` to simulate no Git. */
+  readonly gitOperations?: GitOperations | null;
+  /** Test seam: an agent backend or `null` to simulate a missing executable. */
+  readonly agentBackend?: AgentBackend | null;
+  readonly runLog?: RunLog;
 }
 
 export async function createServices(
@@ -80,6 +97,60 @@ export async function createServices(
             }),
       overrides.repositoryProviderClock ?? PERFORMANCE_MONOTONIC_CLOCK,
     );
+  const gitExecutable =
+    overrides.gitOperations === undefined
+      ? resolveExecutable('git', config.execution.gitExecutable)
+      : undefined;
+  const gitOperations: GitOperations | undefined =
+    overrides.gitOperations === undefined
+      ? gitExecutable === undefined
+        ? undefined
+        : createGitOperations({ gitExecutable })
+      : (overrides.gitOperations ?? undefined);
+  const claudeExecutable =
+    overrides.agentBackend === undefined
+      ? resolveExecutable('claude', config.execution.claudeExecutable, process.env, [
+          join(homedir(), '.local', 'bin'),
+        ])
+      : undefined;
+  const agentBackend: AgentBackend | undefined =
+    overrides.agentBackend === undefined
+      ? claudeExecutable === undefined
+        ? undefined
+        : new ClaudeCodeBackend({ executable: claudeExecutable })
+      : (overrides.agentBackend ?? undefined);
+  const executionService = new ExecutionService(
+    storage,
+    workspaceService,
+    notifier,
+    gitOperations,
+    config.execution,
+    now,
+  );
+  const agentRunService = new AgentRunService(
+    storage,
+    workspaceService,
+    notifier,
+    agentBackend,
+    config.execution,
+    overrides.runLog,
+    now,
+  );
+  agentRunService.recoverInterrupted();
+  const executionStatus = (): ExecutionStatus => ({
+    git: {
+      available: gitOperations !== undefined,
+      ...(gitExecutable === undefined ? {} : { executable: gitExecutable }),
+    },
+    backends: [
+      {
+        kind: 'claude-code',
+        label: 'Claude Code',
+        available: agentBackend !== undefined,
+        ...(agentBackend === undefined ? {} : { executable: agentBackend.describe().executable }),
+      },
+    ],
+  });
   return {
     bootstrapService: new BootstrapService(storage, passwordHasher, notifier, now),
     authService,
@@ -96,6 +167,16 @@ export async function createServices(
       overrides.streamHooks,
     ),
     repositoryInspectorProvider,
+    executionService,
+    agentRunService,
+    runEventStreamService: new RunEventStreamService(
+      storage,
+      authService,
+      workspaceService,
+      notifier,
+      overrides.streamHooks,
+    ),
+    executionStatus,
   };
 }
 
@@ -121,6 +202,10 @@ export async function createRuntime(
         planningQueryService: services.planningQueryService,
         workItemService: services.workItemService,
         workspaceEventStreamService: services.workspaceEventStreamService,
+        executionService: services.executionService,
+        agentRunService: services.agentRunService,
+        runEventStreamService: services.runEventStreamService,
+        executionStatus: services.executionStatus,
       },
       config,
       { logger: options.logger ?? true },

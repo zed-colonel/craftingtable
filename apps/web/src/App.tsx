@@ -1,15 +1,29 @@
 import type {
+  AgentRunDetailResponse,
   AuditRecordSummary,
   AuthenticatedSessionResponse,
+  ExecutionStatusResponse,
   PlanImportResponse,
   PlanVersionDetailResponse,
   ProjectDetailResponse,
+  RunEventEnvelope,
   SessionSummary,
+  SourceRepositorySummary,
   WorkItemDetailResponse,
+  WorkItemExecutionResponse,
   WorkspaceEventEnvelope,
   WorkspaceSummary,
+  WorktreeDiffResponse,
 } from '@craftingtable/contracts';
-import type { PlanArtifactId, SessionId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
+import type {
+  AgentRunId,
+  PlanArtifactId,
+  SessionId,
+  SourceRepositoryId,
+  WorkItemId,
+  WorkspaceId,
+  WorktreeId,
+} from '@craftingtable/domain';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ActivityPanel } from './components/ActivityPanel.js';
 import { AuditPanel } from './components/AuditPanel.js';
@@ -17,6 +31,10 @@ import { LoginPage } from './components/LoginPage.js';
 import { SessionPanel } from './components/SessionPanel.js';
 import { StatusRegions } from './components/StatusRegions.js';
 import { WorkspaceShell } from './components/WorkspaceShell.js';
+import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
+import { DiffView } from './features/execution/DiffView.js';
+import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
+import { RunPage } from './features/execution/RunPage.js';
 import { ImportPlanPage } from './features/planning/ImportPlanPage.js';
 import { PlanVersionPage } from './features/planning/PlanVersionPage.js';
 import { ProjectCards } from './features/planning/ProjectCards.js';
@@ -36,6 +54,22 @@ import {
 } from './lib/api-client.js';
 import { authenticationMessage, type AuthenticationStatus } from './lib/auth-state.js';
 import {
+  cancelRun,
+  createWorktree,
+  endRun,
+  loadExecutionStatus,
+  loadRepositories,
+  loadRun,
+  loadRunEvents,
+  loadWorkItemExecution,
+  loadWorktreeDiff,
+  registerRepository,
+  removeWorktree,
+  retireRepository,
+  sendRunMessage,
+  startRun,
+} from './lib/execution-api.js';
+import {
   admitWorkItem,
   importPlanBundle,
   loadArtifactText,
@@ -46,11 +80,16 @@ import {
 } from './lib/planning-api.js';
 import { buildPath, type Route } from './lib/route.js';
 import { useRoute } from './lib/use-route.js';
+import { useRunEventStream } from './lib/use-run-event-stream.js';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
 import {
+  type ConnectionState,
   INITIAL_WORKSPACE_PROJECTION,
   reduceWorkspaceProjection,
 } from './lib/workspace-projection.js';
+
+/** Pages the initial run-event load walks before handing over to the stream. */
+const RUN_EVENT_PAGE_LIMIT = 20;
 
 export function App() {
   const [authenticationStatus, setAuthenticationStatus] =
@@ -105,6 +144,19 @@ export function App() {
   const [admitError, setAdmitError] = useState<string>();
   const [refreshToken, setRefreshToken] = useState(0);
 
+  // Delegation state: repositories, the active work item's worktrees and runs,
+  // one run being followed live, and one diff being inspected.
+  const [repositories, setRepositories] = useState<readonly SourceRepositorySummary[]>([]);
+  const [executionStatus, setExecutionStatus] = useState<ExecutionStatusResponse>();
+  const [workItemExecution, setWorkItemExecution] = useState<WorkItemExecutionResponse>();
+  const [run, setRun] = useState<AgentRunDetailResponse>();
+  const [runEvents, setRunEvents] = useState<readonly RunEventEnvelope[]>([]);
+  const [runStreamAfter, setRunStreamAfter] = useState<number>();
+  const [runConnection, setRunConnection] = useState<ConnectionState>('connecting');
+  const [diff, setDiff] = useState<WorktreeDiffResponse>();
+  const [executionBusy, setExecutionBusy] = useState(false);
+  const [executionError, setExecutionError] = useState<string>();
+
   /**
    * Switches workspace in one synchronous transition.
    *
@@ -127,6 +179,14 @@ export function App() {
     setAdmitError(undefined);
     setAudit([]);
     setStreamAfter(0);
+    setRepositories([]);
+    setWorkItemExecution(undefined);
+    setRun(undefined);
+    setRunEvents([]);
+    setRunStreamAfter(undefined);
+    setDiff(undefined);
+    setExecutionBusy(false);
+    setExecutionError(undefined);
     dispatch({ type: 'workspace-changed' });
   }, []);
 
@@ -226,7 +286,8 @@ export function App() {
     if (
       !projection.stale.workspaceSummary &&
       projection.stale.projectIds.length === 0 &&
-      projection.stale.workItemIds.length === 0
+      projection.stale.workItemIds.length === 0 &&
+      !projection.stale.repositoryList
     ) {
       return;
     }
@@ -234,6 +295,7 @@ export function App() {
       type: 'stale-consumed',
       consumed: {
         ...(projection.stale.workspaceSummary ? { workspaceSummary: true } : {}),
+        ...(projection.stale.repositoryList ? { repositoryList: true } : {}),
         ...(projection.stale.projectIds.length === 0
           ? {}
           : { projectIds: projection.stale.projectIds }),
@@ -278,10 +340,35 @@ export function App() {
         })
         .catch(fail);
     } else if (route.name === 'work-item') {
-      void loadWorkItem(workspaceId, route.workItemId)
-        .then((detail) => {
+      void Promise.all([
+        loadWorkItem(workspaceId, route.workItemId),
+        loadWorkItemExecution(workspaceId, route.workItemId),
+        loadRepositories(workspaceId),
+        loadExecutionStatus(),
+      ])
+        .then(([detail, execution, repositoryList, status]) => {
           if (current()) {
             setWorkItem(detail);
+            setWorkItemExecution(execution);
+            setRepositories(repositoryList.repositories);
+            setExecutionStatus(status);
+          }
+        })
+        .catch(fail);
+    } else if (route.name === 'repositories') {
+      void Promise.all([loadRepositories(workspaceId), loadExecutionStatus()])
+        .then(([repositoryList, status]) => {
+          if (current()) {
+            setRepositories(repositoryList.repositories);
+            setExecutionStatus(status);
+          }
+        })
+        .catch(fail);
+    } else if (route.name === 'run') {
+      void loadRun(workspaceId, route.runId)
+        .then((detail) => {
+          if (current()) {
+            setRun(detail);
           }
         })
         .catch(fail);
@@ -290,6 +377,77 @@ export function App() {
       canceled = true;
     };
   }, [route, workspaceId, authenticationStatus, refreshToken]);
+
+  // Following a run: load the committed events once per run, then stream the
+  // tail from the last committed sequence. Leaving the run page drops both.
+  const followedRunId = route.name === 'run' ? route.runId : undefined;
+  useEffect(() => {
+    if (workspaceId === undefined || followedRunId === undefined) {
+      setRun(undefined);
+      setRunEvents([]);
+      setRunStreamAfter(undefined);
+      setDiff(undefined);
+      return;
+    }
+    let canceled = false;
+    const requestedFor = workspaceId;
+    void (async () => {
+      const collected: RunEventEnvelope[] = [];
+      let after = 0;
+      for (let page = 0; page < RUN_EVENT_PAGE_LIMIT; page += 1) {
+        const response = await loadRunEvents(requestedFor, followedRunId, after);
+        collected.push(...response.events);
+        if (response.events.length === 0 || response.nextAfter === after) {
+          break;
+        }
+        after = response.nextAfter;
+      }
+      if (!canceled && activeWorkspaceIdRef.current === requestedFor) {
+        setRunEvents(collected);
+        setRunStreamAfter(after);
+        setRunConnection('connecting');
+      }
+    })().catch(() => {
+      if (!canceled) {
+        setRunConnection('disconnected');
+      }
+    });
+    return () => {
+      canceled = true;
+    };
+  }, [workspaceId, followedRunId]);
+
+  const onRunStreamOpen = useCallback(() => setRunConnection('open'), []);
+  const onRunStreamError = useCallback((sourceClosed: boolean) => {
+    setRunConnection(sourceClosed ? 'disconnected' : 'reconnecting');
+  }, []);
+  const receiveRunEvent = useCallback((event: RunEventEnvelope) => {
+    setRunEvents((current) =>
+      current.some((existing) => existing.sequence >= event.sequence)
+        ? current
+        : [...current, event],
+    );
+    if (event.kind === 'run-finished' || event.kind === 'turn-completed') {
+      setRefreshToken((current) => current + 1);
+    }
+  }, []);
+  const onRunStreamInvalid = useCallback(() => undefined, []);
+  const onRunAuthenticationExpired = useCallback(() => {
+    setAuthenticated(undefined);
+    setAuthenticationStatus('expired');
+  }, []);
+  useRunEventStream(
+    runStreamAfter === undefined ? undefined : workspaceId,
+    runStreamAfter === undefined ? undefined : followedRunId,
+    runStreamAfter ?? 0,
+    {
+      onOpen: onRunStreamOpen,
+      onError: onRunStreamError,
+      onEvent: receiveRunEvent,
+      onInvalidEvent: onRunStreamInvalid,
+      onAuthenticationExpired: onRunAuthenticationExpired,
+    },
+  );
 
   const onStreamOpen = useCallback(() => dispatch({ type: 'stream-opened' }), []);
   const onStreamError = useCallback((sourceClosed: boolean) => {
@@ -422,6 +580,98 @@ export function App() {
       });
   };
 
+  /**
+   * Delegation commands. Each captures the workspace it was made for, reports
+   * the daemon's own message on failure, and lets the event stream drive the
+   * refresh rather than patching local state from the response.
+   */
+  const executionCommand = (
+    operation: (csrfToken: string, forWorkspace: WorkspaceId) => Promise<void>,
+  ): void => {
+    if (workspaceId === undefined || authenticated === undefined) {
+      return;
+    }
+    const requestedFor = workspaceId;
+    setExecutionBusy(true);
+    setExecutionError(undefined);
+    void operation(authenticated.csrfToken, requestedFor)
+      .then(() => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setRefreshToken((current) => current + 1);
+        }
+      })
+      .catch((error: unknown) => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setExecutionError(error instanceof ApiError ? error.message : 'The request failed');
+        }
+      })
+      .finally(() => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setExecutionBusy(false);
+        }
+      });
+  };
+
+  const handleRegisterRepository = (input: { rootPath: string; displayName?: string }): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      await registerRepository(forWorkspace, input, csrfToken);
+    });
+  const handleRetireRepository = (repositoryId: SourceRepositoryId): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      await retireRepository(forWorkspace, repositoryId, csrfToken);
+    });
+  const handleCreateWorktree = (workItemId: WorkItemId, repositoryId: SourceRepositoryId): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      await createWorktree(forWorkspace, workItemId, { repositoryId }, csrfToken);
+    });
+  const handleRemoveWorktree = (worktreeId: WorktreeId): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      await removeWorktree(forWorkspace, worktreeId, csrfToken);
+      setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
+    });
+  const handleLaunch = (workItemId: WorkItemId, input: LaunchInput): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      const response = await startRun(forWorkspace, workItemId, input, csrfToken);
+      if (activeWorkspaceIdRef.current === forWorkspace) {
+        go({ name: 'run', workspaceId: forWorkspace, runId: response.run.id });
+      }
+    });
+  const handleSendMessage = (runId: AgentRunId, text: string): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      const response = await sendRunMessage(forWorkspace, runId, text, csrfToken);
+      if (!response.accepted) {
+        throw new ApiError(409, 'conflict', 'The run is no longer accepting messages');
+      }
+    });
+  const handleEndRun = (runId: AgentRunId): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      await endRun(forWorkspace, runId, csrfToken);
+    });
+  const handleCancelRun = (runId: AgentRunId): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      await cancelRun(forWorkspace, runId, csrfToken);
+    });
+  const handleLoadDiff = (worktreeId: WorktreeId): void => {
+    if (workspaceId === undefined) {
+      return;
+    }
+    const requestedFor = workspaceId;
+    setExecutionError(undefined);
+    void loadWorktreeDiff(workspaceId, worktreeId)
+      .then((response) => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setDiff(response);
+        }
+      })
+      .catch((error: unknown) => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setExecutionError(
+            error instanceof ApiError ? error.message : 'The diff could not be loaded',
+          );
+        }
+      });
+  };
+
   const viewArtifact = (artifactId: PlanArtifactId, filename: string): void => {
     if (workspaceId === undefined) {
       return;
@@ -488,6 +738,15 @@ export function App() {
             >
               Import plan
             </a>
+            <a
+              href={buildPath({ name: 'repositories', workspaceId: selectedWorkspaceId })}
+              onClick={(event) => {
+                event.preventDefault();
+                go({ name: 'repositories', workspaceId: selectedWorkspaceId });
+              }}
+            >
+              Repositories
+            </a>
           </nav>
         )
       }
@@ -553,12 +812,72 @@ export function App() {
           )}
 
           {route.name === 'work-item' && workItem?.workItem.id === route.workItemId && (
-            <WorkItemPage
-              detail={workItem}
-              onAdmit={() => handleAdmit(workItem.workItem.id)}
-              admitting={admitting}
-              canAdmit={canMutate}
-              {...(admitError === undefined ? {} : { admitError })}
+            <>
+              <WorkItemPage
+                detail={workItem}
+                onAdmit={() => handleAdmit(workItem.workItem.id)}
+                admitting={admitting}
+                canAdmit={canMutate}
+                {...(admitError === undefined ? {} : { admitError })}
+              />
+              {workItemExecution?.workItemId === route.workItemId && (
+                <DelegationPanel
+                  repositories={repositories}
+                  worktrees={workItemExecution.worktrees}
+                  runs={workItemExecution.runs}
+                  canMutate={canMutate}
+                  busy={executionBusy}
+                  {...(executionError === undefined ? {} : { error: executionError })}
+                  backendAvailable={
+                    executionStatus?.backends.some((backend) => backend.available) ?? true
+                  }
+                  onCreateWorktree={(repositoryId) =>
+                    handleCreateWorktree(workItem.workItem.id, repositoryId)
+                  }
+                  onRemoveWorktree={handleRemoveWorktree}
+                  onLaunch={(input) => handleLaunch(workItem.workItem.id, input)}
+                  onOpenRun={(runId) =>
+                    workspaceId !== undefined && go({ name: 'run', workspaceId, runId })
+                  }
+                  onOpenDiff={handleLoadDiff}
+                />
+              )}
+              {diff !== undefined &&
+                workItemExecution?.worktrees.some(
+                  (worktree) => worktree.id === diff.worktree.id,
+                ) && <DiffView diff={diff} onClose={() => setDiff(undefined)} />}
+            </>
+          )}
+
+          {route.name === 'repositories' && (
+            <RepositoriesPage
+              repositories={repositories}
+              {...(executionStatus === undefined ? {} : { status: executionStatus })}
+              canMutate={canMutate}
+              busy={executionBusy}
+              {...(executionError === undefined ? {} : { error: executionError })}
+              onRegister={handleRegisterRepository}
+              onRetire={handleRetireRepository}
+            />
+          )}
+
+          {route.name === 'run' && run?.run.id === route.runId && workspaceId !== undefined && (
+            <RunPage
+              detail={run}
+              events={runEvents}
+              connection={runConnection}
+              {...(diff?.worktree.id === run.worktree.id ? { diff } : {})}
+              canMutate={canMutate}
+              busy={executionBusy}
+              {...(executionError === undefined ? {} : { error: executionError })}
+              onSend={(text) => handleSendMessage(run.run.id, text)}
+              onEnd={() => handleEndRun(run.run.id)}
+              onCancel={() => handleCancelRun(run.run.id)}
+              onOpenWorkItem={() =>
+                go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId })
+              }
+              onLoadDiff={() => handleLoadDiff(run.worktree.id)}
+              onCloseDiff={() => setDiff(undefined)}
             />
           )}
 

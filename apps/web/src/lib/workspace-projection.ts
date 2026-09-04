@@ -152,6 +152,17 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
         projectIds: unique([...current.projectIds, event.projectId]),
         repositoryIds: appendBoundedUnique(current.repositoryIds, event.repositoryId, 100),
       };
+    case 'source-repository-registered':
+      return { ...current, repositoryList: true };
+    case 'worktree-created':
+    case 'worktree-removed':
+    case 'agent-run-started':
+    case 'agent-run-status-changed':
+      return {
+        ...current,
+        workspaceSummary: true,
+        workItemIds: unique([...current.workItemIds, event.workItemId]),
+      };
   }
 }
 

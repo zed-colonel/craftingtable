@@ -30,6 +30,11 @@ export type RepositoryId = Brand<'RepositoryId'>;
 export type RepositoryInspectionId = Brand<'RepositoryInspectionId'>;
 export type ProjectRepositoryBindingId = Brand<'ProjectRepositoryBindingId'>;
 
+/* Execution identifiers: repositories, worktrees, runs, run events. */
+export type SourceRepositoryId = Brand<'SourceRepositoryId'>;
+export type WorktreeId = Brand<'WorktreeId'>;
+export type AgentRunEventId = Brand<'AgentRunEventId'>;
+
 /** Shared well-formedness rule for all identifiers: non-empty, no surrounding whitespace. */
 export function isWellFormedId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value === value.trim();
@@ -65,3 +70,6 @@ export const asRepositoryInspectionId = idFactory<RepositoryInspectionId>('Repos
 export const asProjectRepositoryBindingId = idFactory<ProjectRepositoryBindingId>(
   'ProjectRepositoryBindingId',
 );
+export const asSourceRepositoryId = idFactory<SourceRepositoryId>('SourceRepositoryId');
+export const asWorktreeId = idFactory<WorktreeId>('WorktreeId');
+export const asAgentRunEventId = idFactory<AgentRunEventId>('AgentRunEventId');

@@ -12,7 +12,6 @@ const alias = {
   '@craftingtable/storage': fromHere('./packages/storage/src/index.ts'),
   '@craftingtable/agents': fromHere('./packages/agents/src/index.ts'),
   '@craftingtable/git': fromHere('./packages/git/src/index.ts'),
-  '@craftingtable/testing': fromHere('./packages/testing/src/index.ts'),
 };
 
 export default defineConfig({

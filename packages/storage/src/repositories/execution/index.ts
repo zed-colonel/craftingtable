@@ -1,0 +1,540 @@
+import {
+  type AgentRun,
+  type AgentRunEvent,
+  type AgentRunId,
+  isAgentRunEventKind,
+  isTerminalAgentRunStatus,
+  type SourceRepository,
+  type SourceRepositoryId,
+  type WorkItemId,
+  type WorkspaceId,
+  type Worktree,
+  type WorktreeId,
+} from '@craftingtable/domain';
+import type Database from 'better-sqlite3';
+import type {
+  AgentRunEventRepository,
+  AgentRunRepository,
+  AppendAgentRunEventInput,
+  CreateAgentRunInput,
+  CreateSourceRepositoryInput,
+  CreateWorktreeInput,
+  ExecutionRepositories,
+  SourceRepositoryRepository,
+  TransitionAgentRunInput,
+  WorktreeRepository,
+} from '../../execution-types.js';
+
+/* -------------------------------------------------------------------------- */
+/* Rows and mappers                                                            */
+/* -------------------------------------------------------------------------- */
+
+interface SourceRepositoryRow {
+  id: string;
+  workspace_id: string;
+  display_name: string;
+  root_path: string;
+  default_branch: string;
+  registered_head_sha: string;
+  status: SourceRepository['status'];
+  registered_at: string;
+  registered_by_user_id: string;
+  retired_at: string | null;
+  version: number;
+}
+
+function mapSourceRepository(row: SourceRepositoryRow): SourceRepository {
+  return {
+    id: row.id as SourceRepository['id'],
+    workspaceId: row.workspace_id as SourceRepository['workspaceId'],
+    displayName: row.display_name,
+    rootPath: row.root_path,
+    defaultBranch: row.default_branch,
+    registeredHeadSha: row.registered_head_sha,
+    status: row.status,
+    registeredAt: row.registered_at,
+    registeredByUserId: row.registered_by_user_id as SourceRepository['registeredByUserId'],
+    ...(row.retired_at === null ? {} : { retiredAt: row.retired_at }),
+    version: row.version,
+  };
+}
+
+interface WorktreeRow {
+  id: string;
+  workspace_id: string;
+  repository_id: string;
+  project_id: string;
+  work_item_id: string;
+  branch_name: string;
+  base_sha: string;
+  base_branch: string;
+  path: string;
+  status: Worktree['status'];
+  created_at: string;
+  created_by_user_id: string;
+  removed_at: string | null;
+  version: number;
+}
+
+function mapWorktree(row: WorktreeRow): Worktree {
+  return {
+    id: row.id as Worktree['id'],
+    workspaceId: row.workspace_id as Worktree['workspaceId'],
+    repositoryId: row.repository_id as Worktree['repositoryId'],
+    projectId: row.project_id as Worktree['projectId'],
+    workItemId: row.work_item_id as Worktree['workItemId'],
+    branchName: row.branch_name,
+    baseSha: row.base_sha,
+    baseBranch: row.base_branch,
+    path: row.path,
+    status: row.status,
+    createdAt: row.created_at,
+    createdByUserId: row.created_by_user_id as Worktree['createdByUserId'],
+    ...(row.removed_at === null ? {} : { removedAt: row.removed_at }),
+    version: row.version,
+  };
+}
+
+interface AgentRunRow {
+  id: string;
+  workspace_id: string;
+  worktree_id: string;
+  repository_id: string;
+  project_id: string;
+  work_item_id: string;
+  parent_run_id: string | null;
+  backend: AgentRun['backend'];
+  role: AgentRun['role'];
+  status: AgentRun['status'];
+  permission_mode: AgentRun['permissionMode'];
+  model: string | null;
+  brief: string;
+  backend_session_id: string | null;
+  created_at: string;
+  created_by_user_id: string;
+  started_at: string | null;
+  finished_at: string | null;
+  exit_code: number | null;
+  outcome_summary: string | null;
+  cost_usd: number | null;
+  turn_count: number;
+  version: number;
+}
+
+function mapAgentRun(row: AgentRunRow): AgentRun {
+  return {
+    id: row.id as AgentRun['id'],
+    workspaceId: row.workspace_id as AgentRun['workspaceId'],
+    worktreeId: row.worktree_id as AgentRun['worktreeId'],
+    repositoryId: row.repository_id as AgentRun['repositoryId'],
+    projectId: row.project_id as AgentRun['projectId'],
+    workItemId: row.work_item_id as AgentRun['workItemId'],
+    ...(row.parent_run_id === null
+      ? {}
+      : { parentRunId: row.parent_run_id as NonNullable<AgentRun['parentRunId']> }),
+    backend: row.backend,
+    role: row.role,
+    status: row.status,
+    permissionMode: row.permission_mode,
+    ...(row.model === null ? {} : { model: row.model }),
+    brief: row.brief,
+    ...(row.backend_session_id === null ? {} : { backendSessionId: row.backend_session_id }),
+    createdAt: row.created_at,
+    createdByUserId: row.created_by_user_id as AgentRun['createdByUserId'],
+    ...(row.started_at === null ? {} : { startedAt: row.started_at }),
+    ...(row.finished_at === null ? {} : { finishedAt: row.finished_at }),
+    ...(row.exit_code === null ? {} : { exitCode: row.exit_code }),
+    ...(row.outcome_summary === null ? {} : { outcomeSummary: row.outcome_summary }),
+    ...(row.cost_usd === null ? {} : { costUsd: row.cost_usd }),
+    turnCount: row.turn_count,
+    version: row.version,
+  };
+}
+
+interface AgentRunEventRow {
+  sequence: number;
+  id: string;
+  workspace_id: string;
+  run_id: string;
+  occurred_at: string;
+  kind: string;
+  payload_json: string;
+  raw_json: string | null;
+}
+
+function mapAgentRunEvent(row: AgentRunEventRow): AgentRunEvent {
+  if (!isAgentRunEventKind(row.kind)) {
+    throw new Error(`Agent run event ${row.id} has an unregistered kind`);
+  }
+  const payload = JSON.parse(row.payload_json) as never;
+  return {
+    sequence: row.sequence,
+    id: row.id as AgentRunEvent['id'],
+    workspaceId: row.workspace_id as AgentRunEvent['workspaceId'],
+    runId: row.run_id as AgentRunEvent['runId'],
+    occurredAt: row.occurred_at,
+    ...(row.raw_json === null ? {} : { raw: row.raw_json }),
+    kind: row.kind,
+    payload,
+  } as AgentRunEvent;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Repositories                                                                */
+/* -------------------------------------------------------------------------- */
+
+class SqliteSourceRepositoryRepository implements SourceRepositoryRepository {
+  constructor(private readonly database: Database.Database) {}
+
+  insert(input: CreateSourceRepositoryInput): SourceRepository {
+    this.database
+      .prepare(
+        `INSERT INTO source_repositories (
+          id, workspace_id, display_name, root_path, default_branch,
+          registered_head_sha, status, registered_at, registered_by_user_id, version
+        ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, 1)`,
+      )
+      .run(
+        input.id,
+        input.workspaceId,
+        input.displayName,
+        input.rootPath,
+        input.defaultBranch,
+        input.registeredHeadSha,
+        input.registeredAt,
+        input.registeredByUserId,
+      );
+    const created = this.find(input.workspaceId, input.id);
+    if (created === undefined) {
+      throw new Error('Source repository insert did not produce a readable row');
+    }
+    return created;
+  }
+
+  find(workspaceId: WorkspaceId, repositoryId: SourceRepositoryId): SourceRepository | undefined {
+    const row = this.database
+      .prepare(`SELECT * FROM source_repositories WHERE workspace_id = ? AND id = ?`)
+      .get(workspaceId, repositoryId) as SourceRepositoryRow | undefined;
+    return row === undefined ? undefined : mapSourceRepository(row);
+  }
+
+  findActiveByPath(workspaceId: WorkspaceId, rootPath: string): SourceRepository | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT * FROM source_repositories
+         WHERE workspace_id = ? AND root_path = ? AND status = 'active'`,
+      )
+      .get(workspaceId, rootPath) as SourceRepositoryRow | undefined;
+    return row === undefined ? undefined : mapSourceRepository(row);
+  }
+
+  list(workspaceId: WorkspaceId): readonly SourceRepository[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT * FROM source_repositories
+           WHERE workspace_id = ?
+           ORDER BY status ASC, registered_at ASC, id ASC`,
+        )
+        .all(workspaceId) as SourceRepositoryRow[]
+    ).map(mapSourceRepository);
+  }
+
+  retire(input: {
+    readonly workspaceId: WorkspaceId;
+    readonly repositoryId: SourceRepositoryId;
+    readonly occurredAt: string;
+  }): SourceRepository | undefined {
+    const result = this.database
+      .prepare(
+        `UPDATE source_repositories
+         SET status = 'retired', retired_at = ?, version = version + 1
+         WHERE workspace_id = ? AND id = ? AND status = 'active'`,
+      )
+      .run(input.occurredAt, input.workspaceId, input.repositoryId);
+    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.repositoryId);
+  }
+
+  count(): number {
+    return (
+      this.database.prepare(`SELECT COUNT(*) AS count FROM source_repositories`).get() as {
+        count: number;
+      }
+    ).count;
+  }
+}
+
+class SqliteWorktreeRepository implements WorktreeRepository {
+  constructor(private readonly database: Database.Database) {}
+
+  insert(input: CreateWorktreeInput): Worktree {
+    this.database
+      .prepare(
+        `INSERT INTO worktrees (
+          id, workspace_id, repository_id, project_id, work_item_id, branch_name,
+          base_sha, base_branch, path, status, created_at, created_by_user_id, version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, 1)`,
+      )
+      .run(
+        input.id,
+        input.workspaceId,
+        input.repositoryId,
+        input.projectId,
+        input.workItemId,
+        input.branchName,
+        input.baseSha,
+        input.baseBranch,
+        input.path,
+        input.createdAt,
+        input.createdByUserId,
+      );
+    const created = this.find(input.workspaceId, input.id);
+    if (created === undefined) {
+      throw new Error('Worktree insert did not produce a readable row');
+    }
+    return created;
+  }
+
+  find(workspaceId: WorkspaceId, worktreeId: WorktreeId): Worktree | undefined {
+    const row = this.database
+      .prepare(`SELECT * FROM worktrees WHERE workspace_id = ? AND id = ?`)
+      .get(workspaceId, worktreeId) as WorktreeRow | undefined;
+    return row === undefined ? undefined : mapWorktree(row);
+  }
+
+  listForWorkItem(workspaceId: WorkspaceId, workItemId: WorkItemId): readonly Worktree[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT * FROM worktrees
+           WHERE workspace_id = ? AND work_item_id = ?
+           ORDER BY created_at DESC, id DESC`,
+        )
+        .all(workspaceId, workItemId) as WorktreeRow[]
+    ).map(mapWorktree);
+  }
+
+  listActive(workspaceId: WorkspaceId): readonly Worktree[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT * FROM worktrees
+           WHERE workspace_id = ? AND status = 'active'
+           ORDER BY created_at DESC, id DESC`,
+        )
+        .all(workspaceId) as WorktreeRow[]
+    ).map(mapWorktree);
+  }
+
+  markRemoved(input: {
+    readonly workspaceId: WorkspaceId;
+    readonly worktreeId: WorktreeId;
+    readonly occurredAt: string;
+  }): Worktree | undefined {
+    const result = this.database
+      .prepare(
+        `UPDATE worktrees
+         SET status = 'removed', removed_at = ?, version = version + 1
+         WHERE workspace_id = ? AND id = ? AND status = 'active'`,
+      )
+      .run(input.occurredAt, input.workspaceId, input.worktreeId);
+    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.worktreeId);
+  }
+
+  count(): number {
+    return (
+      this.database.prepare(`SELECT COUNT(*) AS count FROM worktrees`).get() as {
+        count: number;
+      }
+    ).count;
+  }
+}
+
+class SqliteAgentRunRepository implements AgentRunRepository {
+  constructor(private readonly database: Database.Database) {}
+
+  insert(input: CreateAgentRunInput): AgentRun {
+    this.database
+      .prepare(
+        `INSERT INTO agent_runs (
+          id, workspace_id, worktree_id, repository_id, project_id, work_item_id,
+          parent_run_id, backend, role, status, permission_mode, model, brief,
+          created_at, created_by_user_id, turn_count, version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, 0, 1)`,
+      )
+      .run(
+        input.id,
+        input.workspaceId,
+        input.worktreeId,
+        input.repositoryId,
+        input.projectId,
+        input.workItemId,
+        input.parentRunId ?? null,
+        input.backend,
+        input.role,
+        input.permissionMode,
+        input.model ?? null,
+        input.brief,
+        input.createdAt,
+        input.createdByUserId,
+      );
+    const created = this.find(input.workspaceId, input.id);
+    if (created === undefined) {
+      throw new Error('Agent run insert did not produce a readable row');
+    }
+    return created;
+  }
+
+  find(workspaceId: WorkspaceId, runId: AgentRunId): AgentRun | undefined {
+    const row = this.database
+      .prepare(`SELECT * FROM agent_runs WHERE workspace_id = ? AND id = ?`)
+      .get(workspaceId, runId) as AgentRunRow | undefined;
+    return row === undefined ? undefined : mapAgentRun(row);
+  }
+
+  listForWorkItem(workspaceId: WorkspaceId, workItemId: WorkItemId): readonly AgentRun[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT * FROM agent_runs
+           WHERE workspace_id = ? AND work_item_id = ?
+           ORDER BY created_at DESC, id DESC`,
+        )
+        .all(workspaceId, workItemId) as AgentRunRow[]
+    ).map(mapAgentRun);
+  }
+
+  listForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): readonly AgentRun[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT * FROM agent_runs
+           WHERE workspace_id = ? AND worktree_id = ?
+           ORDER BY created_at DESC, id DESC`,
+        )
+        .all(workspaceId, worktreeId) as AgentRunRow[]
+    ).map(mapAgentRun);
+  }
+
+  listLive(): readonly AgentRun[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT * FROM agent_runs
+           WHERE status IN ('starting', 'running', 'waiting')
+           ORDER BY created_at ASC, id ASC`,
+        )
+        .all() as AgentRunRow[]
+    ).map(mapAgentRun);
+  }
+
+  transition(input: TransitionAgentRunInput): AgentRun | undefined {
+    if (input.expectedStatuses.length === 0) {
+      return undefined;
+    }
+    const terminal = isTerminalAgentRunStatus(input.toStatus);
+    const finishedAt = terminal ? (input.finishedAt ?? input.occurredAt) : null;
+    const placeholders = input.expectedStatuses.map(() => '?').join(', ');
+    const result = this.database
+      .prepare(
+        `UPDATE agent_runs
+         SET status = ?,
+             backend_session_id = COALESCE(?, backend_session_id),
+             started_at = COALESCE(?, started_at),
+             finished_at = COALESCE(?, finished_at),
+             exit_code = COALESCE(?, exit_code),
+             outcome_summary = COALESCE(?, outcome_summary),
+             cost_usd = COALESCE(?, cost_usd),
+             turn_count = turn_count + ?,
+             version = version + 1
+         WHERE workspace_id = ? AND id = ? AND status IN (${placeholders})`,
+      )
+      .run(
+        input.toStatus,
+        input.backendSessionId ?? null,
+        input.startedAt ?? null,
+        finishedAt,
+        input.exitCode ?? null,
+        input.outcomeSummary ?? null,
+        input.costUsd ?? null,
+        input.turnCountIncrement ?? 0,
+        input.workspaceId,
+        input.runId,
+        ...input.expectedStatuses,
+      );
+    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.runId);
+  }
+
+  count(): number {
+    return (
+      this.database.prepare(`SELECT COUNT(*) AS count FROM agent_runs`).get() as {
+        count: number;
+      }
+    ).count;
+  }
+}
+
+class SqliteAgentRunEventRepository implements AgentRunEventRepository {
+  constructor(private readonly database: Database.Database) {}
+
+  append(input: AppendAgentRunEventInput): AgentRunEvent {
+    const result = this.database
+      .prepare(
+        `INSERT INTO agent_run_events (
+          id, workspace_id, run_id, occurred_at, kind, payload_json, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.id,
+        input.workspaceId,
+        input.runId,
+        input.occurredAt,
+        input.kind,
+        JSON.stringify(input.payload),
+        input.raw ?? null,
+      );
+    const row = this.database
+      .prepare(`SELECT * FROM agent_run_events WHERE sequence = ?`)
+      .get(Number(result.lastInsertRowid)) as AgentRunEventRow | undefined;
+    if (row === undefined) {
+      throw new Error('Agent run event append did not produce a readable row');
+    }
+    return mapAgentRunEvent(row);
+  }
+
+  listAfter(input: {
+    readonly workspaceId: WorkspaceId;
+    readonly runId: AgentRunId;
+    readonly after: number;
+    readonly limit: number;
+  }): readonly AgentRunEvent[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT * FROM agent_run_events
+           WHERE workspace_id = ? AND run_id = ? AND sequence > ?
+           ORDER BY sequence ASC LIMIT ?`,
+        )
+        .all(input.workspaceId, input.runId, input.after, input.limit) as AgentRunEventRow[]
+    ).map(mapAgentRunEvent);
+  }
+
+  countForRun(workspaceId: WorkspaceId, runId: AgentRunId): number {
+    return (
+      this.database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM agent_run_events WHERE workspace_id = ? AND run_id = ?`,
+        )
+        .get(workspaceId, runId) as { count: number }
+    ).count;
+  }
+}
+
+export function executionRepositories(database: Database.Database): ExecutionRepositories {
+  return {
+    sourceRepositories: new SqliteSourceRepositoryRepository(database),
+    worktrees: new SqliteWorktreeRepository(database),
+    runs: new SqliteAgentRunRepository(database),
+    runEvents: new SqliteAgentRunEventRepository(database),
+  };
+}

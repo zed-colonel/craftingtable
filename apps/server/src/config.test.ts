@@ -140,13 +140,49 @@ describe('configFromEnv', () => {
     expect(config.secureCookies).toBe(true);
   });
 
-  it('rejects every non-loopback host and public origin (CT01-R1)', () => {
+  it('allows LAN hosts only with TLS or an HTTPS public origin', () => {
     for (const host of ['0.0.0.0', '::', '192.168.1.20', 'craftingtable.lan']) {
-      expect(() => configFromEnv({ CRAFTINGTABLE_HOST: host })).toThrow(/loopback/);
+      expect(() => configFromEnv({ CRAFTINGTABLE_HOST: host })).toThrow(/TLS/);
+      const proxied = configFromEnv({
+        CRAFTINGTABLE_HOST: host,
+        CRAFTINGTABLE_PUBLIC_ORIGIN: 'https://craftingtable.lan',
+      });
+      expect(proxied.lanExposed).toBe(true);
+      expect(proxied.secureCookies).toBe(true);
+      const direct = configFromEnv({
+        CRAFTINGTABLE_HOST: host,
+        CRAFTINGTABLE_PUBLIC_ORIGIN: 'https://craftingtable.lan:4600',
+        CRAFTINGTABLE_TLS_CERT: '/etc/craftingtable/cert.pem',
+        CRAFTINGTABLE_TLS_KEY: '/etc/craftingtable/key.pem',
+      });
+      expect(direct.tls).toEqual({
+        certPath: '/etc/craftingtable/cert.pem',
+        keyPath: '/etc/craftingtable/key.pem',
+      });
     }
-    for (const origin of ['http://192.168.1.20:5173', 'https://craftingtable.lan']) {
-      expect(() => configFromEnv({ CRAFTINGTABLE_PUBLIC_ORIGIN: origin })).toThrow(/loopback/);
-    }
+    expect(() => configFromEnv({ CRAFTINGTABLE_HOST: 'not a host' })).toThrow(/HOST/);
+    expect(() => configFromEnv({ CRAFTINGTABLE_TLS_CERT: '/only/cert.pem' })).toThrow(/together/);
+    expect(() =>
+      configFromEnv({ CRAFTINGTABLE_TLS_CERT: 'cert.pem', CRAFTINGTABLE_TLS_KEY: 'key.pem' }),
+    ).toThrow(/absolute/);
+    expect(configFromEnv({}).lanExposed).toBe(false);
+  });
+
+  it('derives execution roots below the data directory and validates overrides', () => {
+    const config = configFromEnv({ CRAFTINGTABLE_DATA_DIR: '/tmp/craftingtable-test' });
+    expect(config.execution.worktreeRoot).toBe('/tmp/craftingtable-test/worktrees');
+    expect(config.execution.runsRoot).toBe('/tmp/craftingtable-test/runs');
+    expect(config.execution.maxPatchBytes).toBe(4 * 1024 * 1024);
+    expect(() => configFromEnv({ CRAFTINGTABLE_CLAUDE_EXECUTABLE: 'claude' })).toThrow(
+      /CLAUDE_EXECUTABLE/,
+    );
+    expect(() =>
+      configFromEnv({
+        CRAFTINGTABLE_WORKTREE_ROOT: '/tmp/shared',
+        CRAFTINGTABLE_RUNS_ROOT: '/tmp/shared/runs',
+      }),
+    ).toThrow(/overlap/);
+    expect(() => configFromEnv({ CRAFTINGTABLE_DIFF_LIMIT_BYTES: '10' })).toThrow(/DIFF_LIMIT/);
   });
 
   it('rejects malformed ports, lifetimes, origins, and relative data directories', () => {

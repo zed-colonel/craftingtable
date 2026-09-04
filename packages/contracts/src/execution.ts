@@ -1,0 +1,381 @@
+import {
+  AGENT_BACKENDS,
+  AGENT_NOTICE_CATEGORIES,
+  AGENT_PERMISSION_MODES,
+  AGENT_RUN_ROLES,
+  AGENT_RUN_STATUSES,
+  SOURCE_REPOSITORY_STATUSES,
+  WORKTREE_STATUSES,
+} from '@craftingtable/domain';
+import { z } from 'zod';
+import {
+  agentRunEventIdSchema,
+  agentRunIdSchema,
+  projectIdSchema,
+  sourceRepositoryIdSchema,
+  userIdSchema,
+  workItemIdSchema,
+  workspaceIdSchema,
+  worktreeIdSchema,
+} from './ids.js';
+
+export const SSE_RUN_EVENT_NAME = 'run-event';
+
+const utf8Length = (value: string): number => new TextEncoder().encode(value).byteLength;
+const boundedUtf8 = (maximum: number) =>
+  z.string().refine((value) => utf8Length(value) <= maximum, {
+    message: `must be at most ${maximum} UTF-8 bytes`,
+  });
+const hasNoControls = (value: string): boolean =>
+  [...value].every((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint > 31 && codePoint !== 127;
+  });
+const nonNegativeSafeInteger = z.number().int().nonnegative().safe();
+const positiveSafeInteger = z.number().int().positive().safe();
+
+/** JSON value schema for bounded tool inputs; the adapter truncates before this. */
+const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.null(),
+    z.boolean(),
+    z.number(),
+    z.string(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ]),
+);
+
+export const executionStatusResponseSchema = z.strictObject({
+  git: z.strictObject({
+    available: z.boolean(),
+    executable: z.string().optional(),
+  }),
+  backends: z
+    .array(
+      z.strictObject({
+        kind: z.enum(AGENT_BACKENDS),
+        label: z.string().min(1).max(100),
+        available: z.boolean(),
+        executable: z.string().optional(),
+      }),
+    )
+    .max(10),
+});
+
+/* -------------------------------------------------------------------------- */
+/* Source repositories                                                         */
+/* -------------------------------------------------------------------------- */
+
+export const sourceRepositoryPathSchema = boundedUtf8(4096)
+  .min(2)
+  .refine((value) => value.startsWith('/'), { message: 'must be an absolute path' })
+  .refine((value) => !value.includes('\0'), { message: 'must not contain NUL' });
+
+export const sourceRepositoryDisplayNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .refine(hasNoControls, { message: 'must not contain C0 or DEL controls' });
+
+export const gitShaSchema = z.string().regex(/^[0-9a-f]{7,64}$/);
+export const gitBranchNameSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .refine(hasNoControls, { message: 'must not contain C0 or DEL controls' });
+
+export const sourceRepositorySummarySchema = z.strictObject({
+  id: sourceRepositoryIdSchema,
+  workspaceId: workspaceIdSchema,
+  displayName: sourceRepositoryDisplayNameSchema,
+  rootPath: sourceRepositoryPathSchema,
+  defaultBranch: gitBranchNameSchema,
+  registeredHeadSha: gitShaSchema,
+  status: z.enum(SOURCE_REPOSITORY_STATUSES),
+  registeredAt: z.iso.datetime(),
+  registeredByUserId: userIdSchema,
+  retiredAt: z.iso.datetime().optional(),
+  version: positiveSafeInteger,
+});
+
+export const registerSourceRepositoryRequestSchema = z.strictObject({
+  rootPath: sourceRepositoryPathSchema,
+  displayName: sourceRepositoryDisplayNameSchema.optional(),
+});
+
+export const registerSourceRepositoryResponseSchema = z.strictObject({
+  repository: sourceRepositorySummarySchema,
+  /** False when an active registration for the same path already existed. */
+  created: z.boolean(),
+});
+
+export const sourceRepositoryListResponseSchema = z.strictObject({
+  repositories: z.array(sourceRepositorySummarySchema).max(200),
+});
+
+export const retireSourceRepositoryRequestSchema = z.strictObject({});
+export const retireSourceRepositoryResponseSchema = z.strictObject({
+  repository: sourceRepositorySummarySchema,
+  changed: z.boolean(),
+});
+
+/* -------------------------------------------------------------------------- */
+/* Worktrees                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export const worktreeSummarySchema = z.strictObject({
+  id: worktreeIdSchema,
+  workspaceId: workspaceIdSchema,
+  repositoryId: sourceRepositoryIdSchema,
+  projectId: projectIdSchema,
+  workItemId: workItemIdSchema,
+  branchName: gitBranchNameSchema,
+  baseSha: gitShaSchema,
+  baseBranch: gitBranchNameSchema,
+  path: sourceRepositoryPathSchema,
+  status: z.enum(WORKTREE_STATUSES),
+  createdAt: z.iso.datetime(),
+  createdByUserId: userIdSchema,
+  removedAt: z.iso.datetime().optional(),
+  version: positiveSafeInteger,
+});
+
+export const createWorktreeRequestSchema = z.strictObject({
+  repositoryId: sourceRepositoryIdSchema,
+  /** Optional branch override; the daemon derives one from the work item otherwise. */
+  branchName: gitBranchNameSchema.optional(),
+});
+
+export const createWorktreeResponseSchema = z.strictObject({
+  worktree: worktreeSummarySchema,
+});
+
+export const removeWorktreeRequestSchema = z.strictObject({});
+export const removeWorktreeResponseSchema = z.strictObject({
+  worktree: worktreeSummarySchema,
+  changed: z.boolean(),
+});
+
+export const diffFileStatusSchema = z.enum([
+  'added',
+  'modified',
+  'deleted',
+  'renamed',
+  'copied',
+  'type-changed',
+  'untracked',
+  'unmerged',
+  'unknown',
+]);
+
+export const worktreeDiffFileSchema = z.strictObject({
+  path: boundedUtf8(4096).min(1),
+  previousPath: boundedUtf8(4096).min(1).optional(),
+  status: diffFileStatusSchema,
+  additions: nonNegativeSafeInteger,
+  deletions: nonNegativeSafeInteger,
+  binary: z.boolean(),
+});
+
+export const worktreeDiffResponseSchema = z.strictObject({
+  worktree: worktreeSummarySchema,
+  baseSha: gitShaSchema,
+  headSha: gitShaSchema,
+  /** Commits on the worktree branch since the base, newest first. */
+  commits: z
+    .array(
+      z.strictObject({
+        sha: gitShaSchema,
+        subject: boundedUtf8(1000),
+        authoredAt: z.iso.datetime(),
+      }),
+    )
+    .max(200),
+  files: z.array(worktreeDiffFileSchema).max(2000),
+  /** Unified diff of the working tree against the base, including untracked files. */
+  patch: z.string(),
+  patchTruncated: z.boolean(),
+});
+
+/* -------------------------------------------------------------------------- */
+/* Agent runs                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export const agentRunSummarySchema = z.strictObject({
+  id: agentRunIdSchema,
+  workspaceId: workspaceIdSchema,
+  worktreeId: worktreeIdSchema,
+  repositoryId: sourceRepositoryIdSchema,
+  projectId: projectIdSchema,
+  workItemId: workItemIdSchema,
+  parentRunId: agentRunIdSchema.optional(),
+  backend: z.enum(AGENT_BACKENDS),
+  role: z.enum(AGENT_RUN_ROLES),
+  status: z.enum(AGENT_RUN_STATUSES),
+  permissionMode: z.enum(AGENT_PERMISSION_MODES),
+  model: z.string().min(1).max(100).optional(),
+  backendSessionId: z.string().min(1).max(200).optional(),
+  createdAt: z.iso.datetime(),
+  createdByUserId: userIdSchema,
+  startedAt: z.iso.datetime().optional(),
+  finishedAt: z.iso.datetime().optional(),
+  exitCode: z.number().int().optional(),
+  outcomeSummary: boundedUtf8(4000).optional(),
+  costUsd: z.number().nonnegative().optional(),
+  turnCount: nonNegativeSafeInteger,
+  version: positiveSafeInteger,
+});
+
+export const agentRunDetailResponseSchema = z.strictObject({
+  run: agentRunSummarySchema,
+  worktree: worktreeSummarySchema,
+  brief: z.string(),
+  eventCount: nonNegativeSafeInteger,
+});
+
+export const startAgentRunRequestSchema = z.strictObject({
+  worktreeId: worktreeIdSchema,
+  role: z.enum(AGENT_RUN_ROLES).default('implement'),
+  permissionMode: z.enum(AGENT_PERMISSION_MODES).default('auto'),
+  model: z.string().min(1).max(100).optional(),
+  /** Free-form operator guidance appended to the composed brief. */
+  instructions: boundedUtf8(20000).optional(),
+  parentRunId: agentRunIdSchema.optional(),
+});
+
+export const startAgentRunResponseSchema = z.strictObject({
+  run: agentRunSummarySchema,
+});
+
+export const sendAgentRunMessageRequestSchema = z.strictObject({
+  text: boundedUtf8(50000).min(1),
+});
+
+export const agentRunCommandResponseSchema = z.strictObject({
+  run: agentRunSummarySchema,
+  accepted: z.boolean(),
+});
+
+export const endAgentRunRequestSchema = z.strictObject({});
+export const cancelAgentRunRequestSchema = z.strictObject({});
+
+/** Everything the work-item page needs to show delegation state. */
+export const workItemExecutionResponseSchema = z.strictObject({
+  workItemId: workItemIdSchema,
+  worktrees: z.array(worktreeSummarySchema).max(100),
+  runs: z.array(agentRunSummarySchema).max(200),
+});
+
+/* -------------------------------------------------------------------------- */
+/* Run events (per-run SSE)                                                    */
+/* -------------------------------------------------------------------------- */
+
+const runEventBaseSchema = z.strictObject({
+  sequence: positiveSafeInteger,
+  id: agentRunEventIdSchema,
+  workspaceId: workspaceIdSchema,
+  runId: agentRunIdSchema,
+  occurredAt: z.iso.datetime(),
+  raw: z.string().optional(),
+});
+
+export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
+  runEventBaseSchema.extend({
+    kind: z.literal('session-started'),
+    payload: z.strictObject({
+      backend: z.enum(AGENT_BACKENDS),
+      backendSessionId: z.string().min(1).max(200),
+      model: z.string().min(1).max(100),
+      permissionMode: z.enum(AGENT_PERMISSION_MODES),
+      cwd: sourceRepositoryPathSchema,
+    }),
+  }),
+  runEventBaseSchema.extend({
+    kind: z.literal('user-message'),
+    payload: z.strictObject({ text: z.string() }),
+  }),
+  runEventBaseSchema.extend({
+    kind: z.literal('assistant-message'),
+    payload: z.strictObject({ text: z.string() }),
+  }),
+  runEventBaseSchema.extend({
+    kind: z.literal('tool-call'),
+    payload: z.strictObject({
+      toolUseId: z.string().min(1).max(200),
+      name: z.string().min(1).max(200),
+      input: jsonValueSchema,
+      summary: z.string().max(2000),
+    }),
+  }),
+  runEventBaseSchema.extend({
+    kind: z.literal('tool-result'),
+    payload: z.strictObject({
+      toolUseId: z.string().min(1).max(200),
+      content: z.string(),
+      isError: z.boolean(),
+      truncated: z.boolean(),
+    }),
+  }),
+  runEventBaseSchema.extend({
+    kind: z.literal('turn-completed'),
+    payload: z.strictObject({
+      outcome: z.enum(['success', 'error']),
+      resultText: z.string(),
+      costUsd: z.number().nonnegative().optional(),
+      turns: nonNegativeSafeInteger,
+      durationMs: nonNegativeSafeInteger,
+    }),
+  }),
+  runEventBaseSchema.extend({
+    kind: z.literal('notice'),
+    payload: z.strictObject({
+      category: z.enum(AGENT_NOTICE_CATEGORIES),
+      message: z.string().max(4000),
+    }),
+  }),
+  runEventBaseSchema.extend({
+    kind: z.literal('stderr'),
+    payload: z.strictObject({ text: z.string() }),
+  }),
+  runEventBaseSchema.extend({
+    kind: z.literal('run-finished'),
+    payload: z.strictObject({
+      status: z.enum(['finished', 'failed', 'cancelled', 'interrupted']),
+      exitCode: z.number().int().optional(),
+      signal: z.string().max(20).optional(),
+      message: z.string().max(4000).optional(),
+    }),
+  }),
+]);
+
+export const runEventPageResponseSchema = z.strictObject({
+  events: z.array(runEventEnvelopeSchema).max(500),
+  nextAfter: nonNegativeSafeInteger,
+});
+
+export type ExecutionStatusResponse = z.infer<typeof executionStatusResponseSchema>;
+export type SourceRepositorySummary = z.infer<typeof sourceRepositorySummarySchema>;
+export type RegisterSourceRepositoryRequest = z.infer<typeof registerSourceRepositoryRequestSchema>;
+export type RegisterSourceRepositoryResponse = z.infer<
+  typeof registerSourceRepositoryResponseSchema
+>;
+export type SourceRepositoryListResponse = z.infer<typeof sourceRepositoryListResponseSchema>;
+export type RetireSourceRepositoryResponse = z.infer<typeof retireSourceRepositoryResponseSchema>;
+export type WorktreeSummary = z.infer<typeof worktreeSummarySchema>;
+export type CreateWorktreeRequest = z.infer<typeof createWorktreeRequestSchema>;
+export type CreateWorktreeResponse = z.infer<typeof createWorktreeResponseSchema>;
+export type RemoveWorktreeResponse = z.infer<typeof removeWorktreeResponseSchema>;
+export type WorktreeDiffFile = z.infer<typeof worktreeDiffFileSchema>;
+export type WorktreeDiffResponse = z.infer<typeof worktreeDiffResponseSchema>;
+export type DiffFileStatus = z.infer<typeof diffFileStatusSchema>;
+export type AgentRunSummary = z.infer<typeof agentRunSummarySchema>;
+export type AgentRunDetailResponse = z.infer<typeof agentRunDetailResponseSchema>;
+export type StartAgentRunRequest = z.infer<typeof startAgentRunRequestSchema>;
+export type StartAgentRunResponse = z.infer<typeof startAgentRunResponseSchema>;
+export type SendAgentRunMessageRequest = z.infer<typeof sendAgentRunMessageRequestSchema>;
+export type AgentRunCommandResponse = z.infer<typeof agentRunCommandResponseSchema>;
+export type WorkItemExecutionResponse = z.infer<typeof workItemExecutionResponseSchema>;
+export type RunEventEnvelope = z.infer<typeof runEventEnvelopeSchema>;
+export type RunEventPageResponse = z.infer<typeof runEventPageResponseSchema>;

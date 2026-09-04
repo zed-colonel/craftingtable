@@ -1,0 +1,292 @@
+import type {
+  AgentRunDetailResponse,
+  AgentRunSummary,
+  RunEventEnvelope,
+  SourceRepositorySummary,
+  WorktreeDiffResponse,
+  WorktreeSummary,
+} from '@craftingtable/contracts';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DelegationPanel } from './DelegationPanel.js';
+import { DiffView } from './DiffView.js';
+import { RepositoriesPage } from './RepositoriesPage.js';
+import { RunPage } from './RunPage.js';
+
+afterEach(cleanup);
+
+// jsdom has no layout; the run feed scrolls the latest event into view.
+Element.prototype.scrollIntoView = () => undefined;
+
+const repository: SourceRepositorySummary = {
+  id: 'repo-1',
+  workspaceId: 'ws-1',
+  displayName: 'craftingtable',
+  rootPath: '/home/user/src/craftingtable',
+  defaultBranch: 'main',
+  registeredHeadSha: '0123456789abcdef0123456789abcdef01234567',
+  status: 'active',
+  registeredAt: '2026-09-04T10:00:00.000Z',
+  registeredByUserId: 'user-1',
+  version: 1,
+} as SourceRepositorySummary;
+
+const worktree: WorktreeSummary = {
+  id: 'wt-1',
+  workspaceId: 'ws-1',
+  repositoryId: 'repo-1',
+  projectId: 'project-1',
+  workItemId: 'item-1',
+  branchName: 'ct/aq-01-abcd1234',
+  baseSha: '0123456789abcdef0123456789abcdef01234567',
+  baseBranch: 'main',
+  path: '/data/worktrees/craftingtable/aq-01-abcd1234',
+  status: 'active',
+  createdAt: '2026-09-04T10:05:00.000Z',
+  createdByUserId: 'user-1',
+  version: 1,
+} as WorktreeSummary;
+
+function run(overrides: Partial<AgentRunSummary> = {}): AgentRunSummary {
+  return {
+    id: 'run-1',
+    workspaceId: 'ws-1',
+    worktreeId: 'wt-1',
+    repositoryId: 'repo-1',
+    projectId: 'project-1',
+    workItemId: 'item-1',
+    backend: 'claude-code',
+    role: 'implement',
+    status: 'waiting',
+    permissionMode: 'auto',
+    createdAt: '2026-09-04T10:10:00.000Z',
+    createdByUserId: 'user-1',
+    turnCount: 2,
+    costUsd: 1.25,
+    outcomeSummary: 'Added the queue and tests.',
+    version: 3,
+    ...overrides,
+  } as AgentRunSummary;
+}
+
+function event(sequence: number, partial: Partial<RunEventEnvelope>): RunEventEnvelope {
+  return {
+    sequence,
+    id: `event-${sequence}`,
+    workspaceId: 'ws-1',
+    runId: 'run-1',
+    occurredAt: '2026-09-04T10:11:00.000Z',
+    ...partial,
+  } as RunEventEnvelope;
+}
+
+describe('RepositoriesPage', () => {
+  it('lists repositories, reports tools, and submits a registration', () => {
+    const onRegister = vi.fn();
+    render(
+      <RepositoriesPage
+        repositories={[
+          repository,
+          {
+            ...repository,
+            id: 'repo-2' as SourceRepositorySummary['id'],
+            status: 'retired',
+            displayName: 'old',
+          },
+        ]}
+        status={{
+          git: { available: true, executable: '/usr/bin/git' },
+          backends: [{ kind: 'claude-code', label: 'Claude Code', available: false }],
+        }}
+        canMutate={true}
+        busy={false}
+        onRegister={onRegister}
+        onRetire={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('heading', { name: 'Registered (1)' })).toBeDefined();
+    expect(screen.getByText('/home/user/src/craftingtable')).toBeDefined();
+    expect(screen.getByText(/Retired: old/)).toBeDefined();
+    expect(screen.getByRole('note').textContent).toContain('A missing tool disables delegation');
+
+    fireEvent.change(screen.getByLabelText(/Absolute path/), {
+      target: { value: '  /home/user/src/other ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    expect(onRegister).toHaveBeenCalledWith({ rootPath: '/home/user/src/other' });
+  });
+});
+
+describe('DelegationPanel', () => {
+  it('shows worktrees and runs, and launches with the chosen role and permissions', () => {
+    const onLaunch = vi.fn();
+    const onOpenRun = vi.fn();
+    render(
+      <DelegationPanel
+        repositories={[repository]}
+        worktrees={[worktree]}
+        runs={[
+          run(),
+          run({ id: 'run-0' as AgentRunSummary['id'], status: 'finished', role: 'design' }),
+        ]}
+        canMutate={true}
+        busy={false}
+        backendAvailable={true}
+        onCreateWorktree={vi.fn()}
+        onRemoveWorktree={vi.fn()}
+        onLaunch={onLaunch}
+        onOpenRun={onOpenRun}
+        onOpenDiff={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText('ct/aq-01-abcd1234').length).toBeGreaterThan(0);
+    const table = screen.getByRole('table', { name: 'Agent runs' });
+    expect(within(table).getByText('Awaiting your input')).toBeDefined();
+    expect(within(table).getByText('Finished')).toBeDefined();
+    expect(within(table).getAllByText('$1.25').length).toBe(2);
+
+    const form = screen.getByRole('form', { name: 'Launch an agent' });
+    fireEvent.change(within(form).getByLabelText('Role'), { target: { value: 'review' } });
+    fireEvent.change(within(form).getByLabelText('Permissions'), {
+      target: { value: 'edit-only' },
+    });
+    fireEvent.change(within(form).getByLabelText(/Instructions/), {
+      target: { value: 'Focus on tests.' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: /Launch review run/ }));
+    expect(onLaunch).toHaveBeenCalledWith({
+      worktreeId: 'wt-1',
+      role: 'review',
+      permissionMode: 'edit-only',
+      instructions: 'Focus on tests.',
+      parentRunId: 'run-0',
+    });
+  });
+
+  it('cannot remove a worktree with a live run and disables launch without a backend', () => {
+    render(
+      <DelegationPanel
+        repositories={[repository]}
+        worktrees={[worktree]}
+        runs={[run({ status: 'running' })]}
+        canMutate={true}
+        busy={false}
+        backendAvailable={false}
+        onCreateWorktree={vi.fn()}
+        onRemoveWorktree={vi.fn()}
+        onLaunch={vi.fn()}
+        onOpenRun={vi.fn()}
+        onOpenDiff={vi.fn()}
+      />,
+    );
+    expect((screen.getByRole('button', { name: 'Remove' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(
+      (screen.getByRole('button', { name: /Launch implement run/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByRole('note').textContent).toContain('Claude Code was not found');
+  });
+});
+
+describe('RunPage', () => {
+  const detail: AgentRunDetailResponse = {
+    run: run({ status: 'waiting' }),
+    worktree,
+    brief: '# Work item AQ-01: Establish the queue',
+    eventCount: 4,
+  } as AgentRunDetailResponse;
+
+  it('renders the status, events, and a message box for a live run', () => {
+    const onSend = vi.fn();
+    render(
+      <RunPage
+        detail={detail}
+        events={[
+          event(1, { kind: 'user-message', payload: { text: 'brief text' } }),
+          event(2, {
+            kind: 'tool-call',
+            payload: { toolUseId: 't1', name: 'Bash', input: { command: 'ls' }, summary: 'ls' },
+          }),
+          event(3, { kind: 'assistant-message', payload: { text: 'Done with <script>' } }),
+          event(4, {
+            kind: 'turn-completed',
+            payload: { outcome: 'success', resultText: 'ok', turns: 1, durationMs: 1500 },
+          }),
+        ]}
+        connection="open"
+        canMutate={true}
+        busy={false}
+        onSend={onSend}
+        onEnd={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenWorkItem={vi.fn()}
+        onLoadDiff={vi.fn()}
+        onCloseDiff={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText('Awaiting your input').length).toBeGreaterThan(0);
+    expect(screen.getByText('Bash: ls')).toBeDefined();
+    expect(screen.getByText('Done with <script>')).toBeDefined();
+    expect(document.querySelector('script')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show brief' }));
+    expect(screen.getByTestId('run-brief').textContent).toContain('# Work item AQ-01');
+
+    fireEvent.change(screen.getByLabelText('Message to the agent'), {
+      target: { value: 'Add a test' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(onSend).toHaveBeenCalledWith('Add a test');
+  });
+
+  it('hides the controls once the run is terminal', () => {
+    render(
+      <RunPage
+        detail={{ ...detail, run: run({ status: 'finished' }) }}
+        events={[]}
+        connection="disconnected"
+        canMutate={true}
+        busy={false}
+        onSend={vi.fn()}
+        onEnd={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenWorkItem={vi.fn()}
+        onLoadDiff={vi.fn()}
+        onCloseDiff={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Cancel run' })).toBeNull();
+    expect(screen.queryByLabelText('Message to the agent')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('DiffView', () => {
+  it('renders files, totals, and the patch as text', () => {
+    const diff: WorktreeDiffResponse = {
+      worktree,
+      baseSha: worktree.baseSha,
+      headSha: 'fedcba9876543210fedcba9876543210fedcba98',
+      commits: [
+        {
+          sha: 'fedcba9876543210fedcba9876543210fedcba98',
+          subject: 'add queue',
+          authoredAt: '2026-09-04T10:20:00.000Z',
+        },
+      ],
+      files: [
+        { path: 'src/queue.ts', status: 'added', additions: 40, deletions: 0, binary: false },
+        { path: 'README.md', status: 'modified', additions: 2, deletions: 1, binary: false },
+      ],
+      patch: 'diff --git a/README.md b/README.md\n@@ -1 +1,2 @@\n-old\n+new <b>bold</b>\n',
+      patchTruncated: true,
+    } as WorktreeDiffResponse;
+    render(<DiffView diff={diff} />);
+    expect(screen.getByText(/2 files · \+42 −1/)).toBeDefined();
+    expect(screen.getByText('add queue')).toBeDefined();
+    expect(screen.getByText('src/queue.ts')).toBeDefined();
+    expect(screen.getByTestId('diff-text').textContent).toContain('+new <b>bold</b>');
+    expect(document.querySelector('b')).toBeNull();
+    expect(screen.getByRole('note').textContent).toContain('truncated');
+  });
+});

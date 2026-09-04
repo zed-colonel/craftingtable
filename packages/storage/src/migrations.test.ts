@@ -32,8 +32,8 @@ describe('ordered SQL migrations', () => {
     const database = openDatabase(path);
     const migrations = discoverMigrations();
     expect(runMigrations(database, migrations)).toEqual({
-      currentVersion: 4,
-      supportedVersion: 4,
+      currentVersion: 5,
+      supportedVersion: 5,
       pendingVersions: [],
     });
     const rows = database
@@ -44,6 +44,7 @@ describe('ordered SQL migrations', () => {
       { version: 2, name: 'ct03-planning', checksum: migrations[1]?.checksum },
       { version: 3, name: 'ct04a2a-repository-model', checksum: migrations[2]?.checksum },
       { version: 4, name: 'ct04a2b-repository-journal', checksum: migrations[3]?.checksum },
+      { version: 5, name: 'execution', checksum: migrations[4]?.checksum },
     ]);
     database.close();
   });
@@ -58,7 +59,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(4);
+    ).toBe(5);
     second.close();
   });
 
@@ -80,7 +81,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(4);
+    ).toBe(5);
     database.close();
   });
 
@@ -91,7 +92,7 @@ describe('ordered SQL migrations', () => {
     database
       .prepare(
         `INSERT INTO schema_migrations (version, name, checksum, applied_at)
-         VALUES (5, 'future', ?, ?)`,
+         VALUES (6, 'future', ?, ?)`,
       )
       .run('f'.repeat(64), new Date().toISOString());
     expect(() => migrationStatus(database)).toThrow(/newer than or unknown/);
@@ -140,8 +141,8 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 4,
-      pendingVersions: [1, 2, 3, 4],
+      supportedVersion: 5,
+      pendingVersions: [1, 2, 3, 4, 5],
     });
 
     const inspection = new Database(path, { readonly: true, fileMustExist: true });
@@ -156,8 +157,8 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 4,
-      pendingVersions: [1, 2, 3, 4],
+      supportedVersion: 5,
+      pendingVersions: [1, 2, 3, 4, 5],
     });
     expect(existsSync(path)).toBe(false);
   });

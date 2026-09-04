@@ -386,7 +386,7 @@ describe('Git package production boundary', () => {
       emittedJavaScript.filter((name) =>
         readFileSync(join(dist, name), 'utf8').includes('node:child_process'),
       ),
-    ).toEqual(['command-runner.js']);
+    ).toEqual(['command-runner.js', 'operations.js']);
 
     const sourceDirectory = join(packageRoot, 'src');
     const productionSources = readdirSync(sourceDirectory)
@@ -399,7 +399,7 @@ describe('Git package production boundary', () => {
       productionSources
         .filter(({ source }) => source.includes('GIT_CEILING_DIRECTORIES'))
         .map(({ name }) => name),
-    ).toEqual(['environment.ts']);
+    ).toEqual(['environment.ts', 'operations.ts']);
     expect(
       productionSources
         .filter(({ source }) => source.includes('asCanonicalPath('))

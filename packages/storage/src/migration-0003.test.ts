@@ -110,10 +110,12 @@ describe('migration 0003 repository model', () => {
       .prepare(`SELECT action, introduced_in_schema FROM audit_action_kinds ORDER BY action`)
       .all() as { action: (typeof AUDIT_ACTIONS)[number]; introduced_in_schema: 1 | 2 | 3 }[];
     expect(rows).toEqual(
-      AUDIT_ACTIONS.map((action) => ({
-        action,
-        introduced_in_schema: AUDIT_ACTION_INTRODUCED_IN_SCHEMA[action],
-      })).toSorted((left, right) => left.action.localeCompare(right.action)),
+      AUDIT_ACTIONS.filter((action) => AUDIT_ACTION_INTRODUCED_IN_SCHEMA[action] <= 3)
+        .map((action) => ({
+          action,
+          introduced_in_schema: AUDIT_ACTION_INTRODUCED_IN_SCHEMA[action],
+        }))
+        .toSorted((left, right) => left.action.localeCompare(right.action)),
     );
     database.close();
   });

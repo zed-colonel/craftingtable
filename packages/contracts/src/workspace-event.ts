@@ -1,4 +1,7 @@
 import {
+  AGENT_BACKENDS,
+  AGENT_RUN_ROLES,
+  AGENT_RUN_STATUSES,
   REPOSITORY_STATUS_REASON_SETS,
   REPOSITORY_STATUSES,
   REPOSITORY_STATUS_REASONS,
@@ -12,11 +15,19 @@ import {
   projectRepositoryBindingIdSchema,
   repositoryIdSchema,
   repositoryInspectionIdSchema,
+  sourceRepositoryIdSchema,
   userIdSchema,
   workContractDraftIdSchema,
   workItemIdSchema,
   workspaceIdSchema,
+  worktreeIdSchema,
 } from './ids.js';
+import {
+  gitBranchNameSchema,
+  gitShaSchema,
+  sourceRepositoryDisplayNameSchema,
+  sourceRepositoryPathSchema,
+} from './execution.js';
 import { repositoryDisplayNameSchema } from './repository.js';
 
 export const SSE_WORKSPACE_EVENT_NAME = 'workspace-event';
@@ -331,6 +342,130 @@ export const projectRepositoryBindingRetiredEventSchema = workspaceEventBaseSche
     }
   });
 
+const noRepositoryCorrelations = {
+  repositoryId: forbiddenCorrelationSchema,
+  repositoryInspectionId: forbiddenCorrelationSchema,
+  repositoryBindingId: forbiddenCorrelationSchema,
+};
+
+export const sourceRepositoryRegisteredEventSchema = workspaceEventBaseSchema.extend({
+  kind: z.literal('source-repository-registered'),
+  projectId: forbiddenCorrelationSchema,
+  workItemId: forbiddenCorrelationSchema,
+  runId: forbiddenCorrelationSchema,
+  ...noRepositoryCorrelations,
+  payload: z.strictObject({
+    sourceRepositoryId: sourceRepositoryIdSchema,
+    displayName: sourceRepositoryDisplayNameSchema,
+    rootPath: sourceRepositoryPathSchema,
+    defaultBranch: gitBranchNameSchema,
+  }),
+});
+
+const requireWorkItemAgreement = (
+  event: { workItemId: string; payload: { workItemId: string } },
+  context: z.RefinementCtx,
+): void => {
+  if (event.workItemId !== event.payload.workItemId) {
+    context.addIssue({
+      code: 'custom',
+      path: ['payload', 'workItemId'],
+      message: 'payload workItemId must agree with structural workItemId',
+    });
+  }
+};
+
+export const worktreeCreatedEventSchema = workspaceEventBaseSchema
+  .extend({
+    kind: z.literal('worktree-created'),
+    projectId: projectIdSchema,
+    workItemId: workItemIdSchema,
+    runId: forbiddenCorrelationSchema,
+    ...noRepositoryCorrelations,
+    payload: z.strictObject({
+      worktreeId: worktreeIdSchema,
+      sourceRepositoryId: sourceRepositoryIdSchema,
+      workItemId: workItemIdSchema,
+      branchName: gitBranchNameSchema,
+      baseSha: gitShaSchema,
+    }),
+  })
+  .superRefine(requireWorkItemAgreement);
+
+export const worktreeRemovedEventSchema = workspaceEventBaseSchema
+  .extend({
+    kind: z.literal('worktree-removed'),
+    projectId: projectIdSchema,
+    workItemId: workItemIdSchema,
+    runId: forbiddenCorrelationSchema,
+    ...noRepositoryCorrelations,
+    payload: z.strictObject({
+      worktreeId: worktreeIdSchema,
+      workItemId: workItemIdSchema,
+      branchName: gitBranchNameSchema,
+    }),
+  })
+  .superRefine(requireWorkItemAgreement);
+
+const requireRunAgreement = (
+  event: { runId: string; payload: { runId: string } },
+  context: z.RefinementCtx,
+): void => {
+  if (event.runId !== event.payload.runId) {
+    context.addIssue({
+      code: 'custom',
+      path: ['payload', 'runId'],
+      message: 'payload runId must agree with structural runId',
+    });
+  }
+};
+
+export const agentRunStartedEventSchema = workspaceEventBaseSchema
+  .extend({
+    kind: z.literal('agent-run-started'),
+    projectId: projectIdSchema,
+    workItemId: workItemIdSchema,
+    runId: agentRunIdSchema,
+    ...noRepositoryCorrelations,
+    payload: z.strictObject({
+      runId: agentRunIdSchema,
+      worktreeId: worktreeIdSchema,
+      workItemId: workItemIdSchema,
+      backend: z.enum(AGENT_BACKENDS),
+      role: z.enum(AGENT_RUN_ROLES),
+    }),
+  })
+  .superRefine((event, context) => {
+    requireWorkItemAgreement(event, context);
+    requireRunAgreement(event, context);
+  });
+
+export const agentRunStatusChangedEventSchema = workspaceEventBaseSchema
+  .extend({
+    kind: z.literal('agent-run-status-changed'),
+    projectId: projectIdSchema,
+    workItemId: workItemIdSchema,
+    runId: agentRunIdSchema,
+    ...noRepositoryCorrelations,
+    payload: z.strictObject({
+      runId: agentRunIdSchema,
+      workItemId: workItemIdSchema,
+      fromStatus: z.enum(AGENT_RUN_STATUSES),
+      toStatus: z.enum(AGENT_RUN_STATUSES),
+    }),
+  })
+  .superRefine((event, context) => {
+    requireWorkItemAgreement(event, context);
+    requireRunAgreement(event, context);
+    if (event.payload.fromStatus === event.payload.toStatus) {
+      context.addIssue({
+        code: 'custom',
+        path: ['payload', 'toStatus'],
+        message: 'run status must change',
+      });
+    }
+  });
+
 export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   workspaceCreatedEventSchema,
   projectCreatedEventSchema,
@@ -341,6 +476,11 @@ export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   repositoryEvidenceChangedEventSchema,
   projectRepositoryBoundEventSchema,
   projectRepositoryBindingRetiredEventSchema,
+  sourceRepositoryRegisteredEventSchema,
+  worktreeCreatedEventSchema,
+  worktreeRemovedEventSchema,
+  agentRunStartedEventSchema,
+  agentRunStatusChangedEventSchema,
 ]);
 
 export const authenticationExpiredEventSchema = z.strictObject({

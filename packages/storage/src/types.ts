@@ -17,9 +17,11 @@ import type {
   WorkspaceMembershipId,
   WorkspaceRole,
 } from '@craftingtable/domain';
+import type { ExecutionRepositories } from './execution-types.js';
 import type { PlanningRepositories } from './planning-types.js';
 import type { RepositoryRegistryRepositories } from './repository-types.js';
 
+export * from './execution-types.js';
 export * from './planning-types.js';
 export * from './repository-types.js';
 
@@ -205,6 +207,8 @@ export interface StorageRepositories {
   readonly planning: PlanningRepositories;
   /** CT-04A2a authority-free repository registry and evidence persistence. */
   readonly repositoryRegistry: RepositoryRegistryRepositories;
+  /** Execution model: source repositories, worktrees, agent runs, run events. */
+  readonly execution: ExecutionRepositories;
 }
 
 export interface MigrationStatus {

@@ -17,6 +17,12 @@
     },
     {
       "path": "../../packages/storage"
+    },
+    {
+      "path": "../../packages/agents"
+    },
+    {
+      "path": "../../packages/git"
     }
   ]
 }

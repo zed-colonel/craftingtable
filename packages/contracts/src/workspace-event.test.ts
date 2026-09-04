@@ -126,6 +126,67 @@ const validEvents = {
       resultingVersion: 2,
     },
   },
+  'source-repository-registered': {
+    ...base,
+    kind: 'source-repository-registered',
+    payload: {
+      sourceRepositoryId: 'source-repository-1',
+      displayName: 'craftingtable',
+      rootPath: '/home/user/src/craftingtable',
+      defaultBranch: 'main',
+    },
+  },
+  'worktree-created': {
+    ...base,
+    projectId: 'project-1',
+    workItemId: 'work-item-1',
+    kind: 'worktree-created',
+    payload: {
+      worktreeId: 'worktree-1',
+      sourceRepositoryId: 'source-repository-1',
+      workItemId: 'work-item-1',
+      branchName: 'ct/aq-01-abc123',
+      baseSha: '0123456789abcdef0123456789abcdef01234567',
+    },
+  },
+  'worktree-removed': {
+    ...base,
+    projectId: 'project-1',
+    workItemId: 'work-item-1',
+    kind: 'worktree-removed',
+    payload: {
+      worktreeId: 'worktree-1',
+      workItemId: 'work-item-1',
+      branchName: 'ct/aq-01-abc123',
+    },
+  },
+  'agent-run-started': {
+    ...base,
+    projectId: 'project-1',
+    workItemId: 'work-item-1',
+    runId: 'run-1',
+    kind: 'agent-run-started',
+    payload: {
+      runId: 'run-1',
+      worktreeId: 'worktree-1',
+      workItemId: 'work-item-1',
+      backend: 'claude-code',
+      role: 'implement',
+    },
+  },
+  'agent-run-status-changed': {
+    ...base,
+    projectId: 'project-1',
+    workItemId: 'work-item-1',
+    runId: 'run-1',
+    kind: 'agent-run-status-changed',
+    payload: {
+      runId: 'run-1',
+      workItemId: 'work-item-1',
+      fromStatus: 'running',
+      toStatus: 'waiting',
+    },
+  },
 } as const satisfies Readonly<Record<WorkspaceEventKind, object>>;
 
 function cloneEvent(kind: WorkspaceEventKind): Record<string, unknown> {
@@ -298,6 +359,11 @@ describe('WorkspaceEventEnvelope', () => {
       'repository-evidence-changed': ['repositoryId', 'repositoryInspectionId'],
       'project-repository-bound': ['repositoryId', 'repositoryBindingId'],
       'project-repository-binding-retired': ['repositoryId', 'repositoryBindingId'],
+      'source-repository-registered': [],
+      'worktree-created': [],
+      'worktree-removed': [],
+      'agent-run-started': [],
+      'agent-run-status-changed': [],
     } as const satisfies Readonly<Record<WorkspaceEventKind, readonly string[]>>;
 
     for (const kind of Object.keys(validEvents) as WorkspaceEventKind[]) {

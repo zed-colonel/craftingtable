@@ -21,6 +21,7 @@ export function sendApiError(
     | 'forbidden'
     | 'not-found'
     | 'conflict'
+    | 'unavailable'
     | 'internal-error',
   message: string,
 ): FastifyReply {

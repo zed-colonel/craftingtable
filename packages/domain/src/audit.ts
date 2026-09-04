@@ -36,6 +36,16 @@ export const AUDIT_ACTIONS = [
   'repository.retire',
   'repository.bind-project',
   'repository.unbind-project',
+  /* Execution (schema 5). */
+  'source-repository.register',
+  'source-repository.retire',
+  'worktree.create',
+  'worktree.remove',
+  'agent-run.start',
+  'agent-run.message',
+  'agent-run.end',
+  'agent-run.cancel',
+  'agent-run.finished',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -59,7 +69,16 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'repository.retire': 3,
   'repository.bind-project': 3,
   'repository.unbind-project': 3,
-} as const satisfies Readonly<Record<AuditAction, 1 | 2 | 3>>;
+  'source-repository.register': 5,
+  'source-repository.retire': 5,
+  'worktree.create': 5,
+  'worktree.remove': 5,
+  'agent-run.start': 5,
+  'agent-run.message': 5,
+  'agent-run.end': 5,
+  'agent-run.cancel': 5,
+  'agent-run.finished': 5,
+} as const satisfies Readonly<Record<AuditAction, 1 | 2 | 3 | 5>>;
 
 export function isAuditAction(value: unknown): value is AuditAction {
   return (AUDIT_ACTIONS as readonly string[]).includes(value as string);

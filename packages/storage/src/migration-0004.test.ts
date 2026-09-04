@@ -194,7 +194,7 @@ function migrateToFour(
   database: Database.Database,
   migrations: readonly MigrationDefinition[],
 ): void {
-  expect(runMigrations(database, migrations)).toEqual({
+  expect(runMigrations(database, migrations.slice(0, 4))).toEqual({
     currentVersion: 4,
     supportedVersion: 4,
     pendingVersions: [],
@@ -461,10 +461,12 @@ describe('migration 0004 repository journal', () => {
       .prepare(`SELECT kind, introduced_in_schema FROM workspace_event_kinds ORDER BY kind`)
       .all();
     expect(rows).toEqual(
-      WORKSPACE_EVENT_KINDS.map((kind) => ({
-        kind,
-        introduced_in_schema: WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA[kind],
-      })).toSorted((left, right) => left.kind.localeCompare(right.kind)),
+      WORKSPACE_EVENT_KINDS.filter((kind) => WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA[kind] <= 4)
+        .map((kind) => ({
+          kind,
+          introduced_in_schema: WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA[kind],
+        }))
+        .toSorted((left, right) => left.kind.localeCompare(right.kind)),
     );
     expect(database.pragma('foreign_key_check')).toEqual([]);
     expect(database.pragma('integrity_check', { simple: true })).toBe('ok');

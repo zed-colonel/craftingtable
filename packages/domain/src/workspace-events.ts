@@ -1,3 +1,4 @@
+import type { AgentBackendKind, AgentRunRole, AgentRunStatus } from './execution.js';
 import type {
   AgentRunId,
   EventId,
@@ -6,10 +7,12 @@ import type {
   ProjectRepositoryBindingId,
   RepositoryId,
   RepositoryInspectionId,
+  SourceRepositoryId,
   UserId,
   WorkContractDraftId,
   WorkItemId,
   WorkspaceId,
+  WorktreeId,
 } from './ids.js';
 import type { RepositoryStatus, RepositoryStatusReason } from './repository.js';
 
@@ -37,6 +40,12 @@ export const WORKSPACE_EVENT_KINDS = [
   'repository-evidence-changed',
   'project-repository-bound',
   'project-repository-binding-retired',
+  /* Execution (schema 5). */
+  'source-repository-registered',
+  'worktree-created',
+  'worktree-removed',
+  'agent-run-started',
+  'agent-run-status-changed',
 ] as const;
 export type WorkspaceEventKind = (typeof WORKSPACE_EVENT_KINDS)[number];
 
@@ -50,7 +59,12 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'repository-evidence-changed': 4,
   'project-repository-bound': 4,
   'project-repository-binding-retired': 4,
-} as const satisfies Readonly<Record<WorkspaceEventKind, 1 | 2 | 4>>;
+  'source-repository-registered': 5,
+  'worktree-created': 5,
+  'worktree-removed': 5,
+  'agent-run-started': 5,
+  'agent-run-status-changed': 5,
+} as const satisfies Readonly<Record<WorkspaceEventKind, 1 | 2 | 4 | 5>>;
 
 export function isWorkspaceEventKind(value: unknown): value is WorkspaceEventKind {
   return (WORKSPACE_EVENT_KINDS as readonly string[]).includes(value as string);
@@ -221,6 +235,92 @@ export interface ProjectRepositoryBindingRetiredEvent extends WorkspaceEventBase
   };
 }
 
+/**
+ * Execution events carry only the pre-existing structural correlations
+ * (`projectId`, `workItemId`, `runId`); repository-registry correlations stay
+ * null for them, as the schema-4 structural CHECK requires of later kinds.
+ */
+export interface SourceRepositoryRegisteredEvent extends WorkspaceEventBase {
+  readonly kind: 'source-repository-registered';
+  readonly projectId?: never;
+  readonly workItemId?: never;
+  readonly runId?: never;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: {
+    readonly sourceRepositoryId: SourceRepositoryId;
+    readonly displayName: string;
+    readonly rootPath: string;
+    readonly defaultBranch: string;
+  };
+}
+
+export interface WorktreeCreatedEvent extends WorkspaceEventBase {
+  readonly kind: 'worktree-created';
+  readonly projectId: ProjectId;
+  readonly workItemId: WorkItemId;
+  readonly runId?: never;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: {
+    readonly worktreeId: WorktreeId;
+    readonly sourceRepositoryId: SourceRepositoryId;
+    readonly workItemId: WorkItemId;
+    readonly branchName: string;
+    readonly baseSha: string;
+  };
+}
+
+export interface WorktreeRemovedEvent extends WorkspaceEventBase {
+  readonly kind: 'worktree-removed';
+  readonly projectId: ProjectId;
+  readonly workItemId: WorkItemId;
+  readonly runId?: never;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: {
+    readonly worktreeId: WorktreeId;
+    readonly workItemId: WorkItemId;
+    readonly branchName: string;
+  };
+}
+
+export interface AgentRunStartedEvent extends WorkspaceEventBase {
+  readonly kind: 'agent-run-started';
+  readonly projectId: ProjectId;
+  readonly workItemId: WorkItemId;
+  readonly runId: AgentRunId;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: {
+    readonly runId: AgentRunId;
+    readonly worktreeId: WorktreeId;
+    readonly workItemId: WorkItemId;
+    readonly backend: AgentBackendKind;
+    readonly role: AgentRunRole;
+  };
+}
+
+export interface AgentRunStatusChangedEvent extends WorkspaceEventBase {
+  readonly kind: 'agent-run-status-changed';
+  readonly projectId: ProjectId;
+  readonly workItemId: WorkItemId;
+  readonly runId: AgentRunId;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: {
+    readonly runId: AgentRunId;
+    readonly workItemId: WorkItemId;
+    readonly fromStatus: AgentRunStatus;
+    readonly toStatus: AgentRunStatus;
+  };
+}
+
 export type WorkspaceEvent =
   | WorkspaceCreatedEvent
   | ProjectCreatedEvent
@@ -230,7 +330,12 @@ export type WorkspaceEvent =
   | RepositoryStatusChangedEvent
   | RepositoryEvidenceChangedEvent
   | ProjectRepositoryBoundEvent
-  | ProjectRepositoryBindingRetiredEvent;
+  | ProjectRepositoryBindingRetiredEvent
+  | SourceRepositoryRegisteredEvent
+  | WorktreeCreatedEvent
+  | WorktreeRemovedEvent
+  | AgentRunStartedEvent
+  | AgentRunStatusChangedEvent;
 
 /** Payload type for one kind, used by the storage append signature. */
 export type WorkspaceEventPayload<K extends WorkspaceEventKind> = Extract<

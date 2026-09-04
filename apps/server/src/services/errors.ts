@@ -32,3 +32,18 @@ export class BootstrapRefusedError extends Error {
     this.name = 'BootstrapRefusedError';
   }
 }
+
+/**
+ * A request the execution services could not honour: a path that is not a
+ * repository, a Git command that failed, a run that is no longer live. The
+ * message is composed by the daemon and safe to return to the operator.
+ */
+export class ExecutionRequestError extends Error {
+  constructor(
+    readonly code: 'invalid-request' | 'conflict' | 'unavailable',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ExecutionRequestError';
+  }
+}

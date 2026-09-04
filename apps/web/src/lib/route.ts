@@ -1,4 +1,10 @@
-import type { PlanVersionId, ProjectId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
+import type {
+  AgentRunId,
+  PlanVersionId,
+  ProjectId,
+  WorkItemId,
+  WorkspaceId,
+} from '@craftingtable/domain';
 
 /**
  * Deep-linkable routes, parsed and built by pure functions.
@@ -22,7 +28,9 @@ export type Route =
       readonly name: 'work-item';
       readonly workspaceId: WorkspaceId;
       readonly workItemId: WorkItemId;
-    };
+    }
+  | { readonly name: 'repositories'; readonly workspaceId: WorkspaceId }
+  | { readonly name: 'run'; readonly workspaceId: WorkspaceId; readonly runId: AgentRunId };
 
 export const DASHBOARD_ROUTE: Route = { name: 'dashboard' };
 
@@ -53,6 +61,15 @@ export function parseRoute(pathname: string): Route {
   }
   if (segments[2] === 'import' && segments.length === 3) {
     return { name: 'import', workspaceId };
+  }
+  if (segments[2] === 'repositories' && segments.length === 3) {
+    return { name: 'repositories', workspaceId };
+  }
+  if (segments[2] === 'runs') {
+    const runId = decode(segments[3]) as AgentRunId | undefined;
+    return runId === undefined
+      ? { name: 'dashboard', workspaceId }
+      : { name: 'run', workspaceId, runId };
   }
   if (segments[2] === 'work-items') {
     const workItemId = decode(segments[3]) as WorkItemId | undefined;
@@ -94,6 +111,10 @@ export function buildPath(route: Route): string {
       )}/plans/${encodeURIComponent(route.planVersionId)}`;
     case 'work-item':
       return `${workspace(route.workspaceId)}/work-items/${encodeURIComponent(route.workItemId)}`;
+    case 'repositories':
+      return `${workspace(route.workspaceId)}/repositories`;
+    case 'run':
+      return `${workspace(route.workspaceId)}/runs/${encodeURIComponent(route.runId)}`;
   }
 }
 

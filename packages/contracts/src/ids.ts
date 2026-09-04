@@ -1,4 +1,5 @@
 import {
+  type AgentRunEventId,
   type AgentRunId,
   type AuditEventId,
   type EventId,
@@ -13,11 +14,13 @@ import {
   type RepositoryId,
   type RepositoryInspectionId,
   type SessionId,
+  type SourceRepositoryId,
   type UserId,
   type WorkContractDraftId,
   type WorkspaceMembershipId,
   type WorkItemId,
   type WorkspaceId,
+  type WorktreeId,
 } from '@craftingtable/domain';
 import { z } from 'zod';
 
@@ -49,3 +52,6 @@ export const repositoryInspectionIdSchema =
 export const projectRepositoryBindingIdSchema = idSchema<ProjectRepositoryBindingId>(
   'projectRepositoryBindingId',
 );
+export const sourceRepositoryIdSchema = idSchema<SourceRepositoryId>('sourceRepositoryId');
+export const worktreeIdSchema = idSchema<WorktreeId>('worktreeId');
+export const agentRunEventIdSchema = idSchema<AgentRunEventId>('agentRunEventId');

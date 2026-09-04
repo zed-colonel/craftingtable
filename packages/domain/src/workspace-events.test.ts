@@ -6,7 +6,7 @@ import {
 } from './workspace-events.js';
 
 describe('workspace event vocabulary', () => {
-  it('B1-STO-010 registers the exact nine-kind schema-introduction vocabulary', () => {
+  it('registers the exact schema-introduction vocabulary', () => {
     expect(WORKSPACE_EVENT_KINDS).toEqual([
       'workspace-created',
       'project-created',
@@ -17,6 +17,11 @@ describe('workspace event vocabulary', () => {
       'repository-evidence-changed',
       'project-repository-bound',
       'project-repository-binding-retired',
+      'source-repository-registered',
+      'worktree-created',
+      'worktree-removed',
+      'agent-run-started',
+      'agent-run-status-changed',
     ]);
     expect(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA).toEqual({
       'workspace-created': 1,
@@ -28,6 +33,11 @@ describe('workspace event vocabulary', () => {
       'repository-evidence-changed': 4,
       'project-repository-bound': 4,
       'project-repository-binding-retired': 4,
+      'source-repository-registered': 5,
+      'worktree-created': 5,
+      'worktree-removed': 5,
+      'agent-run-started': 5,
+      'agent-run-status-changed': 5,
     });
     expect(Object.keys(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA)).toEqual(WORKSPACE_EVENT_KINDS);
   });

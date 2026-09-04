@@ -249,9 +249,31 @@ vi.mock('./lib/api-client.js', () => ({
   request: () => Promise.reject(new Error('not used')),
 }));
 
-// The event stream is irrelevant to this transition; keep it inert.
+// The event streams are irrelevant to this transition; keep them inert.
 vi.mock('./lib/use-workspace-event-stream.js', () => ({
   useWorkspaceEventStream: () => undefined,
+}));
+vi.mock('./lib/use-run-event-stream.js', () => ({
+  useRunEventStream: () => undefined,
+}));
+
+// Delegation reads resolve empty so the work item page renders; commands are unused here.
+vi.mock('./lib/execution-api.js', () => ({
+  loadExecutionStatus: () => Promise.resolve({ git: { available: true }, backends: [] }),
+  loadRepositories: () => Promise.resolve({ repositories: [] }),
+  loadWorkItemExecution: (_workspaceId: string, workItemId: string) =>
+    Promise.resolve({ workItemId, worktrees: [], runs: [] }),
+  loadRun: () => new Promise(() => undefined),
+  loadRunEvents: () => Promise.resolve({ events: [], nextAfter: 0 }),
+  loadWorktreeDiff: () => new Promise(() => undefined),
+  registerRepository: () => new Promise(() => undefined),
+  retireRepository: () => new Promise(() => undefined),
+  createWorktree: () => new Promise(() => undefined),
+  removeWorktree: () => new Promise(() => undefined),
+  startRun: () => new Promise(() => undefined),
+  sendRunMessage: () => new Promise(() => undefined),
+  endRun: () => new Promise(() => undefined),
+  cancelRun: () => new Promise(() => undefined),
 }));
 
 /** Deferreds for the requests whose results must never cross workspaces. */

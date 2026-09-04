@@ -140,6 +140,38 @@ function assertStructuralShape(row: WorkspaceEventRow, kind: WorkspaceEventKind)
     case 'work-item-admitted':
       if (!repositoryCorrelationsNull) invalidStructural(row);
       return;
+    case 'source-repository-registered':
+      if (
+        !repositoryCorrelationsNull ||
+        row.project_id !== null ||
+        row.work_item_id !== null ||
+        row.run_id !== null
+      ) {
+        invalidStructural(row);
+      }
+      return;
+    case 'worktree-created':
+    case 'worktree-removed':
+      if (
+        !repositoryCorrelationsNull ||
+        row.project_id === null ||
+        row.work_item_id === null ||
+        row.run_id !== null
+      ) {
+        invalidStructural(row);
+      }
+      return;
+    case 'agent-run-started':
+    case 'agent-run-status-changed':
+      if (
+        !repositoryCorrelationsNull ||
+        row.project_id === null ||
+        row.work_item_id === null ||
+        row.run_id === null
+      ) {
+        invalidStructural(row);
+      }
+      return;
     case 'repository-registered':
     case 'repository-evidence-changed':
       if (
@@ -204,6 +236,16 @@ function assertPayloadCorrelations(
     case 'project-created':
     case 'plan-version-imported':
     case 'work-item-admitted':
+    case 'source-repository-registered':
+      return;
+    case 'worktree-created':
+    case 'worktree-removed':
+      requireMatchingPayloadId(row, payload, 'workItemId', row.work_item_id as string);
+      return;
+    case 'agent-run-started':
+    case 'agent-run-status-changed':
+      requireMatchingPayloadId(row, payload, 'workItemId', row.work_item_id as string);
+      requireMatchingPayloadId(row, payload, 'runId', row.run_id as string);
       return;
     case 'repository-registered':
     case 'repository-evidence-changed':
@@ -304,6 +346,46 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
         kind,
         payload: mapPayload<'work-item-admitted'>(payload),
       };
+    case 'source-repository-registered':
+      return {
+        ...commonFields(base),
+        kind,
+        payload: mapPayload<'source-repository-registered'>(payload),
+      };
+    case 'worktree-created':
+      return {
+        ...commonFields(base),
+        kind,
+        projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
+        workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
+        payload: mapPayload<'worktree-created'>(payload),
+      };
+    case 'worktree-removed':
+      return {
+        ...commonFields(base),
+        kind,
+        projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
+        workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
+        payload: mapPayload<'worktree-removed'>(payload),
+      };
+    case 'agent-run-started':
+      return {
+        ...commonFields(base),
+        kind,
+        projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
+        workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
+        runId: base.runId as NonNullable<WorkspaceEventBase['runId']>,
+        payload: mapPayload<'agent-run-started'>(payload),
+      };
+    case 'agent-run-status-changed':
+      return {
+        ...commonFields(base),
+        kind,
+        projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
+        workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
+        runId: base.runId as NonNullable<WorkspaceEventBase['runId']>,
+        payload: mapPayload<'agent-run-status-changed'>(payload),
+      };
     case 'repository-registered':
       return {
         ...commonFields(base),
@@ -378,6 +460,16 @@ function assertAppendAgreement(input: AppendWorkspaceEventInput): void {
     case 'project-created':
     case 'plan-version-imported':
     case 'work-item-admitted':
+    case 'source-repository-registered':
+      return;
+    case 'worktree-created':
+    case 'worktree-removed':
+      if (input.payload.workItemId !== input.workItemId) mismatch('workItemId');
+      return;
+    case 'agent-run-started':
+    case 'agent-run-status-changed':
+      if (input.payload.workItemId !== input.workItemId) mismatch('workItemId');
+      if (input.payload.runId !== input.runId) mismatch('runId');
       return;
     case 'repository-registered':
     case 'repository-evidence-changed':

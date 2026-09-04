@@ -23,7 +23,7 @@ tmp/
 *.sqlite-wal
 *.sqlite-shm
 
-# CT-04A test scratch
+# Git package test scratch
 .ct04a-*/
 
 # Editor and OS files

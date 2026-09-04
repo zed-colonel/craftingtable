@@ -2,30 +2,45 @@
 
 This file is the canonical repository-wide guidance for human and machine contributors.
 
+## What CraftingTable is for
+
+CraftingTable is a local supervisory workbench around existing coding agents. Its owner
+uses it to plan and ideate software, delegate the work to agents, and watch that work in
+a dynamic, clear, transparent way from another machine on the home network. It runs as
+a daemon on the workstation; the browser on a laptop is a projection and control
+surface.
+
+The product is judged by whether it is usable for real development today, not by the
+completeness of its design. Prefer a working end-to-end path over a polished partial
+one. Build vertical slices that can be used immediately, then improve what actual use
+shows to be wrong.
+
 ## Read order
 
 Before changing code, read:
 
-1. the active work contract under `work-items/`, and the accepted implementation plan it references;
-2. the active process protocol under `work-items/` for the planning, review, and remediation sequence;
-3. `init/craftingtable-implementation-plan.md` for architectural context;
-4. `docs/ui-principles.md` for visual direction;
-5. relevant ADRs under `docs/decisions/`.
+1. `README.md` for the current state and how to run the app;
+2. `docs/architecture.md` for the package layout and dependency direction;
+3. `docs/security.md` for the trust model;
+4. relevant ADRs under `docs/decisions/`;
+5. `docs/ui-principles.md` when touching the browser app.
 
-The current branch names the active slice; its contract and accepted plan are the ones matching that name. If the active slice is ambiguous, stop and ask rather than inferring one.
-
-The active work contract controls scope. The implementation plan supplies context but does not authorize work outside the contract. No other file may restate a slice's scope: a paraphrase that drifts from the hash-pinned contract competes with it, so scope fences live in the contract and accepted plan alone.
+`init/` holds the original product planning package. Treat it as background on intent
+and vocabulary, not as authority: where it conflicts with this file, the README, or the
+code, the code wins. `archive/` holds superseded planning and review artifacts and is
+never required reading.
 
 ## Working method
 
-- Work in two phases: first inspect and propose a concrete file-level plan; then edit only after the operator approves that plan. The active process protocol states the full requirements for that plan and for the review and remediation that follow it.
-- Keep each slice small enough that a different coding agent can understand it entirely from committed repository artifacts. Conversation context is not a deliverable; if a decision matters, it belongs in a committed file.
-
-## Product boundary
-
-CraftingTable is a local supervisory workbench around existing coding agents. It is not itself a coding agent, general-purpose IDE, workflow platform, hosted SaaS product, browser shell, or Exo Stack runtime.
-
-Features are admitted only when they address immediate development friction. Prefer the smallest design that supports the active acceptance workload.
+- Understand the request, inspect the code that it touches, then build. Do not
+  produce planning documents, work contracts, acceptance matrices, or review
+  dispositions; a short ADR is the only design document this repository wants, and
+  only when a decision is material and hard to reverse.
+- Keep changes coherent and self-describing. A different agent should be able to
+  understand a change from the diff, the tests, and the commit message alone.
+  Conversation context is not a deliverable.
+- When a question would materially change the work, ask. Otherwise make the routine
+  call yourself and note it in the report.
 
 ## Architectural boundaries
 
@@ -33,8 +48,13 @@ Features are admitted only when they address immediate development friction. Pre
 - The browser is a projection and control surface, never the source of truth.
 - Shared wire contracts must be runtime-validated and reusable by server and web.
 - Domain types must not depend on HTTP, React, process management, Git, or vendor-agent SDKs.
-- Agent backends and Git operations sit behind explicit interfaces.
+- Agent backends and Git operations sit behind explicit interfaces. The first backend
+  is Claude Code; the interface must let Codex and others be added without changing
+  the daemon's durable vocabulary.
 - Raw vendor events may be retained for diagnostics but must not become the durable domain vocabulary.
+- The iterative development loop (design, implement, review, remediate, verify) must be
+  expressible as composable steps that CraftingTable can orchestrate. The first working
+  version need not automate that loop, but new run and event types should not preclude it.
 - No package may depend on ActionQueue, WorldInterface, Exoskeleton, or other application runtime code.
 - Do not introduce a distributed system, plugin framework, generalized workflow language, or cloud deployment architecture.
 
@@ -44,28 +64,33 @@ Features are admitted only when they address immediate development friction. Pre
 - The implementation agent must not gain merge authority.
 - Repository policy, acceptance criteria, and protected checks are controller-owned concepts.
 - Do not add secrets, credentials, tokens, or machine-specific paths to the repository.
-- Use argument arrays rather than shell-concatenated commands whenever process execution is eventually introduced.
+- Spawn processes with argument arrays, never shell-concatenated strings, and only from
+  the explicit adapter modules that own that authority.
+- Keep the authentication, CSRF, origin, and LAN exposure protections intact. The
+  target deployment is one workstation daemon reached from a laptop over a home LAN.
 
 ## Quality expectations
 
 - TypeScript runs in strict mode.
 - Public contracts have runtime validation.
-- New behavior includes focused tests.
-- Tests assert behavior, not implementation trivia.
-- Quality commands must be runnable locally without GitHub Actions.
+- New behavior includes focused tests that assert behavior, not implementation trivia.
+  Test the seams that would be expensive to get wrong: process supervision, event
+  persistence and replay, Git mutations, authorization. Do not chase coverage for its
+  own sake.
+- `pnpm check` must pass before work is called done.
 - Avoid premature abstractions. Add interfaces at real authority or dependency boundaries.
-- Record material architectural decisions as ADRs.
+- Record material architectural decisions as short ADRs.
 
 ## Git expectations
 
-Do not create or merge branches, rewrite history, push, or make commits unless the operator explicitly asks. Merge authority is the operator's alone; the active process protocol states the evidence a slice must carry before the operator merges it, and into which branch. Leave the worktree in a cleanly reviewable state and report changed files, commands run, and unresolved issues.
+Commit finished increments with clear messages. Do not push, merge into another branch,
+or rewrite history unless the operator explicitly asks; merge authority is the
+operator's alone. Report changed files, commands run, and unresolved issues.
 
 ## Escalation
 
 Stop and ask for direction rather than silently expanding scope when:
 
-- a requirement conflicts with the active work contract;
 - a new major dependency or framework is needed beyond the agreed baseline;
-- an acceptance gate appears infeasible;
-- the requested design would create a future security boundary while pretending to enforce it now;
-- completing the work requires implementing CT-02 or later functionality.
+- a requirement would weaken an authority or safety boundary above;
+- the requested design would create a future security boundary while pretending to enforce it now.

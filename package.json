@@ -23,8 +23,7 @@
     "test": "vitest run",
     "test:e2e": "tsc -b && playwright test",
     "check:scope": "node scripts/check-forbidden-scope.mjs",
-    "check:protected": "node scripts/check-ct04-protected-package.mjs",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test && pnpm test:e2e && pnpm check:scope && pnpm check:protected"
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test && pnpm test:e2e && pnpm check:scope"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",

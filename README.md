@@ -4,24 +4,24 @@ CraftingTable is a local supervisory workbench for planning, delegating, observi
 
 It exists to make development of the Exo Stack (ActionQueue, WorldInterface, and Exoskeleton) and other personal projects more manageable. Features are justified by immediate development friction, not hypothetical product completeness.
 
-## Current phase
+## Current state
 
-The composed product currently implements accepted **CT-03: Plan bundle import
-and the project/work-item dashboard**, on top of CT-02's persistent daemon,
-authentication, workspaces, and durable event history.
+The app today: a persistent, authenticated local daemon with workspaces and a
+durable event journal (CT-02), plan-bundle import with a project and work-item
+dashboard (CT-03), and a read-only Git inspection package with repository
+persistence that is not yet reachable from the browser (CT-04A, partial).
 
-The active implementation slice is **CT-04A2b2a: Repository feature and evidence
-boundary**. It adds optional-but-strict repository configuration, a lazy guarded
-observation provider, the sole production server adapter to the accepted read-only
-Git package, and exact stored-evidence verification. It does not add repository
-commands, routes, authorization, storage mutation, audit/event/notifier producers,
-fetches, or views.
-Its accepted contract is
-[`work-items/CT-04/CT-04A2b2a-accepted-implementation-plan.md`](work-items/CT-04/CT-04A2b2a-accepted-implementation-plan.md).
-The normative product planning artifacts remain under [`init/`](init/).
-Architectural, security, and operating boundaries are documented in
+Active work is the first usable end-to-end loop: from the dashboard, pick a
+work item, register a repository, create a worktree, launch Claude Code with
+the work item as its brief, watch it live from another machine, and inspect
+the resulting diff. That loop is being built as one vertical slice on `main`;
+see `AGENTS.md` for the working method and boundaries.
+
+The original product planning package lives under [`init/`](init/) as
+background. Architectural, security, and operating boundaries are documented in
 [`docs/architecture.md`](docs/architecture.md), [`docs/security.md`](docs/security.md),
 [`docs/operations.md`](docs/operations.md), and [`docs/decisions/`](docs/decisions/).
+Superseded planning and review artifacts are under [`archive/`](archive/).
 
 ## Quickstart
 

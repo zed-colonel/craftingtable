@@ -18,7 +18,7 @@ CT-01 requires a deliberately simple TypeScript workspace with one documented fo
 - **Formatter + linter:** **Biome** (single tool, single config, formats and lints TS/TSX/CSS/JSON). Chosen over Prettier + ESLint for simplicity; its smaller rule set is acceptable for this codebase.
 - **Tests:** **Vitest** for unit and real-file SQLite integration tests (root config aliases workspace packages to source, so `pnpm test` needs no prior build). **Playwright** runs one chromium-only authenticated flow at a 1440×900 viewport. It always starts a fresh daemon with a unique temporary data directory and a fresh Vite server; occupied ports fail rather than reusing stale processes (finding CT01-R2).
 - **Server dev runner:** `tsx watch`.
-- **Quality gate:** `pnpm check` = `format:check → lint → typecheck → build → test → test:e2e → check:scope → check:protected`, fail-fast, fully local, no GitHub Actions required. `check:scope` (`scripts/check-forbidden-scope.mjs`) fails on any Exo Stack dependency or import.
+- **Quality gate:** `pnpm check` = `format:check → lint → typecheck → build → test → test:e2e → check:scope`, fail-fast, fully local, no GitHub Actions required. `check:scope` (`scripts/check-forbidden-scope.mjs`) fails on any Exo Stack dependency or import.
 
 CT-03 additions:
 
@@ -48,10 +48,9 @@ CT-04A1 additions:
   `node:child_process` in production. Package exports remain `"."` only, and
   emitted-output proof rejects a second process authority or any shipped
   fixture.
-- The history-independent `check:protected` gate verifies the literal CT-04
-  two-file manifest and SHA-256 hashes. Release/merge evidence separately
-  compares `protected/` with the pinned Git commit, so shallow routine clones
-  do not confuse missing history with package mutation.
+- The former `check:protected` gate verified a CT-04 acceptance package. It was
+  retired on 2026-09-04 with the slice-contract process; the package now lives
+  under `archive/CT-04/protected/`.
 
 ## Consequences
 

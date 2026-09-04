@@ -2,15 +2,12 @@
 
 CraftingTable is a personal supervisory workbench. Contributions — human or agent — follow the same contract.
 
-## Read first, in this order
+## Read first
 
-1. The active work contract under `work-items/` (currently `work-items/CT-02.md`).
-2. `AGENTS.md` — canonical architectural, quality, and safety boundaries.
-3. `init/craftingtable-implementation-plan.md` — context; it does not authorize work beyond the active contract.
-4. `docs/ui-principles.md` — visual direction.
-5. `docs/architecture.md` and relevant ADRs under `docs/decisions/`.
-
-The active work contract controls scope. When a requirement conflicts with it, stop and ask rather than expanding scope.
+`AGENTS.md` is the canonical guidance: product intent, working method, and the
+architectural, safety, and quality boundaries. Then `README.md`,
+`docs/architecture.md`, `docs/security.md`, and the ADRs under `docs/decisions/`
+for the areas you touch.
 
 ## Prerequisites
 
@@ -32,7 +29,7 @@ pnpm test          Vitest unit tests
 pnpm test:e2e      Playwright browser smoke test
 pnpm db:migrate    migrate the configured SQLite database
 pnpm db:status     report configured SQLite schema status
-pnpm check:scope   forbidden-scope check (no Exo Stack dependencies)
+pnpm check:scope   forbidden-scope check (no Exo Stack dependencies, process authority)
 pnpm check         CI-equivalent gate: all of the above, fail-fast
 ```
 
@@ -60,4 +57,6 @@ or normal data directory.
 
 ## Git expectations
 
-Do not create branches, commit, or merge unless the operator explicitly asks. Leave the worktree cleanly reviewable and report changed files, commands run, and unresolved issues.
+Commit finished increments with clear messages. Do not push, merge, or rewrite
+history unless the operator explicitly asks. Leave the worktree cleanly
+reviewable and report changed files, commands run, and unresolved issues.

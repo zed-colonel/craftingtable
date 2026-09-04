@@ -1,0 +1,671 @@
+contract: CT-04A2b
+source_head: e3b69c612a51b0b2a8d436ae3ea5355abd40745e
+version: 1
+purpose: Source-grounded adversarial cases allocated to B1, B2, or parent fan-in.
+matrices:
+- id: B1-MIGRATION
+  title: Schema-4 journal preservation
+  slice: CT-04A2b1
+  governing_invariant: A2B-I04/A2B-I11
+  protected_default: true
+  cases:
+  - id: B1-MIG-001
+    setup: accepted schema 3 with old events at nontrivial sequences
+    operation: apply migration 0004
+    expected: all rows, IDs, payload bytes, count, max sequence, and order preserved
+  - id: B1-MIG-002
+    setup: accepted schema 3 with sqlite_sequence above a deleted historical max
+    operation: migrate and append event
+    expected: next sequence remains monotonic and non-reused
+  - id: B1-MIG-003
+    setup: old append-only triggers and indexes present
+    operation: migrate
+    expected: schema-4 append-only triggers and required indexes restored
+  - id: B1-MIG-004
+    setup: all old event kinds and catalogs
+    operation: migrate
+    expected: old introduced schema values and behavior unchanged
+  - id: B1-MIG-005
+    setup: checksum of migrations 0001..0003
+    operation: discover migrations
+    expected: all remain byte-identical
+  - id: B1-MIG-006
+    setup: migration interrupted by a failing guard
+    operation: apply
+    expected: whole migration rolls back to readable schema 3
+  - id: B1-MIG-007
+    setup: fresh database
+    operation: apply 1..4
+    expected: schema 4 and all catalogs valid
+  - id: B1-MIG-008
+    setup: tampered migration 0004 after application
+    operation: open
+    expected: checksum drift rejected
+- id: B1-CORRELATION
+  title: Repository journal structural ownership
+  slice: CT-04A2b1
+  governing_invariant: A2B-I11
+  protected_default: true
+  cases:
+  - id: B1-COR-001
+    setup: repository event with same-workspace repository
+    operation: insert
+    expected: accepted
+  - id: B1-COR-002
+    setup: repository event names foreign-workspace repository
+    operation: direct SQL insert
+    expected: composite FK rejects
+  - id: B1-COR-003
+    setup: repository event names nonexistent repository
+    operation: direct SQL insert
+    expected: FK rejects
+  - id: B1-COR-004
+    setup: inspection event names inspection from sibling repository
+    operation: direct SQL insert
+    expected: composite FK rejects
+  - id: B1-COR-005
+    setup: inspection correlation without repository correlation
+    operation: direct SQL insert
+    expected: kind/correlation check rejects
+  - id: B1-COR-006
+    setup: binding event names binding from sibling project
+    operation: direct SQL insert
+    expected: four-column FK rejects
+  - id: B1-COR-007
+    setup: binding correlation without project or repository
+    operation: direct SQL insert
+    expected: kind/correlation check rejects
+  - id: B1-COR-008
+    setup: legacy event carries repository correlation
+    operation: direct SQL insert
+    expected: kind/correlation check rejects
+  - id: B1-COR-009
+    setup: repository-registered lacks inspection
+    operation: direct SQL insert
+    expected: rejected
+  - id: B1-COR-010
+    setup: repository-evidence-changed lacks inspection
+    operation: direct SQL insert
+    expected: rejected
+  - id: B1-COR-011
+    setup: repository-status-changed retirement has no inspection
+    operation: insert
+    expected: accepted when other correlations legal
+  - id: B1-COR-012
+    setup: binding event carries work-item or inspection correlation
+    operation: direct SQL insert
+    expected: rejected
+- id: B1-CONTRACT
+  title: Repository workspace-event contracts
+  slice: CT-04A2b1
+  governing_invariant: A2B-I12
+  protected_default: true
+  cases:
+  - id: B1-CON-001
+    setup: valid repository-registered envelope
+    operation: parse
+    expected: accepted
+  - id: B1-CON-002
+    setup: valid repository-status-changed with inspection
+    operation: parse
+    expected: accepted
+  - id: B1-CON-003
+    setup: valid retirement status event without inspection
+    operation: parse
+    expected: accepted
+  - id: B1-CON-004
+    setup: valid repository-evidence-changed
+    operation: parse
+    expected: accepted
+  - id: B1-CON-005
+    setup: valid bound and retired binding events
+    operation: parse
+    expected: accepted
+  - id: B1-CON-006
+    setup: unknown authority/readiness/raw Git field
+    operation: parse
+    expected: strict rejection
+  - id: B1-CON-007
+    setup: status version not exactly prior + 1
+    operation: parse
+    expected: rejected
+  - id: B1-CON-008
+    setup: binding retirement version not exactly prior + 1
+    operation: parse
+    expected: rejected
+  - id: B1-CON-009
+    setup: display name control/oversize content
+    operation: parse
+    expected: rejected
+  - id: B1-CON-010
+    setup: wrong status/status-reason pair
+    operation: parse
+    expected: rejected
+- id: B1-STORAGE
+  title: Workspace-event append and mapping
+  slice: CT-04A2b1
+  governing_invariant: A2B-I04/A2B-I12
+  protected_default: true
+  cases:
+  - id: B1-STO-001
+    setup: each new event kind through append API
+    operation: append then query
+    expected: exact structural correlations and payload round-trip
+  - id: B1-STO-002
+    setup: event IDs and sequences across old/new kinds
+    operation: append/listAfter
+    expected: strict ascending global sequence
+  - id: B1-STO-003
+    setup: recent snapshot straddles old/new kinds
+    operation: listRecentAtOrBefore
+    expected: exact cursor-bound activity
+  - id: B1-STO-004
+    setup: unknown kind absent from catalog
+    operation: direct insert
+    expected: fails closed
+  - id: B1-STO-005
+    setup: mapper receives every registered kind
+    operation: compile/test
+    expected: no permissive default; exhaustive mapping
+  - id: B1-STO-006
+    setup: foreign workspace query
+    operation: listAfter
+    expected: cannot return another workspace event
+  - id: B1-STO-007
+    setup: attempt to update/delete event
+    operation: SQL
+    expected: append-only triggers reject
+  - id: B1-STO-008
+    setup: invalid payload JSON
+    operation: SQL
+    expected: JSON check rejects
+- id: B1-PROJECTION
+  title: Browser event projection and activity
+  slice: CT-04A2b1
+  governing_invariant: A2B-I12
+  protected_default: true
+  cases:
+  - id: B1-UI-001
+    setup: repository-registered
+    operation: reduce
+    expected: repository list and repository ID stale; event retained
+  - id: B1-UI-002
+    setup: status/evidence event
+    operation: reduce
+    expected: repository list and repository ID stale
+  - id: B1-UI-003
+    setup: binding created/retired
+    operation: reduce
+    expected: project ID and repository ID stale
+  - id: B1-UI-004
+    setup: duplicate/lower sequence
+    operation: reduce
+    expected: ignored exactly as existing events
+  - id: B1-UI-005
+    setup: foreign-workspace repository event
+    operation: reduce
+    expected: rejected and counter incremented
+  - id: B1-UI-006
+    setup: snapshot refresh same workspace
+    operation: reduce
+    expected: live tail and repository stale semantics preserved
+  - id: B1-UI-007
+    setup: workspace switch
+    operation: reduce
+    expected: old repository IDs/events cleared before render
+  - id: B1-UI-008
+    setup: malicious HTML-like display name
+    operation: render
+    expected: escaped text; no HTML execution
+  - id: B1-UI-009
+    setup: every new event kind
+    operation: describe
+    expected: nonempty bounded human description
+  - id: B1-UI-010
+    setup: future unhandled event variant
+    operation: compile/test
+    expected: exhaustive switch fails rather than blank/default output
+- id: B1-SCOPE
+  title: B1 authority and process boundary
+  slice: CT-04A2b1
+  governing_invariant: recursive decomposition
+  protected_default: true
+  cases:
+  - id: B1-SCOPE-001
+    setup: B1 production source
+    operation: scan imports
+    expected: no Git, child process, Fastify route/service, notifier command, or repository lifecycle service
+  - id: B1-SCOPE-002
+    setup: protected files
+    operation: hash/diff
+    expected: original and A2 supplement unchanged
+  - id: B1-SCOPE-003
+    setup: accepted A2a migration and source
+    operation: diff/checksum
+    expected: migration 0003 unchanged; no A2a state-semantic drift
+  - id: B1-SCOPE-004
+    setup: completion report
+    operation: verify lineage
+    expected: real committed head and per-turn immutable reports
+  - id: B1-SCOPE-005
+    setup: route inventory
+    operation: inspect
+    expected: no repository routes added
+  - id: B1-SCOPE-006
+    setup: README/docs
+    operation: inspect
+    expected: claims journal/projection foundation only, not usable registration
+- id: B2-CONFIG
+  title: Optional repository feature configuration
+  slice: CT-04A2b2
+  governing_invariant: A2B-I02/A2B-I13
+  protected_default: true
+  cases:
+  - id: B2-CFG-001
+    setup: no repository variables
+    operation: start daemon
+    expected: feature disabled; existing planning/auth works
+  - id: B2-CFG-002
+    setup: repository operation while disabled
+    operation: request
+    expected: actionable unavailable; no A1 call
+  - id: B2-CFG-003
+    setup: valid explicit roots/options
+    operation: authorized first use
+    expected: lazy A1 creation succeeds
+  - id: B2-CFG-004
+    setup: partial explicit configuration
+    operation: start
+    expected: fails rather than silently disables
+  - id: B2-CFG-005
+    setup: invalid roots/overlap
+    operation: start
+    expected: fails closed
+  - id: B2-CFG-006
+    setup: concurrent first authorized calls
+    operation: create provider
+    expected: one in-flight creation result shared
+  - id: B2-CFG-007
+    setup: creation failure
+    operation: retry
+    expected: bounded explicit cache/retry policy followed
+  - id: B2-CFG-008
+    setup: unauthorized caller
+    operation: request
+    expected: no configuration/root/Git details disclosed
+- id: B2-ADAPTER
+  title: A1 adapter and evidence integrity
+  slice: CT-04A2b2
+  governing_invariant: A2B-I01/A2B-I03/A2B-I07
+  protected_default: true
+  cases:
+  - id: B2-ADP-001
+    setup: A1/domain constants equal
+    operation: construct adapter
+    expected: available
+  - id: B2-ADP-002
+    setup: risk/error/difference vocabulary drift
+    operation: construct adapter
+    expected: feature fails closed
+  - id: B2-ADP-003
+    setup: exact stored bytes and digest valid
+    operation: verify
+    expected: A1 parsed observation and projection parity accepted
+  - id: B2-ADP-004
+    setup: stored digest mismatch
+    operation: verify
+    expected: storage-integrity failure; A1 inspect/compare not called
+  - id: B2-ADP-005
+    setup: stored JSON invalid or unsupported version
+    operation: verify
+    expected: storage-integrity failure
+  - id: B2-ADP-006
+    setup: stored projected columns disagree
+    operation: verify
+    expected: stored-evidence-invalid
+  - id: B2-ADP-007
+    setup: A1 repository-class error
+    operation: map
+    expected: explicit repository-class-changed assessment
+  - id: B2-ADP-008
+    setup: observation-raced/timeouts/overflow
+    operation: map
+    expected: failed evidence, no automatic identity transition
+  - id: B2-ADP-009
+    setup: successful comparison with core+env+risk differences
+    operation: map
+    expected: core priority while all difference arrays retained
+  - id: B2-ADP-010
+    setup: only environment+risk differences
+    operation: map
+    expected: environment priority while risk evidence retained
+- id: B2-AUTH
+  title: Authorization before host access
+  slice: CT-04A2b2
+  governing_invariant: A2B-I02
+  protected_default: true
+  cases:
+  - id: B2-AUTH-001
+    setup: Owner register
+    operation: request
+    expected: A1 may be created/called
+  - id: B2-AUTH-002
+    setup: Editor/Viewer register
+    operation: request
+    expected: 403 before provider/host access
+  - id: B2-AUTH-003
+    setup: Owner/Editor inspect/bind/unbind
+    operation: request
+    expected: allowed by exact operation policy
+  - id: B2-AUTH-004
+    setup: Viewer host-affecting read/inspect
+    operation: request
+    expected: denied before A1
+  - id: B2-AUTH-005
+    setup: nonmember or foreign resource
+    operation: request
+    expected: indistinguishable 404; zero A1 calls
+  - id: B2-AUTH-006
+    setup: revoked membership
+    operation: request
+    expected: denied before A1 despite structural historical FK
+  - id: B2-AUTH-007
+    setup: Owner reaffirm/retire
+    operation: request
+    expected: allowed
+  - id: B2-AUTH-008
+    setup: Editor reaffirm/retire
+    operation: request
+    expected: denied
+  - id: B2-AUTH-009
+    setup: known member insufficient role
+    operation: request
+    expected: bounded denied audit; no event/notifier
+  - id: B2-AUTH-010
+    setup: unauthenticated request
+    operation: request
+    expected: existing authentication behavior; no A1
+- id: B2-REGISTER
+  title: Double-inspection registration
+  slice: CT-04A2b2
+  governing_invariant: A2B-I05/A2B-I07
+  protected_default: true
+  cases:
+  - id: B2-REG-001
+    setup: two matching valid observations
+    operation: register
+    expected: one repo+inspection+audit+event; notify after commit
+  - id: B2-REG-002
+    setup: core/environment/risk difference between inspections
+    operation: register
+    expected: retryable conflict; no repository/event/notifier
+  - id: B2-REG-003
+    setup: first or second observation-raced
+    operation: register
+    expected: failed audit only; no accepted state
+  - id: B2-REG-004
+    setup: invalid display name and unsafe derived basename
+    operation: register
+    expected: rejected before A1 where derivable
+  - id: B2-REG-005
+    setup: same-workspace same identity duplicate
+    operation: register
+    expected: existing result; no duplicate event
+  - id: B2-REG-006
+    setup: same path but conflicting local non-retired state
+    operation: register
+    expected: conflict; use lifecycle command
+  - id: B2-REG-007
+    setup: identity reserved by another workspace
+    operation: register
+    expected: non-disclosing conflict; no foreign audit/event
+  - id: B2-REG-008
+    setup: identity reserved only by retired row
+    operation: register
+    expected: fresh RepositoryId allowed
+  - id: B2-REG-009
+    setup: two concurrent registrations
+    operation: register
+    expected: one create; typed idempotent/conflict loser
+  - id: B2-REG-010
+    setup: outer transaction forced rollback
+    operation: register
+    expected: no state/audit/event/notifier
+  - id: B2-REG-011
+    setup: commit succeeds, notifier drops
+    operation: reconnect
+    expected: durable event replayed
+  - id: B2-REG-012
+    setup: audit metadata
+    operation: inspect
+    expected: both observation digests/comparison booleans bounded; no raw observation/stderr
+- id: B2-INSPECT
+  title: Verification and repository state
+  slice: CT-04A2b2
+  governing_invariant: A2B-I03/A2B-I05/A2B-I06/A2B-I07
+  protected_default: true
+  cases:
+  - id: B2-INSP-001
+    setup: valid same observation
+    operation: inspect
+    expected: evidence+audit; no state event/version/notifier
+  - id: B2-INSP-002
+    setup: risk-only difference
+    operation: inspect
+    expected: evidence event; repository version unchanged
+  - id: B2-INSP-003
+    setup: environment difference
+    operation: inspect
+    expected: identity-evidence-changed + status event
+  - id: B2-INSP-004
+    setup: core difference
+    operation: inspect
+    expected: identity-mismatch/core-identity-changed
+  - id: B2-INSP-005
+    setup: repository class error
+    operation: inspect
+    expected: identity-mismatch/repository-class-changed
+  - id: B2-INSP-006
+    setup: path unavailable/metadata unreadable
+    operation: inspect
+    expected: unavailable according to exact mapping
+  - id: B2-INSP-007
+    setup: process/config/observation-raced failure
+    operation: inspect
+    expected: failed evidence/audit; no state change
+  - id: B2-INSP-008
+    setup: stored digest invalid
+    operation: inspect
+    expected: evidence-blocked; no A1 call
+  - id: B2-INSP-009
+    setup: unavailable then matching observation
+    operation: inspect
+    expected: active/evidence-matches
+  - id: B2-INSP-010
+    setup: unavailable then class/core mismatch
+    operation: inspect
+    expected: identity-mismatch, never active
+  - id: B2-INSP-011
+    setup: terminal/retired repository
+    operation: inspect
+    expected: rejected before A1
+  - id: B2-INSP-012
+    setup: stale expected version
+    operation: inspect
+    expected: conflict before A1 and rechecked in transaction
+  - id: B2-INSP-013
+    setup: concurrent inspections
+    operation: inspect
+    expected: immutable ordered evidence; at most one state transition event per version
+  - id: B2-INSP-014
+    setup: outer commit failure after nested primitives
+    operation: inspect
+    expected: all state/audit/event/evidence rollback; no notifier
+- id: B2-REAFFIRM
+  title: Environmental evidence reaffirmation
+  slice: CT-04A2b2
+  governing_invariant: A2B-I08/A2B-I09
+  protected_default: true
+  cases:
+  - id: B2-REAFF-001
+    setup: identity-evidence-changed + fresh same-core/different-env
+    operation: reaffirm
+    expected: baseline advances, active, IDs/bindings preserved
+  - id: B2-REAFF-002
+    setup: non-Owner
+    operation: reaffirm
+    expected: denied before A1
+  - id: B2-REAFF-003
+    setup: stale repository version
+    operation: reaffirm
+    expected: conflict before A1
+  - id: B2-REAFF-004
+    setup: stale latest-successful inspection ID
+    operation: reaffirm
+    expected: conflict before/inside transaction
+  - id: B2-REAFF-005
+    setup: fresh core/class mismatch
+    operation: reaffirm
+    expected: identity-mismatch; no baseline advance
+  - id: B2-REAFF-006
+    setup: fresh same environment
+    operation: reaffirm
+    expected: not required; no baseline/state event
+  - id: B2-REAFF-007
+    setup: failed observation
+    operation: reaffirm
+    expected: failure evidence; old baseline preserved
+  - id: B2-REAFF-008
+    setup: forced rollback
+    operation: reaffirm
+    expected: baseline/status/audit/event all unchanged; no notifier
+- id: B2-BINDING
+  title: Project bind and unbind
+  slice: CT-04A2b2
+  governing_invariant: A2B-I05/A2B-I08
+  protected_default: true
+  cases:
+  - id: B2-BIND-001
+    setup: active repo + fresh same verification
+    operation: bind
+    expected: one binding/audit/event
+  - id: B2-BIND-002
+    setup: foreign/missing project or repo
+    operation: bind
+    expected: non-disclosing 404; no A1 for forbidden graph
+  - id: B2-BIND-003
+    setup: non-active repository before verification
+    operation: bind
+    expected: rejected before A1
+  - id: B2-BIND-004
+    setup: verification changes repository to non-active
+    operation: bind
+    expected: state/evidence/audit/event commit; no binding
+  - id: B2-BIND-005
+    setup: same project/repository repeated
+    operation: bind
+    expected: idempotent; no duplicate event
+  - id: B2-BIND-006
+    setup: project already bound elsewhere
+    operation: bind
+    expected: conflict
+  - id: B2-BIND-007
+    setup: same repository bound to another same-workspace project
+    operation: bind
+    expected: accepted
+  - id: B2-BIND-008
+    setup: retire one binding
+    operation: unbind
+    expected: repository/sibling bindings unchanged; one audit/event
+  - id: B2-BIND-009
+    setup: Viewer or nonmember
+    operation: bind/unbind
+    expected: denied
+  - id: B2-BIND-010
+    setup: repeat unbind
+    operation: unbind
+    expected: idempotent; no duplicate event
+  - id: B2-BIND-011
+    setup: forced outer rollback
+    operation: bind/unbind
+    expected: state/audit/event rollback; no notifier
+  - id: B2-BIND-012
+    setup: direct wrong-parent binding event
+    operation: SQL
+    expected: B1 structural FK rejects
+- id: B2-RETIRE
+  title: Repository retirement
+  slice: CT-04A2b2
+  governing_invariant: A2B-I05/A2B-I10
+  protected_default: true
+  cases:
+  - id: B2-RET-001
+    setup: repository with two active bindings
+    operation: retire
+    expected: repo and both bindings retire atomically
+  - id: B2-RET-002
+    setup: non-Owner
+    operation: retire
+    expected: denied
+  - id: B2-RET-003
+    setup: A1 unavailable or feature disabled
+    operation: retire
+    expected: succeeds from stored state
+  - id: B2-RET-004
+    setup: repeat retirement
+    operation: retire
+    expected: idempotent; no duplicate audit/event/notifier
+  - id: B2-RET-005
+    setup: stale expected version
+    operation: retire
+    expected: nothing changes
+  - id: B2-RET-006
+    setup: successful retirement
+    operation: journal
+    expected: one status event + one binding-retired event per binding + one notifier
+  - id: B2-RET-007
+    setup: forced rollback
+    operation: retire
+    expected: no partial binding/repository/event/audit state
+  - id: B2-RET-008
+    setup: retired identity later registered
+    operation: register
+    expected: new RepositoryId allowed
+- id: B2-PARENT
+  title: CT-04A composed fan-in
+  slice: CT-04A2b2
+  governing_invariant: A2B-I15
+  protected_default: true
+  cases:
+  - id: B2-PARENT-001
+    setup: real accepted repository under allowed root
+    operation: register end-to-end
+    expected: original REG-PATH-001 passes
+  - id: B2-PARENT-002
+    setup: Editor register
+    operation: request
+    expected: denied before A1
+  - id: B2-PARENT-003
+    setup: invalid path or failed inspection
+    operation: request
+    expected: no repo/success event/notifier; bounded failure audit
+  - id: B2-PARENT-004
+    setup: repository replacement/class change
+    operation: inspect
+    expected: governed mismatch
+  - id: B2-PARENT-005
+    setup: risk features observed
+    operation: register/inspect
+    expected: durable evidence, no execution
+  - id: B2-PARENT-006
+    setup: foreign workspace duplicate
+    operation: register
+    expected: non-disclosing conflict
+  - id: B2-PARENT-007
+    setup: retirement with multiple projects
+    operation: replay events
+    expected: every project invalidated/reconstructed
+  - id: B2-PARENT-008
+    setup: complete suite
+    operation: run
+    expected: CT-01..A1, A2a, B1/B2, original and supplements pass

@@ -1,0 +1,49 @@
+contract: CT-04A2b
+source_head: e3b69c612a51b0b2a8d436ae3ea5355abd40745e
+files:
+- path: packages/domain/src/repository.ts
+  current: accepted A2a status/reducer/evidence vocabulary
+  target: B2 adds explicit repository-class-changed assessment only
+- path: packages/contracts/src/repository.ts
+  current: strict A2a lifecycle request/response schemas already present
+  target: B2 consumes; material changes require review
+- path: packages/storage/migrations/0003-ct04a2a-repository-model.sql
+  current: accepted schema 3 repository/inspection/binding model
+  target: immutable pin; B1 adds separate schema 4 journal migration
+- path: packages/storage/src/repositories/repository-registry/index.ts
+  current: typed A2a persistence primitives
+  target: B2 composes inside outer state/audit/event transactions
+- path: packages/domain/src/workspace-events.ts
+  current: four pre-repository event variants
+  target: B1 adds five repository variants and structural IDs
+- path: packages/contracts/src/workspace-event.ts
+  current: strict four-kind union
+  target: B1 adds strict repository event schemas
+- path: packages/storage/src/repositories/workspace-events.ts
+  current: schema-2 row and exhaustive four-kind mapper
+  target: B1 maps structural repository correlations and five new kinds
+- path: packages/storage/src/types.ts
+  current: append input has project/work-item correlations only
+  target: B1 adds repository/inspection/binding correlations
+- path: apps/web/src/lib/workspace-projection.ts
+  current: exhaustive four-kind invalidation
+  target: B1 adds repository list/ID stale scopes
+- path: apps/web/src/components/ActivityPanel.tsx
+  current: exhaustive four-kind descriptions
+  target: B1 adds safe repository event descriptions
+- path: apps/server/src/config.ts
+  current: no repository feature options
+  target: B2 optional strict configuration
+- path: apps/server/src/composition.ts
+  current: no production Git import or repository service
+  target: B2 composes one exact A1 adapter and service
+- path: scripts/check-forbidden-scope.mjs
+  current: '@craftingtable/git is non-production seam; A2a authority-free allowlist'
+  target: B1 remains authority-free; B2 permits one exact adapter import only
+forbidden:
+- child_process outside accepted A1 runner/tooling controls
+- raw Git parsing in server
+- generic process endpoint
+- repository routes in B1
+- Git import in B1
+- branch/worktree/diff/agent/check/review/merge behavior

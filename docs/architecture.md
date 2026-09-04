@@ -1,4 +1,4 @@
-# Architecture boundaries (CT-03)
+# Architecture boundaries (accepted CT-03 plus CT-04A2b1 foundation)
 
 CraftingTable is a loopback-only supervisory workbench. The daemon owns
 authoritative state; the browser is an authenticated projection reconstructed
@@ -29,7 +29,30 @@ planning     → domain
 storage      → domain
 server       → domain + planning + contracts + storage
 web          → domain + contracts
+git          → domain + Node filesystem/process/crypto primitives
 ```
+
+CT-04A2a adds no dependency edge. Domain owns copied durable repository
+vocabulary and a pure reducer; contracts owns strict public shapes; storage
+owns exact observation bytes, their SHA-256 digest, structural projections,
+immutable inspection history, repository lifecycle, and project binding. None
+of those packages imports `@craftingtable/git`, server composition, routes,
+workspace events, notifier code, or browser code.
+
+CT-04A2b1 extends the existing domain/contracts/storage/web edges without
+adding a package edge. The journal now has three nullable repository
+correlations and exactly five repository event kinds. Composite foreign keys
+prove that correlated repository, inspection, binding, project, and workspace
+rows share ownership. Strict contracts, append assertions, and the read mapper
+prove payload/structural ID agreement and retirement semantics. This applies
+ADR-003's division to correlations: SQLite proves ownership; runtime contracts
+prove semantics.
+
+The browser still treats events only as invalidation signals. Repository
+events add a repository-list bit and at most 100 stable unique pending
+repository IDs; binding events use structural project and repository IDs.
+`App.tsx` consumes only its existing planning scopes, so B1 adds no repository
+fetch or model projection.
 
 `@craftingtable/planning` is the whole interpretation boundary for untrusted
 planning input. It accepts bytes plus logical metadata and returns data: it
@@ -37,11 +60,72 @@ opens no file, issues no SQL, spawns no process, and never throws for hostile
 input. `node:crypto`'s `createHash` is permitted because hashing is
 computation, not I/O. `check:scope` enforces this boundary mechanically.
 
-`packages/agents`, `packages/git`, and `packages/testing` remain future/test
-seams inherited from CT-01. Production server composition imports none of them.
-Only `@craftingtable/storage` imports `better-sqlite3` or owns SQL. No package
-depends on ActionQueue, WorldInterface, Exoskeleton, or another application
-runtime.
+`packages/agents` and `packages/testing` remain future/test seams inherited
+from CT-01. `@craftingtable/git` now owns one real but uncomposed authority:
+bounded observation through three closed command variants. Production server
+composition imports none of these packages. Only `@craftingtable/storage`
+imports `better-sqlite3` or owns SQL. No package depends on ActionQueue,
+WorldInterface, Exoskeleton, or another application runtime.
+
+## Trusted Git observation boundary
+
+CT-04A1 accepts an untrusted absolute path only through an explicit,
+programmatically configured inspector. It validates canonical source/reserved
+root topology and exact primary-checkout structure before running Git. The
+private runner can select only a version probe, identity probe, or local
+risk-signal-name scan. It spawns an absolute revalidated executable without a
+shell, closes stdin, constructs the entire environment, independently bounds
+stdout/stderr, and terminates the detached process group on deadline, overflow,
+or abort. Canonical paths and representable Git ceiling directories are
+separate internal brands: repository command variants require both, the
+version variant requires only a canonical working directory, and the
+environment module serializes rather than derives the ceiling. One aggregate
+creation deadline bounds root resolution, executable discovery, and all
+first-viable version probes.
+
+The result is a runtime-validated, versioned observation. Core identity,
+environmental device evidence, and self-describing risk-scan evidence remain
+separate. Serialized observations must pass `parseRecordedObservation` before
+comparison; policy-version mismatch is not equality.
+
+No server or browser imports the inspector. A2a now supplies repository IDs,
+durable state, and project-binding persistence, but authorization,
+Git-to-storage adaptation, audit/event writes, routes, and notification
+ordering remain CT-04A2b.
+
+The A2 boundary must preserve three A1 constraints. Registration runs against
+a clean, quiescent working tree because top-level directory entry changes can
+produce `observation-raced`. Coherent root configuration discharges reserved
+overlap during inspector creation, so A2 must not expect an inspect-time
+`reserved-root-overlap`; it will instead receive `invalid-root-policy` or
+`outside-allowed-root` for reachable cases. Finally, the A1 SHA-256 fingerprint
+authenticates core identity only. A2 storage must protect the integrity of
+`riskScan`, environmental device evidence, `canonicalGitDirectory`, and
+`observedAt` independently unless a later reviewed inspection-policy version
+widens the fingerprint.
+
+## Repository evidence persistence
+
+Registration is one immediate SQLite transaction:
+
+```text
+successful registration inspection
+  → registered repository linking registration and environment baseline
+  → outer COMMIT validates the inspection's deferred parent
+```
+
+Repository-to-inspection links are immediate, so a repository cannot name
+missing, foreign-workspace, or sibling evidence. Inspections are immutable and
+globally ordered by `AUTOINCREMENT` sequence. Successful records store the
+exact `JSON.stringify` UTF-8 string, a SHA-256 digest of those exact bytes, and
+query projections. This is corruption detection, not canonical JSON or
+authenticity against a writer able to replace both bytes and digest.
+
+The environmental baseline advances only in the atomic reaffirmation primitive
+from `identity-evidence-changed`, with a fresh latest successful reaffirmation
+whose core projections still match the immutable registration identity.
+Binding status is history, not usability: an active binding may project a
+currently unavailable or evidence-blocked repository.
 
 ## Authoritative write and read paths
 
@@ -78,6 +162,25 @@ of the fallback poll: the stream's re-query interval is configured far longer
 than the test, so any event that arrives must have arrived through same-process
 notification. A separate case suppresses the notification entirely and confirms
 CT-02's durable timeout still recovers it.
+
+CT-04A2b2a composes the accepted observation-only Git library behind one server
+adapter and one lazy provider. Configuration and all port/result types are
+server-owned; only
+`apps/server/src/services/repository-observation-adapter.ts` imports
+`@craftingtable/git`. The adapter reuses storage's exact observation
+serializer/digest verifier but calls no repository mutator.
+
+```text
+optional immutable config
+  -> lazy concurrency-deduplicated provider
+      -> server-owned observation port
+          -> sole A1 adapter -> fixed read-only Git inspector
+```
+
+Composition creates the provider without calling it. `buildServer` and the
+route inventory receive no repository dependency. Later B2b services must
+authorize before `get()` and receive observation operations, never inspector or
+process authority.
 
 Bootstrap still runs in the separate CLI process, so its daemon visibility
 correctly relies on the durable re-query.
@@ -126,10 +229,14 @@ revisited before activated multi-user or CT-08 deployment.
 
 ## Deliberately deferred
 
-CT-03 has projects, imported plans, and an operator-admitted agenda, but no
-executable work. It adds no repository registration, Git, worktrees, diffs,
-change requests, real coding agents, process execution, verification runners,
-reviews, remediation, readiness, or merge workflow; no Planning Studio, plan
+The composed CT-03 product has projects, imported plans, and an
+operator-admitted agenda, but no executable work. CT-04A1 adds a local Git
+observation library, CT-04A2a adds its durable repository model, CT-04A2b1 adds
+the durable journal/projection boundary, and A2b2a composes only an internal
+lazy observation/evidence seam. There is
+still no repository route or browser workflow,
+worktree, diff, change request, real coding agent, verification
+runner, review, remediation, readiness, or merge workflow; no Planning Studio, plan
 version activation, or model-assisted planning; no interactive graph editing;
 no ZIP, host-path, or external-URL import; no general artifact store; and no
 LAN exposure, TLS termination, service manager integration, or backup command.

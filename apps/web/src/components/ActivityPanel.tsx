@@ -1,7 +1,7 @@
 import type { WorkspaceEventEnvelope } from '@craftingtable/contracts';
 import type { ConnectionState } from '../lib/workspace-projection.js';
 
-function describeEvent(event: WorkspaceEventEnvelope): string {
+export function describeEvent(event: WorkspaceEventEnvelope): string {
   switch (event.kind) {
     case 'workspace-created':
       return `Workspace created: ${event.payload.name}`;
@@ -11,6 +11,20 @@ function describeEvent(event: WorkspaceEventEnvelope): string {
       return `Plan version ${event.payload.versionNumber} imported: ${event.payload.document} (${event.payload.itemCount} work items, ${event.payload.requiredDependencyCount} required dependencies)`;
     case 'work-item-admitted':
       return `Work item admitted: ${event.payload.sourceWorkItemId}`;
+    case 'repository-registered':
+      return `Repository registered: ${event.payload.displayName}`;
+    case 'repository-status-changed':
+      return `Repository status changed from ${event.payload.fromStatus} to ${event.payload.toStatus}: ${event.payload.displayName}`;
+    case 'repository-evidence-changed':
+      return `Repository risk evidence changed: ${event.payload.displayName}`;
+    case 'project-repository-bound':
+      return `Repository bound to project: ${event.payload.repositoryDisplayName}`;
+    case 'project-repository-binding-retired':
+      return `Repository binding retired: ${event.payload.repositoryDisplayName}`;
+    default: {
+      const unreachable: never = event;
+      throw new TypeError(`Unsupported workspace event: ${String(unreachable)}`);
+    }
   }
 }
 

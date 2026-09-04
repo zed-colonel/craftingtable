@@ -120,7 +120,9 @@ describe('daemon restart reconstruction', () => {
     // Real close and reopen of the same database file.
     const second = await createRuntime(config, { logger: false, overrides: { passwordHasher } });
     runtimes.push(second);
-    expect(second.storage.migrationStatus.currentVersion).toBe(2);
+    expect(second.storage.migrationStatus.currentVersion).toBe(
+      second.storage.migrationStatus.supportedVersion,
+    );
     expect({
       versions: second.storage.planning.versions.count(),
       workItems: second.storage.planning.workItems.count(),
@@ -192,7 +194,9 @@ describe('daemon restart reconstruction', () => {
       overrides: { passwordHasher },
     });
     runtimes.push(second);
-    expect(second.storage.migrationStatus.currentVersion).toBe(2);
+    expect(second.storage.migrationStatus.currentVersion).toBe(
+      second.storage.migrationStatus.supportedVersion,
+    );
     expect(second.storage.users.count()).toBe(1);
     expect(second.storage.workspaceEvents.count()).toBe(1);
     expect(second.storage.audit.count()).toBe(3);

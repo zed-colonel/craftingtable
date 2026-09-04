@@ -3,6 +3,9 @@ import {
   asAuditEventId,
   asEventId,
   asSessionId,
+  asRepositoryId,
+  asRepositoryInspectionId,
+  asProjectRepositoryBindingId,
   asWorkspaceId,
   asWorkspaceMembershipId,
   isWellFormedId,
@@ -15,6 +18,9 @@ describe('branded id factories', () => {
     expect(asSessionId('session-1')).toBe('session-1');
     expect(asWorkspaceMembershipId('membership-1')).toBe('membership-1');
     expect(asAuditEventId('audit-1')).toBe('audit-1');
+    expect(asRepositoryId('repository-1')).toBe('repository-1');
+    expect(asRepositoryInspectionId('inspection-1')).toBe('inspection-1');
+    expect(asProjectRepositoryBindingId('binding-1')).toBe('binding-1');
   });
 
   it('reject empty strings', () => {

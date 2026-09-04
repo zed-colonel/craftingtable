@@ -1,0 +1,1628 @@
+contract: CT-04A2b
+source_head: e3b69c612a51b0b2a8d436ae3ea5355abd40745e
+version: 1
+total_cases: 254
+cases:
+- id: B1-MIG-001
+  slice: CT-04A2b1
+  category: B1-MIGRATION
+  required: true
+  protected: true
+  expected: all rows, IDs, payload bytes, count, max sequence, and order preserved
+- id: B1-MIG-002
+  slice: CT-04A2b1
+  category: B1-MIGRATION
+  required: true
+  protected: true
+  expected: next sequence remains monotonic and non-reused
+- id: B1-MIG-003
+  slice: CT-04A2b1
+  category: B1-MIGRATION
+  required: true
+  protected: true
+  expected: schema-4 append-only triggers and required indexes restored
+- id: B1-MIG-004
+  slice: CT-04A2b1
+  category: B1-MIGRATION
+  required: true
+  protected: true
+  expected: old introduced schema values and behavior unchanged
+- id: B1-MIG-005
+  slice: CT-04A2b1
+  category: B1-MIGRATION
+  required: true
+  protected: true
+  expected: all remain byte-identical
+- id: B1-MIG-006
+  slice: CT-04A2b1
+  category: B1-MIGRATION
+  required: true
+  protected: true
+  expected: whole migration rolls back to readable schema 3
+- id: B1-MIG-007
+  slice: CT-04A2b1
+  category: B1-MIGRATION
+  required: true
+  protected: true
+  expected: schema 4 and all catalogs valid
+- id: B1-MIG-008
+  slice: CT-04A2b1
+  category: B1-MIGRATION
+  required: true
+  protected: true
+  expected: checksum drift rejected
+- id: B1-COR-001
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: accepted
+- id: B1-COR-002
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: composite FK rejects
+- id: B1-COR-003
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: FK rejects
+- id: B1-COR-004
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: composite FK rejects
+- id: B1-COR-005
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: kind/correlation check rejects
+- id: B1-COR-006
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: four-column FK rejects
+- id: B1-COR-007
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: kind/correlation check rejects
+- id: B1-COR-008
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: kind/correlation check rejects
+- id: B1-COR-009
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: rejected
+- id: B1-COR-010
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: rejected
+- id: B1-COR-011
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: accepted when other correlations legal
+- id: B1-COR-012
+  slice: CT-04A2b1
+  category: B1-CORRELATION
+  required: true
+  protected: true
+  expected: rejected
+- id: B1-CON-001
+  slice: CT-04A2b1
+  category: B1-CONTRACT
+  required: true
+  protected: true
+  expected: accepted
+- id: B1-CON-002
+  slice: CT-04A2b1
+  category: B1-CONTRACT
+  required: true
+  protected: true
+  expected: accepted
+- id: B1-CON-003
+  slice: CT-04A2b1
+  category: B1-CONTRACT
+  required: true
+  protected: true
+  expected: accepted
+- id: B1-CON-004
+  slice: CT-04A2b1
+  category: B1-CONTRACT
+  required: true
+  protected: true
+  expected: accepted
+- id: B1-CON-005
+  slice: CT-04A2b1
+  category: B1-CONTRACT
+  required: true
+  protected: true
+  expected: accepted
+- id: B1-CON-006
+  slice: CT-04A2b1
+  category: B1-CONTRACT
+  required: true
+  protected: true
+  expected: strict rejection
+- id: B1-CON-007
+  slice: CT-04A2b1
+  category: B1-CONTRACT
+  required: true
+  protected: true
+  expected: rejected
+- id: B1-CON-008
+  slice: CT-04A2b1
+  category: B1-CONTRACT
+  required: true
+  protected: true
+  expected: rejected
+- id: B1-CON-009
+  slice: CT-04A2b1
+  category: B1-CONTRACT
+  required: true
+  protected: true
+  expected: rejected
+- id: B1-CON-010
+  slice: CT-04A2b1
+  category: B1-CONTRACT
+  required: true
+  protected: true
+  expected: rejected
+- id: B1-STO-001
+  slice: CT-04A2b1
+  category: B1-STORAGE
+  required: true
+  protected: true
+  expected: exact structural correlations and payload round-trip
+- id: B1-STO-002
+  slice: CT-04A2b1
+  category: B1-STORAGE
+  required: true
+  protected: true
+  expected: strict ascending global sequence
+- id: B1-STO-003
+  slice: CT-04A2b1
+  category: B1-STORAGE
+  required: true
+  protected: true
+  expected: exact cursor-bound activity
+- id: B1-STO-004
+  slice: CT-04A2b1
+  category: B1-STORAGE
+  required: true
+  protected: true
+  expected: fails closed
+- id: B1-STO-005
+  slice: CT-04A2b1
+  category: B1-STORAGE
+  required: true
+  protected: true
+  expected: no permissive default; exhaustive mapping
+- id: B1-STO-006
+  slice: CT-04A2b1
+  category: B1-STORAGE
+  required: true
+  protected: true
+  expected: cannot return another workspace event
+- id: B1-STO-007
+  slice: CT-04A2b1
+  category: B1-STORAGE
+  required: true
+  protected: true
+  expected: append-only triggers reject
+- id: B1-STO-008
+  slice: CT-04A2b1
+  category: B1-STORAGE
+  required: true
+  protected: true
+  expected: JSON check rejects
+- id: B1-UI-001
+  slice: CT-04A2b1
+  category: B1-PROJECTION
+  required: true
+  protected: true
+  expected: repository list and repository ID stale; event retained
+- id: B1-UI-002
+  slice: CT-04A2b1
+  category: B1-PROJECTION
+  required: true
+  protected: true
+  expected: repository list and repository ID stale
+- id: B1-UI-003
+  slice: CT-04A2b1
+  category: B1-PROJECTION
+  required: true
+  protected: true
+  expected: project ID and repository ID stale
+- id: B1-UI-004
+  slice: CT-04A2b1
+  category: B1-PROJECTION
+  required: true
+  protected: true
+  expected: ignored exactly as existing events
+- id: B1-UI-005
+  slice: CT-04A2b1
+  category: B1-PROJECTION
+  required: true
+  protected: true
+  expected: rejected and counter incremented
+- id: B1-UI-006
+  slice: CT-04A2b1
+  category: B1-PROJECTION
+  required: true
+  protected: true
+  expected: live tail and repository stale semantics preserved
+- id: B1-UI-007
+  slice: CT-04A2b1
+  category: B1-PROJECTION
+  required: true
+  protected: true
+  expected: old repository IDs/events cleared before render
+- id: B1-UI-008
+  slice: CT-04A2b1
+  category: B1-PROJECTION
+  required: true
+  protected: true
+  expected: escaped text; no HTML execution
+- id: B1-UI-009
+  slice: CT-04A2b1
+  category: B1-PROJECTION
+  required: true
+  protected: true
+  expected: nonempty bounded human description
+- id: B1-UI-010
+  slice: CT-04A2b1
+  category: B1-PROJECTION
+  required: true
+  protected: true
+  expected: exhaustive switch fails rather than blank/default output
+- id: B1-SCOPE-001
+  slice: CT-04A2b1
+  category: B1-SCOPE
+  required: true
+  protected: true
+  expected: no Git, child process, Fastify route/service, notifier command, or repository lifecycle service
+- id: B1-SCOPE-002
+  slice: CT-04A2b1
+  category: B1-SCOPE
+  required: true
+  protected: true
+  expected: original and A2 supplement unchanged
+- id: B1-SCOPE-003
+  slice: CT-04A2b1
+  category: B1-SCOPE
+  required: true
+  protected: true
+  expected: migration 0003 unchanged; no A2a state-semantic drift
+- id: B1-SCOPE-004
+  slice: CT-04A2b1
+  category: B1-SCOPE
+  required: true
+  protected: true
+  expected: real committed head and per-turn immutable reports
+- id: B1-SCOPE-005
+  slice: CT-04A2b1
+  category: B1-SCOPE
+  required: true
+  protected: true
+  expected: no repository routes added
+- id: B1-SCOPE-006
+  slice: CT-04A2b1
+  category: B1-SCOPE
+  required: true
+  protected: true
+  expected: claims journal/projection foundation only, not usable registration
+- id: B2-CFG-001
+  slice: CT-04A2b2
+  category: B2-CONFIG
+  required: true
+  protected: true
+  expected: feature disabled; existing planning/auth works
+- id: B2-CFG-002
+  slice: CT-04A2b2
+  category: B2-CONFIG
+  required: true
+  protected: true
+  expected: actionable unavailable; no A1 call
+- id: B2-CFG-003
+  slice: CT-04A2b2
+  category: B2-CONFIG
+  required: true
+  protected: true
+  expected: lazy A1 creation succeeds
+- id: B2-CFG-004
+  slice: CT-04A2b2
+  category: B2-CONFIG
+  required: true
+  protected: true
+  expected: fails rather than silently disables
+- id: B2-CFG-005
+  slice: CT-04A2b2
+  category: B2-CONFIG
+  required: true
+  protected: true
+  expected: fails closed
+- id: B2-CFG-006
+  slice: CT-04A2b2
+  category: B2-CONFIG
+  required: true
+  protected: true
+  expected: one in-flight creation result shared
+- id: B2-CFG-007
+  slice: CT-04A2b2
+  category: B2-CONFIG
+  required: true
+  protected: true
+  expected: bounded explicit cache/retry policy followed
+- id: B2-CFG-008
+  slice: CT-04A2b2
+  category: B2-CONFIG
+  required: true
+  protected: true
+  expected: no configuration/root/Git details disclosed
+- id: B2-ADP-001
+  slice: CT-04A2b2
+  category: B2-ADAPTER
+  required: true
+  protected: true
+  expected: available
+- id: B2-ADP-002
+  slice: CT-04A2b2
+  category: B2-ADAPTER
+  required: true
+  protected: true
+  expected: feature fails closed
+- id: B2-ADP-003
+  slice: CT-04A2b2
+  category: B2-ADAPTER
+  required: true
+  protected: true
+  expected: A1 parsed observation and projection parity accepted
+- id: B2-ADP-004
+  slice: CT-04A2b2
+  category: B2-ADAPTER
+  required: true
+  protected: true
+  expected: storage-integrity failure; A1 inspect/compare not called
+- id: B2-ADP-005
+  slice: CT-04A2b2
+  category: B2-ADAPTER
+  required: true
+  protected: true
+  expected: storage-integrity failure
+- id: B2-ADP-006
+  slice: CT-04A2b2
+  category: B2-ADAPTER
+  required: true
+  protected: true
+  expected: stored-evidence-invalid
+- id: B2-ADP-007
+  slice: CT-04A2b2
+  category: B2-ADAPTER
+  required: true
+  protected: true
+  expected: explicit repository-class-changed assessment
+- id: B2-ADP-008
+  slice: CT-04A2b2
+  category: B2-ADAPTER
+  required: true
+  protected: true
+  expected: failed evidence, no automatic identity transition
+- id: B2-ADP-009
+  slice: CT-04A2b2
+  category: B2-ADAPTER
+  required: true
+  protected: true
+  expected: core priority while all difference arrays retained
+- id: B2-ADP-010
+  slice: CT-04A2b2
+  category: B2-ADAPTER
+  required: true
+  protected: true
+  expected: environment priority while risk evidence retained
+- id: B2-AUTH-001
+  slice: CT-04A2b2
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: A1 may be created/called
+- id: B2-AUTH-002
+  slice: CT-04A2b2
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: 403 before provider/host access
+- id: B2-AUTH-003
+  slice: CT-04A2b2
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: allowed by exact operation policy
+- id: B2-AUTH-004
+  slice: CT-04A2b2
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: denied before A1
+- id: B2-AUTH-005
+  slice: CT-04A2b2
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: indistinguishable 404; zero A1 calls
+- id: B2-AUTH-006
+  slice: CT-04A2b2
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: denied before A1 despite structural historical FK
+- id: B2-AUTH-007
+  slice: CT-04A2b2
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: allowed
+- id: B2-AUTH-008
+  slice: CT-04A2b2
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: denied
+- id: B2-AUTH-009
+  slice: CT-04A2b2
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: bounded denied audit; no event/notifier
+- id: B2-AUTH-010
+  slice: CT-04A2b2
+  category: B2-AUTH
+  required: true
+  protected: true
+  expected: existing authentication behavior; no A1
+- id: B2-REG-001
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: one repo+inspection+audit+event; notify after commit
+- id: B2-REG-002
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: retryable conflict; no repository/event/notifier
+- id: B2-REG-003
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: failed audit only; no accepted state
+- id: B2-REG-004
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: rejected before A1 where derivable
+- id: B2-REG-005
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: existing result; no duplicate event
+- id: B2-REG-006
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: conflict; use lifecycle command
+- id: B2-REG-007
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: non-disclosing conflict; no foreign audit/event
+- id: B2-REG-008
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: fresh RepositoryId allowed
+- id: B2-REG-009
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: one create; typed idempotent/conflict loser
+- id: B2-REG-010
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: no state/audit/event/notifier
+- id: B2-REG-011
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: durable event replayed
+- id: B2-REG-012
+  slice: CT-04A2b2
+  category: B2-REGISTER
+  required: true
+  protected: true
+  expected: both observation digests/comparison booleans bounded; no raw observation/stderr
+- id: B2-INSP-001
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: evidence+audit; no state event/version/notifier
+- id: B2-INSP-002
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: evidence event; repository version unchanged
+- id: B2-INSP-003
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: identity-evidence-changed + status event
+- id: B2-INSP-004
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: identity-mismatch/core-identity-changed
+- id: B2-INSP-005
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: identity-mismatch/repository-class-changed
+- id: B2-INSP-006
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: unavailable according to exact mapping
+- id: B2-INSP-007
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: failed evidence/audit; no state change
+- id: B2-INSP-008
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: evidence-blocked; no A1 call
+- id: B2-INSP-009
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: active/evidence-matches
+- id: B2-INSP-010
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: identity-mismatch, never active
+- id: B2-INSP-011
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: rejected before A1
+- id: B2-INSP-012
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: conflict before A1 and rechecked in transaction
+- id: B2-INSP-013
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: immutable ordered evidence; at most one state transition event per version
+- id: B2-INSP-014
+  slice: CT-04A2b2
+  category: B2-INSPECT
+  required: true
+  protected: true
+  expected: all state/audit/event/evidence rollback; no notifier
+- id: B2-REAFF-001
+  slice: CT-04A2b2
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: baseline advances, active, IDs/bindings preserved
+- id: B2-REAFF-002
+  slice: CT-04A2b2
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: denied before A1
+- id: B2-REAFF-003
+  slice: CT-04A2b2
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: conflict before A1
+- id: B2-REAFF-004
+  slice: CT-04A2b2
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: conflict before/inside transaction
+- id: B2-REAFF-005
+  slice: CT-04A2b2
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: identity-mismatch; no baseline advance
+- id: B2-REAFF-006
+  slice: CT-04A2b2
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: not required; no baseline/state event
+- id: B2-REAFF-007
+  slice: CT-04A2b2
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: failure evidence; old baseline preserved
+- id: B2-REAFF-008
+  slice: CT-04A2b2
+  category: B2-REAFFIRM
+  required: true
+  protected: true
+  expected: baseline/status/audit/event all unchanged; no notifier
+- id: B2-BIND-001
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: one binding/audit/event
+- id: B2-BIND-002
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: non-disclosing 404; no A1 for forbidden graph
+- id: B2-BIND-003
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: rejected before A1
+- id: B2-BIND-004
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: state/evidence/audit/event commit; no binding
+- id: B2-BIND-005
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: idempotent; no duplicate event
+- id: B2-BIND-006
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: conflict
+- id: B2-BIND-007
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: accepted
+- id: B2-BIND-008
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: repository/sibling bindings unchanged; one audit/event
+- id: B2-BIND-009
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: denied
+- id: B2-BIND-010
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: idempotent; no duplicate event
+- id: B2-BIND-011
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: state/audit/event rollback; no notifier
+- id: B2-BIND-012
+  slice: CT-04A2b2
+  category: B2-BINDING
+  required: true
+  protected: true
+  expected: B1 structural FK rejects
+- id: B2-RET-001
+  slice: CT-04A2b2
+  category: B2-RETIRE
+  required: true
+  protected: true
+  expected: repo and both bindings retire atomically
+- id: B2-RET-002
+  slice: CT-04A2b2
+  category: B2-RETIRE
+  required: true
+  protected: true
+  expected: denied
+- id: B2-RET-003
+  slice: CT-04A2b2
+  category: B2-RETIRE
+  required: true
+  protected: true
+  expected: succeeds from stored state
+- id: B2-RET-004
+  slice: CT-04A2b2
+  category: B2-RETIRE
+  required: true
+  protected: true
+  expected: idempotent; no duplicate audit/event/notifier
+- id: B2-RET-005
+  slice: CT-04A2b2
+  category: B2-RETIRE
+  required: true
+  protected: true
+  expected: nothing changes
+- id: B2-RET-006
+  slice: CT-04A2b2
+  category: B2-RETIRE
+  required: true
+  protected: true
+  expected: one status event + one binding-retired event per binding + one notifier
+- id: B2-RET-007
+  slice: CT-04A2b2
+  category: B2-RETIRE
+  required: true
+  protected: true
+  expected: no partial binding/repository/event/audit state
+- id: B2-RET-008
+  slice: CT-04A2b2
+  category: B2-RETIRE
+  required: true
+  protected: true
+  expected: new RepositoryId allowed
+- id: B2-PARENT-001
+  slice: CT-04A2b2
+  category: B2-PARENT
+  required: true
+  protected: true
+  expected: original REG-PATH-001 passes
+- id: B2-PARENT-002
+  slice: CT-04A2b2
+  category: B2-PARENT
+  required: true
+  protected: true
+  expected: denied before A1
+- id: B2-PARENT-003
+  slice: CT-04A2b2
+  category: B2-PARENT
+  required: true
+  protected: true
+  expected: no repo/success event/notifier; bounded failure audit
+- id: B2-PARENT-004
+  slice: CT-04A2b2
+  category: B2-PARENT
+  required: true
+  protected: true
+  expected: governed mismatch
+- id: B2-PARENT-005
+  slice: CT-04A2b2
+  category: B2-PARENT
+  required: true
+  protected: true
+  expected: durable evidence, no execution
+- id: B2-PARENT-006
+  slice: CT-04A2b2
+  category: B2-PARENT
+  required: true
+  protected: true
+  expected: non-disclosing conflict
+- id: B2-PARENT-007
+  slice: CT-04A2b2
+  category: B2-PARENT
+  required: true
+  protected: true
+  expected: every project invalidated/reconstructed
+- id: B2-PARENT-008
+  slice: CT-04A2b2
+  category: B2-PARENT
+  required: true
+  protected: true
+  expected: CT-01..A1, A2a, B1/B2, original and supplements pass
+- id: A2B-CFG-001
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: daemon starts; feature disabled
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-CFG-002
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: actionable feature-unavailable; no inspector call
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-CFG-003
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: lazy inspector succeeds
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-CFG-004
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: fails rather than silently disables
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-CFG-005
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: git-not-found/feature unavailable unless explicit search path configured
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-CFG-006
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: read/administrative operations remain available
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-CFG-007
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: bounded memoization/retry policy explicitly followed
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-CFG-008
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: no secrets/root inventory leaked beyond approved operations docs
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-AUTH-001
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: inspector called
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-AUTH-002
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: 403 and zero inspector calls
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-AUTH-003
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: 403 and zero inspector calls where host access
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-AUTH-004
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: missing/forbidden per established policy, zero inspector calls
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-AUTH-005
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: indistinguishable 404
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-AUTH-006
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: allowed
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-AUTH-007
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: denied
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-AUTH-008
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: allowed
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-AUTH-009
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: allowed
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-AUTH-010
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: bounded denied audit, no workspace event/notifier
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-001
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: one repo, inspection, baseline, audit, event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-002
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: observation-raced/conflict; no row/event/notifier
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-003
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: rejected as non-quiescent
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-004
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: rejected as non-quiescent
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-005
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: idempotent existing result, no duplicate event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-006
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: conflict; use inspect/reaffirm/retire path
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-007
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: nondisclosing 409; no foreign audit/event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-008
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: permitted if active uniqueness released
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-009
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: one succeeds; other idempotent/conflict; no duplicate history
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-010
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: no state/event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-011
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: no notifier
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-012
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: durable event delivered by SSE fallback
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-013
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: validated basename used
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REG-014
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: actionable rejection
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-001
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: append success/audit, no event/version change
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-002
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: append evidence and evidence-changed event, status/version unchanged
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-003
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-evidence-changed + status event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-004
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-mismatch terminal
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-005
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: unavailable
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-006
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: failed attempt/audit, no status change
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-007
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: failed attempt/audit, no status change
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-008
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-mismatch
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-009
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: evidence-blocked; A1 compare never called
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-010
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: evidence-blocked
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-011
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: evidence-blocked
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-012
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: active
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-013
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-evidence-changed
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-014
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-mismatch
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-015
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: rejected without A1 call
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-INSP-016
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: serialized/re-read state; no duplicate transition event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REAFF-001
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: baseline advances and status active
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REAFF-002
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: denied before A1
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REAFF-003
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: conflict, no A1 or no commit per accepted sequence
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REAFF-004
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: conflict
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REAFF-005
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: identity-mismatch, no reaffirm
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REAFF-006
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: ordinary inspect may restore active; reaffirm not needed
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REAFF-007
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: old baseline/status remain, no notifier
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-REAFF-008
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: one status event, audit, version+1, IDs/bindings preserved
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-001
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: one binding/audit/event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-002
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: 404 and no host disclosure
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-003
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: rejected before/after verification as appropriate
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-004
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: idempotent, no duplicate event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-005
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: conflict
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-006
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: accepted
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-007
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: state transition commits; binding rejected
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-008
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: one binding retired, repo/siblings unchanged
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-009
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: denied
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-010
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: idempotent, no duplicate event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-011
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: state/audit/event all rollback, no notifier
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-BIND-012
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: database rejects
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-RET-001
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: repo + both bindings retire atomically
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-RET-002
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: denied
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-RET-003
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: still succeeds from stored state
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-RET-004
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: idempotent, no duplicate audit/event/notifier
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-RET-005
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: nothing changes
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-RET-006
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: one status event plus one binding-retired event each; one notifier
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-RET-007
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: rejected
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-RET-008
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: new ID permitted
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-001
+  slice: CT-04A2b1
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: row count and max sequence preserved
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-002
+  slice: CT-04A2b1
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: composite FK rejects
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-003
+  slice: CT-04A2b1
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: composite FK rejects
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-004
+  slice: CT-04A2b1
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: composite FK rejects
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-005
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: event committed before notifier
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-006
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: durable event recovered
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-007
+  slice: CT-04A2b1
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: projects and repository invalidated
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-008
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: no event/no notifier
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-009
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: one evidence-changed event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-010
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: cannot access event
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-011
+  slice: CT-04A2b1
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: rejected
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-JRN-012
+  slice: CT-04A2b1
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: unchanged behavior
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-PARENT-001
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: parent REG-PATH-001 end-to-end passes
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-PARENT-002
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: denied before A1 call
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-PARENT-003
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: no repo/success audit/event/notifier
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-PARENT-004
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: governed mismatch
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-PARENT-005
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: durable evidence, no execution
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-PARENT-006
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: nondisclosing conflict
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-PARENT-007
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: journal reconstructs every affected project
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2B-PARENT-008
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: all CT-01..A1 and protected cases pass
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2-PROC-005
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: A2b is replanned from accepted A2a source and honestly rechecks fan-out
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: A2-SCOPE-002
+  slice: CT-04A2b2
+  category: inherited-A2b
+  required: true
+  protected: true
+  expected: A2b adds no new process authority and no CT-04B+ behavior
+  inherited_from: CT-04A2-acceptance-matrix.yaml
+- id: B1-PROC-001
+  slice: CT-04A2b1
+  category: process
+  required: true
+  protected: true
+  expected: proposed plan, independent design review, operator disposition, and accepted plan precede code
+- id: B1-PROC-002
+  slice: CT-04A2b1
+  category: process
+  required: true
+  protected: true
+  expected: completion report references real exact implementation head and immutable per-turn reports
+- id: B1-PROC-003
+  slice: CT-04A2b1
+  category: process
+  required: true
+  protected: true
+  expected: original protected specs and new B supplement hashes remain unchanged
+- id: B1-REGRESS-001
+  slice: CT-04A2b1
+  category: regression
+  required: true
+  protected: true
+  expected: CT-01 through accepted A2a deterministic and Playwright suites pass
+- id: B1-REGRESS-002
+  slice: CT-04A2b1
+  category: regression
+  required: true
+  protected: true
+  expected: snapshot/SSE replay with mixed legacy/repository events remains cursor-correct
+- id: B2-PROC-001
+  slice: CT-04A2b2
+  category: process
+  required: true
+  protected: true
+  expected: B2 is replanned from accepted B1 source and independently design-reviewed
+- id: B2-SCOPE-001
+  slice: CT-04A2b2
+  category: scope
+  required: true
+  protected: true
+  expected: only exact server adapter imports @craftingtable/git; no child_process outside accepted A1 runner/tooling
+- id: B2-SCOPE-002
+  slice: CT-04A2b2
+  category: scope
+  required: true
+  protected: true
+  expected: no CT-04B+ branch/worktree/diff/agent/check/review/merge behavior
+- id: B2-ROUTE-001
+  slice: CT-04A2b2
+  category: api
+  required: true
+  protected: true
+  expected: strict route inventory contains only accepted repository lifecycle endpoints
+- id: B2-CSRF-001
+  slice: CT-04A2b2
+  category: security
+  required: true
+  protected: true
+  expected: all mutations require existing CSRF/origin/session policy
+- id: B2-DISCLOSURE-001
+  slice: CT-04A2b2
+  category: security
+  required: true
+  protected: true
+  expected: common reader response excludes Git/common directories; Owner admin response is separately authorized
+- id: B2-AUDIT-001
+  slice: CT-04A2b2
+  category: audit
+  required: true
+  protected: true
+  expected: metadata is bounded and excludes raw A1 observation, stderr, environment, config values, tokens, and foreign
+    identifiers

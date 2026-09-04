@@ -164,6 +164,16 @@ amend or add completion record using the real head
 
 Every review finding cites that head. Any remediation commit invalidates the prior verdict.
 
+Every implementation *and every remediation* turn produces its own report under
+`implementation-reports/`, named for the turn (`-initial-impl`, `-remediation`,
+`-remediation-2`, …). A later turn never edits an earlier turn's report: reviews cite those
+reports by content, so editing one in place breaks the lineage a reader follows. Correct an
+earlier report only to mark a statement superseded, and say which turn superseded it.
+
+CT-04A2a round 2 missed this — its work was folded into the round-1 report — and is the
+reason the rule is now written down. See `review-findings/CT-04/CT-04A2a-remediation-2-review.md`
+finding `A2a-A-10`.
+
 ## 9. Code-review expectations
 
 The reviewer must inspect both implementation and tests. A green suite is evidence, not proof.
@@ -218,7 +228,11 @@ The maximum of three remediation generations remains a hard ceiling, not a targe
 
 ## 12. Merge policy
 
-Only Keith merges a slice into `ct-04`.
+Only Keith merges a slice, and only he authorizes the merge; no agent may self-authorize one.
+
+A slice merges into its immediate parent branch, not directly into `ct-04`. A-tier slices
+therefore merge into `ct-04a-git-foundation`, which merges into `ct-04` when the A tier
+completes. The same rule applies to any later tier's integration branch.
 
 Required evidence:
 

@@ -1,0 +1,51 @@
+contract: CT-04A2b2
+source_head: dd9c9699f0d86cae00fc1bf0d054224880c8dbed
+entries:
+- path: packages/git/src/index.ts
+  child: CT-04A2b2a
+  target: add the calculateCoreIdentityFingerprint package-root re-export, then consume the accepted API through one server adapter
+- path: packages/domain/src/repository.ts
+  child: CT-04A2b2a
+  target: add repository-class-changed assessment and reducer tests
+- path: apps/server/src/config.ts
+  child: CT-04A2b2a
+  target: optional-but-strict repository feature configuration
+- path: apps/server/src/composition.ts
+  child: CT-04A2b2a/B2b
+  target: compose lazy provider, then lifecycle/query services
+- path: packages/storage/src/repository-types.ts
+  child: CT-04A2b2b/B2c
+  target: standalone reaffirmation evidence and complete retirement transition result
+- path: packages/storage/src/repositories/repository-registry/index.ts
+  child: CT-04A2b2b/B2c
+  target: minimal source-grounded API extensions only
+- path: packages/domain/src/audit.ts
+  child: none
+  target: consume accepted schema-3 actions without new kinds
+- path: packages/domain/src/workspace-events.ts
+  child: none
+  target: consume accepted B1 event kinds without widening vocabulary
+- path: apps/server/src/services
+  child: CT-04A2b2a/B2b/B2c
+  target: evidence adapter, query/lifecycle service, administrative relationship service
+- path: apps/server/src/routes
+  child: CT-04A2b2b/B2c
+  target: strict repository lifecycle routes only
+- path: apps/server/src/server.ts
+  child: CT-04A2b2b/B2c
+  target: register accepted routes and closed error mapping
+- path: apps/server/src/route-inventory.test.ts
+  child: CT-04A2b2b/B2c
+  target: exact inventory per child
+- path: apps/web/src/lib/workspace-projection.ts
+  child: none
+  target: accepted B1 projection already sufficient; repository views remain CT-04E
+- path: apps/web/src/components/ActivityPanel.tsx
+  child: none
+  target: accepted B1 descriptions already sufficient
+forbidden:
+- new child_process import outside accepted A1 package
+- raw Git stdout/stderr parsing outside A2b2a adapter
+- new workspace event kind
+- Git mutation or remote Git
+- change request, branch, worktree, diff, agent, check, review, readiness, or merge behavior

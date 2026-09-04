@@ -3,7 +3,8 @@
 - **Status:** accepted
 - **Date:** 2026-07-24
 - **Amended:** 2026-07-24 for CT-03 schema version 2, and again after the second
-  remediation re-review (CT03-R2R1, CT03-R2R2)
+  remediation re-review (CT03-R2R1, CT03-R2R2); 2026-07-28 for CT-04A2a
+  schema version 3
 
 ## Context
 
@@ -32,6 +33,15 @@ CT-03 amendment. Migration `0002` installs schema version 2. Because
 migration in one, a migration must be foreign-key clean at every statement.
 Migration 0002 therefore seeds its kind catalogs before copying any journal row.
 See ADR-013 for the one-time journal rebuild and its preservation guarantees.
+
+CT-04A2a amendment. Migration `0003` installs schema version 3 without
+rebuilding either journal. It adds three strict repository tables and six
+audit-action catalog rows. One circular foreign key—from inspection to
+repository—is `DEFERRABLE INITIALLY DEFERRED` so registration can insert its
+evidence first; both repository links back to that evidence remain immediate.
+All other relationships remain immediate. Evidence history is append-only,
+repository and binding lifecycles are trigger-guarded, and inspection sequence,
+not timestamp or identifier spelling, defines total order.
 
 **A composite foreign key is not a constraint on nullable columns.** SQLite
 applies MATCH SIMPLE semantics: if *any* child column of a composite key is

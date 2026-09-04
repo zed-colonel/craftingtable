@@ -1,0 +1,53 @@
+contract: CT-04A2b
+source_branch: ct-04a-git-foundation
+source_head: e3b69c612a51b0b2a8d436ae3ea5355abd40745e
+a2a_merge: 957874b96eb236c0042d6b7828d9b8ea26577bd9
+source_bundle_sha256: aaccbdbfc60eecb63fd22980c96af119d19ae270e6ed87a981b5e53b49fd652d
+accepted_a1_runtime_head: 7313e81a56c0188574c436322d7fedc16e08bb70
+pins:
+  a2a_accepted_plan_sha256: e3490f16333c9e80b9eab667cea10d57312bbbdbab9434ddb05bc7794e1da747
+  a2a_final_review_sha256: e6cb2207d20dfa5e621b84073eff36a0c9e9f94f3cc601985e16830973c45899
+  migration_0003_sha256: 526df194257806b2a2e9582da8df8058ad86e819d52eae6b9b2525f972123bc4
+  original_protected_sha256: ce7a101ca3a988cc1b6395653baa0bfca885d057109eae12f9c5d9544f090f64
+  a2_protected_sha256: 1000d564f01712b7dc2c59570dbfd6c498192f77c1cc5c13715e55c4b656429c
+  planning_feedback_addendum_sha256: e2b6283401f3e44b57264bd9de41848b3e5dd1270735c875ddbd459082323776
+accepted_a1_api:
+  functions:
+  - createRepositoryInspector
+  - parseRecordedObservation
+  - compareRepositoryObservations
+  authority: observation-only local Git/process/filesystem boundary
+  must_not_reimplement:
+  - process runner
+  - path policy
+  - Git output parsing
+  - repository class policy
+accepted_a2a_api:
+  domain:
+  - RegisteredRepository
+  - RepositoryInspection
+  - ProjectRepositoryBinding
+  - reduceRepositoryState
+  contracts:
+  - repository request/response schemas
+  storage:
+  - repositories.register
+  - repositories.applyTransition
+  - repositories.reaffirmEnvironment
+  - repositories.retireWithBindings
+  - inspections.appendVerification
+  - bindings.insert
+  - bindings.retire
+  - queries.repositorySummary
+  - queries.projectBindingSummaries
+  - queries.inspectionSummaries
+  schema_version: 3
+  migration_sha256: 526df194257806b2a2e9582da8df8058ad86e819d52eae6b9b2525f972123bc4
+source_grounded_gap:
+  description: RepositoryStatusReason supports repository-class-changed but RepositoryObservationAssessment lacks a corresponding
+    variant.
+  owner: CT-04A2b2
+  required_resolution: Add explicit exhaustive assessment/reducer branch; do not relabel as core identity change.
+decomposition:
+  CT-04A2b1: repository journal correlation and browser projection
+  CT-04A2b2: authorized repository lifecycle and parent fan-in

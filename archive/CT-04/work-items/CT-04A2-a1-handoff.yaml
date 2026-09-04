@@ -1,0 +1,104 @@
+version: 1
+contract: CT-04A2-A1-HANDOFF-1
+a1_runtime_head: 7313e81a56c0188574c436322d7fedc16e08bb70
+source_bundle_sha256: ee0090898b7cedb1ecd0438f607b1e8ed60f0ec28a99f58b688400f025a2aeea
+accepted_plan_sha256: da26d6c8870ea52c1aea031f6537d0eb4ba219aec0405db4e4bb3d8b429186cf
+final_review_sha256: f27ac10ba6f075e8392abdec471c2413c271cf88329398cf8e9d125ed05cfca7
+final_report_sha256: ba05b1262e819ff681ca601bec26384a4548b44c62253bee48f808248f238195
+protected_package_pin: 06abcffe1fdcd32c72b2e4d2a3dcb849ac1d58d4
+protected_acceptance_sha256: ce7a101ca3a988cc1b6395653baa0bfca885d057109eae12f9c5d9544f090f64
+public_exports:
+- createRepositoryInspector
+- parseRecordedObservation
+- compareRepositoryObservations
+- RepositoryInspector
+- RepositoryInspectionResult
+- RepositoryInspectionError
+- ParsedRepositoryObservation
+- RepositoryObservationComparisonResult
+observation_layers:
+  core:
+  - canonicalTopLevel
+  - canonicalGitDirectory
+  - canonicalCommonGitDirectory
+  - objectFormat
+  - topLevelInode
+  - commonDirectoryInode
+  - fingerprintSha256
+  environmental:
+  - topLevelDevice
+  - commonDirectoryDevice
+  risk:
+  - scanScopeVersion
+  - scannedKeyPattern
+  - classification
+  - signals
+  metadata_not_in_core_fingerprint:
+  - canonicalGitDirectory
+  - environmentalEvidence
+  - riskScan
+  - observedAt
+comparison_outputs:
+- coreDifferences
+- environmentalDifferences
+- riskScanDifferences
+- sameCoreIdentity
+- sameEnvironmentalEvidence
+- sameRiskScanEvidence
+binding_limitations:
+- non-root POSIX only
+- Git 2.32 or newer
+- source roots containing colon rejected
+- filesystem deadlines cooperative
+- hard daemon death does not bound orphan lifetime
+- ordinary top-level worktree activity may produce observation-raced
+- full record integrity belongs to A2
+- ownership/root paths lack real second-UID/root acceptance host coverage
+forbidden_a2_behavior:
+- deep import A1 modules
+- node:child_process outside accepted A1 module
+- construct Git argv/env
+- ambient PATH fallback
+- treat risk scan as mutation authorization
+- treat observation-raced as identity loss
+error_state_mapping:
+  unavailable:
+  - path-unavailable
+  - repository-metadata-unreadable
+  identity_mismatch:
+  - symlink-rejected
+  - ownership-refused
+  - not-primary-repository
+  - not-git-repository
+  - unsupported-object-format
+  - unsupported-repository-extension
+  evidence_blocked:
+  - recorded-observation-invalid
+  - unsupported-observation-version
+  - inspection-policy-version-mismatch
+  no_state_change_retry:
+  - observation-raced
+  - spawn-failed
+  - timed-out
+  - stdout-overflow
+  - stderr-overflow
+  - signal-terminated
+  - git-command-failed
+  - invalid-output-encoding
+  - malformed-version-output
+  - malformed-identity-output
+  - malformed-feature-output
+  - feature-count-exceeded
+  - aborted
+  configuration_or_request_rejection:
+  - invalid-options
+  - unsupported-platform
+  - root-daemon-refused
+  - invalid-root-policy
+  - git-not-found
+  - git-not-executable
+  - git-executable-changed
+  - unsupported-git-version
+  - invalid-path
+  - outside-allowed-root
+  - reserved-root-overlap

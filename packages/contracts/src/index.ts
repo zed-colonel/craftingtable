@@ -7,3 +7,4 @@ export * from './planning.js';
 export * from './snapshot.js';
 export * from './audit.js';
 export * from './workspace-event.js';
+export * from './repository.js';

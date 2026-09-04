@@ -1,4 +1,4 @@
-# CT-03 local operations
+# Local operations (accepted CT-03 plus CT-04A2b1 foundation)
 
 ## Data location and configuration
 
@@ -24,6 +24,88 @@ CRAFTINGTABLE_LOG_LEVEL=info
 
 Only `127.0.0.1`, `localhost`, and `::1` hosts are accepted.
 
+## CT-04A1 Git boundary prerequisites
+
+The A1 library requires a non-root POSIX daemon and Git 2.32.0 or newer.
+Production composition in A2 must supply either an explicit absolute Git
+executable or an explicit absolute search path; ambient daemon `PATH` is a
+development/test convenience only. Search-path resolution selects the first
+canonical executable whose version probe succeeds. It skips non-executable,
+malformed, failing, and pre-2.32 candidates in order; if none is viable, it
+reports the first candidate's probe failure. An explicit executable never
+falls back to the search path. Inspector creation has one aggregate deadline
+across root validation, candidate discovery, and every version probe. The
+optional `creationTimeoutMs` defaults to
+`2 × commandTimeoutMs + 5000`, accepts 1000–90000 ms, and cannot be shorter
+than `commandTimeoutMs`.
+
+Source roots must already exist as canonical directories with no symlink
+component. Reserved roots may be absent, but every existing component must be
+canonical and symlink-free. Source roots and reserved roots cannot equal,
+contain, or descend from one another. Repository requests must be exact
+top-level primary checkouts strictly below a source root. A symlinked source
+layout is rejected before Git, even when it resolves to an otherwise valid
+repository. A source root containing `:` anywhere in its absolute path is
+rejected as invalid policy during inspector creation. Reserved roots may
+contain `:` because they never supply a Git working directory or ceiling.
+
+Git treats `GIT_CEILING_DIRECTORIES` as a colon-delimited POSIX list and
+defines no escaping for a literal colon. A repository basename may contain a
+colon when its parent is unambiguous, but inspection rejects a requested path
+whose parent contains a colon before starting a repository Git process.
+Internally, repository commands carry a branded, prevalidated ceiling;
+environment construction only serializes it.
+
+Inspection is intentionally conservative about concurrent working-tree
+activity. Postflight compares the repository top-level directory's size and
+mtime as well as kind, device, inode, and canonical resolution. Creating,
+deleting, or renaming a top-level entry can therefore return
+`observation-raced` even without repository-layout replacement. The operator
+has accepted this narrower personal-use policy: A2 registration must inspect a
+clean, quiescent working tree and may retry only after activity has stopped.
+
+Repository inspection remains disabled when none of these variables is present:
+
+```text
+CRAFTINGTABLE_REPOSITORY_ROOTS
+CRAFTINGTABLE_ARTIFACT_ROOT
+CRAFTINGTABLE_MANAGED_WORKTREE_ROOT
+CRAFTINGTABLE_GIT_BIN
+CRAFTINGTABLE_GIT_SEARCH_PATH
+CRAFTINGTABLE_GIT_TIMEOUT_MS
+CRAFTINGTABLE_GIT_CREATION_TIMEOUT_MS
+CRAFTINGTABLE_GIT_INSPECTION_TIMEOUT_MS
+CRAFTINGTABLE_GIT_STDOUT_LIMIT_BYTES
+CRAFTINGTABLE_GIT_STDERR_LIMIT_BYTES
+CRAFTINGTABLE_GIT_TERMINATION_GRACE_MS
+CRAFTINGTABLE_REPOSITORY_PROVIDER_RETRY_DELAY_MS
+```
+
+Presence of any variable requests the complete feature group. Roots and at
+least one of `GIT_BIN` or `GIT_SEARCH_PATH` are required; bin only, search only,
+and both are valid, with bin winning when both are present. Empty, partial,
+relative, non-normalized, overlapping, or incoherent configuration fails
+startup rather than silently disabling. Enabled explicit `CRAFTINGTABLE_DATA_DIR`
+must also be normalized absolute. Artifact and worktree roots default beneath
+the data directory and are reserved only; the daemon creates neither here.
+Root and search-path lists use the host `node:path.delimiter` with no escape
+syntax. A path containing that delimiter cannot be represented as one entry and
+therefore fails startup; it is not deferred to lazy A1 validation.
+
+Numeric defaults/bounds are: command timeout 5000 ms (100-30000), creation and
+inspection timeout `2 * command + 5000` ms (1000-90000, with creation at least
+one command and inspection at least two), stdout 65536 bytes
+(16384-1048576), stderr 65536 bytes (1024-1048576), termination grace 250 ms
+(50-2000), and provider retry delay 5000 ms (100-60000).
+
+Configuration parsing is lexical. Directory existence, realpath/symlink and
+ownership policy, platform/UID, executable evidence, and Git version are checked
+lazily by A1 on the first later authorized use. Concurrent first uses share one
+creation. Success is memoized for the process lifetime; retryable creation
+failure is cached for the configured delay; configuration/nonretryable or
+adapter-invariant failure is cached until restart. No repository is registered
+at startup and no lifecycle command or route exists in A2b2a.
+
 ## First start
 
 Install dependencies, migrate, and create the only initial administrator:
@@ -41,13 +123,41 @@ refuses if any user already exists. An accepted operator amendment records
 exactly one safe `admin.bootstrap.denied` audit row for each refusal; it creates
 no other row.
 
-The schema is at version 2. Migration `0002-ct03-planning.sql` rebuilds both
+The schema is at version 4. Migration `0002-ct03-planning.sql` rebuilds both
 CT-02 journals once so their audit-action and workspace-event vocabularies
 become migration-owned catalogs, then adds the planning tables. It preserves
 every CT-02 row, both global sequences, the append-only triggers, and every
 index; an in-migration guard aborts the whole migration if a row count or
 maximum sequence fails to match. Migration `0001` is unchanged, so an existing
 database still validates.
+
+Migration `0003-ct04a2a-repository-model.sql` does not rebuild either journal.
+It adds registered repositories, immutable inspections, project bindings, and
+six audit-action catalog entries. Existing schema-2 rows, sequences, indexes,
+triggers, and journal SQL remain unchanged. Repository evidence uses exact
+stored UTF-8 JSON bytes and a digest; operators must not treat that checksum as
+protection from a writer that can alter the database itself.
+
+Inspection history is ordered by its database-generated global sequence, not by
+timestamp or identifier. No repository command is operator-usable in A2a:
+configuration, authorization, Git adaptation, audit/events, routes, and browser
+projection remain A2b.
+
+Migration `0004-ct04a2b-repository-journal.sql` rebuilds only
+`workspace_events`. It preserves every legacy sequence and exact payload byte,
+restores the captured `sqlite_sequence` high-water mark (including deleted
+high-water values), and restores the append-only triggers and index. It adds
+three nullable structural correlation columns, their composite ownership
+foreign keys, and five schema-4 event kinds. Its CHECK constraints govern
+kind-scoped column presence only; payload ID agreement and retirement coupling
+are runtime contract/mapper semantics, not payload-aware SQL.
+
+The five B1 kinds do not form a complete inspection-history feed. Verification
+outcomes such as `verified`, `environment-evidence-still-changed`, and
+`failure-recorded` can append an inspection without a workspace event. A later
+repository view must fetch authoritative inspection history rather than infer
+freshness from this journal. There is still no usable repository lifecycle
+command, service, route, notifier producer, configuration, fetch, or UI.
 
 Migration `0002` was revised during CT-03 remediation to close a structural
 ownership gap and freeze the imported work graph. A local database that ran the

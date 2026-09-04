@@ -1,0 +1,77 @@
+version: 1
+contract: CT-04A2B2B-SOURCE-HANDOFF-1
+source_archive_head: 094c78382e4bd7f00e397cdfe3ec6284a9c9f04f
+source_archive_sha256: e44813b5d9f1d67573e83ec6848ff3811afa031dc68db73c44e60f5d3b53d128
+accepted_a2b2a_runtime_head: 0c2e9ba68abecd904bae81a9faae5074b4e29fb6
+accepted_a2b2a_merge: 629b476
+artifact_hashes:
+  a2b2a_accepted_plan: 451429f6acca20a1812c2cd18ad79fd3eaab912a8ebb5ded53334833dc3fe02b
+  a2b2a_final_review: 80f9f4cb36a6cdae638ab1a051de634c7a047cd42a3d2a0000b56e2fde494317
+  a2b2a_final_report: 20c03172a564adb90456846d16b46cd05d92b1dc0476e5246d840458b5af6e06
+  port: eaebc7ed288ad8ffda9babd601e851ddd96115d13e2e9cb901f65bb8779f9e36
+  adapter: 91bf174f2b386a8b7786fc376f906251d8fb0f6d34e5d420c42bcd8fe9fcdd8b
+  provider: 355c345b269fc4719f935d88fb1e12bccded8510812da8063d2159fc58f249ee
+  domain_repository: ad1ca726dff9a11dab32e3181ef2ea0eeddb9855e2b01eb9580d3d9a943c2c4d
+  storage_types: 21704153e53639d11dd451e1b160504f7337a8f7e58f69fc690213f5e5f1069c
+  storage_registry: 12e68b3c93139911216aa8f038bb5a90bf138bbc97c760915d117d4dc4dd019d
+  migration_0003: 526df194257806b2a2e9582da8df8058ad86e819d52eae6b9b2525f972123bc4
+  migration_0004: 409553eb1c6a7eb978be9fc2dae6ddb9eb1d51e0f016f4b5c6d571edbaf5f29e
+  protected_original: ce7a101ca3a988cc1b6395653baa0bfca885d057109eae12f9c5d9544f090f64
+  protected_a2: 1000d564f01712b7dc2c59570dbfd6c498192f77c1cc5c13715e55c4b656429c
+  protected_a2b: 255fe8b61ede97aa3366ab5e81214031ef2053e89c0246b0b9c4c7b14278ebad
+  protected_a2b2: d5ec533cf3187511e6709c989b6c525a9297dd7cfd8795b04871a814006a8879
+accepted_boundaries:
+  A1: local Git/process/path observation only
+  A2a: repository domain, inspection evidence, state reducer, and storage
+  B1: repository journal correlations and exhaustive browser event handling
+  A2b2a: optional feature config, provider, observation adapter, evidence verification, assessment mapping
+current_port_methods:
+- inspect
+- verifyStored
+- verifyRegisteredIdentity
+- compare
+required_port_extension: compareFresh(firstEvidence, secondEvidence)
+current_storage_methods:
+- register
+- appendVerification
+- applyTransition
+- reaffirmEnvironment
+- retireWithBindings
+- insertBinding
+- retireBinding
+required_storage_extension: append verification or reaffirmation attempt without baseline advance; registration prohibited
+existing_routes: []
+new_routes:
+- GET /api/workspaces/:workspaceId/repositories
+- POST /api/workspaces/:workspaceId/repositories
+- GET /api/workspaces/:workspaceId/repositories/:repositoryId
+- GET /api/workspaces/:workspaceId/repositories/:repositoryId/admin
+- GET /api/workspaces/:workspaceId/repositories/:repositoryId/inspections
+- POST /api/workspaces/:workspaceId/repositories/:repositoryId/inspect
+- POST /api/workspaces/:workspaceId/repositories/:repositoryId/reaffirm
+event_kinds_available:
+- repository-registered
+- repository-status-changed
+- repository-evidence-changed
+- project-repository-bound
+- project-repository-binding-retired
+event_kinds_used_in_b2b:
+- repository-registered
+- repository-status-changed
+- repository-evidence-changed
+no_new_migration: true
+no_browser_page: true
+no_further_fanout_recommended: true
+fanout_triggers:
+- '>45 files'
+- new migration
+- new event kind
+- browser page
+- retirement/binding
+- new process authority
+source_limitations:
+- provider acquisition failure occurs before observation and is audit-only
+- hard daemon death does not bound A1 orphan lifetime
+- no startup/background inspection
+- no real second-UID/root-host acceptance environment
+- risk scan is evidence, not mutation authorization

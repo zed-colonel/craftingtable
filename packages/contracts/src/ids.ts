@@ -9,6 +9,9 @@ import {
   type PlanImportDiagnosticId,
   type PlanVersionId,
   type ProjectId,
+  type ProjectRepositoryBindingId,
+  type RepositoryId,
+  type RepositoryInspectionId,
   type SessionId,
   type UserId,
   type WorkContractDraftId,
@@ -40,3 +43,9 @@ export const planArtifactIdSchema = idSchema<PlanArtifactId>('planArtifactId');
 export const planImportDiagnosticIdSchema =
   idSchema<PlanImportDiagnosticId>('planImportDiagnosticId');
 export const workContractDraftIdSchema = idSchema<WorkContractDraftId>('workContractDraftId');
+export const repositoryIdSchema = idSchema<RepositoryId>('repositoryId');
+export const repositoryInspectionIdSchema =
+  idSchema<RepositoryInspectionId>('repositoryInspectionId');
+export const projectRepositoryBindingIdSchema = idSchema<ProjectRepositoryBindingId>(
+  'projectRepositoryBindingId',
+);

@@ -1,5 +1,11 @@
 import type { WorkspaceEventEnvelope, WorkspaceSnapshotResponse } from '@craftingtable/contracts';
-import { asEventId, asWorkspaceId } from '@craftingtable/domain';
+import {
+  asEventId,
+  asProjectId,
+  asRepositoryId,
+  asRepositoryInspectionId,
+  asWorkspaceId,
+} from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
 import { INITIAL_WORKSPACE_PROJECTION, reduceWorkspaceProjection } from './workspace-projection.js';
 
@@ -57,7 +63,7 @@ describe('workspace projection', () => {
     expect(opened.events).toEqual([event]);
   });
 
-  it('ignores duplicate sequence and permits global cross-workspace gaps', () => {
+  it('B1-UI-004 ignores duplicate sequence and permits global cross-workspace gaps', () => {
     const hydrated = reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, {
       type: 'snapshot-loaded',
       snapshot,
@@ -89,7 +95,7 @@ describe('workspace projection', () => {
     expect(state.events).toEqual([event]);
   });
 
-  it('rejects an event for another workspace', () => {
+  it('B1-UI-005 rejects an event for another workspace', () => {
     const hydrated = reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, {
       type: 'snapshot-loaded',
       snapshot,
@@ -165,11 +171,24 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
       workspaceSummary: true,
       projectIds: ['project-1'],
       workItemIds: ['item-1'],
+      repositoryList: false,
+      repositoryIds: [],
     });
-    expect(reduceWorkspaceProjection(state, { type: 'stale-consumed' }).stale).toEqual({
+    expect(
+      reduceWorkspaceProjection(state, {
+        type: 'stale-consumed',
+        consumed: {
+          workspaceSummary: true,
+          projectIds: state.stale.projectIds,
+          workItemIds: state.stale.workItemIds,
+        },
+      }).stale,
+    ).toEqual({
       workspaceSummary: false,
       projectIds: [],
       workItemIds: [],
+      repositoryList: false,
+      repositoryIds: [],
     });
   });
 
@@ -191,6 +210,139 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
     // A refetch must never rewind the live cursor or discard tailed events.
     expect(refreshed.lastSequence).toBe(4);
     expect(refreshed.events).toHaveLength(2);
+  });
+});
+
+describe('repository event invalidation', () => {
+  const hydrate = () =>
+    reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, { type: 'snapshot-loaded', snapshot });
+
+  function registeredEvent(sequence: number, repositoryNumber: number): WorkspaceEventEnvelope {
+    const repositoryId = asRepositoryId(`repository-${repositoryNumber}`);
+    const inspectionId = asRepositoryInspectionId(`inspection-${repositoryNumber}`);
+    return {
+      ...event,
+      id: asEventId(`repository-event-${sequence}`),
+      sequence,
+      kind: 'repository-registered',
+      repositoryId,
+      repositoryInspectionId: inspectionId,
+      payload: {
+        repositoryId,
+        inspectionId,
+        displayName: `Repository ${repositoryNumber}`,
+        status: 'active',
+        statusReason: 'registration-accepted',
+        version: 1,
+      },
+    } as WorkspaceEventEnvelope;
+  }
+
+  it('B1-UI-001/B1-UI-002 invalidates the repository list and structural repository ID', () => {
+    const repositoryEvents = [
+      registeredEvent(2, 1),
+      {
+        ...registeredEvent(3, 2),
+        kind: 'repository-status-changed',
+        repositoryInspectionId: asRepositoryInspectionId('inspection-2'),
+        payload: {
+          repositoryId: asRepositoryId('repository-2'),
+          inspectionId: asRepositoryInspectionId('inspection-2'),
+          displayName: 'Repository 2',
+          fromStatus: 'attention',
+          toStatus: 'active',
+          statusReason: 'verification-restored',
+          priorVersion: 1,
+          resultingVersion: 2,
+        },
+      },
+      {
+        ...registeredEvent(4, 3),
+        kind: 'repository-evidence-changed',
+        payload: {
+          repositoryId: asRepositoryId('repository-3'),
+          inspectionId: asRepositoryInspectionId('inspection-3'),
+          displayName: 'Repository 3',
+          evidenceClass: 'risk-scan',
+          repositoryVersion: 2,
+        },
+      },
+    ] as readonly WorkspaceEventEnvelope[];
+    const state = repositoryEvents.reduce(
+      (current, repositoryEvent) =>
+        reduceWorkspaceProjection(current, { type: 'event-received', event: repositoryEvent }),
+      hydrate(),
+    );
+    expect(state.stale).toEqual({
+      workspaceSummary: false,
+      projectIds: [],
+      workItemIds: [],
+      repositoryList: true,
+      repositoryIds: ['repository-1', 'repository-2', 'repository-3'],
+    });
+  });
+
+  it('B1-UI-003/B1-UI-013 and A2B-JRN-007 invalidate structural binding IDs, even in a hostile mismatch fixture', () => {
+    const bound = {
+      ...event,
+      id: asEventId('binding-event'),
+      sequence: 2,
+      kind: 'project-repository-bound',
+      projectId: asProjectId('structural-project'),
+      repositoryId: asRepositoryId('structural-repository'),
+      repositoryBindingId: 'binding-1',
+      payload: {
+        projectId: asProjectId('payload-project'),
+        repositoryId: asRepositoryId('payload-repository'),
+        bindingId: 'binding-1',
+        repositoryDisplayName: 'Mismatch is rejected at the wire',
+        bindingVersion: 1,
+      },
+    } as unknown as WorkspaceEventEnvelope;
+    const state = reduceWorkspaceProjection(hydrate(), {
+      type: 'event-received',
+      event: bound,
+    });
+    expect(state.stale.projectIds).toEqual(['structural-project']);
+    expect(state.stale.repositoryIds).toEqual(['structural-repository']);
+    expect(state.stale.repositoryList).toBe(false);
+  });
+
+  it('B1-UI-011 bounds stable unique repository IDs and consumes only named scopes', () => {
+    let state = hydrate();
+    for (let index = 1; index <= 101; index += 1) {
+      state = reduceWorkspaceProjection(state, {
+        type: 'event-received',
+        event: registeredEvent(index + 1, index),
+      });
+    }
+    expect(state.stale.repositoryIds).toHaveLength(100);
+    expect(state.stale.repositoryIds[0]).toBe('repository-2');
+    const repeated = reduceWorkspaceProjection(state, {
+      type: 'event-received',
+      event: registeredEvent(103, 50),
+    });
+    expect(repeated.stale.repositoryIds).toEqual(state.stale.repositoryIds);
+
+    const consumed = reduceWorkspaceProjection(repeated, {
+      type: 'stale-consumed',
+      consumed: {
+        repositoryIds: [asRepositoryId('repository-50')],
+      },
+    });
+    expect(consumed.stale.repositoryIds).not.toContain('repository-50');
+    expect(consumed.stale.repositoryIds).toHaveLength(99);
+    expect(consumed.stale.repositoryList).toBe(true);
+  });
+
+  it('B1-UI-006 preserves pending repository scopes across a same-workspace snapshot', () => {
+    const stale = reduceWorkspaceProjection(hydrate(), {
+      type: 'event-received',
+      event: registeredEvent(2, 1),
+    });
+    const refreshed = reduceWorkspaceProjection(stale, { type: 'snapshot-loaded', snapshot });
+    expect(refreshed.stale.repositoryList).toBe(true);
+    expect(refreshed.stale.repositoryIds).toEqual(['repository-1']);
   });
 });
 
@@ -220,7 +372,7 @@ describe('workspace switching (CT03-R6)', () => {
     recentActivity: [otherEvent],
   } as WorkspaceSnapshotResponse;
 
-  it('never carries the previous workspace activity into a new one', () => {
+  it('B1-UI-007 never carries the previous workspace activity into a new one', () => {
     const first = reduceWorkspaceProjection(INITIAL_WORKSPACE_PROJECTION, {
       type: 'snapshot-loaded',
       snapshot,
@@ -285,6 +437,7 @@ describe('workspace switching (CT03-R6)', () => {
     expect(cleared.projects).toEqual([]);
     expect(cleared.lastSequence).toBe(0);
     expect(cleared.statusSummary).toEqual(INITIAL_WORKSPACE_PROJECTION.statusSummary);
+    expect(cleared.stale).toEqual(INITIAL_WORKSPACE_PROJECTION.stale);
   });
 
   it('still retains state across a refetch of the same workspace', () => {

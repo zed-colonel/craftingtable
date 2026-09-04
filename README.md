@@ -4,17 +4,24 @@ CraftingTable is a local supervisory workbench for planning, delegating, observi
 
 It exists to make development of the Exo Stack (ActionQueue, WorldInterface, and Exoskeleton) and other personal projects more manageable. Features are justified by immediate development friction, not hypothetical product completeness.
 
-## Current phase
+## Current state
 
-This repository implements **CT-03: Plan bundle import and the project/work-item
-dashboard**, on top of CT-02's persistent daemon, authentication,
-workspaces, and durable event history**.
+The app today: a persistent, authenticated local daemon with workspaces and a
+durable event journal (CT-02), plan-bundle import with a project and work-item
+dashboard (CT-03), and a read-only Git inspection package with repository
+persistence that is not yet reachable from the browser (CT-04A, partial).
 
-The normative planning artifacts are under [`init/`](init/). The active work
-contract is [`work-items/CT-03/CT-03.md`](work-items/CT-03/CT-03.md). Architectural,
-security, and operating boundaries are documented in
+Active work is the first usable end-to-end loop: from the dashboard, pick a
+work item, register a repository, create a worktree, launch Claude Code with
+the work item as its brief, watch it live from another machine, and inspect
+the resulting diff. That loop is being built as one vertical slice on `main`;
+see `AGENTS.md` for the working method and boundaries.
+
+The original product planning package lives under [`init/`](init/) as
+background. Architectural, security, and operating boundaries are documented in
 [`docs/architecture.md`](docs/architecture.md), [`docs/security.md`](docs/security.md),
 [`docs/operations.md`](docs/operations.md), and [`docs/decisions/`](docs/decisions/).
+Superseded planning and review artifacts are under [`archive/`](archive/).
 
 ## Quickstart
 

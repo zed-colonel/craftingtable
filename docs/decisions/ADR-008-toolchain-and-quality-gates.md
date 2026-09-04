@@ -5,6 +5,7 @@
 - **Amended:** 2026-07-23 after the CT-01 initial review (findings CT01-R2, CT01-R5)
 - **Amended:** 2026-07-24 for CT-02 native persistence and authenticated E2E
 - **Amended:** 2026-07-24 for CT-03 planning dependencies and DOM component tests
+- **Amended:** 2026-07-26 for CT-04A1 structural Git tests and protected-package verification
 
 ## Context
 
@@ -32,6 +33,24 @@ CT-03 additions:
   process-execution, or vendor-agent-SDK import in production source; on a
   production import of the `agents`/`git`/`testing` seams; and on any filesystem,
   process, socket, database, or UI import inside `@craftingtable/planning`.
+
+CT-04A1 additions:
+
+- Git tests and their unbounded fixture builders live under
+  `packages/git/test`, outside the production `src` root. The production
+  project continues to emit only `src`; `tsconfig.test.json` typechecks the
+  structural test tree without emitting it, and Vitest collects that tree
+  explicitly.
+- The scope walker scans both `src` and `test`. Existing test-capability
+  modules are exact-path allowlisted; a production filename containing
+  `test-support` gains no authority.
+- Exactly `packages/git/src/command-runner.ts` may import
+  `node:child_process` in production. Package exports remain `"."` only, and
+  emitted-output proof rejects a second process authority or any shipped
+  fixture.
+- The former `check:protected` gate verified a CT-04 acceptance package. It was
+  retired on 2026-09-04 with the slice-contract process; the package now lives
+  under `archive/CT-04/protected/`.
 
 ## Consequences
 

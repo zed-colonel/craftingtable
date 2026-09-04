@@ -3,6 +3,7 @@ import type {
   WorkspaceEventEnvelope,
   WorkspaceSnapshotResponse,
 } from '@craftingtable/contracts';
+import type { ProjectId, RepositoryId, WorkItemId } from '@craftingtable/domain';
 
 export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'disconnected';
 
@@ -15,14 +16,18 @@ export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'disconne
  */
 export interface StaleScopes {
   readonly workspaceSummary: boolean;
-  readonly projectIds: readonly string[];
-  readonly workItemIds: readonly string[];
+  readonly projectIds: readonly ProjectId[];
+  readonly workItemIds: readonly WorkItemId[];
+  readonly repositoryList: boolean;
+  readonly repositoryIds: readonly RepositoryId[];
 }
 
 const NO_STALE_SCOPES: StaleScopes = {
   workspaceSummary: false,
   projectIds: [],
   workItemIds: [],
+  repositoryList: false,
+  repositoryIds: [],
 };
 
 export interface WorkspaceProjectionState {
@@ -77,10 +82,35 @@ export type WorkspaceProjectionAction =
   | { readonly type: 'event-received'; readonly event: WorkspaceEventEnvelope }
   | { readonly type: 'event-invalid' }
   | { readonly type: 'refresh-failed' }
-  | { readonly type: 'stale-consumed' };
+  | {
+      readonly type: 'stale-consumed';
+      readonly consumed: {
+        readonly workspaceSummary?: true;
+        readonly projectIds?: readonly ProjectId[];
+        readonly workItemIds?: readonly WorkItemId[];
+        readonly repositoryList?: true;
+        readonly repositoryIds?: readonly RepositoryId[];
+      };
+    };
 
-function unique(values: readonly string[]): readonly string[] {
+function unique<T extends string>(values: readonly T[]): readonly T[] {
   return [...new Set(values)];
+}
+
+function appendBoundedUnique<T extends string>(
+  values: readonly T[],
+  value: T,
+  limit: number,
+): readonly T[] {
+  if (values.includes(value)) {
+    return values;
+  }
+  return [...values, value].slice(-limit);
+}
+
+function subtract<T extends string>(values: readonly T[], consumed: readonly T[]): readonly T[] {
+  const consumedSet = new Set(consumed);
+  return values.filter((value) => !consumedSet.has(value));
 }
 
 /** Which authoritative queries an event makes stale. */
@@ -102,9 +132,25 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
       };
     case 'work-item-admitted':
       return {
+        ...current,
         workspaceSummary: true,
         projectIds: unique([...current.projectIds, event.payload.projectId]),
         workItemIds: unique([...current.workItemIds, event.payload.workItemId]),
+      };
+    case 'repository-registered':
+    case 'repository-status-changed':
+    case 'repository-evidence-changed':
+      return {
+        ...current,
+        repositoryList: true,
+        repositoryIds: appendBoundedUnique(current.repositoryIds, event.repositoryId, 100),
+      };
+    case 'project-repository-bound':
+    case 'project-repository-binding-retired':
+      return {
+        ...current,
+        projectIds: unique([...current.projectIds, event.projectId]),
+        repositoryIds: appendBoundedUnique(current.repositoryIds, event.repositoryId, 100),
       };
   }
 }
@@ -144,7 +190,7 @@ export function reduceWorkspaceProjection(
         invalidPayloadCount: sameWorkspace ? state.invalidPayloadCount : 0,
         foreignWorkspaceEventCount: sameWorkspace ? state.foreignWorkspaceEventCount : 0,
         consecutiveErrors: 0,
-        stale: NO_STALE_SCOPES,
+        stale: sameWorkspace ? state.stale : NO_STALE_SCOPES,
         refreshFailed: false,
       };
     }
@@ -184,6 +230,24 @@ export function reduceWorkspaceProjection(
       // degrades freshness, it does not invalidate committed state.
       return { ...state, refreshFailed: true };
     case 'stale-consumed':
-      return { ...state, stale: NO_STALE_SCOPES };
+      return {
+        ...state,
+        stale: {
+          workspaceSummary: action.consumed.workspaceSummary ? false : state.stale.workspaceSummary,
+          projectIds:
+            action.consumed.projectIds === undefined
+              ? state.stale.projectIds
+              : subtract(state.stale.projectIds, action.consumed.projectIds),
+          workItemIds:
+            action.consumed.workItemIds === undefined
+              ? state.stale.workItemIds
+              : subtract(state.stale.workItemIds, action.consumed.workItemIds),
+          repositoryList: action.consumed.repositoryList ? false : state.stale.repositoryList,
+          repositoryIds:
+            action.consumed.repositoryIds === undefined
+              ? state.stale.repositoryIds
+              : subtract(state.stale.repositoryIds, action.consumed.repositoryIds),
+        },
+      };
   }
 }

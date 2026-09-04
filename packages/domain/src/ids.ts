@@ -25,6 +25,11 @@ export type PlanImportDiagnosticId = Brand<'PlanImportDiagnosticId'>;
 export type WorkItemDependencyId = Brand<'WorkItemDependencyId'>;
 export type WorkContractDraftId = Brand<'WorkContractDraftId'>;
 
+/* CT-04A2 repository registry identifiers. */
+export type RepositoryId = Brand<'RepositoryId'>;
+export type RepositoryInspectionId = Brand<'RepositoryInspectionId'>;
+export type ProjectRepositoryBindingId = Brand<'ProjectRepositoryBindingId'>;
+
 /** Shared well-formedness rule for all identifiers: non-empty, no surrounding whitespace. */
 export function isWellFormedId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value === value.trim();
@@ -55,3 +60,8 @@ export const asPlanArtifactId = idFactory<PlanArtifactId>('PlanArtifactId');
 export const asPlanImportDiagnosticId = idFactory<PlanImportDiagnosticId>('PlanImportDiagnosticId');
 export const asWorkItemDependencyId = idFactory<WorkItemDependencyId>('WorkItemDependencyId');
 export const asWorkContractDraftId = idFactory<WorkContractDraftId>('WorkContractDraftId');
+export const asRepositoryId = idFactory<RepositoryId>('RepositoryId');
+export const asRepositoryInspectionId = idFactory<RepositoryInspectionId>('RepositoryInspectionId');
+export const asProjectRepositoryBindingId = idFactory<ProjectRepositoryBindingId>(
+  'ProjectRepositoryBindingId',
+);

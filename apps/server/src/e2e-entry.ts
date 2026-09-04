@@ -13,6 +13,12 @@ const config = configFromEnv({
   CRAFTINGTABLE_PORT: '4600',
   CRAFTINGTABLE_PUBLIC_ORIGIN: 'http://127.0.0.1:5173',
   CRAFTINGTABLE_LOG_LEVEL: 'warn',
+  ...(process.env.CRAFTINGTABLE_CLAUDE_EXECUTABLE === undefined
+    ? {}
+    : { CRAFTINGTABLE_CLAUDE_EXECUTABLE: process.env.CRAFTINGTABLE_CLAUDE_EXECUTABLE }),
+  ...(process.env.CRAFTINGTABLE_GIT_EXECUTABLE === undefined
+    ? {}
+    : { CRAFTINGTABLE_GIT_EXECUTABLE: process.env.CRAFTINGTABLE_GIT_EXECUTABLE }),
 });
 const runtime = await createRuntime(config, { logger: true });
 await runtime.services.bootstrapService.bootstrap(E2E_USERNAME, E2E_PASSWORD);

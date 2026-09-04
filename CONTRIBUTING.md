@@ -20,6 +20,7 @@ for the areas you touch.
 ```text
 pnpm install       install workspace dependencies
 pnpm dev           server (127.0.0.1:4600) + web (Vite) with watch
+pnpm start         daemon only, serving the built web app (run pnpm build first)
 pnpm build         type-build all packages, bundle the web app
 pnpm format        format with Biome
 pnpm format:check  formatting check only

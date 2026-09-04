@@ -12,6 +12,7 @@
     "dev:types": "tsc -b --watch --preserveWatchOutput",
     "dev:server": "pnpm --filter @craftingtable/server dev",
     "dev:web": "pnpm --filter @craftingtable/web dev",
+    "start": "pnpm --filter @craftingtable/server start",
     "craftingtable": "pnpm --filter @craftingtable/server cli",
     "db:migrate": "pnpm craftingtable db migrate",
     "db:status": "pnpm craftingtable db status",

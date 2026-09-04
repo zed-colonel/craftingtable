@@ -93,6 +93,7 @@ describe('git operations', () => {
     if (!diff.ok) return;
     expect(diff.value.commits).toHaveLength(1);
     expect(diff.value.commits[0]?.subject).toBe('change readme');
+    expect(diff.value.commits[0]?.authoredAt).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
     expect(diff.value.headSha).not.toBe(identity.value.headSha);
     expect(diff.value.files).toEqual([
       { path: 'README.md', status: 'modified', additions: 2, deletions: 0, binary: false },

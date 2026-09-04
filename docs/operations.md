@@ -1,201 +1,66 @@
-# Local operations (accepted CT-03 plus CT-04A2b1 foundation)
+# Local operations
 
-## Data location and configuration
+## Data location
 
-By default the daemon stores data at:
-
-```text
-$XDG_DATA_HOME/craftingtable/state/craftingtable.sqlite
-```
-
-or `~/.local/share/craftingtable/state/craftingtable.sqlite` when
-`XDG_DATA_HOME` is unset. `CRAFTINGTABLE_DATA_DIR` may override the base but
-must be absolute.
-
-Supported configuration:
+By default the daemon keeps everything under `~/.local/share/craftingtable`
+(`$XDG_DATA_HOME/craftingtable` when set; `CRAFTINGTABLE_DATA_DIR` overrides it):
 
 ```text
-CRAFTINGTABLE_HOST=127.0.0.1
-CRAFTINGTABLE_PORT=4600
-CRAFTINGTABLE_PUBLIC_ORIGIN=http://127.0.0.1:5173
-CRAFTINGTABLE_SESSION_LIFETIME_SECONDS=2592000
-CRAFTINGTABLE_LOG_LEVEL=info
+state/craftingtable.sqlite   the database (WAL mode; back up the -wal and -shm files with it)
+worktrees/<repo>/<item>-<id> linked Git worktrees created for runs
+runs/<runId>/brief.md        the brief handed to the agent, plus plan/ documents
 ```
 
-Only `127.0.0.1`, `localhost`, and `::1` hosts are accepted.
+`pnpm db:status` reports the schema version; `pnpm db:migrate` applies pending
+migrations. Migrations run automatically when the daemon starts.
 
-## CT-04A1 Git boundary prerequisites
+## Running the daemon
 
-The A1 library requires a non-root POSIX daemon and Git 2.32.0 or newer.
-Production composition in A2 must supply either an explicit absolute Git
-executable or an explicit absolute search path; ambient daemon `PATH` is a
-development/test convenience only. Search-path resolution selects the first
-canonical executable whose version probe succeeds. It skips non-executable,
-malformed, failing, and pre-2.32 candidates in order; if none is viable, it
-reports the first candidate's probe failure. An explicit executable never
-falls back to the search path. Inspector creation has one aggregate deadline
-across root validation, candidate discovery, and every version probe. The
-optional `creationTimeoutMs` defaults to
-`2 × commandTimeoutMs + 5000`, accepts 1000–90000 ms, and cannot be shorter
-than `commandTimeoutMs`.
+Development: `pnpm dev` runs the daemon on 127.0.0.1:4600 and the Vite UI on 5173.
 
-Source roots must already exist as canonical directories with no symlink
-component. Reserved roots may be absent, but every existing component must be
-canonical and symlink-free. Source roots and reserved roots cannot equal,
-contain, or descend from one another. Repository requests must be exact
-top-level primary checkouts strictly below a source root. A symlinked source
-layout is rejected before Git, even when it resolves to an otherwise valid
-repository. A source root containing `:` anywhere in its absolute path is
-rejected as invalid policy during inspector creation. Reserved roots may
-contain `:` because they never supply a Git working directory or ceiling.
+Standalone: `pnpm build` once, then `pnpm start`. The daemon serves the built UI itself
+when `apps/web/dist` exists (or `CRAFTINGTABLE_WEB_DIST` points at a build).
 
-Git treats `GIT_CEILING_DIRECTORIES` as a colon-delimited POSIX list and
-defines no escaping for a literal colon. A repository basename may contain a
-colon when its parent is unambiguous, but inspection rejects a requested path
-whose parent contains a colon before starting a repository Git process.
-Internally, repository commands carry a branded, prevalidated ceiling;
-environment construction only serializes it.
+A `systemd --user` unit keeps it running across logins:
 
-Inspection is intentionally conservative about concurrent working-tree
-activity. Postflight compares the repository top-level directory's size and
-mtime as well as kind, device, inode, and canonical resolution. Creating,
-deleting, or renaming a top-level entry can therefore return
-`observation-raced` even without repository-layout replacement. The operator
-has accepted this narrower personal-use policy: A2 registration must inspect a
-clean, quiescent working tree and may retry only after activity has stopped.
+```ini
+# ~/.config/systemd/user/craftingtable.service
+[Unit]
+Description=CraftingTable daemon
+After=network-online.target
 
-Repository inspection remains disabled when none of these variables is present:
+[Service]
+WorkingDirectory=%h/src/craftingtable
+EnvironmentFile=%h/.config/craftingtable/env
+ExecStart=/usr/bin/env pnpm start
+Restart=on-failure
+KillSignal=SIGTERM
+TimeoutStopSec=30
 
-```text
-CRAFTINGTABLE_REPOSITORY_ROOTS
-CRAFTINGTABLE_ARTIFACT_ROOT
-CRAFTINGTABLE_MANAGED_WORKTREE_ROOT
-CRAFTINGTABLE_GIT_BIN
-CRAFTINGTABLE_GIT_SEARCH_PATH
-CRAFTINGTABLE_GIT_TIMEOUT_MS
-CRAFTINGTABLE_GIT_CREATION_TIMEOUT_MS
-CRAFTINGTABLE_GIT_INSPECTION_TIMEOUT_MS
-CRAFTINGTABLE_GIT_STDOUT_LIMIT_BYTES
-CRAFTINGTABLE_GIT_STDERR_LIMIT_BYTES
-CRAFTINGTABLE_GIT_TERMINATION_GRACE_MS
-CRAFTINGTABLE_REPOSITORY_PROVIDER_RETRY_DELAY_MS
+[Install]
+WantedBy=default.target
 ```
 
-Presence of any variable requests the complete feature group. Roots and at
-least one of `GIT_BIN` or `GIT_SEARCH_PATH` are required; bin only, search only,
-and both are valid, with bin winning when both are present. Empty, partial,
-relative, non-normalized, overlapping, or incoherent configuration fails
-startup rather than silently disabling. Enabled explicit `CRAFTINGTABLE_DATA_DIR`
-must also be normalized absolute. Artifact and worktree roots default beneath
-the data directory and are reserved only; the daemon creates neither here.
-Root and search-path lists use the host `node:path.delimiter` with no escape
-syntax. A path containing that delimiter cannot be represented as one entry and
-therefore fails startup; it is not deferred to lazy A1 validation.
+with `~/.config/craftingtable/env` holding the `CRAFTINGTABLE_*` variables from the
+README's LAN section. Enable it with `systemctl --user enable --now craftingtable`
+and `loginctl enable-linger $USER` so it survives logout.
 
-Numeric defaults/bounds are: command timeout 5000 ms (100-30000), creation and
-inspection timeout `2 * command + 5000` ms (1000-90000, with creation at least
-one command and inspection at least two), stdout 65536 bytes
-(16384-1048576), stderr 65536 bytes (1024-1048576), termination grace 250 ms
-(50-2000), and provider retry delay 5000 ms (100-60000).
+The daemon's environment is the environment agents inherit: PATH must reach `git` and
+`claude` (or set the explicit executable variables), and HOME must be the account Claude
+Code is signed in as.
 
-Configuration parsing is lexical. Directory existence, realpath/symlink and
-ownership policy, platform/UID, executable evidence, and Git version are checked
-lazily by A1 on the first later authorized use. Concurrent first uses share one
-creation. Success is memoized for the process lifetime; retryable creation
-failure is cached for the configured delay; configuration/nonretryable or
-adapter-invariant failure is cached until restart. No repository is registered
-at startup and no lifecycle command or route exists in A2b2a.
+## Shutdown and recovery
 
-## First start
+`SIGTERM` or `SIGINT` closes the HTTP listener, terminates every live agent process
+group (SIGTERM, then SIGKILL after a grace period), waits briefly, and closes the
+database. On the next start, runs that were live are marked `interrupted` with a
+`run-finished` event, so the journal always explains why a run stopped.
 
-Install dependencies, migrate, and create the only initial administrator:
+Worktrees survive restarts. A worktree the daemon cannot remove (for example because
+the directory was deleted by hand) is pruned from Git's metadata and marked removed.
 
-```sh
-pnpm install
-pnpm db:migrate
-pnpm db:status
-pnpm craftingtable admin bootstrap --username keith
-pnpm dev
-```
+## Reset
 
-Bootstrap prompts twice without echo. It refuses password arguments and
-refuses if any user already exists. An accepted operator amendment records
-exactly one safe `admin.bootstrap.denied` audit row for each refusal; it creates
-no other row.
-
-The schema is at version 4. Migration `0002-ct03-planning.sql` rebuilds both
-CT-02 journals once so their audit-action and workspace-event vocabularies
-become migration-owned catalogs, then adds the planning tables. It preserves
-every CT-02 row, both global sequences, the append-only triggers, and every
-index; an in-migration guard aborts the whole migration if a row count or
-maximum sequence fails to match. Migration `0001` is unchanged, so an existing
-database still validates.
-
-Migration `0003-ct04a2a-repository-model.sql` does not rebuild either journal.
-It adds registered repositories, immutable inspections, project bindings, and
-six audit-action catalog entries. Existing schema-2 rows, sequences, indexes,
-triggers, and journal SQL remain unchanged. Repository evidence uses exact
-stored UTF-8 JSON bytes and a digest; operators must not treat that checksum as
-protection from a writer that can alter the database itself.
-
-Inspection history is ordered by its database-generated global sequence, not by
-timestamp or identifier. No repository command is operator-usable in A2a:
-configuration, authorization, Git adaptation, audit/events, routes, and browser
-projection remain A2b.
-
-Migration `0004-ct04a2b-repository-journal.sql` rebuilds only
-`workspace_events`. It preserves every legacy sequence and exact payload byte,
-restores the captured `sqlite_sequence` high-water mark (including deleted
-high-water values), and restores the append-only triggers and index. It adds
-three nullable structural correlation columns, their composite ownership
-foreign keys, and five schema-4 event kinds. Its CHECK constraints govern
-kind-scoped column presence only; payload ID agreement and retirement coupling
-are runtime contract/mapper semantics, not payload-aware SQL.
-
-The five B1 kinds do not form a complete inspection-history feed. Verification
-outcomes such as `verified`, `environment-evidence-still-changed`, and
-`failure-recorded` can append an inspection without a workspace event. A later
-repository view must fetch authoritative inspection history rather than infer
-freshness from this journal. There is still no usable repository lifecycle
-command, service, route, notifier producer, configuration, fetch, or UI.
-
-Migration `0002` was revised during CT-03 remediation to close a structural
-ownership gap and freeze the imported work graph. A local database that ran the
-*pre-remediation* `0002` will therefore fail validation with
-`schema invalid (checksum-mismatch)`. Reset it with the procedure below; a
-CT-02-era database at schema 1 is unaffected because `0001` is untouched.
-
-Imported planning artifacts are stored as bounded SQLite BLOBs (at most 2 MiB
-each). This is deliberately narrow so one import is one atomic transaction; it
-does not make SQLite CraftingTable's general artifact store. Artifacts from
-failed imports persist until a retention feature exists, so the database grows
-with repeated failed imports.
-
-`db status` opens an existing database read-only and reports a missing database
-as schema `0/1` without creating it. Pending migrations exit with status 2.
-Unsupported versions and migration name/checksum mismatches produce a
-structured `schema invalid (...)` diagnostic and exit with status 4 for both
-`db status` and `db migrate`; neither command repairs or bypasses validation.
-
-## Shutdown and database handling
-
-`SIGINT` and `SIGTERM` stop accepting work, abort active SSE loops, wait for
-stream tasks, close Fastify, and close SQLite. SQLite runs in WAL mode with
-FULL synchronous semantics and a 5000 ms busy timeout.
-
-The `.sqlite`, `.sqlite-wal`, and `.sqlite-shm` files are one live persistence
-unit. Do not copy only the main file while the daemon is open. CT-02 has no
-backup/restore CLI; stop the daemon before making an offline copy, and treat
-formal backup/restore tooling as CT-08 work.
-
-Tests and Playwright always use unique temporary data directories. They never
-open the operator's normal database.
-
-## Resetting a local installation
-
-CT-02 intentionally has no remote or in-process reset endpoint. To reset,
-stop the daemon, identify the configured data directory, and move that entire
-directory to a separately named backup location. Start the daemon, run
-`pnpm db:migrate`, and bootstrap again. Moving instead of deleting keeps the
-old database/WAL/SHM unit recoverable while the operator verifies the new
-installation. Never reset while the daemon is running.
+Stop the daemon, then delete the data directory. Registered repositories are untouched,
+but linked worktrees under `worktrees/` will disappear from those repositories' worktree
+lists only after `git worktree prune` in each primary checkout.

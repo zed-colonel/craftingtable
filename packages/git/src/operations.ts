@@ -441,7 +441,12 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       .split('\n')
       .filter((line) => line.length > 0)
       .map((line) => {
-        const [sha = '', subject = '', authoredAt = ''] = line.split('\x1f');
+        const [sha = '', subject = '', authored = ''] = line.split('\x1f');
+        // Git prints the author's local offset; the wire contract wants UTC.
+        const parsed = new Date(authored);
+        const authoredAt = Number.isNaN(parsed.getTime())
+          ? new Date(0).toISOString()
+          : parsed.toISOString();
         return { sha, subject, authoredAt };
       });
 

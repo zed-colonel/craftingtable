@@ -7,6 +7,7 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerExecutionRoutes } from './routes/execution.js';
 import { sendApiError } from './routes/http.js';
 import { registerPlanningRoutes } from './routes/planning.js';
+import { registerStaticWebRoutes } from './routes/static-web.js';
 import { registerWorkspaceEventRoute } from './routes/workspace-events.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { registerHealthRoute } from './routes/health.js';
@@ -109,6 +110,9 @@ export function buildServer(
     deps.runEventStreamService,
     config,
   );
+  if (config.webDistDir !== undefined) {
+    registerStaticWebRoutes(app, config.webDistDir);
+  }
 
   app.setErrorHandler((error, request, reply) => {
     if (

@@ -166,6 +166,10 @@ describe('configFromEnv', () => {
       configFromEnv({ CRAFTINGTABLE_TLS_CERT: 'cert.pem', CRAFTINGTABLE_TLS_KEY: 'key.pem' }),
     ).toThrow(/absolute/);
     expect(configFromEnv({}).lanExposed).toBe(false);
+    expect(configFromEnv({ CRAFTINGTABLE_WEB_DIST: '' }).webDistDir).toBeUndefined();
+    expect(configFromEnv({ CRAFTINGTABLE_WEB_DIST: '/srv/ct/dist' }).webDistDir).toBe(
+      '/srv/ct/dist',
+    );
   });
 
   it('derives execution roots below the data directory and validates overrides', () => {

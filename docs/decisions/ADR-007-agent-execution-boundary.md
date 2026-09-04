@@ -1,6 +1,6 @@
 # ADR-007 — Agent execution boundary
 
-- **Status:** deferred
+- **Status:** superseded by ADR-020
 - **Date:** 2026-07-23
 
 ## Context

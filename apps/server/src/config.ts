@@ -380,7 +380,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     );
   }
 
-  const webDistDir = env.CRAFTINGTABLE_WEB_DIST ?? defaultWebDistDir();
+  // An empty value disables static serving even when a build exists.
+  const webDistDir =
+    env.CRAFTINGTABLE_WEB_DIST === ''
+      ? undefined
+      : (env.CRAFTINGTABLE_WEB_DIST ?? defaultWebDistDir());
   if (webDistDir !== undefined && !isAbsolute(webDistDir)) {
     throw new Error('CRAFTINGTABLE_WEB_DIST must be an absolute path');
   }

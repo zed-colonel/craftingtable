@@ -1,4 +1,4 @@
-import { accessSync, constants, realpathSync } from 'node:fs';
+import { accessSync, constants } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 
 /**
@@ -31,7 +31,7 @@ export function resolveExecutable(
   for (const candidate of candidates) {
     try {
       accessSync(candidate, constants.X_OK);
-      return realpathSync(candidate);
+      return candidate;
     } catch {
       // Next candidate.
     }

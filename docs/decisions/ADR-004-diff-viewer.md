@@ -1,6 +1,6 @@
 # ADR-004 — Diff viewer choice
 
-- **Status:** deferred
+- **Status:** decided in ADR-020 (unified `git diff` rendered as text, no library)
 - **Date:** 2026-07-23
 
 ## Context

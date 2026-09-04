@@ -1,4 +1,8 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+
+/** The daemon under test launches this scripted stand-in instead of Claude Code. */
+const FAKE_CLAUDE = fileURLToPath(new URL('./e2e/fake-claude.mjs', import.meta.url));
 
 const WEB_URL = 'http://127.0.0.1:5173';
 const SERVER_HEALTH_URL = 'http://127.0.0.1:4600/api/health';
@@ -26,6 +30,7 @@ export default defineConfig({
       url: SERVER_HEALTH_URL,
       reuseExistingServer: false,
       timeout: 30_000,
+      env: { CRAFTINGTABLE_CLAUDE_EXECUTABLE: FAKE_CLAUDE },
     },
     {
       command:

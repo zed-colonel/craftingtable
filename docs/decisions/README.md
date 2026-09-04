@@ -22,6 +22,7 @@ ADR-016-trusted-local-git-inspection-boundary.md
 ADR-017-repository-evidence-and-persistence.md
 ADR-018-repository-journal-correlation.md
 ADR-019-optional-repository-feature-and-evidence-translation.md
+ADR-020-execution-model-and-claude-code-backend.md
 ```
 
 Each ADR should contain:
@@ -33,5 +34,5 @@ Each ADR should contain:
 - alternatives considered;
 - date.
 
-The active work contract decides which records may move from deferred to
-accepted. Later concerns stay deferred rather than being designed prematurely.
+Write an ADR only for a decision that is material and hard to reverse. Later
+concerns stay deferred rather than being designed prematurely.

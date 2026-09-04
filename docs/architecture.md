@@ -1,249 +1,91 @@
-# Architecture boundaries (accepted CT-03 plus CT-04A2b1 foundation)
+# Architecture
 
-CraftingTable is a loopback-only supervisory workbench. The daemon owns
-authoritative state; the browser is an authenticated projection reconstructed
-from a durable snapshot and event cursor.
+CraftingTable is one daemon and one browser app. The daemon owns all state and every
+command; the browser is an authenticated projection reconstructed from a durable
+snapshot plus an event cursor.
 
-## Dependency direction
-
-```text
-domain        pure TypeScript records and branded identifiers
-   ▲
-contracts     strict Zod HTTP/SSE contracts
-planning      pure plan parsing, validation, graph, digest, draft projection
-storage       SQLite adapter, migrations, SQL, repositories
-   ▲
-server        Fastify routes, security policy, application services, composition
-
-domain + contracts
-   ▲
-web           React projection; no server/storage/planning imports
-```
-
-The actual project-reference graph is:
+## Packages and dependency direction
 
 ```text
-domain       → none
-contracts    → domain
-planning     → domain
-storage      → domain
-server       → domain + planning + contracts + storage
-web          → domain + contracts
-git          → domain + Node filesystem/process/crypto primitives
+domain      pure TypeScript records, branded identifiers, closed vocabularies
+contracts   strict Zod HTTP/SSE schemas (depends on domain)
+planning    pure plan-bundle parsing, validation, graph, digest (depends on domain)
+storage     SQLite, migrations, repositories (depends on domain)
+git         worktree/diff operations and the read-only inspector (depends on domain)
+agents      agent backend seam and the Claude Code adapter (depends on domain)
+server      Fastify routes, services, composition (depends on all of the above)
+web         React projection (depends on domain + contracts only)
 ```
 
-CT-04A2a adds no dependency edge. Domain owns copied durable repository
-vocabulary and a pure reducer; contracts owns strict public shapes; storage
-owns exact observation bytes, their SHA-256 digest, structural projections,
-immutable inspection history, repository lifecycle, and project binding. None
-of those packages imports `@craftingtable/git`, server composition, routes,
-workspace events, notifier code, or browser code.
+Only `storage` owns SQL. Only three modules may spawn a process, and
+`scripts/check-forbidden-scope.mjs` enforces that list: the Git inspector runner,
+the Git operations module, and the Claude Code process supervisor. No package depends
+on ActionQueue, WorldInterface, Exoskeleton, or any other supervised project.
 
-CT-04A2b1 extends the existing domain/contracts/storage/web edges without
-adding a package edge. The journal now has three nullable repository
-correlations and exactly five repository event kinds. Composite foreign keys
-prove that correlated repository, inspection, binding, project, and workspace
-rows share ownership. Strict contracts, append assertions, and the read mapper
-prove payload/structural ID agreement and retirement semantics. This applies
-ADR-003's division to correlations: SQLite proves ownership; runtime contracts
-prove semantics.
-
-The browser still treats events only as invalidation signals. Repository
-events add a repository-list bit and at most 100 stable unique pending
-repository IDs; binding events use structural project and repository IDs.
-`App.tsx` consumes only its existing planning scopes, so B1 adds no repository
-fetch or model projection.
-
-`@craftingtable/planning` is the whole interpretation boundary for untrusted
-planning input. It accepts bytes plus logical metadata and returns data: it
-opens no file, issues no SQL, spawns no process, and never throws for hostile
-input. `node:crypto`'s `createHash` is permitted because hashing is
-computation, not I/O. `check:scope` enforces this boundary mechanically.
-
-`packages/agents` and `packages/testing` remain future/test seams inherited
-from CT-01. `@craftingtable/git` now owns one real but uncomposed authority:
-bounded observation through three closed command variants. Production server
-composition imports none of these packages. Only `@craftingtable/storage`
-imports `better-sqlite3` or owns SQL. No package depends on ActionQueue,
-WorldInterface, Exoskeleton, or another application runtime.
-
-## Trusted Git observation boundary
-
-CT-04A1 accepts an untrusted absolute path only through an explicit,
-programmatically configured inspector. It validates canonical source/reserved
-root topology and exact primary-checkout structure before running Git. The
-private runner can select only a version probe, identity probe, or local
-risk-signal-name scan. It spawns an absolute revalidated executable without a
-shell, closes stdin, constructs the entire environment, independently bounds
-stdout/stderr, and terminates the detached process group on deadline, overflow,
-or abort. Canonical paths and representable Git ceiling directories are
-separate internal brands: repository command variants require both, the
-version variant requires only a canonical working directory, and the
-environment module serializes rather than derives the ceiling. One aggregate
-creation deadline bounds root resolution, executable discovery, and all
-first-viable version probes.
-
-The result is a runtime-validated, versioned observation. Core identity,
-environmental device evidence, and self-describing risk-scan evidence remain
-separate. Serialized observations must pass `parseRecordedObservation` before
-comparison; policy-version mismatch is not equality.
-
-No server or browser imports the inspector. A2a now supplies repository IDs,
-durable state, and project-binding persistence, but authorization,
-Git-to-storage adaptation, audit/event writes, routes, and notification
-ordering remain CT-04A2b.
-
-The A2 boundary must preserve three A1 constraints. Registration runs against
-a clean, quiescent working tree because top-level directory entry changes can
-produce `observation-raced`. Coherent root configuration discharges reserved
-overlap during inspector creation, so A2 must not expect an inspect-time
-`reserved-root-overlap`; it will instead receive `invalid-root-policy` or
-`outside-allowed-root` for reachable cases. Finally, the A1 SHA-256 fingerprint
-authenticates core identity only. A2 storage must protect the integrity of
-`riskScan`, environmental device evidence, `canonicalGitDirectory`, and
-`observedAt` independently unless a later reviewed inspection-policy version
-widens the fingerprint.
-
-## Repository evidence persistence
-
-Registration is one immediate SQLite transaction:
+## The execution model
 
 ```text
-successful registration inspection
-  → registered repository linking registration and environment baseline
-  → outer COMMIT validates the inspection's deferred parent
+SourceRepository   a registered local checkout (path, default branch, head at registration)
+Worktree           a linked worktree on a fresh branch, bound to one work item and repository
+AgentRun           one supervised agent session in a worktree: backend, role, permission
+                   posture, brief, status, cost, turns, optional parentRunId lineage
+AgentRunEvent      the normalized per-run journal: session-started, user-message,
+                   assistant-message, tool-call, tool-result, turn-completed, notice,
+                   stderr, run-finished
 ```
 
-Repository-to-inspection links are immediate, so a repository cannot name
-missing, foreign-workspace, or sibling evidence. Inspections are immutable and
-globally ordered by `AUTOINCREMENT` sequence. Successful records store the
-exact `JSON.stringify` UTF-8 string, a SHA-256 digest of those exact bytes, and
-query projections. This is corruption detection, not canonical JSON or
-authenticity against a writer able to replace both bytes and digest.
+Run status: `starting → running ⇄ waiting → finished | failed | cancelled | interrupted`.
+Transitions are guarded by expected-status sets so a late process callback can never
+regress a run the operator already cancelled. A daemon restart moves every live run to
+`interrupted`.
 
-The environmental baseline advances only in the atomic reaffirmation primitive
-from `identity-evidence-changed`, with a fresh latest successful reaffirmation
-whose core projections still match the immutable registration identity.
-Binding status is history, not usability: an active binding may project a
-currently unavailable or evidence-blocked repository.
+Roles (`implement`, `review`, `design`) select a brief template. Together with
+`parentRunId` they are the composition seam for orchestrated design/implement/review
+cycles: an orchestrator chains runs by role and lineage without new vocabulary.
 
-## Authoritative write and read paths
+## Agent backend seam
 
-The first workspace-domain command is bootstrap:
+`packages/agents` defines `AgentBackend` (`describe`, `launch`) and `AgentSession`
+(`items`, `send`, `end`, `kill`). A backend owns the child process and translates the
+vendor's native output into `NormalizedAgentEvent`s; the daemon owns run state, the
+journal, audit, and workspace events. Raw vendor lines are retained, bounded, on each
+event for diagnostics but are never the durable vocabulary.
 
-```text
-user + default workspace + Owner membership
-  + allowlisted audit rows + workspace-created event
-  └── one immediate SQLite transaction
-        └── commit
-              └── in-memory generation notifier
-```
+The Claude Code adapter launches `claude -p --input-format stream-json
+--output-format stream-json` with the brief as the first stdin message, keeps stdin
+open for follow-ups, maps the vendor-neutral permission posture to a CLI permission
+mode, and terminates the process group on cancel. Adding Codex means adding another
+`AgentBackend`.
 
-The notifier contains no event data and is never an event store. A browser
-reconstructs state through:
+## Git boundary
 
-```text
-authenticated session
-  → authorized workspace list
-  → one-transaction snapshot + global asOfSequence
-  → workspace-filtered SSE replay after that cursor
-  → durable live tail
-```
+`createGitOperations` covers exactly what the loop needs: inspect a top-level checkout,
+create a worktree on a new branch from an exact base revision, remove a worktree, and
+diff a worktree against its base (commits, per-file status and counts, bounded unified
+patch including untracked files). Argument arrays only, bounded lifetime and output,
+process-group termination, and paths reach Git only as `cwd` or after `--`.
 
-SSE re-queries SQLite after notifier changes and bounded timeouts. This makes
-lost or process-local notifications harmless and makes replay survive daemon
-restart. The global database sequence is strictly increasing; a workspace
-stream can legitimately contain gaps caused by events in another workspace.
+The CT-04A1 read-only inspector and its repository-evidence persistence remain in the
+tree, uncomposed. They are superseded for the working loop by the simpler source
+repository model and are candidates for removal.
 
-CT-03 introduces the first in-daemon workspace-event producers. Plan import and
-work-item admission both call the composed notifier immediately after their
-transaction commits, and never inside it. Acceptance proves this independently
-of the fallback poll: the stream's re-query interval is configured far longer
-than the test, so any event that arrives must have arrived through same-process
-notification. A separate case suppresses the notification entirely and confirms
-CT-02's durable timeout still recovers it.
+## Events
 
-CT-04A2b2a composes the accepted observation-only Git library behind one server
-adapter and one lazy provider. Configuration and all port/result types are
-server-owned; only
-`apps/server/src/services/repository-observation-adapter.ts` imports
-`@craftingtable/git`. The adapter reuses storage's exact observation
-serializer/digest verifier but calls no repository mutator.
+Two journals, one notifier:
 
-```text
-optional immutable config
-  -> lazy concurrency-deduplicated provider
-      -> server-owned observation port
-          -> sole A1 adapter -> fixed read-only Git inspector
-```
+- `workspace_events` is the coarse workspace journal the browser follows to invalidate
+  its queries. Execution adds `source-repository-registered`, `worktree-created`,
+  `worktree-removed`, `agent-run-started`, and `agent-run-status-changed`.
+- `agent_run_events` is the high-volume per-run journal, streamed per run over
+  `GET /api/workspaces/:id/runs/:runId/events`.
 
-Composition creates the provider without calling it. `buildServer` and the
-route inventory receive no repository dependency. Later B2b services must
-authorize before `get()` and receive observation operations, never inspector or
-process authority.
+Every mutation writes state, audit rows, and events in one immediate SQLite transaction;
+the in-process notifier fires after commit and carries no data. Streams re-authenticate
+on every iteration and never touch the session's last-seen time.
 
-Bootstrap still runs in the separate CLI process, so its daemon visibility
-correctly relies on the durable re-query.
+## Browser
 
-Planning ownership and history are database guarantees. Composite foreign keys
-close the workspace/project/version/item chain — including evidence to the
-version its attempt resolved to, and event correlation to a single project graph
-— and one trigger per table freezes imported content. Neither a defect in a
-service nor a direct SQL statement can rewrite a committed plan version, move a
-record between workspaces or projects, or change a work item outside the single
-atomic admission transition.
-
-A successful plan import is one atomic transition:
-
-```text
-project + bundle + immutable version + attempt + exact artifact bytes
-  + diagnostics + work items + dependency edges + audit + summary events
-  └── one immediate SQLite transaction
-        └── commit
-              └── notifier
-```
-
-Parsing, digesting, and graph analysis all happen before that transaction opens.
-A failed validation commits an attempt, bounded artifacts, diagnostics, and an
-audit row — and no project, version, work item, draft, or workspace event.
-
-The fallback re-query interval is currently 1000 ms. It deliberately guarantees
-session/membership invalidation and dropped-notification recovery, at the cost
-of one authentication and empty journal query per idle connection per second.
-That is appropriate for CT-02's single-user loopback boundary and must be
-revisited before activated multi-user or CT-08 deployment.
-
-## Boundary rules
-
-- Domain types do not depend on HTTP, React, SQLite, process control, Git, or
-  vendor SDKs.
-- Shared responses and SSE payloads are strict runtime-validated contracts.
-  The server validates before sending and the browser validates again.
-- Workspace membership is enforced in application services. UI filtering and
-  route parameters are not authorization.
-- The browser cannot submit shell commands, SQL, paths, or process-control
-  requests.
-- Audit events and workspace events are separate append-only vocabularies.
-- CT-01's fake backend fixture is test/development data only. No normal-runtime
-  fallback bypasses the workspace journal.
-
-## Deliberately deferred
-
-The composed CT-03 product has projects, imported plans, and an
-operator-admitted agenda, but no executable work. CT-04A1 adds a local Git
-observation library, CT-04A2a adds its durable repository model, CT-04A2b1 adds
-the durable journal/projection boundary, and A2b2a composes only an internal
-lazy observation/evidence seam. There is
-still no repository route or browser workflow,
-worktree, diff, change request, real coding agent, verification
-runner, review, remediation, readiness, or merge workflow; no Planning Studio, plan
-version activation, or model-assisted planning; no interactive graph editing;
-no ZIP, host-path, or external-URL import; no general artifact store; and no
-LAN exposure, TLS termination, service manager integration, or backup command.
-The schema has user/workspace/membership seams but does not activate
-collaborative multi-user product behavior.
-
-A work item can be Proposed or Admitted, and nothing else. Admission pairs the
-item with a deliberately incomplete, non-executable work-contract draft; it is
-not execution readiness and satisfies no dependency. A route-inventory test and
-`check:scope` fail the build if any CT-04+ capability appears.
+The app has no router library and no data-fetching library. Routes are parsed by a pure
+function; the projection reducer marks scopes stale on events and the app refetches the
+authoritative endpoints. The run page loads the committed events once and then follows
+the live stream from the last sequence. No agent output is ever rendered as markup.

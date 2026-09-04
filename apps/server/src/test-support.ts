@@ -54,6 +54,8 @@ export async function createTestContext(
     CRAFTINGTABLE_DATA_DIR: directory,
     CRAFTINGTABLE_PUBLIC_ORIGIN: options.publicOrigin ?? 'http://127.0.0.1:5173',
     CRAFTINGTABLE_LOG_LEVEL: 'silent',
+    // The API surface under test is the route allowlist; static serving is opt-in.
+    CRAFTINGTABLE_WEB_DIST: '',
     ...options.env,
   });
   const storage = openCraftingTableStorage(config.databasePath);

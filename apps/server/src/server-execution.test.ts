@@ -448,6 +448,7 @@ describe('worktrees and diffs', () => {
     );
 
     writeFileSync(join(worktree.path, 'README.md'), '# fixture\nchanged\n');
+    git(['commit', '--no-gpg-sign', '-am', 'change readme'], worktree.path);
     writeFileSync(join(worktree.path, 'new.txt'), 'new\n');
     const diff = await state.context.app.inject({
       method: 'GET',
@@ -461,7 +462,7 @@ describe('worktrees and diffs', () => {
       ['new.txt', 'untracked'],
     ]);
     expect(parsed.patch).toContain('+changed');
-    expect(parsed.commits).toEqual([]);
+    expect(parsed.commits.map((commit) => commit.subject)).toEqual(['change readme']);
 
     const execution = await state.context.app.inject({
       method: 'GET',

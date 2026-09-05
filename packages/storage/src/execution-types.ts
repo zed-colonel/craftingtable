@@ -160,6 +160,12 @@ export interface AgentRunEventRepository {
     readonly limit: number;
   }): readonly AgentRunEvent[];
   countForRun(workspaceId: WorkspaceId, runId: AgentRunId): number;
+  /** The most recent event of one kind for a run, if any. */
+  latestOfKind(
+    workspaceId: WorkspaceId,
+    runId: AgentRunId,
+    kind: AgentRunEventKind,
+  ): AgentRunEvent | undefined;
 }
 
 export interface ExecutionRepositories {

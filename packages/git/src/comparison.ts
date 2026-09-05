@@ -1,14 +1,5 @@
 import { createHash } from 'node:crypto';
 import { isAbsolute, normalize, resolve } from 'node:path';
-import {
-  REPOSITORY_INSPECTION_POLICY_VERSION,
-  REPOSITORY_OBSERVATION_VERSION,
-  REPOSITORY_RISK_SCAN_PATTERN,
-  REPOSITORY_RISK_SCAN_SCOPE_VERSION,
-  REPOSITORY_RISK_SIGNALS,
-  asParsedObservation,
-  createInspectionError,
-} from './types.js';
 import type {
   CoreEvidenceDifference,
   EnvironmentalEvidenceDifference,
@@ -18,6 +9,15 @@ import type {
   RepositoryObservationShape,
   RepositoryRiskSignal,
   RiskScanDifference,
+} from './types.js';
+import {
+  asParsedObservation,
+  createInspectionError,
+  REPOSITORY_INSPECTION_POLICY_VERSION,
+  REPOSITORY_OBSERVATION_VERSION,
+  REPOSITORY_RISK_SCAN_PATTERN,
+  REPOSITORY_RISK_SCAN_SCOPE_VERSION,
+  REPOSITORY_RISK_SIGNALS,
 } from './types.js';
 
 function appendLengthPrefixed(hash: ReturnType<typeof createHash>, value: string): void {

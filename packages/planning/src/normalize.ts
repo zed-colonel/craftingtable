@@ -1,4 +1,4 @@
-import { type JsonValue, isWorkItemRisk, type WorkItemRisk } from '@craftingtable/domain';
+import { isWorkItemRisk, type JsonValue, type WorkItemRisk } from '@craftingtable/domain';
 import { error, type PlanDiagnostic, warning } from './diagnostics.js';
 import {
   REQUIRED_TOP_LEVEL_FIELDS,

@@ -1,21 +1,13 @@
 import { join } from 'node:path';
-import { createBoundedCommandRunner } from './command-runner.js';
-import { INSPECTION_TIMEOUT_REASON } from './command-runner.js';
+import type { FixedGitProcessOutcome } from './command-runner.js';
+import { createBoundedCommandRunner, INSPECTION_TIMEOUT_REASON } from './command-runner.js';
+import { createParsedObservation } from './comparison.js';
+import type { ConfigurationDependencies } from './configuration.js';
 import {
   DEFAULT_CONFIGURATION_DEPENDENCIES,
   resolveInspectorConfiguration,
 } from './configuration.js';
-import type { ConfigurationDependencies } from './configuration.js';
-import { createParsedObservation } from './comparison.js';
-import type { FixedGitProcessOutcome } from './command-runner.js';
 import { admitRepositoryPath, verifyPathSnapshots } from './path-policy.js';
-import {
-  REPOSITORY_INSPECTION_POLICY_VERSION,
-  REPOSITORY_OBSERVATION_VERSION,
-  REPOSITORY_RISK_SCAN_PATTERN,
-  REPOSITORY_RISK_SCAN_SCOPE_VERSION,
-  createInspectionError,
-} from './types.js';
 import type {
   RepositoryInspectionError,
   RepositoryInspectionResult,
@@ -23,6 +15,13 @@ import type {
   RepositoryInspectorCreationResult,
   RepositoryInspectorOptions,
   RepositoryRiskSignal,
+} from './types.js';
+import {
+  createInspectionError,
+  REPOSITORY_INSPECTION_POLICY_VERSION,
+  REPOSITORY_OBSERVATION_VERSION,
+  REPOSITORY_RISK_SCAN_PATTERN,
+  REPOSITORY_RISK_SCAN_SCOPE_VERSION,
 } from './types.js';
 
 export interface RepositoryInspectorDependencies extends ConfigurationDependencies {

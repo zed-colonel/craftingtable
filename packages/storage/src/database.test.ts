@@ -2,7 +2,7 @@ import { statSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configureDatabase } from './database.js';
-import { temporaryStorage, type TemporaryStorage } from './test-support.js';
+import { type TemporaryStorage, temporaryStorage } from './test-support.js';
 
 const temporaries: TemporaryStorage[] = [];
 afterEach(() => {

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -141,23 +141,80 @@ describe('git operations', () => {
       { cwd: worktreePath },
     );
 
-    // Not on the target branch: refused before anything happens.
+    const scratch = (name: string): string => join(repo.root, 'scratch', name);
+
+    // The primary checkout is elsewhere, so main is merged in a scratch worktree
+    // and the operator's checkout is untouched, dirty or not.
     runFixtureGit(['checkout', '-q', '-b', 'elsewhere'], { cwd: repo.repository });
-    const wrongBranch = await operations.mergeBranch({
+    writeFileSync(join(repo.repository, 'dirty.txt'), 'dirty\n');
+    const viaScratch = await operations.mergeBranch({
       repositoryPath: repo.repository,
       branchName: 'ct/merge-1',
       targetBranch: 'main',
-      message: 'merge',
+      scratchPath: scratch('one'),
+      message: 'Merge ct/merge-1: feature',
     });
-    expect(!wrongBranch.ok && wrongBranch.failure.message).toMatch(/elsewhere/);
+    expect(viaScratch.ok, JSON.stringify(viaScratch)).toBe(true);
+    if (!viaScratch.ok) return;
+    expect(viaScratch.value.createdTarget).toBe(false);
+    expect(runFixtureGit(['rev-parse', 'main'], { cwd: repo.repository }).toString().trim()).toBe(
+      viaScratch.value.mergeSha,
+    );
+    expect(
+      runFixtureGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repo.repository })
+        .toString()
+        .trim(),
+    ).toBe('elsewhere');
+    expect(existsSync(join(repo.repository, 'dirty.txt'))).toBe(true);
+    expect(existsSync(scratch('one'))).toBe(false);
+    rmSync(join(repo.repository, 'dirty.txt'));
     runFixtureGit(['checkout', '-q', 'main'], { cwd: repo.repository });
 
-    // Dirty primary checkout: refused.
+    // A target that does not exist is created from the given branch.
+    writeFileSync(join(worktreePath, 'second.txt'), 'second\n');
+    runFixtureGit(['add', '--all'], { cwd: worktreePath });
+    runFixtureGit(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'second'],
+      { cwd: worktreePath },
+    );
+    const newTarget = await operations.mergeBranch({
+      repositoryPath: repo.repository,
+      branchName: 'ct/merge-1',
+      targetBranch: 'aq-cont-1',
+      createTargetFrom: 'main',
+      scratchPath: scratch('two'),
+      message: 'Merge ct/merge-1 into aq-cont-1',
+    });
+    expect(newTarget.ok, JSON.stringify(newTarget)).toBe(true);
+    if (!newTarget.ok) return;
+    expect(newTarget.value.createdTarget).toBe(true);
+    expect(
+      runFixtureGit(['rev-parse', 'aq-cont-1'], { cwd: repo.repository }).toString().trim(),
+    ).toBe(newTarget.value.mergeSha);
+    expect(
+      runFixtureGit(['log', '--oneline', 'aq-cont-1'], { cwd: repo.repository }).toString(),
+    ).toContain('second');
+    // main did not move.
+    expect(runFixtureGit(['rev-parse', 'main'], { cwd: repo.repository }).toString().trim()).toBe(
+      viaScratch.value.mergeSha,
+    );
+    const missingFrom = await operations.mergeBranch({
+      repositoryPath: repo.repository,
+      branchName: 'ct/merge-1',
+      targetBranch: 'brand-new',
+      createTargetFrom: 'no-such-branch',
+      scratchPath: scratch('three'),
+      message: 'merge',
+    });
+    expect(!missingFrom.ok && missingFrom.failure.message).toMatch(/no-such-branch/);
+
+    // Dirty primary checkout on the target: refused.
     writeFileSync(join(repo.repository, 'dirty.txt'), 'dirty\n');
     const dirty = await operations.mergeBranch({
       repositoryPath: repo.repository,
       branchName: 'ct/merge-1',
       targetBranch: 'main',
+      scratchPath: scratch('four'),
       message: 'merge',
     });
     expect(!dirty.ok && dirty.failure.message).toMatch(/uncommitted/);
@@ -168,14 +225,29 @@ describe('git operations', () => {
       repositoryPath: repo.repository,
       branchName: '--upload-pack=evil',
       targetBranch: 'main',
+      scratchPath: scratch('five'),
       message: 'merge',
     });
     expect(!hostile.ok && hostile.failure.kind).toBe('invalid-path');
 
+    const listing = await operations.listBranches(repo.repository);
+    expect(listing.ok && listing.value).toEqual({
+      branches: ['aq-cont-1', 'ct/merge-1', 'elsewhere', 'main'],
+      checkedOut: 'main',
+    });
+
+    // Merging into the checked-out target happens in the primary checkout.
+    writeFileSync(join(worktreePath, 'third.txt'), 'third\n');
+    runFixtureGit(['add', '--all'], { cwd: worktreePath });
+    runFixtureGit(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'third'],
+      { cwd: worktreePath },
+    );
     const merged = await operations.mergeBranch({
       repositoryPath: repo.repository,
       branchName: 'ct/merge-1',
       targetBranch: 'main',
+      scratchPath: scratch('six'),
       message: 'Merge ct/merge-1: feature',
     });
     expect(merged.ok).toBe(true);
@@ -196,9 +268,17 @@ describe('git operations', () => {
     expect(
       (await operations.removeWorktree({ repositoryPath: repo.repository, worktreePath })).ok,
     ).toBe(true);
+    // Not merged into the named branch: refused; merged: deleted.
+    const notMerged = await operations.deleteBranch({
+      repositoryPath: repo.repository,
+      branchName: 'ct/merge-1',
+      mergedInto: 'elsewhere',
+    });
+    expect(!notMerged.ok && notMerged.failure.message).toMatch(/not merged/);
     const deleted = await operations.deleteBranch({
       repositoryPath: repo.repository,
       branchName: 'ct/merge-1',
+      mergedInto: 'main',
     });
     expect(deleted.ok).toBe(true);
     expect(
@@ -206,8 +286,13 @@ describe('git operations', () => {
     ).toBe('');
     // Deleting it again is not an error.
     expect(
-      (await operations.deleteBranch({ repositoryPath: repo.repository, branchName: 'ct/merge-1' }))
-        .ok,
+      (
+        await operations.deleteBranch({
+          repositoryPath: repo.repository,
+          branchName: 'ct/merge-1',
+          mergedInto: 'main',
+        })
+      ).ok,
     ).toBe(true);
   });
 
@@ -239,6 +324,7 @@ describe('git operations', () => {
       repositoryPath: repo.repository,
       branchName: 'ct/conflict-1',
       targetBranch: 'main',
+      scratchPath: join(repo.root, 'scratch', 'conflict'),
       message: 'merge',
     });
     expect(!conflict.ok && conflict.failure.kind).toBe('merge-conflict');
@@ -246,6 +332,26 @@ describe('git operations', () => {
       mainHead,
     );
     expect(runFixtureGit(['status', '--porcelain'], { cwd: repo.repository }).toString()).toBe('');
+
+    // The same conflict through a scratch worktree leaves no trace either, and
+    // a target created for the attempt is removed again.
+    runFixtureGit(['checkout', '-q', '-b', 'elsewhere'], { cwd: repo.repository });
+    const scratchConflict = await operations.mergeBranch({
+      repositoryPath: repo.repository,
+      branchName: 'ct/conflict-1',
+      targetBranch: 'new-target',
+      createTargetFrom: 'main',
+      scratchPath: join(repo.root, 'scratch', 'conflict-2'),
+      message: 'merge',
+    });
+    expect(!scratchConflict.ok && scratchConflict.failure.kind).toBe('merge-conflict');
+    expect(existsSync(join(repo.root, 'scratch', 'conflict-2'))).toBe(false);
+    expect(
+      runFixtureGit(['branch', '--list', 'new-target'], { cwd: repo.repository }).toString().trim(),
+    ).toBe('');
+    expect(runFixtureGit(['rev-parse', 'main'], { cwd: repo.repository }).toString()).toBe(
+      mainHead,
+    );
   });
 
   it('reports git failures without throwing', async () => {

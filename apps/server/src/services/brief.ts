@@ -44,8 +44,24 @@ export interface BriefInput {
   };
   readonly planDocuments: readonly BriefPlanDocument[];
   readonly instructions?: string;
-  readonly parentRunSummary?: string;
+  /** The run this one continues from, with its final message. */
+  readonly parentRun?: BriefParentRun;
 }
+
+export interface BriefParentRun {
+  readonly role: AgentRunRole;
+  readonly verdict?: 'mergeable' | 'changes-requested';
+  /** The parent's final message: a review's findings, an implementation's summary. */
+  readonly finalMessage: string;
+}
+
+const REMEDIATION_INSTRUCTIONS = [
+  'This run remediates a review. The review findings are reproduced below, numbered as the',
+  'reviewer wrote them. Work through every finding: fix it, or if you disagree explain',
+  'precisely why in your final message. Run the quality checks, commit on this branch,',
+  'and finish with a disposition for each finding (fixed, disagreed, or deferred with a',
+  'reason) followed by your usual summary.',
+].join(' ');
 
 const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
   implement: [
@@ -160,8 +176,22 @@ export function composeBrief(input: BriefInput): string {
       '```',
     ].join('\n'),
   );
-  if (input.parentRunSummary !== undefined && input.parentRunSummary.length > 0) {
-    sections.push(`## Previous run\n\n${input.parentRunSummary}`);
+  const parent = input.parentRun;
+  if (parent !== undefined && parent.finalMessage.trim().length > 0) {
+    if (parent.role === 'review' && input.role === 'implement') {
+      sections.push(`## Remediation\n\n${REMEDIATION_INSTRUCTIONS}`);
+      sections.push(
+        `## Review findings to address${
+          parent.verdict === undefined ? '' : ` (verdict: ${parent.verdict})`
+        }\n\n${parent.finalMessage.trim()}`,
+      );
+    } else if (parent.role === 'implement' && input.role === 'review') {
+      sections.push(
+        `## The implementation run's own summary\n\nTreat this as a claim to verify, not as evidence.\n\n${parent.finalMessage.trim()}`,
+      );
+    } else {
+      sections.push(`## Previous ${parent.role} run\n\n${parent.finalMessage.trim()}`);
+    }
   }
   if (input.instructions !== undefined && input.instructions.trim().length > 0) {
     sections.push(`## Operator instructions\n\n${input.instructions.trim()}`);

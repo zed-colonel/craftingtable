@@ -6,6 +6,7 @@ import type {
   PlanImportResponse,
   PlanVersionDetailResponse,
   ProjectDetailResponse,
+  RepositoryBranchesResponse,
   RunEventEnvelope,
   SessionSummary,
   SourceRepositorySummary,
@@ -68,6 +69,7 @@ import {
   endRun,
   loadExecutionStatus,
   loadRepositories,
+  loadRepositoryBranches,
   loadRun,
   loadRunEvents,
   loadWorkItemExecution,
@@ -174,6 +176,7 @@ export function App() {
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatusResponse>();
   const [workItemExecution, setWorkItemExecution] = useState<WorkItemExecutionResponse>();
   const [runsOverview, setRunsOverview] = useState<WorkspaceRunsResponse>();
+  const [branches, setBranches] = useState<RepositoryBranchesResponse>();
   const [agenda, setAgenda] = useState<WorkspaceWorkItemListResponse>();
   const [run, setRun] = useState<AgentRunDetailResponse>();
   const [runEvents, setRunEvents] = useState<readonly RunEventEnvelope[]>([]);
@@ -216,6 +219,7 @@ export function App() {
     setRepositories([]);
     setWorkItemExecution(undefined);
     setRunsOverview(undefined);
+    setBranches(undefined);
     setAgenda(undefined);
     setRun(undefined);
     setRunEvents([]);
@@ -759,10 +763,37 @@ export function App() {
       await removeWorktree(forWorkspace, worktreeId, csrfToken);
       setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
     });
-  const handleMergeWorktree = (worktreeId: WorktreeId): void =>
+  const handleMergeWorktree = (worktreeId: WorktreeId, targetBranch: string): void =>
     executionCommand(async (csrfToken, forWorkspace) => {
-      await mergeWorktree(forWorkspace, worktreeId, csrfToken);
+      await mergeWorktree(forWorkspace, worktreeId, { targetBranch }, csrfToken);
       setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
+    });
+  const handleLoadBranches = (repositoryId: SourceRepositoryId): void => {
+    if (workspaceId === undefined) {
+      return;
+    }
+    const requestedFor = workspaceId;
+    void loadRepositoryBranches(workspaceId, repositoryId)
+      .then((response) => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setBranches(response);
+        }
+      })
+      .catch(() => undefined);
+  };
+  /** An implement run in the same worktree, seeded with a review's findings. */
+  const handleRemediate = (review: {
+    id: AgentRunId;
+    workItemId: WorkItemId;
+    worktreeId: WorktreeId;
+    model?: string;
+  }): void =>
+    handleLaunch(review.workItemId, {
+      worktreeId: review.worktreeId,
+      role: 'implement',
+      permissionMode: 'auto',
+      ...(review.model === undefined ? {} : { model: review.model }),
+      parentRunId: review.id,
     });
   const handleLaunch = (workItemId: WorkItemId, input: LaunchInput): void =>
     executionCommand(async (csrfToken, forWorkspace) => {
@@ -1101,6 +1132,8 @@ export function App() {
                 worktrees={workItemExecution.worktrees}
                 runs={workItemExecution.runs}
                 mergeGates={workItemExecution.mergeGates}
+                {...(branches === undefined ? {} : { branches })}
+                models={executionStatus?.backends.flatMap((backend) => backend.models) ?? []}
                 itemCompleted={workItem.workItem.status === 'completed'}
                 canMutate={canMutate}
                 busy={executionBusy}
@@ -1113,7 +1146,9 @@ export function App() {
                 }
                 onRemoveWorktree={handleRemoveWorktree}
                 onMergeWorktree={handleMergeWorktree}
+                onLoadBranches={handleLoadBranches}
                 onLaunch={(input) => handleLaunch(workItem.workItem.id, input)}
+                onRemediate={handleRemediate}
                 onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
                 onOpenDiff={handleLoadDiff}
               />
@@ -1154,6 +1189,9 @@ export function App() {
             }
             onLoadDiff={() => handleLoadDiff(run.worktree.id)}
             onCloseDiff={() => setDiff(undefined)}
+            {...(canMutate && run.worktree.status === 'active'
+              ? { onRemediate: () => handleRemediate(run.run) }
+              : {})}
           />
         )}
 

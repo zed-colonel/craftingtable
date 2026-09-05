@@ -8,9 +8,9 @@ import {
   asWorkspaceMembershipId,
 } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
-import { temporaryStorage } from './test-support.js';
-import { openCraftingTableStorage } from './storage.js';
 import { repositoryRegistrationInspection } from './repository-test-support.js';
+import { openCraftingTableStorage } from './storage.js';
+import { temporaryStorage } from './test-support.js';
 
 describe('snapshot consistency', () => {
   it('B1-REGRESS-002 keeps a mixed legacy/repository activity cursor in one snapshot', () => {

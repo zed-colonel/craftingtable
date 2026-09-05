@@ -8,6 +8,7 @@ import {
   registerSourceRepositoryResponseSchema,
   removeWorktreeRequestSchema,
   removeWorktreeResponseSchema,
+  repositoryBranchesResponseSchema,
   retireSourceRepositoryRequestSchema,
   retireSourceRepositoryResponseSchema,
   sourceRepositoryIdSchema,
@@ -108,6 +109,25 @@ export function registerExecutionRoutes(
         request.id,
       );
       return noStore(reply).send(retireSourceRepositoryResponseSchema.parse(result));
+    },
+  );
+
+  app.get<{ Params: { workspaceId: string; repositoryId: string } }>(
+    '/api/workspaces/:workspaceId/repositories/:repositoryId/branches',
+    async (request, reply) => {
+      const context = authenticate(request, authService);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const repositoryId = sourceRepositoryIdSchema.safeParse(request.params.repositoryId);
+      if (!workspaceId.success || !repositoryId.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      const listing = await executionService.listBranches(
+        context,
+        workspaceId.data,
+        repositoryId.data,
+        request.id,
+      );
+      return noStore(reply).send(repositoryBranchesResponseSchema.parse(listing));
     },
   );
 
@@ -221,13 +241,15 @@ export function registerExecutionRoutes(
       if (!workspaceId.success || !worktreeId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      if (!mergeWorktreeRequestSchema.safeParse(request.body ?? {}).success) {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid request');
+      const body = mergeWorktreeRequestSchema.safeParse(request.body ?? {});
+      if (!body.success) {
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid merge request');
       }
       const result = await executionService.mergeWorktree(
         context,
         workspaceId.data,
         worktreeId.data,
+        body.data,
         request.id,
       );
       return noStore(reply).send(mergeWorktreeResponseSchema.parse(result));

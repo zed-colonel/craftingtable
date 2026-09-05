@@ -6,13 +6,13 @@ import {
   reduceRepositoryState,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
-import { seedPlan, seedWorkspace, SEED_NOW } from './planning-test-support.js';
+import { SEED_NOW, seedPlan, seedWorkspace } from './planning-test-support.js';
 import {
   repositoryRegistrationInspection,
   serializeRepositoryObservation,
 } from './repository-test-support.js';
 import { verifyExactUtf8Sha256 } from './repository-types.js';
-import { temporaryStorage, type TemporaryStorage } from './test-support.js';
+import { type TemporaryStorage, temporaryStorage } from './test-support.js';
 
 const temporaries: TemporaryStorage[] = [];
 const STATUS_NOW = '2026-07-24T00:00:00.001Z';

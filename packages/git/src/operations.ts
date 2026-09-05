@@ -101,22 +101,37 @@ export interface GitOperations {
     readonly baseSha: string;
     readonly maxPatchBytes: number;
   }): Promise<GitResult<WorktreeDiff>>;
+  /** Local branches, and the one the primary checkout has checked out. */
+  listBranches(repositoryPath: string): Promise<GitResult<BranchListing>>;
   /**
-   * Merges `branchName` into `targetBranch` in the primary checkout with a
-   * merge commit. Requires the checkout to be on `targetBranch` and clean; a
-   * conflicting merge is aborted and reported, leaving the checkout as it was.
+   * Merges `branchName` into `targetBranch` with a merge commit.
+   *
+   * When the primary checkout has the target checked out the merge happens
+   * there and the checkout must be clean. Otherwise the merge happens in a
+   * temporary worktree at `scratchPath`, so the primary checkout is never
+   * touched; a missing target is created from `createTargetFrom` first. A
+   * conflicting merge is aborted and reported, leaving everything as it was.
    */
   mergeBranch(input: {
     readonly repositoryPath: string;
     readonly branchName: string;
     readonly targetBranch: string;
+    /** A branch name or object name to start a missing target from. */
+    readonly createTargetFrom?: string;
+    readonly scratchPath: string;
     readonly message: string;
-  }): Promise<GitResult<{ readonly mergeSha: string }>>;
-  /** Deletes a fully merged local branch; a missing branch is not an error. */
+  }): Promise<GitResult<{ readonly mergeSha: string; readonly createdTarget: boolean }>>;
+  /** Deletes a branch already merged into `mergedInto`; a missing branch is not an error. */
   deleteBranch(input: {
     readonly repositoryPath: string;
     readonly branchName: string;
+    readonly mergedInto: string;
   }): Promise<GitResult<undefined>>;
+}
+
+export interface BranchListing {
+  readonly branches: readonly string[];
+  readonly checkedOut?: string;
 }
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
@@ -596,35 +611,74 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     };
   }
 
-  async function mergeBranch(input: {
-    readonly repositoryPath: string;
-    readonly branchName: string;
-    readonly targetBranch: string;
-    readonly message: string;
-  }): Promise<GitResult<{ readonly mergeSha: string }>> {
-    const repository = await canonicalDirectory(input.repositoryPath);
+  interface WorktreeEntry {
+    readonly path: string;
+    readonly branch?: string;
+  }
+
+  /** `git worktree list --porcelain`: the first entry is the primary checkout. */
+  async function listWorktrees(cwd: string): Promise<GitResult<readonly WorktreeEntry[]>> {
+    const listed = await runOk(['worktree', 'list', '--porcelain'], cwd);
+    if (!listed.ok) return listed;
+    const entries: WorktreeEntry[] = [];
+    let current: { path?: string; branch?: string } = {};
+    for (const line of listed.value.stdout.toString('utf8').split('\n')) {
+      if (line.startsWith('worktree ')) {
+        current = { path: line.slice('worktree '.length) };
+      } else if (line.startsWith('branch refs/heads/')) {
+        current.branch = line.slice('branch refs/heads/'.length);
+      } else if (line.length === 0 && current.path !== undefined) {
+        entries.push({
+          path: current.path,
+          ...(current.branch === undefined ? {} : { branch: current.branch }),
+        });
+        current = {};
+      }
+    }
+    if (current.path !== undefined) {
+      entries.push({
+        path: current.path,
+        ...(current.branch === undefined ? {} : { branch: current.branch }),
+      });
+    }
+    return { ok: true, value: entries };
+  }
+
+  async function branchExists(cwd: string, branchName: string): Promise<GitResult<boolean>> {
+    const result = await run(['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`], cwd);
+    if (!result.ok) return result;
+    return { ok: true, value: result.value.exitCode === 0 };
+  }
+
+  async function listBranches(repositoryPath: string): Promise<GitResult<BranchListing>> {
+    const repository = await canonicalDirectory(repositoryPath);
     if (!repository.ok) return repository;
-    if (!isSafeBranchName(input.branchName) || !isSafeBranchName(input.targetBranch)) {
-      return fail('invalid-path', 'Branch names must be well formed');
-    }
-    const cwd = repository.value;
-    const current = await runOk(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
-    if (!current.ok) return current;
-    const checkedOut = current.value.stdout.toString('utf8').trim();
-    if (checkedOut !== input.targetBranch) {
-      return fail(
-        'git-failed',
-        `The primary checkout is on ${checkedOut}, not ${input.targetBranch}; check out ${input.targetBranch} first`,
-      );
-    }
-    const status = await runOk(['status', '--porcelain', '-z'], cwd);
-    if (!status.ok) return status;
-    if (status.value.stdout.byteLength > 0) {
-      return fail(
-        'git-failed',
-        'The primary checkout has uncommitted changes; commit or stash them before merging',
-      );
-    }
+    const listed = await runOk(
+      ['for-each-ref', '--format=%(refname:short)', '--sort=refname', 'refs/heads/'],
+      repository.value,
+    );
+    if (!listed.ok) return listed;
+    const worktrees = await listWorktrees(repository.value);
+    if (!worktrees.ok) return worktrees;
+    const branches = listed.value.stdout
+      .toString('utf8')
+      .split('\n')
+      .filter((name) => name.length > 0);
+    const primary = worktrees.value[0];
+    return {
+      ok: true,
+      value: {
+        branches,
+        ...(primary?.branch === undefined ? {} : { checkedOut: primary.branch }),
+      },
+    };
+  }
+
+  /** Runs the merge in `cwd`; on any failure the merge is aborted so `cwd` is left as it was. */
+  async function mergeInto(
+    cwd: string,
+    input: { readonly branchName: string; readonly message: string },
+  ): Promise<GitResult<{ readonly mergeSha: string }>> {
     const merged = await run(
       ['merge', '--no-ff', '--no-edit', '-m', input.message, '--', input.branchName],
       cwd,
@@ -633,13 +687,12 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     if (merged.value.exitCode !== 0) {
       const stderr = merged.value.stderr.toString('utf8');
       const stdout = merged.value.stdout.toString('utf8');
-      // Leave the checkout exactly as it was; a half-merged tree is worse than a refusal.
       await run(['merge', '--abort'], cwd);
       const conflict = /CONFLICT|Automatic merge failed/.test(`${stdout}\n${stderr}`);
       return fail(
         conflict ? 'merge-conflict' : 'git-failed',
         conflict
-          ? `Merging ${input.branchName} into ${input.targetBranch} conflicts; resolve it by hand`
+          ? `Merging ${input.branchName} conflicts; resolve it by hand`
           : `git merge failed: ${stderr.trim().split('\n').at(-1) ?? 'unknown error'}`,
         { ...(merged.value.exitCode === null ? {} : { exitCode: merged.value.exitCode }), stderr },
       );
@@ -649,24 +702,139 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     return { ok: true, value: { mergeSha: head.value.stdout.toString('utf8').trim() } };
   }
 
+  async function mergeBranch(input: {
+    readonly repositoryPath: string;
+    readonly branchName: string;
+    readonly targetBranch: string;
+    readonly createTargetFrom?: string;
+    readonly scratchPath: string;
+    readonly message: string;
+  }): Promise<GitResult<{ readonly mergeSha: string; readonly createdTarget: boolean }>> {
+    const repository = await canonicalDirectory(input.repositoryPath);
+    if (!repository.ok) return repository;
+    if (!isSafeBranchName(input.branchName) || !isSafeBranchName(input.targetBranch)) {
+      return fail('invalid-path', 'Branch names must be well formed');
+    }
+    if (input.branchName === input.targetBranch) {
+      return fail('invalid-path', 'A branch cannot be merged into itself');
+    }
+    if (!isAbsolute(input.scratchPath) || input.scratchPath.includes('\0')) {
+      return fail('invalid-path', 'Scratch path must be absolute');
+    }
+    const cwd = repository.value;
+    const exists = await branchExists(cwd, input.targetBranch);
+    if (!exists.ok) return exists;
+    const createdTarget = !exists.value;
+    if (createdTarget) {
+      const from = input.createTargetFrom;
+      if (from === undefined || !(SHA_PATTERN.test(from) || isSafeBranchName(from))) {
+        return fail('git-failed', `Branch ${input.targetBranch} does not exist`);
+      }
+      const fromExists = SHA_PATTERN.test(from)
+        ? { ok: true as const, value: true }
+        : await branchExists(cwd, from);
+      if (!fromExists.ok) return fromExists;
+      if (!fromExists.value) {
+        return fail(
+          'git-failed',
+          `Branch ${from} does not exist to start ${input.targetBranch} from`,
+        );
+      }
+    }
+    const worktrees = await listWorktrees(cwd);
+    if (!worktrees.ok) return worktrees;
+    const primary = worktrees.value[0];
+    const holder = worktrees.value.find((entry) => entry.branch === input.targetBranch);
+
+    if (!createdTarget && holder !== undefined && primary !== undefined && holder === primary) {
+      // The target is what the primary checkout has checked out: merge there,
+      // which needs it clean so the operator's working tree is never mixed in.
+      const status = await runOk(['status', '--porcelain', '-z'], cwd);
+      if (!status.ok) return status;
+      if (status.value.stdout.byteLength > 0) {
+        return fail(
+          'git-failed',
+          `The primary checkout is on ${input.targetBranch} with uncommitted changes; commit or stash them before merging`,
+        );
+      }
+      const merged = await mergeInto(cwd, input);
+      if (!merged.ok) return merged;
+      return { ok: true, value: { mergeSha: merged.value.mergeSha, createdTarget } };
+    }
+    if (holder !== undefined) {
+      return fail(
+        'git-failed',
+        `Branch ${input.targetBranch} is checked out in another worktree (${holder.path})`,
+      );
+    }
+
+    // Otherwise merge in a scratch worktree so the primary checkout is untouched
+    // whatever branch it is on and whatever state it is in.
+    try {
+      await mkdir(dirname(input.scratchPath), { recursive: true, mode: 0o700 });
+    } catch (error) {
+      return fail('invalid-path', error instanceof Error ? error.message : 'mkdir failed');
+    }
+    const added = await runOk(
+      createdTarget
+        ? [
+            'worktree',
+            'add',
+            '-b',
+            input.targetBranch,
+            '--',
+            input.scratchPath,
+            input.createTargetFrom as string,
+          ]
+        : ['worktree', 'add', '--', input.scratchPath, input.targetBranch],
+      cwd,
+    );
+    if (!added.ok) return added;
+    const merged = await mergeInto(input.scratchPath, input);
+    // The scratch worktree is temporary either way; the branch keeps the commit.
+    const removed = await runOk(['worktree', 'remove', '--force', '--', input.scratchPath], cwd);
+    if (!merged.ok) {
+      if (createdTarget) {
+        await run(['branch', '-D', '--', input.targetBranch], cwd);
+      }
+      return merged;
+    }
+    if (!removed.ok) return removed;
+    return { ok: true, value: { mergeSha: merged.value.mergeSha, createdTarget } };
+  }
+
+  /**
+   * Deletes a branch that has been merged into `mergedInto`. Checked with
+   * merge-base rather than `branch -d`, whose notion of "merged" is relative
+   * to whatever the primary checkout happens to have checked out.
+   */
   async function deleteBranch(input: {
     readonly repositoryPath: string;
     readonly branchName: string;
+    readonly mergedInto: string;
   }): Promise<GitResult<undefined>> {
     const repository = await canonicalDirectory(input.repositoryPath);
     if (!repository.ok) return repository;
-    if (!isSafeBranchName(input.branchName)) {
-      return fail('invalid-path', 'Branch name must be well formed');
+    if (!isSafeBranchName(input.branchName) || !isSafeBranchName(input.mergedInto)) {
+      return fail('invalid-path', 'Branch names must be well formed');
     }
-    const exists = await run(
-      ['show-ref', '--verify', '--quiet', `refs/heads/${input.branchName}`],
-      repository.value,
-    );
+    const exists = await branchExists(repository.value, input.branchName);
     if (!exists.ok) return exists;
-    if (exists.value.exitCode !== 0) {
+    if (!exists.value) {
       return { ok: true, value: undefined };
     }
-    const deleted = await runOk(['branch', '-d', '--', input.branchName], repository.value);
+    const ancestor = await run(
+      ['merge-base', '--is-ancestor', input.branchName, input.mergedInto],
+      repository.value,
+    );
+    if (!ancestor.ok) return ancestor;
+    if (ancestor.value.exitCode !== 0) {
+      return fail(
+        'git-failed',
+        `Branch ${input.branchName} is not merged into ${input.mergedInto}`,
+      );
+    }
+    const deleted = await runOk(['branch', '-D', '--', input.branchName], repository.value);
     if (!deleted.ok) return deleted;
     return { ok: true, value: undefined };
   }
@@ -676,6 +844,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     createWorktree,
     removeWorktree,
     worktreeDiff,
+    listBranches,
     mergeBranch,
     deleteBranch,
   };

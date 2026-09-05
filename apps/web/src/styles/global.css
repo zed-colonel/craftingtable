@@ -1183,6 +1183,25 @@ button:disabled {
   color: var(--color-text-secondary);
 }
 
+.outcome-details > summary {
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  max-width: 420px;
+}
+
+.outcome-full {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-ui);
+  max-height: 360px;
+  overflow: auto;
+}
+
+.merge-form {
+  margin-top: var(--space-2);
+  align-items: center;
+}
+
 .run-header-meta {
   display: flex;
   gap: var(--space-3);

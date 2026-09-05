@@ -5,15 +5,15 @@ import {
   createParsedObservation,
   parseRecordedObservation,
 } from '../src/comparison.js';
-import {
-  ALL_REPOSITORY_INSPECTION_ERROR_CODES,
-  REPOSITORY_INSPECTION_ERROR_SUBJECTS,
-  REPOSITORY_RISK_SCAN_PATTERN,
-} from '../src/index.js';
 import type {
   ParsedRepositoryObservation,
   RepositoryObservationShape,
   RepositoryRiskSignal,
+} from '../src/index.js';
+import {
+  ALL_REPOSITORY_INSPECTION_ERROR_CODES,
+  REPOSITORY_INSPECTION_ERROR_SUBJECTS,
+  REPOSITORY_RISK_SCAN_PATTERN,
 } from '../src/index.js';
 
 function observation(

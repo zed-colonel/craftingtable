@@ -60,9 +60,15 @@ trigger on `work_items` stays in force; a completed predecessor unblocks its dep
 A worktree's merge gate is computed from its runs (`mergeGateFor` in the execution
 service): mergeable when the most recent run is a review with a `mergeable` verdict and
 nothing is live. The single merge route re-evaluates the gate, merges with a merge
-commit into the repository's default branch in the primary checkout (which must be on
-that branch and clean), removes the worktree, deletes the branch, and completes the work
-item in one transaction. See ADR-021.
+commit into the branch the operator names (default: the repository's default branch;
+a missing branch is created from it), removes the worktree, deletes the branch, and
+completes the work item in one transaction. The merge happens in the primary checkout
+only when that checkout already has the target checked out; otherwise it runs in a
+scratch worktree under the worktree root. See ADR-021.
+
+A run started with `parentRunId` receives the parent's final message from the journal
+in its brief: an implement run after a review gets the findings to remediate, a review
+after an implement run gets the implementation's own summary as a claim to verify.
 
 ## Agent backend seam
 

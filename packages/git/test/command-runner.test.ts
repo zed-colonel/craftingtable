@@ -14,9 +14,9 @@ import {
 } from '../src/environment.js';
 import { parseIdentityOutcome, parseRiskSignalOutcome } from '../src/repository-inspector.js';
 import {
-  GIT_EXECUTABLE,
   canonicalPathForTest,
   createRepositoryFixture,
+  GIT_EXECUTABLE,
   gitCeilingDirectoryForTest,
   makeExecutableProxy,
 } from './test-support.js';

@@ -34,6 +34,8 @@ export interface ExecutionConfig {
   readonly runsRoot: string;
   /** Upper bound on a single diff response's patch text. */
   readonly maxPatchBytes: number;
+  /** `id=Label,id=Label` model options for the launch form; absent means the built-in list. */
+  readonly claudeModels?: string;
 }
 
 export interface TlsConfig {
@@ -323,6 +325,9 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
     ...(claudeExecutable === undefined ? {} : { claudeExecutable }),
     worktreeRoot,
     runsRoot,
+    ...(env.CRAFTINGTABLE_CLAUDE_MODELS === undefined
+      ? {}
+      : { claudeModels: env.CRAFTINGTABLE_CLAUDE_MODELS }),
     maxPatchBytes: boundedInteger(
       env.CRAFTINGTABLE_DIFF_LIMIT_BYTES,
       4 * 1024 * 1024,

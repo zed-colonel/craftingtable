@@ -63,10 +63,18 @@ export interface AgentSession {
   kill(): void;
 }
 
+export interface AgentModelOption {
+  /** The identifier handed to the backend, an alias or a full model id. */
+  readonly id: string;
+  readonly label: string;
+}
+
 export interface AgentBackendDescriptor {
   readonly kind: AgentBackendKind;
   readonly label: string;
   readonly executable: string;
+  /** Models the operator can pick from; the backend's own default is always allowed too. */
+  readonly models: readonly AgentModelOption[];
 }
 
 export interface AgentBackend {
@@ -85,6 +93,7 @@ export class AgentLaunchError extends Error {
   }
 }
 
-export { ClaudeCodeBackend, resolveClaudeExecutable } from './claude-code/backend.js';
 export { claudeCodeArguments, claudeUserMessageLine } from './claude-code/arguments.js';
+export { ClaudeCodeBackend, resolveClaudeExecutable } from './claude-code/backend.js';
+export { CLAUDE_CODE_MODELS, parseModelList } from './claude-code/models.js';
 export { ClaudeStreamNormalizer } from './claude-code/normalize.js';

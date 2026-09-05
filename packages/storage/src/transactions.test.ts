@@ -6,7 +6,7 @@ import {
   asWorkspaceMembershipId,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
-import { temporaryStorage, type TemporaryStorage } from './test-support.js';
+import { type TemporaryStorage, temporaryStorage } from './test-support.js';
 
 const temporaries: TemporaryStorage[] = [];
 afterEach(() => {

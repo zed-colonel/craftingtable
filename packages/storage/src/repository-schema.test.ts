@@ -15,9 +15,9 @@ import {
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from './database.js';
-import { seedPlan, seedWorkspace, SEED_NOW } from './planning-test-support.js';
+import { SEED_NOW, seedPlan, seedWorkspace } from './planning-test-support.js';
 import { repositoryRegistrationInspection } from './repository-test-support.js';
-import { temporaryStorage, type TemporaryStorage } from './test-support.js';
+import { type TemporaryStorage, temporaryStorage } from './test-support.js';
 
 const temporaries: TemporaryStorage[] = [];
 const databases: Database.Database[] = [];

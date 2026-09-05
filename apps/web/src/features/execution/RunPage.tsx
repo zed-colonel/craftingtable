@@ -158,6 +158,7 @@ export function RunPage({
   onOpenWorkItem,
   onLoadDiff,
   onCloseDiff,
+  onRemediate,
 }: {
   detail: AgentRunDetailResponse;
   events: readonly RunEventEnvelope[];
@@ -172,6 +173,8 @@ export function RunPage({
   onOpenWorkItem: () => void;
   onLoadDiff: () => void;
   onCloseDiff: () => void;
+  /** Present when this review's findings can be handed to an implement run. */
+  onRemediate?: () => void;
 }) {
   const { run, worktree } = detail;
   const live = isLiveStatus(run.status);
@@ -276,6 +279,17 @@ export function RunPage({
           <button type="button" className="secondary-button" onClick={onLoadDiff}>
             {diff === undefined ? 'View diff' : 'Refresh diff'}
           </button>
+          {onRemediate !== undefined && run.role === 'review' && run.verdict !== undefined && (
+            <button
+              type="button"
+              className="primary-button"
+              onClick={onRemediate}
+              disabled={busy}
+              title="Launch an implement run in this worktree with these findings as its brief"
+            >
+              Remediate findings
+            </button>
+          )}
           {live && canMutate && (
             <>
               <button type="button" className="secondary-button" onClick={onEnd} disabled={busy}>

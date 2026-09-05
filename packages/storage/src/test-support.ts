@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { CraftingTableStorage } from './types.js';
 import { openCraftingTableStorage } from './storage.js';
+import type { CraftingTableStorage } from './types.js';
 
 export interface TemporaryStorage {
   readonly directory: string;

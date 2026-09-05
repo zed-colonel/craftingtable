@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, symlinkSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -10,8 +10,8 @@ import {
 } from '../src/configuration.js';
 import { createRepositoryInspector } from '../src/index.js';
 import {
-  GIT_EXECUTABLE,
   createRepositoryFixture,
+  GIT_EXECUTABLE,
   makeExecutableProxy,
   repositoryInspectorOptions,
 } from './test-support.js';

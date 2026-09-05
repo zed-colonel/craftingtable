@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   normalizeRepositoryErrorEvidence,
-  reduceRepositoryState,
   REPOSITORY_STATUSES,
   type RepositoryObservationAssessment,
+  reduceRepositoryState,
 } from './repository.js';
 
 describe('repository state reducer', () => {

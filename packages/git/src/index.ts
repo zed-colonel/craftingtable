@@ -13,9 +13,8 @@ export {
   compareRepositoryObservations,
   parseRecordedObservation,
 } from './comparison.js';
-export { createRepositoryInspector } from './repository-inspector.js';
-export { createGitOperations } from './operations.js';
 export type {
+  BranchListing,
   DiffCommit,
   DiffFile,
   DiffFileStatus,
@@ -27,15 +26,8 @@ export type {
   RepositoryIdentity,
   WorktreeDiff,
 } from './operations.js';
-export {
-  ALL_REPOSITORY_INSPECTION_ERROR_CODES,
-  REPOSITORY_INSPECTION_ERROR_SUBJECTS,
-  REPOSITORY_INSPECTION_POLICY_VERSION,
-  REPOSITORY_OBSERVATION_VERSION,
-  REPOSITORY_RISK_SCAN_PATTERN,
-  REPOSITORY_RISK_SCAN_SCOPE_VERSION,
-  REPOSITORY_RISK_SIGNALS,
-} from './types.js';
+export { createGitOperations } from './operations.js';
+export { createRepositoryInspector } from './repository-inspector.js';
 export type {
   CoreEvidenceDifference,
   EnvironmentalEvidenceDifference,
@@ -48,14 +40,23 @@ export type {
   RepositoryInspectionOperation,
   RepositoryInspectionRequest,
   RepositoryInspectionResult,
+  RepositoryInspectionRetryability,
   RepositoryInspector,
   RepositoryInspectorCreationResult,
   RepositoryInspectorOptions,
-  RepositoryInspectionRetryability,
   RepositoryObservationComparison,
   RepositoryObservationComparisonResult,
   RepositoryObservationShape,
   RepositoryRiskScanObservation,
   RepositoryRiskSignal,
   RiskScanDifference,
+} from './types.js';
+export {
+  ALL_REPOSITORY_INSPECTION_ERROR_CODES,
+  REPOSITORY_INSPECTION_ERROR_SUBJECTS,
+  REPOSITORY_INSPECTION_POLICY_VERSION,
+  REPOSITORY_OBSERVATION_VERSION,
+  REPOSITORY_RISK_SCAN_PATTERN,
+  REPOSITORY_RISK_SCAN_SCOPE_VERSION,
+  REPOSITORY_RISK_SIGNALS,
 } from './types.js';

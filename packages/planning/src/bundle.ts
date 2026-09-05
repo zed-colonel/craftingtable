@@ -4,7 +4,6 @@ import {
   REPEATABLE_PLAN_ARTIFACT_ROLES,
   REQUIRED_PLAN_ARTIFACT_ROLES,
 } from '@craftingtable/domain';
-import { type BundleDigest, computeBundleDigest, sha256Hex } from './digest.js';
 import {
   countBySeverity,
   error,
@@ -13,6 +12,7 @@ import {
   sortDiagnostics,
   warning,
 } from './diagnostics.js';
+import { type BundleDigest, computeBundleDigest, sha256Hex } from './digest.js';
 import { analyzePlanGraph, type PlanGraph } from './graph.js';
 import {
   ACCEPTED_DECLARED_MEDIA_TYPES,

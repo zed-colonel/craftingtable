@@ -132,8 +132,14 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await page.getByRole('button', { name: 'Work item' }).click();
     await expect(page.getByText('Reviewed and mergeable')).toBeVisible();
 
+    // A review with a verdict can be handed straight to a remediation run.
+    await expect(page.getByRole('button', { name: 'Remediate' })).toBeVisible();
+
     // Merge lands the branch on main, removes the worktree, and completes the item.
-    await page.getByRole('button', { name: 'Merge into main' }).click();
+    await page.getByRole('button', { name: 'Merge…' }).click();
+    const mergeForm = page.getByRole('form', { name: 'Merge target' });
+    await expect(mergeForm.getByLabel('Merge into')).toHaveValue('main');
+    await mergeForm.getByRole('button', { name: 'Merge' }).click();
     await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible();
     await expect(page.getByText(/merged as [0-9a-f]{10}/)).toBeVisible();
     await expect(page.getByRole('button', { name: /Merge into/ })).toHaveCount(0);

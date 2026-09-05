@@ -20,6 +20,7 @@ const EXPECTED_ROUTES = [
   'GET /api/workspaces/:workspaceId/projects/:projectId',
   'GET /api/workspaces/:workspaceId/projects/:projectId/plan-versions/:planVersionId',
   'GET /api/workspaces/:workspaceId/repositories',
+  'GET /api/workspaces/:workspaceId/repositories/:repositoryId/branches',
   'GET /api/workspaces/:workspaceId/runs',
   'GET /api/workspaces/:workspaceId/runs/:runId',
   'GET /api/workspaces/:workspaceId/runs/:runId/event-page',

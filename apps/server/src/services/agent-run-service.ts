@@ -64,6 +64,8 @@ interface LiveRun {
 const LIVE_STATUSES: readonly AgentRunStatus[] = ['starting', 'running', 'waiting'];
 /** Bytes, matching the wire contract and the storage CHECK. */
 const OUTCOME_SUMMARY_LIMIT_BYTES = 4000;
+/** A parent run's findings are reproduced in the brief up to this size. */
+const PARENT_MESSAGE_LIMIT_BYTES = 120_000;
 const SHUTDOWN_GRACE_MS = 10_000;
 
 function summarise(text: string): string {
@@ -140,17 +142,38 @@ export class AgentRunService {
       }
       const predecessors = tx.planning.dependencies.listPredecessors(workspaceId, workItemId);
       let parentRun: AgentRun | undefined;
+      let parentFinalMessage: string | undefined;
       if (input.parentRunId !== undefined) {
         parentRun = tx.execution.runs.find(workspaceId, input.parentRunId);
-        if (parentRun === undefined) {
+        if (parentRun === undefined || parentRun.workItemId !== workItemId) {
           throw new NotFoundError();
         }
+        // The journal holds the full final message; the run row only a bounded summary.
+        const lastTurn = tx.execution.runEvents.latestOfKind(
+          workspaceId,
+          parentRun.id,
+          'turn-completed',
+        );
+        parentFinalMessage =
+          lastTurn?.kind === 'turn-completed'
+            ? truncateUtf8Bytes(lastTurn.payload.resultText, PARENT_MESSAGE_LIMIT_BYTES)
+            : parentRun.outcomeSummary;
       }
       const artifacts = tx.planning.artifacts
         .listForVersion(workspaceId, item.planVersionId)
         .map((artifact) => tx.planning.artifacts.findWithContent(workspaceId, artifact.id))
         .filter((artifact) => artifact !== undefined);
-      return { item, worktree, repository, project, row, predecessors, parentRun, artifacts };
+      return {
+        item,
+        worktree,
+        repository,
+        project,
+        row,
+        predecessors,
+        parentRun,
+        parentFinalMessage,
+        artifacts,
+      };
     });
 
     const runId = asAgentRunId(randomUUID());
@@ -186,9 +209,17 @@ export class AgentRunService {
       },
       planDocuments,
       ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
-      ...(prepared.parentRun?.outcomeSummary === undefined
+      ...(prepared.parentRun === undefined || prepared.parentFinalMessage === undefined
         ? {}
-        : { parentRunSummary: prepared.parentRun.outcomeSummary }),
+        : {
+            parentRun: {
+              role: prepared.parentRun.role,
+              ...(prepared.parentRun.verdict === undefined
+                ? {}
+                : { verdict: prepared.parentRun.verdict }),
+              finalMessage: prepared.parentFinalMessage,
+            },
+          }),
     });
     writeFileSync(join(runDirectory, 'brief.md'), brief, { mode: 0o600 });
 

@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   asAuditEventId,
   asEventId,
-  asSessionId,
+  asProjectRepositoryBindingId,
   asRepositoryId,
   asRepositoryInspectionId,
-  asProjectRepositoryBindingId,
+  asSessionId,
   asWorkspaceId,
   asWorkspaceMembershipId,
   isWellFormedId,

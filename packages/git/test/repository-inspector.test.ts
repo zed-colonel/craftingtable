@@ -2,8 +2,8 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -15,10 +15,10 @@ import { createRepositoryInspector, REPOSITORY_RISK_SCAN_PATTERN } from '../src/
 import { NODE_FILE_SYSTEM_BOUNDARY } from '../src/path-policy.js';
 import { createRepositoryInspectorWithDependencies } from '../src/repository-inspector.js';
 import {
-  FIXED_OBSERVED_AT,
-  GIT_EXECUTABLE,
   createBareRepository,
   createRepositoryFixture,
+  FIXED_OBSERVED_AT,
+  GIT_EXECUTABLE,
   makeExecutableProxy,
   repositoryInspectorOptions,
   runFixtureGit,

@@ -1,15 +1,15 @@
 import { lstat, realpath } from 'node:fs/promises';
 import { delimiter, isAbsolute, join, normalize, resolve } from 'node:path';
+import type { CommandRunnerOptions, GitExecutableEvidence } from './command-runner.js';
 import {
   CREATION_TIMEOUT_REASON,
   createBoundedCommandRunner,
   readExecutableEvidence,
 } from './command-runner.js';
-import type { CommandRunnerOptions, GitExecutableEvidence } from './command-runner.js';
-import { createRootPolicy, NODE_FILE_SYSTEM_BOUNDARY } from './path-policy.js';
 import type { FileSystemBoundary, RootPolicy } from './path-policy.js';
-import { createInspectionError } from './types.js';
+import { createRootPolicy, NODE_FILE_SYSTEM_BOUNDARY } from './path-policy.js';
 import type { RepositoryInspectionError, RepositoryInspectorOptions } from './types.js';
+import { createInspectionError } from './types.js';
 
 export interface GitVersion {
   readonly major: number;

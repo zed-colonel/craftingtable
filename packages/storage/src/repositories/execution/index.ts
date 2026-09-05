@@ -1,6 +1,7 @@
 import {
   type AgentRun,
   type AgentRunEvent,
+  type AgentRunEventKind,
   type AgentRunId,
   isAgentRunEventKind,
   isTerminalAgentRunStatus,
@@ -575,6 +576,21 @@ class SqliteAgentRunEventRepository implements AgentRunEventRepository {
         )
         .all(input.workspaceId, input.runId, input.after, input.limit) as AgentRunEventRow[]
     ).map(mapAgentRunEvent);
+  }
+
+  latestOfKind(
+    workspaceId: WorkspaceId,
+    runId: AgentRunId,
+    kind: AgentRunEventKind,
+  ): AgentRunEvent | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT * FROM agent_run_events
+         WHERE workspace_id = ? AND run_id = ? AND kind = ?
+         ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(workspaceId, runId, kind) as AgentRunEventRow | undefined;
+    return row === undefined ? undefined : mapAgentRunEvent(row);
   }
 
   countForRun(workspaceId: WorkspaceId, runId: AgentRunId): number {

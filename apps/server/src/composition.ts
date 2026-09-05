@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { type AgentBackend, ClaudeCodeBackend } from '@craftingtable/agents';
+import { type AgentBackend, ClaudeCodeBackend, parseModelList } from '@craftingtable/agents';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { type CraftingTableStorage, openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
@@ -117,7 +117,10 @@ export async function createServices(
     overrides.agentBackend === undefined
       ? claudeExecutable === undefined
         ? undefined
-        : new ClaudeCodeBackend({ executable: claudeExecutable })
+        : new ClaudeCodeBackend({
+            executable: claudeExecutable,
+            models: parseModelList(config.execution.claudeModels),
+          })
       : (overrides.agentBackend ?? undefined);
   const executionService = new ExecutionService(
     storage,
@@ -149,6 +152,7 @@ export async function createServices(
         label: 'Claude Code',
         available: agentBackend !== undefined,
         ...(agentBackend === undefined ? {} : { executable: agentBackend.describe().executable }),
+        models: agentBackend === undefined ? [] : agentBackend.describe().models,
       },
     ],
   });

@@ -2,10 +2,10 @@ import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import { access, realpath, stat } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
-import { REPOSITORY_RISK_SCAN_PATTERN, createInspectionError } from './types.js';
-import type { RepositoryInspectionError, RepositoryInspectionOperation } from './types.js';
-import { environmentFor } from './environment.js';
 import type { FixedGitCommand } from './environment.js';
+import { environmentFor } from './environment.js';
+import type { RepositoryInspectionError, RepositoryInspectionOperation } from './types.js';
+import { createInspectionError, REPOSITORY_RISK_SCAN_PATTERN } from './types.js';
 
 export const INSPECTION_TIMEOUT_REASON = 'craftingtable-inspection-timeout';
 export const CREATION_TIMEOUT_REASON = 'craftingtable-creation-timeout';

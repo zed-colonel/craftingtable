@@ -4,12 +4,14 @@ import { delimiter, isAbsolute, join } from 'node:path';
 import {
   type AgentBackend,
   type AgentBackendDescriptor,
-  type AgentLaunchRequest,
   AgentLaunchError,
+  type AgentLaunchRequest,
+  type AgentModelOption,
   type AgentSession,
   type AgentSessionItem,
 } from '../index.js';
 import { claudeCodeArguments, claudeUserMessageLine } from './arguments.js';
+import { CLAUDE_CODE_MODELS } from './models.js';
 import { ClaudeStreamNormalizer, RAW_LINE_LIMIT_BYTES } from './normalize.js';
 import { spawnSupervisedProcess } from './process.js';
 
@@ -19,6 +21,8 @@ export interface ClaudeCodeBackendOptions {
   readonly terminationGraceMs?: number;
   /** Environment for the child; defaults to the daemon's own environment. */
   readonly env?: NodeJS.ProcessEnv;
+  /** Models offered to the operator; defaults to the built-in list. */
+  readonly models?: readonly AgentModelOption[];
 }
 
 const MAX_LINE_BYTES = 4 * 1024 * 1024;
@@ -63,7 +67,12 @@ export class ClaudeCodeBackend implements AgentBackend {
   constructor(private readonly options: ClaudeCodeBackendOptions) {}
 
   describe(): AgentBackendDescriptor {
-    return { kind: this.kind, label: 'Claude Code', executable: this.options.executable };
+    return {
+      kind: this.kind,
+      label: 'Claude Code',
+      executable: this.options.executable,
+      models: this.options.models ?? CLAUDE_CODE_MODELS,
+    };
   }
 
   launch(request: AgentLaunchRequest): Promise<AgentSession> {

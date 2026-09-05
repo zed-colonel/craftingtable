@@ -1,20 +1,20 @@
+import { spawnSync } from 'node:child_process';
 import {
   accessSync,
   chmodSync,
+  constants,
   mkdirSync,
   mkdtempSync,
   realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { constants } from 'node:fs';
 import { delimiter, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { createGitCeilingDirectory } from '../src/environment.js';
 import type { GitCeilingDirectory } from '../src/environment.js';
-import { asCanonicalPath } from '../src/path-policy.js';
+import { createGitCeilingDirectory } from '../src/environment.js';
 import type { CanonicalPath } from '../src/path-policy.js';
+import { asCanonicalPath } from '../src/path-policy.js';
 
 export const FIXED_OBSERVED_AT = new Date('2026-07-26T12:00:00.000Z');
 

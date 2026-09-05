@@ -60,6 +60,11 @@ export const executionStatusResponseSchema = z.strictObject({
         label: z.string().min(1).max(100),
         available: z.boolean(),
         executable: z.string().optional(),
+        models: z
+          .array(
+            z.strictObject({ id: z.string().min(1).max(100), label: z.string().min(1).max(100) }),
+          )
+          .max(50),
       }),
     )
     .max(10),
@@ -117,6 +122,12 @@ export const sourceRepositoryListResponseSchema = z.strictObject({
   repositories: z.array(sourceRepositorySummarySchema).max(200),
 });
 
+export const repositoryBranchesResponseSchema = z.strictObject({
+  branches: z.array(gitBranchNameSchema).max(1000),
+  /** The branch the primary checkout has checked out, when it is on one. */
+  checkedOut: gitBranchNameSchema.optional(),
+});
+
 export const retireSourceRepositoryRequestSchema = z.strictObject({});
 export const retireSourceRepositoryResponseSchema = z.strictObject({
   repository: sourceRepositorySummarySchema,
@@ -162,7 +173,13 @@ export const removeWorktreeResponseSchema = z.strictObject({
   changed: z.boolean(),
 });
 
-export const mergeWorktreeRequestSchema = z.strictObject({});
+export const mergeWorktreeRequestSchema = z.strictObject({
+  /**
+   * Where to land the branch. Defaults to the repository's default branch; a
+   * branch that does not exist yet is created from the default branch first.
+   */
+  targetBranch: gitBranchNameSchema.optional(),
+});
 
 /**
  * Why a worktree can or cannot be merged right now. Computed by the daemon
@@ -186,6 +203,7 @@ export const mergeWorktreeResponseSchema = z.strictObject({
   worktree: worktreeSummarySchema,
   mergeSha: gitShaSchema,
   targetBranch: gitBranchNameSchema,
+  createdTarget: z.boolean(),
   workItemCompleted: z.boolean(),
 });
 
@@ -418,6 +436,8 @@ export type CreateWorktreeRequest = z.infer<typeof createWorktreeRequestSchema>;
 export type CreateWorktreeResponse = z.infer<typeof createWorktreeResponseSchema>;
 export type RemoveWorktreeResponse = z.infer<typeof removeWorktreeResponseSchema>;
 export type MergeGate = z.infer<typeof mergeGateSchema>;
+export type MergeWorktreeRequest = z.infer<typeof mergeWorktreeRequestSchema>;
+export type RepositoryBranchesResponse = z.infer<typeof repositoryBranchesResponseSchema>;
 export type MergeWorktreeResponse = z.infer<typeof mergeWorktreeResponseSchema>;
 export type RunOverview = z.infer<typeof runOverviewSchema>;
 export type WorkspaceRunsResponse = z.infer<typeof workspaceRunsResponseSchema>;

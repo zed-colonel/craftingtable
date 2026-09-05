@@ -1,15 +1,15 @@
 import {
-  STORED_REPOSITORY_RISK_SCAN_PATTERN,
   asRepositoryId,
   asRepositoryInspectionId,
+  STORED_REPOSITORY_RISK_SCAN_PATTERN,
   type SuccessfulRepositoryInspection,
   type UserId,
   type WorkspaceId,
 } from '@craftingtable/domain';
 import {
+  type SuccessfulInspectionWrite,
   serializeRepositoryObservation,
   sha256ExactUtf8,
-  type SuccessfulInspectionWrite,
 } from './repository-types.js';
 
 export { serializeRepositoryObservation, sha256ExactUtf8 } from './repository-types.js';

@@ -93,7 +93,7 @@ describe('RepositoriesPage', () => {
         ]}
         status={{
           git: { available: true, executable: '/usr/bin/git' },
-          backends: [{ kind: 'claude-code', label: 'Claude Code', available: false }],
+          backends: [{ kind: 'claude-code', label: 'Claude Code', available: false, models: [] }],
         }}
         canMutate={true}
         busy={false}
@@ -127,6 +127,7 @@ describe('DelegationPanel', () => {
           run({ id: 'run-0' as AgentRunSummary['id'], status: 'finished', role: 'design' }),
         ]}
         mergeGates={{ 'wt-1': { mergeable: false, reason: 'no-review' } }}
+        models={[{ id: 'opus', label: 'Opus (current)' }]}
         itemCompleted={false}
         canMutate={true}
         busy={false}
@@ -134,14 +135,16 @@ describe('DelegationPanel', () => {
         onCreateWorktree={vi.fn()}
         onRemoveWorktree={vi.fn()}
         onMergeWorktree={vi.fn()}
+        onLoadBranches={vi.fn()}
         onLaunch={onLaunch}
+        onRemediate={vi.fn()}
         onOpenRun={onOpenRun}
         onOpenDiff={vi.fn()}
       />,
     );
     expect(screen.getAllByText('ct/aq-01-abcd1234').length).toBeGreaterThan(0);
     expect(screen.getByText('Needs a review run')).toBeDefined();
-    expect(screen.queryByRole('button', { name: /Merge into/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Merge/ })).toBeNull();
     const table = screen.getByRole('table', { name: 'Agent runs' });
     expect(within(table).getByText('Awaiting your input')).toBeDefined();
     expect(within(table).getByText('Finished')).toBeDefined();
@@ -155,31 +158,42 @@ describe('DelegationPanel', () => {
     fireEvent.change(within(form).getByLabelText(/Instructions/), {
       target: { value: 'Focus on tests.' },
     });
+    // The model picker offers the backend's list, then a free-text escape hatch.
+    fireEvent.change(within(form).getByLabelText('Model'), { target: { value: 'opus' } });
     fireEvent.click(within(form).getByRole('button', { name: /Launch review run/ }));
     expect(onLaunch).toHaveBeenCalledWith({
       worktreeId: 'wt-1',
       role: 'review',
       permissionMode: 'edit-only',
+      model: 'opus',
       instructions: 'Focus on tests.',
       parentRunId: 'run-0',
     });
+    fireEvent.change(within(form).getByLabelText('Model'), { target: { value: '__custom__' } });
+    fireEvent.change(within(form).getByLabelText('Model id'), {
+      target: { value: 'claude-next-9' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: /Launch review run/ }));
+    expect(onLaunch).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'claude-next-9' }));
   });
 
-  it('offers Merge only when the daemon reports the gate open', () => {
+  it('offers Merge with a chosen target only when the daemon reports the gate open', () => {
     const onMergeWorktree = vi.fn();
+    const onLoadBranches = vi.fn();
+    const onRemediate = vi.fn();
+    const review = run({
+      status: 'finished',
+      role: 'review',
+      verdict: 'mergeable',
+      billing: 'subscription',
+      resolvedModel: 'claude-fable-5-1',
+      outcomeSummary: 'Review complete.\n\n1. Minor: rename the helper.\n2. Nit: typo.',
+    });
     render(
       <DelegationPanel
         repositories={[repository]}
         worktrees={[worktree]}
-        runs={[
-          run({
-            status: 'finished',
-            role: 'review',
-            verdict: 'mergeable',
-            billing: 'subscription',
-            resolvedModel: 'claude-fable-5-1',
-          }),
-        ]}
+        runs={[review]}
         mergeGates={{
           'wt-1': {
             mergeable: true,
@@ -187,6 +201,8 @@ describe('DelegationPanel', () => {
             reviewRunId: 'run-1' as AgentRunSummary['id'],
           },
         }}
+        branches={{ branches: ['aq-cont-1', 'ct/aq-01-abcd1234', 'main'], checkedOut: 'main' }}
+        models={[]}
         itemCompleted={false}
         canMutate={true}
         busy={false}
@@ -194,7 +210,9 @@ describe('DelegationPanel', () => {
         onCreateWorktree={vi.fn()}
         onRemoveWorktree={vi.fn()}
         onMergeWorktree={onMergeWorktree}
+        onLoadBranches={onLoadBranches}
         onLaunch={vi.fn()}
+        onRemediate={onRemediate}
         onOpenRun={vi.fn()}
         onOpenDiff={vi.fn()}
       />,
@@ -205,8 +223,22 @@ describe('DelegationPanel', () => {
     expect(within(table).getByText('claude-fable-5-1')).toBeDefined();
     // A subscription session reports an estimate, not a bill.
     expect(within(table).getByText('≈$1.25 (est.)')).toBeDefined();
-    fireEvent.click(screen.getByRole('button', { name: 'Merge into main' }));
-    expect(onMergeWorktree).toHaveBeenCalledWith('wt-1');
+    // Long outcomes are collapsed to their first line.
+    const details = within(table).getByText('Review complete.').closest('details');
+    expect(details).not.toBeNull();
+    expect(details?.hasAttribute('open')).toBe(false);
+    // A review with a verdict can be handed to a remediation run.
+    fireEvent.click(within(table).getByRole('button', { name: 'Remediate' }));
+    expect(onRemediate).toHaveBeenCalledWith(review);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Merge…' }));
+    expect(onLoadBranches).toHaveBeenCalledWith('repo-1');
+    const form = screen.getByRole('form', { name: 'Merge target' });
+    const input = within(form).getByLabelText('Merge into') as HTMLInputElement;
+    expect(input.value).toBe('main');
+    fireEvent.change(input, { target: { value: 'aq-cont-1' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Merge' }));
+    expect(onMergeWorktree).toHaveBeenCalledWith('wt-1', 'aq-cont-1');
   });
 
   it('cannot remove a worktree with a live run and disables launch without a backend', () => {
@@ -216,6 +248,7 @@ describe('DelegationPanel', () => {
         worktrees={[worktree]}
         runs={[run({ status: 'running' })]}
         mergeGates={{ 'wt-1': { mergeable: false, reason: 'run-live' } }}
+        models={[]}
         itemCompleted={false}
         canMutate={true}
         busy={false}
@@ -223,7 +256,9 @@ describe('DelegationPanel', () => {
         onCreateWorktree={vi.fn()}
         onRemoveWorktree={vi.fn()}
         onMergeWorktree={vi.fn()}
+        onLoadBranches={vi.fn()}
         onLaunch={vi.fn()}
+        onRemediate={vi.fn()}
         onOpenRun={vi.fn()}
         onOpenDiff={vi.fn()}
       />,
@@ -330,6 +365,31 @@ describe('RunPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Tools/ }));
     expect(within(feed).queryByText('Bash: ls')).toBeNull();
     expect(within(feed).getByText('All good.')).toBeDefined();
+  });
+
+  it('offers remediation on a review with a verdict', () => {
+    const onRemediate = vi.fn();
+    render(
+      <RunPage
+        detail={{
+          ...detail,
+          run: run({ status: 'finished', role: 'review', verdict: 'changes-requested' }),
+        }}
+        events={[]}
+        connection="open"
+        canMutate={true}
+        busy={false}
+        onSend={vi.fn()}
+        onEnd={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenWorkItem={vi.fn()}
+        onLoadDiff={vi.fn()}
+        onCloseDiff={vi.fn()}
+        onRemediate={onRemediate}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Remediate findings' }));
+    expect(onRemediate).toHaveBeenCalledOnce();
   });
 
   it('hides the controls once the run is terminal', () => {

@@ -13,10 +13,12 @@ import {
   type RegisterSourceRepositoryRequest,
   type RegisterSourceRepositoryResponse,
   type RemoveWorktreeResponse,
+  type RepositoryBranchesResponse,
   type RetireSourceRepositoryResponse,
   type RunEventPageResponse,
   registerSourceRepositoryResponseSchema,
   removeWorktreeResponseSchema,
+  repositoryBranchesResponseSchema,
   retireSourceRepositoryResponseSchema,
   runEventPageResponseSchema,
   type SourceRepositoryListResponse,
@@ -203,12 +205,23 @@ export function cancelRun(
 export function mergeWorktree(
   workspaceId: WorkspaceId,
   worktreeId: WorktreeId,
+  input: { targetBranch?: string },
   csrfToken: string,
 ): Promise<MergeWorktreeResponse> {
   return request(
     `/api/workspaces/${encode(workspaceId)}/worktrees/${encode(worktreeId)}/merge`,
     mergeWorktreeResponseSchema,
-    mutation(csrfToken, {}),
+    mutation(csrfToken, input),
+  );
+}
+
+export function loadRepositoryBranches(
+  workspaceId: WorkspaceId,
+  repositoryId: SourceRepositoryId,
+): Promise<RepositoryBranchesResponse> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/repositories/${encode(repositoryId)}/branches`,
+    repositoryBranchesResponseSchema,
   );
 }
 

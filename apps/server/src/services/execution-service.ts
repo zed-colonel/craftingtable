@@ -115,6 +115,7 @@ export interface ExecutionStatus {
     readonly label: string;
     readonly available: boolean;
     readonly executable?: string;
+    readonly models: readonly { readonly id: string; readonly label: string }[];
   }[];
 }
 
@@ -291,6 +292,28 @@ export class ExecutionService {
       this.notifier.notify();
     }
     return result;
+  }
+
+  /** Local branches of a registered repository, for choosing a merge target. */
+  async listBranches(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    repositoryId: SourceRepositoryId,
+    requestId?: string,
+  ): Promise<{ readonly branches: readonly string[]; readonly checkedOut?: string }> {
+    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
+    const repository = this.storage.execution.sourceRepositories.find(workspaceId, repositoryId);
+    if (repository === undefined) {
+      throw new NotFoundError();
+    }
+    const listed = await this.requireGit().listBranches(repository.rootPath);
+    if (!listed.ok) {
+      throw new ExecutionRequestError(
+        'unavailable',
+        `Repository is not available: ${listed.failure.message}`,
+      );
+    }
+    return listed.value;
   }
 
   workItemExecution(
@@ -557,11 +580,13 @@ export class ExecutionService {
     context: AuthContext,
     workspaceId: WorkspaceId,
     worktreeId: WorktreeId,
+    input: { readonly targetBranch?: string } = {},
     requestId?: string,
   ): Promise<{
     readonly worktree: Worktree;
     readonly mergeSha: string;
     readonly targetBranch: string;
+    readonly createdTarget: boolean;
     readonly workItemCompleted: boolean;
   }> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
@@ -601,10 +626,23 @@ export class ExecutionService {
         'The worktree has uncommitted changes; ask the agent to commit them, or discard them, before merging',
       );
     }
+    const targetBranch = input.targetBranch ?? repository.defaultBranch;
+    if (!isValidBranchName(targetBranch)) {
+      throw new ExecutionRequestError('invalid-request', 'Target branch name is not well formed');
+    }
+    if (targetBranch === worktree.branchName) {
+      throw new ExecutionRequestError(
+        'invalid-request',
+        'The target must be a different branch from the worktree branch',
+      );
+    }
+    // A target that does not exist yet starts from the default branch's current head.
     const merged = await git.mergeBranch({
       repositoryPath: repository.rootPath,
       branchName: worktree.branchName,
-      targetBranch: repository.defaultBranch,
+      targetBranch,
+      createTargetFrom: repository.defaultBranch,
+      scratchPath: join(this.config.worktreeRoot, '.merge', randomUUID()),
       message: `Merge ${worktree.branchName}: ${item.sourceId} ${item.title}\n\nMerged by CraftingTable after a mergeable review.`,
     });
     if (!merged.ok) {
@@ -628,6 +666,7 @@ export class ExecutionService {
     await git.deleteBranch({
       repositoryPath: repository.rootPath,
       branchName: worktree.branchName,
+      mergedInto: targetBranch,
     });
 
     const occurredAt = this.now().toISOString();
@@ -657,7 +696,8 @@ export class ExecutionService {
         resultingVersion: marked.version,
         metadata: {
           branchName: worktree.branchName,
-          targetBranch: repository.defaultBranch,
+          targetBranch,
+          createdTarget: merged.value.createdTarget,
           mergeSha: merged.value.mergeSha,
           ...(gate.reviewRunId === undefined ? {} : { reviewRunId: gate.reviewRunId }),
         },
@@ -674,7 +714,7 @@ export class ExecutionService {
           worktreeId,
           workItemId: worktree.workItemId,
           branchName: worktree.branchName,
-          targetBranch: repository.defaultBranch,
+          targetBranch,
           mergeSha: merged.value.mergeSha,
         },
       });
@@ -696,7 +736,8 @@ export class ExecutionService {
     return {
       worktree: result.worktree,
       mergeSha: merged.value.mergeSha,
-      targetBranch: repository.defaultBranch,
+      targetBranch,
+      createdTarget: merged.value.createdTarget,
       workItemCompleted: result.workItemCompleted,
     };
   }

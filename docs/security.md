@@ -35,9 +35,10 @@ It submits:
   name and path under its managed worktree root;
 - a role, permission posture, optional model name, and free text that becomes the brief
   or a follow-up message to the agent;
-- a worktree to merge. The request carries no arguments: the daemon chooses the target
-  branch and refuses unless that worktree's most recent run is a review whose final
-  message carried a `mergeable` verdict and no run is live in it. The implementation
+- a worktree to merge, optionally with a target branch name. The daemon validates the
+  name, refuses unless that worktree's most recent run is a review whose final message
+  carried a `mergeable` verdict and no run is live in it, and performs the merge in a
+  scratch worktree unless the primary checkout already has the target checked out. The implementation
   agent never holds merge authority; a review agent only produces the verdict the
   operator acts on.
 

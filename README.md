@@ -28,9 +28,15 @@ it is mergeable.
 - **Diffs.** See commits, changed files, and the unified patch of the worktree against
   its base at any time.
 - **Review-gated merge.** A review run ends with a verdict. When the latest run on a
-  worktree is a review that returned `mergeable`, the daemon offers Merge: a merge
-  commit into the default branch, the worktree removed, the branch deleted, and the
-  work item completed, in one step. Any later run closes the gate again.
+  worktree is a review that returned `mergeable`, the daemon offers Merge into a branch
+  you choose (the default branch, another existing branch, or a new one created from
+  the default branch): a merge commit, the worktree removed, the branch deleted, and
+  the work item completed, in one step. The primary checkout is never disturbed; when
+  it is not on the target the merge happens in a scratch worktree. Any later run closes
+  the gate again.
+- **Remediation.** A review's findings can be handed straight to a new implement run
+  in the same worktree; its brief reproduces the findings and asks for a disposition on
+  each.
 - **Workspaces and account.** Several workspaces per user, created and renamed from the
   browser; password change from the account page; dark theme by default with a light
   option.
@@ -113,6 +119,7 @@ All settings are environment variables. Defaults suit the loopback dev setup.
 | `CRAFTINGTABLE_RUNS_ROOT` | `<data>/runs` | Per-run brief and plan documents handed to the agent. |
 | `CRAFTINGTABLE_GIT_EXECUTABLE` | first `git` on PATH | Absolute path override. |
 | `CRAFTINGTABLE_CLAUDE_EXECUTABLE` | first `claude` on PATH or `~/.local/bin` | Absolute path override. |
+| `CRAFTINGTABLE_CLAUDE_MODELS` | built-in list (`opus`, `sonnet`, `haiku` aliases plus current ids) | `id=Label,id=Label` entries for the launch form's model picker. |
 | `CRAFTINGTABLE_DIFF_LIMIT_BYTES` | 4 MiB | Ceiling on one diff response's patch text. |
 | `CRAFTINGTABLE_SESSION_LIFETIME_SECONDS` | 30 days | Browser session lifetime. |
 | `CRAFTINGTABLE_LOG_LEVEL` | `info` | pino level. |

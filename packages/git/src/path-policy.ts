@@ -1,5 +1,5 @@
-import { constants } from 'node:fs';
 import type { BigIntStats, Dirent } from 'node:fs';
+import { constants } from 'node:fs';
 import {
   access as nodeAccess,
   lstat as nodeLstat,
@@ -8,10 +8,10 @@ import {
   stat as nodeStat,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
-import { createGitCeilingDirectory, isGitCeilingDirectoryRepresentable } from './environment.js';
 import type { GitCeilingDirectory } from './environment.js';
-import { createInspectionError } from './types.js';
+import { createGitCeilingDirectory, isGitCeilingDirectoryRepresentable } from './environment.js';
 import type { RepositoryInspectionError } from './types.js';
+import { createInspectionError } from './types.js';
 
 declare const canonicalPathBrand: unique symbol;
 

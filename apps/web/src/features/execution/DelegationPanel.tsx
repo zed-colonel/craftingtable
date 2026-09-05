@@ -1,6 +1,8 @@
 import type {
   AgentRunSummary,
+  ExecutionStatusResponse,
   MergeGate,
+  RepositoryBranchesResponse,
   SourceRepositorySummary,
   WorktreeSummary,
 } from '@craftingtable/contracts';
@@ -37,17 +39,103 @@ export interface LaunchInput {
   readonly parentRunId?: AgentRunId;
 }
 
+export type ModelOption = ExecutionStatusResponse['backends'][number]['models'][number];
+
+const CUSTOM_MODEL = '__custom__';
+
+/** A model picker fed by the backend, with a free-text escape hatch. */
+export function ModelField({
+  models,
+  value,
+  onChange,
+  disabled,
+}: {
+  models: readonly ModelOption[];
+  value: string;
+  onChange: (model: string) => void;
+  disabled: boolean;
+}) {
+  const known = value === '' || models.some((option) => option.id === value);
+  const [custom, setCustom] = useState(!known);
+  const selectValue = custom ? CUSTOM_MODEL : value;
+  return (
+    <>
+      <label className="field">
+        Model
+        <select
+          value={selectValue}
+          onChange={(event) => {
+            if (event.target.value === CUSTOM_MODEL) {
+              setCustom(true);
+              onChange('');
+            } else {
+              setCustom(false);
+              onChange(event.target.value);
+            }
+          }}
+          disabled={disabled}
+        >
+          <option value="">Backend default</option>
+          {models.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+          <option value={CUSTOM_MODEL}>Other…</option>
+        </select>
+      </label>
+      {custom && (
+        <label className="field">
+          Model id
+          <input
+            type="text"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder="claude-…"
+            disabled={disabled}
+            maxLength={100}
+          />
+        </label>
+      )}
+    </>
+  );
+}
+
+function firstLine(text: string): string {
+  const line = text.split('\n').find((candidate) => candidate.trim().length > 0) ?? '';
+  return line.length > 140 ? `${line.slice(0, 140)}…` : line;
+}
+
+/** Long agent summaries start collapsed so the table scans quickly. */
+function OutcomeCell({ text }: { text: string | undefined }) {
+  if (text === undefined || text.trim().length === 0) {
+    return <span className="hint">—</span>;
+  }
+  const summary = firstLine(text);
+  const oneLiner = text.trim() === summary;
+  return oneLiner ? (
+    <span className="outcome-cell">{summary}</span>
+  ) : (
+    <details className="outcome-details">
+      <summary>{summary}</summary>
+      <pre className="outcome-cell outcome-full">{text}</pre>
+    </details>
+  );
+}
+
 /**
  * The delegation half of a work item page: worktrees with their merge gate,
- * runs, and the actions that drive the loop. Everything here is a request to
- * the daemon; the browser never chooses a path, a branch, or a command, and
- * the Merge button only appears when the daemon says the gate is open.
+ * the launch form, and the runs. Everything here is a request to the daemon;
+ * the browser never chooses a path or a command, and the Merge action only
+ * appears when the daemon says the gate is open.
  */
 export function DelegationPanel({
   repositories,
   worktrees,
   runs,
   mergeGates,
+  branches,
+  models,
   itemCompleted,
   canMutate,
   busy,
@@ -56,7 +144,9 @@ export function DelegationPanel({
   onCreateWorktree,
   onRemoveWorktree,
   onMergeWorktree,
+  onLoadBranches,
   onLaunch,
+  onRemediate,
   onOpenRun,
   onOpenDiff,
 }: {
@@ -64,6 +154,9 @@ export function DelegationPanel({
   worktrees: readonly WorktreeSummary[];
   runs: readonly AgentRunSummary[];
   mergeGates: Readonly<Record<string, MergeGate>>;
+  /** Branches of the repository a merge is being prepared for, once loaded. */
+  branches?: RepositoryBranchesResponse;
+  models: readonly ModelOption[];
   itemCompleted: boolean;
   canMutate: boolean;
   busy: boolean;
@@ -71,8 +164,11 @@ export function DelegationPanel({
   backendAvailable: boolean;
   onCreateWorktree: (repositoryId: SourceRepositoryId) => void;
   onRemoveWorktree: (worktreeId: WorktreeId) => void;
-  onMergeWorktree: (worktreeId: WorktreeId) => void;
+  onMergeWorktree: (worktreeId: WorktreeId, targetBranch: string) => void;
+  onLoadBranches: (repositoryId: SourceRepositoryId) => void;
   onLaunch: (input: LaunchInput) => void;
+  /** Launch an implement run seeded with this review's findings. */
+  onRemediate: (reviewRun: AgentRunSummary) => void;
   onOpenRun: (runId: AgentRunId) => void;
   onOpenDiff: (worktreeId: WorktreeId) => void;
 }) {
@@ -85,11 +181,14 @@ export function DelegationPanel({
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>('auto');
   const [model, setModel] = useState('');
   const [instructions, setInstructions] = useState('');
+  const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
+  const [mergeOpen, setMergeOpen] = useState<string>();
 
   const selectedRepository = repositoryId || activeRepositories[0]?.id || '';
   const selectedWorktree = worktreeId || activeWorktrees[0]?.id || '';
   const liveRuns = runs.filter((run) => isLiveStatus(run.status));
   const latestFinished = runs.find((run) => !isLiveStatus(run.status));
+  const runById = new Map(runs.map((run) => [run.id, run]));
 
   const createWorktree = (event: FormEvent): void => {
     event.preventDefault();
@@ -118,6 +217,16 @@ export function DelegationPanel({
     setInstructions('');
   };
 
+  const openMerge = (worktree: WorktreeSummary): void => {
+    setMergeOpen(worktree.id);
+    setMergeTargets((current) =>
+      current[worktree.id] === undefined
+        ? { ...current, [worktree.id]: worktree.baseBranch }
+        : current,
+    );
+    onLoadBranches(worktree.repositoryId);
+  };
+
   return (
     <section className="panel" aria-label="Delegation">
       <div className="panel-header">
@@ -125,7 +234,8 @@ export function DelegationPanel({
           <h3>Delegation</h3>
           <p className="hint">
             Create a worktree on a fresh branch, launch an implement run, then a review run. A
-            mergeable review opens the Merge action, which lands the branch and completes the item.
+            mergeable review opens the Merge action, which lands the branch where you choose and
+            completes the item.
           </p>
         </div>
       </div>
@@ -149,6 +259,8 @@ export function DelegationPanel({
           {activeWorktrees.map((worktree) => {
             const gate = mergeGates[worktree.id];
             const hasLiveRun = liveRuns.some((run) => run.worktreeId === worktree.id);
+            const target = mergeTargets[worktree.id] ?? worktree.baseBranch;
+            const listId = `branches-${worktree.id}`;
             return (
               <li key={worktree.id} className="worktree-item">
                 <div>
@@ -185,16 +297,75 @@ export function DelegationPanel({
                       )}
                     </div>
                   )}
+                  {gate?.mergeable === true && canMutate && mergeOpen === worktree.id && (
+                    <form
+                      className="inline-form merge-form"
+                      aria-label="Merge target"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (target.trim().length > 0) {
+                          onMergeWorktree(worktree.id, target.trim());
+                        }
+                      }}
+                    >
+                      <label className="field">
+                        Merge into
+                        <input
+                          type="text"
+                          list={listId}
+                          value={target}
+                          onChange={(event) =>
+                            setMergeTargets((current) => ({
+                              ...current,
+                              [worktree.id]: event.target.value,
+                            }))
+                          }
+                          disabled={busy}
+                          maxLength={255}
+                          spellCheck={false}
+                          required
+                        />
+                        <datalist id={listId}>
+                          {(branches?.branches ?? [])
+                            .filter((name) => name !== worktree.branchName)
+                            .map((name) => (
+                              <option key={name} value={name} />
+                            ))}
+                        </datalist>
+                      </label>
+                      <button
+                        type="submit"
+                        className="primary-button"
+                        disabled={busy || target.trim().length === 0}
+                      >
+                        Merge
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => setMergeOpen(undefined)}
+                        disabled={busy}
+                      >
+                        Cancel
+                      </button>
+                      <span className="hint">
+                        An existing branch, or a new one created from {worktree.baseBranch}.
+                        {branches?.checkedOut !== undefined
+                          ? ` The primary checkout is on ${branches.checkedOut}.`
+                          : ''}
+                      </span>
+                    </form>
+                  )}
                 </div>
                 <div className="inline-actions">
-                  {gate?.mergeable === true && canMutate && (
+                  {gate?.mergeable === true && canMutate && mergeOpen !== worktree.id && (
                     <button
                       type="button"
                       className="primary-button"
-                      onClick={() => onMergeWorktree(worktree.id)}
+                      onClick={() => openMerge(worktree)}
                       disabled={busy}
                     >
-                      Merge into {worktree.baseBranch}
+                      Merge…
                     </button>
                   )}
                   <button
@@ -249,65 +420,6 @@ export function DelegationPanel({
         </form>
       )}
 
-      <h4>Runs ({runs.length})</h4>
-      {runs.length === 0 ? (
-        <p className="empty-state">No agent runs yet.</p>
-      ) : (
-        <div className="table-scroll">
-          <table className="data-table">
-            <caption className="visually-hidden">Agent runs</caption>
-            <thead>
-              <tr>
-                <th scope="col">Started</th>
-                <th scope="col">Role</th>
-                <th scope="col">Status</th>
-                <th scope="col">Verdict</th>
-                <th scope="col">Model</th>
-                <th scope="col">Turns</th>
-                <th scope="col">Cost</th>
-                <th scope="col">Outcome</th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map((run) => (
-                <tr key={run.id}>
-                  <td>
-                    <button type="button" className="link-button" onClick={() => onOpenRun(run.id)}>
-                      {new Date(run.createdAt).toLocaleString()}
-                    </button>
-                  </td>
-                  <td>{RUN_ROLE_LABELS[run.role]}</td>
-                  <td>
-                    <span
-                      className="status-badge"
-                      style={{ '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties}
-                    >
-                      {RUN_STATUS_LABELS[run.status]}
-                    </span>
-                  </td>
-                  <td>
-                    {run.verdict === undefined ? (
-                      <span className="hint">—</span>
-                    ) : (
-                      <span
-                        className="status-badge"
-                        style={{ '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties}
-                      >
-                        {VERDICT_LABELS[run.verdict]}
-                      </span>
-                    )}
-                  </td>
-                  <td className="mono">{run.resolvedModel ?? run.model ?? 'default'}</td>
-                  <td className="numeric">{run.turnCount}</td>
-                  <td className="numeric">{formatCost(run.costUsd, run.billing)}</td>
-                  <td className="outcome-cell">{run.outcomeSummary ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
       {canMutate && !itemCompleted && (
         <form className="stack-form" onSubmit={launch} aria-label="Launch an agent">
           <h4>Launch an agent</h4>
@@ -346,17 +458,7 @@ export function DelegationPanel({
                 ))}
               </select>
             </label>
-            <label className="field">
-              Model (optional)
-              <input
-                type="text"
-                value={model}
-                onChange={(event) => setModel(event.target.value)}
-                placeholder="default"
-                disabled={busy}
-                maxLength={100}
-              />
-            </label>
+            <ModelField models={models} value={model} onChange={setModel} disabled={busy} />
           </div>
           <p className="hint">{RUN_ROLE_DESCRIPTIONS[role]}</p>
           <label className="field">
@@ -393,6 +495,111 @@ export function DelegationPanel({
             </button>
           </div>
         </form>
+      )}
+
+      <h4>Runs ({runs.length})</h4>
+      {runs.length === 0 ? (
+        <p className="empty-state">No agent runs yet.</p>
+      ) : (
+        <div className="table-scroll">
+          <table className="data-table">
+            <caption className="visually-hidden">Agent runs</caption>
+            <thead>
+              <tr>
+                <th scope="col">Started</th>
+                <th scope="col">Role</th>
+                <th scope="col">Status</th>
+                <th scope="col">Verdict</th>
+                <th scope="col">Model</th>
+                <th scope="col">Turns</th>
+                <th scope="col">Cost</th>
+                <th scope="col">Outcome</th>
+                <th scope="col">
+                  <span className="visually-hidden">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map((run) => {
+                const parent =
+                  run.parentRunId === undefined ? undefined : runById.get(run.parentRunId);
+                return (
+                  <tr key={run.id}>
+                    <td>
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => onOpenRun(run.id)}
+                      >
+                        {new Date(run.createdAt).toLocaleString()}
+                      </button>
+                    </td>
+                    <td>
+                      {RUN_ROLE_LABELS[run.role]}
+                      {parent !== undefined && (
+                        <div className="hint">
+                          after{' '}
+                          <button
+                            type="button"
+                            className="link-button"
+                            onClick={() => onOpenRun(parent.id)}
+                          >
+                            {RUN_ROLE_LABELS[parent.role].toLowerCase()}
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <span
+                        className="status-badge"
+                        style={
+                          { '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties
+                        }
+                      >
+                        {RUN_STATUS_LABELS[run.status]}
+                      </span>
+                    </td>
+                    <td>
+                      {run.verdict === undefined ? (
+                        <span className="hint">—</span>
+                      ) : (
+                        <span
+                          className="status-badge"
+                          style={
+                            { '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties
+                          }
+                        >
+                          {VERDICT_LABELS[run.verdict]}
+                        </span>
+                      )}
+                    </td>
+                    <td className="mono">{run.resolvedModel ?? run.model ?? 'default'}</td>
+                    <td className="numeric">{run.turnCount}</td>
+                    <td className="numeric">{formatCost(run.costUsd, run.billing)}</td>
+                    <td>
+                      <OutcomeCell text={run.outcomeSummary} />
+                    </td>
+                    <td>
+                      {run.role === 'review' &&
+                        run.verdict !== undefined &&
+                        canMutate &&
+                        !itemCompleted && (
+                          <button
+                            type="button"
+                            className="text-button"
+                            onClick={() => onRemediate(run)}
+                            disabled={busy || !backendAvailable}
+                          >
+                            Remediate
+                          </button>
+                        )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

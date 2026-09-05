@@ -1,13 +1,13 @@
 import { mkdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { createRepositoryInspector } from '../src/index.js';
 import {
-  NODE_FILE_SYSTEM_BOUNDARY,
   admitRepositoryPath,
   createRootPolicy,
+  NODE_FILE_SYSTEM_BOUNDARY,
 } from '../src/path-policy.js';
 import { createInspectionError } from '../src/types.js';
-import { createRepositoryInspector } from '../src/index.js';
 import {
   canonicalPathForTest,
   createRepositoryFixture,

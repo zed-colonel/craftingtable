@@ -12,7 +12,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configureDatabase } from './database.js';
 import { repositoryRegistrationInspection } from './repository-test-support.js';
-import { temporaryStorage, type TemporaryStorage } from './test-support.js';
+import { type TemporaryStorage, temporaryStorage } from './test-support.js';
 import type {
   AppendWorkspaceEventInput,
   WorkspaceEventAppendError,

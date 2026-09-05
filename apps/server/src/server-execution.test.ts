@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -16,6 +16,7 @@ import {
   mergeWorktreeResponseSchema,
   registerSourceRepositoryResponseSchema,
   removeWorktreeResponseSchema,
+  repositoryBranchesResponseSchema,
   runEventPageResponseSchema,
   sourceRepositoryListResponseSchema,
   startAgentRunResponseSchema,
@@ -86,7 +87,12 @@ class ScriptedBackend implements AgentBackend {
   failNextLaunch = false;
 
   describe() {
-    return { kind: this.kind, label: 'Scripted', executable: '/fake/claude' };
+    return {
+      kind: this.kind,
+      label: 'Scripted',
+      executable: '/fake/claude',
+      models: [{ id: 'scripted-model', label: 'Scripted model' }],
+    };
   }
 
   launch(request: AgentLaunchRequest): Promise<AgentSession> {
@@ -426,7 +432,13 @@ describe('repository registration', () => {
     });
     expect(executionStatusResponseSchema.parse(status.json())).toMatchObject({
       git: { available: true },
-      backends: [{ kind: 'claude-code', available: true }],
+      backends: [
+        {
+          kind: 'claude-code',
+          available: true,
+          models: [{ id: 'scripted-model', label: 'Scripted model' }],
+        },
+      ],
     });
 
     const audit = state.context.storage.audit.listWorkspace({
@@ -863,12 +875,12 @@ async function mergeGate(state: Ready, worktreeId: string) {
   ];
 }
 
-async function merge(state: Ready, worktreeId: string) {
+async function merge(state: Ready, worktreeId: string, payload: Record<string, unknown> = {}) {
   return state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/worktrees/${worktreeId}/merge`,
     headers: mutationHeaders(state),
-    payload: {},
+    payload,
   });
 }
 
@@ -972,13 +984,72 @@ describe('review-gated merge', () => {
     });
     rmSync(join(worktree.path, 'uncommitted.txt'));
 
+    // A primary checkout on another branch does not block the merge: main is
+    // updated through a scratch worktree and the checkout stays where it was.
     git(['checkout', '-b', 'elsewhere'], repositoryPath);
-    const wrongBranch = await merge(state, worktree.id);
-    expect(wrongBranch.statusCode).toBe(400);
-    expect(wrongBranch.json()).toMatchObject({
-      error: { message: expect.stringMatching(/elsewhere/) },
-    });
+    const elsewhere = await merge(state, worktree.id);
+    expect(elsewhere.statusCode, elsewhere.body).toBe(200);
+    const landed = mergeWorktreeResponseSchema.parse(elsewhere.json());
+    expect(git(['rev-parse', 'main'], repositoryPath).trim()).toBe(landed.mergeSha);
+    expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], repositoryPath).trim()).toBe('elsewhere');
+    expect(existsSync(join(state.context.config.execution.worktreeRoot, '.merge'))).toBe(true);
+    expect(readdirSync(join(state.context.config.execution.worktreeRoot, '.merge'))).toEqual([]);
     git(['checkout', 'main'], repositoryPath);
+  });
+
+  it('merges into a named branch, creating it from the default branch when missing', async () => {
+    const state = await ready();
+    const repositoryPath = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, repositoryPath);
+    await admit(state);
+    writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
+    git(['add', '--all'], worktree.path);
+    git(['commit', '--no-gpg-sign', '-m', 'add feature'], worktree.path);
+    await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+
+    const branches = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/repositories/${worktree.repositoryId}/branches`,
+      headers: { cookie: state.cookie },
+    });
+    expect(repositoryBranchesResponseSchema.parse(branches.json())).toEqual({
+      branches: [worktree.branchName, 'main'],
+      checkedOut: 'main',
+    });
+
+    const invalid = await merge(state, worktree.id, { targetBranch: worktree.branchName });
+    expect(invalid.statusCode).toBe(400);
+    const hostile = await merge(state, worktree.id, { targetBranch: '--evil' });
+    expect(hostile.statusCode).toBe(400);
+
+    const mainHead = git(['rev-parse', 'main'], repositoryPath).trim();
+    const merged = await merge(state, worktree.id, { targetBranch: 'aq-cont-1' });
+    expect(merged.statusCode, merged.body).toBe(200);
+    const result = mergeWorktreeResponseSchema.parse(merged.json());
+    expect(result).toMatchObject({ targetBranch: 'aq-cont-1', createdTarget: true });
+    expect(git(['rev-parse', 'aq-cont-1'], repositoryPath).trim()).toBe(result.mergeSha);
+    expect(git(['log', '--oneline', 'aq-cont-1'], repositoryPath)).toContain('add feature');
+    // main is untouched and the worktree branch is gone.
+    expect(git(['rev-parse', 'main'], repositoryPath).trim()).toBe(mainHead);
+    expect(git(['branch', '--list', worktree.branchName], repositoryPath).trim()).toBe('');
+    expect(
+      state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.status,
+    ).toBe('completed');
+    const event = state.context.storage.workspaceEvents
+      .listAfter({ workspaceId: state.workspaceId, after: 0, limit: 100 })
+      .find((entry) => entry.kind === 'worktree-merged');
+    expect(event?.kind === 'worktree-merged' && event.payload.targetBranch).toBe('aq-cont-1');
+  });
+
+  it('reports a conflicting merge and leaves the checkout clean', async () => {
+    const state = await ready();
+    const repositoryPath = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, repositoryPath);
+    await admit(state);
+    writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
+    git(['add', '--all'], worktree.path);
+    git(['commit', '--no-gpg-sign', '-m', 'add feature'], worktree.path);
+    await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
 
     // A conflicting change on main is reported and aborted, leaving main clean.
     writeFileSync(join(repositoryPath, 'feature.txt'), 'conflict\n');
@@ -993,5 +1064,38 @@ describe('review-gated merge', () => {
     expect(
       state.context.storage.execution.worktrees.find(state.workspaceId, worktree.id)?.status,
     ).toBe('active');
+  });
+
+  it('seeds a remediation run with the review findings from the journal', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    await admit(state);
+    const review = await runToFinish(state, worktree.id, {
+      role: 'review',
+      instructions: 'VERDICT-CHANGES',
+    });
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, role: 'implement', parentRunId: review },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const { run } = startAgentRunResponseSchema.parse(started.json());
+    expect(run.parentRunId).toBe(review);
+    const launch = state.backend.launches.at(-1);
+    expect(launch?.prompt).toContain('## Remediation');
+    expect(launch?.prompt).toContain('## Review findings to address (verdict: changes-requested)');
+    expect(launch?.prompt).toContain('VERDICT: changes-requested');
+    expect(launch?.prompt).toContain('disposition for each finding');
+
+    // A parent from another work item is refused.
+    const other = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, role: 'implement', parentRunId: 'no-such-run' },
+    });
+    expect(other.statusCode).toBe(404);
   });
 });

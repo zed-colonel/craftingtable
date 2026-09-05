@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUDIT_ACTIONS, AUDIT_ACTION_INTRODUCED_IN_SCHEMA } from '@craftingtable/domain';
+import { AUDIT_ACTION_INTRODUCED_IN_SCHEMA, AUDIT_ACTIONS } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from './database.js';
 import { checksumSql, discoverMigrations, runMigrations } from './migrations.js';

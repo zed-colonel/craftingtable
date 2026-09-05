@@ -1,25 +1,9 @@
 import {
-  ALL_REPOSITORY_INSPECTION_ERROR_CODES,
-  compareRepositoryObservations,
-  createRepositoryInspector,
-  parseRecordedObservation,
-  REPOSITORY_INSPECTION_ERROR_SUBJECTS,
-  REPOSITORY_INSPECTION_POLICY_VERSION,
-  REPOSITORY_OBSERVATION_VERSION,
-  REPOSITORY_RISK_SCAN_PATTERN,
-  REPOSITORY_RISK_SCAN_SCOPE_VERSION,
-  REPOSITORY_RISK_SIGNALS,
-  type CoreEvidenceDifference,
-  type EnvironmentalEvidenceDifference,
-  type ParsedRepositoryObservation,
-  type RepositoryInspector,
-  type RepositoryInspectorOptions,
-  type RiskScanDifference,
-} from '@craftingtable/git';
-import {
   A1_REPOSITORY_INSPECTION_ERROR_CODES,
   A1_REPOSITORY_INSPECTION_ERROR_SUBJECT_BY_CODE,
   CURRENT_REPOSITORY_INSPECTION_POLICY_VERSION,
+  type RegisteredRepository,
+  type RepositoryObservationAssessment,
   STORED_CORE_EVIDENCE_DIFFERENCES,
   STORED_ENVIRONMENTAL_EVIDENCE_DIFFERENCES,
   STORED_REPOSITORY_OBSERVATION_VERSION,
@@ -27,10 +11,26 @@ import {
   STORED_REPOSITORY_RISK_SCAN_SCOPE_VERSION,
   STORED_REPOSITORY_RISK_SIGNALS,
   STORED_RISK_EVIDENCE_DIFFERENCES,
-  type RegisteredRepository,
-  type RepositoryObservationAssessment,
   type SuccessfulRepositoryInspection,
 } from '@craftingtable/domain';
+import {
+  ALL_REPOSITORY_INSPECTION_ERROR_CODES,
+  type CoreEvidenceDifference,
+  compareRepositoryObservations,
+  createRepositoryInspector,
+  type EnvironmentalEvidenceDifference,
+  type ParsedRepositoryObservation,
+  parseRecordedObservation,
+  REPOSITORY_INSPECTION_ERROR_SUBJECTS,
+  REPOSITORY_INSPECTION_POLICY_VERSION,
+  REPOSITORY_OBSERVATION_VERSION,
+  REPOSITORY_RISK_SCAN_PATTERN,
+  REPOSITORY_RISK_SCAN_SCOPE_VERSION,
+  REPOSITORY_RISK_SIGNALS,
+  type RepositoryInspector,
+  type RepositoryInspectorOptions,
+  type RiskScanDifference,
+} from '@craftingtable/git';
 import { serializeRepositoryObservation, verifyExactUtf8Sha256 } from '@craftingtable/storage';
 import type { RepositoryFeatureConfig } from '../config.js';
 import {

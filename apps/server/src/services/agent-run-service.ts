@@ -29,6 +29,7 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import type { AuthContext } from './auth-service.js';
+import { truncateUtf8Bytes } from './bounded-text.js';
 import { composeBrief, parseVerdict } from './brief.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -61,13 +62,12 @@ interface LiveRun {
 }
 
 const LIVE_STATUSES: readonly AgentRunStatus[] = ['starting', 'running', 'waiting'];
-const OUTCOME_SUMMARY_LIMIT = 4000;
+/** Bytes, matching the wire contract and the storage CHECK. */
+const OUTCOME_SUMMARY_LIMIT_BYTES = 4000;
 const SHUTDOWN_GRACE_MS = 10_000;
 
 function summarise(text: string): string {
-  return text.length > OUTCOME_SUMMARY_LIMIT
-    ? `${text.slice(0, OUTCOME_SUMMARY_LIMIT - 1)}…`
-    : text;
+  return truncateUtf8Bytes(text, OUTCOME_SUMMARY_LIMIT_BYTES);
 }
 
 /**

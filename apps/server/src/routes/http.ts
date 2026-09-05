@@ -1,6 +1,6 @@
 import {
-  apiErrorResponseSchema,
   type AuthenticatedSessionResponse,
+  apiErrorResponseSchema,
   type SessionSummary,
 } from '@craftingtable/contracts';
 import type { StoredSession, StoredUser } from '@craftingtable/storage';

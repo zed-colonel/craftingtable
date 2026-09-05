@@ -7,6 +7,7 @@ import {
 import { asEventId, asUserId } from '@craftingtable/domain';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
+import { selectEventCursor } from './services/workspace-event-stream-service.js';
 import {
   createTestContext,
   FastTestPasswordHasher,
@@ -14,7 +15,6 @@ import {
   TEST_USERNAME,
   type TestContext,
 } from './test-support.js';
-import { selectEventCursor } from './services/workspace-event-stream-service.js';
 
 interface SseFrame {
   readonly event?: string;

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RepositoryFeatureConfig } from '../config.js';
-import type { RepositoryObservationPort } from './repository-observation-port.js';
 import {
-  RepositoryInspectorProvider,
   type MonotonicClock,
+  RepositoryInspectorProvider,
   type RepositoryObservationPortFactory,
 } from './repository-inspector-provider.js';
+import type { RepositoryObservationPort } from './repository-observation-port.js';
 
 const enabledFeature: RepositoryFeatureConfig = {
   enabled: true,

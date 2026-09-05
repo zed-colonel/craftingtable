@@ -5,11 +5,11 @@ import type { AgentBackend } from '@craftingtable/agents';
 import type { GitOperations } from '@craftingtable/git';
 import { openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
-import { configFromEnv, SESSION_COOKIE_NAME, type ServerConfig } from './config.js';
 import { createServices, type ServiceSet } from './composition.js';
-import type { WorkspaceEventStreamHooks } from './services/workspace-event-stream-service.js';
+import { configFromEnv, SESSION_COOKIE_NAME, type ServerConfig } from './config.js';
 import type { PasswordHasher } from './security/password-hasher.js';
 import { buildServer } from './server.js';
+import type { WorkspaceEventStreamHooks } from './services/workspace-event-stream-service.js';
 
 export const TEST_USERNAME = 'test-user';
 export const TEST_PASSWORD = 'correct horse battery staple';

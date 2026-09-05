@@ -132,6 +132,14 @@ class ScriptedSession implements AgentSession {
    * `VERDICT-CHANGES`) ends its turn with the matching verdict line, the way
    * a real review run is instructed to.
    */
+  /** A prompt marker asks for a result made of multibyte characters at the limit. */
+  private resultText(text: string): string {
+    if (text.includes('MULTIBYTE-RESULT')) {
+      return '→'.repeat(4000);
+    }
+    return `done turn ${this.turns}${this.verdictLine(text)}`;
+  }
+
   private verdictLine(text: string): string {
     if (text.includes('VERDICT-MERGEABLE')) return '\n\nVERDICT: mergeable';
     if (text.includes('VERDICT-CHANGES')) return '\nVERDICT: changes-requested\n';
@@ -174,7 +182,7 @@ class ScriptedSession implements AgentSession {
         kind: 'turn-completed',
         payload: {
           outcome: 'success',
-          resultText: `done turn ${this.turns}${this.verdictLine(text)}`,
+          resultText: this.resultText(text),
           costUsd: 0.5 * this.turns,
           turns: this.turns,
           durationMs: 10,
@@ -700,6 +708,40 @@ describe('agent runs', () => {
     });
     expect(unavailable.statusCode).toBe(503);
     expect(unavailable.json()).toMatchObject({ error: { code: 'unavailable' } });
+  });
+
+  it('bounds the outcome summary in bytes so a multibyte result never breaks the run routes', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, instructions: 'MULTIBYTE-RESULT' },
+    });
+    const { run } = startAgentRunResponseSchema.parse(started.json());
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'waiting',
+      'turn',
+    );
+    const stored = state.context.storage.execution.runs.find(state.workspaceId, run.id);
+    expect(Buffer.byteLength(stored?.outcomeSummary ?? '', 'utf8')).toBeLessThanOrEqual(4000);
+    expect(stored?.outcomeSummary?.endsWith('…')).toBe(true);
+    expect(stored?.outcomeSummary).not.toContain('\uFFFD');
+
+    for (const url of [
+      `/api/workspaces/${state.workspaceId}/runs/${run.id}`,
+      `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/execution`,
+      `/api/workspaces/${state.workspaceId}/runs`,
+    ]) {
+      const response = await state.context.app.inject({
+        method: 'GET',
+        url,
+        headers: { cookie: state.cookie },
+      });
+      expect(response.statusCode, url).toBe(200);
+    }
   });
 
   it('lists live and recent runs across the workspace with their work item context', async () => {

@@ -1,11 +1,11 @@
 import type { AgentRunEvent, AgentRunId, WorkspaceId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext, AuthService } from './auth-service.js';
+import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import {
   STREAM_REQUERY_INTERVAL_MS,
   type WorkspaceEventStreamHooks,
 } from './workspace-event-stream-service.js';
-import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 
 export type RunStreamItem =

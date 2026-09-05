@@ -1,5 +1,5 @@
-import { configFromEnv } from './config.js';
 import { createRuntime } from './composition.js';
+import { configFromEnv } from './config.js';
 
 const config = configFromEnv();
 const runtime = await createRuntime(config, { logger: true });

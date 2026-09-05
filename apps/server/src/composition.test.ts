@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openCraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { configFromEnv } from './config.js';
 import { createServices } from './composition.js';
-import type { RepositoryObservationPort } from './services/repository-observation-port.js';
+import { configFromEnv } from './config.js';
 import { RepositoryInspectorProvider } from './services/repository-inspector-provider.js';
+import type { RepositoryObservationPort } from './services/repository-observation-port.js';
 import { FastTestPasswordHasher } from './test-support.js';
 
 const directories: string[] = [];

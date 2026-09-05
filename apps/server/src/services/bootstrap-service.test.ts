@@ -1,12 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '@craftingtable/storage';
-import { BootstrapRefusedError } from './errors.js';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   createTestContext,
   TEST_PASSWORD,
   TEST_USERNAME,
   type TestContext,
 } from '../test-support.js';
+import { BootstrapRefusedError } from './errors.js';
 
 const contexts: TestContext[] = [];
 afterEach(async () => {

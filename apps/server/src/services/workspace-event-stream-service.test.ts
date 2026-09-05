@@ -1,18 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import {
-  STORED_REPOSITORY_RISK_SCAN_PATTERN,
   asEventId,
   asRepositoryId,
   asRepositoryInspectionId,
+  STORED_REPOSITORY_RISK_SCAN_PATTERN,
   type SuccessfulRepositoryInspection,
   type UserId,
   type WorkspaceId,
 } from '@craftingtable/domain';
 import {
   openDatabase,
+  type SuccessfulInspectionWrite,
   serializeRepositoryObservation,
   sha256ExactUtf8,
-  type SuccessfulInspectionWrite,
   WorkspaceEventMappingError,
 } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';

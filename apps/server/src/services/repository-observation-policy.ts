@@ -1,10 +1,10 @@
 import {
   A1_REPOSITORY_INSPECTION_ERROR_CODES,
   A1_REPOSITORY_INSPECTION_ERROR_SUBJECT_BY_CODE,
-  normalizeRepositoryErrorEvidence,
   type A1RepositoryInspectionErrorCode,
   type A1RepositoryInspectionErrorSubject,
   type A1RepositoryInspectionOperation,
+  normalizeRepositoryErrorEvidence,
   type RepositoryObservationAssessment,
   type StoredCoreEvidenceDifference,
   type StoredEnvironmentalEvidenceDifference,

@@ -1,14 +1,12 @@
 import type {
-  STORED_REPOSITORY_OBSERVATION_VERSION,
-  STORED_REPOSITORY_RISK_SCAN_SCOPE_VERSION,
-} from '@craftingtable/domain';
-import type {
   A1RepositoryInspectionErrorCode,
   A1RepositoryInspectionErrorSubject,
   A1RepositoryInspectionOperation,
   NormalizedRepositoryErrorEvidence,
   RegisteredRepository,
   RepositoryObservationAssessment,
+  STORED_REPOSITORY_OBSERVATION_VERSION,
+  STORED_REPOSITORY_RISK_SCAN_SCOPE_VERSION,
   StoredCoreEvidenceDifference,
   StoredEnvironmentalEvidenceDifference,
   StoredRepositoryInspectionErrorCategory,

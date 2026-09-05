@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configFromEnv } from './config.js';
 import { createRuntime } from './composition.js';
+import { configFromEnv } from './config.js';
 
 const E2E_USERNAME = 'e2e-admin';
 const E2E_PASSWORD = 'correct horse battery staple';

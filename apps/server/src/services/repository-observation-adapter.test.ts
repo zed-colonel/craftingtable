@@ -1,4 +1,11 @@
 import {
+  A1_REPOSITORY_INSPECTION_ERROR_CODES,
+  A1_REPOSITORY_INSPECTION_ERROR_SUBJECT_BY_CODE,
+  type RegisteredRepository,
+  STORED_REPOSITORY_RISK_SIGNALS,
+  type SuccessfulRepositoryInspection,
+} from '@craftingtable/domain';
+import {
   calculateCoreIdentityFingerprint,
   parseRecordedObservation,
   REPOSITORY_INSPECTION_POLICY_VERSION,
@@ -8,13 +15,6 @@ import {
   type RepositoryInspectionError,
   type RepositoryObservationShape,
 } from '@craftingtable/git';
-import {
-  A1_REPOSITORY_INSPECTION_ERROR_CODES,
-  A1_REPOSITORY_INSPECTION_ERROR_SUBJECT_BY_CODE,
-  STORED_REPOSITORY_RISK_SIGNALS,
-  type RegisteredRepository,
-  type SuccessfulRepositoryInspection,
-} from '@craftingtable/domain';
 import { serializeRepositoryObservation, sha256ExactUtf8 } from '@craftingtable/storage';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RepositoryFeatureConfig } from '../config.js';

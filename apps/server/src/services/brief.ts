@@ -63,8 +63,10 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
     'revision, read the changed code and its tests, and run the quality checks read-only.',
     'Report findings as a numbered list, each with a severity (blocking, major, minor,',
     'nit), the file and line, what is wrong, and what would resolve it. State explicitly',
-    'whether the work meets the exit gate. Finish with a clear accept or request-changes',
-    'verdict.',
+    'whether the work meets the exit gate. The very last line of your final message must',
+    'be exactly `VERDICT: mergeable` if the branch can be merged as it stands, or',
+    '`VERDICT: changes-requested` if anything blocking or major remains. CraftingTable',
+    'reads that line; a merge is only offered after a mergeable verdict.',
   ].join(' '),
   design: [
     'You are exploring and designing this work item before implementation.',
@@ -85,6 +87,17 @@ function formatDependencies(entries: readonly BriefDependency[]): string {
 function formatSourceFields(value: JsonValue): string {
   const serialized = JSON.stringify(value, null, 2) ?? 'null';
   return serialized.length > 20_000 ? `${serialized.slice(0, 20_000)}\n…(truncated)` : serialized;
+}
+
+const VERDICT_LINE = /^\s*VERDICT:\s*(mergeable|changes-requested)\s*$/gim;
+
+/** The last verdict line in a review's final message, if it wrote one. */
+export function parseVerdict(text: string): 'mergeable' | 'changes-requested' | undefined {
+  let verdict: 'mergeable' | 'changes-requested' | undefined;
+  for (const match of text.matchAll(VERDICT_LINE)) {
+    verdict = match[1]?.toLowerCase() as 'mergeable' | 'changes-requested';
+  }
+  return verdict;
 }
 
 export function composeBrief(input: BriefInput): string {

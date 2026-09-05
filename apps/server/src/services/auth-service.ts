@@ -3,9 +3,16 @@ import { asAuditEventId, asSessionId, normalizeUsername } from '@craftingtable/d
 import type { CraftingTableStorage, StoredSession, StoredUser } from '@craftingtable/storage';
 import type { PasswordHasher } from '../security/password-hasher.js';
 import type { SessionTokenService } from '../security/session-tokens.js';
-import { AuthenticationError, NotFoundError, UnauthenticatedError } from './errors.js';
+import {
+  AuthenticationError,
+  ExecutionRequestError,
+  NotFoundError,
+  UnauthenticatedError,
+} from './errors.js';
 
 const LAST_SEEN_WRITE_INTERVAL_MS = 5 * 60 * 1000;
+const MIN_PASSWORD_BYTES = 12;
+const MAX_PASSWORD_BYTES = 1024;
 
 export interface AuthContext {
   readonly user: StoredUser;
@@ -119,6 +126,71 @@ export class AuthService {
 
   listSessions(context: AuthContext): readonly StoredSession[] {
     return this.storage.sessions.listForUser(context.user.id);
+  }
+
+  /**
+   * Changes the caller's password after re-verifying the current one, and
+   * revokes every other session so a stolen cookie does not outlive the change.
+   */
+  async changePassword(
+    context: AuthContext,
+    input: { readonly currentPassword: string; readonly newPassword: string },
+    requestId?: string,
+  ): Promise<{ readonly revokedSessionCount: number }> {
+    const valid = await this.passwordHasher.verify(
+      context.user.passwordHash,
+      input.currentPassword,
+    );
+    if (!valid) {
+      throw new AuthenticationError();
+    }
+    const newBytes = Buffer.byteLength(input.newPassword, 'utf8');
+    if (newBytes < MIN_PASSWORD_BYTES || newBytes > MAX_PASSWORD_BYTES) {
+      throw new ExecutionRequestError(
+        'invalid-request',
+        `Password must be between ${MIN_PASSWORD_BYTES} and ${MAX_PASSWORD_BYTES} UTF-8 bytes`,
+      );
+    }
+    const passwordHash = await this.passwordHasher.hash(input.newPassword);
+    const occurredAt = this.now().toISOString();
+    return this.storage.transaction((tx) => {
+      const updated = tx.users.updatePassword({
+        userId: context.user.id,
+        passwordHash,
+        occurredAt,
+      });
+      if (updated === undefined) {
+        throw new UnauthenticatedError();
+      }
+      let revokedSessionCount = 0;
+      for (const session of tx.sessions.listForUser(context.user.id)) {
+        if (session.id === context.session.id || session.status !== 'active') {
+          continue;
+        }
+        if (
+          tx.sessions.revoke({ sessionId: session.id, occurredAt, reason: 'user-revoked' }) !==
+          undefined
+        ) {
+          revokedSessionCount += 1;
+        }
+      }
+      tx.audit.append({
+        id: asAuditEventId(randomUUID()),
+        occurredAt,
+        actorKind: 'user',
+        actorUserId: context.user.id,
+        sessionId: context.session.id,
+        ...(requestId === undefined ? {} : { requestId }),
+        action: 'user.password-changed',
+        targetType: 'user',
+        targetId: context.user.id,
+        outcome: 'succeeded',
+        priorVersion: context.user.version,
+        resultingVersion: updated.version,
+        metadata: { revokedSessionCount },
+      });
+      return { revokedSessionCount };
+    });
   }
 
   logout(context: AuthContext, requestId?: string): void {

@@ -2,34 +2,34 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { type AgentBackend, ClaudeCodeBackend } from '@craftingtable/agents';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
-import { openCraftingTableStorage, type CraftingTableStorage } from '@craftingtable/storage';
+import { type CraftingTableStorage, openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from './config.js';
-import { AgentRunService, type RunLog } from './services/agent-run-service.js';
-import { resolveExecutable } from './services/executables.js';
-import { ExecutionService, type ExecutionStatus } from './services/execution-service.js';
-import { RunEventStreamService } from './services/run-event-stream-service.js';
 import { Argon2PasswordHasher, type PasswordHasher } from './security/password-hasher.js';
 import { SessionTokenService } from './security/session-tokens.js';
+import { buildServer } from './server.js';
+import { AgentRunService, type RunLog } from './services/agent-run-service.js';
+import { AuthService } from './services/auth-service.js';
 import { BootstrapService } from './services/bootstrap-service.js';
+import { resolveExecutable } from './services/executables.js';
+import { ExecutionService, type ExecutionStatus } from './services/execution-service.js';
 import { PlanImportService } from './services/plan-import-service.js';
 import { PlanningQueryService } from './services/planning-query-service.js';
-import { createRepositoryObservationPort } from './services/repository-observation-adapter.js';
 import {
+  type MonotonicClock,
   PERFORMANCE_MONOTONIC_CLOCK,
   RepositoryInspectorProvider,
-  type MonotonicClock,
   type RepositoryObservationPortFactory,
 } from './services/repository-inspector-provider.js';
+import { createRepositoryObservationPort } from './services/repository-observation-adapter.js';
+import { RunEventStreamService } from './services/run-event-stream-service.js';
 import { WorkItemService } from './services/work-item-service.js';
-import { AuthService } from './services/auth-service.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
 import {
-  WorkspaceEventStreamService,
   type WorkspaceEventStreamHooks,
+  WorkspaceEventStreamService,
 } from './services/workspace-event-stream-service.js';
 import { WorkspaceService } from './services/workspace-service.js';
-import { buildServer } from './server.js';
 
 export interface ServiceSet {
   readonly bootstrapService: BootstrapService;
@@ -79,7 +79,7 @@ export async function createServices(
     config.sessionLifetimeSeconds,
     now,
   );
-  const workspaceService = new WorkspaceService(storage, now);
+  const workspaceService = new WorkspaceService(storage, now, notifier);
   const planImportService = new PlanImportService(storage, workspaceService, notifier, now);
   const planningQueryService = new PlanningQueryService(storage, workspaceService);
   const workItemService = new WorkItemService(storage, workspaceService, notifier, now);
@@ -125,6 +125,7 @@ export async function createServices(
     notifier,
     gitOperations,
     config.execution,
+    workItemService,
     now,
   );
   const agentRunService = new AgentRunService(

@@ -63,11 +63,24 @@ export const logoutResponseSchema = z.strictObject({
   success: z.literal(true),
 });
 
+export const changePasswordRequestSchema = z.strictObject({
+  currentPassword: z.string().min(1).max(1024),
+  newPassword: z.string().min(1).max(1024),
+});
+
+export const changePasswordResponseSchema = z.strictObject({
+  success: z.literal(true),
+  /** Every other session was revoked; the current one stays signed in. */
+  revokedSessionCount: z.number().int().nonnegative(),
+});
+
 export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type AuthenticatedSessionResponse = z.infer<typeof authenticatedSessionResponseSchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type SessionListResponse = z.infer<typeof sessionListResponseSchema>;
 export type LogoutRequest = z.infer<typeof logoutRequestSchema>;
+export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
+export type ChangePasswordResponse = z.infer<typeof changePasswordResponseSchema>;
 export type RevokeSessionRequest = z.infer<typeof revokeSessionRequestSchema>;
 export type RevokeSessionResponse = z.infer<typeof revokeSessionResponseSchema>;

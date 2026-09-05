@@ -3,12 +3,11 @@ import {
   asPlanImportAttemptId,
   asPlanVersionId,
   asProjectId,
-  asWorkContractDraftId,
   asWorkItemId,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
-import { seedPlan, seedWorkspace, SEED_NOW, uniqueDigest } from './planning-test-support.js';
-import { temporaryStorage, type TemporaryStorage } from './test-support.js';
+import { SEED_NOW, seedPlan, seedWorkspace, uniqueDigest } from './planning-test-support.js';
+import { type TemporaryStorage, temporaryStorage } from './test-support.js';
 
 /** CT03-A26, A29 to A32, A34, A35, A39, A51, A52, A53, A54 at the storage layer. */
 
@@ -56,6 +55,7 @@ describe('planning repositories', () => {
     ).toEqual({
       proposedCount: 3,
       admittedCount: 0,
+      completedCount: 0,
       planningReadyCount: 1,
       dependencyBlockedCount: 2,
       riskCounts: { low: 0, medium: 1, high: 1, critical: 1, unspecified: 0 },
@@ -352,16 +352,10 @@ describe('planning repositories', () => {
     expect(store.planning.queries.workspaceSummary(seed.workspaceId).importAttentionCount).toBe(1);
   });
 
-  it('stores and reads back a draft document unchanged', () => {
+  it('derives completed status from the completion row and unblocks dependents', () => {
     const store = storage();
     const seed = seedWorkspace(store, 'a');
     const plan = seedPlan(store, seed);
-    const document = {
-      schemaVersion: 1,
-      status: 'draft',
-      completeness: 'incomplete',
-      missing: ['registered-repository'],
-    };
 
     store.transaction((tx) => {
       tx.planning.workItems.admit({
@@ -370,22 +364,61 @@ describe('planning repositories', () => {
         admittedAt: SEED_NOW,
         admittedByUserId: seed.userId,
       });
-      tx.planning.drafts.insert({
-        id: asWorkContractDraftId('draft-1'),
+    });
+    const completed = store.transaction((tx) =>
+      tx.planning.workItems.complete({
+        workItemId: plan.rootWorkItemId,
         workspaceId: seed.workspaceId,
         projectId: plan.projectId,
-        planVersionId: plan.planVersionId,
-        workItemId: plan.rootWorkItemId,
-        document,
-        createdAt: SEED_NOW,
-        createdByUserId: seed.userId,
-      });
-    });
+        completedAt: '2026-07-25T00:00:00.000Z',
+        completedByUserId: seed.userId,
+        mergeSha: 'abcdef0123456789abcdef0123456789abcdef01',
+      }),
+    );
+    expect(completed?.status).toBe('completed');
+    expect(completed?.completedAt).toBe('2026-07-25T00:00:00.000Z');
+    expect(completed?.mergeSha).toBe('abcdef0123456789abcdef0123456789abcdef01');
+    // The immutable work_items row is untouched; status is derived by the join.
+    expect(completed?.version).toBe(2);
 
-    const stored = store.planning.drafts.findForWorkItem(seed.workspaceId, plan.rootWorkItemId);
-    expect(stored?.document).toEqual(document);
-    expect(stored?.status).toBe('draft');
-    expect(stored?.completeness).toBe('incomplete');
+    // A second completion inserts nothing.
+    expect(
+      store.transaction((tx) =>
+        tx.planning.workItems.complete({
+          workItemId: plan.rootWorkItemId,
+          workspaceId: seed.workspaceId,
+          projectId: plan.projectId,
+          completedAt: '2026-07-26T00:00:00.000Z',
+          completedByUserId: seed.userId,
+        }),
+      ),
+    ).toBeUndefined();
+
+    const counts = store.planning.queries.versionStatusCounts(seed.workspaceId, plan.planVersionId);
+    expect(counts.completedCount).toBe(1);
+    expect(counts.admittedCount).toBe(0);
+    // Completing the root satisfies the middle item's only required predecessor.
+    expect(counts.planningReadyCount).toBe(1);
+    expect(counts.dependencyBlockedCount).toBe(1);
+
+    const rows = store.planning.workItems.listForVersion(seed.workspaceId, plan.planVersionId);
+    expect(rows.find((row) => row.id === plan.rootWorkItemId)?.status).toBe('completed');
+    expect(
+      store.planning.dependencies
+        .listPredecessors(seed.workspaceId, plan.middleWorkItemId)
+        .map((entry) => entry.status),
+    ).toEqual(['completed']);
+
+    expect(
+      store.planning.workItems
+        .listForWorkspace(seed.workspaceId, 'completed', 50)
+        .map((row) => [row.sourceId, row.projectName]),
+    ).toEqual([['WI-01', 'Project a']]);
+    expect(
+      store.planning.workItems
+        .listForWorkspace(seed.workspaceId, 'planning-ready', 50)
+        .map((row) => row.id),
+    ).toEqual([plan.middleWorkItemId]);
   });
 
   it('returns nothing for an unknown project, version, item, or artifact', () => {

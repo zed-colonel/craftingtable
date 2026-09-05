@@ -1,14 +1,19 @@
 import {
+  createWorkspaceRequestSchema,
+  createWorkspaceResponseSchema,
+  renameWorkspaceRequestSchema,
+  renameWorkspaceResponseSchema,
   workspaceAuditPageResponseSchema,
   workspaceIdSchema,
   workspaceListResponseSchema,
   workspaceSnapshotResponseSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { SESSION_COOKIE_NAME } from '../config.js';
+import { SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
 import type { AuthService } from '../services/auth-service.js';
 import type { WorkspaceService } from '../services/workspace-service.js';
 import { noStore, sendApiError } from './http.js';
+import { authorizeMutation } from './request-security.js';
 
 function workspaceId(value: string) {
   return workspaceIdSchema.safeParse(value);
@@ -36,6 +41,7 @@ export function registerWorkspaceRoutes(
   app: FastifyInstance,
   authService: AuthService,
   workspaceService: WorkspaceService,
+  config: ServerConfig,
 ): void {
   app.get('/api/workspaces', async (request, reply) => {
     const context = authenticate(request, authService);
@@ -43,6 +49,36 @@ export function registerWorkspaceRoutes(
       workspaceListResponseSchema.parse({ workspaces: workspaceService.list(context) }),
     );
   });
+
+  app.post('/api/workspaces', async (request, reply) => {
+    const context = authorizeMutation(request, authService, config);
+    const body = createWorkspaceRequestSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return sendApiError(reply, 400, 'invalid-request', 'Invalid workspace request');
+    }
+    const workspace = workspaceService.create(context, body.data.name, request.id);
+    return noStore(reply).send(createWorkspaceResponseSchema.parse({ workspace }));
+  });
+
+  app.post<{ Params: { workspaceId: string } }>(
+    '/api/workspaces/:workspaceId/rename',
+    async (request, reply) => {
+      const context = authorizeMutation(request, authService, config);
+      const parsed = workspaceId(request.params.workspaceId);
+      if (!parsed.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      const body = renameWorkspaceRequestSchema.safeParse(request.body ?? {});
+      if (!body.success) {
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid workspace request');
+      }
+      return noStore(reply).send(
+        renameWorkspaceResponseSchema.parse(
+          workspaceService.rename(context, parsed.data, body.data.name, request.id),
+        ),
+      );
+    },
+  );
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/snapshot',

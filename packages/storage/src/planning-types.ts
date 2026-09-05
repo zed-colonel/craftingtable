@@ -18,14 +18,13 @@ import type {
   Project,
   ProjectId,
   UserId,
-  WorkContractDraft,
-  WorkContractDraftId,
   WorkItem,
   WorkItemDependency,
   WorkItemDependencyId,
   WorkItemId,
   WorkItemRisk,
   WorkspaceId,
+  WorktreeId,
 } from '@craftingtable/domain';
 
 /* -------------------------------------------------------------------------- */
@@ -138,23 +137,30 @@ export interface CreateWorkItemDependencyInput {
   readonly ordinal: number;
 }
 
-export interface CreateWorkContractDraftInput {
-  readonly id: WorkContractDraftId;
-  readonly workspaceId: WorkspaceId;
-  readonly projectId: ProjectId;
-  readonly planVersionId: PlanVersionId;
-  readonly workItemId: WorkItemId;
-  readonly document: JsonValue;
-  readonly createdAt: string;
-  readonly createdByUserId: UserId;
-}
-
 export interface AdmitWorkItemInput {
   readonly workItemId: WorkItemId;
   readonly workspaceId: WorkspaceId;
   readonly admittedAt: string;
   readonly admittedByUserId: UserId;
 }
+
+export interface CompleteWorkItemInput {
+  readonly workItemId: WorkItemId;
+  readonly workspaceId: WorkspaceId;
+  readonly projectId: ProjectId;
+  readonly completedAt: string;
+  readonly completedByUserId: UserId;
+  readonly worktreeId?: WorktreeId;
+  readonly mergeSha?: string;
+}
+
+/** Cross-project work item filters for the workspace overview. */
+export type WorkspaceWorkItemFilter =
+  | 'all'
+  | 'admitted'
+  | 'planning-ready'
+  | 'dependency-blocked'
+  | 'completed';
 
 /* -------------------------------------------------------------------------- */
 /* Read shapes                                                                 */
@@ -181,6 +187,10 @@ export interface WorkItemRow extends WorkItem {
   readonly recommendedPredecessorCount: number;
 }
 
+export interface WorkspaceWorkItemRow extends WorkItemRow {
+  readonly projectName: string;
+}
+
 export interface PlanningRiskCounts {
   readonly low: number;
   readonly medium: number;
@@ -191,7 +201,9 @@ export interface PlanningRiskCounts {
 
 export interface PlanningStatusCounts {
   readonly proposedCount: number;
+  /** Admitted and not yet completed. */
   readonly admittedCount: number;
+  readonly completedCount: number;
   readonly planningReadyCount: number;
   readonly dependencyBlockedCount: number;
   readonly riskCounts: PlanningRiskCounts;
@@ -295,7 +307,15 @@ export interface WorkItemRepository {
   insertMany(inputs: readonly CreateWorkItemInput[]): readonly WorkItem[];
   find(workspaceId: WorkspaceId, workItemId: WorkItemId): WorkItem | undefined;
   listForVersion(workspaceId: WorkspaceId, planVersionId: PlanVersionId): readonly WorkItemRow[];
+  /** Work items of every project's active plan version, filtered for the overview. */
+  listForWorkspace(
+    workspaceId: WorkspaceId,
+    filter: WorkspaceWorkItemFilter,
+    limit: number,
+  ): readonly WorkspaceWorkItemRow[];
   admit(input: AdmitWorkItemInput): WorkItem | undefined;
+  /** Records completion; `undefined` when the item is unknown or already completed. */
+  complete(input: CompleteWorkItemInput): WorkItem | undefined;
   count(): number;
 }
 
@@ -313,12 +333,6 @@ export interface WorkItemDependencyRepository {
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
   ): readonly WorkItemDependencySummary[];
-  count(): number;
-}
-
-export interface WorkContractDraftRepository {
-  insert(input: CreateWorkContractDraftInput): WorkContractDraft;
-  findForWorkItem(workspaceId: WorkspaceId, workItemId: WorkItemId): WorkContractDraft | undefined;
   count(): number;
 }
 
@@ -342,6 +356,5 @@ export interface PlanningRepositories {
   readonly diagnostics: PlanImportDiagnosticRepository;
   readonly workItems: WorkItemRepository;
   readonly dependencies: WorkItemDependencyRepository;
-  readonly drafts: WorkContractDraftRepository;
   readonly queries: PlanningQueryRepository;
 }

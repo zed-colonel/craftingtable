@@ -9,25 +9,29 @@ import type {
   AgentSessionItem,
 } from '@craftingtable/agents';
 import {
+  agentRunCommandResponseSchema,
   agentRunDetailResponseSchema,
   createWorktreeResponseSchema,
+  executionStatusResponseSchema,
+  mergeWorktreeResponseSchema,
   registerSourceRepositoryResponseSchema,
+  removeWorktreeResponseSchema,
   runEventPageResponseSchema,
+  sourceRepositoryListResponseSchema,
   startAgentRunResponseSchema,
   workItemExecutionResponseSchema,
+  workspaceRunsResponseSchema,
   worktreeDiffResponseSchema,
-  agentRunCommandResponseSchema,
-  executionStatusResponseSchema,
-  sourceRepositoryListResponseSchema,
-  removeWorktreeResponseSchema,
 } from '@craftingtable/contracts';
 import {
+  type AgentRunId,
   asPlanBundleId,
   asPlanVersionId,
   asProjectId,
   asWorkItemId,
   type UserId,
   type WorkspaceId,
+  type WorktreeId,
 } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -116,10 +120,22 @@ class ScriptedSession implements AgentSession {
           model: 'scripted-model',
           permissionMode: request.permissionMode,
           cwd: request.cwd,
+          billing: 'subscription',
         },
       },
     });
     this.respond(request.prompt);
+  }
+
+  /**
+   * A review brief that carries the operator marker `VERDICT-MERGEABLE` (or
+   * `VERDICT-CHANGES`) ends its turn with the matching verdict line, the way
+   * a real review run is instructed to.
+   */
+  private verdictLine(text: string): string {
+    if (text.includes('VERDICT-MERGEABLE')) return '\n\nVERDICT: mergeable';
+    if (text.includes('VERDICT-CHANGES')) return '\nVERDICT: changes-requested\n';
+    return '';
   }
 
   private respond(text: string): void {
@@ -158,7 +174,7 @@ class ScriptedSession implements AgentSession {
         kind: 'turn-completed',
         payload: {
           outcome: 'success',
-          resultText: `done turn ${this.turns}`,
+          resultText: `done turn ${this.turns}${this.verdictLine(text)}`,
           costUsd: 0.5 * this.turns,
           turns: this.turns,
           durationMs: 10,
@@ -528,8 +544,11 @@ describe('agent runs', () => {
       turnCount: 1,
       costUsd: 0.5,
       backendSessionId: 'scripted-session',
+      resolvedModel: 'scripted-model',
+      billing: 'subscription',
       outcomeSummary: 'done turn 1',
     });
+    expect(parsedDetail.run.verdict).toBeUndefined();
     expect(parsedDetail.brief).toContain('Exit gate: Queue accepts and drains one job.');
 
     const message = await state.context.app.inject({
@@ -683,6 +702,42 @@ describe('agent runs', () => {
     expect(unavailable.json()).toMatchObject({ error: { code: 'unavailable' } });
   });
 
+  it('lists live and recent runs across the workspace with their work item context', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id },
+    });
+    const { run } = startAgentRunResponseSchema.parse(started.json());
+    const listed = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/runs`,
+      headers: { cookie: state.cookie },
+    });
+    expect(listed.statusCode, listed.body).toBe(200);
+    const overview = workspaceRunsResponseSchema.parse(listed.json());
+    expect(overview.liveCount).toBe(1);
+    expect(overview.runs).toHaveLength(1);
+    expect(overview.runs[0]).toMatchObject({
+      id: run.id,
+      workItemSourceId: 'AQ-01',
+      workItemTitle: 'Establish the queue',
+      projectName: 'Exec project',
+      branchName: worktree.branchName,
+    });
+    const snapshot = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/snapshot`,
+      headers: { cookie: state.cookie },
+    });
+    expect(
+      (snapshot.json() as { statusSummary: { liveRuns: number } }).statusSummary.liveRuns,
+    ).toBe(1);
+  });
+
   it('marks runs that were live at shutdown as interrupted on the next start', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());
@@ -706,5 +761,195 @@ describe('agent runs', () => {
     expect(last?.kind === 'run-finished' && last.payload).toMatchObject({ status: 'interrupted' });
     expect(last?.kind === 'run-finished' && last.payload.message).toContain('restarted');
     expect(service.recoverInterrupted()).toBe(0);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Review-gated merge                                                          */
+/* -------------------------------------------------------------------------- */
+
+async function admit(state: Ready): Promise<void> {
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/admit`,
+    headers: mutationHeaders(state),
+    payload: {},
+  });
+  expect(response.statusCode, response.body).toBe(200);
+}
+
+async function runToFinish(
+  state: Ready,
+  worktreeId: string,
+  payload: Record<string, unknown>,
+): Promise<AgentRunId> {
+  const started = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+    headers: mutationHeaders(state),
+    payload: { worktreeId, ...payload },
+  });
+  expect(started.statusCode, started.body).toBe(200);
+  const { run } = startAgentRunResponseSchema.parse(started.json());
+  await waitFor(
+    () =>
+      state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'waiting',
+    'turn',
+  );
+  await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/end`,
+    headers: mutationHeaders(state),
+    payload: {},
+  });
+  await waitFor(
+    () =>
+      state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'finished',
+    'finish',
+  );
+  return run.id;
+}
+
+async function mergeGate(state: Ready, worktreeId: string) {
+  const execution = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/execution`,
+    headers: { cookie: state.cookie },
+  });
+  return workItemExecutionResponseSchema.parse(execution.json()).mergeGates[
+    worktreeId as WorktreeId
+  ];
+}
+
+async function merge(state: Ready, worktreeId: string) {
+  return state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/worktrees/${worktreeId}/merge`,
+    headers: mutationHeaders(state),
+    payload: {},
+  });
+}
+
+describe('review-gated merge', () => {
+  it('opens the gate only after the latest run is a mergeable review, then merges and completes', async () => {
+    const state = await ready();
+    const repositoryPath = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, repositoryPath);
+    await admit(state);
+
+    // No review yet: refused.
+    expect(await mergeGate(state, worktree.id)).toMatchObject({
+      mergeable: false,
+      reason: 'no-review',
+    });
+    expect((await merge(state, worktree.id)).statusCode).toBe(409);
+
+    // The implementation commits on the branch.
+    writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
+    git(['add', '--all'], worktree.path);
+    git(['commit', '--no-gpg-sign', '-m', 'add feature'], worktree.path);
+    await runToFinish(state, worktree.id, { role: 'implement' });
+    expect((await mergeGate(state, worktree.id))?.reason).toBe('no-review');
+
+    // A review that requests changes keeps the gate closed.
+    const changes = await runToFinish(state, worktree.id, {
+      role: 'review',
+      instructions: 'VERDICT-CHANGES',
+    });
+    expect(state.context.storage.execution.runs.find(state.workspaceId, changes)?.verdict).toBe(
+      'changes-requested',
+    );
+    expect(await mergeGate(state, worktree.id)).toMatchObject({
+      mergeable: false,
+      reason: 'changes-requested',
+      reviewRunId: changes,
+    });
+
+    // A mergeable review opens it; a later implement run closes it again.
+    const approved = await runToFinish(state, worktree.id, {
+      role: 'review',
+      instructions: 'VERDICT-MERGEABLE',
+    });
+    expect(await mergeGate(state, worktree.id)).toMatchObject({
+      mergeable: true,
+      reason: 'ready',
+      reviewRunId: approved,
+    });
+    await runToFinish(state, worktree.id, { role: 'implement' });
+    expect((await mergeGate(state, worktree.id))?.reason).toBe('superseded-by-later-run');
+    const final = await runToFinish(state, worktree.id, {
+      role: 'review',
+      instructions: 'VERDICT-MERGEABLE',
+    });
+    expect((await mergeGate(state, worktree.id))?.reviewRunId).toBe(final);
+
+    const merged = await merge(state, worktree.id);
+    expect(merged.statusCode, merged.body).toBe(200);
+    const result = mergeWorktreeResponseSchema.parse(merged.json());
+    expect(result.targetBranch).toBe('main');
+    expect(result.workItemCompleted).toBe(true);
+    expect(result.worktree).toMatchObject({ status: 'removed', mergeSha: result.mergeSha });
+    expect(git(['rev-parse', 'HEAD'], repositoryPath).trim()).toBe(result.mergeSha);
+    expect(git(['log', '--oneline', '-3'], repositoryPath)).toContain('add feature');
+    expect(git(['branch', '--list', worktree.branchName], repositoryPath).trim()).toBe('');
+    expect(git(['worktree', 'list'], repositoryPath)).not.toContain(worktree.path);
+
+    const item = state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId);
+    expect(item?.status).toBe('completed');
+    expect(item?.mergeSha).toBe(result.mergeSha);
+    expect(item?.completionWorktreeId).toBe(worktree.id);
+
+    const actions = state.context.storage.audit
+      .listWorkspace({ workspaceId: state.workspaceId, limit: 100 })
+      .map((row) => row.action);
+    expect(actions).toEqual(expect.arrayContaining(['worktree.merged', 'work-item.completed']));
+    const kinds = state.context.storage.workspaceEvents
+      .listAfter({ workspaceId: state.workspaceId, after: 0, limit: 100 })
+      .map((event) => event.kind);
+    expect(kinds).toEqual(expect.arrayContaining(['worktree-merged', 'work-item-completed']));
+
+    // Merging again is refused: the worktree is gone.
+    expect((await merge(state, worktree.id)).statusCode).toBe(409);
+  });
+
+  it('refuses a merge when the worktree is dirty or the primary checkout is not on the default branch', async () => {
+    const state = await ready();
+    const repositoryPath = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, repositoryPath);
+    await admit(state);
+    writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
+    git(['add', '--all'], worktree.path);
+    git(['commit', '--no-gpg-sign', '-m', 'add feature'], worktree.path);
+    await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+
+    writeFileSync(join(worktree.path, 'uncommitted.txt'), 'oops\n');
+    const dirty = await merge(state, worktree.id);
+    expect(dirty.statusCode).toBe(409);
+    expect(dirty.json()).toMatchObject({
+      error: { message: expect.stringMatching(/uncommitted/) },
+    });
+    rmSync(join(worktree.path, 'uncommitted.txt'));
+
+    git(['checkout', '-b', 'elsewhere'], repositoryPath);
+    const wrongBranch = await merge(state, worktree.id);
+    expect(wrongBranch.statusCode).toBe(400);
+    expect(wrongBranch.json()).toMatchObject({
+      error: { message: expect.stringMatching(/elsewhere/) },
+    });
+    git(['checkout', 'main'], repositoryPath);
+
+    // A conflicting change on main is reported and aborted, leaving main clean.
+    writeFileSync(join(repositoryPath, 'feature.txt'), 'conflict\n');
+    git(['add', '--all'], repositoryPath);
+    git(['commit', '--no-gpg-sign', '-m', 'conflicting'], repositoryPath);
+    const conflict = await merge(state, worktree.id);
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({
+      error: { message: expect.stringMatching(/conflict/) },
+    });
+    expect(git(['status', '--porcelain'], repositoryPath)).toBe('');
+    expect(
+      state.context.storage.execution.worktrees.find(state.workspaceId, worktree.id)?.status,
+    ).toBe('active');
   });
 });

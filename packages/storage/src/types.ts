@@ -147,6 +147,11 @@ export interface UserRepository {
   insert(input: CreateUserInput): StoredUser;
   findByNormalizedUsername(username: string): StoredUser | undefined;
   findById(id: UserId): StoredUser | undefined;
+  updatePassword(input: {
+    readonly userId: UserId;
+    readonly passwordHash: string;
+    readonly occurredAt: string;
+  }): StoredUser | undefined;
 }
 
 export interface SessionRepository {
@@ -168,6 +173,12 @@ export interface WorkspaceRepository {
   listAuthorized(userId: UserId): readonly AuthorizedWorkspace[];
   findAuthorized(userId: UserId, workspaceId: WorkspaceId): AuthorizedWorkspace | undefined;
   exists(workspaceId: WorkspaceId): boolean;
+  slugExists(slug: string): boolean;
+  rename(input: {
+    readonly workspaceId: WorkspaceId;
+    readonly name: string;
+    readonly occurredAt: string;
+  }): Workspace | undefined;
 }
 
 export interface AuditRepository {

@@ -1,4 +1,4 @@
-import type { AgentPermissionMode, JsonValue } from '@craftingtable/domain';
+import type { AgentBillingSource, AgentPermissionMode, JsonValue } from '@craftingtable/domain';
 import type { NormalizedAgentEvent } from '../index.js';
 
 /**
@@ -71,6 +71,17 @@ function toolResultText(content: unknown): string {
       .join('\n');
   }
   return '';
+}
+
+/**
+ * Claude Code reports where its credentials came from. `none` means the CLI's
+ * own login (a subscription); anything else names an API key source.
+ */
+function billingOf(apiKeySource: unknown): AgentBillingSource {
+  if (typeof apiKeySource !== 'string') {
+    return 'unknown';
+  }
+  return apiKeySource === 'none' ? 'subscription' : 'api-key';
 }
 
 function firstLine(value: string, limit = 200): string {
@@ -211,11 +222,40 @@ export class ClaudeStreamNormalizer {
               model: stringOf(message.model) || 'unknown',
               permissionMode: this.options.permissionMode,
               cwd: stringOf(message.cwd) || this.options.cwd,
+              billing: billingOf(message.apiKeySource),
             },
             raw,
           },
         ];
       }
+      // Per-token thinking progress carries no text; it is pure noise here.
+      case 'thinking_tokens':
+      // The task list itself is derivable from task_started/task_notification.
+      case 'task_updated':
+      case 'background_tasks_changed':
+        return [];
+      case 'task_started':
+        return [
+          {
+            kind: 'notice',
+            payload: {
+              category: 'task',
+              message: `Background task started: ${firstLine(stringOf(message.description) || stringOf(message.task_type) || 'task')}`,
+            },
+            raw,
+          },
+        ];
+      case 'task_notification':
+        return [
+          {
+            kind: 'notice',
+            payload: {
+              category: 'task',
+              message: `Background task ${stringOf(message.status) || 'updated'}: ${firstLine(stringOf(message.summary) || stringOf(message.task_id) || 'task', 300)}`,
+            },
+            raw,
+          },
+        ];
       case 'hook_started':
         return [
           {

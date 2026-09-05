@@ -68,4 +68,18 @@ export class SqliteUserRepository implements UserRepository {
       | undefined;
     return row === undefined ? undefined : mapUser(row);
   }
+
+  updatePassword(input: {
+    readonly userId: UserId;
+    readonly passwordHash: string;
+    readonly occurredAt: string;
+  }): StoredUser | undefined {
+    const result = this.database
+      .prepare(
+        `UPDATE users SET password_hash = ?, updated_at = ?, version = version + 1
+         WHERE id = ? AND status = 'active'`,
+      )
+      .run(input.passwordHash, input.occurredAt, input.userId);
+    return result.changes === 0 ? undefined : this.findById(input.userId);
+  }
 }

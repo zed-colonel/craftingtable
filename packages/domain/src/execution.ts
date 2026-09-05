@@ -63,6 +63,9 @@ export interface Worktree {
   readonly createdAt: string;
   readonly createdByUserId: UserId;
   readonly removedAt?: string;
+  /** Set when removal was the result of merging the branch into its base branch. */
+  readonly mergedAt?: string;
+  readonly mergeSha?: string;
   readonly version: number;
 }
 
@@ -123,6 +126,21 @@ export function isTerminalAgentRunStatus(status: AgentRunStatus): boolean {
 export const AGENT_PERMISSION_MODES = ['edit-only', 'auto', 'unrestricted'] as const;
 export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number];
 
+/**
+ * How the backend session was paid for, as reported by the backend itself.
+ * A subscription session still reports an API-equivalent cost figure; the
+ * browser labels it as an estimate rather than a bill.
+ */
+export const AGENT_BILLING_SOURCES = ['subscription', 'api-key', 'unknown'] as const;
+export type AgentBillingSource = (typeof AGENT_BILLING_SOURCES)[number];
+
+/**
+ * A review run's conclusion, parsed from its final message. Merging a
+ * worktree is gated on the latest review of that worktree being `mergeable`.
+ */
+export const AGENT_RUN_VERDICTS = ['mergeable', 'changes-requested'] as const;
+export type AgentRunVerdict = (typeof AGENT_RUN_VERDICTS)[number];
+
 export interface AgentRun {
   readonly id: AgentRunId;
   readonly workspaceId: WorkspaceId;
@@ -135,7 +153,13 @@ export interface AgentRun {
   readonly role: AgentRunRole;
   readonly status: AgentRunStatus;
   readonly permissionMode: AgentPermissionMode;
+  /** The model the operator asked for, if any. */
   readonly model?: string;
+  /** The model the backend actually used, once its session started. */
+  readonly resolvedModel?: string;
+  readonly billing?: AgentBillingSource;
+  /** Present only on review runs whose final message carried a verdict line. */
+  readonly verdict?: AgentRunVerdict;
   /** The composed prompt handed to the agent as its first message. */
   readonly brief: string;
   /** Vendor session identifier, once the backend reports one. */
@@ -172,7 +196,13 @@ export function isAgentRunEventKind(value: unknown): value is AgentRunEventKind 
   return (AGENT_RUN_EVENT_KINDS as readonly string[]).includes(value as string);
 }
 
-export const AGENT_NOTICE_CATEGORIES = ['rate-limit', 'compaction', 'hook', 'other'] as const;
+export const AGENT_NOTICE_CATEGORIES = [
+  'rate-limit',
+  'compaction',
+  'hook',
+  'task',
+  'other',
+] as const;
 export type AgentNoticeCategory = (typeof AGENT_NOTICE_CATEGORIES)[number];
 
 export interface AgentRunEventPayloads {
@@ -182,6 +212,7 @@ export interface AgentRunEventPayloads {
     readonly model: string;
     readonly permissionMode: AgentPermissionMode;
     readonly cwd: string;
+    readonly billing: AgentBillingSource;
   };
   readonly 'user-message': { readonly text: string };
   readonly 'assistant-message': { readonly text: string };

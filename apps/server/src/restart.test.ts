@@ -11,9 +11,9 @@ import {
   workspaceSnapshotResponseSchema,
 } from '@craftingtable/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
+import { type CraftingTableRuntime, createRuntime } from './composition.js';
 import { CSRF_HEADER_NAME, configFromEnv } from './config.js';
 import { buildMultipartBody } from './multipart-test-support.js';
-import { createRuntime, type CraftingTableRuntime } from './composition.js';
 import { FastTestPasswordHasher, TEST_PASSWORD, TEST_USERNAME } from './test-support.js';
 
 const runtimes: CraftingTableRuntime[] = [];
@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 describe('daemon restart reconstruction', () => {
-  it('reopens with imported plans, admission, and drafts intact (CT03-A50)', async () => {
+  it('reopens with imported plans and admission intact (CT03-A50)', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'craftingtable-restart-planning-'));
     directories.push(directory);
     const config = configFromEnv({
@@ -109,7 +109,6 @@ describe('daemon restart reconstruction', () => {
       workItems: first.storage.planning.workItems.count(),
       dependencies: first.storage.planning.dependencies.count(),
       artifacts: first.storage.planning.artifacts.count(),
-      drafts: first.storage.planning.drafts.count(),
       audit: first.storage.audit.count(),
       events: first.storage.workspaceEvents.count(),
       maxSequence: first.storage.workspaceEvents.maxSequence(),
@@ -128,7 +127,6 @@ describe('daemon restart reconstruction', () => {
       workItems: second.storage.planning.workItems.count(),
       dependencies: second.storage.planning.dependencies.count(),
       artifacts: second.storage.planning.artifacts.count(),
-      drafts: second.storage.planning.drafts.count(),
       audit: second.storage.audit.count(),
       events: second.storage.workspaceEvents.count(),
       maxSequence: second.storage.workspaceEvents.maxSequence(),
@@ -157,7 +155,7 @@ describe('daemon restart reconstruction', () => {
       ).json(),
     );
     expect(workItem.workItem.status).toBe('admitted');
-    expect(workItem.draft?.completeness).toBe('incomplete');
+    expect(workItem.workItem.readiness).toBe('active');
   });
 
   it('reopens the same database with user, session, audit, event, and snapshot state', async () => {

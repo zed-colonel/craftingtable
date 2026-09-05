@@ -1,16 +1,16 @@
 import { readFileSync } from 'node:fs';
 import cookie from '@fastify/cookie';
-import { fastify, type FastifyInstance } from 'fastify';
+import { type FastifyInstance, fastify } from 'fastify';
 import type { ServerConfig } from './config.js';
 import { registerAgentRunRoutes } from './routes/agent-runs.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerExecutionRoutes } from './routes/execution.js';
+import { registerHealthRoute } from './routes/health.js';
 import { sendApiError } from './routes/http.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerStaticWebRoutes } from './routes/static-web.js';
 import { registerWorkspaceEventRoute } from './routes/workspace-events.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
-import { registerHealthRoute } from './routes/health.js';
 import type { AgentRunService } from './services/agent-run-service.js';
 import type { AuthService } from './services/auth-service.js';
 import {
@@ -21,11 +21,11 @@ import {
   UnauthenticatedError,
 } from './services/errors.js';
 import type { ExecutionService, ExecutionStatus } from './services/execution-service.js';
-import type { RunEventStreamService } from './services/run-event-stream-service.js';
-import type { WorkspaceEventStreamService } from './services/workspace-event-stream-service.js';
 import type { PlanImportService } from './services/plan-import-service.js';
 import type { PlanningQueryService } from './services/planning-query-service.js';
+import type { RunEventStreamService } from './services/run-event-stream-service.js';
 import type { WorkItemService } from './services/work-item-service.js';
+import type { WorkspaceEventStreamService } from './services/workspace-event-stream-service.js';
 import type { WorkspaceService } from './services/workspace-service.js';
 
 export interface ServerDependencies {
@@ -78,7 +78,7 @@ export function buildServer(
 
   registerHealthRoute(app);
   registerAuthRoutes(app, deps.authService, config);
-  registerWorkspaceRoutes(app, deps.authService, deps.workspaceService);
+  registerWorkspaceRoutes(app, deps.authService, deps.workspaceService, config);
   registerPlanningRoutes(
     app,
     deps.authService,

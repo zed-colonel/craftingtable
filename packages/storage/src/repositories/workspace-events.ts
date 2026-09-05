@@ -141,6 +141,7 @@ function assertStructuralShape(row: WorkspaceEventRow, kind: WorkspaceEventKind)
       if (!repositoryCorrelationsNull) invalidStructural(row);
       return;
     case 'source-repository-registered':
+    case 'workspace-updated':
       if (
         !repositoryCorrelationsNull ||
         row.project_id !== null ||
@@ -152,6 +153,8 @@ function assertStructuralShape(row: WorkspaceEventRow, kind: WorkspaceEventKind)
       return;
     case 'worktree-created':
     case 'worktree-removed':
+    case 'worktree-merged':
+    case 'work-item-completed':
       if (
         !repositoryCorrelationsNull ||
         row.project_id === null ||
@@ -237,9 +240,12 @@ function assertPayloadCorrelations(
     case 'plan-version-imported':
     case 'work-item-admitted':
     case 'source-repository-registered':
+    case 'workspace-updated':
       return;
     case 'worktree-created':
     case 'worktree-removed':
+    case 'worktree-merged':
+    case 'work-item-completed':
       requireMatchingPayloadId(row, payload, 'workItemId', row.work_item_id as string);
       return;
     case 'agent-run-started':
@@ -368,6 +374,28 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
         workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
         payload: mapPayload<'worktree-removed'>(payload),
       };
+    case 'worktree-merged':
+      return {
+        ...commonFields(base),
+        kind,
+        projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
+        workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
+        payload: mapPayload<'worktree-merged'>(payload),
+      };
+    case 'work-item-completed':
+      return {
+        ...commonFields(base),
+        kind,
+        projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
+        workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
+        payload: mapPayload<'work-item-completed'>(payload),
+      };
+    case 'workspace-updated':
+      return {
+        ...commonFields(base),
+        kind,
+        payload: mapPayload<'workspace-updated'>(payload),
+      };
     case 'agent-run-started':
       return {
         ...commonFields(base),
@@ -461,9 +489,12 @@ function assertAppendAgreement(input: AppendWorkspaceEventInput): void {
     case 'plan-version-imported':
     case 'work-item-admitted':
     case 'source-repository-registered':
+    case 'workspace-updated':
       return;
     case 'worktree-created':
     case 'worktree-removed':
+    case 'worktree-merged':
+    case 'work-item-completed':
       if (input.payload.workItemId !== input.workItemId) mismatch('workItemId');
       return;
     case 'agent-run-started':

@@ -5,13 +5,12 @@ import {
   asPlanImportDiagnosticId,
   asPlanVersionId,
   asProjectId,
-  asWorkContractDraftId,
   asWorkItemDependencyId,
   asWorkItemId,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
-import { seedPlan, seedWorkspace, SEED_NOW, uniqueDigest } from './planning-test-support.js';
-import { temporaryStorage, type TemporaryStorage } from './test-support.js';
+import { SEED_NOW, seedPlan, seedWorkspace, uniqueDigest } from './planning-test-support.js';
+import { type TemporaryStorage, temporaryStorage } from './test-support.js';
 
 /**
  * CT03-A08, A33, A34: planning schema ownership, immutability, and uniqueness.
@@ -42,7 +41,7 @@ const PLANNING_TABLES = [
   'plan_import_diagnostics',
   'work_items',
   'work_item_dependencies',
-  'work_contract_drafts',
+  'work_item_completions',
 ] as const;
 
 describe('planning schema', () => {
@@ -218,73 +217,25 @@ describe('planning schema', () => {
     expect(() => database.prepare(`DELETE FROM plan_artifacts`).run()).toThrow(/immutable/);
   });
 
-  it('rejects updates and deletes on work-contract drafts', () => {
+  it('keeps a work item completion immutable', () => {
     const store = storage();
     const seed = seedWorkspace(store, 'a');
     const plan = seedPlan(store, seed);
     const database = (store as unknown as { database: import('better-sqlite3').Database }).database;
 
     store.transaction((tx) => {
-      tx.planning.workItems.admit({
+      tx.planning.workItems.complete({
         workItemId: plan.rootWorkItemId,
-        workspaceId: seed.workspaceId,
-        admittedAt: SEED_NOW,
-        admittedByUserId: seed.userId,
-      });
-      tx.planning.drafts.insert({
-        id: asWorkContractDraftId('draft-1'),
         workspaceId: seed.workspaceId,
         projectId: plan.projectId,
-        planVersionId: plan.planVersionId,
-        workItemId: plan.rootWorkItemId,
-        document: { schemaVersion: 1 },
-        createdAt: SEED_NOW,
-        createdByUserId: seed.userId,
+        completedAt: SEED_NOW,
+        completedByUserId: seed.userId,
       });
     });
 
     expect(() =>
-      database.prepare(`UPDATE work_contract_drafts SET status = 'approved'`).run(),
+      database.prepare(`UPDATE work_item_completions SET completed_at = '2030-01-01'`).run(),
     ).toThrow(/immutable/);
-    expect(() => database.prepare(`DELETE FROM work_contract_drafts`).run()).toThrow(/immutable/);
-  });
-
-  it('permits one draft per work item only', () => {
-    const store = storage();
-    const seed = seedWorkspace(store, 'a');
-    const plan = seedPlan(store, seed);
-    store.transaction((tx) => {
-      tx.planning.workItems.admit({
-        workItemId: plan.rootWorkItemId,
-        workspaceId: seed.workspaceId,
-        admittedAt: SEED_NOW,
-        admittedByUserId: seed.userId,
-      });
-      tx.planning.drafts.insert({
-        id: asWorkContractDraftId('draft-1'),
-        workspaceId: seed.workspaceId,
-        projectId: plan.projectId,
-        planVersionId: plan.planVersionId,
-        workItemId: plan.rootWorkItemId,
-        document: {},
-        createdAt: SEED_NOW,
-        createdByUserId: seed.userId,
-      });
-    });
-    expect(() =>
-      store.transaction((tx) =>
-        tx.planning.drafts.insert({
-          id: asWorkContractDraftId('draft-2'),
-          workspaceId: seed.workspaceId,
-          projectId: plan.projectId,
-          planVersionId: plan.planVersionId,
-          workItemId: plan.rootWorkItemId,
-          document: {},
-          createdAt: SEED_NOW,
-          createdByUserId: seed.userId,
-        }),
-      ),
-    ).toThrow(/UNIQUE/);
   });
 
   it('scopes work-item source ids to a plan version (CT03-A34)', () => {

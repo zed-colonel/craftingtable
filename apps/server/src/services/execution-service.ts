@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import {
+  type AgentRun,
+  type AgentRunId,
   asAuditEventId,
   asEventId,
   asSourceRepositoryId,
   asWorktreeId,
   isTerminalAgentRunStatus,
-  type AgentRun,
   type SourceRepository,
   type SourceRepositoryId,
   type WorkItemId,
@@ -19,8 +20,60 @@ import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
+
+export type MergeGateReason =
+  | 'ready'
+  | 'no-review'
+  | 'changes-requested'
+  | 'review-pending'
+  | 'superseded-by-later-run'
+  | 'run-live'
+  | 'worktree-removed';
+
+export interface MergeGate {
+  readonly mergeable: boolean;
+  readonly reason: MergeGateReason;
+  readonly reviewRunId?: AgentRunId;
+}
+
+/**
+ * The pull-request rule: a worktree may be merged when its most recent run is
+ * a review that returned `mergeable` and nothing is live in it. Any later run
+ * of any role supersedes the review, because it may have changed the branch.
+ */
+export function mergeGateFor(worktree: Worktree, runs: readonly AgentRun[]): MergeGate {
+  if (worktree.status !== 'active') {
+    return { mergeable: false, reason: 'worktree-removed' };
+  }
+  const forWorktree = runs
+    .filter((run) => run.worktreeId === worktree.id)
+    .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt));
+  if (forWorktree.some((run) => !isTerminalAgentRunStatus(run.status))) {
+    const live = forWorktree.find((run) => !isTerminalAgentRunStatus(run.status));
+    return live?.role === 'review' && live.verdict === undefined
+      ? { mergeable: false, reason: 'review-pending', reviewRunId: live.id }
+      : { mergeable: false, reason: 'run-live' };
+  }
+  const latest = forWorktree[0];
+  const latestReview = forWorktree.find((run) => run.role === 'review');
+  if (latestReview === undefined) {
+    return { mergeable: false, reason: 'no-review' };
+  }
+  if (latest !== undefined && latest.id !== latestReview.id) {
+    return { mergeable: false, reason: 'superseded-by-later-run', reviewRunId: latestReview.id };
+  }
+  if (latestReview.verdict === 'mergeable') {
+    return { mergeable: true, reason: 'ready', reviewRunId: latestReview.id };
+  }
+  return {
+    mergeable: false,
+    reason: latestReview.verdict === 'changes-requested' ? 'changes-requested' : 'review-pending',
+    reviewRunId: latestReview.id,
+  };
+}
 
 const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
 
@@ -44,6 +97,16 @@ function slug(value: string, maximum = 40): string {
     .toLowerCase();
   return (cleaned.length === 0 ? 'item' : cleaned).slice(0, maximum).replace(/-+$/g, '');
 }
+
+const MERGE_GATE_MESSAGES: Readonly<Record<MergeGateReason, string>> = {
+  ready: 'Ready to merge',
+  'no-review': 'Merging requires a review run with a mergeable verdict; launch a review first',
+  'changes-requested': 'The latest review requested changes; address them and review again',
+  'review-pending': 'The latest review has not returned a verdict yet',
+  'superseded-by-later-run': 'A run started after the last review; review the branch again',
+  'run-live': 'A run is still live in this worktree',
+  'worktree-removed': 'The worktree has been removed',
+};
 
 export interface ExecutionStatus {
   readonly git: { readonly available: boolean; readonly executable?: string };
@@ -69,6 +132,7 @@ export class ExecutionService {
     private readonly notifier: WorkspaceEventNotifier,
     private readonly git: GitOperations | undefined,
     private readonly config: ExecutionConfig,
+    private readonly workItemService: WorkItemService,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -234,16 +298,51 @@ export class ExecutionService {
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
     requestId?: string,
-  ): { readonly worktrees: readonly Worktree[]; readonly runs: readonly AgentRun[] } {
+  ): {
+    readonly worktrees: readonly Worktree[];
+    readonly runs: readonly AgentRun[];
+    readonly mergeGates: Readonly<Record<string, MergeGate>>;
+  } {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
     return this.storage.readTransaction((tx) => {
       if (tx.planning.workItems.find(workspaceId, workItemId) === undefined) {
         throw new NotFoundError();
       }
-      return {
-        worktrees: tx.execution.worktrees.listForWorkItem(workspaceId, workItemId),
-        runs: tx.execution.runs.listForWorkItem(workspaceId, workItemId),
-      };
+      const worktrees = tx.execution.worktrees.listForWorkItem(workspaceId, workItemId);
+      const runs = tx.execution.runs.listForWorkItem(workspaceId, workItemId);
+      const mergeGates: Record<string, MergeGate> = {};
+      for (const worktree of worktrees) {
+        if (worktree.status === 'active') {
+          mergeGates[worktree.id] = mergeGateFor(worktree, runs);
+        }
+      }
+      return { worktrees, runs, mergeGates };
+    });
+  }
+
+  /** Live runs first, then recent ones, with the context to list them anywhere. */
+  listRuns(context: AuthContext, workspaceId: WorkspaceId, requestId?: string) {
+    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
+    return this.storage.readTransaction((tx) => {
+      const runs = tx.execution.runs.listRecent(workspaceId, 50);
+      const items = runs.flatMap((run) => {
+        const item = tx.planning.workItems.find(workspaceId, run.workItemId);
+        const project = tx.planning.projects.find(workspaceId, run.projectId);
+        const worktree = tx.execution.worktrees.find(workspaceId, run.worktreeId);
+        if (item === undefined || project === undefined || worktree === undefined) {
+          return [];
+        }
+        return [
+          {
+            run,
+            workItemSourceId: item.sourceId,
+            workItemTitle: item.title,
+            projectName: project.name,
+            branchName: worktree.branchName,
+          },
+        ];
+      });
+      return { runs: items, liveCount: tx.execution.runs.countLive(workspaceId) };
     });
   }
 
@@ -442,6 +541,164 @@ export class ExecutionService {
       this.notifier.notify();
     }
     return result;
+  }
+
+  /**
+   * Merges a reviewed worktree branch into the repository's default branch,
+   * removes the worktree, and completes the work item, in that order.
+   *
+   * Git work happens before the transaction because it cannot be rolled back
+   * by SQLite; the durable records are then written together. A failure
+   * between the merge and the record leaves the merge in the primary
+   * checkout and the worktree active, which the next attempt reports
+   * honestly rather than repeating the merge.
+   */
+  async mergeWorktree(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    worktreeId: WorktreeId,
+    requestId?: string,
+  ): Promise<{
+    readonly worktree: Worktree;
+    readonly mergeSha: string;
+    readonly targetBranch: string;
+    readonly workItemCompleted: boolean;
+  }> {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
+      ...(requestId === undefined ? {} : { requestId }),
+    });
+    const git = this.requireGit();
+    const { worktree, repository, item, gate } = this.storage.readTransaction((tx) => {
+      const found = tx.execution.worktrees.find(workspaceId, worktreeId);
+      if (found === undefined) {
+        throw new NotFoundError();
+      }
+      const repo = tx.execution.sourceRepositories.find(workspaceId, found.repositoryId);
+      const workItem = tx.planning.workItems.find(workspaceId, found.workItemId);
+      if (repo === undefined || workItem === undefined) {
+        throw new NotFoundError();
+      }
+      return {
+        worktree: found,
+        repository: repo,
+        item: workItem,
+        gate: mergeGateFor(found, tx.execution.runs.listForWorktree(workspaceId, found.id)),
+      };
+    });
+    if (!gate.mergeable) {
+      throw new ExecutionRequestError('conflict', MERGE_GATE_MESSAGES[gate.reason]);
+    }
+    const worktreeState = await git.inspectRepository(worktree.path);
+    if (!worktreeState.ok) {
+      throw new ExecutionRequestError(
+        'unavailable',
+        `Worktree is not available: ${worktreeState.failure.message}`,
+      );
+    }
+    if (!worktreeState.value.clean) {
+      throw new ExecutionRequestError(
+        'conflict',
+        'The worktree has uncommitted changes; ask the agent to commit them, or discard them, before merging',
+      );
+    }
+    const merged = await git.mergeBranch({
+      repositoryPath: repository.rootPath,
+      branchName: worktree.branchName,
+      targetBranch: repository.defaultBranch,
+      message: `Merge ${worktree.branchName}: ${item.sourceId} ${item.title}\n\nMerged by CraftingTable after a mergeable review.`,
+    });
+    if (!merged.ok) {
+      throw new ExecutionRequestError(
+        merged.failure.kind === 'merge-conflict' ? 'conflict' : 'invalid-request',
+        merged.failure.message,
+      );
+    }
+    const removed = await git.removeWorktree({
+      repositoryPath: repository.rootPath,
+      worktreePath: worktree.path,
+    });
+    if (!removed.ok) {
+      throw new ExecutionRequestError(
+        'unavailable',
+        `Merged as ${merged.value.mergeSha} but the worktree could not be removed: ${removed.failure.message}`,
+      );
+    }
+    // Best effort: the branch is fully merged, so `-d` is safe; a failure here
+    // only leaves a stale branch name behind.
+    await git.deleteBranch({
+      repositoryPath: repository.rootPath,
+      branchName: worktree.branchName,
+    });
+
+    const occurredAt = this.now().toISOString();
+    const result = this.storage.transaction((tx) => {
+      const marked = tx.execution.worktrees.markMerged({
+        workspaceId,
+        worktreeId,
+        occurredAt,
+        mergeSha: merged.value.mergeSha,
+      });
+      if (marked === undefined) {
+        throw new NotFoundError();
+      }
+      tx.audit.append({
+        id: asAuditEventId(randomUUID()),
+        occurredAt,
+        actorKind: 'user',
+        actorUserId: context.user.id,
+        sessionId: context.session.id,
+        workspaceId,
+        ...(requestId === undefined ? {} : { requestId }),
+        action: 'worktree.merged',
+        targetType: 'worktree',
+        targetId: worktreeId,
+        outcome: 'succeeded',
+        priorVersion: worktree.version,
+        resultingVersion: marked.version,
+        metadata: {
+          branchName: worktree.branchName,
+          targetBranch: repository.defaultBranch,
+          mergeSha: merged.value.mergeSha,
+          ...(gate.reviewRunId === undefined ? {} : { reviewRunId: gate.reviewRunId }),
+        },
+      });
+      tx.workspaceEvents.appendEvent({
+        id: asEventId(randomUUID()),
+        occurredAt,
+        workspaceId,
+        actorUserId: context.user.id,
+        projectId: worktree.projectId,
+        workItemId: worktree.workItemId,
+        kind: 'worktree-merged',
+        payload: {
+          worktreeId,
+          workItemId: worktree.workItemId,
+          branchName: worktree.branchName,
+          targetBranch: repository.defaultBranch,
+          mergeSha: merged.value.mergeSha,
+        },
+      });
+      const completion =
+        item.status === 'admitted'
+          ? this.workItemService.completeWithin(tx, {
+              context,
+              workspaceId,
+              workItemId: worktree.workItemId,
+              occurredAt,
+              ...(requestId === undefined ? {} : { requestId }),
+              worktreeId,
+              mergeSha: merged.value.mergeSha,
+            })
+          : { completed: false };
+      return { worktree: marked, workItemCompleted: completion.completed };
+    });
+    this.notifier.notify();
+    return {
+      worktree: result.worktree,
+      mergeSha: merged.value.mergeSha,
+      targetBranch: repository.defaultBranch,
+      workItemCompleted: result.workItemCompleted,
+    };
   }
 
   async worktreeDiff(

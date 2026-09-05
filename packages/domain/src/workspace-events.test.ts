@@ -22,6 +22,9 @@ describe('workspace event vocabulary', () => {
       'worktree-removed',
       'agent-run-started',
       'agent-run-status-changed',
+      'workspace-updated',
+      'work-item-completed',
+      'worktree-merged',
     ]);
     expect(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA).toEqual({
       'workspace-created': 1,
@@ -38,6 +41,9 @@ describe('workspace event vocabulary', () => {
       'worktree-removed': 5,
       'agent-run-started': 5,
       'agent-run-status-changed': 5,
+      'workspace-updated': 6,
+      'work-item-completed': 6,
+      'worktree-merged': 6,
     });
     expect(Object.keys(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA)).toEqual(WORKSPACE_EVENT_KINDS);
   });

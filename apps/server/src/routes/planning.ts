@@ -1,7 +1,8 @@
-import multipart from '@fastify/multipart';
 import {
   admitWorkItemRequestSchema,
   admitWorkItemResponseSchema,
+  completeWorkItemRequestSchema,
+  completeWorkItemResponseSchema,
   planArtifactIdSchema,
   planImportAttemptListResponseSchema,
   planImportResponseSchema,
@@ -13,12 +14,15 @@ import {
   workItemDetailResponseSchema,
   workItemIdSchema,
   workspaceIdSchema,
+  workspaceWorkItemFilterSchema,
+  workspaceWorkItemListResponseSchema,
 } from '@craftingtable/contracts';
 import type { PlanDiagnostic } from '@craftingtable/planning';
+import multipart from '@fastify/multipart';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from '../config.js';
 import type { AuthService } from '../services/auth-service.js';
-import type { PlanImportService, PlanImportResult } from '../services/plan-import-service.js';
+import type { PlanImportResult, PlanImportService } from '../services/plan-import-service.js';
 import type { PlanningQueryService } from '../services/planning-query-service.js';
 import type { WorkItemService } from '../services/work-item-service.js';
 import { noStore, sendApiError } from './http.js';
@@ -242,6 +246,54 @@ export function registerPlanningRoutes(
     },
   );
 
+  app.get<{ Params: { workspaceId: string }; Querystring: { filter?: string } }>(
+    '/api/workspaces/:workspaceId/work-items',
+    async (request, reply) => {
+      const context = authenticate(request, authService);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!workspaceId.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      const filter = workspaceWorkItemFilterSchema.safeParse(request.query.filter ?? 'all');
+      if (!filter.success) {
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid work item filter');
+      }
+      return noStore(reply).send(
+        workspaceWorkItemListResponseSchema.parse(
+          queryService.listWorkspaceWorkItems(context, workspaceId.data, filter.data, request.id),
+        ),
+      );
+    },
+  );
+
+  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+    '/api/workspaces/:workspaceId/work-items/:workItemId/complete',
+    async (request, reply) => {
+      const context = authorizeMutation(request, authService, config);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
+      if (!workspaceId.success || !workItemId.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      if (!completeWorkItemRequestSchema.safeParse(request.body ?? {}).success) {
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid completion request');
+      }
+      const result = workItemService.complete(
+        context,
+        workspaceId.data,
+        workItemId.data,
+        request.id,
+      );
+      return noStore(reply).send(
+        completeWorkItemResponseSchema.parse({
+          workItemId: result.workItem.id,
+          status: 'completed',
+          completed: result.completed,
+        }),
+      );
+    },
+  );
+
   app.post<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/admit',
     async (request, reply) => {
@@ -260,14 +312,6 @@ export function registerPlanningRoutes(
           workItemId: result.workItem.id,
           status: 'admitted',
           admitted: result.admitted,
-          draft: {
-            id: result.draft.id,
-            schemaVersion: result.draft.schemaVersion,
-            status: result.draft.status,
-            completeness: result.draft.completeness,
-            createdAt: result.draft.createdAt,
-            document: result.draft.document,
-          },
         }),
       );
     },

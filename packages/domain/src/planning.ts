@@ -7,10 +7,10 @@ import type {
   PlanVersionId,
   ProjectId,
   UserId,
-  WorkContractDraftId,
   WorkItemDependencyId,
   WorkItemId,
   WorkspaceId,
+  WorktreeId,
 } from './ids.js';
 
 /**
@@ -55,11 +55,11 @@ export const DIAGNOSTIC_SEVERITIES = ['error', 'warning', 'info'] as const;
 export type DiagnosticSeverity = (typeof DIAGNOSTIC_SEVERITIES)[number];
 
 /**
- * CT-03 exposes exactly one transition, Proposed -> Admitted (CT-03 §5.11).
- * Later statuses (Active, Completed, Canceled, Superseded) are deliberately
- * absent so no unsupported transition can be represented.
+ * Work item lifecycle: proposed by the plan, admitted into the agenda, and
+ * completed once its work has landed (by merging a worktree or by hand).
+ * Being "in progress" is derived from live worktrees and runs, not stored.
  */
-export const WORK_ITEM_STATUSES = ['proposed', 'admitted'] as const;
+export const WORK_ITEM_STATUSES = ['proposed', 'admitted', 'completed'] as const;
 export type WorkItemStatus = (typeof WORK_ITEM_STATUSES)[number];
 
 /**
@@ -186,6 +186,11 @@ export interface WorkItem {
   readonly sourceFields: JsonValue;
   readonly admittedAt?: string;
   readonly admittedByUserId?: UserId;
+  readonly completedAt?: string;
+  readonly completedByUserId?: UserId;
+  /** The worktree whose merge completed the item, when completion came from a merge. */
+  readonly completionWorktreeId?: WorktreeId;
+  readonly mergeSha?: string;
   readonly version: number;
 }
 
@@ -200,24 +205,13 @@ export interface WorkItemDependency {
 }
 
 /**
- * Derived readiness of a proposed or admitted item (CT-03 §5.11).
- *
- * `planning-ready` deliberately never reads as "ready to execute" or "ready to
- * merge"; CT-03 owns only the planning half of that vocabulary.
+ * Derived readiness of a work item: proposed items are planning-ready or
+ * dependency-blocked, admitted items are active, completed items are done.
  */
-export const WORK_ITEM_READINESS = ['planning-ready', 'dependency-blocked', 'active'] as const;
+export const WORK_ITEM_READINESS = [
+  'planning-ready',
+  'dependency-blocked',
+  'active',
+  'completed',
+] as const;
 export type WorkItemReadiness = (typeof WORK_ITEM_READINESS)[number];
-
-export interface WorkContractDraft {
-  readonly id: WorkContractDraftId;
-  readonly workspaceId: WorkspaceId;
-  readonly projectId: ProjectId;
-  readonly planVersionId: PlanVersionId;
-  readonly workItemId: WorkItemId;
-  readonly schemaVersion: 1;
-  readonly status: 'draft';
-  readonly completeness: 'incomplete';
-  readonly document: JsonValue;
-  readonly createdAt: string;
-  readonly createdByUserId: UserId;
-}

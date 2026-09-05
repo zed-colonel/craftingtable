@@ -1,11 +1,14 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import {
   admitWorkItemResponseSchema,
+  completeWorkItemResponseSchema,
   planImportResponseSchema,
   planVersionDetailResponseSchema,
   projectDetailResponseSchema,
   workItemDetailResponseSchema,
   workspaceSnapshotResponseSchema,
+  workspaceWorkItemListResponseSchema,
 } from '@craftingtable/contracts';
 import {
   asSessionId,
@@ -15,7 +18,6 @@ import {
   type WorkspaceId,
   type WorkspaceRole,
 } from '@craftingtable/domain';
-import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { buildMultipartBody, type MultipartFilePart } from './multipart-test-support.js';
@@ -204,6 +206,8 @@ describe('planning queries over HTTP', () => {
       active: 0,
       planningReady: 1,
       dependencyBlocked: 13,
+      completed: 0,
+      liveRuns: 0,
     });
     expect(snapshot.planningSummary.riskCounts).toEqual({
       low: 0,
@@ -256,7 +260,6 @@ describe('planning queries over HTTP', () => {
       'AQ-11',
       'AQ-12',
     ]);
-    expect(detail.draft).toBeNull();
     expect(detail.projectName).toBe('ActionQueue — AQ-CONT-1');
   });
 
@@ -450,7 +453,7 @@ describe('work-item admission over HTTP', () => {
     return { response, workItemId: aq01.id };
   }
 
-  it('admits exactly one item and creates one incomplete draft (CT03-A53, A56, A58)', async () => {
+  it('admits exactly one item with one audit row and one event (CT03-A53, A56, A58)', async () => {
     const ready = await importedWorkspace();
     const { response, workItemId } = await admitAq01(ready);
     expect(response.statusCode).toBe(200);
@@ -458,30 +461,8 @@ describe('work-item admission over HTTP', () => {
     const parsed = admitWorkItemResponseSchema.parse(response.json());
     expect(parsed.admitted).toBe(true);
     expect(parsed.status).toBe('admitted');
-    expect(parsed.draft.status).toBe('draft');
-    expect(parsed.draft.completeness).toBe('incomplete');
-    expect(parsed.draft.schemaVersion).toBe(1);
-
-    const document = parsed.draft.document as Record<string, unknown>;
-    expect(document.missing).toEqual([
-      'registered-repository',
-      'exact-base-revision',
-      'path-scope',
-      'verification-policy',
-      'protected-acceptance-criteria',
-      'agent-backend',
-      'execution-environment',
-    ]);
-    expect(document.merge).toEqual({ humanAuthorizationRequired: true });
-    expect((document.objective as { title: string }).title).toBe(
-      'Freeze evidence and establish the development contract',
-    );
-    // Nothing in the draft may read as authorization (CT03-I11).
-    expect(Object.keys(document)).not.toContain('approved');
-    expect(Object.keys(document)).not.toContain('executable');
 
     const storage = ready.context.storage;
-    expect(storage.planning.drafts.count()).toBe(1);
     expect(
       storage.planning.workItems.find(ready.workspaceId, workItemId)?.admittedByUserId,
     ).toBeDefined();
@@ -493,15 +474,120 @@ describe('work-item admission over HTTP', () => {
 
     const audit = storage.audit.listWorkspace({ workspaceId: ready.workspaceId, limit: 50 });
     expect(audit.filter((row) => row.action === 'work-item.admitted')).toHaveLength(1);
-    expect(audit.filter((row) => row.action === 'work-contract-draft.created')).toHaveLength(1);
+    const events = storage.workspaceEvents.listAfter({
+      workspaceId: ready.workspaceId,
+      after: 0,
+      limit: 50,
+    });
+    expect(events.filter((event) => event.kind === 'work-item-admitted')).toHaveLength(1);
   });
 
-  it('is idempotent and duplicates no audit, event, or draft row (CT03-A54)', async () => {
+  it('completes an admitted item, unblocks its dependents, and lists it under completed', async () => {
+    const ready = await importedWorkspace();
+    const { workItemId } = await admitAq01(ready);
+    const complete = () =>
+      ready.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ready.workspaceId}/work-items/${workItemId}/complete`,
+        headers: {
+          cookie: ready.session.cookie,
+          origin: ready.context.config.publicOrigin,
+          [CSRF_HEADER_NAME]: ready.session.csrfToken,
+          'content-type': 'application/json',
+        },
+        payload: {},
+      });
+    const first = await complete();
+    expect(first.statusCode, first.body).toBe(200);
+    expect(completeWorkItemResponseSchema.parse(first.json())).toMatchObject({
+      completed: true,
+      status: 'completed',
+    });
+    const repeat = completeWorkItemResponseSchema.parse((await complete()).json());
+    expect(repeat.completed).toBe(false);
+
+    const detail = workItemDetailResponseSchema.parse(
+      (
+        await ready.context.app.inject({
+          method: 'GET',
+          url: `/api/workspaces/${ready.workspaceId}/work-items/${workItemId}`,
+          headers: { cookie: ready.session.cookie },
+        })
+      ).json(),
+    );
+    expect(detail.workItem.status).toBe('completed');
+    expect(detail.workItem.readiness).toBe('completed');
+    expect(detail.workItem.completedAt).toBeDefined();
+
+    const listed = workspaceWorkItemListResponseSchema.parse(
+      (
+        await ready.context.app.inject({
+          method: 'GET',
+          url: `/api/workspaces/${ready.workspaceId}/work-items?filter=completed`,
+          headers: { cookie: ready.session.cookie },
+        })
+      ).json(),
+    );
+    expect(listed.items.map((item) => item.sourceId)).toEqual(['AQ-01']);
+    expect(listed.items[0]?.projectName).toBe('ActionQueue — AQ-CONT-1');
+
+    // AQ-02 requires only AQ-01, so it is now ready for admission.
+    const readyItems = workspaceWorkItemListResponseSchema.parse(
+      (
+        await ready.context.app.inject({
+          method: 'GET',
+          url: `/api/workspaces/${ready.workspaceId}/work-items?filter=planning-ready`,
+          headers: { cookie: ready.session.cookie },
+        })
+      ).json(),
+    );
+    expect(readyItems.items.map((item) => item.sourceId)).toContain('AQ-02');
+
+    const invalid = await ready.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${ready.workspaceId}/work-items?filter=nonsense`,
+      headers: { cookie: ready.session.cookie },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const audit = ready.context.storage.audit.listWorkspace({
+      workspaceId: ready.workspaceId,
+      limit: 50,
+    });
+    expect(audit.filter((row) => row.action === 'work-item.completed')).toHaveLength(1);
+  });
+
+  it('refuses to complete a proposed item', async () => {
+    const ready = await importedWorkspace();
+    const project = projectDetailResponseSchema.parse(
+      (
+        await ready.context.app.inject({
+          method: 'GET',
+          url: `/api/workspaces/${ready.workspaceId}/projects/${ready.imported.projectId}`,
+          headers: { cookie: ready.session.cookie },
+        })
+      ).json(),
+    );
+    const aq02 = project.activeVersion?.workItems.find((item) => item.sourceId === 'AQ-02');
+    const response = await ready.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ready.workspaceId}/work-items/${aq02?.id}/complete`,
+      headers: {
+        cookie: ready.session.cookie,
+        origin: ready.context.config.publicOrigin,
+        [CSRF_HEADER_NAME]: ready.session.csrfToken,
+        'content-type': 'application/json',
+      },
+      payload: {},
+    });
+    expect(response.statusCode).toBe(409);
+  });
+
+  it('is idempotent and duplicates no audit or event row (CT03-A54)', async () => {
     const ready = await importedWorkspace();
     await admitAq01(ready);
     const storage = ready.context.storage;
     const afterFirst = {
-      drafts: storage.planning.drafts.count(),
       audit: storage.audit.count(),
       events: storage.workspaceEvents.count(),
     };
@@ -510,7 +596,6 @@ describe('work-item admission over HTTP', () => {
     const repeat = admitWorkItemResponseSchema.parse(response.json());
     expect(repeat.admitted).toBe(false);
     expect(repeat.status).toBe('admitted');
-    expect(storage.planning.drafts.count()).toBe(afterFirst.drafts);
     expect(storage.audit.count()).toBe(afterFirst.audit);
     expect(storage.workspaceEvents.count()).toBe(afterFirst.events);
   });
@@ -558,12 +643,7 @@ describe('work-item admission over HTTP', () => {
     expect(detail.workItem.status).toBe('admitted');
     expect(detail.workItem.readiness).toBe('active');
     expect(detail.workItem.blockerSourceIds).toEqual(['AQ-13']);
-    const draftDocument = detail.draft?.document as Record<string, unknown>;
-    expect(
-      (draftDocument.dependencies as { required: { sourceId: string }[] }).required.map(
-        (entry) => entry.sourceId,
-      ),
-    ).toEqual(['AQ-13']);
+    expect(detail.requiredPredecessors.map((entry) => entry.sourceId)).toEqual(['AQ-13']);
   });
 
   it('rejects admission without CSRF, origin, or authentication (CT03-A38)', async () => {
@@ -616,7 +696,5 @@ describe('work-item admission over HTTP', () => {
       payload: {},
     });
     expect(anonymous.statusCode).toBe(401);
-
-    expect(ready.context.storage.planning.drafts.count()).toBe(0);
   });
 });

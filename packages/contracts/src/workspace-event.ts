@@ -3,10 +3,16 @@ import {
   AGENT_RUN_ROLES,
   AGENT_RUN_STATUSES,
   REPOSITORY_STATUS_REASON_SETS,
-  REPOSITORY_STATUSES,
   REPOSITORY_STATUS_REASONS,
+  REPOSITORY_STATUSES,
 } from '@craftingtable/domain';
 import { z } from 'zod';
+import {
+  gitBranchNameSchema,
+  gitShaSchema,
+  sourceRepositoryDisplayNameSchema,
+  sourceRepositoryPathSchema,
+} from './execution.js';
 import {
   agentRunIdSchema,
   eventIdSchema,
@@ -17,17 +23,10 @@ import {
   repositoryInspectionIdSchema,
   sourceRepositoryIdSchema,
   userIdSchema,
-  workContractDraftIdSchema,
   workItemIdSchema,
   workspaceIdSchema,
   worktreeIdSchema,
 } from './ids.js';
-import {
-  gitBranchNameSchema,
-  gitShaSchema,
-  sourceRepositoryDisplayNameSchema,
-  sourceRepositoryPathSchema,
-} from './execution.js';
 import { repositoryDisplayNameSchema } from './repository.js';
 
 export const SSE_WORKSPACE_EVENT_NAME = 'workspace-event';
@@ -100,7 +99,8 @@ export const workItemAdmittedEventSchema = workspaceEventBaseSchema.extend({
     planVersionId: planVersionIdSchema,
     workItemId: workItemIdSchema,
     sourceWorkItemId: z.string().min(1).max(64),
-    workContractDraftId: workContractDraftIdSchema,
+    /** Retired with the work-contract draft; present only on schema-2 events. */
+    workContractDraftId: z.string().min(1).max(200).optional(),
   }),
 });
 
@@ -466,6 +466,53 @@ export const agentRunStatusChangedEventSchema = workspaceEventBaseSchema
     }
   });
 
+export const workspaceUpdatedEventSchema = workspaceEventBaseSchema.extend({
+  kind: z.literal('workspace-updated'),
+  projectId: forbiddenCorrelationSchema,
+  workItemId: forbiddenCorrelationSchema,
+  runId: forbiddenCorrelationSchema,
+  ...noRepositoryCorrelations,
+  payload: z.strictObject({
+    name: z.string().min(1).max(120),
+    priorVersion: positiveSafeIntegerSchema,
+    resultingVersion: positiveSafeIntegerSchema,
+  }),
+});
+
+export const workItemCompletedEventSchema = workspaceEventBaseSchema
+  .extend({
+    kind: z.literal('work-item-completed'),
+    projectId: projectIdSchema,
+    workItemId: workItemIdSchema,
+    runId: forbiddenCorrelationSchema,
+    ...noRepositoryCorrelations,
+    payload: z.strictObject({
+      projectId: projectIdSchema,
+      workItemId: workItemIdSchema,
+      sourceWorkItemId: z.string().min(1).max(64),
+      worktreeId: worktreeIdSchema.optional(),
+      mergeSha: gitShaSchema.optional(),
+    }),
+  })
+  .superRefine(requireWorkItemAgreement);
+
+export const worktreeMergedEventSchema = workspaceEventBaseSchema
+  .extend({
+    kind: z.literal('worktree-merged'),
+    projectId: projectIdSchema,
+    workItemId: workItemIdSchema,
+    runId: forbiddenCorrelationSchema,
+    ...noRepositoryCorrelations,
+    payload: z.strictObject({
+      worktreeId: worktreeIdSchema,
+      workItemId: workItemIdSchema,
+      branchName: gitBranchNameSchema,
+      targetBranch: gitBranchNameSchema,
+      mergeSha: gitShaSchema,
+    }),
+  })
+  .superRefine(requireWorkItemAgreement);
+
 export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   workspaceCreatedEventSchema,
   projectCreatedEventSchema,
@@ -481,6 +528,9 @@ export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   worktreeRemovedEventSchema,
   agentRunStartedEventSchema,
   agentRunStatusChangedEventSchema,
+  workspaceUpdatedEventSchema,
+  workItemCompletedEventSchema,
+  worktreeMergedEventSchema,
 ]);
 
 export const authenticationExpiredEventSchema = z.strictObject({

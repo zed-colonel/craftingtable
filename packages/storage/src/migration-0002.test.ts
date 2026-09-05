@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  AUDIT_ACTION_INTRODUCED_IN_SCHEMA,
+  AUDIT_ACTIONS,
   asAuditEventId,
   asEventId,
   asProjectId,
@@ -9,8 +11,6 @@ import {
   asUserId,
   asWorkspaceId,
   asWorkspaceMembershipId,
-  AUDIT_ACTIONS,
-  AUDIT_ACTION_INTRODUCED_IN_SCHEMA,
   WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA,
   WORKSPACE_EVENT_KINDS,
 } from '@craftingtable/domain';
@@ -370,6 +370,7 @@ describe('migration 0002 journal preservation', () => {
       'ct04a2a-repository-model',
       'ct04a2b-repository-journal',
       'execution',
+      'workflow',
     ]);
     // The recorded checksum of 0001 is what every already-migrated installation
     // validates against; changing that file would lock operators out.

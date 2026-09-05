@@ -8,17 +8,19 @@ import type {
   NormalizedAgentEvent,
 } from '@craftingtable/agents';
 import {
+  type AgentBillingSource,
+  type AgentPermissionMode,
   type AgentRun,
   type AgentRunEvent,
   type AgentRunId,
   type AgentRunRole,
   type AgentRunStatus,
+  type AgentRunVerdict,
   asAgentRunEventId,
   asAgentRunId,
   asAuditEventId,
   asEventId,
   isTerminalAgentRunStatus,
-  type AgentPermissionMode,
   type WorkItemId,
   type WorkspaceId,
   type Worktree,
@@ -27,7 +29,7 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import type { AuthContext } from './auth-service.js';
-import { composeBrief } from './brief.js';
+import { composeBrief, parseVerdict } from './brief.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -473,17 +475,24 @@ export class AgentRunService {
         case 'session-started':
           this.transition(workspaceId, runId, ['starting', 'running', 'waiting'], 'running', {
             backendSessionId: item.event.payload.backendSessionId,
+            resolvedModel: item.event.payload.model,
+            billing: item.event.payload.billing,
           });
           break;
-        case 'turn-completed':
+        case 'turn-completed': {
+          const run = this.storage.execution.runs.find(workspaceId, runId);
+          const verdict =
+            run?.role === 'review' ? parseVerdict(item.event.payload.resultText) : undefined;
           this.transition(workspaceId, runId, ['starting', 'running'], 'waiting', {
             turnCountIncrement: 1,
             outcomeSummary: summarise(item.event.payload.resultText),
             ...(item.event.payload.costUsd === undefined
               ? {}
               : { costUsd: item.event.payload.costUsd }),
+            ...(verdict === undefined ? {} : { verdict }),
           });
           break;
+        }
         default:
           break;
       }
@@ -522,6 +531,9 @@ export class AgentRunService {
     toStatus: AgentRunStatus,
     fields: {
       readonly backendSessionId?: string;
+      readonly resolvedModel?: string;
+      readonly billing?: AgentBillingSource;
+      readonly verdict?: AgentRunVerdict;
       readonly startedAt?: string;
       readonly exitCode?: number;
       readonly outcomeSummary?: string;
@@ -614,6 +626,7 @@ export class AgentRunService {
           ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
           turnCount: after.turnCount,
           ...(after.costUsd === undefined ? {} : { costUsd: after.costUsd }),
+          ...(after.verdict === undefined ? {} : { verdict: after.verdict }),
         },
       });
       appendStatusChanged(tx, after, before.status, occurredAt);

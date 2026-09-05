@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { planningStatusCountsSchema, projectSummarySchema } from './planning.js';
-import { workspaceEventEnvelopeSchema } from './workspace-event.js';
 import { workspaceSummarySchema } from './workspace.js';
+import { workspaceEventEnvelopeSchema } from './workspace-event.js';
 
 /**
  * The workspace bootstrap payload.
@@ -19,9 +19,12 @@ export const workspaceSnapshotResponseSchema = z.strictObject({
   asOfSequence: z.number().int().nonnegative().safe(),
   statusSummary: z.strictObject({
     needsAttention: z.number().int().nonnegative(),
+    /** Admitted and not yet completed. */
     active: z.number().int().nonnegative(),
     planningReady: z.number().int().nonnegative(),
     dependencyBlocked: z.number().int().nonnegative(),
+    completed: z.number().int().nonnegative(),
+    liveRuns: z.number().int().nonnegative(),
   }),
   planningSummary: planningStatusCountsSchema.extend({
     projectCount: z.number().int().nonnegative().safe(),

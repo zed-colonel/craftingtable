@@ -9,7 +9,6 @@ import type {
   PlanImportOutcome,
   PlanVersion,
   Project,
-  WorkContractDraft,
   WorkItem,
   WorkItemDependency,
   WorkItemRisk,
@@ -244,9 +243,23 @@ export interface WorkItemDbRow {
   admitted_at: string | null;
   admitted_by_user_id: string | null;
   version: number;
+  /** From the completions join; absent on bare `SELECT *` reads. */
+  completed_at?: string | null;
+  completed_by_user_id?: string | null;
+  completion_worktree_id?: string | null;
+  merge_sha?: string | null;
 }
 
+/** Columns and join that every work item read uses so status is always derived. */
+export const WORK_ITEM_SELECT = `
+  w.*, c.completed_at, c.completed_by_user_id,
+  c.worktree_id AS completion_worktree_id, c.merge_sha`;
+export const WORK_ITEM_FROM = `
+  FROM work_items w
+  LEFT JOIN work_item_completions c ON c.work_item_id = w.id`;
+
 export function mapWorkItem(row: WorkItemDbRow): WorkItem {
+  const completedAt = row.completed_at ?? null;
   return {
     id: row.id as WorkItem['id'],
     workspaceId: row.workspace_id as WorkItem['workspaceId'],
@@ -255,7 +268,7 @@ export function mapWorkItem(row: WorkItemDbRow): WorkItem {
     sourceId: row.source_id,
     ordinal: row.ordinal,
     title: row.title,
-    status: row.status,
+    status: completedAt === null ? row.status : 'completed',
     risk: row.risk,
     ...(row.phase === null ? {} : { phase: row.phase }),
     primaryAreas: JSON.parse(row.primary_areas_json) as readonly string[],
@@ -265,6 +278,20 @@ export function mapWorkItem(row: WorkItemDbRow): WorkItem {
     ...(row.admitted_by_user_id === null
       ? {}
       : { admittedByUserId: row.admitted_by_user_id as NonNullable<WorkItem['admittedByUserId']> }),
+    ...(completedAt === null ? {} : { completedAt }),
+    ...(row.completed_by_user_id === undefined || row.completed_by_user_id === null
+      ? {}
+      : {
+          completedByUserId: row.completed_by_user_id as NonNullable<WorkItem['completedByUserId']>,
+        }),
+    ...(row.completion_worktree_id === undefined || row.completion_worktree_id === null
+      ? {}
+      : {
+          completionWorktreeId: row.completion_worktree_id as NonNullable<
+            WorkItem['completionWorktreeId']
+          >,
+        }),
+    ...(row.merge_sha === undefined || row.merge_sha === null ? {} : { mergeSha: row.merge_sha }),
     version: row.version,
   };
 }
@@ -289,35 +316,5 @@ export function mapDependency(row: WorkItemDependencyRow): WorkItemDependency {
     successorWorkItemId: row.successor_work_item_id as WorkItemDependency['successorWorkItemId'],
     kind: row.kind,
     ordinal: row.ordinal,
-  };
-}
-
-export interface WorkContractDraftRow {
-  id: string;
-  workspace_id: string;
-  project_id: string;
-  plan_version_id: string;
-  work_item_id: string;
-  schema_version: 1;
-  status: 'draft';
-  completeness: 'incomplete';
-  document_json: string;
-  created_at: string;
-  created_by_user_id: string;
-}
-
-export function mapDraft(row: WorkContractDraftRow): WorkContractDraft {
-  return {
-    id: row.id as WorkContractDraft['id'],
-    workspaceId: row.workspace_id as WorkContractDraft['workspaceId'],
-    projectId: row.project_id as WorkContractDraft['projectId'],
-    planVersionId: row.plan_version_id as WorkContractDraft['planVersionId'],
-    workItemId: row.work_item_id as WorkContractDraft['workItemId'],
-    schemaVersion: row.schema_version,
-    status: row.status,
-    completeness: row.completeness,
-    document: parseJson(row.document_json),
-    createdAt: row.created_at,
-    createdByUserId: row.created_by_user_id as WorkContractDraft['createdByUserId'],
   };
 }

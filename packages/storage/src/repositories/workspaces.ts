@@ -147,4 +147,50 @@ export class SqliteWorkspaceRepository implements WorkspaceRepository {
       this.database.prepare(`SELECT 1 FROM workspaces WHERE id = ?`).get(workspaceId) !== undefined
     );
   }
+
+  slugExists(slug: string): boolean {
+    return this.database.prepare(`SELECT 1 FROM workspaces WHERE slug = ?`).get(slug) !== undefined;
+  }
+
+  rename(input: {
+    readonly workspaceId: WorkspaceId;
+    readonly name: string;
+    readonly occurredAt: string;
+  }) {
+    const result = this.database
+      .prepare(
+        `UPDATE workspaces SET name = ?, updated_at = ?, version = version + 1
+         WHERE id = ? AND status = 'active'`,
+      )
+      .run(input.name, input.occurredAt, input.workspaceId);
+    if (result.changes === 0) {
+      return undefined;
+    }
+    const row = this.database
+      .prepare(
+        `SELECT id, name, slug, status, created_by_user_id, created_at, updated_at, version
+         FROM workspaces WHERE id = ?`,
+      )
+      .get(input.workspaceId) as {
+      id: string;
+      name: string;
+      slug: string;
+      status: 'active' | 'archived';
+      created_by_user_id: string;
+      created_at: string;
+      updated_at: string;
+      version: number;
+    };
+    return {
+      id: row.id as WorkspaceId,
+      name: row.name,
+      slug: row.slug,
+      status: row.status,
+      createdByUserId:
+        row.created_by_user_id as AuthorizedWorkspace['workspace']['createdByUserId'],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      version: row.version,
+    };
+  }
 }

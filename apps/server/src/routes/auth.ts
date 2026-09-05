@@ -1,5 +1,7 @@
 import {
   authenticatedSessionResponseSchema,
+  changePasswordRequestSchema,
+  changePasswordResponseSchema,
   loginRequestSchema,
   logoutRequestSchema,
   logoutResponseSchema,
@@ -9,11 +11,10 @@ import {
   sessionListResponseSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
-import { type ServerConfig, SESSION_COOKIE_NAME } from '../config.js';
+import { SESSION_COOKIE_NAME, type ServerConfig } from '../config.js';
 import { isAllowedBrowserRequest } from '../security/origin-policy.js';
 import type { AuthService } from '../services/auth-service.js';
 import { NotFoundError, UnauthenticatedError } from '../services/errors.js';
-import { authenticate, authorizeMutation, browserHeaders } from './request-security.js';
 import {
   authenticatedResponse,
   cookieOptions,
@@ -21,6 +22,7 @@ import {
   sendApiError,
   sessionSummary,
 } from './http.js';
+import { authenticate, authorizeMutation, browserHeaders } from './request-security.js';
 
 export function registerAuthRoutes(
   app: FastifyInstance,
@@ -88,6 +90,21 @@ export function registerAuthRoutes(
       secure: config.secureCookies,
     });
     return noStore(reply).send(logoutResponseSchema.parse({ success: true }));
+  });
+
+  app.post('/api/auth/password', async (request, reply) => {
+    const context = authorizeMutation(request, authService, config);
+    const parsed = changePasswordRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return sendApiError(reply, 400, 'invalid-request', 'Invalid password change request');
+    }
+    const result = await authService.changePassword(context, parsed.data, request.id);
+    return noStore(reply).send(
+      changePasswordResponseSchema.parse({
+        success: true,
+        revokedSessionCount: result.revokedSessionCount,
+      }),
+    );
   });
 
   app.post<{ Params: { sessionId: string } }>(

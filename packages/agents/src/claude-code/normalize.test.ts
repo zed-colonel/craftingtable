@@ -94,6 +94,7 @@ describe('ClaudeStreamNormalizer', () => {
       model: 'claude-fable-5-1',
       permissionMode: 'auto',
       cwd: '/work/example',
+      billing: 'subscription',
     });
     expect(subject.backendSessionId).toBe('359953b9-dd4b-4188-ae34-dc57e2d117c5');
 
@@ -124,6 +125,59 @@ describe('ClaudeStreamNormalizer', () => {
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1', model: 'm' });
     expect(subject.normalizeLine(init)).toHaveLength(1);
     expect(subject.normalizeLine(init)).toHaveLength(0);
+  });
+
+  it('reports the billing source from the init message', () => {
+    const withKey = normalizer().normalizeLine(
+      JSON.stringify({ type: 'system', subtype: 'init', apiKeySource: 'ANTHROPIC_API_KEY' }),
+    )[0];
+    expect(withKey?.kind === 'session-started' && withKey.payload.billing).toBe('api-key');
+    const unknown = normalizer().normalizeLine(
+      JSON.stringify({ type: 'system', subtype: 'init' }),
+    )[0];
+    expect(unknown?.kind === 'session-started' && unknown.payload.billing).toBe('unknown');
+  });
+
+  it('drops thinking-token pings and task bookkeeping, keeps task lifecycle notices', () => {
+    const subject = normalizer();
+    expect(
+      subject.normalizeLine(
+        JSON.stringify({ type: 'system', subtype: 'thinking_tokens', estimated_tokens: 50 }),
+      ),
+    ).toEqual([]);
+    expect(
+      subject.normalizeLine(
+        JSON.stringify({ type: 'system', subtype: 'task_updated', patch: { status: 'done' } }),
+      ),
+    ).toEqual([]);
+    expect(
+      subject.normalizeLine(
+        JSON.stringify({ type: 'system', subtype: 'background_tasks_changed', tasks: [] }),
+      ),
+    ).toEqual([]);
+    const [started] = subject.normalizeLine(
+      JSON.stringify({
+        type: 'system',
+        subtype: 'task_started',
+        task_type: 'local_bash',
+        description: 'Run the test suite in background',
+      }),
+    );
+    expect(started?.kind === 'notice' && started.payload).toEqual({
+      category: 'task',
+      message: 'Background task started: Run the test suite in background',
+    });
+    const [finished] = subject.normalizeLine(
+      JSON.stringify({
+        type: 'system',
+        subtype: 'task_notification',
+        status: 'completed',
+        summary: 'Background command "Run the test suite" completed (exit code 0)',
+      }),
+    );
+    expect(finished?.kind === 'notice' && finished.payload.message).toBe(
+      'Background task completed: Background command "Run the test suite" completed (exit code 0)',
+    );
   });
 
   it('turns malformed or unknown lines into bounded notices instead of throwing', () => {

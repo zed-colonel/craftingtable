@@ -10,13 +10,13 @@ import type {
 import type Database from 'better-sqlite3';
 import type {
   AdmitWorkItemInput,
+  CompleteWorkItemInput,
   CreatePlanArtifactInput,
   CreatePlanBundleInput,
   CreatePlanImportAttemptInput,
   CreatePlanImportDiagnosticInput,
   CreatePlanVersionInput,
   CreateProjectInput,
-  CreateWorkContractDraftInput,
   CreateWorkItemDependencyInput,
   CreateWorkItemInput,
   PlanArtifactRepository,
@@ -31,12 +31,13 @@ import type {
   ProjectRepository,
   ProjectSummaryRow,
   StoredPlanArtifact,
-  WorkContractDraftRepository,
   WorkItemDependencyRepository,
   WorkItemDependencySummary,
   WorkItemRepository,
   WorkItemRow,
   WorkspacePlanningSummary,
+  WorkspaceWorkItemFilter,
+  WorkspaceWorkItemRow,
 } from '../../planning-types.js';
 import {
   mapArtifact,
@@ -44,7 +45,6 @@ import {
   mapBundle,
   mapDependency,
   mapDiagnostic,
-  mapDraft,
   mapProject,
   mapVersion,
   mapWorkItem,
@@ -54,7 +54,8 @@ import {
   type PlanImportDiagnosticRow,
   type PlanVersionRow,
   type ProjectRow,
-  type WorkContractDraftRow,
+  WORK_ITEM_FROM,
+  WORK_ITEM_SELECT,
   type WorkItemDbRow,
   type WorkItemDependencyRow,
 } from './rows.js';
@@ -67,14 +68,11 @@ function countOf(database: Database.Database, table: string): number {
     .count;
 }
 
-/**
- * Derived readiness, written in the general "predecessor not Completed" form.
- *
- * CT-03's status CHECK admits only `proposed` and `admitted`, so this is
- * currently equivalent to "has no required predecessor". Writing the general
- * form means CT-04's completion workflow only has to widen the status
- * vocabulary rather than rewrite every readiness query.
- */
+/** Completion is a separate row; `w` must alias the work item being tested. */
+const IS_COMPLETED = `
+  EXISTS (SELECT 1 FROM work_item_completions wc WHERE wc.work_item_id = w.id)`;
+
+/** A required predecessor that has not been completed. */
 const UNSATISFIED_PREDECESSOR_EXISTS = `
   EXISTS (
     SELECT 1 FROM work_item_dependencies d
@@ -82,7 +80,7 @@ const UNSATISFIED_PREDECESSOR_EXISTS = `
                      AND p.id = d.predecessor_work_item_id
     WHERE d.successor_work_item_id = w.id
       AND d.kind = 'required'
-      AND p.status <> 'completed'
+      AND NOT EXISTS (SELECT 1 FROM work_item_completions pc WHERE pc.work_item_id = p.id)
   )`;
 
 class SqliteProjectRepository implements ProjectRepository {
@@ -500,7 +498,7 @@ class SqliteWorkItemRepository implements WorkItemRepository {
     }
     return inputs.map((input) => {
       const row = this.database
-        .prepare(`SELECT * FROM work_items WHERE id = ?`)
+        .prepare(`SELECT ${WORK_ITEM_SELECT} ${WORK_ITEM_FROM} WHERE w.id = ?`)
         .get(input.id) as WorkItemDbRow;
       return mapWorkItem(row);
     });
@@ -508,7 +506,7 @@ class SqliteWorkItemRepository implements WorkItemRepository {
 
   find(workspaceId: WorkspaceId, workItemId: WorkItemId) {
     const row = this.database
-      .prepare(`SELECT * FROM work_items WHERE workspace_id = ? AND id = ?`)
+      .prepare(`SELECT ${WORK_ITEM_SELECT} ${WORK_ITEM_FROM} WHERE w.workspace_id = ? AND w.id = ?`)
       .get(workspaceId, workItemId) as WorkItemDbRow | undefined;
     return row === undefined ? undefined : mapWorkItem(row);
   }
@@ -517,40 +515,31 @@ class SqliteWorkItemRepository implements WorkItemRepository {
     // One statement with correlated aggregates rather than a query per item.
     const rows = this.database
       .prepare(
-        `SELECT w.*,
-           (SELECT COUNT(*) FROM work_item_dependencies d
-              WHERE d.successor_work_item_id = w.id AND d.kind = 'required')
-             AS required_predecessor_count,
-           (SELECT COUNT(*) FROM work_item_dependencies d
-              WHERE d.successor_work_item_id = w.id AND d.kind = 'recommended')
-             AS recommended_predecessor_count,
-           (SELECT COALESCE(GROUP_CONCAT(p.source_id, char(31)), '')
-              FROM work_item_dependencies d
-              JOIN work_items p ON p.plan_version_id = d.plan_version_id
-                               AND p.id = d.predecessor_work_item_id
-              WHERE d.successor_work_item_id = w.id
-                AND d.kind = 'required'
-                AND p.status <> 'completed')
-             AS blocker_source_ids
-         FROM work_items w
+        `SELECT ${WORK_ITEM_SELECT}, ${WORK_ITEM_ROW_AGGREGATES}
+         ${WORK_ITEM_FROM}
          WHERE w.workspace_id = ? AND w.plan_version_id = ?
          ORDER BY w.ordinal`,
       )
-      .all(workspaceId, planVersionId) as (WorkItemDbRow & {
-      required_predecessor_count: number;
-      recommended_predecessor_count: number;
-      blocker_source_ids: string;
-    })[];
-    return rows.map((row): WorkItemRow => {
-      const blockers =
-        row.blocker_source_ids === '' ? [] : row.blocker_source_ids.split(BLOCKER_SEPARATOR);
-      return {
-        ...mapWorkItem(row),
-        blockerSourceIds: blockers.toSorted((left, right) => left.localeCompare(right, 'en')),
-        requiredPredecessorCount: row.required_predecessor_count,
-        recommendedPredecessorCount: row.recommended_predecessor_count,
-      };
-    });
+      .all(workspaceId, planVersionId) as WorkItemAggregateRow[];
+    return rows.map(mapWorkItemRow);
+  }
+
+  listForWorkspace(workspaceId: WorkspaceId, filter: WorkspaceWorkItemFilter, limit: number) {
+    const predicate = WORKSPACE_FILTER_PREDICATES[filter];
+    const rows = this.database
+      .prepare(
+        `SELECT ${WORK_ITEM_SELECT}, ${WORK_ITEM_ROW_AGGREGATES}, pr.name AS project_name
+         ${WORK_ITEM_FROM}
+         JOIN projects pr ON pr.id = w.project_id
+         WHERE w.workspace_id = ? AND pr.active_plan_version_id = w.plan_version_id
+           AND ${predicate}
+         ORDER BY pr.created_at, pr.id, w.ordinal
+         LIMIT ?`,
+      )
+      .all(workspaceId, limit) as (WorkItemAggregateRow & { project_name: string })[];
+    return rows.map(
+      (row): WorkspaceWorkItemRow => ({ ...mapWorkItemRow(row), projectName: row.project_name }),
+    );
   }
 
   admit(input: AdmitWorkItemInput) {
@@ -566,13 +555,80 @@ class SqliteWorkItemRepository implements WorkItemRepository {
     return result.changes === 0 ? undefined : this.find(input.workspaceId, input.workItemId);
   }
 
+  complete(input: CompleteWorkItemInput) {
+    // The primary key is the concurrency control: a second completion of the
+    // same item inserts nothing rather than overwriting the first.
+    const result = this.database
+      .prepare(
+        `INSERT OR IGNORE INTO work_item_completions (
+           work_item_id, workspace_id, project_id, completed_at, completed_by_user_id,
+           worktree_id, merge_sha)
+         SELECT id, workspace_id, project_id, ?, ?, ?, ?
+         FROM work_items WHERE workspace_id = ? AND project_id = ? AND id = ?`,
+      )
+      .run(
+        input.completedAt,
+        input.completedByUserId,
+        input.worktreeId ?? null,
+        input.mergeSha ?? null,
+        input.workspaceId,
+        input.projectId,
+        input.workItemId,
+      );
+    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.workItemId);
+  }
+
   count() {
     return countOf(this.database, 'work_items');
   }
 }
 
+type WorkItemAggregateRow = WorkItemDbRow & {
+  required_predecessor_count: number;
+  recommended_predecessor_count: number;
+  blocker_source_ids: string;
+};
+
+const WORK_ITEM_ROW_AGGREGATES = `
+  (SELECT COUNT(*) FROM work_item_dependencies d
+     WHERE d.successor_work_item_id = w.id AND d.kind = 'required')
+    AS required_predecessor_count,
+  (SELECT COUNT(*) FROM work_item_dependencies d
+     WHERE d.successor_work_item_id = w.id AND d.kind = 'recommended')
+    AS recommended_predecessor_count,
+  (SELECT COALESCE(GROUP_CONCAT(p.source_id, char(31)), '')
+     FROM work_item_dependencies d
+     JOIN work_items p ON p.plan_version_id = d.plan_version_id
+                      AND p.id = d.predecessor_work_item_id
+     WHERE d.successor_work_item_id = w.id
+       AND d.kind = 'required'
+       AND NOT EXISTS (SELECT 1 FROM work_item_completions pc WHERE pc.work_item_id = p.id))
+    AS blocker_source_ids`;
+
+const WORKSPACE_FILTER_PREDICATES: Readonly<Record<WorkspaceWorkItemFilter, string>> = {
+  all: '1 = 1',
+  admitted: `w.status = 'admitted' AND NOT ${IS_COMPLETED}`,
+  'planning-ready': `w.status = 'proposed' AND NOT ${UNSATISFIED_PREDECESSOR_EXISTS}`,
+  'dependency-blocked': `NOT ${IS_COMPLETED} AND ${UNSATISFIED_PREDECESSOR_EXISTS}`,
+  completed: IS_COMPLETED,
+};
+
+function mapWorkItemRow(row: WorkItemAggregateRow): WorkItemRow {
+  const blockers =
+    row.blocker_source_ids === '' ? [] : row.blocker_source_ids.split(BLOCKER_SEPARATOR);
+  return {
+    ...mapWorkItem(row),
+    blockerSourceIds: blockers.toSorted((left, right) => left.localeCompare(right, 'en')),
+    requiredPredecessorCount: row.required_predecessor_count,
+    recommendedPredecessorCount: row.recommended_predecessor_count,
+  };
+}
+
 const DEPENDENCY_SUMMARY_COLUMNS = `
-  other.id AS work_item_id, other.source_id, other.title, other.status, other.risk, d.kind`;
+  other.id AS work_item_id, other.source_id, other.title,
+  CASE WHEN EXISTS (SELECT 1 FROM work_item_completions oc WHERE oc.work_item_id = other.id)
+       THEN 'completed' ELSE other.status END AS status,
+  other.risk, d.kind`;
 
 interface DependencySummaryRow {
   work_item_id: string;
@@ -668,50 +724,10 @@ class SqliteWorkItemDependencyRepository implements WorkItemDependencyRepository
   }
 }
 
-class SqliteWorkContractDraftRepository implements WorkContractDraftRepository {
-  constructor(private readonly database: Database.Database) {}
-
-  insert(input: CreateWorkContractDraftInput) {
-    this.database
-      .prepare(
-        `INSERT INTO work_contract_drafts (
-           id, workspace_id, project_id, plan_version_id, work_item_id,
-           schema_version, status, completeness, document_json, created_at,
-           created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, 1, 'draft', 'incomplete', ?, ?, ?)`,
-      )
-      .run(
-        input.id,
-        input.workspaceId,
-        input.projectId,
-        input.planVersionId,
-        input.workItemId,
-        JSON.stringify(input.document),
-        input.createdAt,
-        input.createdByUserId,
-      );
-    const draft = this.findForWorkItem(input.workspaceId, input.workItemId);
-    if (draft === undefined) {
-      throw new Error('Draft insert did not produce a readable row');
-    }
-    return draft;
-  }
-
-  findForWorkItem(workspaceId: WorkspaceId, workItemId: WorkItemId) {
-    const row = this.database
-      .prepare(`SELECT * FROM work_contract_drafts WHERE workspace_id = ? AND work_item_id = ?`)
-      .get(workspaceId, workItemId) as WorkContractDraftRow | undefined;
-    return row === undefined ? undefined : mapDraft(row);
-  }
-
-  count() {
-    return countOf(this.database, 'work_contract_drafts');
-  }
-}
-
 interface StatusCountRow {
   proposed_count: number;
   admitted_count: number;
+  completed_count: number;
   planning_ready_count: number;
   dependency_blocked_count: number;
   low: number;
@@ -724,11 +740,13 @@ interface StatusCountRow {
 /** Aggregate expressions shared by the workspace, project, and version rollups. */
 const STATUS_AGGREGATES = `
   COALESCE(SUM(CASE WHEN w.status = 'proposed' THEN 1 ELSE 0 END), 0) AS proposed_count,
-  COALESCE(SUM(CASE WHEN w.status = 'admitted' THEN 1 ELSE 0 END), 0) AS admitted_count,
+  COALESCE(SUM(CASE WHEN w.status = 'admitted' AND NOT ${IS_COMPLETED} THEN 1 ELSE 0 END), 0)
+    AS admitted_count,
+  COALESCE(SUM(CASE WHEN ${IS_COMPLETED} THEN 1 ELSE 0 END), 0) AS completed_count,
   COALESCE(SUM(CASE WHEN w.status = 'proposed' AND NOT ${UNSATISFIED_PREDECESSOR_EXISTS}
                     THEN 1 ELSE 0 END), 0) AS planning_ready_count,
-  COALESCE(SUM(CASE WHEN ${UNSATISFIED_PREDECESSOR_EXISTS} THEN 1 ELSE 0 END), 0)
-    AS dependency_blocked_count,
+  COALESCE(SUM(CASE WHEN NOT ${IS_COMPLETED} AND ${UNSATISFIED_PREDECESSOR_EXISTS}
+                    THEN 1 ELSE 0 END), 0) AS dependency_blocked_count,
   COALESCE(SUM(CASE WHEN w.risk = 'low' THEN 1 ELSE 0 END), 0) AS low,
   COALESCE(SUM(CASE WHEN w.risk = 'medium' THEN 1 ELSE 0 END), 0) AS medium,
   COALESCE(SUM(CASE WHEN w.risk = 'high' THEN 1 ELSE 0 END), 0) AS high,
@@ -739,6 +757,7 @@ function toStatusCounts(row: StatusCountRow | undefined): PlanningStatusCounts {
   return {
     proposedCount: row?.proposed_count ?? 0,
     admittedCount: row?.admitted_count ?? 0,
+    completedCount: row?.completed_count ?? 0,
     planningReadyCount: row?.planning_ready_count ?? 0,
     dependencyBlockedCount: row?.dependency_blocked_count ?? 0,
     riskCounts: {
@@ -886,7 +905,6 @@ export function planningRepositories(database: Database.Database): PlanningRepos
     diagnostics: new SqlitePlanImportDiagnosticRepository(database),
     workItems: new SqliteWorkItemRepository(database),
     dependencies: new SqliteWorkItemDependencyRepository(database),
-    drafts: new SqliteWorkContractDraftRepository(database),
     queries: new SqlitePlanningQueryRepository(database),
   };
 }

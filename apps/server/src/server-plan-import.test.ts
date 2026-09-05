@@ -244,7 +244,6 @@ describe('plan import over HTTP', () => {
     expect(storage.planning.versions.count()).toBe(0);
     expect(storage.planning.workItems.count()).toBe(0);
     expect(storage.planning.dependencies.count()).toBe(0);
-    expect(storage.planning.drafts.count()).toBe(0);
     expect(storage.workspaceEvents.count()).toBe(before);
   });
 

@@ -1,5 +1,6 @@
 import type {
   AgentBackendKind,
+  AgentBillingSource,
   AgentPermissionMode,
   AgentRun,
   AgentRunEvent,
@@ -9,6 +10,7 @@ import type {
   AgentRunId,
   AgentRunRole,
   AgentRunStatus,
+  AgentRunVerdict,
   ProjectId,
   SourceRepository,
   SourceRepositoryId,
@@ -77,6 +79,9 @@ export interface TransitionAgentRunInput {
   readonly toStatus: AgentRunStatus;
   readonly occurredAt: string;
   readonly backendSessionId?: string;
+  readonly resolvedModel?: string;
+  readonly billing?: AgentBillingSource;
+  readonly verdict?: AgentRunVerdict;
   readonly startedAt?: string;
   readonly finishedAt?: string;
   readonly exitCode?: number;
@@ -122,6 +127,13 @@ export interface WorktreeRepository {
     readonly worktreeId: WorktreeId;
     readonly occurredAt: string;
   }): Worktree | undefined;
+  /** Removal that records the merge which made the worktree redundant. */
+  markMerged(input: {
+    readonly workspaceId: WorkspaceId;
+    readonly worktreeId: WorktreeId;
+    readonly occurredAt: string;
+    readonly mergeSha: string;
+  }): Worktree | undefined;
   count(): number;
 }
 
@@ -132,6 +144,9 @@ export interface AgentRunRepository {
   listForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): readonly AgentRun[];
   /** Runs in a non-terminal status across every workspace; used at startup. */
   listLive(): readonly AgentRun[];
+  /** Live runs first, then the most recent finished ones, for the workspace overview. */
+  listRecent(workspaceId: WorkspaceId, limit: number): readonly AgentRun[];
+  countLive(workspaceId: WorkspaceId): number;
   transition(input: TransitionAgentRunInput): AgentRun | undefined;
   count(): number;
 }

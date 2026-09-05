@@ -16,10 +16,9 @@ import {
   type SessionId,
   type SourceRepositoryId,
   type UserId,
-  type WorkContractDraftId,
-  type WorkspaceMembershipId,
   type WorkItemId,
   type WorkspaceId,
+  type WorkspaceMembershipId,
   type WorktreeId,
 } from '@craftingtable/domain';
 import { z } from 'zod';
@@ -45,7 +44,6 @@ export const planImportAttemptIdSchema = idSchema<PlanImportAttemptId>('planImpo
 export const planArtifactIdSchema = idSchema<PlanArtifactId>('planArtifactId');
 export const planImportDiagnosticIdSchema =
   idSchema<PlanImportDiagnosticId>('planImportDiagnosticId');
-export const workContractDraftIdSchema = idSchema<WorkContractDraftId>('workContractDraftId');
 export const repositoryIdSchema = idSchema<RepositoryId>('repositoryId');
 export const repositoryInspectionIdSchema =
   idSchema<RepositoryInspectionId>('repositoryInspectionId');

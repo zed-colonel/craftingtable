@@ -8,9 +8,10 @@ import type {
 } from '@craftingtable/domain';
 import type {
   CraftingTableStorage,
-  StoredPlanArtifact,
   StorageRepositories,
+  StoredPlanArtifact,
   WorkItemRow,
+  WorkspaceWorkItemFilter,
 } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
 import { NotFoundError } from './errors.js';
@@ -24,12 +25,15 @@ import type { WorkspaceService } from './workspace-service.js';
  * workspace is indistinguishable from one that does not exist (CT03-A35).
  */
 
-export type WorkItemReadiness = 'planning-ready' | 'dependency-blocked' | 'active';
+export type WorkItemReadiness = 'planning-ready' | 'dependency-blocked' | 'active' | 'completed';
 
 export function readinessOf(item: {
   readonly status: string;
   readonly blockerSourceIds: readonly string[];
 }): WorkItemReadiness {
+  if (item.status === 'completed') {
+    return 'completed';
+  }
   if (item.status === 'admitted') {
     return 'active';
   }
@@ -138,35 +142,48 @@ export class PlanningQueryService {
       }
       const project = tx.planning.projects.find(workspaceId, item.projectId);
       const predecessors = tx.planning.dependencies.listPredecessors(workspaceId, workItemId);
-      const draft = tx.planning.drafts.findForWorkItem(workspaceId, workItemId);
       return {
         workItem: {
           ...workItemSummary(row),
           projectId: item.projectId,
           planVersionId: item.planVersionId,
           ...(item.admittedAt === undefined ? {} : { admittedAt: item.admittedAt }),
+          ...(item.completedAt === undefined ? {} : { completedAt: item.completedAt }),
+          ...(item.completionWorktreeId === undefined
+            ? {}
+            : { completionWorktreeId: item.completionWorktreeId }),
+          ...(item.mergeSha === undefined ? {} : { mergeSha: item.mergeSha }),
         },
         projectName: project?.name ?? 'Unknown project',
         requiredPredecessors: predecessors.filter((entry) => entry.kind === 'required'),
         recommendedPredecessors: predecessors.filter((entry) => entry.kind === 'recommended'),
         dependents: tx.planning.dependencies.listSuccessors(workspaceId, workItemId),
-        draft:
-          draft === undefined
-            ? null
-            : {
-                id: draft.id,
-                schemaVersion: draft.schemaVersion,
-                status: draft.status,
-                completeness: draft.completeness,
-                createdAt: draft.createdAt,
-                document: draft.document,
-              },
       };
     });
     if (detail === undefined) {
       throw new NotFoundError();
     }
     return detail;
+  }
+
+  /** Work items across every project's active plan, for the dashboard drill-in. */
+  listWorkspaceWorkItems(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    filter: WorkspaceWorkItemFilter,
+    requestId?: string,
+  ) {
+    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
+    return {
+      filter,
+      items: this.storage.planning.workItems
+        .listForWorkspace(workspaceId, filter, 500)
+        .map((row) => ({
+          ...workItemSummary(row),
+          projectId: row.projectId,
+          projectName: row.projectName,
+        })),
+    };
   }
 
   /** Recent import attempts with their diagnostics, for the attention region. */

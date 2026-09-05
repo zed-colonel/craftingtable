@@ -51,7 +51,6 @@ const validEvents = {
       planVersionId: 'plan-version-1',
       workItemId: 'work-item-1',
       sourceWorkItemId: 'SOURCE-1',
-      workContractDraftId: 'draft-1',
     },
   },
   'repository-registered': {
@@ -185,6 +184,37 @@ const validEvents = {
       workItemId: 'work-item-1',
       fromStatus: 'running',
       toStatus: 'waiting',
+    },
+  },
+  'workspace-updated': {
+    ...base,
+    kind: 'workspace-updated',
+    payload: { name: 'Renamed workspace', priorVersion: 1, resultingVersion: 2 },
+  },
+  'work-item-completed': {
+    ...base,
+    projectId: 'project-1',
+    workItemId: 'work-item-1',
+    kind: 'work-item-completed',
+    payload: {
+      projectId: 'project-1',
+      workItemId: 'work-item-1',
+      sourceWorkItemId: 'SOURCE-1',
+      worktreeId: 'worktree-1',
+      mergeSha: '0123456789abcdef0123456789abcdef01234567',
+    },
+  },
+  'worktree-merged': {
+    ...base,
+    projectId: 'project-1',
+    workItemId: 'work-item-1',
+    kind: 'worktree-merged',
+    payload: {
+      worktreeId: 'worktree-1',
+      workItemId: 'work-item-1',
+      branchName: 'ct/source-1-abcd1234',
+      targetBranch: 'main',
+      mergeSha: '0123456789abcdef0123456789abcdef01234567',
     },
   },
 } as const satisfies Readonly<Record<WorkspaceEventKind, object>>;
@@ -364,6 +394,9 @@ describe('WorkspaceEventEnvelope', () => {
       'worktree-removed': [],
       'agent-run-started': [],
       'agent-run-status-changed': [],
+      'workspace-updated': [],
+      'work-item-completed': [],
+      'worktree-merged': [],
     } as const satisfies Readonly<Record<WorkspaceEventKind, readonly string[]>>;
 
     for (const kind of Object.keys(validEvents) as WorkspaceEventKind[]) {

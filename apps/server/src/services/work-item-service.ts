@@ -2,27 +2,36 @@ import { randomUUID } from 'node:crypto';
 import {
   asAuditEventId,
   asEventId,
-  asWorkContractDraftId,
-  type WorkContractDraft,
   type WorkItem,
   type WorkItemId,
   type WorkspaceId,
+  type WorktreeId,
 } from '@craftingtable/domain';
-import { workContractDraftDocumentSchema } from '@craftingtable/contracts';
-import { projectWorkContractDraft } from '@craftingtable/planning';
-import type { CraftingTableStorage } from '@craftingtable/storage';
+import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
-import { NotFoundError } from './errors.js';
+import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 
 export interface AdmissionResult {
   readonly workItem: WorkItem;
-  readonly draft: WorkContractDraft;
   /** False when the item was already admitted and this call changed nothing. */
   readonly admitted: boolean;
 }
 
+export interface CompletionResult {
+  readonly workItem: WorkItem;
+  /** False when the item was already completed and this call changed nothing. */
+  readonly completed: boolean;
+}
+
+/**
+ * Work item lifecycle commands: admission into the agenda and completion.
+ *
+ * Completion is usually a side effect of merging a worktree (see
+ * `ExecutionService.mergeWorktree`), which calls `completeWithin` inside its
+ * own transaction; the standalone command exists for work finished by hand.
+ */
 export class WorkItemService {
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -34,9 +43,9 @@ export class WorkItemService {
   /**
    * Admits a proposed work item into the operator's agenda.
    *
-   * Admission is explicit, attributable, and idempotent. It is *not* execution
-   * readiness: a dependency-blocked item may be admitted, its blockers remain
-   * visible, and nothing becomes runnable (CT-03 §5.12, CT03-I10).
+   * Admission is explicit, attributable, and idempotent. It does not gate
+   * execution: a dependency-blocked item may be admitted and its blockers stay
+   * visible; delegation is governed by worktrees and runs, not by this flag.
    */
   admit(
     context: AuthContext,
@@ -48,34 +57,16 @@ export class WorkItemService {
       ...(requestId === undefined ? {} : { requestId }),
     });
 
-    const existing = this.storage.readTransaction((tx) => {
-      const item = tx.planning.workItems.find(workspaceId, workItemId);
-      if (item === undefined) {
-        return undefined;
-      }
-      return { item, draft: tx.planning.drafts.findForWorkItem(workspaceId, workItemId) };
-    });
-    if (existing === undefined) {
-      throw new NotFoundError();
-    }
-    // A repeat writes nothing at all: no audit row, no event, no second draft.
-    if (existing.item.status === 'admitted' && existing.draft !== undefined) {
-      return { workItem: existing.item, draft: existing.draft, admitted: false };
-    }
-
     const occurredAt = this.now().toISOString();
     const committed = this.storage.transaction((tx): AdmissionResult => {
       const item = tx.planning.workItems.find(workspaceId, workItemId);
       if (item === undefined) {
         throw new NotFoundError();
       }
-      // Re-read inside the write lock: a concurrent admission may have landed
-      // between the read above and this transaction.
-      const already = tx.planning.drafts.findForWorkItem(workspaceId, workItemId);
-      if (item.status === 'admitted' && already !== undefined) {
-        return { workItem: item, draft: already, admitted: false };
+      // A repeat writes nothing at all: no audit row, no event.
+      if (item.status !== 'proposed') {
+        return { workItem: item, admitted: false };
       }
-
       const admittedItem = tx.planning.workItems.admit({
         workItemId,
         workspaceId,
@@ -83,68 +74,11 @@ export class WorkItemService {
         admittedByUserId: context.user.id,
       });
       if (admittedItem === undefined) {
-        throw new NotFoundError();
+        return { workItem: item, admitted: false };
       }
-
-      const rows = tx.planning.workItems.listForVersion(workspaceId, item.planVersionId);
-      const row = rows.find((candidate) => candidate.id === workItemId);
-      if (row === undefined) {
-        throw new NotFoundError();
-      }
-      const predecessors = tx.planning.dependencies.listPredecessors(workspaceId, workItemId);
-
-      // Parsed through the shared contract here rather than only on the way
-      // out: a draft that could not satisfy the wire schema must never reach
-      // the database in the first place (CT03-R3).
-      const document = workContractDraftDocumentSchema.parse(
-        projectWorkContractDraft({
-          projectId: item.projectId,
-          planVersionId: item.planVersionId,
-          workItemId,
-          item: {
-            sourceId: row.sourceId,
-            ordinal: row.ordinal,
-            title: row.title,
-            risk: row.risk,
-            ...(row.phase === undefined ? {} : { phase: row.phase }),
-            primaryAreas: row.primaryAreas,
-            exitGate: row.exitGate,
-            requiredDependencies: predecessors
-              .filter((entry) => entry.kind === 'required')
-              .map((entry) => entry.sourceId),
-            recommendedDependencies: predecessors
-              .filter((entry) => entry.kind === 'recommended')
-              .map((entry) => entry.sourceId),
-            sourceFields: row.sourceFields,
-          },
-          requiredDependencies: predecessors
-            .filter((entry) => entry.kind === 'required')
-            .map((entry) => ({
-              sourceId: entry.sourceId,
-              title: entry.title,
-              status: entry.status,
-            })),
-          recommendedDependencies: predecessors
-            .filter((entry) => entry.kind === 'recommended')
-            .map((entry) => ({
-              sourceId: entry.sourceId,
-              title: entry.title,
-              status: entry.status,
-            })),
-        }),
-      );
-
-      const draft = tx.planning.drafts.insert({
-        id: asWorkContractDraftId(randomUUID()),
-        workspaceId,
-        projectId: item.projectId,
-        planVersionId: item.planVersionId,
-        workItemId,
-        document,
-        createdAt: occurredAt,
-        createdByUserId: context.user.id,
-      });
-
+      const row = tx.planning.workItems
+        .listForVersion(workspaceId, item.planVersionId)
+        .find((candidate) => candidate.id === workItemId);
       tx.audit.append({
         id: asAuditEventId(randomUUID()),
         occurredAt,
@@ -159,27 +93,12 @@ export class WorkItemService {
         outcome: 'succeeded',
         priorVersion: item.version,
         resultingVersion: admittedItem.version,
-        // Bounded, derived metadata only: no source artifacts or tokens.
         metadata: {
-          sourceWorkItemId: row.sourceId,
+          sourceWorkItemId: item.sourceId,
           planVersionId: item.planVersionId,
-          blockedAtAdmission: row.blockerSourceIds.length > 0,
+          blockedAtAdmission: (row?.blockerSourceIds.length ?? 0) > 0,
         },
       });
-      tx.audit.append({
-        id: asAuditEventId(randomUUID()),
-        occurredAt,
-        actorKind: 'user',
-        actorUserId: context.user.id,
-        sessionId: context.session.id,
-        workspaceId,
-        action: 'work-contract-draft.created',
-        targetType: 'work-contract-draft',
-        targetId: draft.id,
-        outcome: 'succeeded',
-        metadata: { workItemId, completeness: 'incomplete' },
-      });
-
       tx.workspaceEvents.appendEvent({
         id: asEventId(randomUUID()),
         occurredAt,
@@ -192,18 +111,120 @@ export class WorkItemService {
           projectId: item.projectId,
           planVersionId: item.planVersionId,
           workItemId,
-          sourceWorkItemId: row.sourceId,
-          workContractDraftId: draft.id,
+          sourceWorkItemId: item.sourceId,
         },
       });
-
-      return { workItem: admittedItem, draft, admitted: true };
+      return { workItem: admittedItem, admitted: true };
     });
 
     if (committed.admitted) {
-      // After commit, never inside it (CT03-I12).
       this.notifier.notify();
     }
     return committed;
+  }
+
+  /** Marks an admitted work item as completed without a merge. */
+  complete(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
+    requestId?: string,
+  ): CompletionResult {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
+      ...(requestId === undefined ? {} : { requestId }),
+    });
+    const occurredAt = this.now().toISOString();
+    const result = this.storage.transaction((tx) =>
+      this.completeWithin(tx, {
+        context,
+        workspaceId,
+        workItemId,
+        occurredAt,
+        ...(requestId === undefined ? {} : { requestId }),
+      }),
+    );
+    if (result.completed) {
+      this.notifier.notify();
+    }
+    return result;
+  }
+
+  /**
+   * Completion inside a caller's transaction, so a merge can record the
+   * worktree removal, the merge, and the completion atomically.
+   */
+  completeWithin(
+    tx: StorageRepositories,
+    input: {
+      readonly context: AuthContext;
+      readonly workspaceId: WorkspaceId;
+      readonly workItemId: WorkItemId;
+      readonly occurredAt: string;
+      readonly requestId?: string;
+      readonly worktreeId?: WorktreeId;
+      readonly mergeSha?: string;
+    },
+  ): CompletionResult {
+    const { context, workspaceId, workItemId, occurredAt } = input;
+    const item = tx.planning.workItems.find(workspaceId, workItemId);
+    if (item === undefined) {
+      throw new NotFoundError();
+    }
+    if (item.status === 'completed') {
+      return { workItem: item, completed: false };
+    }
+    if (item.status !== 'admitted') {
+      throw new ExecutionRequestError(
+        'conflict',
+        'Only an admitted work item can be completed; admit it into the agenda first',
+      );
+    }
+    const completedItem = tx.planning.workItems.complete({
+      workItemId,
+      workspaceId,
+      projectId: item.projectId,
+      completedAt: occurredAt,
+      completedByUserId: context.user.id,
+      ...(input.worktreeId === undefined ? {} : { worktreeId: input.worktreeId }),
+      ...(input.mergeSha === undefined ? {} : { mergeSha: input.mergeSha }),
+    });
+    if (completedItem === undefined) {
+      return { workItem: item, completed: false };
+    }
+    tx.audit.append({
+      id: asAuditEventId(randomUUID()),
+      occurredAt,
+      actorKind: 'user',
+      actorUserId: context.user.id,
+      sessionId: context.session.id,
+      workspaceId,
+      ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+      action: 'work-item.completed',
+      targetType: 'work-item',
+      targetId: workItemId,
+      outcome: 'succeeded',
+      metadata: {
+        sourceWorkItemId: item.sourceId,
+        ...(input.worktreeId === undefined ? {} : { worktreeId: input.worktreeId }),
+        ...(input.mergeSha === undefined ? {} : { mergeSha: input.mergeSha }),
+      },
+    });
+    tx.workspaceEvents.appendEvent({
+      id: asEventId(randomUUID()),
+      occurredAt,
+      workspaceId,
+      actorUserId: context.user.id,
+      projectId: item.projectId,
+      workItemId,
+      kind: 'work-item-completed',
+      payload: {
+        projectId: item.projectId,
+        workItemId,
+        sourceWorkItemId: item.sourceId,
+        ...(input.worktreeId === undefined ? {} : { worktreeId: input.worktreeId }),
+        ...(input.mergeSha === undefined ? {} : { mergeSha: input.mergeSha }),
+      },
+    });
+    return { workItem: completedItem, completed: true };
   }
 }

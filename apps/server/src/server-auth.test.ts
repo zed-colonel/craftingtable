@@ -182,6 +182,87 @@ describe('authentication HTTP surface', () => {
     expect(auditActions(context).at(-1)).toBe('auth.logout');
   });
 
+  it('changes the password after verifying the current one and revokes other sessions', async () => {
+    const context = await createTestContext();
+    contexts.push(context);
+    await context.bootstrap();
+    const first = await context.login();
+    const second = await context.login();
+    const mutation = (login: { cookie: string; csrfToken: string }) => ({
+      cookie: login.cookie,
+      origin: context.config.publicOrigin,
+      'x-craftingtable-csrf': login.csrfToken,
+      'content-type': 'application/json',
+    });
+
+    const wrongCurrent = await context.app.inject({
+      method: 'POST',
+      url: '/api/auth/password',
+      headers: mutation(first),
+      payload: { currentPassword: 'not the password', newPassword: 'a brand new passphrase' },
+    });
+    expect(wrongCurrent.statusCode).toBe(401);
+
+    const tooShort = await context.app.inject({
+      method: 'POST',
+      url: '/api/auth/password',
+      headers: mutation(first),
+      payload: { currentPassword: TEST_PASSWORD, newPassword: 'short' },
+    });
+    expect(tooShort.statusCode).toBe(400);
+
+    const changed = await context.app.inject({
+      method: 'POST',
+      url: '/api/auth/password',
+      headers: mutation(first),
+      payload: { currentPassword: TEST_PASSWORD, newPassword: 'a brand new passphrase' },
+    });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(changed.json()).toEqual({ success: true, revokedSessionCount: 1 });
+
+    // The changing session survives; the other one is gone.
+    expect(
+      (
+        await context.app.inject({
+          method: 'GET',
+          url: '/api/auth/session',
+          headers: { cookie: first.cookie },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await context.app.inject({
+          method: 'GET',
+          url: '/api/auth/session',
+          headers: { cookie: second.cookie },
+        })
+      ).statusCode,
+    ).toBe(401);
+
+    const oldPassword = await context.app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: {
+        origin: context.config.publicOrigin,
+        'content-type': 'application/json',
+      },
+      payload: { username: TEST_USERNAME, password: TEST_PASSWORD },
+    });
+    expect(oldPassword.statusCode).toBe(401);
+    const newPassword = await context.app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: {
+        origin: context.config.publicOrigin,
+        'content-type': 'application/json',
+      },
+      payload: { username: TEST_USERNAME, password: 'a brand new passphrase' },
+    });
+    expect(newPassword.statusCode).toBe(200);
+    expect(auditActions(context)).toContain('user.password-changed');
+  });
+
   it('lists and revokes another own session but not another user session', async () => {
     const context = await createTestContext();
     contexts.push(context);

@@ -11,8 +11,8 @@ import {
   asWorkItemId,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
-import { seedWorkspace, SEED_NOW } from './planning-test-support.js';
-import { temporaryStorage, type TemporaryStorage } from './test-support.js';
+import { SEED_NOW, seedWorkspace } from './planning-test-support.js';
+import { type TemporaryStorage, temporaryStorage } from './test-support.js';
 import type { CraftingTableStorage } from './types.js';
 
 /**
@@ -259,7 +259,6 @@ function planningCounts(storage: CraftingTableStorage) {
     diagnostics: storage.planning.diagnostics.count(),
     workItems: storage.planning.workItems.count(),
     dependencies: storage.planning.dependencies.count(),
-    drafts: storage.planning.drafts.count(),
     audit: storage.audit.count(),
     events: storage.workspaceEvents.count(),
   };
@@ -284,7 +283,6 @@ describe('planning import transaction', () => {
       diagnostics: 1,
       workItems: 2,
       dependencies: 1,
-      drafts: 0,
       audit: baselineAudit + 1,
       events: baselineEvents + 2,
     });
@@ -420,7 +418,6 @@ describe('planning import transaction', () => {
     expect(temporary.storage.planning.versions.count()).toBe(0);
     expect(temporary.storage.planning.workItems.count()).toBe(0);
     expect(temporary.storage.planning.dependencies.count()).toBe(0);
-    expect(temporary.storage.planning.drafts.count()).toBe(0);
     expect(temporary.storage.workspaceEvents.count()).toBe(baselineEvents);
   });
 

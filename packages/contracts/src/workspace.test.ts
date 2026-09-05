@@ -9,6 +9,13 @@ describe('workspace contracts', () => {
       slug: `workspace-${index}`,
       status: 'active',
       role,
+      projectCount: 1,
+      admittedCount: 0,
+      completedCount: 0,
+      liveRunCount: 0,
+      projects: [
+        { id: 'project-1', name: 'AQ', admittedCount: 0, completedCount: 0, proposedCount: 3 },
+      ],
     }));
     expect(workspaceListResponseSchema.safeParse({ workspaces }).success).toBe(true);
   });

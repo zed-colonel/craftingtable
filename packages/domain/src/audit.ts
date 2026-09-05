@@ -46,6 +46,11 @@ export const AUDIT_ACTIONS = [
   'agent-run.end',
   'agent-run.cancel',
   'agent-run.finished',
+  /* Workflow (schema 6). */
+  'workspace.updated',
+  'user.password-changed',
+  'work-item.completed',
+  'worktree.merged',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -78,7 +83,11 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'agent-run.end': 5,
   'agent-run.cancel': 5,
   'agent-run.finished': 5,
-} as const satisfies Readonly<Record<AuditAction, 1 | 2 | 3 | 5>>;
+  'workspace.updated': 6,
+  'user.password-changed': 6,
+  'work-item.completed': 6,
+  'worktree.merged': 6,
+} as const satisfies Readonly<Record<AuditAction, 1 | 2 | 3 | 5 | 6>>;
 
 export function isAuditAction(value: unknown): value is AuditAction {
   return (AUDIT_ACTIONS as readonly string[]).includes(value as string);

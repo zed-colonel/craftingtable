@@ -9,7 +9,6 @@ import type {
   RepositoryInspectionId,
   SourceRepositoryId,
   UserId,
-  WorkContractDraftId,
   WorkItemId,
   WorkspaceId,
   WorktreeId,
@@ -46,6 +45,10 @@ export const WORKSPACE_EVENT_KINDS = [
   'worktree-removed',
   'agent-run-started',
   'agent-run-status-changed',
+  /* Workflow (schema 6). */
+  'workspace-updated',
+  'work-item-completed',
+  'worktree-merged',
 ] as const;
 export type WorkspaceEventKind = (typeof WORKSPACE_EVENT_KINDS)[number];
 
@@ -64,7 +67,10 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'worktree-removed': 5,
   'agent-run-started': 5,
   'agent-run-status-changed': 5,
-} as const satisfies Readonly<Record<WorkspaceEventKind, 1 | 2 | 4 | 5>>;
+  'workspace-updated': 6,
+  'work-item-completed': 6,
+  'worktree-merged': 6,
+} as const satisfies Readonly<Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6>>;
 
 export function isWorkspaceEventKind(value: unknown): value is WorkspaceEventKind {
   return (WORKSPACE_EVENT_KINDS as readonly string[]).includes(value as string);
@@ -140,7 +146,6 @@ export interface WorkItemAdmittedEvent extends WorkspaceEventBase {
     readonly planVersionId: PlanVersionId;
     readonly workItemId: WorkItemId;
     readonly sourceWorkItemId: string;
-    readonly workContractDraftId: WorkContractDraftId;
   };
 }
 
@@ -321,6 +326,55 @@ export interface AgentRunStatusChangedEvent extends WorkspaceEventBase {
   };
 }
 
+export interface WorkspaceUpdatedEvent extends WorkspaceEventBase {
+  readonly kind: 'workspace-updated';
+  readonly projectId?: never;
+  readonly workItemId?: never;
+  readonly runId?: never;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: {
+    readonly name: string;
+    readonly priorVersion: number;
+    readonly resultingVersion: number;
+  };
+}
+
+export interface WorkItemCompletedEvent extends WorkspaceEventBase {
+  readonly kind: 'work-item-completed';
+  readonly projectId: ProjectId;
+  readonly workItemId: WorkItemId;
+  readonly runId?: never;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: {
+    readonly projectId: ProjectId;
+    readonly workItemId: WorkItemId;
+    readonly sourceWorkItemId: string;
+    readonly worktreeId?: WorktreeId;
+    readonly mergeSha?: string;
+  };
+}
+
+export interface WorktreeMergedEvent extends WorkspaceEventBase {
+  readonly kind: 'worktree-merged';
+  readonly projectId: ProjectId;
+  readonly workItemId: WorkItemId;
+  readonly runId?: never;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: {
+    readonly worktreeId: WorktreeId;
+    readonly workItemId: WorkItemId;
+    readonly branchName: string;
+    readonly targetBranch: string;
+    readonly mergeSha: string;
+  };
+}
+
 export type WorkspaceEvent =
   | WorkspaceCreatedEvent
   | ProjectCreatedEvent
@@ -335,7 +389,10 @@ export type WorkspaceEvent =
   | WorktreeCreatedEvent
   | WorktreeRemovedEvent
   | AgentRunStartedEvent
-  | AgentRunStatusChangedEvent;
+  | AgentRunStatusChangedEvent
+  | WorkspaceUpdatedEvent
+  | WorkItemCompletedEvent
+  | WorktreeMergedEvent;
 
 /** Payload type for one kind, used by the storage append signature. */
 export type WorkspaceEventPayload<K extends WorkspaceEventKind> = Extract<

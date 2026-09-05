@@ -2,6 +2,8 @@ import {
   createWorktreeRequestSchema,
   createWorktreeResponseSchema,
   executionStatusResponseSchema,
+  mergeWorktreeRequestSchema,
+  mergeWorktreeResponseSchema,
   registerSourceRepositoryRequestSchema,
   registerSourceRepositoryResponseSchema,
   removeWorktreeRequestSchema,
@@ -13,6 +15,7 @@ import {
   workItemExecutionResponseSchema,
   workItemIdSchema,
   workspaceIdSchema,
+  workspaceRunsResponseSchema,
   worktreeDiffResponseSchema,
   worktreeIdSchema,
 } from '@craftingtable/contracts';
@@ -128,6 +131,31 @@ export function registerExecutionRoutes(
           workItemId: workItemId.data,
           worktrees: result.worktrees,
           runs: result.runs.map(runSummary),
+          mergeGates: result.mergeGates,
+        }),
+      );
+    },
+  );
+
+  app.get<{ Params: { workspaceId: string } }>(
+    '/api/workspaces/:workspaceId/runs',
+    async (request, reply) => {
+      const context = authenticate(request, authService);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!workspaceId.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      const result = executionService.listRuns(context, workspaceId.data, request.id);
+      return noStore(reply).send(
+        workspaceRunsResponseSchema.parse({
+          runs: result.runs.map((entry) => ({
+            ...runSummary(entry.run),
+            workItemSourceId: entry.workItemSourceId,
+            workItemTitle: entry.workItemTitle,
+            projectName: entry.projectName,
+            branchName: entry.branchName,
+          })),
+          liveCount: result.liveCount,
         }),
       );
     },
@@ -176,6 +204,33 @@ export function registerExecutionRoutes(
         request.id,
       );
       return noStore(reply).send(removeWorktreeResponseSchema.parse(result));
+    },
+  );
+
+  /**
+   * The one merge route. It carries no arguments: the daemon decides the
+   * target branch and refuses unless the worktree's latest run is a review
+   * with a mergeable verdict (the pull-request rule).
+   */
+  app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
+    '/api/workspaces/:workspaceId/worktrees/:worktreeId/merge',
+    async (request, reply) => {
+      const context = authorizeMutation(request, authService, config);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const worktreeId = worktreeIdSchema.safeParse(request.params.worktreeId);
+      if (!workspaceId.success || !worktreeId.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      if (!mergeWorktreeRequestSchema.safeParse(request.body ?? {}).success) {
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid request');
+      }
+      const result = await executionService.mergeWorktree(
+        context,
+        workspaceId.data,
+        worktreeId.data,
+        request.id,
+      );
+      return noStore(reply).send(mergeWorktreeResponseSchema.parse(result));
     },
   );
 

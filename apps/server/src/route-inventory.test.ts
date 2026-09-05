@@ -20,30 +20,42 @@ const EXPECTED_ROUTES = [
   'GET /api/workspaces/:workspaceId/projects/:projectId',
   'GET /api/workspaces/:workspaceId/projects/:projectId/plan-versions/:planVersionId',
   'GET /api/workspaces/:workspaceId/repositories',
+  'GET /api/workspaces/:workspaceId/runs',
   'GET /api/workspaces/:workspaceId/runs/:runId',
   'GET /api/workspaces/:workspaceId/runs/:runId/event-page',
   'GET /api/workspaces/:workspaceId/runs/:runId/events',
   'GET /api/workspaces/:workspaceId/snapshot',
+  'GET /api/workspaces/:workspaceId/work-items',
   'GET /api/workspaces/:workspaceId/work-items/:workItemId',
   'GET /api/workspaces/:workspaceId/work-items/:workItemId/execution',
   'GET /api/workspaces/:workspaceId/worktrees/:worktreeId/diff',
   'POST /api/auth/login',
   'POST /api/auth/logout',
+  'POST /api/auth/password',
   'POST /api/auth/sessions/:sessionId/revoke',
+  'POST /api/workspaces',
   'POST /api/workspaces/:workspaceId/plan-imports',
   'POST /api/workspaces/:workspaceId/repositories',
+  'POST /api/workspaces/:workspaceId/rename',
   'POST /api/workspaces/:workspaceId/repositories/:repositoryId/retire',
   'POST /api/workspaces/:workspaceId/runs/:runId/cancel',
   'POST /api/workspaces/:workspaceId/runs/:runId/end',
   'POST /api/workspaces/:workspaceId/runs/:runId/messages',
   'POST /api/workspaces/:workspaceId/work-items/:workItemId/admit',
+  'POST /api/workspaces/:workspaceId/work-items/:workItemId/complete',
   'POST /api/workspaces/:workspaceId/work-items/:workItemId/runs',
   'POST /api/workspaces/:workspaceId/work-items/:workItemId/worktrees',
+  'POST /api/workspaces/:workspaceId/worktrees/:worktreeId/merge',
   'POST /api/workspaces/:workspaceId/worktrees/:worktreeId/remove',
 ] as const;
 
-/** Capabilities the browser must never be able to reach directly. */
-const FORBIDDEN_ROUTE_FRAGMENTS = ['exec/', 'command', 'shell', 'merge', 'approve'] as const;
+/**
+ * Capabilities the browser must never be able to reach directly. Merging is
+ * deliberately not in this list any more: the single merge route takes no
+ * arguments and the daemon refuses it unless a review run returned a
+ * mergeable verdict (see ExecutionService.mergeWorktree).
+ */
+const FORBIDDEN_ROUTE_FRAGMENTS = ['exec/', 'command', 'shell', 'approve'] as const;
 
 /**
  * Rebuilds full route paths from Fastify's prefix-nested route tree.
@@ -85,7 +97,7 @@ describe('route inventory', () => {
     }
   });
 
-  it('exposes no route that could run a command, merge, or approve', async () => {
+  it('exposes no route that could run a command or approve', async () => {
     const context = await createTestContext();
     try {
       await context.app.ready();

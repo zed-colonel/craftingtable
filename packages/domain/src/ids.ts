@@ -23,7 +23,6 @@ export type PlanImportAttemptId = Brand<'PlanImportAttemptId'>;
 export type PlanArtifactId = Brand<'PlanArtifactId'>;
 export type PlanImportDiagnosticId = Brand<'PlanImportDiagnosticId'>;
 export type WorkItemDependencyId = Brand<'WorkItemDependencyId'>;
-export type WorkContractDraftId = Brand<'WorkContractDraftId'>;
 
 /* CT-04A2 repository registry identifiers. */
 export type RepositoryId = Brand<'RepositoryId'>;
@@ -64,7 +63,6 @@ export const asPlanImportAttemptId = idFactory<PlanImportAttemptId>('PlanImportA
 export const asPlanArtifactId = idFactory<PlanArtifactId>('PlanArtifactId');
 export const asPlanImportDiagnosticId = idFactory<PlanImportDiagnosticId>('PlanImportDiagnosticId');
 export const asWorkItemDependencyId = idFactory<WorkItemDependencyId>('WorkItemDependencyId');
-export const asWorkContractDraftId = idFactory<WorkContractDraftId>('WorkContractDraftId');
 export const asRepositoryId = idFactory<RepositoryId>('RepositoryId');
 export const asRepositoryInspectionId = idFactory<RepositoryInspectionId>('RepositoryInspectionId');
 export const asProjectRepositoryBindingId = idFactory<ProjectRepositoryBindingId>(

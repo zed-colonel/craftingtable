@@ -73,6 +73,8 @@ interface WorktreeRow {
   created_at: string;
   created_by_user_id: string;
   removed_at: string | null;
+  merged_at: string | null;
+  merge_sha: string | null;
   version: number;
 }
 
@@ -91,6 +93,8 @@ function mapWorktree(row: WorktreeRow): Worktree {
     createdAt: row.created_at,
     createdByUserId: row.created_by_user_id as Worktree['createdByUserId'],
     ...(row.removed_at === null ? {} : { removedAt: row.removed_at }),
+    ...(row.merged_at === null ? {} : { mergedAt: row.merged_at }),
+    ...(row.merge_sha === null ? {} : { mergeSha: row.merge_sha }),
     version: row.version,
   };
 }
@@ -108,6 +112,9 @@ interface AgentRunRow {
   status: AgentRun['status'];
   permission_mode: AgentRun['permissionMode'];
   model: string | null;
+  resolved_model: string | null;
+  billing: AgentRun['billing'] | null;
+  verdict: AgentRun['verdict'] | null;
   brief: string;
   backend_session_id: string | null;
   created_at: string;
@@ -137,6 +144,9 @@ function mapAgentRun(row: AgentRunRow): AgentRun {
     status: row.status,
     permissionMode: row.permission_mode,
     ...(row.model === null ? {} : { model: row.model }),
+    ...(row.resolved_model === null ? {} : { resolvedModel: row.resolved_model }),
+    ...(row.billing === null ? {} : { billing: row.billing }),
+    ...(row.verdict === null ? {} : { verdict: row.verdict }),
     brief: row.brief,
     ...(row.backend_session_id === null ? {} : { backendSessionId: row.backend_session_id }),
     createdAt: row.created_at,
@@ -341,6 +351,23 @@ class SqliteWorktreeRepository implements WorktreeRepository {
     return result.changes === 0 ? undefined : this.find(input.workspaceId, input.worktreeId);
   }
 
+  markMerged(input: {
+    readonly workspaceId: WorkspaceId;
+    readonly worktreeId: WorktreeId;
+    readonly occurredAt: string;
+    readonly mergeSha: string;
+  }): Worktree | undefined {
+    const result = this.database
+      .prepare(
+        `UPDATE worktrees
+         SET status = 'removed', removed_at = ?, merged_at = ?, merge_sha = ?,
+             version = version + 1
+         WHERE workspace_id = ? AND id = ? AND status = 'active'`,
+      )
+      .run(input.occurredAt, input.occurredAt, input.mergeSha, input.workspaceId, input.worktreeId);
+    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.worktreeId);
+  }
+
   count(): number {
     return (
       this.database.prepare(`SELECT COUNT(*) AS count FROM worktrees`).get() as {
@@ -428,6 +455,31 @@ class SqliteAgentRunRepository implements AgentRunRepository {
     ).map(mapAgentRun);
   }
 
+  listRecent(workspaceId: WorkspaceId, limit: number): readonly AgentRun[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT * FROM agent_runs
+           WHERE workspace_id = ?
+           ORDER BY CASE WHEN status IN ('starting', 'running', 'waiting') THEN 0 ELSE 1 END,
+                    created_at DESC, id DESC
+           LIMIT ?`,
+        )
+        .all(workspaceId, limit) as AgentRunRow[]
+    ).map(mapAgentRun);
+  }
+
+  countLive(workspaceId: WorkspaceId): number {
+    return (
+      this.database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM agent_runs
+           WHERE workspace_id = ? AND status IN ('starting', 'running', 'waiting')`,
+        )
+        .get(workspaceId) as { count: number }
+    ).count;
+  }
+
   transition(input: TransitionAgentRunInput): AgentRun | undefined {
     if (input.expectedStatuses.length === 0) {
       return undefined;
@@ -440,6 +492,9 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         `UPDATE agent_runs
          SET status = ?,
              backend_session_id = COALESCE(?, backend_session_id),
+             resolved_model = COALESCE(?, resolved_model),
+             billing = COALESCE(?, billing),
+             verdict = COALESCE(?, verdict),
              started_at = COALESCE(?, started_at),
              finished_at = COALESCE(?, finished_at),
              exit_code = COALESCE(?, exit_code),
@@ -452,6 +507,9 @@ class SqliteAgentRunRepository implements AgentRunRepository {
       .run(
         input.toStatus,
         input.backendSessionId ?? null,
+        input.resolvedModel ?? null,
+        input.billing ?? null,
+        input.verdict ?? null,
         input.startedAt ?? null,
         finishedAt,
         input.exitCode ?? null,

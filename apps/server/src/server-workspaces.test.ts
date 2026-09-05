@@ -1,4 +1,6 @@
 import {
+  createWorkspaceResponseSchema,
+  renameWorkspaceResponseSchema,
   workspaceAuditPageResponseSchema,
   workspaceListResponseSchema,
   workspaceSnapshotResponseSchema,
@@ -49,6 +51,13 @@ describe('workspace HTTP surface', () => {
     const list = workspaceListResponseSchema.parse(listResponse.json());
     expect(list.workspaces).toHaveLength(1);
     expect(list.workspaces[0]?.role).toBe('owner');
+    expect(list.workspaces[0]).toMatchObject({
+      projectCount: 0,
+      admittedCount: 0,
+      completedCount: 0,
+      liveRunCount: 0,
+      projects: [],
+    });
 
     const workspace = list.workspaces[0];
     if (workspace === undefined) {
@@ -71,6 +80,116 @@ describe('workspace HTTP surface', () => {
       headers,
     });
     expect(workspaceAuditPageResponseSchema.parse(auditResponse.json()).records).toHaveLength(2);
+  });
+
+  it('creates and renames workspaces with audit and events', async () => {
+    const context = await createTestContext();
+    contexts.push(context);
+    await context.bootstrap();
+    const login = await context.login();
+    const mutation = {
+      cookie: login.cookie,
+      origin: context.config.publicOrigin,
+      'x-craftingtable-csrf': login.csrfToken,
+      'content-type': 'application/json',
+    };
+
+    const created = await context.app.inject({
+      method: 'POST',
+      url: '/api/workspaces',
+      headers: mutation,
+      payload: { name: '  Laptop  ' },
+    });
+    expect(created.statusCode, created.body).toBe(200);
+    const { workspace } = createWorkspaceResponseSchema.parse(created.json());
+    expect(workspace).toMatchObject({ name: 'Laptop', slug: 'laptop', role: 'owner' });
+
+    // The same name again gets a distinct slug.
+    const again = await context.app.inject({
+      method: 'POST',
+      url: '/api/workspaces',
+      headers: mutation,
+      payload: { name: 'Laptop' },
+    });
+    expect(createWorkspaceResponseSchema.parse(again.json()).workspace.slug).toBe('laptop-2');
+
+    const invalid = await context.app.inject({
+      method: 'POST',
+      url: '/api/workspaces',
+      headers: mutation,
+      payload: { name: '   ' },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const list = workspaceListResponseSchema.parse(
+      (
+        await context.app.inject({ method: 'GET', url: '/api/workspaces', headers: mutation })
+      ).json(),
+    );
+    expect(list.workspaces.map((entry) => entry.slug).toSorted()).toEqual([
+      'default',
+      'laptop',
+      'laptop-2',
+    ]);
+
+    const renamed = await context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${workspace.id}/rename`,
+      headers: mutation,
+      payload: { name: 'Couch laptop' },
+    });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    expect(renameWorkspaceResponseSchema.parse(renamed.json())).toMatchObject({
+      changed: true,
+      workspace: { id: workspace.id, name: 'Couch laptop', slug: 'laptop' },
+    });
+    const repeat = renameWorkspaceResponseSchema.parse(
+      (
+        await context.app.inject({
+          method: 'POST',
+          url: `/api/workspaces/${workspace.id}/rename`,
+          headers: mutation,
+          payload: { name: 'Couch laptop' },
+        })
+      ).json(),
+    );
+    expect(repeat.changed).toBe(false);
+
+    const snapshot = workspaceSnapshotResponseSchema.parse(
+      (
+        await context.app.inject({
+          method: 'GET',
+          url: `/api/workspaces/${workspace.id}/snapshot`,
+          headers: { cookie: login.cookie },
+        })
+      ).json(),
+    );
+    expect(snapshot.workspace.name).toBe('Couch laptop');
+    expect(snapshot.recentActivity.map((event) => event.kind)).toEqual([
+      'workspace-created',
+      'workspace-updated',
+    ]);
+    const audit = workspaceAuditPageResponseSchema.parse(
+      (
+        await context.app.inject({
+          method: 'GET',
+          url: `/api/workspaces/${workspace.id}/audit?limit=10`,
+          headers: { cookie: login.cookie },
+        })
+      ).json(),
+    );
+    expect(audit.records.map((record) => record.action)).toEqual([
+      'workspace.updated',
+      'workspace.created',
+    ]);
+
+    const unknown = await context.app.inject({
+      method: 'POST',
+      url: '/api/workspaces/not-a-workspace/rename',
+      headers: mutation,
+      payload: { name: 'x' },
+    });
+    expect(unknown.statusCode).toBe(404);
   });
 
   it('denies a non-member without disclosing workspace existence or content', async () => {

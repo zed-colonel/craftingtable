@@ -122,6 +122,132 @@ describe('git operations', () => {
     expect(again.ok).toBe(true);
   });
 
+  it('merges a reviewed branch with a merge commit, deletes it, and refuses unsafe states', async () => {
+    const repo = fixture();
+    const identity = await operations.inspectRepository(repo.repository);
+    if (!identity.ok) throw new Error('fixture inspection failed');
+    const worktreePath = join(repo.root, 'worktrees', 'wt-merge');
+    const created = await operations.createWorktree({
+      repositoryPath: repo.repository,
+      worktreePath,
+      branchName: 'ct/merge-1',
+      baseRef: identity.value.headSha,
+    });
+    expect(created.ok).toBe(true);
+    writeFileSync(join(worktreePath, 'feature.txt'), 'feature\n');
+    runFixtureGit(['add', '--all'], { cwd: worktreePath });
+    runFixtureGit(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'add feature'],
+      { cwd: worktreePath },
+    );
+
+    // Not on the target branch: refused before anything happens.
+    runFixtureGit(['checkout', '-q', '-b', 'elsewhere'], { cwd: repo.repository });
+    const wrongBranch = await operations.mergeBranch({
+      repositoryPath: repo.repository,
+      branchName: 'ct/merge-1',
+      targetBranch: 'main',
+      message: 'merge',
+    });
+    expect(!wrongBranch.ok && wrongBranch.failure.message).toMatch(/elsewhere/);
+    runFixtureGit(['checkout', '-q', 'main'], { cwd: repo.repository });
+
+    // Dirty primary checkout: refused.
+    writeFileSync(join(repo.repository, 'dirty.txt'), 'dirty\n');
+    const dirty = await operations.mergeBranch({
+      repositoryPath: repo.repository,
+      branchName: 'ct/merge-1',
+      targetBranch: 'main',
+      message: 'merge',
+    });
+    expect(!dirty.ok && dirty.failure.message).toMatch(/uncommitted/);
+    rmSync(join(repo.repository, 'dirty.txt'));
+
+    // Bad branch names never reach git.
+    const hostile = await operations.mergeBranch({
+      repositoryPath: repo.repository,
+      branchName: '--upload-pack=evil',
+      targetBranch: 'main',
+      message: 'merge',
+    });
+    expect(!hostile.ok && hostile.failure.kind).toBe('invalid-path');
+
+    const merged = await operations.mergeBranch({
+      repositoryPath: repo.repository,
+      branchName: 'ct/merge-1',
+      targetBranch: 'main',
+      message: 'Merge ct/merge-1: feature',
+    });
+    expect(merged.ok).toBe(true);
+    if (!merged.ok) return;
+    expect(merged.value.mergeSha).toMatch(/^[0-9a-f]{40}$/);
+    const head = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+    expect(head).toBe(merged.value.mergeSha);
+    // A real merge commit with two parents, not a fast-forward.
+    const parents = runFixtureGit(['rev-list', '--parents', '-n', '1', 'HEAD'], {
+      cwd: repo.repository,
+    })
+      .toString()
+      .trim()
+      .split(' ');
+    expect(parents).toHaveLength(3);
+
+    // The branch is checked out in the worktree until that is removed.
+    expect(
+      (await operations.removeWorktree({ repositoryPath: repo.repository, worktreePath })).ok,
+    ).toBe(true);
+    const deleted = await operations.deleteBranch({
+      repositoryPath: repo.repository,
+      branchName: 'ct/merge-1',
+    });
+    expect(deleted.ok).toBe(true);
+    expect(
+      runFixtureGit(['branch', '--list', 'ct/merge-1'], { cwd: repo.repository }).toString().trim(),
+    ).toBe('');
+    // Deleting it again is not an error.
+    expect(
+      (await operations.deleteBranch({ repositoryPath: repo.repository, branchName: 'ct/merge-1' }))
+        .ok,
+    ).toBe(true);
+  });
+
+  it('aborts a conflicting merge and leaves the checkout untouched', async () => {
+    const repo = fixture();
+    const identity = await operations.inspectRepository(repo.repository);
+    if (!identity.ok) throw new Error('fixture inspection failed');
+    const worktreePath = join(repo.root, 'worktrees', 'wt-conflict');
+    await operations.createWorktree({
+      repositoryPath: repo.repository,
+      worktreePath,
+      branchName: 'ct/conflict-1',
+      baseRef: identity.value.headSha,
+    });
+    const commit = (cwd: string, message: string): void => {
+      runFixtureGit(['add', '--all'], { cwd });
+      runFixtureGit(
+        ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', message],
+        { cwd },
+      );
+    };
+    writeFileSync(join(worktreePath, 'README.md'), '# branch version\n');
+    commit(worktreePath, 'branch change');
+    writeFileSync(join(repo.repository, 'README.md'), '# main version\n');
+    commit(repo.repository, 'main change');
+    const mainHead = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString();
+
+    const conflict = await operations.mergeBranch({
+      repositoryPath: repo.repository,
+      branchName: 'ct/conflict-1',
+      targetBranch: 'main',
+      message: 'merge',
+    });
+    expect(!conflict.ok && conflict.failure.kind).toBe('merge-conflict');
+    expect(runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString()).toBe(
+      mainHead,
+    );
+    expect(runFixtureGit(['status', '--porcelain'], { cwd: repo.repository }).toString()).toBe('');
+  });
+
   it('reports git failures without throwing', async () => {
     const repo = fixture();
     const result = await operations.createWorktree({

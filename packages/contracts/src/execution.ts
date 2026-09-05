@@ -1,9 +1,11 @@
 import {
   AGENT_BACKENDS,
+  AGENT_BILLING_SOURCES,
   AGENT_NOTICE_CATEGORIES,
   AGENT_PERMISSION_MODES,
   AGENT_RUN_ROLES,
   AGENT_RUN_STATUSES,
+  AGENT_RUN_VERDICTS,
   SOURCE_REPOSITORY_STATUSES,
   WORKTREE_STATUSES,
 } from '@craftingtable/domain';
@@ -139,6 +141,8 @@ export const worktreeSummarySchema = z.strictObject({
   createdAt: z.iso.datetime(),
   createdByUserId: userIdSchema,
   removedAt: z.iso.datetime().optional(),
+  mergedAt: z.iso.datetime().optional(),
+  mergeSha: gitShaSchema.optional(),
   version: positiveSafeInteger,
 });
 
@@ -156,6 +160,33 @@ export const removeWorktreeRequestSchema = z.strictObject({});
 export const removeWorktreeResponseSchema = z.strictObject({
   worktree: worktreeSummarySchema,
   changed: z.boolean(),
+});
+
+export const mergeWorktreeRequestSchema = z.strictObject({});
+
+/**
+ * Why a worktree can or cannot be merged right now. Computed by the daemon
+ * from the worktree's runs; the browser only renders it.
+ */
+export const mergeGateSchema = z.strictObject({
+  mergeable: z.boolean(),
+  reason: z.enum([
+    'ready',
+    'no-review',
+    'changes-requested',
+    'review-pending',
+    'superseded-by-later-run',
+    'run-live',
+    'worktree-removed',
+  ]),
+  reviewRunId: agentRunIdSchema.optional(),
+});
+
+export const mergeWorktreeResponseSchema = z.strictObject({
+  worktree: worktreeSummarySchema,
+  mergeSha: gitShaSchema,
+  targetBranch: gitBranchNameSchema,
+  workItemCompleted: z.boolean(),
 });
 
 export const diffFileStatusSchema = z.enum([
@@ -216,6 +247,9 @@ export const agentRunSummarySchema = z.strictObject({
   status: z.enum(AGENT_RUN_STATUSES),
   permissionMode: z.enum(AGENT_PERMISSION_MODES),
   model: z.string().min(1).max(100).optional(),
+  resolvedModel: z.string().min(1).max(100).optional(),
+  billing: z.enum(AGENT_BILLING_SOURCES).optional(),
+  verdict: z.enum(AGENT_RUN_VERDICTS).optional(),
   backendSessionId: z.string().min(1).max(200).optional(),
   createdAt: z.iso.datetime(),
   createdByUserId: userIdSchema,
@@ -266,6 +300,21 @@ export const workItemExecutionResponseSchema = z.strictObject({
   workItemId: workItemIdSchema,
   worktrees: z.array(worktreeSummarySchema).max(100),
   runs: z.array(agentRunSummarySchema).max(200),
+  /** One gate per active worktree, keyed by worktree id. */
+  mergeGates: z.record(worktreeIdSchema, mergeGateSchema),
+});
+
+/** A run with enough context to be listed outside its work item. */
+export const runOverviewSchema = agentRunSummarySchema.extend({
+  workItemSourceId: z.string().min(1).max(64),
+  workItemTitle: z.string().min(1).max(300),
+  projectName: z.string().min(1).max(120),
+  branchName: gitBranchNameSchema,
+});
+
+export const workspaceRunsResponseSchema = z.strictObject({
+  runs: z.array(runOverviewSchema).max(100),
+  liveCount: nonNegativeSafeInteger,
 });
 
 /* -------------------------------------------------------------------------- */
@@ -290,6 +339,7 @@ export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
       model: z.string().min(1).max(100),
       permissionMode: z.enum(AGENT_PERMISSION_MODES),
       cwd: sourceRepositoryPathSchema,
+      billing: z.enum(AGENT_BILLING_SOURCES),
     }),
   }),
   runEventBaseSchema.extend({
@@ -367,6 +417,10 @@ export type WorktreeSummary = z.infer<typeof worktreeSummarySchema>;
 export type CreateWorktreeRequest = z.infer<typeof createWorktreeRequestSchema>;
 export type CreateWorktreeResponse = z.infer<typeof createWorktreeResponseSchema>;
 export type RemoveWorktreeResponse = z.infer<typeof removeWorktreeResponseSchema>;
+export type MergeGate = z.infer<typeof mergeGateSchema>;
+export type MergeWorktreeResponse = z.infer<typeof mergeWorktreeResponseSchema>;
+export type RunOverview = z.infer<typeof runOverviewSchema>;
+export type WorkspaceRunsResponse = z.infer<typeof workspaceRunsResponseSchema>;
 export type WorktreeDiffFile = z.infer<typeof worktreeDiffFileSchema>;
 export type WorktreeDiffResponse = z.infer<typeof worktreeDiffResponseSchema>;
 export type DiffFileStatus = z.infer<typeof diffFileStatusSchema>;

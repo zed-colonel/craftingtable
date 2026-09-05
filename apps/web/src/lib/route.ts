@@ -9,14 +9,33 @@ import type {
 /**
  * Deep-linkable routes, parsed and built by pure functions.
  *
- * Four static shapes need about fifty lines; a routing library would bring a
- * data-loading framework the daemon-as-authority design does not want
- * (ADR-015). Keeping this pure also makes navigation testable without a DOM.
+ * A handful of static shapes need about a hundred lines; a routing library
+ * would bring a data-loading framework the daemon-as-authority design does
+ * not want (ADR-015). Keeping this pure also makes navigation testable
+ * without a DOM.
  */
 
+export const AGENDA_FILTERS = [
+  'all',
+  'admitted',
+  'planning-ready',
+  'dependency-blocked',
+  'completed',
+] as const;
+export type AgendaFilter = (typeof AGENDA_FILTERS)[number];
+
 export type Route =
-  | { readonly name: 'dashboard'; readonly workspaceId?: WorkspaceId }
+  /** `/`: resolved by the app to the last used workspace, else the workspace list. */
+  | { readonly name: 'root' }
+  /** `/workspaces`: every workspace as a card. */
+  | { readonly name: 'home' }
+  | { readonly name: 'account' }
+  | { readonly name: 'dashboard'; readonly workspaceId: WorkspaceId }
+  | { readonly name: 'settings'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'import'; readonly workspaceId: WorkspaceId }
+  | { readonly name: 'repositories'; readonly workspaceId: WorkspaceId }
+  | { readonly name: 'runs'; readonly workspaceId: WorkspaceId }
+  | { readonly name: 'agenda'; readonly workspaceId: WorkspaceId; readonly filter: AgendaFilter }
   | { readonly name: 'project'; readonly workspaceId: WorkspaceId; readonly projectId: ProjectId }
   | {
       readonly name: 'plan-version';
@@ -29,10 +48,10 @@ export type Route =
       readonly workspaceId: WorkspaceId;
       readonly workItemId: WorkItemId;
     }
-  | { readonly name: 'repositories'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'run'; readonly workspaceId: WorkspaceId; readonly runId: AgentRunId };
 
-export const DASHBOARD_ROUTE: Route = { name: 'dashboard' };
+export const ROOT_ROUTE: Route = { name: 'root' };
+export const HOME_ROUTE: Route = { name: 'home' };
 
 function decode(segment: string | undefined): string | undefined {
   if (segment === undefined || segment === '') {
@@ -46,41 +65,68 @@ function decode(segment: string | undefined): string | undefined {
   }
 }
 
-/** Unrecognized paths fall back to the dashboard rather than erroring. */
+function isAgendaFilter(value: string | undefined): value is AgendaFilter {
+  return (AGENDA_FILTERS as readonly string[]).includes(value ?? '');
+}
+
+/** Unrecognized paths fall back to the root rather than erroring. */
 export function parseRoute(pathname: string): Route {
   const segments = pathname.split('/').filter((segment) => segment !== '');
+  if (segments.length === 0) {
+    return ROOT_ROUTE;
+  }
+  if (segments[0] === 'account' && segments.length === 1) {
+    return { name: 'account' };
+  }
   if (segments[0] !== 'workspaces') {
-    return DASHBOARD_ROUTE;
+    return ROOT_ROUTE;
+  }
+  if (segments.length === 1) {
+    return HOME_ROUTE;
   }
   const workspaceId = decode(segments[1]) as WorkspaceId | undefined;
   if (workspaceId === undefined) {
-    return DASHBOARD_ROUTE;
+    return HOME_ROUTE;
   }
+  const dashboard: Route = { name: 'dashboard', workspaceId };
   if (segments.length === 2) {
-    return { name: 'dashboard', workspaceId };
+    return dashboard;
   }
-  if (segments[2] === 'import' && segments.length === 3) {
-    return { name: 'import', workspaceId };
+  const section = segments[2];
+  if (segments.length === 3) {
+    switch (section) {
+      case 'import':
+        return { name: 'import', workspaceId };
+      case 'repositories':
+        return { name: 'repositories', workspaceId };
+      case 'runs':
+        return { name: 'runs', workspaceId };
+      case 'settings':
+        return { name: 'settings', workspaceId };
+      case 'agenda':
+        return { name: 'agenda', workspaceId, filter: 'all' };
+      default:
+        break;
+    }
   }
-  if (segments[2] === 'repositories' && segments.length === 3) {
-    return { name: 'repositories', workspaceId };
+  if (section === 'agenda' && segments.length === 4) {
+    const filter = decode(segments[3]);
+    return isAgendaFilter(filter)
+      ? { name: 'agenda', workspaceId, filter }
+      : { name: 'agenda', workspaceId, filter: 'all' };
   }
-  if (segments[2] === 'runs') {
+  if (section === 'runs') {
     const runId = decode(segments[3]) as AgentRunId | undefined;
-    return runId === undefined
-      ? { name: 'dashboard', workspaceId }
-      : { name: 'run', workspaceId, runId };
+    return runId === undefined ? dashboard : { name: 'run', workspaceId, runId };
   }
-  if (segments[2] === 'work-items') {
+  if (section === 'work-items') {
     const workItemId = decode(segments[3]) as WorkItemId | undefined;
-    return workItemId === undefined
-      ? { name: 'dashboard', workspaceId }
-      : { name: 'work-item', workspaceId, workItemId };
+    return workItemId === undefined ? dashboard : { name: 'work-item', workspaceId, workItemId };
   }
-  if (segments[2] === 'projects') {
+  if (section === 'projects') {
     const projectId = decode(segments[3]) as ProjectId | undefined;
     if (projectId === undefined) {
-      return { name: 'dashboard', workspaceId };
+      return dashboard;
     }
     if (segments.length === 4) {
       return { name: 'project', workspaceId, projectId };
@@ -93,16 +139,32 @@ export function parseRoute(pathname: string): Route {
     }
     return { name: 'project', workspaceId, projectId };
   }
-  return { name: 'dashboard', workspaceId };
+  return dashboard;
 }
 
 export function buildPath(route: Route): string {
   const workspace = (id: WorkspaceId): string => `/workspaces/${encodeURIComponent(id)}`;
   switch (route.name) {
+    case 'root':
+      return '/';
+    case 'home':
+      return '/workspaces';
+    case 'account':
+      return '/account';
     case 'dashboard':
-      return route.workspaceId === undefined ? '/' : workspace(route.workspaceId);
+      return workspace(route.workspaceId);
+    case 'settings':
+      return `${workspace(route.workspaceId)}/settings`;
     case 'import':
       return `${workspace(route.workspaceId)}/import`;
+    case 'repositories':
+      return `${workspace(route.workspaceId)}/repositories`;
+    case 'runs':
+      return `${workspace(route.workspaceId)}/runs`;
+    case 'agenda':
+      return route.filter === 'all'
+        ? `${workspace(route.workspaceId)}/agenda`
+        : `${workspace(route.workspaceId)}/agenda/${route.filter}`;
     case 'project':
       return `${workspace(route.workspaceId)}/projects/${encodeURIComponent(route.projectId)}`;
     case 'plan-version':
@@ -111,8 +173,6 @@ export function buildPath(route: Route): string {
       )}/plans/${encodeURIComponent(route.planVersionId)}`;
     case 'work-item':
       return `${workspace(route.workspaceId)}/work-items/${encodeURIComponent(route.workItemId)}`;
-    case 'repositories':
-      return `${workspace(route.workspaceId)}/repositories`;
     case 'run':
       return `${workspace(route.workspaceId)}/runs/${encodeURIComponent(route.runId)}`;
   }
@@ -120,5 +180,5 @@ export function buildPath(route: Route): string {
 
 /** The workspace a route addresses, if any. */
 export function routeWorkspaceId(route: Route): WorkspaceId | undefined {
-  return route.name === 'dashboard' ? route.workspaceId : route.workspaceId;
+  return 'workspaceId' in route ? route.workspaceId : undefined;
 }

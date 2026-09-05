@@ -4,30 +4,41 @@ CraftingTable is a local supervisory workbench for planning, delegating, observi
 reviewing, and integrating software work performed by existing coding agents.
 
 It runs as a daemon on your workstation. From a browser on any machine on your home
-network you import a plan, pick a work item, register a repository, create a worktree,
-launch Claude Code with the work item as its brief, watch it work live, steer it, and
-read the resulting diff.
+network you import a plan, admit a work item into your agenda, register a repository,
+create a worktree, launch Claude Code with the work item as its brief, watch it work
+live, steer it, have a second run review the branch, and merge it when the review says
+it is mergeable.
 
 ## What works today
 
 - **Plans and work items.** Import an implementation plan plus work breakdown as a plan
-  bundle; browse projects, plan versions, and work items with their dependencies.
+  bundle; browse projects, plan versions, and work items with their dependencies. Items
+  move `Proposed → In agenda → Completed`; completing one unblocks its dependents.
 - **Repositories.** Register any local Git checkout by path.
 - **Worktrees.** Create a linked worktree on a fresh `ct/<item>-<id>` branch for a work
-  item, and remove it when done. The primary checkout is never touched.
+  item, and remove it when done. The primary checkout is never touched by an agent.
 - **Agent runs.** Launch Claude Code in the worktree with a composed brief (the work
   item, its dependencies, the plan documents, your instructions). Choose a role
-  (implement, review, design), a permission posture, and optionally a model.
+  (implement, review, design), a permission posture, and optionally a model. Runs
+  record the model the backend actually used and whether it ran on your subscription
+  login or an API key.
 - **Live supervision.** Every tool call, result, message, and turn is journaled and
-  streamed to the browser. Send follow-up messages, end the session, or cancel.
+  streamed to the browser into a feed you can filter and scroll without losing your
+  place. Send follow-up messages, end the session, or cancel.
 - **Diffs.** See commits, changed files, and the unified patch of the worktree against
   its base at any time.
+- **Review-gated merge.** A review run ends with a verdict. When the latest run on a
+  worktree is a review that returned `mergeable`, the daemon offers Merge: a merge
+  commit into the default branch, the worktree removed, the branch deleted, and the
+  work item completed, in one step. Any later run closes the gate again.
+- **Workspaces and account.** Several workspaces per user, created and renamed from the
+  browser; password change from the account page; dark theme by default with a light
+  option.
 - **Durability.** Runs, events, worktrees, and repositories live in SQLite. A daemon
   restart marks runs that were live as interrupted; nothing is lost.
 
-Not yet: automated design/implement/review cycles, merging from the UI, Codex or other
-backends, interactive permission prompts. The run model (roles, lineage via
-`parentRunId`, normalized events) is the seam those will plug into.
+Not yet: automated implement → review → merge cycles (every step exists as a command,
+the orchestrator does not), Codex or other backends, interactive permission prompts.
 
 ## Quickstart on the workstation
 
@@ -43,8 +54,12 @@ pnpm dev            # daemon on http://127.0.0.1:4600 + Vite UI on http://127.0.
 ```
 
 Sign in at http://127.0.0.1:5173, import a plan (or use `fixtures/plan-bundles/aq-cont-1`
-to try it), open **Repositories** and register a checkout, open a work item, create a
-worktree, and launch a run.
+to try it), open **Repositories** and register a checkout, open a work item, admit it,
+create a worktree, launch an implement run, then a review run, then merge.
+
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 6 (the daemon also
+migrates on start). Nothing in an existing database is lost; the retired work-contract
+draft table is dropped.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,
 browser end-to-end tests with a scripted agent, and the forbidden-scope check).

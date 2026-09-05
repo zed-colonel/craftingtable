@@ -2,8 +2,8 @@ import type { PlanImportResponse, ProjectSummary } from '@craftingtable/contract
 import type { ProjectId } from '@craftingtable/domain';
 import { useState } from 'react';
 import { PLAN_BUNDLE_LIMITS } from '../../lib/plan-limits.js';
-import { IMPORT_OUTCOME_LABELS } from '../../lib/planning-labels.js';
 import type { PlanImportUpload } from '../../lib/planning-api.js';
+import { IMPORT_OUTCOME_LABELS } from '../../lib/planning-labels.js';
 import { DiagnosticList } from './DiagnosticList.js';
 
 const ROLES = [
@@ -82,13 +82,15 @@ export function ImportPlanPage({
   };
 
   return (
-    <div className="planning-page">
+    <div className="page">
       <header className="page-header">
-        <h2>Import a plan bundle</h2>
-        <p className="subtitle">
-          Discrete planning files only. CraftingTable does not accept archives, host paths, or
-          external URLs.
-        </p>
+        <div>
+          <h1>Import a plan bundle</h1>
+          <p className="subtitle">
+            Discrete planning files only. CraftingTable does not accept archives, host paths, or
+            external URLs.
+          </p>
+        </div>
       </header>
 
       <section className="panel" aria-label="Import form">
@@ -146,9 +148,11 @@ export function ImportPlanPage({
           </p>
         )}
 
-        <button type="button" className="primary-button" onClick={submit} disabled={busy}>
-          {busy ? 'Importing…' : 'Import plan bundle'}
-        </button>
+        <div>
+          <button type="button" className="primary-button" onClick={submit} disabled={busy}>
+            {busy ? 'Importing…' : 'Import plan bundle'}
+          </button>
+        </div>
       </section>
 
       {result !== undefined && <ImportOutcome result={result} />}

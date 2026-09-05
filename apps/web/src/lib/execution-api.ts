@@ -1,30 +1,34 @@
 import {
   type AgentRunCommandResponse,
-  agentRunCommandResponseSchema,
   type AgentRunDetailResponse,
+  agentRunCommandResponseSchema,
   agentRunDetailResponseSchema,
   type CreateWorktreeRequest,
   type CreateWorktreeResponse,
   createWorktreeResponseSchema,
   type ExecutionStatusResponse,
   executionStatusResponseSchema,
+  type MergeWorktreeResponse,
+  mergeWorktreeResponseSchema,
   type RegisterSourceRepositoryRequest,
   type RegisterSourceRepositoryResponse,
-  registerSourceRepositoryResponseSchema,
   type RemoveWorktreeResponse,
-  removeWorktreeResponseSchema,
   type RetireSourceRepositoryResponse,
-  retireSourceRepositoryResponseSchema,
   type RunEventPageResponse,
+  registerSourceRepositoryResponseSchema,
+  removeWorktreeResponseSchema,
+  retireSourceRepositoryResponseSchema,
   runEventPageResponseSchema,
   type SourceRepositoryListResponse,
-  sourceRepositoryListResponseSchema,
   type StartAgentRunRequest,
   type StartAgentRunResponse,
+  sourceRepositoryListResponseSchema,
   startAgentRunResponseSchema,
   type WorkItemExecutionResponse,
-  workItemExecutionResponseSchema,
+  type WorkspaceRunsResponse,
   type WorktreeDiffResponse,
+  workItemExecutionResponseSchema,
+  workspaceRunsResponseSchema,
   worktreeDiffResponseSchema,
 } from '@craftingtable/contracts';
 import type {
@@ -194,4 +198,20 @@ export function cancelRun(
     agentRunCommandResponseSchema,
     mutation(csrfToken, {}),
   );
+}
+
+export function mergeWorktree(
+  workspaceId: WorkspaceId,
+  worktreeId: WorktreeId,
+  csrfToken: string,
+): Promise<MergeWorktreeResponse> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/worktrees/${encode(worktreeId)}/merge`,
+    mergeWorktreeResponseSchema,
+    mutation(csrfToken, {}),
+  );
+}
+
+export function loadWorkspaceRuns(workspaceId: WorkspaceId): Promise<WorkspaceRunsResponse> {
+  return request(`/api/workspaces/${encode(workspaceId)}/runs`, workspaceRunsResponseSchema);
 }

@@ -12,7 +12,9 @@ import type {
   WorkItemDetailResponse,
   WorkItemExecutionResponse,
   WorkspaceEventEnvelope,
-  WorkspaceSummary,
+  WorkspaceOverview,
+  WorkspaceRunsResponse,
+  WorkspaceWorkItemListResponse,
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
 import type {
@@ -24,25 +26,31 @@ import type {
   WorkspaceId,
   WorktreeId,
 } from '@craftingtable/domain';
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { type ReactElement, useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ActivityPanel } from './components/ActivityPanel.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
-import { SessionPanel } from './components/SessionPanel.js';
-import { StatusRegions } from './components/StatusRegions.js';
+import { StatusCards } from './components/StatusCards.js';
 import { WorkspaceShell } from './components/WorkspaceShell.js';
+import { AccountPage } from './features/account/AccountPage.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
 import { DiffView } from './features/execution/DiffView.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
 import { RunPage } from './features/execution/RunPage.js';
+import { RunList, RunsPage } from './features/execution/RunsPage.js';
+import { WorkspacesPage } from './features/home/WorkspacesPage.js';
+import { AgendaPage } from './features/planning/AgendaPage.js';
 import { ImportPlanPage } from './features/planning/ImportPlanPage.js';
 import { PlanVersionPage } from './features/planning/PlanVersionPage.js';
 import { ProjectCards } from './features/planning/ProjectCards.js';
 import { ProjectPage } from './features/planning/ProjectPage.js';
 import { SourceText } from './features/planning/SourceText.js';
 import { WorkItemPage } from './features/planning/WorkItemPage.js';
+import { SettingsPage } from './features/workspace/SettingsPage.js';
 import {
   ApiError,
+  changePassword,
+  createWorkspace,
   loadSession,
   loadSessions,
   loadWorkspaceAudit,
@@ -50,9 +58,10 @@ import {
   loadWorkspaces,
   login,
   logout,
+  renameWorkspace,
   revokeSession,
 } from './lib/api-client.js';
-import { authenticationMessage, type AuthenticationStatus } from './lib/auth-state.js';
+import { type AuthenticationStatus, authenticationMessage } from './lib/auth-state.js';
 import {
   cancelRun,
   createWorktree,
@@ -62,23 +71,35 @@ import {
   loadRun,
   loadRunEvents,
   loadWorkItemExecution,
+  loadWorkspaceRuns,
   loadWorktreeDiff,
+  mergeWorktree,
   registerRepository,
   removeWorktree,
   retireRepository,
   sendRunMessage,
   startRun,
 } from './lib/execution-api.js';
+import { isLiveStatus } from './lib/execution-labels.js';
 import {
   admitWorkItem,
+  completeWorkItem,
   importPlanBundle,
   loadArtifactText,
   loadPlanVersion,
   loadProject,
   loadWorkItem,
+  loadWorkspaceWorkItems,
   type PlanImportUpload,
 } from './lib/planning-api.js';
-import { buildPath, type Route } from './lib/route.js';
+import { type Route, routeWorkspaceId } from './lib/route.js';
+import {
+  currentTheme,
+  persistTheme,
+  rememberedWorkspace,
+  rememberWorkspace,
+  type Theme,
+} from './lib/theme.js';
 import { useRoute } from './lib/use-route.js';
 import { useRunEventStream } from './lib/use-run-event-stream.js';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
@@ -95,11 +116,14 @@ export function App() {
   const [authenticationStatus, setAuthenticationStatus] =
     useState<AuthenticationStatus>('checking');
   const [authenticated, setAuthenticated] = useState<AuthenticatedSessionResponse>();
-  const [workspaces, setWorkspaces] = useState<readonly WorkspaceSummary[]>([]);
+  const [workspaces, setWorkspaces] = useState<readonly WorkspaceOverview[]>([]);
+  const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<WorkspaceId>();
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([]);
   const [audit, setAudit] = useState<readonly AuditRecordSummary[]>([]);
   const [streamAfter, setStreamAfter] = useState(0);
+  const [theme, setTheme] = useState<Theme>(() => currentTheme());
+  const [now, setNow] = useState(() => Date.now());
   const [projection, dispatch] = useReducer(
     reduceWorkspaceProjection,
     INITIAL_WORKSPACE_PROJECTION,
@@ -114,7 +138,7 @@ export function App() {
    * render later through an effect (CT03-R2R4). Falls back to the picker
    * selection, and ignores a route naming a workspace the user cannot see.
    */
-  const routedWorkspaceId = route.workspaceId;
+  const routedWorkspaceId = routeWorkspaceId(route);
   const activeWorkspaceId =
     routedWorkspaceId !== undefined &&
     workspaces.some((workspace) => workspace.id === routedWorkspaceId)
@@ -140,8 +164,8 @@ export function App() {
   const [importResult, setImportResult] = useState<PlanImportResponse>();
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string>();
-  const [admitting, setAdmitting] = useState(false);
-  const [admitError, setAdmitError] = useState<string>();
+  const [itemBusy, setItemBusy] = useState(false);
+  const [itemError, setItemError] = useState<string>();
   const [refreshToken, setRefreshToken] = useState(0);
 
   // Delegation state: repositories, the active work item's worktrees and runs,
@@ -149,6 +173,8 @@ export function App() {
   const [repositories, setRepositories] = useState<readonly SourceRepositorySummary[]>([]);
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatusResponse>();
   const [workItemExecution, setWorkItemExecution] = useState<WorkItemExecutionResponse>();
+  const [runsOverview, setRunsOverview] = useState<WorkspaceRunsResponse>();
+  const [agenda, setAgenda] = useState<WorkspaceWorkItemListResponse>();
   const [run, setRun] = useState<AgentRunDetailResponse>();
   const [runEvents, setRunEvents] = useState<readonly RunEventEnvelope[]>([]);
   const [runStreamAfter, setRunStreamAfter] = useState<number>();
@@ -156,6 +182,14 @@ export function App() {
   const [diff, setDiff] = useState<WorktreeDiffResponse>();
   const [executionBusy, setExecutionBusy] = useState(false);
   const [executionError, setExecutionError] = useState<string>();
+
+  // Workspace and account commands.
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string>();
+  const [workspaceNotice, setWorkspaceNotice] = useState<string>();
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountError, setAccountError] = useState<string>();
+  const [accountNotice, setAccountNotice] = useState<string>();
 
   /**
    * Switches workspace in one synchronous transition.
@@ -169,25 +203,32 @@ export function App() {
   const selectWorkspace = useCallback((next: WorkspaceId | undefined) => {
     setSelectedWorkspaceId(next);
     setImportBusy(false);
-    setAdmitting(false);
+    setItemBusy(false);
     setProject(undefined);
     setPlanVersion(undefined);
     setWorkItem(undefined);
     setArtifact(undefined);
     setImportResult(undefined);
     setImportError(undefined);
-    setAdmitError(undefined);
+    setItemError(undefined);
     setAudit([]);
     setStreamAfter(0);
     setRepositories([]);
     setWorkItemExecution(undefined);
+    setRunsOverview(undefined);
+    setAgenda(undefined);
     setRun(undefined);
     setRunEvents([]);
     setRunStreamAfter(undefined);
     setDiff(undefined);
     setExecutionBusy(false);
     setExecutionError(undefined);
+    setWorkspaceError(undefined);
+    setWorkspaceNotice(undefined);
     dispatch({ type: 'workspace-changed' });
+    if (next !== undefined) {
+      rememberWorkspace(next);
+    }
   }, []);
 
   const establishSession = useCallback(async (session: AuthenticatedSessionResponse) => {
@@ -198,10 +239,18 @@ export function App() {
       loadSessions(),
     ]);
     setWorkspaces(workspaceResponse.workspaces);
+    setWorkspacesLoaded(true);
     setSessions(sessionResponse.sessions);
     setSelectedWorkspaceId((current) => {
       const keep = workspaceResponse.workspaces.some((workspace) => workspace.id === current);
-      return keep ? current : workspaceResponse.workspaces[0]?.id;
+      if (keep) {
+        return current;
+      }
+      const remembered = rememberedWorkspace();
+      const candidate =
+        workspaceResponse.workspaces.find((workspace) => workspace.id === remembered) ??
+        workspaceResponse.workspaces[0];
+      return candidate?.id;
     });
   }, []);
 
@@ -220,18 +269,46 @@ export function App() {
     })();
   }, [establishSession]);
 
+  // Elapsed times on run rows tick without a stream event.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // `/` is a bookmark, not a page: it resolves to the last used workspace once
+  // the workspace list is known.
+  useEffect(() => {
+    if (route.name !== 'root' || authenticationStatus !== 'authenticated' || !workspacesLoaded) {
+      return;
+    }
+    if (workspaces.length === 0) {
+      navigate({ name: 'home' }, { replace: true });
+      return;
+    }
+    const target =
+      workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? workspaces[0];
+    if (target !== undefined) {
+      navigate({ name: 'dashboard', workspaceId: target.id }, { replace: true });
+    }
+  }, [
+    route.name,
+    authenticationStatus,
+    workspacesLoaded,
+    workspaces,
+    selectedWorkspaceId,
+    navigate,
+  ]);
+
   // A deep link selects the workspace it addresses.
   useEffect(() => {
-    if (route.name !== 'dashboard' || route.workspaceId !== undefined) {
-      const target = route.name === 'dashboard' ? route.workspaceId : route.workspaceId;
-      if (
-        target !== undefined &&
-        target !== selectedWorkspaceId &&
-        workspaces.some((workspace) => workspace.id === target)
-      ) {
-        // A deep link to another workspace is a workspace switch too.
-        selectWorkspace(target);
-      }
+    const target = routeWorkspaceId(route);
+    if (
+      target !== undefined &&
+      target !== selectedWorkspaceId &&
+      workspaces.some((workspace) => workspace.id === target)
+    ) {
+      // A deep link to another workspace is a workspace switch too.
+      selectWorkspace(target);
     }
   }, [route, workspaces, selectedWorkspaceId, selectWorkspace]);
 
@@ -249,13 +326,15 @@ export function App() {
     void Promise.all([
       loadWorkspaceSnapshot(activeWorkspaceId),
       loadWorkspaceAudit(activeWorkspaceId),
+      loadWorkspaces(),
     ])
-      .then(([snapshot, auditPage]) => {
+      .then(([snapshot, auditPage, workspaceList]) => {
         if (canceled) {
           return;
         }
         setStreamAfter((current) => Math.max(current, snapshot.asOfSequence));
         setAudit(auditPage.records);
+        setWorkspaces(workspaceList.workspaces);
         dispatch({ type: 'snapshot-loaded', snapshot });
       })
       .catch((error: unknown) => {
@@ -312,10 +391,23 @@ export function App() {
   // Detail views refetch whenever their route or the refresh token changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: deliberate refetch trigger
   useEffect(() => {
-    if (workspaceId === undefined || authenticationStatus !== 'authenticated') {
+    if (authenticationStatus !== 'authenticated') {
       return;
     }
     let canceled = false;
+    if (route.name === 'account') {
+      void loadSessions()
+        .then((response) => {
+          if (!canceled) setSessions(response.sessions);
+        })
+        .catch(() => undefined);
+      return () => {
+        canceled = true;
+      };
+    }
+    if (workspaceId === undefined) {
+      return;
+    }
     const requestedFor = workspaceId;
     const current = (): boolean => !canceled && activeWorkspaceIdRef.current === requestedFor;
     const fail = (): void => {
@@ -323,7 +415,23 @@ export function App() {
         dispatch({ type: 'refresh-failed' });
       }
     };
-    if (route.name === 'project') {
+    if (route.name === 'dashboard' || route.name === 'runs') {
+      void loadWorkspaceRuns(workspaceId)
+        .then((response) => {
+          if (current()) {
+            setRunsOverview(response);
+          }
+        })
+        .catch(fail);
+    } else if (route.name === 'agenda') {
+      void loadWorkspaceWorkItems(workspaceId, route.filter)
+        .then((response) => {
+          if (current()) {
+            setAgenda(response);
+          }
+        })
+        .catch(fail);
+    } else if (route.name === 'project') {
       void loadProject(workspaceId, route.projectId)
         .then((detail) => {
           if (current()) {
@@ -427,7 +535,11 @@ export function App() {
         ? current
         : [...current, event],
     );
-    if (event.kind === 'run-finished' || event.kind === 'turn-completed') {
+    if (
+      event.kind === 'run-finished' ||
+      event.kind === 'turn-completed' ||
+      event.kind === 'session-started'
+    ) {
       setRefreshToken((current) => current + 1);
     }
   }, []);
@@ -497,6 +609,7 @@ export function App() {
     } finally {
       setAuthenticated(undefined);
       setWorkspaces([]);
+      setWorkspacesLoaded(false);
       setSessions([]);
       selectWorkspace(undefined);
       setAuthenticationStatus('unauthenticated');
@@ -519,6 +632,12 @@ export function App() {
   const go = (next: Route): void => {
     setArtifact(undefined);
     navigate(next);
+  };
+
+  const toggleTheme = (): void => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    persistTheme(next);
+    setTheme(next);
   };
 
   const handleImport = (upload: PlanImportUpload): void => {
@@ -554,31 +673,42 @@ export function App() {
       });
   };
 
-  const handleAdmit = (workItemId: WorkItemId): void => {
+  /** Work item lifecycle commands share one busy flag and one error slot. */
+  const itemCommand = (
+    operation: (csrfToken: string, forWorkspace: WorkspaceId) => Promise<void>,
+    fallback: string,
+  ): void => {
     if (workspaceId === undefined || authenticated === undefined) {
       return;
     }
     const requestedFor = workspaceId;
-    setAdmitting(true);
-    setAdmitError(undefined);
-    void admitWorkItem(workspaceId, workItemId, authenticated.csrfToken)
+    setItemBusy(true);
+    setItemError(undefined);
+    void operation(authenticated.csrfToken, requestedFor)
       .then(() => {
         if (activeWorkspaceIdRef.current === requestedFor) {
           setRefreshToken((current) => current + 1);
         }
       })
       .catch((error: unknown) => {
-        if (activeWorkspaceIdRef.current !== requestedFor) {
-          return;
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setItemError(error instanceof ApiError ? error.message : fallback);
         }
-        setAdmitError(error instanceof ApiError ? error.message : 'Admission failed');
       })
       .finally(() => {
         if (activeWorkspaceIdRef.current === requestedFor) {
-          setAdmitting(false);
+          setItemBusy(false);
         }
       });
   };
+  const handleAdmit = (workItemId: WorkItemId): void =>
+    itemCommand(async (csrfToken, forWorkspace) => {
+      await admitWorkItem(forWorkspace, workItemId, csrfToken);
+    }, 'Admission failed');
+  const handleComplete = (workItemId: WorkItemId): void =>
+    itemCommand(async (csrfToken, forWorkspace) => {
+      await completeWorkItem(forWorkspace, workItemId, csrfToken);
+    }, 'Completion failed');
 
   /**
    * Delegation commands. Each captures the workspace it was made for, reports
@@ -629,6 +759,11 @@ export function App() {
       await removeWorktree(forWorkspace, worktreeId, csrfToken);
       setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
     });
+  const handleMergeWorktree = (worktreeId: WorktreeId): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      await mergeWorktree(forWorkspace, worktreeId, csrfToken);
+      setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
+    });
   const handleLaunch = (workItemId: WorkItemId, input: LaunchInput): void =>
     executionCommand(async (csrfToken, forWorkspace) => {
       const response = await startRun(forWorkspace, workItemId, input, csrfToken);
@@ -672,6 +807,79 @@ export function App() {
       });
   };
 
+  const handleCreateWorkspace = (name: string): void => {
+    if (authenticated === undefined) {
+      return;
+    }
+    setWorkspaceBusy(true);
+    setWorkspaceError(undefined);
+    void createWorkspace(name, authenticated.csrfToken)
+      .then(async (response) => {
+        const list = await loadWorkspaces();
+        setWorkspaces(list.workspaces);
+        selectWorkspace(response.workspace.id);
+        go({ name: 'dashboard', workspaceId: response.workspace.id });
+      })
+      .catch((error: unknown) => {
+        setWorkspaceError(
+          error instanceof ApiError ? error.message : 'The workspace could not be created',
+        );
+      })
+      .finally(() => setWorkspaceBusy(false));
+  };
+
+  const handleRenameWorkspace = (name: string): void => {
+    if (authenticated === undefined || workspaceId === undefined) {
+      return;
+    }
+    setWorkspaceBusy(true);
+    setWorkspaceError(undefined);
+    setWorkspaceNotice(undefined);
+    void renameWorkspace(workspaceId, name, authenticated.csrfToken)
+      .then(async () => {
+        const list = await loadWorkspaces();
+        setWorkspaces(list.workspaces);
+        setWorkspaceNotice('Workspace renamed.');
+        setRefreshToken((current) => current + 1);
+      })
+      .catch((error: unknown) => {
+        setWorkspaceError(
+          error instanceof ApiError ? error.message : 'The workspace could not be renamed',
+        );
+      })
+      .finally(() => setWorkspaceBusy(false));
+  };
+
+  const handleChangePassword = (input: { currentPassword: string; newPassword: string }): void => {
+    if (authenticated === undefined) {
+      return;
+    }
+    setAccountBusy(true);
+    setAccountError(undefined);
+    setAccountNotice(undefined);
+    void changePassword(input, authenticated.csrfToken)
+      .then(async (response) => {
+        setAccountNotice(
+          response.revokedSessionCount === 0
+            ? 'Password changed.'
+            : `Password changed; ${response.revokedSessionCount} other session${
+                response.revokedSessionCount === 1 ? '' : 's'
+              } signed out.`,
+        );
+        setSessions((await loadSessions()).sessions);
+      })
+      .catch((error: unknown) => {
+        setAccountError(
+          error instanceof ApiError
+            ? error.status === 401
+              ? 'The current password is not correct.'
+              : error.message
+            : 'The password could not be changed',
+        );
+      })
+      .finally(() => setAccountBusy(false));
+  };
+
   const viewArtifact = (artifactId: PlanArtifactId, filename: string): void => {
     if (workspaceId === undefined) {
       return;
@@ -703,214 +911,303 @@ export function App() {
     );
   }
 
-  const canMutate =
-    workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.role !== 'viewer';
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+  const canMutate = activeWorkspace?.role !== 'viewer';
+  const workspaceRoute = routeWorkspaceId(route) !== undefined;
+
+  const workspaceContent = (): ReactElement | undefined => {
+    if (workspaces.length === 0) {
+      return <p className="empty-state">This user has no authorized workspaces.</p>;
+    }
+    if (projection.snapshotStatus === 'loading' || projection.snapshotStatus === 'idle') {
+      return <p className="empty-state">Loading durable workspace snapshot…</p>;
+    }
+    if (projection.snapshotStatus === 'error') {
+      return (
+        <p className="error-state" role="alert">
+          The workspace snapshot could not be loaded.
+        </p>
+      );
+    }
+    const shown = projection.workspace;
+    if (shown === undefined || shown.id !== activeWorkspaceId || workspaceId === undefined) {
+      // Never render one workspace's projection under another's identity,
+      // whatever order the state updates arrive in, and whether the change
+      // came from the picker or the URL (CT03-RR4, CT03-R2R4, CT03-I14).
+      return <p className="empty-state">Loading durable workspace snapshot…</p>;
+    }
+    return (
+      <>
+        {projection.refreshFailed && (
+          <p className="warning-state" role="alert">
+            The latest refresh failed. The last committed state remains visible.
+          </p>
+        )}
+        {projection.connection === 'disconnected' && (
+          <p className="warning-state" role="alert">
+            The event stream is unreachable. Your last committed workspace state remains visible;
+            reconnection continues automatically.
+          </p>
+        )}
+
+        {route.name === 'dashboard' && (
+          <>
+            <header className="page-header">
+              <div>
+                <h1>{shown.name}</h1>
+                <p className="subtitle">
+                  {projection.planningSummary.projectCount} project
+                  {projection.planningSummary.projectCount === 1 ? '' : 's'} · signed in as{' '}
+                  {authenticated.user.username}
+                </p>
+              </div>
+              <div className="page-header-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => go({ name: 'import', workspaceId })}
+                >
+                  Import plan
+                </button>
+              </div>
+            </header>
+            <StatusCards
+              summary={projection.statusSummary}
+              onOpen={(target) => {
+                if (target.kind === 'runs') go({ name: 'runs', workspaceId });
+                else if (target.kind === 'import') go({ name: 'import', workspaceId });
+                else go({ name: 'agenda', workspaceId, filter: target.filter });
+              }}
+            />
+            <section className="panel" aria-label="Live runs">
+              <div className="panel-header">
+                <h3>Live runs</h3>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => go({ name: 'runs', workspaceId })}
+                >
+                  All runs
+                </button>
+              </div>
+              <RunList
+                runs={(runsOverview?.runs ?? []).filter((entry) => isLiveStatus(entry.status))}
+                now={now}
+                onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
+                onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
+              />
+            </section>
+            <ProjectCards
+              projects={projection.projects}
+              onOpen={(projectId) => go({ name: 'project', workspaceId, projectId })}
+              onImport={() => go({ name: 'import', workspaceId })}
+            />
+            <ActivityPanel
+              events={projection.events}
+              invalidPayloadCount={projection.invalidPayloadCount}
+              foreignWorkspaceEventCount={projection.foreignWorkspaceEventCount}
+            />
+            <AuditPanel records={audit} />
+          </>
+        )}
+
+        {route.name === 'runs' && (
+          <RunsPage
+            runs={runsOverview?.runs ?? []}
+            liveCount={runsOverview?.liveCount ?? 0}
+            now={now}
+            onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
+            onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
+          />
+        )}
+
+        {route.name === 'agenda' && (
+          <AgendaPage
+            filter={route.filter}
+            {...(agenda === undefined ? {} : { listing: agenda })}
+            onSelectFilter={(filter) => go({ name: 'agenda', workspaceId, filter })}
+            onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
+            onOpenProject={(projectId) => go({ name: 'project', workspaceId, projectId })}
+          />
+        )}
+
+        {route.name === 'settings' && activeWorkspace !== undefined && (
+          <SettingsPage
+            key={activeWorkspace.id}
+            workspace={activeWorkspace}
+            canEdit={activeWorkspace.role === 'owner'}
+            busy={workspaceBusy}
+            {...(workspaceError === undefined ? {} : { error: workspaceError })}
+            {...(workspaceNotice === undefined ? {} : { notice: workspaceNotice })}
+            onRename={handleRenameWorkspace}
+          />
+        )}
+
+        {route.name === 'import' && (
+          <ImportPlanPage
+            projects={projection.projects}
+            onImport={handleImport}
+            busy={importBusy}
+            {...(importResult === undefined ? {} : { result: importResult })}
+            {...(importError === undefined ? {} : { error: importError })}
+          />
+        )}
+
+        {route.name === 'project' && project?.project.id === route.projectId && (
+          <ProjectPage
+            detail={project}
+            onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
+            onOpenVersion={(planVersionId) =>
+              go({
+                name: 'plan-version',
+                workspaceId,
+                projectId: project.project.id,
+                planVersionId,
+              })
+            }
+            onViewArtifact={viewArtifact}
+          />
+        )}
+
+        {route.name === 'plan-version' && planVersion?.version.id === route.planVersionId && (
+          <PlanVersionPage
+            detail={planVersion}
+            onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
+            onViewArtifact={viewArtifact}
+          />
+        )}
+
+        {route.name === 'work-item' && workItem?.workItem.id === route.workItemId && (
+          <div className="page">
+            <WorkItemPage
+              detail={workItem}
+              inProgress={
+                workItemExecution?.workItemId === route.workItemId &&
+                (workItemExecution.worktrees.some((worktree) => worktree.status === 'active') ||
+                  workItemExecution.runs.some((entry) => isLiveStatus(entry.status)))
+              }
+              onAdmit={() => handleAdmit(workItem.workItem.id)}
+              onComplete={() => handleComplete(workItem.workItem.id)}
+              onOpenProject={() =>
+                go({ name: 'project', workspaceId, projectId: workItem.workItem.projectId })
+              }
+              busy={itemBusy}
+              canMutate={canMutate}
+              {...(itemError === undefined ? {} : { error: itemError })}
+            />
+            {workItemExecution?.workItemId === route.workItemId && (
+              <DelegationPanel
+                repositories={repositories}
+                worktrees={workItemExecution.worktrees}
+                runs={workItemExecution.runs}
+                mergeGates={workItemExecution.mergeGates}
+                itemCompleted={workItem.workItem.status === 'completed'}
+                canMutate={canMutate}
+                busy={executionBusy}
+                {...(executionError === undefined ? {} : { error: executionError })}
+                backendAvailable={
+                  executionStatus?.backends.some((backend) => backend.available) ?? true
+                }
+                onCreateWorktree={(repositoryId) =>
+                  handleCreateWorktree(workItem.workItem.id, repositoryId)
+                }
+                onRemoveWorktree={handleRemoveWorktree}
+                onMergeWorktree={handleMergeWorktree}
+                onLaunch={(input) => handleLaunch(workItem.workItem.id, input)}
+                onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
+                onOpenDiff={handleLoadDiff}
+              />
+            )}
+            {diff !== undefined &&
+              workItemExecution?.worktrees.some((worktree) => worktree.id === diff.worktree.id) && (
+                <DiffView diff={diff} onClose={() => setDiff(undefined)} />
+              )}
+          </div>
+        )}
+
+        {route.name === 'repositories' && (
+          <RepositoriesPage
+            repositories={repositories}
+            {...(executionStatus === undefined ? {} : { status: executionStatus })}
+            canMutate={canMutate}
+            busy={executionBusy}
+            {...(executionError === undefined ? {} : { error: executionError })}
+            onRegister={handleRegisterRepository}
+            onRetire={handleRetireRepository}
+          />
+        )}
+
+        {route.name === 'run' && run?.run.id === route.runId && (
+          <RunPage
+            detail={run}
+            events={runEvents}
+            connection={runConnection}
+            {...(diff?.worktree.id === run.worktree.id ? { diff } : {})}
+            canMutate={canMutate}
+            busy={executionBusy}
+            {...(executionError === undefined ? {} : { error: executionError })}
+            onSend={(text) => handleSendMessage(run.run.id, text)}
+            onEnd={() => handleEndRun(run.run.id)}
+            onCancel={() => handleCancelRun(run.run.id)}
+            onOpenWorkItem={() =>
+              go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId })
+            }
+            onLoadDiff={() => handleLoadDiff(run.worktree.id)}
+            onCloseDiff={() => setDiff(undefined)}
+          />
+        )}
+
+        {artifact !== undefined && (
+          <section className="panel" aria-label="Source artifact">
+            <h3>{artifact.filename}</h3>
+            <SourceText text={artifact.text} label={`Source of ${artifact.filename}`} />
+          </section>
+        )}
+      </>
+    );
+  };
 
   return (
     <WorkspaceShell
       username={authenticated.user.username}
       workspaces={workspaces}
-      selectedWorkspaceId={activeWorkspaceId}
+      {...(activeWorkspaceId === undefined ? {} : { selectedWorkspaceId: activeWorkspaceId })}
       connection={projection.connection}
+      route={route}
+      theme={theme}
+      onNavigate={go}
       onSelectWorkspace={(id) => {
         selectWorkspace(id);
         go({ name: 'dashboard', workspaceId: id });
       }}
+      onToggleTheme={toggleTheme}
       onLogout={() => void handleLogout()}
-      navigation={
-        selectedWorkspaceId === undefined ? undefined : (
-          <nav className="planning-nav" aria-label="Planning">
-            <a
-              href={buildPath({ name: 'dashboard', workspaceId: selectedWorkspaceId })}
-              onClick={(event) => {
-                event.preventDefault();
-                go({ name: 'dashboard', workspaceId: selectedWorkspaceId });
-              }}
-            >
-              Dashboard
-            </a>
-            <a
-              href={buildPath({ name: 'import', workspaceId: selectedWorkspaceId })}
-              onClick={(event) => {
-                event.preventDefault();
-                go({ name: 'import', workspaceId: selectedWorkspaceId });
-              }}
-            >
-              Import plan
-            </a>
-            <a
-              href={buildPath({ name: 'repositories', workspaceId: selectedWorkspaceId })}
-              onClick={(event) => {
-                event.preventDefault();
-                go({ name: 'repositories', workspaceId: selectedWorkspaceId });
-              }}
-            >
-              Repositories
-            </a>
-          </nav>
-        )
-      }
     >
-      {workspaces.length === 0 ? (
-        <p className="empty-state">This user has no authorized workspaces.</p>
-      ) : projection.snapshotStatus === 'loading' ? (
-        <p className="empty-state">Loading durable workspace snapshot…</p>
-      ) : projection.snapshotStatus === 'error' ? (
-        <p className="error-state" role="alert">
-          The workspace snapshot could not be loaded.
-        </p>
-      ) : projection.workspace?.id !== activeWorkspaceId ? (
-        // Never render one workspace's projection under another's identity,
-        // whatever order the state updates arrive in, and whether the change
-        // came from the picker or the URL (CT03-RR4, CT03-R2R4, CT03-I14).
-        <p className="empty-state">Loading durable workspace snapshot…</p>
-      ) : (
-        <>
-          {projection.refreshFailed && (
-            <p className="warning-state" role="alert">
-              The latest refresh failed. The last committed planning state remains visible.
-            </p>
-          )}
-
-          {route.name === 'import' && workspaceId !== undefined && (
-            <ImportPlanPage
-              projects={projection.projects}
-              onImport={handleImport}
-              busy={importBusy}
-              {...(importResult === undefined ? {} : { result: importResult })}
-              {...(importError === undefined ? {} : { error: importError })}
-            />
-          )}
-
-          {route.name === 'project' && project?.project.id === route.projectId && (
-            <ProjectPage
-              detail={project}
-              onOpenWorkItem={(workItemId) =>
-                workspaceId !== undefined && go({ name: 'work-item', workspaceId, workItemId })
-              }
-              onOpenVersion={(planVersionId) =>
-                workspaceId !== undefined &&
-                go({
-                  name: 'plan-version',
-                  workspaceId,
-                  projectId: project.project.id,
-                  planVersionId,
-                })
-              }
-              onViewArtifact={viewArtifact}
-            />
-          )}
-
-          {route.name === 'plan-version' && planVersion?.version.id === route.planVersionId && (
-            <PlanVersionPage
-              detail={planVersion}
-              onOpenWorkItem={(workItemId) =>
-                workspaceId !== undefined && go({ name: 'work-item', workspaceId, workItemId })
-              }
-              onViewArtifact={viewArtifact}
-            />
-          )}
-
-          {route.name === 'work-item' && workItem?.workItem.id === route.workItemId && (
-            <>
-              <WorkItemPage
-                detail={workItem}
-                onAdmit={() => handleAdmit(workItem.workItem.id)}
-                admitting={admitting}
-                canAdmit={canMutate}
-                {...(admitError === undefined ? {} : { admitError })}
-              />
-              {workItemExecution?.workItemId === route.workItemId && (
-                <DelegationPanel
-                  repositories={repositories}
-                  worktrees={workItemExecution.worktrees}
-                  runs={workItemExecution.runs}
-                  canMutate={canMutate}
-                  busy={executionBusy}
-                  {...(executionError === undefined ? {} : { error: executionError })}
-                  backendAvailable={
-                    executionStatus?.backends.some((backend) => backend.available) ?? true
-                  }
-                  onCreateWorktree={(repositoryId) =>
-                    handleCreateWorktree(workItem.workItem.id, repositoryId)
-                  }
-                  onRemoveWorktree={handleRemoveWorktree}
-                  onLaunch={(input) => handleLaunch(workItem.workItem.id, input)}
-                  onOpenRun={(runId) =>
-                    workspaceId !== undefined && go({ name: 'run', workspaceId, runId })
-                  }
-                  onOpenDiff={handleLoadDiff}
-                />
-              )}
-              {diff !== undefined &&
-                workItemExecution?.worktrees.some(
-                  (worktree) => worktree.id === diff.worktree.id,
-                ) && <DiffView diff={diff} onClose={() => setDiff(undefined)} />}
-            </>
-          )}
-
-          {route.name === 'repositories' && (
-            <RepositoriesPage
-              repositories={repositories}
-              {...(executionStatus === undefined ? {} : { status: executionStatus })}
-              canMutate={canMutate}
-              busy={executionBusy}
-              {...(executionError === undefined ? {} : { error: executionError })}
-              onRegister={handleRegisterRepository}
-              onRetire={handleRetireRepository}
-            />
-          )}
-
-          {route.name === 'run' && run?.run.id === route.runId && workspaceId !== undefined && (
-            <RunPage
-              detail={run}
-              events={runEvents}
-              connection={runConnection}
-              {...(diff?.worktree.id === run.worktree.id ? { diff } : {})}
-              canMutate={canMutate}
-              busy={executionBusy}
-              {...(executionError === undefined ? {} : { error: executionError })}
-              onSend={(text) => handleSendMessage(run.run.id, text)}
-              onEnd={() => handleEndRun(run.run.id)}
-              onCancel={() => handleCancelRun(run.run.id)}
-              onOpenWorkItem={() =>
-                go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId })
-              }
-              onLoadDiff={() => handleLoadDiff(run.worktree.id)}
-              onCloseDiff={() => setDiff(undefined)}
-            />
-          )}
-
-          {artifact !== undefined && (
-            <section className="panel" aria-label="Source artifact">
-              <h3>{artifact.filename}</h3>
-              <SourceText text={artifact.text} label={`Source of ${artifact.filename}`} />
-            </section>
-          )}
-
-          {route.name === 'dashboard' && (
-            <>
-              <StatusRegions summary={projection.statusSummary} />
-              <ProjectCards
-                projects={projection.projects}
-                onOpen={(projectId) =>
-                  workspaceId !== undefined && go({ name: 'project', workspaceId, projectId })
-                }
-              />
-              <ActivityPanel
-                connection={projection.connection}
-                events={projection.events}
-                invalidPayloadCount={projection.invalidPayloadCount}
-                foreignWorkspaceEventCount={projection.foreignWorkspaceEventCount}
-              />
-              <div className="utility-grid">
-                <AuditPanel records={audit} />
-                <SessionPanel sessions={sessions} onRevoke={(id) => void handleRevoke(id)} />
-              </div>
-            </>
-          )}
-        </>
+      {route.name === 'home' && (
+        <WorkspacesPage
+          workspaces={workspaces}
+          busy={workspaceBusy}
+          {...(workspaceError === undefined ? {} : { error: workspaceError })}
+          onOpen={(id) => {
+            selectWorkspace(id);
+            go({ name: 'dashboard', workspaceId: id });
+          }}
+          onCreate={handleCreateWorkspace}
+        />
       )}
+      {route.name === 'account' && (
+        <AccountPage
+          user={authenticated.user}
+          sessions={sessions}
+          busy={accountBusy}
+          {...(accountError === undefined ? {} : { error: accountError })}
+          {...(accountNotice === undefined ? {} : { notice: accountNotice })}
+          onRevoke={(id) => void handleRevoke(id)}
+          onChangePassword={handleChangePassword}
+        />
+      )}
+      {route.name === 'root' && <p className="empty-state">Opening your workspace…</p>}
+      {workspaceRoute && workspaceContent()}
     </WorkspaceShell>
   );
 }

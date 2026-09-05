@@ -38,13 +38,15 @@ export function RepositoriesPage({
   };
 
   return (
-    <div className="planning-page">
+    <div className="page">
       <header className="page-header">
-        <h2>Repositories</h2>
-        <p className="subtitle">
-          Local Git checkouts the daemon may create worktrees in. Register the primary checkout;
-          every run happens in its own linked worktree on a fresh branch.
-        </p>
+        <div>
+          <h1>Repositories</h1>
+          <p className="subtitle">
+            Local Git checkouts the daemon may create worktrees in. Register the primary checkout;
+            every run happens in its own linked worktree on a fresh branch.
+          </p>
+        </div>
       </header>
 
       {status !== undefined && (
@@ -101,9 +103,11 @@ export function RepositoriesPage({
               {error}
             </p>
           )}
-          <button type="submit" className="primary-button" disabled={!canMutate || busy}>
-            {busy ? 'Registering…' : 'Register'}
-          </button>
+          <div>
+            <button type="submit" className="primary-button" disabled={!canMutate || busy}>
+              {busy ? 'Registering…' : 'Register'}
+            </button>
+          </div>
           {!canMutate && (
             <p className="hint">Your workspace role does not permit registering repositories.</p>
           )}
@@ -116,7 +120,7 @@ export function RepositoriesPage({
           <p className="empty-state">No repositories yet.</p>
         ) : (
           <div className="table-scroll">
-            <table className="work-item-table">
+            <table className="data-table">
               <caption className="visually-hidden">Registered repositories</caption>
               <thead>
                 <tr>

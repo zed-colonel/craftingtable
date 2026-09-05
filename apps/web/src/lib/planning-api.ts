@@ -1,18 +1,23 @@
 import {
-  admitWorkItemResponseSchema,
   type AdmitWorkItemResponse,
-  planImportAttemptListResponseSchema,
+  admitWorkItemResponseSchema,
+  type CompleteWorkItemResponse,
+  completeWorkItemResponseSchema,
   type PlanImportAttemptListResponse,
-  planImportResponseSchema,
   type PlanImportResponse,
-  planVersionDetailResponseSchema,
   type PlanVersionDetailResponse,
-  projectDetailResponseSchema,
   type ProjectDetailResponse,
-  projectListResponseSchema,
   type ProjectListResponse,
-  workItemDetailResponseSchema,
+  planImportAttemptListResponseSchema,
+  planImportResponseSchema,
+  planVersionDetailResponseSchema,
+  projectDetailResponseSchema,
+  projectListResponseSchema,
   type WorkItemDetailResponse,
+  type WorkspaceWorkItemFilter,
+  type WorkspaceWorkItemListResponse,
+  workItemDetailResponseSchema,
+  workspaceWorkItemListResponseSchema,
 } from '@craftingtable/contracts';
 import type {
   PlanArtifactId,
@@ -140,4 +145,30 @@ export async function importPlanBundle(
     throw new ApiError(response.status, 'invalid-request', 'The plan import request was rejected');
   }
   return planImportResponseSchema.parse(body);
+}
+
+export function loadWorkspaceWorkItems(
+  workspaceId: WorkspaceId,
+  filter: WorkspaceWorkItemFilter,
+): Promise<WorkspaceWorkItemListResponse> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/work-items?filter=${encode(filter)}`,
+    workspaceWorkItemListResponseSchema,
+  );
+}
+
+export function completeWorkItem(
+  workspaceId: WorkspaceId,
+  workItemId: WorkItemId,
+  csrfToken: string,
+): Promise<CompleteWorkItemResponse> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/complete`,
+    completeWorkItemResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'x-craftingtable-csrf': csrfToken },
+      body: JSON.stringify({}),
+    },
+  );
 }

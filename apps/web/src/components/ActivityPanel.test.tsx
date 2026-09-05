@@ -194,7 +194,6 @@ describe('ActivityPanel repository events', () => {
     } as WorkspaceEventEnvelope;
     const rendered = render(
       <ActivityPanel
-        connection="open"
         events={[repositoryEvent]}
         invalidPayloadCount={0}
         foreignWorkspaceEventCount={0}

@@ -82,6 +82,8 @@ function snapshotFor(id: string, projectName: string, eventName: string) {
       active: 0,
       planningReady: id === 'workspace-a' ? 7 : 3,
       dependencyBlocked: 0,
+      completed: 0,
+      liveRuns: 0,
     },
     planningSummary: {
       projectCount: 1,
@@ -217,7 +219,6 @@ function workItemDetailFor(workspaceId: string) {
     requiredPredecessors: [],
     recommendedPredecessors: [],
     dependents: [],
-    draft: null,
   } as never;
 }
 
@@ -246,6 +247,9 @@ vi.mock('./lib/api-client.js', () => ({
   login: () => Promise.resolve(SESSION),
   logout: () => Promise.resolve(),
   revokeSession: () => Promise.resolve(false),
+  createWorkspace: () => new Promise(() => undefined),
+  renameWorkspace: () => new Promise(() => undefined),
+  changePassword: () => new Promise(() => undefined),
   request: () => Promise.reject(new Error('not used')),
 }));
 
@@ -262,7 +266,9 @@ vi.mock('./lib/execution-api.js', () => ({
   loadExecutionStatus: () => Promise.resolve({ git: { available: true }, backends: [] }),
   loadRepositories: () => Promise.resolve({ repositories: [] }),
   loadWorkItemExecution: (_workspaceId: string, workItemId: string) =>
-    Promise.resolve({ workItemId, worktrees: [], runs: [] }),
+    Promise.resolve({ workItemId, worktrees: [], runs: [], mergeGates: {} }),
+  loadWorkspaceRuns: () => Promise.resolve({ runs: [], liveCount: 0 }),
+  mergeWorktree: () => new Promise(() => undefined),
   loadRun: () => new Promise(() => undefined),
   loadRunEvents: () => Promise.resolve({ events: [], nextAfter: 0 }),
   loadWorktreeDiff: () => new Promise(() => undefined),
@@ -291,6 +297,8 @@ vi.mock('./lib/planning-api.js', () => ({
   loadImportAttempts: () => new Promise(() => undefined),
   loadArtifactText: () => planning.artifact.promise,
   admitWorkItem: () => planning.admit.promise,
+  completeWorkItem: () => new Promise(() => undefined),
+  loadWorkspaceWorkItems: () => Promise.resolve({ filter: 'all', items: [] }),
   importPlanBundle: () => planning.import.promise,
 }));
 
@@ -347,6 +355,8 @@ async function settle(): Promise<void> {
 }
 
 beforeEach(() => {
+  // The remembered-workspace bookmark must not leak between tests.
+  window.localStorage.clear();
   snapshotCalls.length = 0;
   pendingSnapshotB = deferred<WorkspaceSnapshotResponse>();
   planning.artifact = deferred<string>();

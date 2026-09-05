@@ -43,6 +43,27 @@ Roles (`implement`, `review`, `design`) select a brief template. Together with
 `parentRunId` they are the composition seam for orchestrated design/implement/review
 cycles: an orchestrator chains runs by role and lineage without new vocabulary.
 
+Runs also record what the backend reported about itself: `resolvedModel` and
+`billing` from the session's init message, and for review runs a `verdict` parsed
+from the final message's `VERDICT:` line.
+
+## Work item lifecycle and the merge gate
+
+```text
+proposed ──admit──▶ admitted ──merge or mark complete──▶ completed
+```
+
+"In progress" is derived (an active worktree or a live run), not stored. Completion is
+a separate `work_item_completions` row joined on read, so the CT-03 admission-only
+trigger on `work_items` stays in force; a completed predecessor unblocks its dependents.
+
+A worktree's merge gate is computed from its runs (`mergeGateFor` in the execution
+service): mergeable when the most recent run is a review with a `mergeable` verdict and
+nothing is live. The single merge route re-evaluates the gate, merges with a merge
+commit into the repository's default branch in the primary checkout (which must be on
+that branch and clean), removes the worktree, deletes the branch, and completes the work
+item in one transaction. See ADR-021.
+
 ## Agent backend seam
 
 `packages/agents` defines `AgentBackend` (`describe`, `launch`) and `AgentSession`
@@ -60,9 +81,10 @@ mode, and terminates the process group on cancel. Adding Codex means adding anot
 ## Git boundary
 
 `createGitOperations` covers exactly what the loop needs: inspect a top-level checkout,
-create a worktree on a new branch from an exact base revision, remove a worktree, and
-diff a worktree against its base (commits, per-file status and counts, bounded unified
-patch including untracked files). Argument arrays only, bounded lifetime and output,
+create a worktree on a new branch from an exact base revision, remove a worktree, diff a
+worktree against its base (commits, per-file status and counts, bounded unified patch
+including untracked files), merge a branch into the checked-out branch with a merge
+commit (aborting on conflict), and delete a merged branch. Argument arrays only, bounded lifetime and output,
 process-group termination, and paths reach Git only as `cwd` or after `--`.
 
 The CT-04A1 read-only inspector and its repository-evidence persistence remain in the
@@ -75,7 +97,8 @@ Two journals, one notifier:
 
 - `workspace_events` is the coarse workspace journal the browser follows to invalidate
   its queries. Execution adds `source-repository-registered`, `worktree-created`,
-  `worktree-removed`, `agent-run-started`, and `agent-run-status-changed`.
+  `worktree-removed`, `worktree-merged`, `agent-run-started`,
+  `agent-run-status-changed`, `work-item-completed`, and `workspace-updated`.
 - `agent_run_events` is the high-volume per-run journal, streamed per run over
   `GET /api/workspaces/:id/runs/:runId/events`.
 
@@ -87,5 +110,8 @@ on every iteration and never touch the session's last-seen time.
 
 The app has no router library and no data-fetching library. Routes are parsed by a pure
 function; the projection reducer marks scopes stale on events and the app refetches the
-authoritative endpoints. The run page loads the committed events once and then follows
-the live stream from the last sequence. No agent output is ever rendered as markup.
+authoritative endpoints. `/` resolves to the last used workspace, `/workspaces` lists
+them all, and every workspace page hangs off `/workspaces/:id`. The run page loads the
+committed events once and then follows the live stream from the last sequence inside
+its own scroll pane. No agent output is ever rendered as markup. The visual language is
+in `docs/ui-principles.md`.

@@ -3,15 +3,15 @@ import type { CSSProperties } from 'react';
 import {
   blockerSummary,
   READINESS_ACCENTS,
-  readinessLabel,
   RISK_LABELS,
+  readinessLabel,
 } from '../../lib/planning-labels.js';
 
 /**
  * Work items as a table with explicit predecessor and blocker columns.
  *
- * A table, not a graph canvas: CT-03 §5.14 forbids the canvas, and for a
- * fourteen-node graph these columns carry the same information.
+ * A table, not a graph canvas: for a fourteen-node graph these columns carry
+ * the same information with none of the layout noise.
  */
 export function WorkItemTable({
   items,
@@ -25,26 +25,26 @@ export function WorkItemTable({
   }
   return (
     <div className="table-scroll">
-      <table className="work-item-table">
+      <table className="data-table">
         <caption className="visually-hidden">
-          Work items in this plan version, with risk, readiness, and blockers
+          Work items in this plan version, with risk, state, and blockers
         </caption>
         <thead>
           <tr>
             <th scope="col">ID</th>
             <th scope="col">Title</th>
             <th scope="col">Risk</th>
-            <th scope="col">Status</th>
-            <th scope="col">Required predecessors</th>
+            <th scope="col">State</th>
+            <th scope="col">Required</th>
             <th scope="col">Blockers</th>
-            <th scope="col">Primary areas</th>
+            <th scope="col">Areas</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item) => (
             <tr key={item.id}>
               <th scope="row">
-                <button type="button" className="link-button" onClick={() => onOpen(item.id)}>
+                <button type="button" className="link-button mono" onClick={() => onOpen(item.id)}>
                   {item.sourceId}
                 </button>
               </th>
@@ -54,15 +54,15 @@ export function WorkItemTable({
               </td>
               <td>
                 <span
-                  className="readiness-badge"
+                  className="status-badge"
                   style={{ '--badge-accent': READINESS_ACCENTS[item.readiness] } as CSSProperties}
                 >
                   {readinessLabel(item.readiness)}
                 </span>
               </td>
-              <td>{item.requiredPredecessorCount}</td>
-              <td>{blockerSummary(item)}</td>
-              <td>{item.primaryAreas.join(', ')}</td>
+              <td className="numeric">{item.requiredPredecessorCount}</td>
+              <td className="subtle">{blockerSummary(item)}</td>
+              <td className="subtle">{item.primaryAreas.join(', ')}</td>
             </tr>
           ))}
         </tbody>

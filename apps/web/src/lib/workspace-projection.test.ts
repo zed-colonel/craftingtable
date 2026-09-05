@@ -28,12 +28,20 @@ const snapshot = {
     role: 'owner',
   },
   asOfSequence: 1,
-  statusSummary: { needsAttention: 0, active: 0, planningReady: 0, dependencyBlocked: 0 },
+  statusSummary: {
+    needsAttention: 0,
+    active: 0,
+    planningReady: 0,
+    dependencyBlocked: 0,
+    completed: 0,
+    liveRuns: 0,
+  },
   planningSummary: {
     projectCount: 0,
     importAttentionCount: 0,
     proposedCount: 0,
     admittedCount: 0,
+    completedCount: 0,
     planningReadyCount: 0,
     dependencyBlockedCount: 0,
     riskCounts: { low: 0, medium: 0, high: 0, critical: 0, unspecified: 0 },
@@ -162,7 +170,6 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
         planVersionId: 'version-1',
         workItemId: 'item-1',
         sourceWorkItemId: 'AQ-01',
-        workContractDraftId: 'draft-1',
       },
     } as unknown as WorkspaceEventEnvelope;
 
@@ -368,7 +375,14 @@ describe('workspace switching (CT03-R6)', () => {
     ...snapshot,
     workspace: { ...snapshot.workspace, id: otherWorkspace, name: 'Second workspace' },
     asOfSequence: 7,
-    statusSummary: { needsAttention: 0, active: 3, planningReady: 2, dependencyBlocked: 4 },
+    statusSummary: {
+      needsAttention: 0,
+      active: 3,
+      planningReady: 2,
+      dependencyBlocked: 4,
+      completed: 1,
+      liveRuns: 0,
+    },
     recentActivity: [otherEvent],
   } as WorkspaceSnapshotResponse;
 

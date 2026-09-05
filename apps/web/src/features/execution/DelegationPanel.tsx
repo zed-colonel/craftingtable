@@ -1,5 +1,6 @@
 import type {
   AgentRunSummary,
+  MergeGate,
   SourceRepositorySummary,
   WorktreeSummary,
 } from '@craftingtable/contracts';
@@ -16,12 +17,15 @@ import { type CSSProperties, type FormEvent, useState } from 'react';
 import {
   formatCost,
   isLiveStatus,
+  MERGE_GATE_LABELS,
   PERMISSION_MODE_LABELS,
   RUN_ROLE_DESCRIPTIONS,
   RUN_ROLE_LABELS,
   RUN_STATUS_ACCENTS,
   RUN_STATUS_LABELS,
   shortSha,
+  VERDICT_ACCENTS,
+  VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
 
 export interface LaunchInput {
@@ -34,20 +38,24 @@ export interface LaunchInput {
 }
 
 /**
- * The delegation half of a work item page: worktrees, runs, and the two
- * actions that start the loop. Everything here is a request to the daemon;
- * the browser never chooses a path, a branch, or a command.
+ * The delegation half of a work item page: worktrees with their merge gate,
+ * runs, and the actions that drive the loop. Everything here is a request to
+ * the daemon; the browser never chooses a path, a branch, or a command, and
+ * the Merge button only appears when the daemon says the gate is open.
  */
 export function DelegationPanel({
   repositories,
   worktrees,
   runs,
+  mergeGates,
+  itemCompleted,
   canMutate,
   busy,
   error,
   backendAvailable,
   onCreateWorktree,
   onRemoveWorktree,
+  onMergeWorktree,
   onLaunch,
   onOpenRun,
   onOpenDiff,
@@ -55,18 +63,22 @@ export function DelegationPanel({
   repositories: readonly SourceRepositorySummary[];
   worktrees: readonly WorktreeSummary[];
   runs: readonly AgentRunSummary[];
+  mergeGates: Readonly<Record<string, MergeGate>>;
+  itemCompleted: boolean;
   canMutate: boolean;
   busy: boolean;
   error?: string;
   backendAvailable: boolean;
   onCreateWorktree: (repositoryId: SourceRepositoryId) => void;
   onRemoveWorktree: (worktreeId: WorktreeId) => void;
+  onMergeWorktree: (worktreeId: WorktreeId) => void;
   onLaunch: (input: LaunchInput) => void;
   onOpenRun: (runId: AgentRunId) => void;
   onOpenDiff: (worktreeId: WorktreeId) => void;
 }) {
   const activeRepositories = repositories.filter((repository) => repository.status === 'active');
   const activeWorktrees = worktrees.filter((worktree) => worktree.status === 'active');
+  const mergedWorktrees = worktrees.filter((worktree) => worktree.mergedAt !== undefined);
   const [repositoryId, setRepositoryId] = useState<string>('');
   const [worktreeId, setWorktreeId] = useState<string>('');
   const [role, setRole] = useState<AgentRunRole>('implement');
@@ -108,11 +120,15 @@ export function DelegationPanel({
 
   return (
     <section className="panel" aria-label="Delegation">
-      <h3>Delegation</h3>
-      <p className="hint">
-        Create a worktree on a fresh branch, then launch an agent with this work item as its brief.
-        Watch it live, steer it, and inspect the diff when it is done.
-      </p>
+      <div className="panel-header">
+        <div>
+          <h3>Delegation</h3>
+          <p className="hint">
+            Create a worktree on a fresh branch, launch an implement run, then a review run. A
+            mergeable review opens the Merge action, which lands the branch and completes the item.
+          </p>
+        </div>
+      </div>
       {error !== undefined && (
         <p className="error-state" role="alert">
           {error}
@@ -121,44 +137,93 @@ export function DelegationPanel({
 
       <h4>Worktrees ({activeWorktrees.length})</h4>
       {activeWorktrees.length === 0 ? (
-        <p className="empty-state">No worktree yet.</p>
+        <p className="empty-state">
+          {mergedWorktrees.length > 0
+            ? `No active worktree. Merged: ${mergedWorktrees
+                .map((worktree) => `${worktree.branchName} → ${shortSha(worktree.mergeSha ?? '')}`)
+                .join(', ')}.`
+            : 'No worktree yet.'}
+        </p>
       ) : (
         <ul className="worktree-list">
-          {activeWorktrees.map((worktree) => (
-            <li key={worktree.id} className="worktree-item">
-              <div>
-                <span className="mono">{worktree.branchName}</span>
-                <span className="hint">
-                  {' '}
-                  from {worktree.baseBranch} @ {shortSha(worktree.baseSha)}
-                </span>
-                <div className="hint mono">{worktree.path}</div>
-              </div>
-              <div className="inline-actions">
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() => onOpenDiff(worktree.id)}
-                >
-                  View diff
-                </button>
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() => onRemoveWorktree(worktree.id)}
-                  disabled={
-                    !canMutate || busy || liveRuns.some((run) => run.worktreeId === worktree.id)
-                  }
-                >
-                  Remove
-                </button>
-              </div>
-            </li>
-          ))}
+          {activeWorktrees.map((worktree) => {
+            const gate = mergeGates[worktree.id];
+            const hasLiveRun = liveRuns.some((run) => run.worktreeId === worktree.id);
+            return (
+              <li key={worktree.id} className="worktree-item">
+                <div>
+                  <span className="mono">{worktree.branchName}</span>
+                  <span className="hint">
+                    {' '}
+                    from {worktree.baseBranch} @ {shortSha(worktree.baseSha)}
+                  </span>
+                  <div className="hint mono">{worktree.path}</div>
+                  {gate !== undefined && (
+                    <div className="worktree-gate">
+                      <span
+                        className="status-badge"
+                        style={
+                          {
+                            '--badge-accent': gate.mergeable
+                              ? 'var(--color-ready)'
+                              : gate.reason === 'changes-requested'
+                                ? 'var(--color-attention)'
+                                : 'var(--color-text-muted)',
+                          } as CSSProperties
+                        }
+                      >
+                        {MERGE_GATE_LABELS[gate.reason]}
+                      </span>
+                      {gate.reviewRunId !== undefined && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => gate.reviewRunId && onOpenRun(gate.reviewRunId)}
+                        >
+                          open review
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="inline-actions">
+                  {gate?.mergeable === true && canMutate && (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => onMergeWorktree(worktree.id)}
+                      disabled={busy}
+                    >
+                      Merge into {worktree.baseBranch}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => onOpenDiff(worktree.id)}
+                  >
+                    View diff
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button danger"
+                    onClick={() => onRemoveWorktree(worktree.id)}
+                    disabled={!canMutate || busy || hasLiveRun}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
-      {canMutate && (
-        <form className="inline-form" onSubmit={createWorktree}>
+      {canMutate && !itemCompleted && (
+        <form
+          className="inline-form"
+          onSubmit={createWorktree}
+          style={{ marginTop: 'var(--space-3)' }}
+        >
           <label className="field">
             Repository
             <select
@@ -189,13 +254,15 @@ export function DelegationPanel({
         <p className="empty-state">No agent runs yet.</p>
       ) : (
         <div className="table-scroll">
-          <table className="work-item-table">
+          <table className="data-table">
             <caption className="visually-hidden">Agent runs</caption>
             <thead>
               <tr>
                 <th scope="col">Started</th>
                 <th scope="col">Role</th>
                 <th scope="col">Status</th>
+                <th scope="col">Verdict</th>
+                <th scope="col">Model</th>
                 <th scope="col">Turns</th>
                 <th scope="col">Cost</th>
                 <th scope="col">Outcome</th>
@@ -212,14 +279,27 @@ export function DelegationPanel({
                   <td>{RUN_ROLE_LABELS[run.role]}</td>
                   <td>
                     <span
-                      className="readiness-badge"
+                      className="status-badge"
                       style={{ '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties}
                     >
                       {RUN_STATUS_LABELS[run.status]}
                     </span>
                   </td>
-                  <td>{run.turnCount}</td>
-                  <td>{formatCost(run.costUsd)}</td>
+                  <td>
+                    {run.verdict === undefined ? (
+                      <span className="hint">—</span>
+                    ) : (
+                      <span
+                        className="status-badge"
+                        style={{ '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties}
+                      >
+                        {VERDICT_LABELS[run.verdict]}
+                      </span>
+                    )}
+                  </td>
+                  <td className="mono">{run.resolvedModel ?? run.model ?? 'default'}</td>
+                  <td className="numeric">{run.turnCount}</td>
+                  <td className="numeric">{formatCost(run.costUsd, run.billing)}</td>
                   <td className="outcome-cell">{run.outcomeSummary ?? '—'}</td>
                 </tr>
               ))}
@@ -228,7 +308,7 @@ export function DelegationPanel({
         </div>
       )}
 
-      {canMutate && (
+      {canMutate && !itemCompleted && (
         <form className="stack-form" onSubmit={launch} aria-label="Launch an agent">
           <h4>Launch an agent</h4>
           {!backendAvailable && (
@@ -303,13 +383,15 @@ export function DelegationPanel({
               maxLength={20000}
             />
           </label>
-          <button
-            type="submit"
-            className="primary-button"
-            disabled={busy || activeWorktrees.length === 0 || !backendAvailable}
-          >
-            {busy ? 'Working…' : `Launch ${RUN_ROLE_LABELS[role].toLowerCase()} run`}
-          </button>
+          <div>
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={busy || activeWorktrees.length === 0 || !backendAvailable}
+            >
+              {busy ? 'Working…' : `Launch ${RUN_ROLE_LABELS[role].toLowerCase()} run`}
+            </button>
+          </div>
         </form>
       )}
     </section>

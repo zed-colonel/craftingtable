@@ -25,12 +25,21 @@ test('authenticated snapshot, replay, outage recovery, and logout', async ({ pag
 
   await signIn(page);
   await expect(page.getByRole('status')).toHaveText('Live');
+  // Activity and audit are collapsed by default; the content is still there.
+  await page.getByText('Activity', { exact: true }).click();
   await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
-  await expect(page.getByRole('heading', { name: 'Audit' })).toBeVisible();
+  await page.getByText('Audit', { exact: true }).click();
+  await expect(page.getByText('workspace.created')).toBeVisible();
+
+  // Sessions live on the account page now.
+  await page.getByRole('link', { name: /Account/ }).click();
   await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible();
+  await expect(page.getByText('This session')).toBeVisible();
+  await page.getByRole('link', { name: 'Dashboard' }).click();
 
   await page.reload();
   await expect(page.getByRole('status')).toHaveText('Live');
+  await expect(page.getByRole('heading', { name: 'Default workspace' })).toBeVisible();
   await expect(page.getByText('Workspace created: Default workspace')).toHaveCount(1);
 
   await page.route(EVENT_ROUTE, (route) => route.abort());

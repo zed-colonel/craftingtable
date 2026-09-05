@@ -3,8 +3,17 @@ import type {
   RunEventEnvelope,
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
-import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from 'react';
 import {
+  type CSSProperties,
+  type FormEvent,
+  type UIEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  BILLING_LABELS,
   formatCost,
   isLiveStatus,
   PERMISSION_MODE_LABELS,
@@ -12,9 +21,34 @@ import {
   RUN_STATUS_ACCENTS,
   RUN_STATUS_LABELS,
   shortSha,
+  VERDICT_ACCENTS,
+  VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
 import type { ConnectionState } from '../../lib/workspace-projection.js';
 import { DiffView } from './DiffView.js';
+
+type EventGroup = 'messages' | 'tools' | 'notices' | 'system';
+
+const GROUP_OF: Readonly<Record<RunEventEnvelope['kind'], EventGroup>> = {
+  'user-message': 'messages',
+  'assistant-message': 'messages',
+  'turn-completed': 'messages',
+  'tool-call': 'tools',
+  'tool-result': 'tools',
+  notice: 'notices',
+  stderr: 'notices',
+  'session-started': 'system',
+  'run-finished': 'system',
+};
+
+const GROUP_LABELS: Readonly<Record<EventGroup, string>> = {
+  messages: 'Messages',
+  tools: 'Tools',
+  notices: 'Notices',
+  system: 'System',
+};
+
+const GROUPS: readonly EventGroup[] = ['messages', 'tools', 'notices', 'system'];
 
 function eventTitle(event: RunEventEnvelope): string {
   switch (event.kind) {
@@ -42,7 +76,9 @@ function eventTitle(event: RunEventEnvelope): string {
 function eventBody(event: RunEventEnvelope): string | undefined {
   switch (event.kind) {
     case 'session-started':
-      return `${event.payload.backend} session ${event.payload.backendSessionId} in ${event.payload.cwd}`;
+      return `${event.payload.backend} session ${event.payload.backendSessionId} (${
+        BILLING_LABELS[event.payload.billing]
+      }) in ${event.payload.cwd}`;
     case 'user-message':
     case 'assistant-message':
     case 'stderr':
@@ -52,7 +88,13 @@ function eventBody(event: RunEventEnvelope): string | undefined {
     case 'tool-result':
       return event.payload.content;
     case 'turn-completed':
-      return `${event.payload.resultText}\n\nturns: ${event.payload.turns} · duration: ${(event.payload.durationMs / 1000).toFixed(1)}s${event.payload.costUsd === undefined ? '' : ` · cost so far: ${formatCost(event.payload.costUsd)}`}`;
+      return `${event.payload.resultText}\n\nturns: ${event.payload.turns} · duration: ${(
+        event.payload.durationMs / 1000
+      ).toFixed(1)}s${
+        event.payload.costUsd === undefined
+          ? ''
+          : ` · cost so far: $${event.payload.costUsd.toFixed(2)}`
+      }`;
     case 'notice':
       return event.payload.message;
     case 'run-finished':
@@ -63,11 +105,17 @@ function eventBody(event: RunEventEnvelope): string | undefined {
   }
 }
 
-const COLLAPSED_KINDS = new Set<RunEventEnvelope['kind']>(['tool-call', 'tool-result', 'stderr']);
+/** Tool traffic and the brief itself are collapsed; conversation stays open. */
+const COLLAPSED_KINDS = new Set<RunEventEnvelope['kind']>([
+  'tool-call',
+  'tool-result',
+  'stderr',
+  'user-message',
+]);
 
-function RunEventItem({ event }: { event: RunEventEnvelope }) {
+function RunEventItem({ event, expanded }: { event: RunEventEnvelope; expanded: boolean }) {
   const body = eventBody(event);
-  const collapsed = COLLAPSED_KINDS.has(event.kind);
+  const collapsed = !expanded && COLLAPSED_KINDS.has(event.kind);
   return (
     <li className={`run-event run-event-${event.kind}`}>
       <div className="run-event-head">
@@ -84,7 +132,13 @@ function RunEventItem({ event }: { event: RunEventEnvelope }) {
             <pre className="run-event-body">{body}</pre>
           </details>
         ) : (
-          <pre className="run-event-body run-event-prose">{body}</pre>
+          <pre
+            className={`run-event-body${
+              event.kind === 'tool-call' || event.kind === 'tool-result' ? '' : ' run-event-prose'
+            }`}
+          >
+            {body}
+          </pre>
         ))}
     </li>
   );
@@ -123,16 +177,52 @@ export function RunPage({
   const live = isLiveStatus(run.status);
   const [draft, setDraft] = useState('');
   const [showBrief, setShowBrief] = useState(false);
+  const [expandAll, setExpandAll] = useState(false);
+  const [hidden, setHidden] = useState<ReadonlySet<EventGroup>>(() => new Set(['system']));
+  // Following is a property of the feed pane, never of the page: the pane
+  // auto-scrolls only while the reader is already at its bottom.
   const [follow, setFollow] = useState(true);
-  const feedEnd = useRef<HTMLDivElement>(null);
+  const feed = useRef<HTMLDivElement>(null);
 
-  // Scrolls on every new event while following; the length is the trigger.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: deliberate scroll trigger
-  useEffect(() => {
-    if (follow) {
-      feedEnd.current?.scrollIntoView({ block: 'end' });
+  const counts = useMemo(() => {
+    const totals: Record<EventGroup, number> = { messages: 0, tools: 0, notices: 0, system: 0 };
+    for (const event of events) {
+      totals[GROUP_OF[event.kind]] += 1;
     }
-  }, [follow, events.length]);
+    return totals;
+  }, [events]);
+  const visible = useMemo(
+    () => events.filter((event) => !hidden.has(GROUP_OF[event.kind])),
+    [events, hidden],
+  );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the visible length is the scroll trigger
+  useEffect(() => {
+    const pane = feed.current;
+    if (follow && pane !== null) {
+      pane.scrollTop = pane.scrollHeight;
+    }
+  }, [follow, visible.length]);
+
+  const onFeedScroll = (event: UIEvent<HTMLDivElement>): void => {
+    const pane = event.currentTarget;
+    const atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 24;
+    if (atBottom !== follow) {
+      setFollow(atBottom);
+    }
+  };
+
+  const toggleGroup = (group: EventGroup): void => {
+    setHidden((current) => {
+      const next = new Set(current);
+      if (next.has(group)) {
+        next.delete(group);
+      } else {
+        next.add(group);
+      }
+      return next;
+    });
+  };
 
   const send = (event: FormEvent): void => {
     event.preventDefault();
@@ -142,70 +232,48 @@ export function RunPage({
     setDraft('');
   };
 
-  return (
-    <div className="planning-page">
-      <header className="page-header run-header">
-        <div>
-          <h2>
-            {RUN_ROLE_LABELS[run.role]} run ·{' '}
-            <button type="button" className="link-button" onClick={onOpenWorkItem}>
-              back to work item
-            </button>
-          </h2>
-          <p className="subtitle mono">
-            {worktree.branchName} · {worktree.path}
-          </p>
-        </div>
-        <span
-          className="readiness-badge run-status"
-          style={{ '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties}
-        >
-          {RUN_STATUS_LABELS[run.status]}
-        </span>
-      </header>
+  const model = run.resolvedModel ?? run.model;
 
-      <section className="panel" aria-label="Run summary">
-        <dl className="definition-grid">
-          <dt>Backend</dt>
-          <dd>
-            {run.backend}
-            {run.model === undefined ? '' : ` · ${run.model}`}
-            {run.backendSessionId === undefined ? '' : ` · session ${run.backendSessionId}`}
-          </dd>
-          <dt>Permissions</dt>
-          <dd>{PERMISSION_MODE_LABELS[run.permissionMode]}</dd>
-          <dt>Base</dt>
-          <dd className="mono">
-            {worktree.baseBranch} @ {shortSha(worktree.baseSha)}
-          </dd>
-          <dt>Turns</dt>
-          <dd>{run.turnCount}</dd>
-          <dt>Cost</dt>
-          <dd>{formatCost(run.costUsd)}</dd>
-          <dt>Started</dt>
-          <dd>{run.startedAt === undefined ? '—' : new Date(run.startedAt).toLocaleString()}</dd>
-          {run.finishedAt !== undefined && (
-            <>
-              <dt>Finished</dt>
-              <dd>{new Date(run.finishedAt).toLocaleString()}</dd>
-            </>
-          )}
-          {run.outcomeSummary !== undefined && (
-            <>
-              <dt>Latest outcome</dt>
-              <dd className="outcome-cell">{run.outcomeSummary}</dd>
-            </>
-          )}
-        </dl>
-        <div className="inline-actions run-actions">
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => setShowBrief((value) => !value)}
+  return (
+    <div className="page">
+      <header className="page-header">
+        <div>
+          <div className="crumbs">
+            <button type="button" className="link-button" onClick={onOpenWorkItem}>
+              Work item
+            </button>
+            <span>/</span>
+            <span>{RUN_ROLE_LABELS[run.role]} run</span>
+          </div>
+          <h1>{RUN_ROLE_LABELS[run.role]} run</h1>
+          <div className="run-header-meta">
+            <span className="mono">{worktree.branchName}</span>
+            <span>·</span>
+            <span>{model === undefined ? 'default model' : model}</span>
+            <span>·</span>
+            <span>
+              {run.turnCount} turn{run.turnCount === 1 ? '' : 's'}
+            </span>
+            <span>·</span>
+            <span>{formatCost(run.costUsd, run.billing)}</span>
+            {run.verdict !== undefined && (
+              <span
+                className="status-badge"
+                style={{ '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties}
+              >
+                {VERDICT_LABELS[run.verdict]}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="page-header-actions">
+          <span
+            className={`status-badge large${live && run.status !== 'waiting' ? ' pulse' : ''}`}
+            style={{ '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties}
           >
-            {showBrief ? 'Hide brief' : 'Show brief'}
-          </button>
-          <button type="button" className="text-button" onClick={onLoadDiff}>
+            {RUN_STATUS_LABELS[run.status]}
+          </span>
+          <button type="button" className="secondary-button" onClick={onLoadDiff}>
             {diff === undefined ? 'View diff' : 'Refresh diff'}
           </button>
           {live && canMutate && (
@@ -224,48 +292,152 @@ export function RunPage({
             </>
           )}
         </div>
-        {showBrief && (
-          <pre className="source-text" data-testid="run-brief">
-            {detail.brief}
-          </pre>
-        )}
-      </section>
+      </header>
+
+      {error !== undefined && (
+        <p className="error-state" role="alert">
+          {error}
+        </p>
+      )}
+
+      <details className="disclosure" aria-label="Run summary">
+        <summary>
+          <span>Details</span>
+          <span className="hint">
+            {run.backend}
+            {run.billing === undefined ? '' : ` · ${BILLING_LABELS[run.billing]}`}
+          </span>
+        </summary>
+        <div className="disclosure-body">
+          <dl className="definition-grid">
+            <dt>Model</dt>
+            <dd>
+              {run.resolvedModel ?? 'not reported yet'}
+              {run.model !== undefined && run.model !== run.resolvedModel
+                ? ` (requested ${run.model})`
+                : ''}
+            </dd>
+            <dt>Billing</dt>
+            <dd>
+              {run.billing === undefined ? '—' : BILLING_LABELS[run.billing]}
+              {run.billing === 'subscription'
+                ? '. Cost figures are the API-equivalent estimate reported by Claude Code, not a bill.'
+                : ''}
+            </dd>
+            <dt>Permissions</dt>
+            <dd>{PERMISSION_MODE_LABELS[run.permissionMode]}</dd>
+            <dt>Worktree</dt>
+            <dd className="mono">{worktree.path}</dd>
+            <dt>Base</dt>
+            <dd className="mono">
+              {worktree.baseBranch} @ {shortSha(worktree.baseSha)}
+            </dd>
+            {run.backendSessionId !== undefined && (
+              <>
+                <dt>Backend session</dt>
+                <dd className="mono">{run.backendSessionId}</dd>
+              </>
+            )}
+            <dt>Started</dt>
+            <dd>{run.startedAt === undefined ? '—' : new Date(run.startedAt).toLocaleString()}</dd>
+            {run.finishedAt !== undefined && (
+              <>
+                <dt>Finished</dt>
+                <dd>{new Date(run.finishedAt).toLocaleString()}</dd>
+              </>
+            )}
+            {run.outcomeSummary !== undefined && (
+              <>
+                <dt>Latest outcome</dt>
+                <dd className="outcome-cell">{run.outcomeSummary}</dd>
+              </>
+            )}
+          </dl>
+          <div className="inline-actions" style={{ marginTop: 'var(--space-3)' }}>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => setShowBrief((value) => !value)}
+            >
+              {showBrief ? 'Hide brief' : 'Show brief'}
+            </button>
+          </div>
+          {showBrief && (
+            <pre className="source-text" data-testid="run-brief">
+              {detail.brief}
+            </pre>
+          )}
+        </div>
+      </details>
 
       {diff !== undefined && <DiffView diff={diff} onClose={onCloseDiff} />}
 
       <section className="panel" aria-label="Run activity">
-        <header className="panel-header">
-          <h3>Activity ({events.length})</h3>
-          <label className="follow-toggle">
-            <input
-              type="checkbox"
-              checked={follow}
-              onChange={(event) => setFollow(event.target.checked)}
-            />
-            Follow
-          </label>
-        </header>
+        <div className="feed-toolbar">
+          <div className="chip-row">
+            <h3 style={{ margin: 0 }}>Activity</h3>
+            {GROUPS.map((group) => (
+              <button
+                key={group}
+                type="button"
+                className="chip"
+                aria-pressed={!hidden.has(group)}
+                onClick={() => toggleGroup(group)}
+              >
+                {GROUP_LABELS[group]} {counts[group]}
+              </button>
+            ))}
+          </div>
+          <div className="inline-actions">
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={expandAll}
+                onChange={(event) => setExpandAll(event.target.checked)}
+              />
+              Expand tool output
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={follow}
+                onChange={(event) => setFollow(event.target.checked)}
+              />
+              Follow
+            </label>
+          </div>
+        </div>
         {live && connection === 'disconnected' && (
           <p className="error-state" role="alert">
             The live stream is unreachable; reconnection continues automatically. Events already
             committed remain visible.
           </p>
         )}
-        {events.length === 0 ? (
-          <p className="empty-state">Waiting for the first event…</p>
-        ) : (
-          <ol className="run-event-list">
-            {events.map((event) => (
-              <RunEventItem key={event.id} event={event} />
-            ))}
-          </ol>
-        )}
-        <div ref={feedEnd} />
+        <div className="feed" ref={feed} onScroll={onFeedScroll} data-testid="run-feed">
+          {visible.length === 0 ? (
+            <p className="empty-state">
+              {events.length === 0 ? 'Waiting for the first event…' : 'Everything is filtered out.'}
+            </p>
+          ) : (
+            <ol className="run-event-list">
+              {visible.map((event) => (
+                <RunEventItem key={event.id} event={event} expanded={expandAll} />
+              ))}
+            </ol>
+          )}
+          {!follow && visible.length > 0 && (
+            <div className="feed-jump">
+              <button type="button" className="secondary-button" onClick={() => setFollow(true)}>
+                Jump to latest
+              </button>
+            </div>
+          )}
+        </div>
       </section>
 
       {live && canMutate && (
         <section className="panel" aria-label="Send a message">
-          <form className="stack-form" onSubmit={send}>
+          <form className="compose" onSubmit={send}>
             <label className="field">
               Message to the agent
               <textarea
@@ -281,18 +453,18 @@ export function RunPage({
                 maxLength={50000}
               />
             </label>
-            {error !== undefined && (
-              <p className="error-state" role="alert">
-                {error}
-              </p>
-            )}
-            <button
-              type="submit"
-              className="primary-button"
-              disabled={busy || draft.trim().length === 0}
-            >
-              Send
-            </button>
+            <div className="inline-actions">
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={busy || draft.trim().length === 0}
+              >
+                Send
+              </button>
+              <span className="hint">
+                Ending the session lets the agent finish and exit; cancelling kills it.
+              </span>
+            </div>
           </form>
         </section>
       )}

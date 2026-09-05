@@ -52,12 +52,20 @@ const EMPTY_RISK_COUNTS = { low: 0, medium: 0, high: 0, critical: 0, unspecified
 export const INITIAL_WORKSPACE_PROJECTION: WorkspaceProjectionState = {
   snapshotStatus: 'idle',
   connection: 'connecting',
-  statusSummary: { needsAttention: 0, active: 0, planningReady: 0, dependencyBlocked: 0 },
+  statusSummary: {
+    needsAttention: 0,
+    active: 0,
+    planningReady: 0,
+    dependencyBlocked: 0,
+    completed: 0,
+    liveRuns: 0,
+  },
   planningSummary: {
     projectCount: 0,
     importAttentionCount: 0,
     proposedCount: 0,
     admittedCount: 0,
+    completedCount: 0,
     planningReadyCount: 0,
     dependencyBlockedCount: 0,
     riskCounts: EMPTY_RISK_COUNTS,
@@ -154,8 +162,18 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
       };
     case 'source-repository-registered':
       return { ...current, repositoryList: true };
+    case 'workspace-updated':
+      return { ...current, workspaceSummary: true };
+    case 'work-item-completed':
+      return {
+        ...current,
+        workspaceSummary: true,
+        projectIds: unique([...current.projectIds, event.projectId]),
+        workItemIds: unique([...current.workItemIds, event.workItemId]),
+      };
     case 'worktree-created':
     case 'worktree-removed':
+    case 'worktree-merged':
     case 'agent-run-started':
     case 'agent-run-status-changed':
       return {

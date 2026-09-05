@@ -1,18 +1,24 @@
 import {
+  type AuthenticatedSessionResponse,
   apiErrorResponseSchema,
   authenticatedSessionResponseSchema,
-  type AuthenticatedSessionResponse,
+  type ChangePasswordResponse,
+  type CreateWorkspaceResponse,
+  changePasswordResponseSchema,
+  createWorkspaceResponseSchema,
   type LoginRequest,
   logoutResponseSchema,
+  type RenameWorkspaceResponse,
+  renameWorkspaceResponseSchema,
   revokeSessionResponseSchema,
-  sessionListResponseSchema,
   type SessionListResponse,
-  workspaceAuditPageResponseSchema,
+  sessionListResponseSchema,
   type WorkspaceAuditPageResponse,
-  workspaceListResponseSchema,
   type WorkspaceListResponse,
-  workspaceSnapshotResponseSchema,
   type WorkspaceSnapshotResponse,
+  workspaceAuditPageResponseSchema,
+  workspaceListResponseSchema,
+  workspaceSnapshotResponseSchema,
 } from '@craftingtable/contracts';
 import type { SessionId, WorkspaceId } from '@craftingtable/domain';
 
@@ -101,6 +107,41 @@ export async function revokeSession(sessionId: SessionId, csrfToken: string): Pr
 
 export function loadWorkspaces(): Promise<WorkspaceListResponse> {
   return request('/api/workspaces', workspaceListResponseSchema);
+}
+
+export function createWorkspace(name: string, csrfToken: string): Promise<CreateWorkspaceResponse> {
+  return request('/api/workspaces', createWorkspaceResponseSchema, {
+    method: 'POST',
+    headers: { 'x-craftingtable-csrf': csrfToken },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function renameWorkspace(
+  workspaceId: WorkspaceId,
+  name: string,
+  csrfToken: string,
+): Promise<RenameWorkspaceResponse> {
+  return request(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/rename`,
+    renameWorkspaceResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'x-craftingtable-csrf': csrfToken },
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+export function changePassword(
+  input: { currentPassword: string; newPassword: string },
+  csrfToken: string,
+): Promise<ChangePasswordResponse> {
+  return request('/api/auth/password', changePasswordResponseSchema, {
+    method: 'POST',
+    headers: { 'x-craftingtable-csrf': csrfToken },
+    body: JSON.stringify(input),
+  });
 }
 
 export function loadWorkspaceSnapshot(

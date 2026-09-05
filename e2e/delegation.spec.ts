@@ -66,31 +66,39 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(page.getByRole('heading', { name: 'Registered (1)' })).toBeVisible();
     await expect(page.getByText(repository)).toBeVisible();
 
-    // Open AQ-01 and create a worktree.
+    // Open AQ-01, admit it, and create a worktree.
     await page.getByRole('link', { name: 'Dashboard' }).click();
-    await page
-      .getByRole('button', { name: /ActionQueue/ })
-      .first()
-      .click();
+    await page.getByRole('button', { name: 'ActionQueue', exact: true }).click();
     await page.getByRole('button', { name: 'AQ-01' }).click();
     await expect(page.getByRole('heading', { name: /AQ-01 ·/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Admit into agenda' }).click();
+    await expect(page.getByText('In agenda', { exact: true }).first()).toBeVisible();
     await page.getByRole('button', { name: 'Create worktree' }).click();
     await expect(page.getByRole('heading', { name: 'Worktrees (1)' })).toBeVisible();
     await expect(page.getByText(/^ct\/aq-01-[0-9a-f]{8}$/).first()).toBeVisible();
 
-    // Launch the agent and follow it live.
+    // The item is now in progress. Launch the agent and follow it live.
+    await expect(page.getByText('In progress', { exact: true })).toBeVisible();
     await page.getByLabel(/Instructions for this run/).fill('e2e smoke run');
     await page.getByRole('button', { name: /Launch implement run/ }).click();
     await expect(page.getByRole('heading', { name: /Implement run/ })).toBeVisible();
-    await expect(page.getByText('fake agent finished turn 1').first()).toBeVisible();
+    const feed = page.getByTestId('run-feed');
+    await expect(feed.getByText('fake agent finished turn 1', { exact: true })).toBeVisible();
     await expect(page.getByText('Awaiting your input').first()).toBeVisible();
-    await expect(page.getByText('Write: /').first()).toBeVisible();
+    await expect(feed.getByText('Write: /').first()).toBeVisible();
+    // The model the backend reported, and a subscription cost shown as an estimate.
+    await expect(page.getByText('fake-model').first()).toBeVisible();
+    await expect(page.getByText(/≈\$0\.01 \(est\.\)/).first()).toBeVisible();
+    // Filtering hides tool traffic without touching the daemon.
+    await page.getByRole('button', { name: /^Tools/ }).click();
+    await expect(feed.getByText('Write: /')).toHaveCount(0);
+    await page.getByRole('button', { name: /^Tools/ }).click();
 
     // Steer it with a follow-up message.
     await page.getByLabel('Message to the agent').fill('one more turn please');
     await page.getByRole('button', { name: 'Send' }).click();
-    await expect(page.getByText('fake agent finished turn 2').first()).toBeVisible();
-    await expect(page.getByText('one more turn please').first()).toBeVisible();
+    await expect(feed.getByText('fake agent finished turn 2', { exact: true })).toBeVisible();
+    await expect(feed.getByText('one more turn please').first()).toBeVisible();
 
     // The diff shows the files the agent wrote, then end the session.
     await page.getByRole('button', { name: 'View diff' }).click();
@@ -100,14 +108,52 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(page.getByTestId('diff-text')).toContainText('+turn 1: # Work item AQ-01');
 
     await page.getByRole('button', { name: 'End session' }).click();
-    await expect(page.getByText('Run finished').first()).toBeVisible();
+    await page.getByRole('button', { name: /^System/ }).click();
+    await expect(feed.getByText('Run finished')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Cancel run' })).toHaveCount(0);
 
     // Back on the work item the run is recorded as finished, and it survives a reload.
-    await page.getByRole('button', { name: 'back to work item' }).click();
+    await page.getByRole('button', { name: 'Work item' }).click();
     await expect(page.getByRole('table', { name: 'Agent runs' })).toContainText('Finished');
     await page.reload();
     await expect(page.getByRole('table', { name: 'Agent runs' })).toContainText('Finished');
+
+    // No merge without a review.
+    await expect(page.getByText('Needs a review run')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Merge into/ })).toHaveCount(0);
+
+    // A review run returns a mergeable verdict and opens the gate.
+    const launchForm = page.getByRole('form', { name: 'Launch an agent' });
+    await launchForm.getByLabel('Role').selectOption('review');
+    await page.getByRole('button', { name: /Launch review run/ }).click();
+    await expect(page.getByRole('heading', { name: /Review run/ })).toBeVisible();
+    await expect(page.getByText('Mergeable').first()).toBeVisible();
+    await page.getByRole('button', { name: 'End session' }).click();
+    await page.getByRole('button', { name: 'Work item' }).click();
+    await expect(page.getByText('Reviewed and mergeable')).toBeVisible();
+
+    // Merge lands the branch on main, removes the worktree, and completes the item.
+    await page.getByRole('button', { name: 'Merge into main' }).click();
+    await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(/merged as [0-9a-f]{10}/)).toBeVisible();
+    await expect(page.getByRole('button', { name: /Merge into/ })).toHaveCount(0);
+    expect(
+      execFileSync('git', ['log', '--oneline', '-5'], { cwd: repository, encoding: 'utf8' }),
+    ).toContain('fake agent turn 1');
+    expect(
+      execFileSync('git', ['status', '--porcelain'], { cwd: repository, encoding: 'utf8' }),
+    ).toBe('');
+
+    // The dashboard counts the completion and lists the finished runs.
+    await page.getByRole('link', { name: 'Dashboard' }).click();
+    await page
+      .getByRole('button', { name: /Completed/ })
+      .first()
+      .click();
+    await expect(page.getByRole('button', { name: 'AQ-01', exact: true })).toBeVisible();
+    await page.getByRole('link', { name: 'Runs' }).click();
+    await expect(page.getByRole('heading', { name: 'Runs' })).toBeVisible();
+    await expect(page.getByText(/Review · AQ-01/)).toBeVisible();
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }

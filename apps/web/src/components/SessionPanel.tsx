@@ -9,17 +9,24 @@ export function SessionPanel({
   onRevoke: (sessionId: SessionId) => void;
 }) {
   return (
-    <section className="utility-panel" aria-labelledby="sessions-title">
-      <h2 id="sessions-title">Sessions</h2>
+    <section className="panel" aria-labelledby="sessions-title">
+      <h3 id="sessions-title">Sessions</h3>
       <ul className="compact-list">
         {sessions.map((session) => (
           <li key={session.id}>
             <span>
-              {session.current ? 'Current session' : (session.userAgent ?? 'Other session')}
-              <small>Expires {new Date(session.expiresAt).toLocaleDateString()}</small>
+              {session.current ? 'This session' : (session.userAgent ?? 'Other session')}
+              <small>
+                {session.status === 'active' ? 'Expires' : 'Ended'}{' '}
+                {new Date(session.expiresAt).toLocaleDateString()}
+              </small>
             </span>
             {!session.current && session.status === 'active' && (
-              <button type="button" className="text-button" onClick={() => onRevoke(session.id)}>
+              <button
+                type="button"
+                className="text-button danger"
+                onClick={() => onRevoke(session.id)}
+              >
                 Revoke
               </button>
             )}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPath, parseRoute, type Route } from './route.js';
+import { buildPath, parseRoute, type Route, routeWorkspaceId } from './route.js';
 
 /** Pure navigation: testable without a DOM (ADR-015). */
 
@@ -7,14 +7,23 @@ const WORKSPACE = 'workspace-1' as never;
 const PROJECT = 'project-1' as never;
 const VERSION = 'version-1' as never;
 const ITEM = 'item-1' as never;
+const RUN = 'run-1' as never;
 
 const ROUTES: readonly Route[] = [
-  { name: 'dashboard' },
+  { name: 'root' },
+  { name: 'home' },
+  { name: 'account' },
   { name: 'dashboard', workspaceId: WORKSPACE },
+  { name: 'settings', workspaceId: WORKSPACE },
   { name: 'import', workspaceId: WORKSPACE },
+  { name: 'repositories', workspaceId: WORKSPACE },
+  { name: 'runs', workspaceId: WORKSPACE },
+  { name: 'agenda', workspaceId: WORKSPACE, filter: 'all' },
+  { name: 'agenda', workspaceId: WORKSPACE, filter: 'completed' },
   { name: 'project', workspaceId: WORKSPACE, projectId: PROJECT },
   { name: 'plan-version', workspaceId: WORKSPACE, projectId: PROJECT, planVersionId: VERSION },
   { name: 'work-item', workspaceId: WORKSPACE, workItemId: ITEM },
+  { name: 'run', workspaceId: WORKSPACE, runId: RUN },
 ];
 
 describe('route parsing', () => {
@@ -25,14 +34,35 @@ describe('route parsing', () => {
   });
 
   it('builds the documented deep-link paths', () => {
-    expect(buildPath(ROUTES[0] as Route)).toBe('/');
-    expect(buildPath(ROUTES[1] as Route)).toBe('/workspaces/workspace-1');
-    expect(buildPath(ROUTES[2] as Route)).toBe('/workspaces/workspace-1/import');
-    expect(buildPath(ROUTES[3] as Route)).toBe('/workspaces/workspace-1/projects/project-1');
-    expect(buildPath(ROUTES[4] as Route)).toBe(
-      '/workspaces/workspace-1/projects/project-1/plans/version-1',
+    expect(buildPath({ name: 'root' })).toBe('/');
+    expect(buildPath({ name: 'home' })).toBe('/workspaces');
+    expect(buildPath({ name: 'account' })).toBe('/account');
+    expect(buildPath({ name: 'dashboard', workspaceId: WORKSPACE })).toBe(
+      '/workspaces/workspace-1',
     );
-    expect(buildPath(ROUTES[5] as Route)).toBe('/workspaces/workspace-1/work-items/item-1');
+    expect(buildPath({ name: 'agenda', workspaceId: WORKSPACE, filter: 'all' })).toBe(
+      '/workspaces/workspace-1/agenda',
+    );
+    expect(buildPath({ name: 'agenda', workspaceId: WORKSPACE, filter: 'admitted' })).toBe(
+      '/workspaces/workspace-1/agenda/admitted',
+    );
+    expect(buildPath({ name: 'runs', workspaceId: WORKSPACE })).toBe(
+      '/workspaces/workspace-1/runs',
+    );
+    expect(buildPath({ name: 'run', workspaceId: WORKSPACE, runId: RUN })).toBe(
+      '/workspaces/workspace-1/runs/run-1',
+    );
+    expect(
+      buildPath({
+        name: 'plan-version',
+        workspaceId: WORKSPACE,
+        projectId: PROJECT,
+        planVersionId: VERSION,
+      }),
+    ).toBe('/workspaces/workspace-1/projects/project-1/plans/version-1');
+    expect(buildPath({ name: 'work-item', workspaceId: WORKSPACE, workItemId: ITEM })).toBe(
+      '/workspaces/workspace-1/work-items/item-1',
+    );
   });
 
   it('percent-encodes identifiers in both directions', () => {
@@ -46,13 +76,15 @@ describe('route parsing', () => {
     expect(parseRoute(path)).toEqual(route);
   });
 
-  it('falls back to the dashboard for anything unrecognized', () => {
-    for (const path of ['/', '', '/unknown', '/workspaces', '/workspaces/', '/api/workspaces/x']) {
-      expect(parseRoute(path), path).toEqual({ name: 'dashboard' });
+  it('falls back to the root for anything unrecognized', () => {
+    for (const path of ['/', '', '/unknown', '/api/workspaces/x', '/account/extra']) {
+      expect(parseRoute(path), path).toEqual({ name: 'root' });
     }
+    expect(parseRoute('/workspaces')).toEqual({ name: 'home' });
+    expect(parseRoute('/workspaces/')).toEqual({ name: 'home' });
   });
 
-  it('degrades a partial planning path to the nearest valid route', () => {
+  it('degrades a partial path to the nearest valid route', () => {
     expect(parseRoute('/workspaces/workspace-1/projects')).toEqual({
       name: 'dashboard',
       workspaceId: WORKSPACE,
@@ -66,9 +98,19 @@ describe('route parsing', () => {
       name: 'dashboard',
       workspaceId: WORKSPACE,
     });
+    expect(parseRoute('/workspaces/workspace-1/agenda/nonsense')).toEqual({
+      name: 'agenda',
+      workspaceId: WORKSPACE,
+      filter: 'all',
+    });
   });
 
   it('does not throw on a malformed percent escape', () => {
-    expect(parseRoute('/workspaces/%E0%A4%A')).toEqual({ name: 'dashboard' });
+    expect(parseRoute('/workspaces/%E0%A4%A')).toEqual({ name: 'home' });
+  });
+
+  it('reports the workspace a route addresses', () => {
+    expect(routeWorkspaceId({ name: 'home' })).toBeUndefined();
+    expect(routeWorkspaceId({ name: 'runs', workspaceId: WORKSPACE })).toBe(WORKSPACE);
   });
 });

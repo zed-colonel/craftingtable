@@ -1,9 +1,9 @@
 import {
-  SSE_AUTHENTICATION_EXPIRED_EVENT_NAME,
-  SSE_RUN_EVENT_NAME,
   authenticationExpiredEventSchema,
   type RunEventEnvelope,
   runEventEnvelopeSchema,
+  SSE_AUTHENTICATION_EXPIRED_EVENT_NAME,
+  SSE_RUN_EVENT_NAME,
 } from '@craftingtable/contracts';
 import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
 import { useEffect } from 'react';

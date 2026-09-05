@@ -1,9 +1,9 @@
 import {
+  authenticationExpiredEventSchema,
   SSE_AUTHENTICATION_EXPIRED_EVENT_NAME,
   SSE_WORKSPACE_EVENT_NAME,
-  authenticationExpiredEventSchema,
-  workspaceEventEnvelopeSchema,
   type WorkspaceEventEnvelope,
+  workspaceEventEnvelopeSchema,
 } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { useEffect } from 'react';

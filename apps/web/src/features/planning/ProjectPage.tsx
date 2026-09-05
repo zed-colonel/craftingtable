@@ -17,25 +17,27 @@ export function ProjectPage({
 }) {
   const active = detail.activeVersion;
   return (
-    <div className="planning-page">
+    <div className="page">
       <header className="page-header">
-        <h2>{detail.project.name}</h2>
-        <p className="subtitle">
-          {detail.project.document ?? 'No active plan'} · {detail.project.versionCount} version
-          {detail.project.versionCount === 1 ? '' : 's'}
-        </p>
+        <div>
+          <h1>{detail.project.name}</h1>
+          <p className="subtitle">
+            {detail.project.document ?? 'No active plan'} · {detail.project.versionCount} version
+            {detail.project.versionCount === 1 ? '' : 's'}
+          </p>
+        </div>
       </header>
 
-      <section className="regions" aria-label="Plan summary">
+      <section className="status-cards" aria-label="Plan summary">
         <SummaryTile
-          label="Proposed"
-          count={detail.project.proposedCount}
-          accent="var(--color-attention)"
+          label="In agenda"
+          count={detail.project.admittedCount}
+          accent="var(--color-accent)"
         />
         <SummaryTile
-          label="Admitted"
-          count={detail.project.admittedCount}
-          accent="var(--color-active)"
+          label="Completed"
+          count={detail.project.completedCount}
+          accent="var(--color-done)"
         />
         <SummaryTile
           label="Ready for admission"
@@ -46,6 +48,11 @@ export function ProjectPage({
           label="Dependency-blocked"
           count={detail.project.dependencyBlockedCount}
           accent="var(--color-blocked)"
+        />
+        <SummaryTile
+          label="Proposed"
+          count={detail.project.proposedCount}
+          accent="var(--color-attention)"
         />
       </section>
 
@@ -63,7 +70,7 @@ export function ProjectPage({
       <section className="panel" aria-label="Plan versions">
         <h3>Plan versions</h3>
         <div className="table-scroll">
-          <table className="work-item-table">
+          <table className="data-table">
             <thead>
               <tr>
                 <th scope="col">Version</th>
@@ -143,9 +150,9 @@ export function ProjectPage({
 
 function SummaryTile({ label, count, accent }: { label: string; count: number; accent: string }) {
   return (
-    <article className="region" style={{ '--region-accent': accent } as React.CSSProperties}>
-      <h3>{label}</h3>
+    <article className="status-card" style={{ '--card-accent': accent } as React.CSSProperties}>
       <span className="count">{count}</span>
+      <span className="label">{label}</span>
     </article>
   );
 }

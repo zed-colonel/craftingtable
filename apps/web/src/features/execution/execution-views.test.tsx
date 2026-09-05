@@ -15,9 +15,6 @@ import { RunPage } from './RunPage.js';
 
 afterEach(cleanup);
 
-// jsdom has no layout; the run feed scrolls the latest event into view.
-Element.prototype.scrollIntoView = () => undefined;
-
 const repository: SourceRepositorySummary = {
   id: 'repo-1',
   workspaceId: 'ws-1',
@@ -129,17 +126,22 @@ describe('DelegationPanel', () => {
           run(),
           run({ id: 'run-0' as AgentRunSummary['id'], status: 'finished', role: 'design' }),
         ]}
+        mergeGates={{ 'wt-1': { mergeable: false, reason: 'no-review' } }}
+        itemCompleted={false}
         canMutate={true}
         busy={false}
         backendAvailable={true}
         onCreateWorktree={vi.fn()}
         onRemoveWorktree={vi.fn()}
+        onMergeWorktree={vi.fn()}
         onLaunch={onLaunch}
         onOpenRun={onOpenRun}
         onOpenDiff={vi.fn()}
       />,
     );
     expect(screen.getAllByText('ct/aq-01-abcd1234').length).toBeGreaterThan(0);
+    expect(screen.getByText('Needs a review run')).toBeDefined();
+    expect(screen.queryByRole('button', { name: /Merge into/ })).toBeNull();
     const table = screen.getByRole('table', { name: 'Agent runs' });
     expect(within(table).getByText('Awaiting your input')).toBeDefined();
     expect(within(table).getByText('Finished')).toBeDefined();
@@ -163,17 +165,64 @@ describe('DelegationPanel', () => {
     });
   });
 
+  it('offers Merge only when the daemon reports the gate open', () => {
+    const onMergeWorktree = vi.fn();
+    render(
+      <DelegationPanel
+        repositories={[repository]}
+        worktrees={[worktree]}
+        runs={[
+          run({
+            status: 'finished',
+            role: 'review',
+            verdict: 'mergeable',
+            billing: 'subscription',
+            resolvedModel: 'claude-fable-5-1',
+          }),
+        ]}
+        mergeGates={{
+          'wt-1': {
+            mergeable: true,
+            reason: 'ready',
+            reviewRunId: 'run-1' as AgentRunSummary['id'],
+          },
+        }}
+        itemCompleted={false}
+        canMutate={true}
+        busy={false}
+        backendAvailable={true}
+        onCreateWorktree={vi.fn()}
+        onRemoveWorktree={vi.fn()}
+        onMergeWorktree={onMergeWorktree}
+        onLaunch={vi.fn()}
+        onOpenRun={vi.fn()}
+        onOpenDiff={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Reviewed and mergeable')).toBeDefined();
+    const table = screen.getByRole('table', { name: 'Agent runs' });
+    expect(within(table).getByText('Mergeable')).toBeDefined();
+    expect(within(table).getByText('claude-fable-5-1')).toBeDefined();
+    // A subscription session reports an estimate, not a bill.
+    expect(within(table).getByText('≈$1.25 (est.)')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Merge into main' }));
+    expect(onMergeWorktree).toHaveBeenCalledWith('wt-1');
+  });
+
   it('cannot remove a worktree with a live run and disables launch without a backend', () => {
     render(
       <DelegationPanel
         repositories={[repository]}
         worktrees={[worktree]}
         runs={[run({ status: 'running' })]}
+        mergeGates={{ 'wt-1': { mergeable: false, reason: 'run-live' } }}
+        itemCompleted={false}
         canMutate={true}
         busy={false}
         backendAvailable={false}
         onCreateWorktree={vi.fn()}
         onRemoveWorktree={vi.fn()}
+        onMergeWorktree={vi.fn()}
         onLaunch={vi.fn()}
         onOpenRun={vi.fn()}
         onOpenDiff={vi.fn()}
@@ -237,6 +286,50 @@ describe('RunPage', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(onSend).toHaveBeenCalledWith('Add a test');
+  });
+
+  it('filters the feed by group and keeps tool output collapsed by default', () => {
+    render(
+      <RunPage
+        detail={detail}
+        events={[
+          event(1, {
+            kind: 'notice',
+            payload: { category: 'task', message: 'Background task started: tests' },
+          }),
+          event(2, {
+            kind: 'tool-call',
+            payload: { toolUseId: 't1', name: 'Bash', input: { command: 'ls' }, summary: 'ls' },
+          }),
+          event(3, {
+            kind: 'tool-result',
+            payload: { toolUseId: 't1', content: 'a.ts\nb.ts', isError: false, truncated: false },
+          }),
+          event(4, { kind: 'assistant-message', payload: { text: 'All good.' } }),
+        ]}
+        connection="open"
+        canMutate={true}
+        busy={false}
+        onSend={vi.fn()}
+        onEnd={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenWorkItem={vi.fn()}
+        onLoadDiff={vi.fn()}
+        onCloseDiff={vi.fn()}
+      />,
+    );
+    const feed = screen.getByTestId('run-feed');
+    expect(within(feed).getByText('Background task started: tests')).toBeDefined();
+    // Tool output is inside a collapsed details element.
+    const details = feed.querySelector('details');
+    expect(details).not.toBeNull();
+    expect(details?.hasAttribute('open')).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Notices/ }));
+    expect(within(feed).queryByText('Background task started: tests')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Tools/ }));
+    expect(within(feed).queryByText('Bash: ls')).toBeNull();
+    expect(within(feed).getByText('All good.')).toBeDefined();
   });
 
   it('hides the controls once the run is terminal', () => {

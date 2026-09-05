@@ -15,13 +15,15 @@ export function PlanVersionPage({
   onViewArtifact: (artifactId: PlanArtifactId, filename: string) => void;
 }) {
   return (
-    <div className="planning-page">
+    <div className="page">
       <header className="page-header">
-        <h2>Plan version {detail.version.versionNumber}</h2>
-        <p className="subtitle">
-          {detail.version.document} ·{' '}
-          {detail.version.isActive ? 'Active plan version' : 'Preserved, not active'}
-        </p>
+        <div>
+          <h1>Plan version {detail.version.versionNumber}</h1>
+          <p className="subtitle">
+            {detail.version.document} ·{' '}
+            {detail.version.isActive ? 'Active plan version' : 'Preserved, not active'}
+          </p>
+        </div>
       </header>
 
       <section className="panel" aria-label="Version identity">

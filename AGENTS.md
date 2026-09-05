@@ -61,7 +61,8 @@ never required reading.
 ## Authority and safety
 
 - The browser must never submit arbitrary shell commands.
-- The implementation agent must not gain merge authority.
+- The implementation agent must not gain merge authority. Merging is a daemon command
+  the operator triggers, gated on a review run's verdict (ADR-021).
 - Repository policy, acceptance criteria, and protected checks are controller-owned concepts.
 - Do not add secrets, credentials, tokens, or machine-specific paths to the repository.
 - Spawn processes with argument arrays, never shell-concatenated strings, and only from

@@ -71,7 +71,7 @@ export function DiffView({ diff, onClose }: { diff: WorktreeDiffResponse; onClos
         <p className="empty-state">No changes against the base revision.</p>
       ) : (
         <div className="table-scroll">
-          <table className="work-item-table">
+          <table className="data-table">
             <caption className="visually-hidden">Changed files</caption>
             <thead>
               <tr>

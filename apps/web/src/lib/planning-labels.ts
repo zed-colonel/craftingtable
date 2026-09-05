@@ -1,11 +1,9 @@
 import type { WorkItemSummary } from '@craftingtable/contracts';
 
 /**
- * Honest planning vocabulary.
- *
- * CT-03 owns planning readiness only. A bare "Ready" is indistinguishable from
- * executable readiness and merge readiness, neither of which this system can
- * determine, so those words never appear (CT-03 §5.11, ADR-015).
+ * Planning vocabulary. A bare "Ready" or "Blocked" never appears: readiness
+ * here is about the agenda, and merge readiness is a separate, reviewed
+ * decision on a worktree (docs/ui-principles.md).
  */
 
 export type Readiness = WorkItemSummary['readiness'];
@@ -13,24 +11,28 @@ export type Readiness = WorkItemSummary['readiness'];
 export const READINESS_LABELS: Record<Readiness, string> = {
   'planning-ready': 'Ready for admission',
   'dependency-blocked': 'Dependency-blocked',
-  active: 'Admitted',
+  active: 'In agenda',
+  completed: 'Completed',
 };
 
 export const READINESS_DESCRIPTIONS: Record<Readiness, string> = {
-  'planning-ready': 'Proposed, with every required predecessor satisfied.',
-  'dependency-blocked': 'Waiting on a required predecessor that is not finished.',
-  active: 'Accepted into the agenda. Admission is not execution readiness.',
+  'planning-ready': 'Proposed, with every required predecessor completed.',
+  'dependency-blocked': 'Waiting on a required predecessor that is not completed.',
+  active: 'Admitted into the agenda. Delegate it below, then merge or mark it complete.',
+  completed: 'Done. Its dependents are no longer blocked by it.',
 };
 
 export const READINESS_ACCENTS: Record<Readiness, string> = {
   'planning-ready': 'var(--color-ready)',
   'dependency-blocked': 'var(--color-blocked)',
   active: 'var(--color-active)',
+  completed: 'var(--color-done)',
 };
 
 export const STATUS_LABELS = {
   proposed: 'Proposed',
-  admitted: 'Admitted',
+  admitted: 'In agenda',
+  completed: 'Completed',
 } as const;
 
 export const RISK_LABELS = {
@@ -47,10 +49,13 @@ export function readinessLabel(readiness: Readiness): string {
 
 /** Human summary of what is blocking an item, or why nothing is. */
 export function blockerSummary(item: WorkItemSummary): string {
+  if (item.status === 'completed') {
+    return 'Completed.';
+  }
   if (item.status === 'admitted') {
     return item.blockerSourceIds.length === 0
-      ? 'Admitted with no unfinished predecessors.'
-      : `Admitted; still waiting on ${item.blockerSourceIds.join(', ')}.`;
+      ? 'In agenda with no unfinished predecessors.'
+      : `In agenda; still waiting on ${item.blockerSourceIds.join(', ')}.`;
   }
   return item.blockerSourceIds.length === 0
     ? 'No unfinished required predecessors.'

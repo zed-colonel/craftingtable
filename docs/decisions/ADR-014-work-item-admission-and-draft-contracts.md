@@ -1,6 +1,6 @@
 # ADR-014 — Work-item admission and non-executable draft contracts
 
-- **Status:** accepted
+- **Status:** superseded by ADR-021 (the draft contract was removed in migration 0006; admission remains)
 - **Date:** 2026-07-24
 - **Amended:** 2026-07-24 after independent review (CT03-R2, CT03-R3)
 - **Amended:** 2026-07-24 after remediation re-review (CT03-RR2)

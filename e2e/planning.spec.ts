@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 /**
  * CT03-A61, A63, A64, A65, and the browser-refresh half of A50.
@@ -61,6 +61,7 @@ test('imports AQ-CONT-1, admits AQ-01, and survives a refresh', async ({ page })
   const items = page.getByRole('region', { name: 'Work items' });
   await expect(items.getByText('Ready for admission')).toHaveCount(1);
   await expect(items.getByText('Dependency-blocked')).toHaveCount(13);
+  await expect(page.getByRole('region', { name: 'Plan summary' })).toContainText('In agenda');
 
   // Source artifacts render as escaped text (CT03-A65).
   await page
@@ -77,22 +78,28 @@ test('imports AQ-CONT-1, admits AQ-01, and survives a refresh', async ({ page })
   await expect(page.getByText('Ready for admission')).toBeVisible();
   await expect(page.getByText('No unfinished required predecessors.')).toBeVisible();
 
-  // Admission produces a visibly non-executable draft (CT03-A63).
+  // Admission puts the item in the agenda and nothing pretends to approve it.
   await page.getByRole('button', { name: 'Admit into agenda' }).click();
-  const draft = page.getByRole('region', { name: 'Work contract draft' });
-  await expect(draft).toBeVisible();
-  await expect(draft).toContainText('Draft — not executable.');
-  await expect(draft).toContainText('Unresolved (7)');
-  await expect(draft).toContainText('Registered repository');
-  await expect(draft).toContainText('Execution environment');
-  await expect(draft).toContainText('Human authorization required');
+  await expect(page.getByText('In agenda', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /approve/i })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Delegation' })).toBeVisible();
 
   // A refresh reconstructs the admitted state from SQLite (CT03-A50).
   await page.reload();
   await expect(page.getByRole('heading', { name: /AQ-01 · Freeze evidence/ })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Work contract draft' })).toBeVisible();
-  await expect(page.getByText('Admitted', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('In agenda', { exact: true }).first()).toBeVisible();
+
+  // The dashboard card counts it and drills into the agenda list.
+  await page.getByRole('link', { name: 'Dashboard' }).click();
+  await page
+    .getByRole('button', { name: /In agenda/ })
+    .first()
+    .click();
+  await expect(page.getByRole('tab', { name: 'In agenda' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page.getByRole('button', { name: 'AQ-01', exact: true }).first()).toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });

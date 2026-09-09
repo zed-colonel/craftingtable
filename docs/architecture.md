@@ -68,7 +68,11 @@ scratch worktree under the worktree root. See ADR-021.
 
 A run started with `parentRunId` receives the parent's final message from the journal
 in its brief: an implement run after a review gets the findings to remediate, a review
-after an implement run gets the implementation's own summary as a claim to verify.
+after an implement run gets the implementation's own summary as a claim to verify, and
+an implement run after a design gets the proposal as its accepted plan. The operator
+accepts a design by launching that implement run; nothing parents to a design run
+automatically. Those three edges plus implement-then-review give every step of the loop
+the same shape for a later orchestrator.
 
 ## Agent backend seam
 

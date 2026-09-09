@@ -28,3 +28,21 @@ export function remediationInput(
     parentRunId: review.id,
   };
 }
+
+/**
+ * Implementing an accepted design continues with the agent that wrote it.
+ * From the launch form the operator can choose otherwise; this is the default
+ * used where there is no form, such as the run page.
+ */
+export function implementDesignInput(design: AgentRunSummary): LaunchInput {
+  const model =
+    design.model ?? (design.resolvedModel === 'default' ? undefined : design.resolvedModel);
+  return {
+    backend: design.backend,
+    worktreeId: design.worktreeId,
+    role: 'implement',
+    permissionMode: 'auto',
+    ...(model === undefined ? {} : { model }),
+    parentRunId: design.id,
+  };
+}

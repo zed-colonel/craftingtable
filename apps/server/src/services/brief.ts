@@ -63,6 +63,14 @@ const REMEDIATION_INSTRUCTIONS = [
   'reason) followed by your usual summary.',
 ].join(' ');
 
+const ACCEPTED_DESIGN_INSTRUCTIONS = [
+  'Implement this design. The operator accepted the proposal reproduced below from a',
+  'design run on this work item; treat it as the plan. Deviate only where the code forces',
+  'it, and say exactly where and why in your summary. If the proposal lists open',
+  'questions, resolve each one with the simplest choice consistent with the exit gate',
+  'and state the choice you made.',
+].join(' ');
+
 const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
   implement: [
     'You are the implementation agent for this work item.',
@@ -89,7 +97,10 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
     'Read the relevant code and plan documents, identify the decisions that matter,',
     'and propose a concrete approach: which files change, what the interfaces look like,',
     'what the risks are, and what you would test. Do not modify source files; write your',
-    'proposal as your final message.',
+    'proposal as your final message. End it with a section headed `## Open questions`',
+    'listing every decision that needs the operator, or the single word `none` if it can',
+    'be implemented as written. CraftingTable hands your final message to the implement',
+    'run that follows.',
   ].join(' '),
 };
 
@@ -185,6 +196,9 @@ export function composeBrief(input: BriefInput): string {
           parent.verdict === undefined ? '' : ` (verdict: ${parent.verdict})`
         }\n\n${parent.finalMessage.trim()}`,
       );
+    } else if (parent.role === 'design' && input.role === 'implement') {
+      sections.push(`## Accepted design\n\n${ACCEPTED_DESIGN_INSTRUCTIONS}`);
+      sections.push(`## Design proposal\n\n${parent.finalMessage.trim()}`);
     } else if (parent.role === 'implement' && input.role === 'review') {
       sections.push(
         `## The implementation run's own summary\n\nTreat this as a claim to verify, not as evidence.\n\n${parent.finalMessage.trim()}`,

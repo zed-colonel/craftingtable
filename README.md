@@ -37,6 +37,9 @@ it is mergeable.
 - **Remediation.** A review's findings can be handed straight to a new implement run
   in the same worktree; its brief reproduces the findings and asks for a disposition on
   each.
+- **Design handoff.** A finished design run can be accepted with one click: the implement
+  run that follows gets the proposal as its plan. Design runs end with their open
+  questions so the operator sees what still needs a decision before accepting.
 - **Workspaces and account.** Several workspaces per user, created and renamed from the
   browser; password change from the account page; dark theme by default with a light
   option.

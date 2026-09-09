@@ -227,6 +227,22 @@ export function DelegationPanel({
     setInstructions('');
   };
 
+  /** Accepting a design: an implement run seeded with it, on the form's current settings. */
+  const implementDesign = (design: AgentRunSummary): void => {
+    if (!backendAvailable) {
+      return;
+    }
+    const trimmedModel = model.trim();
+    onLaunch({
+      backend: selectedBackend.kind,
+      worktreeId: design.worktreeId,
+      role: 'implement',
+      permissionMode,
+      ...(trimmedModel.length === 0 ? {} : { model: trimmedModel }),
+      parentRunId: design.id,
+    });
+  };
+
   const openMerge = (worktree: WorktreeSummary): void => {
     setMergeOpen(worktree.id);
     setMergeTargets((current) =>
@@ -636,6 +652,20 @@ export function DelegationPanel({
                             disabled={busy || !backendAvailable}
                           >
                             Remediate
+                          </button>
+                        )}
+                      {run.role === 'design' &&
+                        run.status === 'finished' &&
+                        canMutate &&
+                        !itemCompleted && (
+                          <button
+                            type="button"
+                            className="text-button"
+                            onClick={() => implementDesign(run)}
+                            disabled={busy || !backendAvailable}
+                            title="Launch an implement run with the agent, model, and permissions selected above, using this design as its plan"
+                          >
+                            Implement
                           </button>
                         )}
                     </td>

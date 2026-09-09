@@ -1,5 +1,5 @@
 import type { AgentRunSummary } from '@craftingtable/contracts';
-import { remediationInput } from './features/execution/remediation.js';
+import { implementDesignInput, remediationInput } from './features/execution/handoff.js';
 import type {
   AgentRunDetailResponse,
   AuditRecordSummary,
@@ -797,6 +797,19 @@ export function App() {
         go({ name: 'run', workspaceId: forWorkspace, runId: response.run.id });
       }
     });
+  /** An implement run in the same worktree, with a finished design as its plan. */
+  const handleImplementDesign = (design: AgentRunSummary): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      const response = await startRun(
+        forWorkspace,
+        design.workItemId,
+        implementDesignInput(design),
+        csrfToken,
+      );
+      if (activeWorkspaceIdRef.current === forWorkspace) {
+        go({ name: 'run', workspaceId: forWorkspace, runId: response.run.id });
+      }
+    });
   const handleLaunch = (workItemId: WorkItemId, input: LaunchInput): void =>
     executionCommand(async (csrfToken, forWorkspace) => {
       const response = await startRun(forWorkspace, workItemId, input, csrfToken);
@@ -1189,7 +1202,10 @@ export function App() {
             onLoadDiff={() => handleLoadDiff(run.worktree.id)}
             onCloseDiff={() => setDiff(undefined)}
             {...(canMutate && run.worktree.status === 'active'
-              ? { onRemediate: () => handleRemediate(run.run) }
+              ? {
+                  onRemediate: () => handleRemediate(run.run),
+                  onImplementDesign: () => handleImplementDesign(run.run),
+                }
               : {})}
           />
         )}

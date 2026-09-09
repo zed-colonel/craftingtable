@@ -160,6 +160,7 @@ export function RunPage({
   onLoadDiff,
   onCloseDiff,
   onRemediate,
+  onImplementDesign,
 }: {
   detail: AgentRunDetailResponse;
   events: readonly RunEventEnvelope[];
@@ -176,6 +177,8 @@ export function RunPage({
   onCloseDiff: () => void;
   /** Present when this review's findings can be handed to an implement run. */
   onRemediate?: () => void;
+  /** Accept a finished design: launch an implement run seeded with it. */
+  onImplementDesign?: () => void;
 }) {
   const { run, worktree } = detail;
   const live = isLiveStatus(run.status);
@@ -291,6 +294,19 @@ export function RunPage({
               Remediate findings
             </button>
           )}
+          {onImplementDesign !== undefined &&
+            run.role === 'design' &&
+            run.status === 'finished' && (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={onImplementDesign}
+                disabled={busy}
+                title="Launch an implement run in this worktree with this design as its plan"
+              >
+                Implement this design
+              </button>
+            )}
           {live && canMutate && (
             <>
               <button type="button" className="secondary-button" onClick={onEnd} disabled={busy}>

@@ -12,7 +12,7 @@ import { DelegationPanel } from './DelegationPanel.js';
 import { DiffView } from './DiffView.js';
 import { RepositoriesPage } from './RepositoriesPage.js';
 import { RunPage } from './RunPage.js';
-import { remediationInput } from './remediation.js';
+import { implementDesignInput, remediationInput } from './handoff.js';
 
 afterEach(cleanup);
 
@@ -536,4 +536,102 @@ it('remediates using the latest finished implementer in the same worktree, other
       { ...implementer, worktreeId: 'other' as AgentRunSummary['worktreeId'] },
     ]),
   ).toMatchObject({ backend: 'codex', model: 'gpt-5.6-luna' });
+});
+
+describe('design handoff', () => {
+  it('offers Implement on a finished design run using the form settings', () => {
+    const onLaunch = vi.fn();
+    const design = run({
+      id: 'design-1' as AgentRunSummary['id'],
+      status: 'finished',
+      role: 'design',
+      backend: 'codex',
+      outcomeSummary: 'Proposal: ring buffer.',
+    });
+    render(
+      <DelegationPanel
+        repositories={[repository]}
+        worktrees={[worktree]}
+        runs={[design, run({ id: 'live-1' as AgentRunSummary['id'], role: 'design' })]}
+        mergeGates={{}}
+        backends={[
+          { kind: 'claude-code', label: 'Claude Code', available: true, models: [] },
+          { kind: 'codex', label: 'Codex', available: true, models: [] },
+        ]}
+        itemCompleted={false}
+        canMutate={true}
+        busy={false}
+        onCreateWorktree={vi.fn()}
+        onRemoveWorktree={vi.fn()}
+        onMergeWorktree={vi.fn()}
+        onLoadBranches={vi.fn()}
+        onLaunch={onLaunch}
+        onRemediate={vi.fn()}
+        onOpenRun={vi.fn()}
+        onOpenDiff={vi.fn()}
+      />,
+    );
+    const table = screen.getByRole('table', { name: 'Agent runs' });
+    // Only the finished design run offers the handoff; the live one does not.
+    expect(within(table).getAllByRole('button', { name: 'Implement' })).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText('Permissions'), { target: { value: 'edit-only' } });
+    fireEvent.click(within(table).getByRole('button', { name: 'Implement' }));
+    expect(onLaunch).toHaveBeenCalledWith({
+      backend: 'claude-code',
+      worktreeId: 'wt-1',
+      role: 'implement',
+      permissionMode: 'edit-only',
+      parentRunId: 'design-1',
+    });
+  });
+
+  it('offers Implement this design on the run page for a finished design run', () => {
+    const onImplementDesign = vi.fn();
+    render(
+      <RunPage
+        detail={
+          {
+            run: run({ status: 'finished', role: 'design' }),
+            worktree,
+            brief: '# Work item AQ-01',
+            eventCount: 1,
+          } as AgentRunDetailResponse
+        }
+        events={[]}
+        connection="open"
+        canMutate={true}
+        busy={false}
+        onSend={vi.fn()}
+        onEnd={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenWorkItem={vi.fn()}
+        onLoadDiff={vi.fn()}
+        onCloseDiff={vi.fn()}
+        onImplementDesign={onImplementDesign}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Implement this design' }));
+    expect(onImplementDesign).toHaveBeenCalledOnce();
+  });
+
+  it('implements a design with the design run’s own agent and model', () => {
+    const design = run({
+      id: 'design-1' as AgentRunSummary['id'],
+      status: 'finished',
+      role: 'design',
+      backend: 'codex',
+      resolvedModel: 'gpt-5.6-luna',
+    });
+    expect(implementDesignInput(design)).toEqual({
+      backend: 'codex',
+      worktreeId: 'wt-1',
+      role: 'implement',
+      permissionMode: 'auto',
+      model: 'gpt-5.6-luna',
+      parentRunId: 'design-1',
+    });
+    expect(
+      implementDesignInput(run({ role: 'design', resolvedModel: 'default' })),
+    ).not.toHaveProperty('model');
+  });
 });

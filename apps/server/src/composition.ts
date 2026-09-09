@@ -1,6 +1,11 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { type AgentBackend, ClaudeCodeBackend, parseModelList } from '@craftingtable/agents';
+import {
+  type AgentBackend,
+  CLAUDE_CODE_MODELS,
+  ClaudeCodeBackend,
+  parseModelList,
+} from '@craftingtable/agents';
 import { AGENT_BACKENDS, AGENT_BACKEND_LABELS, type AgentBackendKind } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { type CraftingTableStorage, openCraftingTableStorage } from '@craftingtable/storage';
@@ -118,7 +123,7 @@ export async function createServices(
         'claude-code',
         new ClaudeCodeBackend({
           executable: claude,
-          models: parseModelList(config.execution.claudeModels),
+          models: parseModelList(config.execution.claudeModels, CLAUDE_CODE_MODELS),
         }),
       );
     }

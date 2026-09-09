@@ -47,7 +47,7 @@ export const FORBIDDEN_CAPABILITY_PATTERNS = [
 export const PROCESS_AUTHORITY = new Map([
   ['packages/git/src/command-runner.ts', 'read-only Git inspection (ADR-016)'],
   ['packages/git/src/operations.ts', 'worktree creation, removal, and diffing'],
-  ['packages/agents/src/claude-code/process.ts', 'Claude Code backend supervision'],
+  ['packages/agents/src/process.ts', 'Agent backend process supervision'],
 ]);
 
 /** The pure planning boundary (ADR-012). */

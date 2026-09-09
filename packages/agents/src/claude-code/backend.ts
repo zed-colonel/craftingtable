@@ -13,7 +13,7 @@ import {
 import { claudeCodeArguments, claudeUserMessageLine } from './arguments.js';
 import { CLAUDE_CODE_MODELS } from './models.js';
 import { ClaudeStreamNormalizer, RAW_LINE_LIMIT_BYTES } from './normalize.js';
-import { spawnSupervisedProcess } from './process.js';
+import { spawnSupervisedProcess } from '../process.js';
 
 export interface ClaudeCodeBackendOptions {
   /** Absolute path to the `claude` executable. */

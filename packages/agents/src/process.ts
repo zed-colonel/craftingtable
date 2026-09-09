@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 
 /**
- * Process authority for the Claude Code backend.
+ * Process authority shared by every agent backend.
  *
  * The only place in the agents package that spawns. The executable is an
  * absolute path resolved by the daemon; arguments are an array; the child is
@@ -37,7 +37,7 @@ export interface SupervisedProcess {
  * Minimal async queue: producers push, one consumer iterates. Closing the
  * queue after the final item lets `for await` complete naturally.
  */
-class AsyncQueue<T> implements AsyncIterable<T> {
+export class AsyncQueue<T> implements AsyncIterable<T> {
   private readonly buffered: T[] = [];
   private waiter: ((value: IteratorResult<T>) => void) | undefined;
   private closed = false;

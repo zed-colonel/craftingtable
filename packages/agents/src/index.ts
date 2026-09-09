@@ -95,5 +95,6 @@ export class AgentLaunchError extends Error {
 
 export { claudeCodeArguments, claudeUserMessageLine } from './claude-code/arguments.js';
 export { ClaudeCodeBackend, resolveClaudeExecutable } from './claude-code/backend.js';
-export { CLAUDE_CODE_MODELS, parseModelList } from './claude-code/models.js';
+export { parseModelList } from './models.js';
+export { CLAUDE_CODE_MODELS } from './claude-code/models.js';
 export { ClaudeStreamNormalizer } from './claude-code/normalize.js';

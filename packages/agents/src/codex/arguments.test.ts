@@ -1,50 +1,39 @@
 import { expect, it } from 'vitest';
-import { codexExecArguments, codexResumeArguments } from './arguments.js';
+import { codexThreadParams, codexTurnParams } from './arguments.js';
 
-it.each(['auto', 'edit-only'] as const)(
-  'uses noninteractive workspace-write for %s, including resume',
+it.each(['auto', 'edit-only', 'unrestricted'] as const)(
+  'applies %s permissions to new/resumed threads and every turn',
   (permissionMode) => {
-    const request = { cwd: '/work/x', prompt: 'private brief', permissionMode };
-    const flags = [
-      '--json',
-      '-c',
-      'sandbox_mode="workspace-write"',
-      '-c',
-      'approval_policy="never"',
-    ];
-    expect(codexExecArguments(request)).toEqual(['exec', ...flags, '-']);
-    expect(codexResumeArguments('thread-1', request)).toEqual([
-      'exec',
-      'resume',
-      ...flags,
-      'thread-1',
-      '-',
-    ]);
+    const request = {
+      cwd: '/work/x',
+      prompt: 'private brief',
+      permissionMode,
+      additionalDirectories: ['/work/y'],
+      appendSystemPrompt: 'instructions',
+      model: 'custom',
+    };
+    const thread = codexThreadParams(request);
+    const turn = codexTurnParams(request);
+    expect(thread).toMatchObject({
+      cwd: '/work/x',
+      model: 'custom',
+      developerInstructions: 'instructions',
+      approvalPolicy: permissionMode === 'auto' ? 'on-request' : 'never',
+      approvalsReviewer: permissionMode === 'auto' ? 'auto_review' : 'user',
+    });
+    expect(turn.approvalPolicy).toEqual(thread.approvalPolicy);
+    expect(turn.approvalsReviewer).toEqual(thread.approvalsReviewer);
+    expect(turn.sandboxPolicy).toEqual(
+      permissionMode === 'unrestricted'
+        ? { type: 'dangerFullAccess' }
+        : {
+            type: 'workspaceWrite',
+            writableRoots: ['/work/x', '/work/y'],
+            networkAccess: false,
+            excludeTmpdirEnvVar: false,
+            excludeSlashTmp: false,
+          },
+    );
+    expect(JSON.stringify(thread)).not.toContain('private brief');
   },
 );
-it('passes the model and explicit unrestricted posture without putting the prompt in argv', () => {
-  const request = {
-    cwd: '/work/x',
-    prompt: 'private brief',
-    permissionMode: 'unrestricted' as const,
-    model: 'gpt-5.6-luna',
-  };
-  expect(codexExecArguments(request)).toEqual([
-    'exec',
-    '--json',
-    '--dangerously-bypass-approvals-and-sandbox',
-    '--model',
-    'gpt-5.6-luna',
-    '-',
-  ]);
-  expect(codexResumeArguments('thread-1', request)).toEqual([
-    'exec',
-    'resume',
-    '--json',
-    '--dangerously-bypass-approvals-and-sandbox',
-    '--model',
-    'gpt-5.6-luna',
-    'thread-1',
-    '-',
-  ]);
-});

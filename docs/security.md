@@ -51,11 +51,18 @@ The agent's permission posture is chosen per run:
 - `auto` (default): Claude Code's own classifier approves routine actions; anything that
   would need a human prompt is denied.
 - `edit-only`: Claude file edits are pre-approved, prompts are denied.
-- On Codex, both `auto` and `edit-only` use its workspace-write sandbox with
-  approval prompts denied, on initial and resumed turns.
+- Codex `auto` uses workspace-write with `on-request` and `auto_review`: Codex's
+  reviewer decides requests to expand permissions. `edit-only` uses workspace-write
+  with `never`, denying escalation. These overrides apply to new and resumed threads
+  and every turn. Unexpected client approval requests are declined; the browser has
+  no generic permission-grant or RPC surface.
 - `unrestricted`: approval checks and any backend sandbox are disabled.
 
 Claude's permission modes do not confine the agent to the worktree at the OS level.
+Codex app-server communicates only over the supervised process's stdio. Authentication
+remains in Codex; CraftingTable reads the account type but does not persist account
+identities, credentials or raw authentication responses.
+
 Codex's workspace-write mode applies its own sandbox; unrestricted removes it. The brief instructs it
 to stay there, and the diff makes deviations visible, but an unrestricted run has the
 operator's full local authority. Treat `unrestricted` as you would running the agent by

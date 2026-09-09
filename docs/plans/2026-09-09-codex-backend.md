@@ -1,5 +1,9 @@
 # Codex Backend Implementation Plan
 
+> Historical implementation plan. The exec/resume transport and its permission and
+> telemetry limitations are superseded by [ADR-023](../decisions/ADR-023-codex-app-server.md).
+> Current behavior is documented in README.md and docs/architecture.md.
+
 > **For agentic workers:** work through the tasks in order, one commit per task,
 > running the named checks before each commit. Steps use checkbox (`- [x]`) syntax for
 > tracking. Read `AGENTS.md` first; it is the repository's canonical guidance and this

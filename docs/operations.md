@@ -50,7 +50,8 @@ The daemon's environment is the environment agents inherit: PATH must reach `git
 the account signed in to the selected agent. Run `codex login` as that account before
 using Codex. Tool status reports executable availability, not authentication health.
 `CRAFTINGTABLE_CODEX_EXECUTABLE` overrides discovery and `CRAFTINGTABLE_CODEX_MODELS`
-replaces its model picker list. Codex exec/resume behavior was verified with CLI 0.153.4.
+replaces its model picker list. Codex app-server behavior was verified with CLI 0.153.4. The adapter communicates
+over local stdio; do not start a separate app-server listener for CraftingTable.
 
 The unit owns port 4600, which `pnpm dev` also binds, so stop the service
 (`systemctl --user stop craftingtable`) before a dev session; `pnpm check` needs no such

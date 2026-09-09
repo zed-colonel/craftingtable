@@ -37,8 +37,8 @@ import {
 } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
-import { mergeGateFor } from './services/execution-service.js';
 import { CSRF_HEADER_NAME } from './config.js';
+import { mergeGateFor } from './services/execution-service.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
 /* -------------------------------------------------------------------------- */
@@ -199,6 +199,18 @@ class ScriptedSession implements AgentSession {
           outcome: 'success',
           resultText: this.resultText(text),
           costUsd: 0.5 * this.turns,
+          ...(text.includes('TELEMETRY')
+            ? {
+                model: 'rerouted-model',
+                tokenUsage: {
+                  inputTokens: 10,
+                  cachedInputTokens: 5,
+                  outputTokens: 2,
+                  reasoningOutputTokens: 1,
+                  totalTokens: 12,
+                },
+              }
+            : {}),
           turns: this.turns,
           durationMs: 10,
         },
@@ -1230,4 +1242,25 @@ it('never opens the merge gate for a failed, cancelled or interrupted review wit
   for (const status of ['failed', 'cancelled', 'interrupted'] as const) {
     expect(mergeGateFor(storedWorktree, [{ ...run, status }]).mergeable).toBe(false);
   }
+});
+
+it('persists reported model changes and replays neutral token usage over HTTP', async () => {
+  const state = await ready({ backend: new ScriptedBackend('codex') });
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  const runId = await runToFinish(state, worktree.id, { instructions: 'TELEMETRY' });
+  expect(state.context.storage.execution.runs.find(state.workspaceId, runId)?.resolvedModel).toBe(
+    'rerouted-model',
+  );
+  const page = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${state.workspaceId}/runs/${runId}/event-page`,
+    headers: { cookie: state.cookie },
+  });
+  const event = runEventPageResponseSchema
+    .parse(page.json())
+    .events.find((event) => event.kind === 'turn-completed');
+  expect(event?.payload).toMatchObject({
+    model: 'rerouted-model',
+    tokenUsage: { totalTokens: 12 },
+  });
 });

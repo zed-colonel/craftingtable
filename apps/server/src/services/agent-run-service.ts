@@ -8,8 +8,8 @@ import type {
   NormalizedAgentEvent,
 } from '@craftingtable/agents';
 import {
-  AGENT_BACKENDS,
   AGENT_BACKEND_LABELS,
+  AGENT_BACKENDS,
   type AgentBackendKind,
   type AgentBillingSource,
   type AgentPermissionMode,
@@ -533,6 +533,9 @@ export class AgentRunService {
             run?.role === 'review' ? parseVerdict(item.event.payload.resultText) : undefined;
           this.transition(workspaceId, runId, ['starting', 'running', 'waiting'], 'waiting', {
             turnCountIncrement: 1,
+            ...(item.event.payload.model === undefined
+              ? {}
+              : { resolvedModel: item.event.payload.model }),
             outcomeSummary: summarise(item.event.payload.resultText),
             ...(item.event.payload.costUsd === undefined
               ? {}

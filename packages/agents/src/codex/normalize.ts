@@ -1,4 +1,4 @@
-import type { AgentBillingSource, AgentPermissionMode } from '@craftingtable/domain';
+import type { AgentRunEventPayloads } from '@craftingtable/domain';
 import {
   boundedJson,
   boundedRaw,
@@ -12,114 +12,127 @@ import {
 } from '../bounded.js';
 import type { NormalizedAgentEvent } from '../index.js';
 
-export interface CodexNormalizerOptions {
-  readonly permissionMode: AgentPermissionMode;
-  readonly cwd: string;
-  readonly requestedModel?: string;
-  readonly billing: AgentBillingSource;
-}
-
-/** One thread across multiple exec processes; vendor item ids restart each turn. */
+/** Only the selected thread's notifications reach this adapter-local normalizer. */
 export class CodexStreamNormalizer {
-  private id: string | undefined;
-  private ended = false;
-  private failed = false;
   private turns = 0;
   private startedAt = Date.now();
   private lastMessage = '';
+  private usage: AgentRunEventPayloads['turn-completed']['tokenUsage'];
+  private totalUsage: AgentRunEventPayloads['turn-completed']['tokenUsage'];
+  private baselineUsage: AgentRunEventPayloads['turn-completed']['tokenUsage'];
   private readonly calls = new Set<string>();
-  constructor(private readonly options: CodexNormalizerOptions) {}
-  threadId(): string | undefined {
-    return this.id;
-  }
-  turnEnded(): boolean {
-    return this.ended;
-  }
-  turnFailed(): boolean {
-    return this.failed;
+  private readonly completedItems = new Set<string>();
+  constructor(resumed = false) {
+    if (!resumed)
+      this.totalUsage = {
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        reasoningOutputTokens: 0,
+        totalTokens: 0,
+      };
   }
   beginTurn(): void {
-    this.ended = false;
-    this.failed = false;
     this.lastMessage = '';
+    this.usage = undefined;
+    this.baselineUsage = this.totalUsage;
     this.startedAt = Date.now();
     this.calls.clear();
+    this.completedItems.clear();
   }
-
-  normalizeLine(line: string): readonly NormalizedAgentEvent[] {
-    if (line.trim() === '') return [];
-    const raw = boundedRaw(line);
-    let value: unknown;
-    try {
-      value = JSON.parse(line);
-    } catch {
-      return [this.notice(`Unparseable backend output: ${firstLine(line, 500)}`, raw)];
-    }
-    if (!isRecord(value)) return [this.notice('Unknown backend output', raw)];
-    switch (value.type) {
-      case 'thread.started': {
-        const id = stringOf(value.thread_id);
-        if (!id || id.length > 200) return [this.notice('Invalid Codex thread id', raw)];
-        if (this.id !== undefined)
-          return id === this.id ? [] : [this.notice('Codex returned a different thread id', raw)];
-        this.id = id;
-        return [
-          {
-            kind: 'session-started',
-            payload: {
-              backend: 'codex',
-              backendSessionId: id,
-              model: (this.options.requestedModel || 'default').slice(0, 100),
-              permissionMode: this.options.permissionMode,
-              cwd: this.options.cwd,
-              billing: this.options.billing,
-            },
-            raw,
-          },
-        ];
+  normalize(method: string, params: Record<string, unknown>): readonly NormalizedAgentEvent[] {
+    const raw = boundedRaw(JSON.stringify({ method, params }));
+    if (method === 'thread/tokenUsage/updated') {
+      const last = isRecord(params.tokenUsage) ? params.tokenUsage.last : undefined;
+      const total = isRecord(params.tokenUsage) ? params.tokenUsage.total : undefined;
+      const keys = [
+        'inputTokens',
+        'cachedInputTokens',
+        'outputTokens',
+        'reasoningOutputTokens',
+        'totalTokens',
+      ] as const;
+      if (
+        isRecord(last) &&
+        isRecord(total) &&
+        keys.every(
+          (key) =>
+            Number.isSafeInteger(last[key]) &&
+            (last[key] as number) >= 0 &&
+            Number.isSafeInteger(total[key]) &&
+            (total[key] as number) >= (last[key] as number),
+        )
+      ) {
+        // `last` is one model response, not an operator turn. Cumulative differences
+        // include every tool iteration and are insensitive to repeated snapshots.
+        const baseline =
+          this.baselineUsage ??
+          (Object.fromEntries(
+            keys.map((key) => [key, (total[key] as number) - (last[key] as number)]),
+          ) as NonNullable<typeof this.usage>);
+        if (keys.every((key) => (total[key] as number) >= baseline[key])) {
+          this.baselineUsage = baseline;
+          this.totalUsage = Object.fromEntries(keys.map((key) => [key, total[key]])) as NonNullable<
+            typeof this.usage
+          >;
+          this.usage = Object.fromEntries(
+            keys.map((key) => [key, (total[key] as number) - baseline[key]]),
+          ) as NonNullable<typeof this.usage>;
+        }
       }
-      case 'turn.started':
-        this.beginTurn();
-        return [];
-      case 'turn.completed':
-      case 'turn.failed': {
-        if (this.ended) return [];
-        this.ended = true;
-        this.failed = value.type === 'turn.failed';
-        this.turns += 1;
-        return [
-          {
-            kind: 'turn-completed',
-            payload: {
-              outcome: this.failed ? 'error' : 'success',
-              resultText: this.failed
-                ? truncateUtf8(
-                    isRecord(value.error) ? stringOf(value.error.message) : 'Codex turn failed',
-                    MESSAGE_TEXT_LIMIT_BYTES,
-                  ).text
-                : this.lastMessage,
-              turns: this.turns,
-              durationMs: Math.max(0, Date.now() - this.startedAt),
-            },
-            raw,
-          },
-        ];
-      }
-      case 'error':
-        return [this.notice(stringOf(value.message) || 'Codex error', raw)];
-      case 'item.started':
-      case 'item.updated':
-      case 'item.completed':
-        if (isRecord(value.item))
-          return this.item(value.item, value.type === 'item.completed', raw);
-        return [this.notice('Missing backend item', raw)];
-      default:
-        return [
-          this.notice(`Backend message: ${firstLine(stringOf(value.type) || 'unknown')}`, raw),
-        ];
+      return [];
     }
+    if ((method === 'item/started' || method === 'item/completed') && isRecord(params.item)) {
+      const completed = method === 'item/completed';
+      const id = stringOf(params.item.id);
+      if (!id || this.completedItems.has(id)) return [];
+      if (completed) this.completedItems.add(id);
+      if (params.item.type === 'contextCompaction') {
+        return completed
+          ? [
+              {
+                kind: 'notice',
+                payload: { category: 'compaction', message: 'Codex compacted the conversation' },
+                raw,
+              },
+            ]
+          : [];
+      }
+      return this.item(params.item, completed, raw);
+    }
+    if (method === 'error') {
+      return [
+        this.notice(isRecord(params.error) ? stringOf(params.error.message) : 'Codex error', raw),
+      ];
+    }
+    if (method === 'turn/plan/updated') {
+      return [this.notice(`Plan: ${JSON.stringify(boundedJson(params.plan, 3500))}`, raw)];
+    }
+    // Deltas are transient; completed items provide bounded, replayable messages/results.
+    return [];
   }
-
+  complete(turn: Record<string, unknown>, model: string, costUsd?: number): NormalizedAgentEvent {
+    this.turns += 1;
+    const failed = turn.status !== 'completed';
+    return {
+      kind: 'turn-completed',
+      payload: {
+        outcome: failed ? 'error' : 'success',
+        resultText: failed
+          ? truncateUtf8(
+              (isRecord(turn.error) ? stringOf(turn.error.message) : '') ||
+                `Codex turn ${stringOf(turn.status)}`,
+              MESSAGE_TEXT_LIMIT_BYTES,
+            ).text
+          : this.lastMessage,
+        turns: this.turns,
+        durationMs: Math.max(0, Date.now() - this.startedAt),
+        model,
+        ...(this.usage === undefined ? {} : { tokenUsage: this.usage }),
+        ...(costUsd === undefined ? {} : { costUsd }),
+      },
+    };
+  }
   private notice(message: string, raw: string): NormalizedAgentEvent {
     return {
       kind: 'notice',
@@ -139,29 +152,29 @@ export class CodexStreamNormalizer {
     raw: string,
   ): readonly NormalizedAgentEvent[] {
     const type = stringOf(item.type);
-    if (type === 'reasoning' || type === 'todo_list') return [];
-    if (type === 'agent_message') {
+    if (type === 'reasoning' || type === 'userMessage') return [];
+    if (type === 'agentMessage') {
       if (!completed) return [];
       this.lastMessage = truncateUtf8(stringOf(item.text), MESSAGE_TEXT_LIMIT_BYTES).text;
       return [{ kind: 'assistant-message', payload: { text: this.lastMessage }, raw }];
     }
     if (type === 'error') return completed ? [this.notice(stringOf(item.message), raw)] : [];
-    // Prefix with the turn because exec resume restarts item ids at item_0.
+    // Scope vendor ids to a turn, including tools from resumed sessions.
     const toolUseId = `${this.turns + 1}:${stringOf(item.id) || 'unknown'}`.slice(0, 200);
     let name: string;
     let input: unknown;
     let summary: string;
     let output = '';
-    let isError = item.status === 'failed';
+    let isError = item.status === 'failed' || item.status === 'declined';
     switch (type) {
-      case 'command_execution':
+      case 'commandExecution':
         name = 'command';
         input = { command: stringOf(item.command) };
         summary = `Run: ${firstLine(stringOf(item.command))}`;
-        output = stringOf(item.aggregated_output);
-        isError ||= completed && item.exit_code !== 0;
+        output = stringOf(item.aggregatedOutput);
+        isError ||= completed && typeof item.exitCode === 'number' && item.exitCode !== 0;
         break;
-      case 'file_change': {
+      case 'fileChange': {
         name = 'file-change';
         const changes = Array.isArray(item.changes) ? item.changes.filter(isRecord) : [];
         input = { changes };
@@ -171,7 +184,7 @@ export class CodexStreamNormalizer {
         );
         break;
       }
-      case 'mcp_tool_call':
+      case 'mcpToolCall':
         name = `${stringOf(item.server)}/${stringOf(item.tool)}`.slice(0, 200);
         input = item.arguments ?? null;
         summary = name;
@@ -185,13 +198,23 @@ export class CodexStreamNormalizer {
 
         isError ||= item.error != null || (isRecord(item.result) && item.result.isError === true);
         break;
-      case 'web_search':
+      case 'dynamicToolCall':
+      case 'collabAgentToolCall':
+        name = stringOf(item.tool) || type;
+        input = item.arguments ?? item.prompt ?? null;
+        summary = name;
+        output = JSON.stringify(
+          boundedJson(item.contentItems ?? item.agentsStates ?? null, TOOL_RESULT_LIMIT_BYTES * 2),
+        );
+        isError ||= item.success === false;
+        break;
+      case 'webSearch':
         name = 'web-search';
         input = { query: stringOf(item.query) };
         summary = firstLine(stringOf(item.query));
         break;
       default:
-        return [this.notice(`Backend item: ${firstLine(type || 'unknown')}`, raw)];
+        return completed ? [this.notice(`Backend item: ${firstLine(type || 'unknown')}`, raw)] : [];
     }
     const events: NormalizedAgentEvent[] = [];
     if (!this.calls.has(toolUseId)) {

@@ -20,8 +20,8 @@ it is mergeable.
 - **Agent runs.** Launch Claude Code or Codex in the worktree with a composed brief (the work
   item, its dependencies, the plan documents, your instructions). Choose a role
   (implement, review, design), a permission posture, and optionally a model. Runs
-  record model and billing information when the backend reports it; Codex shows the
-  requested model or backend default and does not report dollar costs.
+  record resolved models and billing information. Codex also records turn token usage;
+  dollar usage is shown only when the account reports it.
 - **Live supervision.** Every tool call, result, message, and turn is journaled and
   streamed to the browser into a feed you can filter and scroll without losing your
   place. Send follow-up messages, end the session, or cancel.
@@ -135,9 +135,14 @@ All settings are environment variables. Defaults suit the loopback dev setup.
 
 The **Repositories** page shows which Git, Claude Code, and Codex executables the daemon found.
 
-For Codex, Auto and Edit-only both use the workspace-write sandbox with approval
-prompts denied. Unrestricted disables the sandbox and approval checks. Follow-up
-messages resume the same Codex thread, and End session finishes accepted messages.
+Codex uses its documented app-server integration over local stdio (verified with CLI
+0.153.4). Sign in as the daemon's OS user with `codex login`; subscription login works.
+Auto uses the workspace-write sandbox with Codex automatic approval review. Edit-only
+denies requests to expand access; Unrestricted disables the sandbox and approval checks.
+Follow-ups steer an active turn or start another turn in the same thread. End session
+finishes accepted input; Cancel interrupts and terminates the process group. Codex does
+not enforce dollar budget caps. Dollar estimates may be unavailable on subscription
+accounts; missing costs appear as `—`, never as zero.
 
 ## Where things are
 

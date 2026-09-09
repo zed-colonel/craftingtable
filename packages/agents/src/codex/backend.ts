@@ -14,6 +14,7 @@ export interface CodexBackendOptions {
   readonly executable: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly terminationGraceMs?: number;
+  readonly requestTimeoutMs?: number;
   readonly models?: readonly AgentModelOption[];
 }
 export class CodexBackend implements AgentBackend {

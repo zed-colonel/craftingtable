@@ -44,7 +44,7 @@ Roles (`implement`, `review`, `design`) select a brief template. Together with
 cycles: an orchestrator chains runs by role and lineage without new vocabulary.
 
 Runs also record model and billing provenance: `resolvedModel` and `billing`
-from normalized session metadata (Codex uses the requested model or `default`), and for review runs a `verdict` parsed
+from normalized session metadata and subsequent reported model reroutes, and for review runs a `verdict` parsed
 from the final message's `VERDICT:` line.
 
 ## Work item lifecycle and the merge gate
@@ -83,13 +83,19 @@ The Claude Code adapter launches `claude -p --input-format stream-json
 open for follow-ups, maps the vendor-neutral permission posture to a CLI permission
 mode, and terminates the process group on cancel.
 
-The Codex adapter launches `codex exec --json` for each turn, passing the brief on
-stdin, then resumes the captured thread id in a new process for each follow-up.
-The session stays open between processes. It queues messages, ends after accepted
-messages finish, and fails closed on process or protocol errors. Both adapters use
-`packages/agents/src/process.ts`; process authority remains three modules. The daemon
-selects from a backend registry, defaulting to the first available of Claude Code and
-Codex. See ADR-022 for permission mapping and model/billing limitations.
+The Codex adapter keeps one supervised `codex app-server --stdio` process per run.
+An adapter-local RPC client initializes the connection and starts or resumes a thread;
+follow-ups steer an active turn or start another turn on the same thread. It drains
+accepted input on End, interrupts and terminates on Cancel, and fails closed on protocol
+errors or unexpected exits. Completed items become bounded durable events; transient
+text/output deltas are not journaled separately. Optional model and token metadata on
+turn-completed events remain vendor-neutral and survive replay. Resolved model changes
+also update the run projection. Dollar usage is optional and never inferred from tokens.
+
+Both adapters use `packages/agents/src/process.ts`; process authority remains three
+modules. The daemon selects from a backend registry, defaulting to the first available
+of Claude Code and Codex. No app-server socket is exposed to the browser or LAN.
+See ADR-023 for permission mapping, lifecycle and metadata behavior.
 
 ## Git boundary
 

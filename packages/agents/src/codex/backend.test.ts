@@ -7,25 +7,82 @@ import { CodexBackend } from './backend.js';
 
 const FAKE = `#!${process.execPath}
 const fs = require('node:fs');
-const args = process.argv.slice(2);
-const emit = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
-if (process.env.FAKE_IGNORE_TERM) process.on('SIGTERM', () => {});
-let prompt = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (text) => prompt += text);
-process.stdin.on('end', () => {
-  fs.appendFileSync('launches.jsonl', JSON.stringify({args, prompt}) + '\\n');
-  emit({type: 'thread.started', thread_id: 'fake-thread'});
-  emit({type: 'turn.started'});
-  if (process.env.FAKE_IGNORE_TERM) { setInterval(() => {}, 1000); return; }
-  if (process.env.FAKE_EXIT) { process.stderr.write('broken process'); process.exit(2); }
-  if (process.env.FAKE_MISSING_TURN) return;
-  setTimeout(() => {
-    emit({type: 'item.completed', item: {id: 'item_0', type: 'agent_message', text: 'echo: ' + prompt}});
-    emit(process.env.FAKE_TURN_FAILED ? {type: 'turn.failed', error: {message: 'turn failed'}} : {type: 'turn.completed', usage: {input_tokens: 1}});
-    process.exit(process.env.FAKE_LATE_FAILURE ? 2 : 0);
-  }, 30);
+const readline = require('node:readline');
+const mode = process.env.FAKE_MODE;
+const emit = value => process.stdout.write(JSON.stringify(value) + '\\n');
+const trace = value => fs.appendFileSync('rpc.jsonl', JSON.stringify(value) + '\\n');
+trace({args: process.argv.slice(2), pid: process.pid});
+if (mode === 'ignore-term') process.on('SIGTERM', () => {});
+if (mode === 'shutdown-error') process.on('SIGTERM', () => process.exit(2));
+let initialized = false, threadId = 'fake-thread', turns = 0, active, timer, texts = [];
+const notify = (method, params) => emit({method, params: {threadId, ...params}});
+function finish(status = 'completed') {
+  if (!active) return;
+  clearTimeout(timer);
+  const id = active;
+  notify('item/completed', {turnId: id, item: {id: 'message-' + id, type: 'agentMessage', text: texts.join(' | ')}});
+  notify('thread/tokenUsage/updated', {turnId: id, tokenUsage: {total: {inputTokens: 10 * turns, cachedInputTokens: 5 * turns, outputTokens: 2 * turns, reasoningOutputTokens: turns, totalTokens: 12 * turns}, last: {inputTokens: 10, cachedInputTokens: 5, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 12}}});
+  notify('model/rerouted', {turnId: id, fromModel: 'resolved', toModel: 'effective'});
+  active = undefined;
+  notify('turn/completed', {turn: {id, status, error: status === 'failed' ? {message: 'turn failed'} : null}});
+  if (mode === 'duplicate') notify('turn/completed', {turn: {id, status}});
+  if (mode === 'late-failure') process.exit(2);
+}
+const lines = readline.createInterface({input: process.stdin});
+lines.on('line', line => {
+  const msg = JSON.parse(line);
+  trace(msg);
+  const reply = result => emit({id: msg.id, result});
+  if (msg.method === 'initialize') {
+    if (mode === 'timeout') return;
+    reply({userAgent: 'fake'}); return;
+  }
+  if (msg.method === 'initialized') {initialized = true; return;}
+  if (!msg.method) return;
+  if (!initialized) {process.exit(3); return;}
+  if (msg.method === 'account/read') {reply({account: {type: process.env.FAKE_API ? 'apiKey' : 'chatgpt', email: 'private@example.invalid'}}); return;}
+  if (msg.method === 'account/usage/read') {
+    if (mode === 'usage-timeout') return;
+    reply(mode === 'cost' ? {threadUsage: {threadId, estimatedUsageUsdMicros: 125000}} : {}); return;
+  }
+  if (msg.method === 'thread/start' || msg.method === 'thread/resume') {
+    threadId = msg.params.threadId || threadId;
+    reply({thread: {id: mode === 'wrong-thread' ? 'other' : threadId}, model: 'resolved'}); return;
+  }
+  if (msg.method === 'thread/name/set') {reply({}); return;}
+  if (msg.method === 'turn/start') {
+    if (mode === 'rpc-error') {emit({id: msg.id, error: {code: -32600, message: 'invalid model'}}); return;}
+    active = 'turn-' + ++turns;
+    texts = [msg.params.input[0]?.text];
+    notify('turn/started', {turn: {id: active, status: 'inProgress'}});
+    if (mode === 'malformed') {process.stdout.write('broken json\\n'); return;}
+    if (mode === 'oversize') {process.stdout.write('x'.repeat(4 * 1024 * 1024 + 10) + '\\n'); return;}
+    if (mode === 'exit-zero') {process.exit(0); return;}
+    if (mode === 'requests') {
+      for (const [i, method] of ['item/commandExecution/requestApproval','item/fileChange/requestApproval','item/permissions/requestApproval','item/tool/requestUserInput','mcpServer/elicitation/request','unrecognized/request'].entries()) emit({id: 'server-' + i, method, params: {threadId}});
+    }
+    // A notification from a subagent or another thread must not affect the parent run.
+    emit({method: 'item/completed', params: {threadId: 'unrelated', turnId: active, item: {id: 'foreign', type: 'agentMessage', text: 'FOREIGN'}}});
+    const id = active;
+    if (mode === 'complete-before-reply') {finish(); setTimeout(() => reply({turn: {id, status: 'completed'}}), 20); return;}
+    reply({turn: {id, status: 'inProgress'}});
+    if (mode === 'hold' || mode === 'ignore-term') return;
+    timer = setTimeout(() => finish(mode === 'failed' ? 'failed' : 'completed'), 100);
+    return;
+  }
+  if (msg.method === 'turn/steer') {
+    if (mode === 'race') {
+      finish(); emit({id: msg.id, error: {code: -32600, message: 'no active turn'}}); return;
+    }
+    if (mode === 'steer-timeout') return;
+    texts.push(msg.params.input[0]?.text); reply({turnId: active}); return;
+  }
+  if (msg.method === 'turn/interrupt') {
+    if (mode === 'ignore-term') return;
+    reply({}); finish('interrupted'); return;
+  }
 });
+lines.on('close', () => { if (mode === 'shutdown-error') {setInterval(() => {}, 1000); return;} if (mode !== 'ignore-term') process.exit(0); });
 `;
 const directories: string[] = [];
 const sessions: AgentSession[] = [];
@@ -33,145 +90,220 @@ afterEach(() => {
   for (const session of sessions.splice(0)) session.kill();
   for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true });
 });
-async function launch(env: NodeJS.ProcessEnv = {}, overrides: Partial<AgentLaunchRequest> = {}) {
+async function launch(mode = '', overrides: Partial<AgentLaunchRequest> = {}) {
   const cwd = mkdtempSync(join(tmpdir(), 'craftingtable-codex-'));
   directories.push(cwd);
   const executable = join(cwd, 'codex');
   writeFileSync(executable, FAKE);
   chmodSync(executable, 0o755);
-  const backend = new CodexBackend({ executable, env, terminationGraceMs: 50 });
-  const session = await backend.launch({
-    cwd,
-    prompt: 'first\nmultiline',
-    permissionMode: 'auto',
-    ...overrides,
-  });
+  const session = await new CodexBackend({
+    executable,
+    env: { FAKE_MODE: mode },
+    terminationGraceMs: 50,
+    requestTimeoutMs: 300,
+  }).launch({ cwd, prompt: 'first\nmultiline', permissionMode: 'auto', ...overrides });
   sessions.push(session);
   const items: AgentSessionItem[] = [];
   const done = (async () => {
     for await (const item of session.items) items.push(item);
   })();
-  return { session, items, done, cwd, executable };
+  const messages = (): Array<{
+    id?: string | number;
+    method?: string;
+    args?: string[];
+    params: { input: Array<{ text: string }>; name?: string };
+    result?: unknown;
+    error?: unknown;
+  }> =>
+    readFileSync(join(cwd, 'rpc.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+  return { session, items, done, messages };
 }
 async function waitFor(predicate: () => boolean) {
   await expect.poll(predicate, { timeout: 5000, interval: 10 }).toBe(true);
 }
 const turns = (items: AgentSessionItem[]) =>
-  items.filter((item) => item.type === 'event' && item.event.kind === 'turn-completed');
+  items.flatMap((item) =>
+    item.type === 'event' && item.event.kind === 'turn-completed' ? [item.event.payload] : [],
+  );
 
-it('keeps a completed process session open, resumes by thread id, and ends while idle', async () => {
-  const { session, items, done, cwd } = await launch();
-  await waitFor(() => session.pid === undefined);
-  expect(turns(items)).toHaveLength(1);
-  expect(items.some((item) => item.type === 'exited')).toBe(false);
+it('keeps one process for multiple turns, uses resolved metadata and closes only when ended', async () => {
+  const { session, items, done, messages } = await launch();
+  const pid = session.pid;
+  await waitFor(() => turns(items).length === 1);
+  expect(session.pid).toBe(pid);
   expect(session.send('again\nsecond line')).toBe(true);
-  await waitFor(() => turns(items).length === 2 && session.pid === undefined);
-  const launches = readFileSync(join(cwd, 'launches.jsonl'), 'utf8')
-    .trim()
-    .split('\n')
-    .map((line) => JSON.parse(line));
-  expect(launches.map((entry) => entry.prompt)).toEqual(['first\nmultiline', 'again\nsecond line']);
-  expect(launches[1].args).toEqual([
-    'exec',
-    'resume',
-    '--json',
-    '-c',
-    'sandbox_mode="workspace-write"',
-    '-c',
-    'approval_policy="never"',
-    'fake-thread',
-    '-',
-  ]);
+  await waitFor(() => turns(items).length === 2);
+  expect(session.pid).toBe(pid);
+  expect(messages().filter((msg) => msg.args)).toEqual([{ args: ['app-server', '--stdio'], pid }]);
+  expect(
+    messages()
+      .filter((msg) => msg.method === 'turn/start')
+      .map((msg) => msg.params.input[0]?.text),
+  ).toEqual(['first\nmultiline', 'again\nsecond line']);
   expect(
     items.filter((item) => item.type === 'event' && item.event.kind === 'session-started'),
-  ).toHaveLength(1);
+  ).toMatchObject([
+    {
+      event: {
+        payload: { model: 'resolved', billing: 'subscription', backendSessionId: 'fake-thread' },
+      },
+    },
+  ]);
+  expect(turns(items)[0]).toMatchObject({ model: 'effective', tokenUsage: { totalTokens: 12 } });
+  expect(turns(items)[0]).not.toHaveProperty('costUsd');
+  expect(JSON.stringify(items)).not.toContain('private@example.invalid');
+  expect(JSON.stringify(items)).not.toContain('FOREIGN');
   session.end();
   await done;
   expect(items.at(-1)).toEqual({ type: 'exited', exitCode: 0, signal: null });
   expect(session.send('late')).toBe(false);
 });
 
-it('queues messages during a turn and drains accepted messages before ending', async () => {
-  const { session, items, done, cwd } = await launch();
-  expect(session.send('second')).toBe(true);
-  expect(session.send('third')).toBe(true);
+it('steers messages accepted during startup in order and drains them before ending', async () => {
+  const { session, items, done, messages } = await launch();
+  session.send('second');
+  session.send('third');
   session.end();
-  expect(session.send('too late')).toBe(false);
+  expect(session.send('late')).toBe(false);
   await done;
-  expect(turns(items)).toHaveLength(3);
   expect(
-    readFileSync(join(cwd, 'launches.jsonl'), 'utf8')
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line).prompt),
-  ).toEqual(['first\nmultiline', 'second', 'third']);
-  expect(items.at(-1)).toMatchObject({ type: 'exited', exitCode: 0 });
-});
-
-it('ends after the running turn and reports unsupported options without exposing their contents', async () => {
-  const { session, items, done } = await launch(
-    {},
-    { appendSystemPrompt: 'secret prompt', maxBudgetUsd: 5 },
-  );
-  session.end();
-  await done;
+    messages()
+      .filter((msg) => msg.method === 'turn/steer')
+      .map((msg) => msg.params.input[0]?.text),
+  ).toEqual(['second', 'third']);
   expect(turns(items)).toHaveLength(1);
-  expect(items.slice(0, 2).map((item) => item.type === 'event' && item.event.kind)).toEqual([
-    'notice',
-    'notice',
-  ]);
-  expect(JSON.stringify(items)).not.toContain('secret prompt');
+  expect(turns(items)[0]?.resultText).toBe('first\nmultiline | second | third');
   expect(items.at(-1)).toMatchObject({ exitCode: 0 });
 });
 
-it('kills an uncooperative running child, drops queued messages and reaps it before closing', async () => {
-  const { session, items, done, cwd } = await launch({ FAKE_IGNORE_TERM: '1' });
-  await waitFor(() =>
-    items.some((item) => item.type === 'event' && item.event.kind === 'session-started'),
-  );
-  const pid = session.pid;
-  session.send('queued');
-  session.kill();
-  session.kill();
-  expect(session.send('late')).toBe(false);
+it.each(['race', 'complete-before-reply'])(
+  'preserves input when turn completion races %s',
+  async (mode) => {
+    const { session, items, done, messages } = await launch(mode);
+    session.send('follow-up');
+    session.end();
+    await done;
+    expect(turns(items)).toHaveLength(2);
+    expect(turns(items)[1]?.resultText).toBe('follow-up');
+    expect(messages().filter((msg) => msg.method === 'turn/start')).toHaveLength(2);
+    expect(items.at(-1)).toMatchObject({ exitCode: 0 });
+  },
+);
+
+it('resumes the exact thread, sets the name and developer instructions, and reports only the unsupported budget', async () => {
+  const { session, items, done, messages } = await launch('', {
+    resumeSessionId: 'resume-id',
+    sessionName: 'Test run',
+    appendSystemPrompt: 'private instructions',
+    maxBudgetUsd: 5,
+  });
+  session.end();
   await done;
-  expect(items.at(-1)).toEqual({ type: 'exited', exitCode: null, signal: 'SIGKILL' });
-  expect(() => process.kill(pid ?? 0, 0)).toThrow();
-  expect(readFileSync(join(cwd, 'launches.jsonl'), 'utf8').trim().split('\n')).toHaveLength(1);
+  expect(messages().find((msg) => msg.method === 'thread/resume')?.params).toMatchObject({
+    threadId: 'resume-id',
+    developerInstructions: 'private instructions',
+    excludeTurns: true,
+  });
+  expect(messages().find((msg) => msg.method === 'thread/name/set')?.params).toMatchObject({
+    name: 'Test run',
+  });
+  expect(JSON.stringify(items)).not.toContain('private instructions');
+  expect(JSON.stringify(items)).toContain('budget cap');
+  expect(items.at(-1)).toMatchObject({ exitCode: 0 });
 });
 
-it('can cancel between turns without starting another process', async () => {
-  const { session, items, done } = await launch();
-  await waitFor(() => session.pid === undefined);
-  session.kill();
+it.each(['cost', 'usage-timeout', 'duplicate'])(
+  'handles optional usage and duplicate completion: %s',
+  async (mode) => {
+    const { session, items, done } = await launch(mode);
+    session.end();
+    await done;
+    expect(turns(items)).toHaveLength(1);
+    if (mode === 'cost') expect(turns(items)[0]?.costUsd).toBe(0.125);
+    else expect(turns(items)[0]).not.toHaveProperty('costUsd');
+    expect(items.at(-1)).toMatchObject({ exitCode: 0 });
+  },
+);
+
+it('responds to server requests without granting permissions or inventing user input', async () => {
+  const { session, items, done, messages } = await launch('requests');
+  session.end();
   await done;
-  expect(items.at(-1)).toEqual({ type: 'exited', exitCode: null, signal: 'SIGTERM' });
+  expect(
+    messages()
+      .filter((msg) => String(msg.id).startsWith('server-'))
+      .map((msg) => msg.result ?? msg.error),
+  ).toEqual([
+    { decision: 'decline' },
+    { decision: 'decline' },
+    { permissions: {}, scope: 'turn' },
+    { answers: {} },
+    { action: 'decline', content: null, _meta: null },
+    { code: -32601, message: 'Client request is not supported by CraftingTable' },
+  ]);
+  expect(items.at(-1)).toMatchObject({ exitCode: 0 });
+});
+
+it.each(['hold', 'ignore-term'])(
+  'interrupts active work and reaps the process, escalating when needed: %s',
+  async (mode) => {
+    const { session, items, done, messages } = await launch(mode);
+    await waitFor(() => {
+      try {
+        return messages().some((msg) => msg.method === 'turn/start');
+      } catch {
+        return false;
+      }
+    });
+    const pid = session.pid;
+    session.kill();
+    session.kill();
+    await done;
+    expect(messages().some((msg) => msg.method === 'turn/interrupt')).toBe(true);
+    expect(items.at(-1)).toMatchObject({
+      type: 'exited',
+      signal: mode === 'ignore-term' ? 'SIGKILL' : 'SIGTERM',
+    });
+    expect(() => process.kill(pid ?? 0, 0)).toThrow();
+  },
+);
+
+it('cancels while idle and before initialization', async () => {
+  const idle = await launch();
+  await waitFor(() => turns(idle.items).length === 1);
+  idle.session.kill();
+  await idle.done;
+  expect(idle.items.at(-1)).toMatchObject({ type: 'exited', signal: 'SIGTERM' });
+  const starting = await launch('timeout');
+  starting.session.kill();
+  await starting.done;
+  expect(starting.items.at(-1)).toMatchObject({ type: 'exited', signal: 'SIGTERM' });
 });
 
 it.each([
-  [{ FAKE_EXIT: '1' }, 2, 'error'],
-  [{ FAKE_MISSING_TURN: '1' }, 1, 'error'],
-  [{ FAKE_TURN_FAILED: '1' }, 1, 'error'],
-  [{ FAKE_LATE_FAILURE: '1' }, 2, 'success'],
-] as const)('fails closed for process/protocol errors: %j', async (env, exitCode, outcome) => {
-  const { items, done } = await launch(env);
+  'timeout',
+  'rpc-error',
+  'failed',
+  'malformed',
+  'oversize',
+  'exit-zero',
+  'late-failure',
+  'steer-timeout',
+  'wrong-thread',
+])('fails closed for %s', async (mode) => {
+  const { session, items, done } = await launch(
+    mode,
+    mode === 'wrong-thread' ? { resumeSessionId: 'requested' } : {},
+  );
+  if (mode === 'steer-timeout') session.send('ambiguous delivery');
   await done;
-  expect(turns(items)).toHaveLength(1);
-  const turn = turns(items)[0];
-  expect(turn?.type === 'event' && turn.event.payload).toMatchObject({ outcome });
-  expect(items.at(-1)).toEqual({ type: 'exited', exitCode, signal: null });
-});
-
-it('closes with an error if the executable disappears before resume', async () => {
-  const { session, items, done, executable } = await launch();
-  await waitFor(() => session.pid === undefined);
-  rmSync(executable);
-  expect(session.send('again')).toBe(true);
-  await done;
-  expect(turns(items)).toHaveLength(2);
-  expect(items.at(-1)?.type).toBe('exited');
-  const exited = items.at(-1);
-  expect(exited?.type === 'exited' && exited.exitCode).not.toBe(0);
+  expect(items.at(-1)).toMatchObject({ type: 'exited' });
+  const last = items.at(-1);
+  expect(last?.type === 'exited' && last.exitCode).not.toBe(0);
+  expect(session.send('late')).toBe(false);
 });
 
 it('rejects an invalid request before spawning', async () => {
@@ -182,4 +314,12 @@ it('rejects an invalid request before spawning', async () => {
       permissionMode: 'auto',
     }),
   ).rejects.toMatchObject({ reason: 'invalid-request' });
+});
+
+it('preserves a backend error during graceful shutdown instead of authorizing success', async () => {
+  const { session, items, done } = await launch('shutdown-error');
+  session.end();
+  await done;
+  expect(turns(items)[0]?.outcome).toBe('success');
+  expect(items.at(-1)).toMatchObject({ type: 'exited', exitCode: 2 });
 });

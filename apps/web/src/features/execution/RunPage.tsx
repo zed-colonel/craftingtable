@@ -1,9 +1,9 @@
-import { AGENT_BACKEND_LABELS } from '@craftingtable/domain';
 import type {
   AgentRunDetailResponse,
   RunEventEnvelope,
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
+import { AGENT_BACKEND_LABELS } from '@craftingtable/domain';
 import {
   type CSSProperties,
   type FormEvent,
@@ -95,7 +95,7 @@ function eventBody(event: RunEventEnvelope): string | undefined {
         event.payload.costUsd === undefined
           ? ''
           : ` · cost so far: $${event.payload.costUsd.toFixed(2)}`
-      }`;
+      }${event.payload.tokenUsage === undefined ? '' : ` · tokens: ${event.payload.tokenUsage.totalTokens.toLocaleString()} (${event.payload.tokenUsage.inputTokens.toLocaleString()} input, ${event.payload.tokenUsage.cachedInputTokens.toLocaleString()} cached, ${event.payload.tokenUsage.outputTokens.toLocaleString()} output)`}`;
     case 'notice':
       return event.payload.message;
     case 'run-finished':
@@ -336,7 +336,7 @@ export function RunPage({
             <dd>
               {run.billing === undefined ? '—' : BILLING_LABELS[run.billing]}
               {run.backend === 'codex'
-                ? '. Codex does not report dollar costs; model is requested or backend default.'
+                ? '. Dollar usage is shown only when Codex reports it; subscription figures are estimates, not a bill.'
                 : run.billing === 'subscription'
                   ? '. Cost figures are the API-equivalent estimate reported by Claude Code, not a bill.'
                   : ''}

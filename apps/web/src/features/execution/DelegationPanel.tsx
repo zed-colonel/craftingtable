@@ -8,9 +8,9 @@ import type {
 } from '@craftingtable/contracts';
 import {
   AGENT_BACKEND_LABELS,
-  type AgentBackendKind,
   AGENT_PERMISSION_MODES,
   AGENT_RUN_ROLES,
+  type AgentBackendKind,
   type AgentPermissionMode,
   type AgentRunId,
   type AgentRunRole,
@@ -513,8 +513,8 @@ export function DelegationPanel({
           </label>
           {selectedBackend?.kind === 'codex' && (
             <p className="hint">
-              On Codex, Auto and Edit-only both use the workspace-write sandbox with approval
-              prompts denied.
+              On Codex, Auto uses the workspace-write sandbox with automatic approval review.
+              Edit-only denies requests to expand access.
             </p>
           )}
           <label className="field">

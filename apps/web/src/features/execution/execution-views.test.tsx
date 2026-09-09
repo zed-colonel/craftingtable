@@ -1,4 +1,3 @@
-import { remediationInput } from './remediation.js';
 import type {
   AgentRunDetailResponse,
   AgentRunSummary,
@@ -13,6 +12,7 @@ import { DelegationPanel } from './DelegationPanel.js';
 import { DiffView } from './DiffView.js';
 import { RepositoriesPage } from './RepositoriesPage.js';
 import { RunPage } from './RunPage.js';
+import { remediationInput } from './remediation.js';
 
 afterEach(cleanup);
 
@@ -301,7 +301,20 @@ describe('RunPage', () => {
           event(3, { kind: 'assistant-message', payload: { text: 'Done with <script>' } }),
           event(4, {
             kind: 'turn-completed',
-            payload: { outcome: 'success', resultText: 'ok', turns: 1, durationMs: 1500 },
+            payload: {
+              outcome: 'success',
+              resultText: 'ok',
+              turns: 1,
+              durationMs: 1500,
+              model: 'resolved',
+              tokenUsage: {
+                inputTokens: 10,
+                cachedInputTokens: 5,
+                outputTokens: 2,
+                reasoningOutputTokens: 1,
+                totalTokens: 12,
+              },
+            },
           }),
         ]}
         connection="open"
@@ -317,6 +330,9 @@ describe('RunPage', () => {
     );
     expect(screen.getAllByText('Awaiting your input').length).toBeGreaterThan(0);
     expect(screen.getByText('Bash: ls')).toBeDefined();
+    expect(screen.getByTestId('run-feed').textContent).toContain(
+      'tokens: 12 (10 input, 5 cached, 2 output)',
+    );
     expect(screen.getByText('Done with <script>')).toBeDefined();
     expect(document.querySelector('script')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show brief' }));

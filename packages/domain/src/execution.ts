@@ -132,8 +132,8 @@ export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number];
 
 /**
  * How the backend session was paid for, as reported by the backend itself.
- * A subscription session still reports an API-equivalent cost figure; the
- * browser labels it as an estimate rather than a bill.
+ * When available, subscription cost is an estimate rather than a bill.
+ * Some backends or accounts do not report dollar usage.
  */
 export const AGENT_BILLING_SOURCES = ['subscription', 'api-key', 'unknown'] as const;
 export type AgentBillingSource = (typeof AGENT_BILLING_SOURCES)[number];
@@ -159,7 +159,7 @@ export interface AgentRun {
   readonly permissionMode: AgentPermissionMode;
   /** The model the operator asked for, if any. */
   readonly model?: string;
-  /** The model the backend actually used, once its session started. */
+  /** The model resolved by the backend, updated when it reports rerouting. */
   readonly resolvedModel?: string;
   readonly billing?: AgentBillingSource;
   /** Present only on review runs whose final message carried a verdict line. */
@@ -240,6 +240,15 @@ export interface AgentRunEventPayloads {
     readonly costUsd?: number;
     readonly turns: number;
     readonly durationMs: number;
+    readonly model?: string;
+    /** Tokens consumed in this turn, when reported by the backend. */
+    readonly tokenUsage?: {
+      readonly inputTokens: number;
+      readonly cachedInputTokens: number;
+      readonly outputTokens: number;
+      readonly reasoningOutputTokens: number;
+      readonly totalTokens: number;
+    };
   };
   readonly notice: { readonly category: AgentNoticeCategory; readonly message: string };
   readonly stderr: { readonly text: string };

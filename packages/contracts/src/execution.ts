@@ -395,6 +395,16 @@ export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
       costUsd: z.number().nonnegative().optional(),
       turns: nonNegativeSafeInteger,
       durationMs: nonNegativeSafeInteger,
+      model: z.string().min(1).max(100).optional(),
+      tokenUsage: z
+        .strictObject({
+          inputTokens: nonNegativeSafeInteger,
+          cachedInputTokens: nonNegativeSafeInteger,
+          outputTokens: nonNegativeSafeInteger,
+          reasoningOutputTokens: nonNegativeSafeInteger,
+          totalTokens: nonNegativeSafeInteger,
+        })
+        .optional(),
     }),
   }),
   runEventBaseSchema.extend({

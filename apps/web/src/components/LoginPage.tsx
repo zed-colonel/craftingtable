@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react';
+import { ApiError } from '../lib/api-client.js';
 
 export function LoginPage({
   message,
@@ -19,8 +20,16 @@ export function LoginPage({
     try {
       await onLogin(username, password);
       setPassword('');
-    } catch {
-      setFailure('Sign-in failed. Check your username and password.');
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'invalid-credentials') {
+        setFailure('Sign-in failed. Check your username and password.');
+      } else if (error instanceof ApiError && error.status === 403) {
+        setFailure(error.message);
+      } else if (error instanceof ApiError && error.status >= 500) {
+        setFailure('The server could not complete sign-in. Try again shortly.');
+      } else {
+        setFailure('Sign-in could not be completed. Check your connection and reload the page.');
+      }
     } finally {
       setSubmitting(false);
     }

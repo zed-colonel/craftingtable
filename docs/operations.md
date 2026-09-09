@@ -97,6 +97,11 @@ and the configuration survives a reboot. Open `https://<machine>.<tailnet>.ts.ne
 port, because serve listens on 443, and the origin must match what the browser shows
 exactly or the CSRF and origin checks reject every mutation.
 
+Use the configured `CRAFTINGTABLE_PUBLIC_ORIGIN` address on the workstation as well as
+on the laptop. Loading `http://localhost:4600` may display the app, but browser sign-in
+is rejected when the configured origin is the HTTPS tailnet address. The sign-in error
+names the required address; changing the password does not resolve an origin mismatch.
+
 Two things that surprise people:
 
 - A node brought up with `--accept-dns=false` cannot resolve its own MagicDNS name, so a

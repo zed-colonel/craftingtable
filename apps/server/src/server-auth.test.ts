@@ -123,7 +123,9 @@ describe('authentication HTTP surface', () => {
         url: '/api/auth/login',
         ...request,
       });
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(
+        request.headers.origin === context.config.publicOrigin ? 400 : 403,
+      );
     }
   });
 
@@ -366,4 +368,37 @@ describe('authentication HTTP surface', () => {
     expect(logs).not.toContain(rawToken);
     expect(logs).not.toContain(login.csrfToken);
   });
+});
+
+it('explains a localhost origin mismatch before checking credentials and still accepts the configured HTTPS origin', async () => {
+  const origin = 'https://workstation.example.test';
+  const context = await createTestContext({ publicOrigin: origin });
+  contexts.push(context);
+  await context.bootstrap();
+  const before = context.storage.audit.count();
+  const rejected = await context.app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    headers: {
+      origin: 'http://localhost:4600',
+      'content-type': 'application/json',
+      'sec-fetch-site': 'same-origin',
+    },
+    payload: { username: TEST_USERNAME, password: TEST_PASSWORD },
+  });
+  expect(rejected.statusCode).toBe(403);
+  expect(rejected.json().error).toEqual({
+    code: 'forbidden',
+    message: `Sign-in is only allowed from ${origin}. Open that address and try again.`,
+  });
+  expect(rejected.headers['set-cookie']).toBeUndefined();
+  expect(context.storage.audit.count()).toBe(before);
+  const accepted = await context.app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    headers: { origin, 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+    payload: { username: TEST_USERNAME, password: TEST_PASSWORD },
+  });
+  expect(accepted.statusCode).toBe(200);
+  expect(accepted.headers['set-cookie']).toContain('Secure');
 });

@@ -30,10 +30,15 @@ export function registerAuthRoutes(
   config: ServerConfig,
 ): void {
   app.post('/api/auth/login', async (request, reply) => {
-    if (
-      !request.headers['content-type']?.toLowerCase().startsWith('application/json') ||
-      !isAllowedBrowserRequest(browserHeaders(request), config.publicOrigin)
-    ) {
+    if (!isAllowedBrowserRequest(browserHeaders(request), config.publicOrigin)) {
+      return sendApiError(
+        reply,
+        403,
+        'forbidden',
+        `Sign-in is only allowed from ${config.publicOrigin}. Open that address and try again.`,
+      );
+    }
+    if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
       return sendApiError(reply, 400, 'invalid-request', 'Invalid authentication request');
     }
     const parsed = loginRequestSchema.safeParse(request.body);

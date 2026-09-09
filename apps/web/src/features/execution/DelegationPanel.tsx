@@ -7,6 +7,8 @@ import type {
   WorktreeSummary,
 } from '@craftingtable/contracts';
 import {
+  AGENT_BACKEND_LABELS,
+  type AgentBackendKind,
   AGENT_PERMISSION_MODES,
   AGENT_RUN_ROLES,
   type AgentPermissionMode,
@@ -31,6 +33,7 @@ import {
 } from '../../lib/execution-labels.js';
 
 export interface LaunchInput {
+  readonly backend?: AgentBackendKind;
   readonly worktreeId: WorktreeId;
   readonly role: AgentRunRole;
   readonly permissionMode: AgentPermissionMode;
@@ -91,7 +94,7 @@ export function ModelField({
             type="text"
             value={value}
             onChange={(event) => onChange(event.target.value)}
-            placeholder="claude-…"
+            placeholder="Model id"
             disabled={disabled}
             maxLength={100}
           />
@@ -135,12 +138,11 @@ export function DelegationPanel({
   runs,
   mergeGates,
   branches,
-  models,
+  backends,
   itemCompleted,
   canMutate,
   busy,
   error,
-  backendAvailable,
   onCreateWorktree,
   onRemoveWorktree,
   onMergeWorktree,
@@ -156,12 +158,11 @@ export function DelegationPanel({
   mergeGates: Readonly<Record<string, MergeGate>>;
   /** Branches of the repository a merge is being prepared for, once loaded. */
   branches?: RepositoryBranchesResponse;
-  models: readonly ModelOption[];
+  backends: ExecutionStatusResponse['backends'];
   itemCompleted: boolean;
   canMutate: boolean;
   busy: boolean;
   error?: string;
-  backendAvailable: boolean;
   onCreateWorktree: (repositoryId: SourceRepositoryId) => void;
   onRemoveWorktree: (worktreeId: WorktreeId) => void;
   onMergeWorktree: (worktreeId: WorktreeId, targetBranch: string) => void;
@@ -172,6 +173,12 @@ export function DelegationPanel({
   onOpenRun: (runId: AgentRunId) => void;
   onOpenDiff: (worktreeId: WorktreeId) => void;
 }) {
+  const availableBackends = backends.filter((backend) => backend.available);
+  const [backendKind, setBackendKind] = useState<AgentBackendKind | ''>('');
+  const selectedBackend =
+    backends.find((backend) => backend.kind === backendKind) ?? availableBackends[0];
+  const models = selectedBackend?.models ?? [];
+  const backendAvailable = selectedBackend?.available === true;
   const activeRepositories = repositories.filter((repository) => repository.status === 'active');
   const activeWorktrees = worktrees.filter((worktree) => worktree.status === 'active');
   const mergedWorktrees = worktrees.filter((worktree) => worktree.mergedAt !== undefined);
@@ -187,7 +194,9 @@ export function DelegationPanel({
   const selectedRepository = repositoryId || activeRepositories[0]?.id || '';
   const selectedWorktree = worktreeId || activeWorktrees[0]?.id || '';
   const liveRuns = runs.filter((run) => isLiveStatus(run.status));
-  const latestFinished = runs.find((run) => !isLiveStatus(run.status));
+  const latestFinished = runs.find(
+    (run) => run.worktreeId === selectedWorktree && !isLiveStatus(run.status),
+  );
   const runById = new Map(runs.map((run) => [run.id, run]));
 
   const createWorktree = (event: FormEvent): void => {
@@ -199,12 +208,13 @@ export function DelegationPanel({
 
   const launch = (event: FormEvent): void => {
     event.preventDefault();
-    if (selectedWorktree.length === 0) {
+    if (selectedWorktree.length === 0 || !backendAvailable) {
       return;
     }
     const trimmedModel = model.trim();
     const trimmedInstructions = instructions.trim();
     onLaunch({
+      backend: selectedBackend.kind,
       worktreeId: selectedWorktree as WorktreeId,
       role,
       permissionMode,
@@ -423,9 +433,9 @@ export function DelegationPanel({
       {canMutate && !itemCompleted && (
         <form className="stack-form" onSubmit={launch} aria-label="Launch an agent">
           <h4>Launch an agent</h4>
-          {!backendAvailable && (
+          {availableBackends.length === 0 && (
             <p className="warning-state" role="note">
-              Claude Code was not found on the workstation, so runs cannot start. See the
+              No agent backend was found on the workstation, so runs cannot start. See the
               Repositories page for the tool status.
             </p>
           )}
@@ -444,6 +454,26 @@ export function DelegationPanel({
                 ))}
               </select>
             </label>
+            {backends.length > 1 && (
+              <label className="field">
+                Agent
+                <select
+                  value={selectedBackend?.kind ?? ''}
+                  onChange={(event) => {
+                    setBackendKind(event.target.value as AgentBackendKind);
+                    setModel('');
+                  }}
+                  disabled={busy}
+                >
+                  {backends.map((backend) => (
+                    <option key={backend.kind} value={backend.kind} disabled={!backend.available}>
+                      {backend.label}
+                      {backend.available ? '' : ' (not found)'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="field">
               Role
               <select
@@ -458,7 +488,13 @@ export function DelegationPanel({
                 ))}
               </select>
             </label>
-            <ModelField models={models} value={model} onChange={setModel} disabled={busy} />
+            <ModelField
+              key={selectedBackend?.kind}
+              models={models}
+              value={model}
+              onChange={setModel}
+              disabled={busy}
+            />
           </div>
           <p className="hint">{RUN_ROLE_DESCRIPTIONS[role]}</p>
           <label className="field">
@@ -475,6 +511,12 @@ export function DelegationPanel({
               ))}
             </select>
           </label>
+          {selectedBackend?.kind === 'codex' && (
+            <p className="hint">
+              On Codex, Auto and Edit-only both use the workspace-write sandbox with approval
+              prompts denied.
+            </p>
+          )}
           <label className="field">
             Instructions for this run (optional)
             <textarea
@@ -573,7 +615,10 @@ export function DelegationPanel({
                         </span>
                       )}
                     </td>
-                    <td className="mono">{run.resolvedModel ?? run.model ?? 'default'}</td>
+                    <td className="mono">
+                      {backends.length > 1 ? `${AGENT_BACKEND_LABELS[run.backend]} · ` : ''}
+                      {run.resolvedModel ?? run.model ?? 'default'}
+                    </td>
                     <td className="numeric">{run.turnCount}</td>
                     <td className="numeric">{formatCost(run.costUsd, run.billing)}</td>
                     <td>

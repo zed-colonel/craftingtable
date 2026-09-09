@@ -1,3 +1,4 @@
+import { remediationInput } from './remediation.js';
 import type {
   AgentRunDetailResponse,
   AgentRunSummary,
@@ -127,11 +128,17 @@ describe('DelegationPanel', () => {
           run({ id: 'run-0' as AgentRunSummary['id'], status: 'finished', role: 'design' }),
         ]}
         mergeGates={{ 'wt-1': { mergeable: false, reason: 'no-review' } }}
-        models={[{ id: 'opus', label: 'Opus (current)' }]}
+        backends={[
+          {
+            kind: 'claude-code',
+            label: 'Claude Code',
+            available: true,
+            models: [{ id: 'opus', label: 'Opus (current)' }],
+          },
+        ]}
         itemCompleted={false}
         canMutate={true}
         busy={false}
-        backendAvailable={true}
         onCreateWorktree={vi.fn()}
         onRemoveWorktree={vi.fn()}
         onMergeWorktree={vi.fn()}
@@ -162,6 +169,7 @@ describe('DelegationPanel', () => {
     fireEvent.change(within(form).getByLabelText('Model'), { target: { value: 'opus' } });
     fireEvent.click(within(form).getByRole('button', { name: /Launch review run/ }));
     expect(onLaunch).toHaveBeenCalledWith({
+      backend: 'claude-code',
       worktreeId: 'wt-1',
       role: 'review',
       permissionMode: 'edit-only',
@@ -202,11 +210,10 @@ describe('DelegationPanel', () => {
           },
         }}
         branches={{ branches: ['aq-cont-1', 'ct/aq-01-abcd1234', 'main'], checkedOut: 'main' }}
-        models={[]}
+        backends={[{ kind: 'claude-code', label: 'Claude Code', available: true, models: [] }]}
         itemCompleted={false}
         canMutate={true}
         busy={false}
-        backendAvailable={true}
         onCreateWorktree={vi.fn()}
         onRemoveWorktree={vi.fn()}
         onMergeWorktree={onMergeWorktree}
@@ -248,11 +255,10 @@ describe('DelegationPanel', () => {
         worktrees={[worktree]}
         runs={[run({ status: 'running' })]}
         mergeGates={{ 'wt-1': { mergeable: false, reason: 'run-live' } }}
-        models={[]}
+        backends={[{ kind: 'claude-code', label: 'Claude Code', available: false, models: [] }]}
         itemCompleted={false}
         canMutate={true}
         busy={false}
-        backendAvailable={false}
         onCreateWorktree={vi.fn()}
         onRemoveWorktree={vi.fn()}
         onMergeWorktree={vi.fn()}
@@ -269,7 +275,7 @@ describe('DelegationPanel', () => {
     expect(
       (screen.getByRole('button', { name: /Launch implement run/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
-    expect(screen.getByRole('note').textContent).toContain('Claude Code was not found');
+    expect(screen.getByRole('note').textContent).toContain('No agent backend was found');
   });
 });
 
@@ -442,4 +448,76 @@ describe('DiffView', () => {
     expect(document.querySelector('b')).toBeNull();
     expect(screen.getByRole('note').textContent).toContain('truncated');
   });
+});
+
+it('offers per-agent models, resets the model on switch, and marks unavailable agents', () => {
+  const onLaunch = vi.fn();
+  const props = {
+    repositories: [repository],
+    worktrees: [worktree],
+    runs: [],
+    mergeGates: {},
+    itemCompleted: false,
+    canMutate: true,
+    busy: false,
+    onCreateWorktree: vi.fn(),
+    onRemoveWorktree: vi.fn(),
+    onMergeWorktree: vi.fn(),
+    onLoadBranches: vi.fn(),
+    onLaunch,
+    onRemediate: vi.fn(),
+    onOpenRun: vi.fn(),
+    onOpenDiff: vi.fn(),
+  };
+  const claude = {
+    kind: 'claude-code' as const,
+    label: 'Claude Code',
+    available: true,
+    models: [{ id: 'opus', label: 'Opus' }],
+  };
+  const codex = {
+    kind: 'codex' as const,
+    label: 'Codex',
+    available: true,
+    models: [{ id: 'gpt-5.6-luna', label: 'Luna' }],
+  };
+  const view = render(<DelegationPanel {...props} backends={[claude, codex]} />);
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'opus' } });
+  fireEvent.change(screen.getByLabelText('Agent'), { target: { value: 'codex' } });
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('');
+  expect(screen.queryByRole('option', { name: 'Opus' })).toBeNull();
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-5.6-luna' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Launch implement run' }));
+  expect(onLaunch).toHaveBeenCalledWith(
+    expect.objectContaining({ backend: 'codex', model: 'gpt-5.6-luna' }),
+  );
+  view.rerender(<DelegationPanel {...props} backends={[claude, { ...codex, available: false }]} />);
+  expect(
+    (screen.getByRole('option', { name: 'Codex (not found)' }) as HTMLOptionElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByRole('button', { name: 'Launch implement run' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  view.rerender(<DelegationPanel {...props} backends={[claude]} />);
+  expect(screen.queryByLabelText('Agent')).toBeNull();
+});
+
+it('remediates using the latest finished implementer in the same worktree, otherwise the review', () => {
+  const review = run({ backend: 'codex', role: 'review', model: 'gpt-5.6-luna' });
+  const implementer = run({
+    id: 'impl' as AgentRunSummary['id'],
+    status: 'finished',
+    model: 'opus',
+  });
+  expect(remediationInput(review, [review, implementer])).toMatchObject({
+    backend: 'claude-code',
+    model: 'opus',
+    parentRunId: review.id,
+  });
+  expect(
+    remediationInput(review, [
+      run({ status: 'failed' }),
+      { ...implementer, worktreeId: 'other' as AgentRunSummary['worktreeId'] },
+    ]),
+  ).toMatchObject({ backend: 'codex', model: 'gpt-5.6-luna' });
 });

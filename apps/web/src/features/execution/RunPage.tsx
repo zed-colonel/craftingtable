@@ -1,3 +1,4 @@
+import { AGENT_BACKEND_LABELS } from '@craftingtable/domain';
 import type {
   AgentRunDetailResponse,
   RunEventEnvelope,
@@ -318,7 +319,7 @@ export function RunPage({
         <summary>
           <span>Details</span>
           <span className="hint">
-            {run.backend}
+            {AGENT_BACKEND_LABELS[run.backend]}
             {run.billing === undefined ? '' : ` · ${BILLING_LABELS[run.billing]}`}
           </span>
         </summary>
@@ -334,9 +335,11 @@ export function RunPage({
             <dt>Billing</dt>
             <dd>
               {run.billing === undefined ? '—' : BILLING_LABELS[run.billing]}
-              {run.billing === 'subscription'
-                ? '. Cost figures are the API-equivalent estimate reported by Claude Code, not a bill.'
-                : ''}
+              {run.backend === 'codex'
+                ? '. Codex does not report dollar costs; model is requested or backend default.'
+                : run.billing === 'subscription'
+                  ? '. Cost figures are the API-equivalent estimate reported by Claude Code, not a bill.'
+                  : ''}
             </dd>
             <dt>Permissions</dt>
             <dd>{PERMISSION_MODE_LABELS[run.permissionMode]}</dd>

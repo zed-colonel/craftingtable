@@ -1,3 +1,5 @@
+import type { AgentRunSummary } from '@craftingtable/contracts';
+import { remediationInput } from './features/execution/remediation.js';
 import type {
   AgentRunDetailResponse,
   AuditRecordSummary,
@@ -782,18 +784,18 @@ export function App() {
       .catch(() => undefined);
   };
   /** An implement run in the same worktree, seeded with a review's findings. */
-  const handleRemediate = (review: {
-    id: AgentRunId;
-    workItemId: WorkItemId;
-    worktreeId: WorktreeId;
-    model?: string;
-  }): void =>
-    handleLaunch(review.workItemId, {
-      worktreeId: review.worktreeId,
-      role: 'implement',
-      permissionMode: 'auto',
-      ...(review.model === undefined ? {} : { model: review.model }),
-      parentRunId: review.id,
+  const handleRemediate = (review: AgentRunSummary): void =>
+    executionCommand(async (csrfToken, forWorkspace) => {
+      const execution = await loadWorkItemExecution(forWorkspace, review.workItemId);
+      const response = await startRun(
+        forWorkspace,
+        review.workItemId,
+        remediationInput(review, execution.runs),
+        csrfToken,
+      );
+      if (activeWorkspaceIdRef.current === forWorkspace) {
+        go({ name: 'run', workspaceId: forWorkspace, runId: response.run.id });
+      }
     });
   const handleLaunch = (workItemId: WorkItemId, input: LaunchInput): void =>
     executionCommand(async (csrfToken, forWorkspace) => {
@@ -1133,14 +1135,11 @@ export function App() {
                 runs={workItemExecution.runs}
                 mergeGates={workItemExecution.mergeGates}
                 {...(branches === undefined ? {} : { branches })}
-                models={executionStatus?.backends.flatMap((backend) => backend.models) ?? []}
+                backends={executionStatus?.backends ?? []}
                 itemCompleted={workItem.workItem.status === 'completed'}
                 canMutate={canMutate}
                 busy={executionBusy}
                 {...(executionError === undefined ? {} : { error: executionError })}
-                backendAvailable={
-                  executionStatus?.backends.some((backend) => backend.available) ?? true
-                }
                 onCreateWorktree={(repositoryId) =>
                   handleCreateWorktree(workItem.workItem.id, repositoryId)
                 }

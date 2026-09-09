@@ -77,3 +77,17 @@ describe('CLI argument parsing', () => {
     }
   });
 });
+
+it('parses local recovery and rejects passwords or extra options in argv', () => {
+  expect(parseCliArguments(['admin', 'reset-password', '--username', 'keith'])).toEqual({
+    command: 'reset-password',
+    username: 'keith',
+  });
+  for (const args of [
+    ['admin', 'reset-password'],
+    ['admin', 'reset-password', '--username', 'keith', '--password', 'secret'],
+    ['admin', 'reset-password', '--username', 'keith', '--password=secret'],
+    ['admin', 'reset-password', '--username', 'keith', 'unexpected'],
+  ])
+    expect(() => parseCliArguments(args)).toThrow();
+});

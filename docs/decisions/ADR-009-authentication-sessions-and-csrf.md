@@ -26,6 +26,11 @@ and cross-site browser requests need explicit handling.
 - Login accepts JSON only, checks origin/fetch metadata, and returns one
   generic failure for missing users, wrong passwords, and disabled users.
 - A user may list and revoke only their own sessions.
+- Local recovery uses `admin reset-password --username <name>` with hidden, confirmed
+  password entry. Existing OS access to the database grants this administrative authority;
+  there is no unauthenticated web reset endpoint. The new hash, all session revocations
+  and a system `user.password-changed` audit entry commit together. Asynchronous login
+  and password-change operations recheck stored credentials before committing.
 - Redact cookie, authorization, and set-cookie headers. Audit metadata is
   constructed from allowlisted fields, never request bodies.
 

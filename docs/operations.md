@@ -123,7 +123,28 @@ database. On the next start, runs that were live are marked `interrupted` with a
 Worktrees survive restarts. A worktree the daemon cannot remove (for example because
 the directory was deleted by hand) is pruned from Git's metadata and marked removed.
 
-## Reset
+## Forgotten password
+
+From the checkout, as the daemon's OS user, run:
+
+```sh
+pnpm craftingtable admin reset-password --username keith
+```
+
+Use the same `CRAFTINGTABLE_DATA_DIR` (or `XDG_DATA_HOME`) as the daemon if you overrode
+the default. The command prints the database path, refuses a missing database or
+inactive/missing user, and prompts for the new password twice without echoing it.
+Passwords must be 12–1024 UTF-8 bytes; do not pass them in arguments or environment
+variables. Ctrl+C cancels; Ctrl+U clears a mistaken entry.
+
+Recovery requires local access to the database, not the old password. It atomically
+replaces the Argon2id hash, revokes all of that user's login sessions, and records an
+audit entry without password material. Workspaces, plans, runs and repositories remain
+intact. Sign in through the browser with the new password. On upgrading to this recovery
+implementation, restart the daemon to load its concurrent-login protection; subsequent
+resets need no restart.
+
+## Delete all application data
 
 Stop the daemon, then delete the data directory. Registered repositories are untouched,
 but linked worktrees under `worktrees/` will disappear from those repositories' worktree

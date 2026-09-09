@@ -64,6 +64,11 @@ Sign in at http://127.0.0.1:5173, import a plan (or use `fixtures/plan-bundles/a
 to try it), open **Repositories** and register a checkout, open a work item, admit it,
 create a worktree, launch an implement run, then a review run, then merge.
 
+Forgotten password: run `pnpm craftingtable admin reset-password --username keith`
+on the workstation as the daemon's OS user. It prompts for a new password twice,
+preserves your data, and revokes existing login sessions. Use the daemon's data-directory
+environment if you configured a custom location; the command prints the database path.
+
 Upgrading from an earlier build: `pnpm db:migrate` applies schema 7 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 

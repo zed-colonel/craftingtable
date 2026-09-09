@@ -22,7 +22,12 @@ your repositories.
 - Logs redact cookies and authorization headers; audit metadata excludes bodies and tokens.
 - Claude Code and Codex use their own logins on the workstation. The daemon never handles API keys;
   it records only billing provenance or an environment-based API-key hint.
-- Changing a password requires the current one and revokes every other session.
+- Changing a password in the browser requires the current one and revokes every other session.
+- Forgotten-password recovery is an interactive local CLI command: `admin reset-password`.
+  Its authority is the OS user's existing database access. It revokes every login session
+  and records the password change atomically. No unauthenticated web reset route exists.
+  Login and browser password changes recheck credentials after asynchronous hashing so
+  requests already in flight cannot restore access with a password that was reset.
 
 ## Delegation surface
 

@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
 import {
   inspectMigrationStatus,
   MigrationValidationError,
@@ -7,10 +9,11 @@ import { configFromEnv } from './config.js';
 import { Argon2PasswordHasher } from './security/password-hasher.js';
 import { BootstrapService } from './services/bootstrap-service.js';
 import { BootstrapRefusedError } from './services/errors.js';
+import { PasswordResetService } from './services/password-reset-service.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
 
 export interface ParsedCliCommand {
-  readonly command: 'bootstrap' | 'db-migrate' | 'db-status';
+  readonly command: 'bootstrap' | 'reset-password' | 'db-migrate' | 'db-status';
   readonly username?: string;
 }
 
@@ -21,8 +24,8 @@ interface CliOutput {
 }
 
 export function parseCliArguments(args: readonly string[]): ParsedCliCommand {
-  if (args[0] === 'admin' && args[1] === 'bootstrap') {
-    if (args.includes('--password')) {
+  if (args[0] === 'admin' && (args[1] === 'bootstrap' || args[1] === 'reset-password')) {
+    if (args.some((arg) => arg === '--password' || arg.startsWith('--password='))) {
       throw new Error('Passwords must never be provided as command-line arguments');
     }
     const usernameIndex = args.indexOf('--username');
@@ -33,9 +36,9 @@ export function parseCliArguments(args: readonly string[]): ParsedCliCommand {
       args.length !== 4 ||
       usernameIndex !== 2
     ) {
-      throw new Error('Usage: craftingtable admin bootstrap --username <name>');
+      throw new Error(`Usage: craftingtable admin ${args[1]} --username <name>`);
     }
-    return { command: 'bootstrap', username };
+    return { command: args[1], username };
   }
   if (args.length === 2 && args[0] === 'db' && args[1] === 'migrate') {
     return { command: 'db-migrate' };
@@ -44,45 +47,78 @@ export function parseCliArguments(args: readonly string[]): ParsedCliCommand {
     return { command: 'db-status' };
   }
   throw new Error(
-    'Usage: craftingtable admin bootstrap --username <name> | db migrate | db status',
+    'Usage: craftingtable admin <bootstrap|reset-password> --username <name> | db migrate | db status',
   );
 }
 
-export async function readHiddenPassword(prompt: string): Promise<string> {
-  if (!process.stdin.isTTY || !process.stderr.isTTY || process.stdin.setRawMode === undefined) {
-    throw new Error('Password bootstrap requires an interactive terminal');
+export async function readHiddenPassword(
+  prompt: string,
+  input: NodeJS.ReadStream = process.stdin,
+  output: NodeJS.WriteStream = process.stderr,
+): Promise<string> {
+  if (!input.isTTY || !output.isTTY || input.setRawMode === undefined) {
+    throw new Error('Password entry requires an interactive terminal');
   }
-  process.stderr.write(prompt);
-  process.stdin.setRawMode(true);
-  process.stdin.resume();
+  output.write(prompt);
+  const wasRaw = input.isRaw;
+  input.setRawMode(true);
+  input.resume();
   return new Promise((resolve, reject) => {
     let password = '';
+    const decoder = new StringDecoder('utf8');
     const restore = (): void => {
-      process.stdin.off('data', onData);
-      process.stdin.setRawMode?.(false);
-      process.stdin.pause();
-      process.stderr.write('\n');
+      input.off('data', onData);
+      input.off('end', onEnd);
+      input.off('error', onError);
+      input.setRawMode?.(wasRaw);
+      input.pause();
+      output.write('\n');
+    };
+    const onError = (): void => {
+      restore();
+      reject(new Error('Password input interrupted'));
+    };
+    const onEnd = (): void => {
+      restore();
+      reject(new Error('Password input ended before confirmation'));
     };
     const onData = (chunk: Buffer): void => {
-      for (const byte of chunk) {
-        if (byte === 3) {
+      for (const character of decoder.write(chunk)) {
+        if (character === '\x03' || character === '\x04') {
           restore();
           reject(new Error('Canceled'));
           return;
         }
-        if (byte === 13 || byte === 10) {
+        if (character === '\r' || character === '\n') {
           restore();
           resolve(password);
           return;
         }
-        if (byte === 127 || byte === 8) {
-          password = password.slice(0, -1);
+        if (character === '\x7f' || character === '\b') {
+          password = Array.from(password).slice(0, -1).join('');
           continue;
         }
-        password += Buffer.from([byte]).toString('utf8');
+        if (character === '\x15') {
+          password = '';
+          continue;
+        }
+        // Escape sequences (arrow keys, bracketed paste) are not password input.
+        if (character < ' ') {
+          restore();
+          reject(new Error('Unsupported control character; type the password again'));
+          return;
+        }
+        password += character;
+        if (Buffer.byteLength(password, 'utf8') > 1024) {
+          restore();
+          reject(new Error('Password must not exceed 1024 UTF-8 bytes'));
+          return;
+        }
       }
     };
-    process.stdin.on('data', onData);
+    input.on('data', onData);
+    input.once('end', onEnd);
+    input.once('error', onError);
   });
 }
 
@@ -134,13 +170,30 @@ export async function runCli(args: readonly string[]): Promise<number> {
     return runDatabaseCommand(parsed.command, config.databasePath);
   }
 
-  const firstPassword = await readHiddenPassword('Password: ');
+  if (parsed.command === 'reset-password') {
+    if (!existsSync(config.databasePath))
+      throw new Error(`Database does not exist: ${config.databasePath}`);
+    process.stdout.write(`Resetting password in ${config.databasePath}\n`);
+  }
+  const firstPassword = await readHiddenPassword(
+    parsed.command === 'reset-password' ? 'New password: ' : 'Password: ',
+  );
   const secondPassword = await readHiddenPassword('Confirm password: ');
   if (firstPassword !== secondPassword) {
     throw new Error('Passwords do not match');
   }
   const storage = openCraftingTableStorage(config.databasePath);
   try {
+    if (parsed.command === 'reset-password') {
+      const result = await new PasswordResetService(storage, new Argon2PasswordHasher()).reset(
+        parsed.username as string,
+        firstPassword,
+      );
+      process.stdout.write(
+        `Password reset for ${result.username}; revoked ${result.revokedSessionCount} session(s). Sign in with your new password.\n`,
+      );
+      return 0;
+    }
     const service = new BootstrapService(
       storage,
       new Argon2PasswordHasher(),

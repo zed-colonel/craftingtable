@@ -70,6 +70,11 @@ export class AuthService {
       createdAt.getTime() + this.sessionLifetimeSeconds * 1000,
     ).toISOString();
     const session = this.storage.transaction((tx) => {
+      // Password verification yields; local recovery may have changed credentials meanwhile.
+      const current = tx.users.findById(user.id);
+      if (current?.status !== 'active' || current.passwordHash !== user.passwordHash) {
+        throw new AuthenticationError();
+      }
       const inserted = tx.sessions.insert({
         id: asSessionId(randomUUID()),
         userId: user.id,
@@ -154,6 +159,15 @@ export class AuthService {
     const passwordHash = await this.passwordHasher.hash(input.newPassword);
     const occurredAt = this.now().toISOString();
     return this.storage.transaction((tx) => {
+      const current = tx.users.findById(context.user.id);
+      const session = tx.sessions.findById(context.session.id);
+      if (
+        current?.status !== 'active' ||
+        current.passwordHash !== context.user.passwordHash ||
+        session?.status !== 'active'
+      ) {
+        throw new UnauthenticatedError();
+      }
       const updated = tx.users.updatePassword({
         userId: context.user.id,
         passwordHash,

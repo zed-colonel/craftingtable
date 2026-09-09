@@ -17,7 +17,7 @@ import {
   type SourceRepositoryId,
   type WorktreeId,
 } from '@craftingtable/domain';
-import { type CSSProperties, type FormEvent, useState } from 'react';
+import { type CSSProperties, type FormEvent, Fragment, useState } from 'react';
 import {
   formatCost,
   isLiveStatus,
@@ -31,78 +31,18 @@ import {
   VERDICT_ACCENTS,
   VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
+import {
+  handoffDefaults,
+  type LaunchInput,
+  previousImplementerHint,
+  type ProfileEntry,
+  profileChoice,
+} from './handoff.js';
+import { HandoffForm } from './HandoffForm.js';
+import { ModelField } from './ModelField.js';
 
-export interface LaunchInput {
-  readonly backend?: AgentBackendKind;
-  readonly worktreeId: WorktreeId;
-  readonly role: AgentRunRole;
-  readonly permissionMode: AgentPermissionMode;
-  readonly model?: string;
-  readonly instructions?: string;
-  readonly parentRunId?: AgentRunId;
-}
-
-export type ModelOption = ExecutionStatusResponse['backends'][number]['models'][number];
-
-const CUSTOM_MODEL = '__custom__';
-
-/** A model picker fed by the backend, with a free-text escape hatch. */
-export function ModelField({
-  models,
-  value,
-  onChange,
-  disabled,
-}: {
-  models: readonly ModelOption[];
-  value: string;
-  onChange: (model: string) => void;
-  disabled: boolean;
-}) {
-  const known = value === '' || models.some((option) => option.id === value);
-  const [custom, setCustom] = useState(!known);
-  const selectValue = custom ? CUSTOM_MODEL : value;
-  return (
-    <>
-      <label className="field">
-        Model
-        <select
-          value={selectValue}
-          onChange={(event) => {
-            if (event.target.value === CUSTOM_MODEL) {
-              setCustom(true);
-              onChange('');
-            } else {
-              setCustom(false);
-              onChange(event.target.value);
-            }
-          }}
-          disabled={disabled}
-        >
-          <option value="">Backend default</option>
-          {models.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-          <option value={CUSTOM_MODEL}>Other…</option>
-        </select>
-      </label>
-      {custom && (
-        <label className="field">
-          Model id
-          <input
-            type="text"
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            placeholder="Model id"
-            disabled={disabled}
-            maxLength={100}
-          />
-        </label>
-      )}
-    </>
-  );
-}
+export type { LaunchInput } from './handoff.js';
+export { ModelField, type ModelOption } from './ModelField.js';
 
 function firstLine(text: string): string {
   const line = text.split('\n').find((candidate) => candidate.trim().length > 0) ?? '';
@@ -148,9 +88,9 @@ export function DelegationPanel({
   onMergeWorktree,
   onLoadBranches,
   onLaunch,
-  onRemediate,
   onOpenRun,
   onOpenDiff,
+  profiles,
 }: {
   repositories: readonly SourceRepositorySummary[];
   worktrees: readonly WorktreeSummary[];
@@ -168,13 +108,17 @@ export function DelegationPanel({
   onMergeWorktree: (worktreeId: WorktreeId, targetBranch: string) => void;
   onLoadBranches: (repositoryId: SourceRepositoryId) => void;
   onLaunch: (input: LaunchInput) => void;
-  /** Launch an implement run seeded with this review's findings. */
-  onRemediate: (reviewRun: AgentRunSummary) => void;
   onOpenRun: (runId: AgentRunId) => void;
   onOpenDiff: (worktreeId: WorktreeId) => void;
+  /** Per-role defaults the form and every handoff start from; absent until loaded. */
+  profiles?: readonly ProfileEntry[];
 }) {
+  const roleProfiles = profiles ?? [];
+  const initialChoice = profileChoice('implement', roleProfiles);
   const availableBackends = backends.filter((backend) => backend.available);
-  const [backendKind, setBackendKind] = useState<AgentBackendKind | ''>('');
+  const [backendKind, setBackendKind] = useState<AgentBackendKind | ''>(
+    initialChoice?.backend ?? '',
+  );
   const selectedBackend =
     backends.find((backend) => backend.kind === backendKind) ?? availableBackends[0];
   const models = selectedBackend?.models ?? [];
@@ -185,11 +129,26 @@ export function DelegationPanel({
   const [repositoryId, setRepositoryId] = useState<string>('');
   const [worktreeId, setWorktreeId] = useState<string>('');
   const [role, setRole] = useState<AgentRunRole>('implement');
-  const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>('auto');
-  const [model, setModel] = useState('');
+  const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>(
+    initialChoice?.permissionMode ?? 'auto',
+  );
+  const [model, setModel] = useState(initialChoice?.model ?? '');
   const [instructions, setInstructions] = useState('');
   const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
   const [mergeOpen, setMergeOpen] = useState<string>();
+  /** The run whose handoff form is open, if any. */
+  const [handoffOpen, setHandoffOpen] = useState<AgentRunId>();
+
+  /** Changing the role applies that role's profile; the operator can still edit after. */
+  const applyRole = (next: AgentRunRole): void => {
+    setRole(next);
+    const choice = profileChoice(next, roleProfiles);
+    if (choice !== undefined) {
+      setBackendKind(choice.backend);
+      setModel(choice.model ?? '');
+      setPermissionMode(choice.permissionMode);
+    }
+  };
 
   const selectedRepository = repositoryId || activeRepositories[0]?.id || '';
   const selectedWorktree = worktreeId || activeWorktrees[0]?.id || '';
@@ -225,22 +184,6 @@ export function DelegationPanel({
         : {}),
     });
     setInstructions('');
-  };
-
-  /** Accepting a design: an implement run seeded with it, on the form's current settings. */
-  const implementDesign = (design: AgentRunSummary): void => {
-    if (!backendAvailable) {
-      return;
-    }
-    const trimmedModel = model.trim();
-    onLaunch({
-      backend: selectedBackend.kind,
-      worktreeId: design.worktreeId,
-      role: 'implement',
-      permissionMode,
-      ...(trimmedModel.length === 0 ? {} : { model: trimmedModel }),
-      parentRunId: design.id,
-    });
   };
 
   const openMerge = (worktree: WorktreeSummary): void => {
@@ -494,7 +437,7 @@ export function DelegationPanel({
               Role
               <select
                 value={role}
-                onChange={(event) => setRole(event.target.value as AgentRunRole)}
+                onChange={(event) => applyRole(event.target.value as AgentRunRole)}
                 disabled={busy}
               >
                 {AGENT_RUN_ROLES.map((candidate) => (
@@ -505,7 +448,7 @@ export function DelegationPanel({
               </select>
             </label>
             <ModelField
-              key={selectedBackend?.kind}
+              key={`${selectedBackend?.kind}:${role}`}
               models={models}
               value={model}
               onChange={setModel}
@@ -581,95 +524,128 @@ export function DelegationPanel({
               {runs.map((run) => {
                 const parent =
                   run.parentRunId === undefined ? undefined : runById.get(run.parentRunId);
+                const handoffDefault = handoffDefaults('implement', roleProfiles, run, runs);
+                const handoffHint =
+                  run.role === 'review'
+                    ? previousImplementerHint(runs, run.worktreeId, handoffDefault)
+                    : undefined;
                 return (
-                  <tr key={run.id}>
-                    <td>
-                      <button
-                        type="button"
-                        className="link-button"
-                        onClick={() => onOpenRun(run.id)}
-                      >
-                        {new Date(run.createdAt).toLocaleString()}
-                      </button>
-                    </td>
-                    <td>
-                      {RUN_ROLE_LABELS[run.role]}
-                      {parent !== undefined && (
-                        <div className="hint">
-                          after{' '}
-                          <button
-                            type="button"
-                            className="link-button"
-                            onClick={() => onOpenRun(parent.id)}
-                          >
-                            {RUN_ROLE_LABELS[parent.role].toLowerCase()}
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <span
-                        className="status-badge"
-                        style={
-                          { '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties
-                        }
-                      >
-                        {RUN_STATUS_LABELS[run.status]}
-                      </span>
-                    </td>
-                    <td>
-                      {run.verdict === undefined ? (
-                        <span className="hint">—</span>
-                      ) : (
+                  <Fragment key={run.id}>
+                    <tr>
+                      <td>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => onOpenRun(run.id)}
+                        >
+                          {new Date(run.createdAt).toLocaleString()}
+                        </button>
+                      </td>
+                      <td>
+                        {RUN_ROLE_LABELS[run.role]}
+                        {parent !== undefined && (
+                          <div className="hint">
+                            after{' '}
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={() => onOpenRun(parent.id)}
+                            >
+                              {RUN_ROLE_LABELS[parent.role].toLowerCase()}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td>
                         <span
                           className="status-badge"
                           style={
-                            { '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties
+                            { '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties
                           }
                         >
-                          {VERDICT_LABELS[run.verdict]}
+                          {RUN_STATUS_LABELS[run.status]}
                         </span>
-                      )}
-                    </td>
-                    <td className="mono">
-                      {backends.length > 1 ? `${AGENT_BACKEND_LABELS[run.backend]} · ` : ''}
-                      {run.resolvedModel ?? run.model ?? 'default'}
-                    </td>
-                    <td className="numeric">{run.turnCount}</td>
-                    <td className="numeric">{formatCost(run.costUsd, run.billing)}</td>
-                    <td>
-                      <OutcomeCell text={run.outcomeSummary} />
-                    </td>
-                    <td>
-                      {run.role === 'review' &&
-                        run.verdict !== undefined &&
-                        canMutate &&
-                        !itemCompleted && (
-                          <button
-                            type="button"
-                            className="text-button"
-                            onClick={() => onRemediate(run)}
-                            disabled={busy || !backendAvailable}
+                      </td>
+                      <td>
+                        {run.verdict === undefined ? (
+                          <span className="hint">—</span>
+                        ) : (
+                          <span
+                            className="status-badge"
+                            style={
+                              { '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties
+                            }
                           >
-                            Remediate
-                          </button>
+                            {VERDICT_LABELS[run.verdict]}
+                          </span>
                         )}
-                      {run.role === 'design' &&
-                        run.status === 'finished' &&
-                        canMutate &&
-                        !itemCompleted && (
-                          <button
-                            type="button"
-                            className="text-button"
-                            onClick={() => implementDesign(run)}
-                            disabled={busy || !backendAvailable}
-                            title="Launch an implement run with the agent, model, and permissions selected above, using this design as its plan"
-                          >
-                            Implement
-                          </button>
-                        )}
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="mono">
+                        {backends.length > 1 ? `${AGENT_BACKEND_LABELS[run.backend]} · ` : ''}
+                        {run.resolvedModel ?? run.model ?? 'default'}
+                      </td>
+                      <td className="numeric">{run.turnCount}</td>
+                      <td className="numeric">{formatCost(run.costUsd, run.billing)}</td>
+                      <td>
+                        <OutcomeCell text={run.outcomeSummary} />
+                      </td>
+                      <td>
+                        {run.role === 'review' &&
+                          run.verdict !== undefined &&
+                          canMutate &&
+                          !itemCompleted && (
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => setHandoffOpen(run.id)}
+                              disabled={busy || availableBackends.length === 0}
+                              title="Launch an implement run in this worktree with these findings as its brief"
+                            >
+                              Remediate
+                            </button>
+                          )}
+                        {run.role === 'design' &&
+                          run.status === 'finished' &&
+                          canMutate &&
+                          !itemCompleted && (
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => setHandoffOpen(run.id)}
+                              disabled={busy || availableBackends.length === 0}
+                              title="Launch an implement run in this worktree with this design as its plan"
+                            >
+                              Implement
+                            </button>
+                          )}
+                      </td>
+                    </tr>
+                    {handoffOpen === run.id && (
+                      <tr className="handoff-row">
+                        <td colSpan={9}>
+                          <HandoffForm
+                            label={run.role === 'review' ? 'Remediate with' : 'Implement with'}
+                            backends={backends}
+                            defaults={handoffDefault}
+                            {...(handoffHint === undefined ? {} : { hint: handoffHint })}
+                            busy={busy}
+                            onLaunch={(choice) => {
+                              onLaunch({
+                                backend: choice.backend,
+                                worktreeId: run.worktreeId,
+                                role: 'implement',
+                                permissionMode: choice.permissionMode,
+                                ...(choice.model === undefined ? {} : { model: choice.model }),
+                                parentRunId: run.id,
+                              });
+                              setHandoffOpen(undefined);
+                            }}
+                            onCancel={() => setHandoffOpen(undefined)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>

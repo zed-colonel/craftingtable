@@ -1,5 +1,3 @@
-import type { AgentRunSummary } from '@craftingtable/contracts';
-import { implementDesignInput, remediationInput } from './features/execution/handoff.js';
 import type {
   AgentRunDetailResponse,
   AuditRecordSummary,
@@ -16,12 +14,14 @@ import type {
   WorkItemExecutionResponse,
   WorkspaceEventEnvelope,
   WorkspaceOverview,
+  RunProfilesResponse,
   WorkspaceRunsResponse,
   WorkspaceWorkItemListResponse,
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
 import type {
   AgentRunId,
+  AgentRunProfile,
   PlanArtifactId,
   SessionId,
   SourceRepositoryId,
@@ -76,11 +76,13 @@ import {
   loadRunEvents,
   loadWorkItemExecution,
   loadWorkspaceRuns,
+  loadRunProfiles,
   loadWorktreeDiff,
   mergeWorktree,
   registerRepository,
   removeWorktree,
   retireRepository,
+  saveRunProfiles,
   sendRunMessage,
   startRun,
 } from './lib/execution-api.js';
@@ -176,6 +178,10 @@ export function App() {
   // one run being followed live, and one diff being inspected.
   const [repositories, setRepositories] = useState<readonly SourceRepositorySummary[]>([]);
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatusResponse>();
+  const [runProfiles, setRunProfiles] = useState<RunProfilesResponse>();
+  const [profilesBusy, setProfilesBusy] = useState(false);
+  const [profilesError, setProfilesError] = useState<string>();
+  const [profilesNotice, setProfilesNotice] = useState<string>();
   const [workItemExecution, setWorkItemExecution] = useState<WorkItemExecutionResponse>();
   const [runsOverview, setRunsOverview] = useState<WorkspaceRunsResponse>();
   const [branches, setBranches] = useState<RepositoryBranchesResponse>();
@@ -459,13 +465,24 @@ export function App() {
         loadWorkItemExecution(workspaceId, route.workItemId),
         loadRepositories(workspaceId),
         loadExecutionStatus(),
+        loadRunProfiles(workspaceId),
       ])
-        .then(([detail, execution, repositoryList, status]) => {
+        .then(([detail, execution, repositoryList, status, profiles]) => {
           if (current()) {
             setWorkItem(detail);
             setWorkItemExecution(execution);
             setRepositories(repositoryList.repositories);
             setExecutionStatus(status);
+            setRunProfiles(profiles);
+          }
+        })
+        .catch(fail);
+    } else if (route.name === 'settings') {
+      void Promise.all([loadExecutionStatus(), loadRunProfiles(workspaceId)])
+        .then(([status, profiles]) => {
+          if (current()) {
+            setExecutionStatus(status);
+            setRunProfiles(profiles);
           }
         })
         .catch(fail);
@@ -479,10 +496,19 @@ export function App() {
         })
         .catch(fail);
     } else if (route.name === 'run') {
-      void loadRun(workspaceId, route.runId)
-        .then((detail) => {
+      void Promise.all([
+        loadRun(workspaceId, route.runId).then((detail) =>
+          Promise.all([detail, loadWorkItemExecution(workspaceId, detail.run.workItemId)]),
+        ),
+        loadExecutionStatus(),
+        loadRunProfiles(workspaceId),
+      ])
+        .then(([[detail, execution], status, profiles]) => {
           if (current()) {
             setRun(detail);
+            setWorkItemExecution(execution);
+            setExecutionStatus(status);
+            setRunProfiles(profiles);
           }
         })
         .catch(fail);
@@ -783,33 +809,34 @@ export function App() {
       })
       .catch(() => undefined);
   };
-  /** An implement run in the same worktree, seeded with a review's findings. */
-  const handleRemediate = (review: AgentRunSummary): void =>
-    executionCommand(async (csrfToken, forWorkspace) => {
-      const execution = await loadWorkItemExecution(forWorkspace, review.workItemId);
-      const response = await startRun(
-        forWorkspace,
-        review.workItemId,
-        remediationInput(review, execution.runs),
-        csrfToken,
-      );
-      if (activeWorkspaceIdRef.current === forWorkspace) {
-        go({ name: 'run', workspaceId: forWorkspace, runId: response.run.id });
-      }
-    });
-  /** An implement run in the same worktree, with a finished design as its plan. */
-  const handleImplementDesign = (design: AgentRunSummary): void =>
-    executionCommand(async (csrfToken, forWorkspace) => {
-      const response = await startRun(
-        forWorkspace,
-        design.workItemId,
-        implementDesignInput(design),
-        csrfToken,
-      );
-      if (activeWorkspaceIdRef.current === forWorkspace) {
-        go({ name: 'run', workspaceId: forWorkspace, runId: response.run.id });
-      }
-    });
+  const handleSaveProfiles = (profiles: readonly AgentRunProfile[]): void => {
+    if (authenticated === undefined || workspaceId === undefined) {
+      return;
+    }
+    const requestedFor = workspaceId;
+    setProfilesBusy(true);
+    setProfilesError(undefined);
+    setProfilesNotice(undefined);
+    void saveRunProfiles(requestedFor, { profiles: [...profiles] }, authenticated.csrfToken)
+      .then((response) => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setRunProfiles(response);
+          setProfilesNotice('Profiles saved.');
+        }
+      })
+      .catch((error: unknown) => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setProfilesError(
+            error instanceof ApiError ? error.message : 'The profiles could not be saved',
+          );
+        }
+      })
+      .finally(() => {
+        if (activeWorkspaceIdRef.current === requestedFor) {
+          setProfilesBusy(false);
+        }
+      });
+  };
   const handleLaunch = (workItemId: WorkItemId, input: LaunchInput): void =>
     executionCommand(async (csrfToken, forWorkspace) => {
       const response = await startRun(forWorkspace, workItemId, input, csrfToken);
@@ -1086,6 +1113,12 @@ export function App() {
             {...(workspaceError === undefined ? {} : { error: workspaceError })}
             {...(workspaceNotice === undefined ? {} : { notice: workspaceNotice })}
             onRename={handleRenameWorkspace}
+            {...(executionStatus === undefined ? {} : { backends: executionStatus.backends })}
+            {...(runProfiles === undefined ? {} : { profiles: runProfiles.profiles })}
+            profilesBusy={profilesBusy}
+            {...(profilesError === undefined ? {} : { profilesError })}
+            {...(profilesNotice === undefined ? {} : { profilesNotice })}
+            onSaveProfiles={handleSaveProfiles}
           />
         )}
 
@@ -1160,7 +1193,7 @@ export function App() {
                 onMergeWorktree={handleMergeWorktree}
                 onLoadBranches={handleLoadBranches}
                 onLaunch={(input) => handleLaunch(workItem.workItem.id, input)}
-                onRemediate={handleRemediate}
+                {...(runProfiles === undefined ? {} : { profiles: runProfiles.profiles })}
                 onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
                 onOpenDiff={handleLoadDiff}
               />
@@ -1201,11 +1234,13 @@ export function App() {
             }
             onLoadDiff={() => handleLoadDiff(run.worktree.id)}
             onCloseDiff={() => setDiff(undefined)}
+            {...(executionStatus === undefined ? {} : { backends: executionStatus.backends })}
+            {...(runProfiles === undefined ? {} : { profiles: runProfiles.profiles })}
+            {...(workItemExecution?.workItemId === run.run.workItemId
+              ? { runs: workItemExecution.runs }
+              : {})}
             {...(canMutate && run.worktree.status === 'active'
-              ? {
-                  onRemediate: () => handleRemediate(run.run),
-                  onImplementDesign: () => handleImplementDesign(run.run),
-                }
+              ? { onHandoff: (input: LaunchInput) => handleLaunch(run.run.workItemId, input) }
               : {})}
           />
         )}

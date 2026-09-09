@@ -3,6 +3,7 @@ import {
   type AgentRunEvent,
   type AgentRunEventKind,
   type AgentRunId,
+  type AgentRunProfile,
   isAgentRunEventKind,
   isTerminalAgentRunStatus,
   type SourceRepository,
@@ -21,6 +22,8 @@ import type {
   CreateSourceRepositoryInput,
   CreateWorktreeInput,
   ExecutionRepositories,
+  ReplaceRunProfilesInput,
+  RunProfileRepository,
   SourceRepositoryRepository,
   TransitionAgentRunInput,
   WorktreeRepository,
@@ -604,11 +607,60 @@ class SqliteAgentRunEventRepository implements AgentRunEventRepository {
   }
 }
 
+const ROLE_ORDER = `CASE role WHEN 'design' THEN 0 WHEN 'implement' THEN 1 ELSE 2 END`;
+
+class SqliteRunProfileRepository implements RunProfileRepository {
+  constructor(private readonly database: Database.Database) {}
+
+  list(workspaceId: WorkspaceId): readonly AgentRunProfile[] {
+    const rows = this.database
+      .prepare(
+        `SELECT role, backend, model, permission_mode
+         FROM workspace_run_profiles WHERE workspace_id = ? ORDER BY ${ROLE_ORDER}`,
+      )
+      .all(workspaceId) as {
+      role: AgentRunProfile['role'];
+      backend: AgentRunProfile['backend'];
+      model: string | null;
+      permission_mode: AgentRunProfile['permissionMode'];
+    }[];
+    return rows.map((row) => ({
+      role: row.role,
+      backend: row.backend,
+      ...(row.model === null ? {} : { model: row.model }),
+      permissionMode: row.permission_mode,
+    }));
+  }
+
+  replace(input: ReplaceRunProfilesInput): void {
+    this.database
+      .prepare('DELETE FROM workspace_run_profiles WHERE workspace_id = ?')
+      .run(input.workspaceId);
+    const insert = this.database.prepare(
+      `INSERT INTO workspace_run_profiles
+         (workspace_id, role, backend, model, permission_mode, updated_at, updated_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const profile of input.profiles) {
+      insert.run(
+        input.workspaceId,
+        profile.role,
+        profile.backend,
+        profile.model ?? null,
+        profile.permissionMode,
+        input.occurredAt,
+        input.updatedByUserId,
+      );
+    }
+  }
+}
+
 export function executionRepositories(database: Database.Database): ExecutionRepositories {
   return {
     sourceRepositories: new SqliteSourceRepositoryRepository(database),
     worktrees: new SqliteWorktreeRepository(database),
     runs: new SqliteAgentRunRepository(database),
     runEvents: new SqliteAgentRunEventRepository(database),
+    runProfiles: new SqliteRunProfileRepository(database),
   };
 }

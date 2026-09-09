@@ -11,6 +11,8 @@ import {
   repositoryBranchesResponseSchema,
   retireSourceRepositoryRequestSchema,
   retireSourceRepositoryResponseSchema,
+  runProfilesResponseSchema,
+  saveRunProfilesRequestSchema,
   sourceRepositoryIdSchema,
   sourceRepositoryListResponseSchema,
   workItemExecutionResponseSchema,
@@ -48,9 +50,49 @@ export function registerExecutionRoutes(
 ): void {
   app.get('/api/execution-status', async (request, reply) => {
     authenticate(request, authService);
-    void agentRunService;
     return noStore(reply).send(executionStatusResponseSchema.parse(status()));
   });
+
+  app.get<{ Params: { workspaceId: string } }>(
+    '/api/workspaces/:workspaceId/run-profiles',
+    async (request, reply) => {
+      const context = authenticate(request, authService);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!workspaceId.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      return noStore(reply).send(
+        runProfilesResponseSchema.parse({
+          profiles: agentRunService.listRunProfiles(context, workspaceId.data, request.id),
+        }),
+      );
+    },
+  );
+
+  app.post<{ Params: { workspaceId: string } }>(
+    '/api/workspaces/:workspaceId/run-profiles',
+    async (request, reply) => {
+      const context = authorizeMutation(request, authService, config);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!workspaceId.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      const body = saveRunProfilesRequestSchema.safeParse(request.body ?? {});
+      if (!body.success) {
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid run profiles');
+      }
+      return noStore(reply).send(
+        runProfilesResponseSchema.parse({
+          profiles: agentRunService.saveRunProfiles(
+            context,
+            workspaceId.data,
+            body.data.profiles,
+            request.id,
+          ),
+        }),
+      );
+    },
+  );
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/repositories',

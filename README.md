@@ -40,6 +40,10 @@ it is mergeable.
 - **Design handoff.** A finished design run can be accepted with one click: the implement
   run that follows gets the proposal as its plan. Design runs end with their open
   questions so the operator sees what still needs a decision before accepting.
+- **Agent profiles.** Workspace settings hold the agent, model, and permissions each run
+  role starts with, so design and review can live on one agent and implementation on
+  another. The launch form and every handoff pre-fill from the profile for the target
+  role and let each launch override it.
 - **Workspaces and account.** Several workspaces per user, created and renamed from the
   browser; password change from the account page; dark theme by default with a light
   option.
@@ -72,7 +76,7 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 7 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 8 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

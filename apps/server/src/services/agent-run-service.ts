@@ -10,12 +10,14 @@ import type {
 import {
   AGENT_BACKEND_LABELS,
   AGENT_BACKENDS,
+  AGENT_RUN_ROLES,
   type AgentBackendKind,
   type AgentBillingSource,
   type AgentPermissionMode,
   type AgentRun,
   type AgentRunEvent,
   type AgentRunId,
+  type AgentRunProfile,
   type AgentRunRole,
   type AgentRunStatus,
   type AgentRunVerdict,
@@ -70,6 +72,8 @@ const LIVE_STATUSES: readonly AgentRunStatus[] = ['starting', 'running', 'waitin
 const OUTCOME_SUMMARY_LIMIT_BYTES = 4000;
 /** A parent run's findings are reproduced in the brief up to this size. */
 const PARENT_MESSAGE_LIMIT_BYTES = 120_000;
+/** The order roles occur in the development loop, for profile listings. */
+const ROLE_ORDER: readonly AgentRunRole[] = ['design', 'implement', 'review'];
 const SHUTDOWN_GRACE_MS = 10_000;
 
 function summarise(text: string): string {
@@ -107,6 +111,81 @@ export class AgentRunService {
 
   liveCount(): number {
     return this.live.size;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Run profiles                                                            */
+  /* ---------------------------------------------------------------------- */
+
+  /** Every role, in role order; unsaved roles carry the daemon's default. */
+  listRunProfiles(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    requestId?: string,
+  ): readonly (AgentRunProfile & { readonly stored: boolean })[] {
+    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
+    return this.resolveProfiles(workspaceId);
+  }
+
+  saveRunProfiles(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    profiles: readonly AgentRunProfile[],
+    requestId?: string,
+  ): readonly (AgentRunProfile & { readonly stored: boolean })[] {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
+      ...(requestId === undefined ? {} : { requestId }),
+    });
+    const occurredAt = this.now().toISOString();
+    this.storage.transaction((tx) => {
+      tx.execution.runProfiles.replace({
+        workspaceId,
+        profiles,
+        occurredAt,
+        updatedByUserId: context.user.id,
+      });
+      tx.audit.append({
+        id: asAuditEventId(randomUUID()),
+        occurredAt,
+        actorKind: 'user',
+        actorUserId: context.user.id,
+        sessionId: context.session.id,
+        workspaceId,
+        ...(requestId === undefined ? {} : { requestId }),
+        action: 'run-profiles.updated',
+        targetType: 'workspace',
+        targetId: workspaceId,
+        outcome: 'succeeded',
+        metadata: {
+          profiles: profiles.map((profile) => ({
+            role: profile.role,
+            backend: profile.backend,
+            model: profile.model ?? null,
+            permissionMode: profile.permissionMode,
+          })),
+        },
+      });
+    });
+    return this.resolveProfiles(workspaceId);
+  }
+
+  private resolveProfiles(
+    workspaceId: WorkspaceId,
+  ): readonly (AgentRunProfile & { readonly stored: boolean })[] {
+    const stored = new Map(
+      this.storage.execution.runProfiles
+        .list(workspaceId)
+        .map((profile) => [profile.role, profile]),
+    );
+    const fallbackBackend = this.defaultBackend() ?? AGENT_BACKENDS[0];
+    return [...AGENT_RUN_ROLES]
+      .sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b))
+      .map((role) => {
+        const profile = stored.get(role);
+        return profile === undefined
+          ? { role, backend: fallbackBackend, permissionMode: 'auto' as const, stored: false }
+          : { ...profile, stored: true };
+      });
   }
 
   /* ---------------------------------------------------------------------- */

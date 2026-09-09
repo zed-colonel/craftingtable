@@ -7,6 +7,7 @@ import type {
   AgentRunEventId,
   AgentRunEventKind,
   AgentRunEventPayload,
+  AgentRunProfile,
   AgentRunId,
   AgentRunRole,
   AgentRunStatus,
@@ -168,9 +169,24 @@ export interface AgentRunEventRepository {
   ): AgentRunEvent | undefined;
 }
 
+export interface ReplaceRunProfilesInput {
+  readonly workspaceId: WorkspaceId;
+  readonly profiles: readonly AgentRunProfile[];
+  readonly occurredAt: string;
+  readonly updatedByUserId: UserId;
+}
+
+export interface RunProfileRepository {
+  /** Stored profiles in role order; roles without a stored profile are absent. */
+  list(workspaceId: WorkspaceId): readonly AgentRunProfile[];
+  /** Replaces the workspace's whole set: roles not in `profiles` revert to the default. */
+  replace(input: ReplaceRunProfilesInput): void;
+}
+
 export interface ExecutionRepositories {
   readonly sourceRepositories: SourceRepositoryRepository;
   readonly worktrees: WorktreeRepository;
   readonly runs: AgentRunRepository;
   readonly runEvents: AgentRunEventRepository;
+  readonly runProfiles: RunProfileRepository;
 }

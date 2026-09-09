@@ -147,7 +147,14 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(feed.getByText(/Run: git status --short/)).toBeVisible();
     await page.getByRole('button', { name: 'End session' }).click();
     await expect(page.getByRole('button', { name: 'Cancel run' })).toHaveCount(0);
+    // Remediate opens a handoff form pre-filled from the implement profile; with no
+    // profile stored it follows the previous implementer, Claude Code.
     await page.getByRole('button', { name: 'Remediate' }).click();
+    const remediateForm = page.getByRole('form', { name: 'Remediate with' });
+    await expect(remediateForm.getByRole('combobox', { name: /^Agent/ })).toHaveValue(
+      'claude-code',
+    );
+    await remediateForm.getByRole('button', { name: 'Launch' }).click();
     await expect(page.getByRole('heading', { name: /Implement run/ })).toBeVisible();
     await expect(page.getByText('Claude Code', { exact: false }).first()).toBeVisible();
     await expect(page.getByText('Awaiting your input').first()).toBeVisible();
@@ -210,6 +217,22 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(page.getByTestId('diff-text')).toContainText('+Codex turn 2: one more Codex turn');
     await page.getByRole('button', { name: 'End session' }).click();
     await expect(page.getByRole('button', { name: 'Cancel run' })).toHaveCount(0);
+
+    // Agent profiles: a stored implement profile pre-fills the launch form for that role.
+    await page.getByRole('link', { name: 'Settings' }).click();
+    const profiles = page.getByRole('region', { name: 'Agent profiles' });
+    const implementProfile = profiles.getByRole('group', { name: 'Implement' });
+    await implementProfile.getByRole('combobox', { name: /^Agent/ }).selectOption('codex');
+    await implementProfile.getByLabel('Permissions').selectOption('edit-only');
+    await profiles.getByRole('button', { name: 'Save profiles' }).click();
+    await expect(profiles.getByRole('status')).toHaveText('Profiles saved.');
+    await page.getByRole('link', { name: 'Dashboard' }).click();
+    await page.getByRole('button', { name: 'ActionQueue', exact: true }).click();
+    await page.getByRole('button', { name: 'AQ-02', exact: true }).click();
+    await expect(launchForm.getByRole('combobox', { name: /^Agent/ })).toHaveValue('codex');
+    await expect(launchForm.getByLabel('Permissions')).toHaveValue('edit-only');
+    await launchForm.getByLabel('Role').selectOption('review');
+    await expect(launchForm.getByRole('combobox', { name: /^Agent/ })).toHaveValue('claude-code');
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }

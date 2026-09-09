@@ -1,5 +1,7 @@
 import type {
   AgentRunDetailResponse,
+  AgentRunSummary,
+  ExecutionStatusResponse,
   RunEventEnvelope,
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
@@ -27,6 +29,13 @@ import {
 } from '../../lib/execution-labels.js';
 import type { ConnectionState } from '../../lib/workspace-projection.js';
 import { DiffView } from './DiffView.js';
+import {
+  handoffDefaults,
+  type LaunchInput,
+  previousImplementerHint,
+  type ProfileEntry,
+} from './handoff.js';
+import { HandoffForm } from './HandoffForm.js';
 
 type EventGroup = 'messages' | 'tools' | 'notices' | 'system';
 
@@ -159,8 +168,10 @@ export function RunPage({
   onOpenWorkItem,
   onLoadDiff,
   onCloseDiff,
-  onRemediate,
-  onImplementDesign,
+  backends,
+  profiles,
+  runs,
+  onHandoff,
 }: {
   detail: AgentRunDetailResponse;
   events: readonly RunEventEnvelope[];
@@ -175,14 +186,28 @@ export function RunPage({
   onOpenWorkItem: () => void;
   onLoadDiff: () => void;
   onCloseDiff: () => void;
-  /** Present when this review's findings can be handed to an implement run. */
-  onRemediate?: () => void;
-  /** Accept a finished design: launch an implement run seeded with it. */
-  onImplementDesign?: () => void;
+  backends?: ExecutionStatusResponse['backends'];
+  profiles?: readonly ProfileEntry[];
+  /** The work item's other runs, so a remediation can default to the previous implementer. */
+  runs?: readonly AgentRunSummary[];
+  /** Present when this run's output can be handed to an implement run. */
+  onHandoff?: (input: LaunchInput) => void;
 }) {
   const { run, worktree } = detail;
   const live = isLiveStatus(run.status);
   const [draft, setDraft] = useState('');
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const handoffChoice = handoffDefaults('implement', profiles ?? [], run, runs ?? []);
+  const handoffHint =
+    run.role === 'review'
+      ? previousImplementerHint(runs ?? [], run.worktreeId, handoffChoice)
+      : undefined;
+  const handoffLabel =
+    run.role === 'review' && run.verdict !== undefined
+      ? 'Remediate with'
+      : run.role === 'design' && run.status === 'finished'
+        ? 'Implement with'
+        : undefined;
   const [showBrief, setShowBrief] = useState(false);
   const [expandAll, setExpandAll] = useState(false);
   const [hidden, setHidden] = useState<ReadonlySet<EventGroup>>(() => new Set(['system']));
@@ -283,30 +308,21 @@ export function RunPage({
           <button type="button" className="secondary-button" onClick={onLoadDiff}>
             {diff === undefined ? 'View diff' : 'Refresh diff'}
           </button>
-          {onRemediate !== undefined && run.role === 'review' && run.verdict !== undefined && (
+          {onHandoff !== undefined && handoffLabel !== undefined && (
             <button
               type="button"
               className="primary-button"
-              onClick={onRemediate}
-              disabled={busy}
-              title="Launch an implement run in this worktree with these findings as its brief"
+              onClick={() => setHandoffOpen(true)}
+              disabled={busy || handoffOpen}
+              title={
+                run.role === 'review'
+                  ? 'Launch an implement run in this worktree with these findings as its brief'
+                  : 'Launch an implement run in this worktree with this design as its plan'
+              }
             >
-              Remediate findings
+              {run.role === 'review' ? 'Remediate findings' : 'Implement this design'}
             </button>
           )}
-          {onImplementDesign !== undefined &&
-            run.role === 'design' &&
-            run.status === 'finished' && (
-              <button
-                type="button"
-                className="primary-button"
-                onClick={onImplementDesign}
-                disabled={busy}
-                title="Launch an implement run in this worktree with this design as its plan"
-              >
-                Implement this design
-              </button>
-            )}
           {live && canMutate && (
             <>
               <button type="button" className="secondary-button" onClick={onEnd} disabled={busy}>
@@ -324,6 +340,29 @@ export function RunPage({
           )}
         </div>
       </header>
+      {onHandoff !== undefined && handoffLabel !== undefined && handoffOpen && (
+        <section className="panel" aria-label="Handoff">
+          <HandoffForm
+            label={handoffLabel}
+            backends={backends ?? []}
+            defaults={handoffChoice}
+            {...(handoffHint === undefined ? {} : { hint: handoffHint })}
+            busy={busy}
+            onLaunch={(choice) => {
+              onHandoff({
+                backend: choice.backend,
+                worktreeId: run.worktreeId,
+                role: 'implement',
+                permissionMode: choice.permissionMode,
+                ...(choice.model === undefined ? {} : { model: choice.model }),
+                parentRunId: run.id,
+              });
+              setHandoffOpen(false);
+            }}
+            onCancel={() => setHandoffOpen(false)}
+          />
+        </section>
+      )}
 
       {error !== undefined && (
         <p className="error-state" role="alert">

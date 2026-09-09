@@ -1202,6 +1202,35 @@ button:disabled {
   align-items: center;
 }
 
+.handoff-form {
+  align-items: flex-end;
+}
+
+.handoff-form-title {
+  align-self: center;
+  font-weight: 600;
+}
+
+.handoff-form-hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.handoff-row td {
+  background: var(--color-surface-raised, transparent);
+}
+
+.profile-row {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 6px);
+  padding: var(--space-2) var(--space-3);
+}
+
+.profile-row legend {
+  font-weight: 600;
+  padding: 0 var(--space-1);
+}
+
 .run-header-meta {
   display: flex;
   gap: var(--space-3);

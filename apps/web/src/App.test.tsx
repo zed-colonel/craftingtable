@@ -264,6 +264,7 @@ vi.mock('./lib/use-run-event-stream.js', () => ({
 // Delegation reads resolve empty so the work item page renders; commands are unused here.
 vi.mock('./lib/execution-api.js', () => ({
   loadExecutionStatus: () => Promise.resolve({ git: { available: true }, backends: [] }),
+  loadRunProfiles: () => Promise.resolve({ profiles: [] }),
   loadRepositories: () => Promise.resolve({ repositories: [] }),
   loadWorkItemExecution: (_workspaceId: string, workItemId: string) =>
     Promise.resolve({ workItemId, worktrees: [], runs: [], mergeGates: {} }),

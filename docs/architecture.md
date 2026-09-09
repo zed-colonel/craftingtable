@@ -74,6 +74,14 @@ accepts a design by launching that implement run; nothing parents to a design ru
 automatically. Those three edges plus implement-then-review give every step of the loop
 the same shape for a later orchestrator.
 
+Which agent runs each step is a workspace setting, not a property of the previous run.
+`workspace_run_profiles` holds one profile per role (backend, model, permission
+posture); `GET/POST /api/workspaces/:id/run-profiles` reads and replaces the set, filling
+unsaved roles with the daemon's default backend. The launch form applies the profile of
+the selected role, and a handoff opens the same inline form pre-filled from the target
+role's profile so the operator can override it per launch. An orchestrator will read the
+same profiles to choose a backend without a human.
+
 ## Agent backend seam
 
 `packages/agents` defines `AgentBackend` (`describe`, `launch`) and `AgentSession`

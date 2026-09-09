@@ -298,6 +298,36 @@ export const startAgentRunRequestSchema = z.strictObject({
   parentRunId: agentRunIdSchema.optional(),
 });
 
+/**
+ * The operator's standing agent, model, and permission choice for one role.
+ * The daemon answers with every role, marking which ones it stores; a request
+ * carries only the roles to store, each at most once.
+ */
+export const agentRunProfileSchema = z.strictObject({
+  role: z.enum(AGENT_RUN_ROLES),
+  backend: z.enum(AGENT_BACKENDS),
+  model: z.string().min(1).max(100).optional(),
+  permissionMode: z.enum(AGENT_PERMISSION_MODES),
+});
+
+export const runProfilesResponseSchema = z.strictObject({
+  profiles: z
+    .array(agentRunProfileSchema.extend({ stored: z.boolean() }))
+    .length(AGENT_RUN_ROLES.length),
+});
+
+export const saveRunProfilesRequestSchema = z.strictObject({
+  profiles: z
+    .array(agentRunProfileSchema)
+    .max(AGENT_RUN_ROLES.length)
+    .refine(
+      (profiles) => new Set(profiles.map((profile) => profile.role)).size === profiles.length,
+      {
+        message: 'each role may appear at most once',
+      },
+    ),
+});
+
 export const startAgentRunResponseSchema = z.strictObject({
   run: agentRunSummarySchema,
 });
@@ -457,6 +487,9 @@ export type WorktreeDiffResponse = z.infer<typeof worktreeDiffResponseSchema>;
 export type DiffFileStatus = z.infer<typeof diffFileStatusSchema>;
 export type AgentRunSummary = z.infer<typeof agentRunSummarySchema>;
 export type AgentRunDetailResponse = z.infer<typeof agentRunDetailResponseSchema>;
+export type AgentRunProfileEntry = z.infer<typeof runProfilesResponseSchema>['profiles'][number];
+export type RunProfilesResponse = z.infer<typeof runProfilesResponseSchema>;
+export type SaveRunProfilesRequest = z.infer<typeof saveRunProfilesRequestSchema>;
 export type StartAgentRunRequest = z.infer<typeof startAgentRunRequestSchema>;
 export type StartAgentRunResponse = z.infer<typeof startAgentRunResponseSchema>;
 export type SendAgentRunMessageRequest = z.infer<typeof sendAgentRunMessageRequestSchema>;

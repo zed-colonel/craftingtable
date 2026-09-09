@@ -51,6 +51,8 @@ export const AUDIT_ACTIONS = [
   'user.password-changed',
   'work-item.completed',
   'worktree.merged',
+  /* Run profiles (schema 8). */
+  'run-profiles.updated',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -87,7 +89,8 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'user.password-changed': 6,
   'work-item.completed': 6,
   'worktree.merged': 6,
-} as const satisfies Readonly<Record<AuditAction, 1 | 2 | 3 | 5 | 6>>;
+  'run-profiles.updated': 8,
+} as const satisfies Readonly<Record<AuditAction, 1 | 2 | 3 | 5 | 6 | 8>>;
 
 export function isAuditAction(value: unknown): value is AuditAction {
   return (AUDIT_ACTIONS as readonly string[]).includes(value as string);

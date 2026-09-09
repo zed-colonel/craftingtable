@@ -18,6 +18,7 @@ import {
   removeWorktreeResponseSchema,
   repositoryBranchesResponseSchema,
   runEventPageResponseSchema,
+  runProfilesResponseSchema,
   sourceRepositoryListResponseSchema,
   startAgentRunResponseSchema,
   workItemExecutionResponseSchema,
@@ -1262,5 +1263,91 @@ it('persists reported model changes and replays neutral token usage over HTTP', 
   expect(event?.payload).toMatchObject({
     model: 'rerouted-model',
     tokenUsage: { totalTokens: 12 },
+  });
+});
+
+describe('run profiles', () => {
+  it('defaults every role to the daemon default backend and auto, then stores the saved set', async () => {
+    const backends = new Map<AgentBackendKind, AgentBackend>([
+      ['codex', new ScriptedBackend('codex')],
+      ['claude-code', new ScriptedBackend('claude-code')],
+    ]);
+    const state = await ready({ backends });
+    const url = `/api/workspaces/${state.workspaceId}/run-profiles`;
+
+    const initial = await state.context.app.inject({
+      method: 'GET',
+      url,
+      headers: { cookie: state.cookie },
+    });
+    expect(initial.statusCode, initial.body).toBe(200);
+    expect(runProfilesResponseSchema.parse(initial.json())).toEqual({
+      profiles: [
+        { role: 'design', backend: 'claude-code', permissionMode: 'auto', stored: false },
+        { role: 'implement', backend: 'claude-code', permissionMode: 'auto', stored: false },
+        { role: 'review', backend: 'claude-code', permissionMode: 'auto', stored: false },
+      ],
+    });
+
+    const saved = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: {
+        profiles: [
+          { role: 'implement', backend: 'codex', model: 'gpt-5', permissionMode: 'auto' },
+          { role: 'review', backend: 'claude-code', model: 'opus', permissionMode: 'edit-only' },
+        ],
+      },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const after = runProfilesResponseSchema.parse(saved.json());
+    expect(after.profiles).toEqual([
+      { role: 'design', backend: 'claude-code', permissionMode: 'auto', stored: false },
+      { role: 'implement', backend: 'codex', model: 'gpt-5', permissionMode: 'auto', stored: true },
+      {
+        role: 'review',
+        backend: 'claude-code',
+        model: 'opus',
+        permissionMode: 'edit-only',
+        stored: true,
+      },
+    ]);
+    const reread = await state.context.app.inject({
+      method: 'GET',
+      url,
+      headers: { cookie: state.cookie },
+    });
+    expect(runProfilesResponseSchema.parse(reread.json())).toEqual(after);
+
+    const audit = state.context.storage.audit.listWorkspace({
+      workspaceId: state.workspaceId,
+      limit: 5,
+    });
+    expect(audit.some((event) => event.action === 'run-profiles.updated')).toBe(true);
+  });
+
+  it('rejects a duplicate role and an unknown backend', async () => {
+    const state = await ready();
+    const url = `/api/workspaces/${state.workspaceId}/run-profiles`;
+    const duplicate = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: {
+        profiles: [
+          { role: 'review', backend: 'claude-code', permissionMode: 'auto' },
+          { role: 'review', backend: 'codex', permissionMode: 'auto' },
+        ],
+      },
+    });
+    expect(duplicate.statusCode).toBe(400);
+    const unknown = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: { profiles: [{ role: 'review', backend: 'gemini', permissionMode: 'auto' }] },
+    });
+    expect(unknown.statusCode).toBe(400);
   });
 });

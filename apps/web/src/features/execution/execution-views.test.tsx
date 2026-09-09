@@ -1,5 +1,6 @@
 import type {
   AgentRunDetailResponse,
+  AgentRunProfileEntry,
   AgentRunSummary,
   RunEventEnvelope,
   SourceRepositorySummary,
@@ -12,7 +13,7 @@ import { DelegationPanel } from './DelegationPanel.js';
 import { DiffView } from './DiffView.js';
 import { RepositoriesPage } from './RepositoriesPage.js';
 import { RunPage } from './RunPage.js';
-import { implementDesignInput, remediationInput } from './handoff.js';
+import { handoffDefaults } from './handoff.js';
 
 afterEach(cleanup);
 
@@ -144,7 +145,6 @@ describe('DelegationPanel', () => {
         onMergeWorktree={vi.fn()}
         onLoadBranches={vi.fn()}
         onLaunch={onLaunch}
-        onRemediate={vi.fn()}
         onOpenRun={onOpenRun}
         onOpenDiff={vi.fn()}
       />,
@@ -188,7 +188,6 @@ describe('DelegationPanel', () => {
   it('offers Merge with a chosen target only when the daemon reports the gate open', () => {
     const onMergeWorktree = vi.fn();
     const onLoadBranches = vi.fn();
-    const onRemediate = vi.fn();
     const review = run({
       status: 'finished',
       role: 'review',
@@ -219,7 +218,6 @@ describe('DelegationPanel', () => {
         onMergeWorktree={onMergeWorktree}
         onLoadBranches={onLoadBranches}
         onLaunch={vi.fn()}
-        onRemediate={onRemediate}
         onOpenRun={vi.fn()}
         onOpenDiff={vi.fn()}
       />,
@@ -234,10 +232,6 @@ describe('DelegationPanel', () => {
     const details = within(table).getByText('Review complete.').closest('details');
     expect(details).not.toBeNull();
     expect(details?.hasAttribute('open')).toBe(false);
-    // A review with a verdict can be handed to a remediation run.
-    fireEvent.click(within(table).getByRole('button', { name: 'Remediate' }));
-    expect(onRemediate).toHaveBeenCalledWith(review);
-
     fireEvent.click(screen.getByRole('button', { name: 'Merge…' }));
     expect(onLoadBranches).toHaveBeenCalledWith('repo-1');
     const form = screen.getByRole('form', { name: 'Merge target' });
@@ -264,7 +258,6 @@ describe('DelegationPanel', () => {
         onMergeWorktree={vi.fn()}
         onLoadBranches={vi.fn()}
         onLaunch={vi.fn()}
-        onRemediate={vi.fn()}
         onOpenRun={vi.fn()}
         onOpenDiff={vi.fn()}
       />,
@@ -389,31 +382,6 @@ describe('RunPage', () => {
     expect(within(feed).getByText('All good.')).toBeDefined();
   });
 
-  it('offers remediation on a review with a verdict', () => {
-    const onRemediate = vi.fn();
-    render(
-      <RunPage
-        detail={{
-          ...detail,
-          run: run({ status: 'finished', role: 'review', verdict: 'changes-requested' }),
-        }}
-        events={[]}
-        connection="open"
-        canMutate={true}
-        busy={false}
-        onSend={vi.fn()}
-        onEnd={vi.fn()}
-        onCancel={vi.fn()}
-        onOpenWorkItem={vi.fn()}
-        onLoadDiff={vi.fn()}
-        onCloseDiff={vi.fn()}
-        onRemediate={onRemediate}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Remediate findings' }));
-    expect(onRemediate).toHaveBeenCalledOnce();
-  });
-
   it('hides the controls once the run is terminal', () => {
     render(
       <RunPage
@@ -481,7 +449,6 @@ it('offers per-agent models, resets the model on switch, and marks unavailable a
     onMergeWorktree: vi.fn(),
     onLoadBranches: vi.fn(),
     onLaunch,
-    onRemediate: vi.fn(),
     onOpenRun: vi.fn(),
     onOpenDiff: vi.fn(),
   };
@@ -518,80 +485,192 @@ it('offers per-agent models, resets the model on switch, and marks unavailable a
   expect(screen.queryByLabelText('Agent')).toBeNull();
 });
 
-it('remediates using the latest finished implementer in the same worktree, otherwise the review', () => {
-  const review = run({ backend: 'codex', role: 'review', model: 'gpt-5.6-luna' });
-  const implementer = run({
-    id: 'impl' as AgentRunSummary['id'],
-    status: 'finished',
-    model: 'opus',
-  });
-  expect(remediationInput(review, [review, implementer])).toMatchObject({
-    backend: 'claude-code',
-    model: 'opus',
-    parentRunId: review.id,
-  });
-  expect(
-    remediationInput(review, [
-      run({ status: 'failed' }),
-      { ...implementer, worktreeId: 'other' as AgentRunSummary['worktreeId'] },
-    ]),
-  ).toMatchObject({ backend: 'codex', model: 'gpt-5.6-luna' });
-});
+const claude = {
+  kind: 'claude-code' as const,
+  label: 'Claude Code',
+  available: true,
+  models: [{ id: 'opus', label: 'Opus' }],
+};
+const codex = {
+  kind: 'codex' as const,
+  label: 'Codex',
+  available: true,
+  models: [{ id: 'gpt-5.6-luna', label: 'Luna' }],
+};
+const profiles: readonly AgentRunProfileEntry[] = [
+  { role: 'design', backend: 'claude-code', permissionMode: 'auto', stored: false },
+  {
+    role: 'implement',
+    backend: 'codex',
+    model: 'gpt-5.6-luna',
+    permissionMode: 'edit-only',
+    stored: true,
+  },
+  { role: 'review', backend: 'claude-code', model: 'opus', permissionMode: 'auto', stored: true },
+];
 
-describe('design handoff', () => {
-  it('offers Implement on a finished design run using the form settings', () => {
-    const onLaunch = vi.fn();
-    const design = run({
-      id: 'design-1' as AgentRunSummary['id'],
-      status: 'finished',
-      role: 'design',
-      backend: 'codex',
-      outcomeSummary: 'Proposal: ring buffer.',
-    });
-    render(
-      <DelegationPanel
-        repositories={[repository]}
-        worktrees={[worktree]}
-        runs={[design, run({ id: 'live-1' as AgentRunSummary['id'], role: 'design' })]}
-        mergeGates={{}}
-        backends={[
-          { kind: 'claude-code', label: 'Claude Code', available: true, models: [] },
-          { kind: 'codex', label: 'Codex', available: true, models: [] },
-        ]}
-        itemCompleted={false}
-        canMutate={true}
-        busy={false}
-        onCreateWorktree={vi.fn()}
-        onRemoveWorktree={vi.fn()}
-        onMergeWorktree={vi.fn()}
-        onLoadBranches={vi.fn()}
-        onLaunch={onLaunch}
-        onRemediate={vi.fn()}
-        onOpenRun={vi.fn()}
-        onOpenDiff={vi.fn()}
-      />,
+function panelProps(overrides: Partial<Parameters<typeof DelegationPanel>[0]> = {}) {
+  return {
+    repositories: [repository],
+    worktrees: [worktree],
+    runs: [] as readonly AgentRunSummary[],
+    mergeGates: {},
+    backends: [claude, codex],
+    profiles,
+    itemCompleted: false,
+    canMutate: true,
+    busy: false,
+    onCreateWorktree: vi.fn(),
+    onRemoveWorktree: vi.fn(),
+    onMergeWorktree: vi.fn(),
+    onLoadBranches: vi.fn(),
+    onLaunch: vi.fn(),
+    onOpenRun: vi.fn(),
+    onOpenDiff: vi.fn(),
+    ...overrides,
+  };
+}
+
+describe('run profiles', () => {
+  it('pre-fills the launch form from the role profile and follows role changes', () => {
+    render(<DelegationPanel {...panelProps()} />);
+    const form = screen.getByRole('form', { name: 'Launch an agent' });
+    expect((within(form).getByLabelText('Agent') as HTMLSelectElement).value).toBe('codex');
+    expect((within(form).getByLabelText('Model') as HTMLSelectElement).value).toBe('gpt-5.6-luna');
+    expect((within(form).getByLabelText('Permissions') as HTMLSelectElement).value).toBe(
+      'edit-only',
     );
+    fireEvent.change(within(form).getByLabelText('Role'), { target: { value: 'review' } });
+    expect((within(form).getByLabelText('Agent') as HTMLSelectElement).value).toBe('claude-code');
+    expect((within(form).getByLabelText('Model') as HTMLSelectElement).value).toBe('opus');
+    expect((within(form).getByLabelText('Permissions') as HTMLSelectElement).value).toBe('auto');
+  });
+
+  it('leaves the operator’s agent choice alone when the new role has no stored profile', () => {
+    const onLaunch = vi.fn();
+    render(<DelegationPanel {...panelProps({ onLaunch })} />);
+    const form = screen.getByRole('form', { name: 'Launch an agent' });
+    // Start from the stored review profile (Claude), then pick Codex by hand.
+    fireEvent.change(within(form).getByLabelText('Role'), { target: { value: 'review' } });
+    fireEvent.change(within(form).getByLabelText('Agent'), { target: { value: 'codex' } });
+    // The design profile is the daemon default, not a stored preference: Codex stays.
+    fireEvent.change(within(form).getByLabelText('Role'), { target: { value: 'design' } });
+    expect((within(form).getByLabelText('Agent') as HTMLSelectElement).value).toBe('codex');
+    // A stored profile still applies.
+    fireEvent.change(within(form).getByLabelText('Role'), { target: { value: 'review' } });
+    expect((within(form).getByLabelText('Agent') as HTMLSelectElement).value).toBe('claude-code');
+    expect((within(form).getByLabelText('Model') as HTMLSelectElement).value).toBe('opus');
+  });
+
+  it('follows the previous run when the target role has only the daemon default', () => {
+    const parent = run({ backend: 'codex', resolvedModel: 'gpt-5.6-luna' });
+    const defaultsOnly: readonly AgentRunProfileEntry[] = [
+      { role: 'implement', backend: 'claude-code', permissionMode: 'auto', stored: false },
+    ];
+    expect(handoffDefaults('implement', defaultsOnly, parent)).toEqual({
+      backend: 'codex',
+      model: 'gpt-5.6-luna',
+      permissionMode: 'auto',
+    });
+    // Remediation without a stored profile returns to the previous implementer, not
+    // to the reviewer that found the problems.
+    const review = run({
+      id: 'review-1' as AgentRunSummary['id'],
+      role: 'review',
+      status: 'finished',
+      backend: 'codex',
+    });
+    const implementer = run({
+      id: 'impl-1' as AgentRunSummary['id'],
+      role: 'implement',
+      status: 'finished',
+      backend: 'claude-code',
+      resolvedModel: 'opus',
+    });
+    expect(handoffDefaults('implement', defaultsOnly, review, [review, implementer])).toEqual({
+      backend: 'claude-code',
+      model: 'opus',
+      permissionMode: 'auto',
+    });
+    expect(handoffDefaults('implement', defaultsOnly, review, [review])).toMatchObject({
+      backend: 'codex',
+    });
+  });
+
+  it('opens a handoff form from Remediate, pre-filled from the implement profile with an override', () => {
+    const onLaunch = vi.fn();
+    const review = run({
+      id: 'review-1' as AgentRunSummary['id'],
+      status: 'finished',
+      role: 'review',
+      verdict: 'changes-requested',
+    });
+    const implementer = run({
+      id: 'impl-1' as AgentRunSummary['id'],
+      status: 'finished',
+      role: 'implement',
+      backend: 'claude-code',
+      resolvedModel: 'opus',
+    });
+    render(<DelegationPanel {...panelProps({ runs: [review, implementer], onLaunch })} />);
     const table = screen.getByRole('table', { name: 'Agent runs' });
-    // Only the finished design run offers the handoff; the live one does not.
-    expect(within(table).getAllByRole('button', { name: 'Implement' })).toHaveLength(1);
-    fireEvent.change(screen.getByLabelText('Permissions'), { target: { value: 'edit-only' } });
-    fireEvent.click(within(table).getByRole('button', { name: 'Implement' }));
+    fireEvent.click(within(table).getByRole('button', { name: 'Remediate' }));
+    const form = screen.getByRole('form', { name: 'Remediate with' });
+    expect((within(form).getByLabelText('Agent') as HTMLSelectElement).value).toBe('codex');
+    expect((within(form).getByLabelText('Model') as HTMLSelectElement).value).toBe('gpt-5.6-luna');
+    // The previous implementer differs from the profile, so the form says so.
+    expect(within(form).getByText(/last implement run here used Claude Code · opus/)).toBeDefined();
+    fireEvent.change(within(form).getByLabelText('Agent'), { target: { value: 'claude-code' } });
+    fireEvent.change(within(form).getByLabelText('Model'), { target: { value: 'opus' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Launch' }));
     expect(onLaunch).toHaveBeenCalledWith({
       backend: 'claude-code',
       worktreeId: 'wt-1',
       role: 'implement',
       permissionMode: 'edit-only',
+      model: 'opus',
+      parentRunId: 'review-1',
+    });
+    expect(screen.queryByRole('form', { name: 'Remediate with' })).toBeNull();
+  });
+
+  it('opens a handoff form from Implement on a finished design run', () => {
+    const onLaunch = vi.fn();
+    const design = run({
+      id: 'design-1' as AgentRunSummary['id'],
+      status: 'finished',
+      role: 'design',
+    });
+    render(
+      <DelegationPanel
+        {...panelProps({
+          runs: [design, run({ id: 'live-1' as AgentRunSummary['id'], role: 'design' })],
+          onLaunch,
+        })}
+      />,
+    );
+    const table = screen.getByRole('table', { name: 'Agent runs' });
+    expect(within(table).getAllByRole('button', { name: 'Implement' })).toHaveLength(1);
+    fireEvent.click(within(table).getByRole('button', { name: 'Implement' }));
+    const form = screen.getByRole('form', { name: 'Implement with' });
+    fireEvent.click(within(form).getByRole('button', { name: 'Launch' }));
+    expect(onLaunch).toHaveBeenCalledWith({
+      backend: 'codex',
+      worktreeId: 'wt-1',
+      role: 'implement',
+      permissionMode: 'edit-only',
+      model: 'gpt-5.6-luna',
       parentRunId: 'design-1',
     });
   });
 
-  it('offers Implement this design on the run page for a finished design run', () => {
-    const onImplementDesign = vi.fn();
+  it('hands off from the run page through the same form', () => {
+    const onHandoff = vi.fn();
     render(
       <RunPage
         detail={
           {
-            run: run({ status: 'finished', role: 'design' }),
+            run: run({ status: 'finished', role: 'review', verdict: 'changes-requested' }),
             worktree,
             brief: '# Work item AQ-01',
             eventCount: 1,
@@ -599,6 +678,8 @@ describe('design handoff', () => {
         }
         events={[]}
         connection="open"
+        backends={[claude, codex]}
+        profiles={profiles}
         canMutate={true}
         busy={false}
         onSend={vi.fn()}
@@ -607,31 +688,44 @@ describe('design handoff', () => {
         onOpenWorkItem={vi.fn()}
         onLoadDiff={vi.fn()}
         onCloseDiff={vi.fn()}
-        onImplementDesign={onImplementDesign}
+        onHandoff={onHandoff}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Implement this design' }));
-    expect(onImplementDesign).toHaveBeenCalledOnce();
-  });
-
-  it('implements a design with the design run’s own agent and model', () => {
-    const design = run({
-      id: 'design-1' as AgentRunSummary['id'],
-      status: 'finished',
-      role: 'design',
-      backend: 'codex',
-      resolvedModel: 'gpt-5.6-luna',
+    fireEvent.click(screen.getByRole('button', { name: 'Remediate findings' }));
+    const form = screen.getByRole('form', { name: 'Remediate with' });
+    fireEvent.change(within(form).getByLabelText('Permissions'), {
+      target: { value: 'unrestricted' },
     });
-    expect(implementDesignInput(design)).toEqual({
+    fireEvent.click(within(form).getByRole('button', { name: 'Launch' }));
+    expect(onHandoff).toHaveBeenCalledWith({
       backend: 'codex',
       worktreeId: 'wt-1',
       role: 'implement',
-      permissionMode: 'auto',
+      permissionMode: 'unrestricted',
       model: 'gpt-5.6-luna',
-      parentRunId: 'design-1',
+      parentRunId: 'run-1',
     });
-    expect(
-      implementDesignInput(run({ role: 'design', resolvedModel: 'default' })),
-    ).not.toHaveProperty('model');
+  });
+
+  it('defaults a handoff to the role profile, else to the parent run', () => {
+    const parent = run({
+      backend: 'codex',
+      resolvedModel: 'gpt-5.6-luna',
+      permissionMode: 'edit-only',
+    });
+    expect(handoffDefaults('implement', profiles, parent)).toEqual({
+      backend: 'codex',
+      model: 'gpt-5.6-luna',
+      permissionMode: 'edit-only',
+    });
+    expect(handoffDefaults('implement', [], parent)).toEqual({
+      backend: 'codex',
+      model: 'gpt-5.6-luna',
+      permissionMode: 'auto',
+    });
+    expect(handoffDefaults('implement', [], run({ resolvedModel: 'default' }))).toEqual({
+      backend: 'claude-code',
+      permissionMode: 'auto',
+    });
   });
 });

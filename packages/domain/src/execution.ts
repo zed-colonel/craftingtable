@@ -145,6 +145,19 @@ export type AgentBillingSource = (typeof AGENT_BILLING_SOURCES)[number];
 export const AGENT_RUN_VERDICTS = ['mergeable', 'changes-requested'] as const;
 export type AgentRunVerdict = (typeof AGENT_RUN_VERDICTS)[number];
 
+/**
+ * The operator's standing choice of agent, model, and permission posture for
+ * a role. Launch forms and handoffs pre-fill from it; an orchestrator reads it
+ * to pick a backend without a human. Absent roles fall back to the daemon's
+ * default backend with the `auto` posture.
+ */
+export interface AgentRunProfile {
+  readonly role: AgentRunRole;
+  readonly backend: AgentBackendKind;
+  readonly model?: string;
+  readonly permissionMode: AgentPermissionMode;
+}
+
 export interface AgentRun {
   readonly id: AgentRunId;
   readonly workspaceId: WorkspaceId;

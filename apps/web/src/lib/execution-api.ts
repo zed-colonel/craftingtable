@@ -16,11 +16,14 @@ import {
   type RepositoryBranchesResponse,
   type RetireSourceRepositoryResponse,
   type RunEventPageResponse,
+  type RunProfilesResponse,
   registerSourceRepositoryResponseSchema,
   removeWorktreeResponseSchema,
   repositoryBranchesResponseSchema,
   retireSourceRepositoryResponseSchema,
   runEventPageResponseSchema,
+  runProfilesResponseSchema,
+  type SaveRunProfilesRequest,
   type SourceRepositoryListResponse,
   type StartAgentRunRequest,
   type StartAgentRunResponse,
@@ -227,4 +230,20 @@ export function loadRepositoryBranches(
 
 export function loadWorkspaceRuns(workspaceId: WorkspaceId): Promise<WorkspaceRunsResponse> {
   return request(`/api/workspaces/${encode(workspaceId)}/runs`, workspaceRunsResponseSchema);
+}
+
+export function loadRunProfiles(workspaceId: WorkspaceId): Promise<RunProfilesResponse> {
+  return request(`/api/workspaces/${encode(workspaceId)}/run-profiles`, runProfilesResponseSchema);
+}
+
+export function saveRunProfiles(
+  workspaceId: WorkspaceId,
+  input: SaveRunProfilesRequest,
+  csrfToken: string,
+): Promise<RunProfilesResponse> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/run-profiles`,
+    runProfilesResponseSchema,
+    mutation(csrfToken, input),
+  );
 }

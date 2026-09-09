@@ -32,6 +32,7 @@ function git(args: readonly string[], cwd: string): void {
 test('registers a repository, delegates a work item, follows the run, and reads the diff', async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   const repository = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-repo-'));
   try {
     git(['init', '--initial-branch=main', '.'], repository);
@@ -60,6 +61,8 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     // Register the fixture repository.
     await page.getByRole('link', { name: 'Repositories' }).click();
     await expect(page.getByText('/usr/bin/git')).toBeVisible();
+    await expect(page.getByText('Claude Code', { exact: true })).toBeVisible();
+    await expect(page.getByText('Codex', { exact: true })).toBeVisible();
     await page.getByLabel('Absolute path to the checkout').fill(repository);
     await page.getByLabel('Display name (optional)').fill('fixture');
     await page.getByRole('button', { name: 'Register' }).click();
@@ -135,6 +138,32 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     // A review with a verdict can be handed straight to a remediation run.
     await expect(page.getByRole('button', { name: 'Remediate' })).toBeVisible();
 
+    // Cross-agent review and remediation: findings return to the Claude implementer.
+    await launchForm.getByRole('combobox', { name: /^Agent/ }).selectOption('codex');
+    await launchForm.getByLabel('Role').selectOption('review');
+    await launchForm.getByLabel(/Instructions for this run/).fill('VERDICT-CHANGES');
+    await page.getByRole('button', { name: /Launch review run/ }).click();
+    await expect(feed.getByText(/fake Codex review turn 1/).first()).toBeVisible();
+    await expect(feed.getByText(/Run: git status --short/)).toBeVisible();
+    await page.getByRole('button', { name: 'End session' }).click();
+    await expect(page.getByRole('button', { name: 'Cancel run' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Remediate' }).click();
+    await expect(page.getByRole('heading', { name: /Implement run/ })).toBeVisible();
+    await expect(page.getByText('Claude Code', { exact: false }).first()).toBeVisible();
+    await expect(page.getByText('Awaiting your input').first()).toBeVisible();
+    await page.getByRole('button', { name: 'End session' }).click();
+    await page.getByRole('button', { name: 'Work item' }).click();
+    await launchForm.getByRole('combobox', { name: /^Agent/ }).selectOption('codex');
+    await launchForm.getByLabel('Role').selectOption('review');
+    await page.getByRole('button', { name: /Launch review run/ }).click();
+    await expect(page.getByRole('heading', { name: /Review run/ })).toBeVisible();
+    await expect(feed.getByText(/^fake Codex review turn 1/).first()).toContainText(
+      'VERDICT: mergeable',
+    );
+    await page.getByRole('button', { name: 'End session' }).click();
+    await page.getByRole('button', { name: 'Work item' }).click();
+    await expect(page.getByText('Reviewed and mergeable')).toBeVisible();
+
     // Merge lands the branch on main, removes the worktree, and completes the item.
     await page.getByRole('button', { name: 'Merge…' }).click();
     const mergeForm = page.getByRole('form', { name: 'Merge target' });
@@ -159,7 +188,28 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(page.getByRole('button', { name: 'AQ-01', exact: true })).toBeVisible();
     await page.getByRole('link', { name: 'Runs' }).click();
     await expect(page.getByRole('heading', { name: 'Runs' })).toBeVisible();
-    await expect(page.getByText(/Review · AQ-01/)).toBeVisible();
+    await expect(page.getByText(/Review · AQ-01/).first()).toBeVisible();
+
+    // A second item uses Codex for implementation and resumes for a follow-up.
+    await page.getByRole('link', { name: 'Dashboard' }).click();
+    await page.getByRole('button', { name: 'ActionQueue', exact: true }).click();
+    await page.getByRole('button', { name: 'AQ-02', exact: true }).click();
+    await page.getByRole('button', { name: 'Admit into agenda' }).click();
+    await page.getByRole('button', { name: 'Create worktree' }).click();
+    await expect(page.getByRole('heading', { name: 'Worktrees (1)' })).toBeVisible();
+    await launchForm.getByRole('combobox', { name: /^Agent/ }).selectOption('codex');
+    await page.getByRole('button', { name: /Launch implement run/ }).click();
+    await expect(feed.getByText('fake Codex finished turn 1', { exact: true })).toBeVisible();
+    await expect(page.getByText('Awaiting your input').first()).toBeVisible();
+    await page.getByLabel('Message to the agent').fill('one more Codex turn');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(feed.getByText('fake Codex finished turn 2', { exact: true })).toBeVisible();
+    await expect(page.getByText('Awaiting your input').first()).toBeVisible();
+    await page.getByRole('button', { name: 'View diff' }).click();
+    await expect(page.getByText('SMOKE-2.md').first()).toBeVisible();
+    await expect(page.getByTestId('diff-text')).toContainText('+Codex turn 2: one more Codex turn');
+    await page.getByRole('button', { name: 'End session' }).click();
+    await expect(page.getByRole('button', { name: 'Cancel run' })).toHaveCount(0);
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }

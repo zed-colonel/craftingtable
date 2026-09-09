@@ -1,6 +1,6 @@
 # ADR-005 — Codex integration path
 
-- **Status:** superseded by ADR-020 (Claude Code is the first backend; Codex is a later `AgentBackend`)
+- **Status:** superseded by ADR-022 (Codex exec/resume backend)
 - **Date:** 2026-07-23
 
 ## Context

@@ -46,8 +46,11 @@ route you chose below. Enable it with `systemctl --user enable --now craftingtab
 and `loginctl enable-linger $USER` so it survives logout.
 
 The daemon's environment is the environment agents inherit: PATH must reach `git` and
-`claude` (or set the explicit executable variables), and HOME must be the account Claude
-Code is signed in as.
+`claude` and/or `codex` (or set the explicit executable variables), and HOME must be
+the account signed in to the selected agent. Run `codex login` as that account before
+using Codex. Tool status reports executable availability, not authentication health.
+`CRAFTINGTABLE_CODEX_EXECUTABLE` overrides discovery and `CRAFTINGTABLE_CODEX_MODELS`
+replaces its model picker list. Codex exec/resume behavior was verified with CLI 0.153.4.
 
 The unit owns port 4600, which `pnpm dev` also binds, so stop the service
 (`systemctl --user stop craftingtable`) before a dev session; `pnpm check` needs no such

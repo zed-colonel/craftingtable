@@ -5,7 +5,7 @@ reviewing, and integrating software work performed by existing coding agents.
 
 It runs as a daemon on your workstation. From a browser on any machine on your home
 network you import a plan, admit a work item into your agenda, register a repository,
-create a worktree, launch Claude Code with the work item as its brief, watch it work
+create a worktree, launch Claude Code or Codex with the work item as its brief, watch it work
 live, steer it, have a second run review the branch, and merge it when the review says
 it is mergeable.
 
@@ -17,11 +17,11 @@ it is mergeable.
 - **Repositories.** Register any local Git checkout by path.
 - **Worktrees.** Create a linked worktree on a fresh `ct/<item>-<id>` branch for a work
   item, and remove it when done. The primary checkout is never touched by an agent.
-- **Agent runs.** Launch Claude Code in the worktree with a composed brief (the work
+- **Agent runs.** Launch Claude Code or Codex in the worktree with a composed brief (the work
   item, its dependencies, the plan documents, your instructions). Choose a role
   (implement, review, design), a permission posture, and optionally a model. Runs
-  record the model the backend actually used and whether it ran on your subscription
-  login or an API key.
+  record model and billing information when the backend reports it; Codex shows the
+  requested model or backend default and does not report dollar costs.
 - **Live supervision.** Every tool call, result, message, and turn is journaled and
   streamed to the browser into a feed you can filter and scroll without losing your
   place. Send follow-up messages, end the session, or cancel.
@@ -44,13 +44,14 @@ it is mergeable.
   restart marks runs that were live as interrupted; nothing is lost.
 
 Not yet: automated implement → review → merge cycles (every step exists as a command,
-the orchestrator does not), Codex or other backends, interactive permission prompts.
+the orchestrator does not), additional backends, interactive permission prompts.
 
 ## Quickstart on the workstation
 
 Prerequisites: pnpm 10 (see [`CONTRIBUTING.md`](CONTRIBUTING.md)), Git 2.32+, and
 [Claude Code](https://code.claude.com) installed and signed in (`claude` on PATH or
-in `~/.local/bin`), or Codex installed and signed in (`codex login`). Node 24 is downloaded by pnpm automatically.
+in `~/.local/bin`), or Codex installed and signed in (`codex login`). Node 24 is
+downloaded by pnpm automatically.
 
 ```sh
 pnpm install
@@ -63,9 +64,8 @@ Sign in at http://127.0.0.1:5173, import a plan (or use `fixtures/plan-bundles/a
 to try it), open **Repositories** and register a checkout, open a work item, admit it,
 create a worktree, launch an implement run, then a review run, then merge.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 6 (the daemon also
-migrates on start). Nothing in an existing database is lost; the retired work-contract
-draft table is dropped.
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 7 (the daemon also
+migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,
 browser end-to-end tests with a scripted agent, and the forbidden-scope check).
@@ -133,7 +133,11 @@ All settings are environment variables. Defaults suit the loopback dev setup.
 | `CRAFTINGTABLE_SESSION_LIFETIME_SECONDS` | 30 days | Browser session lifetime. |
 | `CRAFTINGTABLE_LOG_LEVEL` | `info` | pino level. |
 
-The **Repositories** page shows which Git and Claude Code executables the daemon found.
+The **Repositories** page shows which Git, Claude Code, and Codex executables the daemon found.
+
+For Codex, Auto and Edit-only both use the workspace-write sandbox with approval
+prompts denied. Unrestricted disables the sandbox and approval checks. Follow-up
+messages resume the same Codex thread, and End session finishes accepted messages.
 
 ## Where things are
 
@@ -142,7 +146,7 @@ The **Repositories** page shows which Git and Claude Code executables the daemon
 - `packages/domain` durable vocabulary; `packages/contracts` runtime-validated wire schemas;
   `packages/storage` SQLite and migrations; `packages/planning` plan-bundle parsing.
 - `packages/git` Git operations (worktrees, diffs) behind a process-authority module.
-- `packages/agents` the agent backend seam and the Claude Code adapter.
+- `packages/agents` the agent backend seam, shared process supervision, and Claude Code and Codex adapters.
 - `docs/` architecture, security, operations, and ADRs. `AGENTS.md` is the guidance for
   anyone (human or agent) changing this repository. `init/` is the original planning
   package, background only. `archive/` holds superseded process artifacts.

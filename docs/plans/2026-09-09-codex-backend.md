@@ -1,7 +1,7 @@
 # Codex Backend Implementation Plan
 
 > **For agentic workers:** work through the tasks in order, one commit per task,
-> running the named checks before each commit. Steps use checkbox (`- [ ]`) syntax for
+> running the named checks before each commit. Steps use checkbox (`- [x]`) syntax for
 > tracking. Read `AGENTS.md` first; it is the repository's canonical guidance and this
 > plan does not restate it.
 
@@ -85,12 +85,13 @@ The Codex adapter hides this completely behind `AgentSession`:
 | `end()` | close stdin, process exits | if a turn is running, end after it finishes; otherwise yield `exited { exitCode: 0 }` and close |
 | `kill()` | SIGTERM/SIGKILL the group | terminate the current child if any, drop the queue, yield `exited { signal }` |
 
-Because of this, the daemon's `consume` loop in `agent-run-service.ts` and the run page
-work unchanged: `starting → running → waiting → running → … → finished`. The queued
+The run page and durable vocabulary stay unchanged. The daemon recognizes new
+assistant/tool activity after a queued turn moves the run to waiting, and counts
+every completed turn: `starting → running → waiting → running → … → finished`. The queued
 `send` mirrors Claude Code, which also queues a message arriving mid-turn.
 
-Failure semantics: if a Codex process exits non-zero **and** no `turn.completed` event
-was seen, the adapter yields `turn-completed { outcome: 'error' }` followed by
+Failure semantics: non-zero exits, missing completion, and `turn.failed` all close
+the session as failed, even if the child exits 0. If no turn result was seen, the adapter yields `turn-completed { outcome: 'error' }` followed by
 `exited { exitCode }`, which the daemon maps to `failed`, matching how a Claude crash
 surfaces today. If `resume` fails to start (executable vanished, thread missing), the
 adapter yields a `notice`, then `exited { exitCode: 1 }`.
@@ -137,8 +138,8 @@ adapter yields a `notice`, then `exited { exitCode: 1 }`.
 
 ### 6. Event mapping
 
-`VERIFY` every event and field name against the installed CLI's `--json` output. The
-names below are the plan author's recollection of the `codex exec --json` schema.
+The observed event shapes were verified against CLI 0.153.4; see §8 for the capture
+and the unobserved variants handled defensively.
 
 | Codex JSONL | Normalized event | Payload |
 | --- | --- | --- |
@@ -192,7 +193,8 @@ unobserved MCP/search variants are handled defensively, with unknowns becoming n
 
 `exec` has no `--ask-for-approval` flag; use the config override. `resume` has no
 `--sandbox` flag; use `-c sandbox_mode="workspace-write"` for both commands and
-`-c approval_policy="never"`. Both overrides were accepted in the real capture.
+`-c approval_policy="never"`. Both overrides were accepted on resume; a subsequent smoke test of the built
+adapter verified them on initial exec too, then resumed and ended cleanly.
 `unrestricted` uses the explicit bypass flag. `--add-dir` grants write access and
 is unnecessary for read-only brief access: the capture read a file outside cwd.
 Model IDs below use the current documented model list; availability depends on login.
@@ -272,7 +274,7 @@ Confirm and correct in place before Task 5:
 **Interfaces:**
 - Produces: `AGENT_BACKENDS = ['claude-code', 'codex']`, `AGENT_BACKEND_LABELS: Readonly<Record<AgentBackendKind, string>>`, `StartAgentRunRequest.backend?: AgentBackendKind`.
 
-- [ ] **Step 1: Widen the domain vocabulary**
+- [x] **Step 1: Widen the domain vocabulary**
 
 ```ts
 // packages/domain/src/execution.ts
@@ -286,7 +288,7 @@ export const AGENT_BACKEND_LABELS: Readonly<Record<AgentBackendKind, string>> = 
 };
 ```
 
-- [ ] **Step 2: Add `backend` to the start-run request**
+- [x] **Step 2: Add `backend` to the start-run request**
 
 ```ts
 // packages/contracts/src/execution.ts, inside startAgentRunRequestSchema
@@ -297,7 +299,7 @@ export const AGENT_BACKEND_LABELS: Readonly<Record<AgentBackendKind, string>> = 
 Write a contract test asserting that `{ worktreeId, backend: 'codex' }` parses, that
 `backend: 'gemini'` is rejected, and that the field is optional.
 
-- [ ] **Step 3: Teach the migration runner about foreign keys**
+- [x] **Step 3: Teach the migration runner about foreign keys**
 
 `runMigrations` executes each file inside an immediate transaction with
 `foreign_keys = ON` (`database.ts:14`). Rebuilding `agent_runs` requires dropping a
@@ -327,7 +329,7 @@ try {
 }
 ```
 
-- [ ] **Step 4: Write migration 0007 as a table rebuild**
+- [x] **Step 4: Write migration 0007 as a table rebuild**
 
 ```sql
 -- 0007-agent-backends.sql
@@ -367,7 +369,7 @@ Copy the column list and index names from `0005-execution.sql:82-127` and the th
 paraphrase them. Keep the column order identical to the old table so the
 `INSERT … SELECT` is positional-safe; then list columns explicitly anyway.
 
-- [ ] **Step 5: Test the migration**
+- [x] **Step 5: Test the migration**
 
 Following `migration-0004.test.ts`: open a temp database, run migrations through 0006,
 insert a workspace, user, repository, worktree, work item, one `agent_runs` row with
@@ -376,7 +378,7 @@ and assert: the run row survives with every column intact, the event row still j
 `PRAGMA foreign_key_check` is empty, `PRAGMA foreign_keys` is back to 1, inserting a
 run with `backend = 'codex'` succeeds, and `backend = 'other'` fails the CHECK.
 
-- [ ] **Step 6: Run the checks and commit**
+- [x] **Step 6: Run the checks and commit**
 
 ```bash
 pnpm typecheck && pnpm test
@@ -400,14 +402,14 @@ git commit -m "Admit a codex backend kind and widen the runs table to store it"
 - Consumes: `AGENT_BACKENDS`, `AGENT_BACKEND_LABELS`, `StartAgentRunRequest.backend`.
 - Produces: `AgentRunService` constructor takes `backends: ReadonlyMap<AgentBackendKind, AgentBackend>`; `AgentRunService.defaultBackend(): AgentBackendKind | undefined`; `StartRunInput.backend?: AgentBackendKind`; composition override `agentBackends?: ReadonlyMap<AgentBackendKind, AgentBackend>` replacing `agentBackend`.
 
-- [ ] **Step 1: Config**
+- [x] **Step 1: Config**
 
 Add `codexExecutable?: string` and `codexModels?: string` to `ExecutionConfig`, read
 from `CRAFTINGTABLE_CODEX_EXECUTABLE` and `CRAFTINGTABLE_CODEX_MODELS`, validated the
 same way as the Claude variables in `config.ts:299-306`. Extend the config test with a
 relative-path rejection for the new variable.
 
-- [ ] **Step 2: Registry in composition**
+- [x] **Step 2: Registry in composition**
 
 Replace the single `agentBackend` with:
 
@@ -447,7 +449,7 @@ backends: AGENT_BACKENDS.map((kind) => {
 `parseModelList` gains a second parameter, the fallback list, so it serves both
 backends (Task 4 moves it to `packages/agents/src/models.ts`).
 
-- [ ] **Step 3: Selection in `AgentRunService.start`**
+- [x] **Step 3: Selection in `AgentRunService.start`**
 
 ```ts
 const kind = input.backend ?? this.defaultBackend();
@@ -466,7 +468,7 @@ if (backend === undefined) {
 `backendAvailable()` becomes `this.backends.size > 0`. Everything downstream already
 uses `backend.kind`.
 
-- [ ] **Step 4: Tests**
+- [x] **Step 4: Tests**
 
 In `server-execution.test.ts`, give `ScriptedBackend` a constructor parameter for its
 `kind` and add cases:
@@ -479,12 +481,12 @@ In `server-execution.test.ts`, give `ScriptedBackend` a constructor parameter fo
    `unavailable` error naming Codex;
 5. with only Codex registered, a run with no `backend` uses Codex.
 
-- [ ] **Step 5: README**
+- [x] **Step 5: README**
 
 Add the two environment variables to the table at `README.md:128-129` and mention
 Codex beside Claude Code in the prerequisites at `README.md:52`.
 
-- [ ] **Step 6: Checks and commit**
+- [x] **Step 6: Checks and commit**
 
 ```bash
 pnpm format:check && pnpm lint && pnpm typecheck && pnpm test
@@ -506,7 +508,7 @@ git commit -m "Let the daemon hold several agent backends and pick one per run"
 - Consumes: `ExecutionStatusResponse.backends`, `AGENT_BACKEND_LABELS`, `LaunchInput.backend`.
 - Produces: `DelegationPanel` props `backends: ExecutionStatusResponse['backends']` replacing `models` and `backendAvailable`; `LaunchInput.backend?: AgentBackendKind`.
 
-- [ ] **Step 1: Replace the two props with one**
+- [x] **Step 1: Replace the two props with one**
 
 `DelegationPanel` takes `backends`. Derive inside the component:
 
@@ -519,7 +521,7 @@ const models = selectedBackend?.models ?? [];
 const anyAvailable = availableBackends.length > 0;
 ```
 
-- [ ] **Step 2: Render the selector only when there is a choice**
+- [x] **Step 2: Render the selector only when there is a choice**
 
 Place it in the same `form-row` as Worktree and Role, before Role:
 
@@ -549,7 +551,7 @@ installs. Replace the warning copy at `DelegationPanel.tsx:426-431` with
 Repositories page for the tool status." The permission hint for `auto` reads
 "On Codex this is the same as edit-only" when the selected backend is `codex`.
 
-- [ ] **Step 3: Runs table and run page**
+- [x] **Step 3: Runs table and run page**
 
 In the runs table cell at `DelegationPanel.tsx:576`, prefix the model with
 `AGENT_BACKEND_LABELS[run.backend] · ` when `backends.length > 1`. In `RunPage.tsx:321`
@@ -557,19 +559,19 @@ print `AGENT_BACKEND_LABELS[run.backend]`; at `:338` choose the sentence by back
 Claude keeps the existing text, Codex says "Codex reports token usage but no cost;
 the figure is unavailable."
 
-- [ ] **Step 4: Remediation backend**
+- [x] **Step 4: Remediation backend**
 
 In `App.tsx:785-797`, `handleRemediate` receives the review run; look up the runs for
 that worktree from the loaded execution projection, take the latest finished run with
 `role === 'implement'`, and use its `backend` and `model`; fall back to the review's.
 Pass `backend` through `handleLaunch`.
 
-- [ ] **Step 5: Wire `App.tsx`**
+- [x] **Step 5: Wire `App.tsx`**
 
 Replace the `models=` and `backendAvailable=` props at `App.tsx:1136-1143` with
 `backends={executionStatus?.backends ?? []}`.
 
-- [ ] **Step 6: Component tests**
+- [x] **Step 6: Component tests**
 
 In `execution-views.test.tsx` add: (a) with one backend, no "Agent" select is rendered
 and the launch payload carries no `backend`; (b) with two, the select is rendered,
@@ -577,7 +579,7 @@ the model picker lists only the selected backend's models, changing the agent cl
 the model, and the launch payload carries `backend: 'codex'`; (c) an unavailable
 backend appears disabled with "(not found)".
 
-- [ ] **Step 7: Checks and commit**
+- [x] **Step 7: Checks and commit**
 
 ```bash
 pnpm format:check && pnpm lint && pnpm typecheck && pnpm test
@@ -595,7 +597,7 @@ git commit -m "Offer an agent selector on the launch form when several backends 
 - Modify: `packages/agents/src/claude-code/backend.ts:16`, `packages/agents/src/index.ts`
 - Modify: `scripts/check-forbidden-scope.mjs:47-50`
 
-- [ ] **Step 1: Move the module with `git mv`, update the import, and rename the scope entry**
+- [x] **Step 1: Move the module with `git mv`, update the import, and rename the scope entry**
 
 ```js
 // scripts/check-forbidden-scope.mjs
@@ -604,7 +606,7 @@ git commit -m "Offer an agent selector on the launch form when several backends 
 
 Update the doc comment at the top of `process.ts` to say it serves every backend.
 
-- [ ] **Step 2: Run the scope check and tests**
+- [x] **Step 2: Run the scope check and tests**
 
 ```bash
 pnpm check:scope && pnpm test
@@ -629,9 +631,9 @@ export function codexResumeArguments(threadId: string, request: AgentLaunchReque
 export const CODEX_MODELS: readonly AgentModelOption[];
 ```
 
-Complete the `VERIFY` checklist (§8) before this task and correct §5 to §7 in place.
+Consult the completed protocol verification (§8) before this task and correct §5 to §7 in place.
 
-- [ ] **Step 1: Write the exact-argv tests first**
+- [x] **Step 1: Write the exact-argv tests first**
 
 Mirror `normalize.test.ts:14-45` for Claude: one test per permission mode, one with a
 model, one for resume. Expected vectors are whatever the verified flags are, for example:
@@ -643,21 +645,21 @@ expect(codexResumeArguments('thread-1', { cwd: '/work/x', prompt: 'more', permis
   .toEqual(['exec', 'resume', '--json', '--dangerously-bypass-approvals-and-sandbox', 'thread-1', '-']);
 ```
 
-- [ ] **Step 2: Implement the builders**
+- [x] **Step 2: Implement the builders**
 
 Pure functions, discrete argv entries, prompt never in argv (delivered on stdin).
 The unsupported request fields (`appendSystemPrompt`, `maxBudgetUsd`, `sessionName`,
 `additionalDirectories`) are ignored here; Task 7 emits the notices.
 
-- [ ] **Step 3: Model list**
+- [x] **Step 3: Model list**
 
 ```ts
 export const CODEX_MODELS: readonly AgentModelOption[] = [
-  // VERIFY current ids against the docs; keep the same "id, label" shape as CLAUDE_CODE_MODELS
+  // Current ids verified against the docs; keep the same "id, label" shape as CLAUDE_CODE_MODELS
 ];
 ```
 
-- [ ] **Step 4: Checks and commit**
+- [x] **Step 4: Checks and commit**
 
 ```bash
 pnpm typecheck && pnpm test
@@ -697,7 +699,7 @@ export class CodexStreamNormalizer {
 }
 ```
 
-- [ ] **Step 1: Capture the fixture**
+- [x] **Step 1: Capture the fixture**
 
 Run a real, cheap Codex session in a throwaway Git repository and save its JSONL:
 
@@ -712,7 +714,7 @@ Then resume it once with a second prompt and append that output to the same file
 the fixture holds two turns. Redact nothing that is not a secret; do check that no
 token or home path leaked into it.
 
-- [ ] **Step 2: Write the tests against the fixture**
+- [x] **Step 2: Write the tests against the fixture**
 
 Follow `claude-code/normalize.test.ts`: feed every fixture line through one normalizer
 and assert the event sequence kinds, the `session-started` payload (thread id,
@@ -723,7 +725,7 @@ code, that a `file_change` yields a call whose summary names the files, that
 output sets `truncated: true`, that an unknown line becomes a bounded `notice`, and that
 `raw` is bounded to `RAW_LINE_LIMIT_BYTES`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Reuse the bounded-text helpers by exporting `truncateUtf8`, `boundedRaw`,
 `boundedJson`, `isRecord`, `stringOf`, `firstLine` and the limit constants from a new
@@ -731,7 +733,7 @@ Reuse the bounded-text helpers by exporting `truncateUtf8`, `boundedRaw`,
 adapters share one truncation policy. Treat every line as untrusted: `JSON.parse` in a
 try, unknown `type` → `notice`, missing fields → empty strings, never throw.
 
-- [ ] **Step 4: Checks and commit**
+- [x] **Step 4: Checks and commit**
 
 ```bash
 pnpm typecheck && pnpm test
@@ -753,7 +755,7 @@ git commit -m "Normalize Codex exec JSONL into run events"
 - Consumes: `spawnSupervisedProcess` (Task 4), `codexExecArguments`/`codexResumeArguments` (Task 5), `CodexStreamNormalizer` (Task 6).
 - Produces: `class CodexBackend implements AgentBackend` with `kind = 'codex'`, options `{ executable, env?, terminationGraceMs?, models? }`, identical in shape to `ClaudeCodeBackendOptions`.
 
-- [ ] **Step 1: Write the session state machine**
+- [x] **Step 1: Write the session state machine**
 
 ```ts
 type SessionState =
@@ -784,19 +786,19 @@ export class CodexSession implements AgentSession {
 `startNextTurn` shifts a queued message, spawns `codex exec resume <threadId>` with
 the message on stdin, pipes lines through the normalizer, and on `exited`:
 
-- if `normalizer.turnEnded()` and exit code 0 → state `awaiting-input`; then if another
+- if the turn succeeded, a thread id is known, and exit code is 0 → state `awaiting-input`; then if another
   message is queued start it, else if `endRequested` close with `exited { exitCode: 0 }`;
 - else → yield `turn-completed { outcome: 'error', resultText: <stderr tail or 'Codex exited without completing the turn'> }`, then `exited { exitCode }`, state `closed`.
 
 The first turn uses `codexExecArguments` and the brief; it is started by `launch`.
 
-- [ ] **Step 2: Unsupported request fields**
+- [x] **Step 2: Unsupported request fields**
 
 In `CodexBackend.launch`, before spawning, yield a `notice` for each of
 `appendSystemPrompt` and `maxBudgetUsd` present in the request:
 `"Codex does not support a budget cap; the request's $5 limit was ignored"`.
 
-- [ ] **Step 3: Tests with a fake `codex`**
+- [x] **Step 3: Tests with a fake `codex`**
 
 Copy the pattern in `claude-code/backend.test.ts:14-40`: a Node script written to a
 temp directory that inspects `process.argv` and prints JSONL. Cases:
@@ -815,11 +817,11 @@ temp directory that inspects `process.argv` and prints JSONL. Cases:
    then `exited { exitCode: 2 }`.
 8. in `apps/server/src/services/executables.test.ts` (create beside `executables.ts` if absent), `resolveExecutable('codex', undefined, env)` finds the fake through `PATH`.
 
-- [ ] **Step 4: Register in composition and re-run the daemon tests**
+- [x] **Step 4: Register in composition and re-run the daemon tests**
 
 Replace Task 2's marker with the `CodexBackend` construction shown there.
 
-- [ ] **Step 5: Checks and commit**
+- [x] **Step 5: Checks and commit**
 
 ```bash
 pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm check:scope
@@ -837,7 +839,7 @@ git commit -m "Add the Codex backend with turn-per-process sessions"
 - Create: `docs/decisions/ADR-022-codex-backend-and-turn-per-process-sessions.md`
 - Modify: `docs/architecture.md:73-86`, `docs/operations.md:49`, `docs/decisions/ADR-005-codex-integration.md` (status line: superseded by ADR-022)
 
-- [ ] **Step 1: Fake Codex for the browser suite**
+- [x] **Step 1: Fake Codex for the browser suite**
 
 `e2e/fake-codex.mjs` mirrors `e2e/fake-claude.mjs` in the Codex JSONL: on `exec` it
 emits `thread.started`, a `command_execution` item, a `file_change` item that writes
@@ -847,7 +849,7 @@ review role marker it emits a message ending in `VERDICT: mergeable` and changes
 files. Pass it through `CRAFTINGTABLE_CODEX_EXECUTABLE` in `playwright.config.ts` and
 `e2e-entry.ts` exactly like the Claude variable.
 
-- [ ] **Step 2: Extend the delegation spec**
+- [x] **Step 2: Extend the delegation spec**
 
 After the existing Claude implement run and its review, add: select "Codex" in the
 `Agent` select, launch a review run, assert the run heading, assert the feed shows the
@@ -856,21 +858,21 @@ launch a Codex implement run with a follow-up message and assert a second turn r
 (`SMOKE-2.md` appears in the diff) and "Awaiting your input" shows between turns. Also
 assert the Repositories page lists both tools.
 
-- [ ] **Step 3: ADR-022**
+- [x] **Step 3: ADR-022**
 
 Record: Codex as the second backend via `codex exec --json`; the turn-per-process
 session hidden behind `AgentSession` so run states and UI are unchanged; `auto` equals
 `edit-only` on Codex; no cost figure; default backend order; remediation follows the
 implementer's backend. Mark ADR-005 superseded by ADR-022.
 
-- [ ] **Step 4: Architecture and operations docs**
+- [x] **Step 4: Architecture and operations docs**
 
 In `docs/architecture.md` "Agent backend seam", add a paragraph on the Codex adapter
 beside the Claude one and the shared `process.ts`. In `docs/operations.md:49`, note
 that the service account must also be signed in to Codex (`codex login`) for that
 backend to be available.
 
-- [ ] **Step 5: Full check and commit**
+- [x] **Step 5: Full check and commit**
 
 ```bash
 pnpm check
@@ -901,5 +903,16 @@ git commit -m "Run the browser suite against a fake Codex and record the decisio
   `CodexStreamNormalizer` with `threadId`/`turnEnded`/`beginTurn` (T6, T7),
   `spawnSupervisedProcess`/`AsyncQueue` from `packages/agents/src/process.ts` (T4, T7),
   `parseModelList(value, fallback)` (T2, T4).
-- Deliberately unresolved: the exact Codex flag and event names, marked `VERIFY`, to be
-  settled by the implementer against current documentation before Task 5.
+- Protocol verification is recorded in §8 and the captured fixture.
+
+
+## Implementation notes
+
+Completed in eight increments on main. Verification additionally found that item
+IDs restart per process; normalized tool IDs therefore include a turn prefix.
+File calls are emitted on the captured `item.started` event, with completion-only
+fallback. Shared UTF-8 bounds include the truncation marker. A daemon regression
+fix counts queued turns and restores running status on new activity. Review-gated
+merge now requires a finished review, excluding failed/cancelled/interrupted runs.
+Remediation reloads run history before selecting the implementer. The existing
+launch form already chooses Review; no extra table action was necessary.

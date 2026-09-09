@@ -12,14 +12,14 @@ contracts   strict Zod HTTP/SSE schemas (depends on domain)
 planning    pure plan-bundle parsing, validation, graph, digest (depends on domain)
 storage     SQLite, migrations, repositories (depends on domain)
 git         worktree/diff operations and the read-only inspector (depends on domain)
-agents      agent backend seam and the Claude Code adapter (depends on domain)
+agents      agent backend seam and Claude Code and Codex adapters (depends on domain)
 server      Fastify routes, services, composition (depends on all of the above)
 web         React projection (depends on domain + contracts only)
 ```
 
 Only `storage` owns SQL. Only three modules may spawn a process, and
 `scripts/check-forbidden-scope.mjs` enforces that list: the Git inspector runner,
-the Git operations module, and the Claude Code process supervisor. No package depends
+the Git operations module, and the shared agent process supervisor. No package depends
 on ActionQueue, WorldInterface, Exoskeleton, or any other supervised project.
 
 ## The execution model
@@ -43,8 +43,8 @@ Roles (`implement`, `review`, `design`) select a brief template. Together with
 `parentRunId` they are the composition seam for orchestrated design/implement/review
 cycles: an orchestrator chains runs by role and lineage without new vocabulary.
 
-Runs also record what the backend reported about itself: `resolvedModel` and
-`billing` from the session's init message, and for review runs a `verdict` parsed
+Runs also record model and billing provenance: `resolvedModel` and `billing`
+from normalized session metadata (Codex uses the requested model or `default`), and for review runs a `verdict` parsed
 from the final message's `VERDICT:` line.
 
 ## Work item lifecycle and the merge gate
@@ -58,7 +58,7 @@ a separate `work_item_completions` row joined on read, so the CT-03 admission-on
 trigger on `work_items` stays in force; a completed predecessor unblocks its dependents.
 
 A worktree's merge gate is computed from its runs (`mergeGateFor` in the execution
-service): mergeable when the most recent run is a review with a `mergeable` verdict and
+service): mergeable when the most recent run is a successfully finished review with a `mergeable` verdict and
 nothing is live. The single merge route re-evaluates the gate, merges with a merge
 commit into the branch the operator names (default: the repository's default branch;
 a missing branch is created from it), removes the worktree, deletes the branch, and
@@ -81,8 +81,15 @@ event for diagnostics but are never the durable vocabulary.
 The Claude Code adapter launches `claude -p --input-format stream-json
 --output-format stream-json` with the brief as the first stdin message, keeps stdin
 open for follow-ups, maps the vendor-neutral permission posture to a CLI permission
-mode, and terminates the process group on cancel. Adding Codex means adding another
-`AgentBackend`.
+mode, and terminates the process group on cancel.
+
+The Codex adapter launches `codex exec --json` for each turn, passing the brief on
+stdin, then resumes the captured thread id in a new process for each follow-up.
+The session stays open between processes. It queues messages, ends after accepted
+messages finish, and fails closed on process or protocol errors. Both adapters use
+`packages/agents/src/process.ts`; process authority remains three modules. The daemon
+selects from a backend registry, defaulting to the first available of Claude Code and
+Codex. See ADR-022 for permission mapping and model/billing limitations.
 
 ## Git boundary
 

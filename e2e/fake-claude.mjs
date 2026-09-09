@@ -81,7 +81,7 @@ lines.on('line', (line) => {
   writeFileSync(join(cwd, filename), `turn ${turns}: ${text.split('\n')[0]}\n`);
   // Commit the file the way the implement brief asks for, so a later merge is clean.
   git(['add', '--all']);
-  git(['commit', '--no-gpg-sign', '-q', '-m', `fake agent turn ${turns}`]);
+  git(['commit', '--allow-empty', '--no-gpg-sign', '-q', '-m', `fake agent turn ${turns}`]);
   emit({
     type: 'assistant',
     message: {

@@ -20,8 +20,8 @@ your repositories.
 - Bootstrap is interactive and refuses password arguments; there is no registration route.
 - Passwords are Argon2id hashes; session tokens are stored as SHA-256 digests.
 - Logs redact cookies and authorization headers; audit metadata excludes bodies and tokens.
-- Claude Code uses its own login on the workstation. The daemon never handles API keys;
-  it records only whether the backend reported a subscription login or an API key.
+- Claude Code and Codex use their own logins on the workstation. The daemon never handles API keys;
+  it records only billing provenance or an environment-based API-key hint.
 - Changing a password requires the current one and revokes every other session.
 
 ## Delegation surface
@@ -50,10 +50,13 @@ The agent's permission posture is chosen per run:
 
 - `auto` (default): Claude Code's own classifier approves routine actions; anything that
   would need a human prompt is denied.
-- `edit-only`: file edits are pre-approved, prompts are denied.
-- `unrestricted`: no permission checks. The worktree is the only boundary.
+- `edit-only`: Claude file edits are pre-approved, prompts are denied.
+- On Codex, both `auto` and `edit-only` use its workspace-write sandbox with
+  approval prompts denied, on initial and resumed turns.
+- `unrestricted`: approval checks and any backend sandbox are disabled.
 
-None of these confine the agent to the worktree at the OS level. The brief instructs it
+Claude's permission modes do not confine the agent to the worktree at the OS level.
+Codex's workspace-write mode applies its own sandbox; unrestricted removes it. The brief instructs it
 to stay there, and the diff makes deviations visible, but an unrestricted run has the
 operator's full local authority. Treat `unrestricted` as you would running the agent by
 hand.

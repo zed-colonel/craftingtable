@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
 
 /** The daemon under test launches this scripted stand-in instead of Claude Code. */
+const FAKE_CODEX = fileURLToPath(new URL('./e2e/fake-codex.mjs', import.meta.url));
 const FAKE_CLAUDE = fileURLToPath(new URL('./e2e/fake-claude.mjs', import.meta.url));
 
 // The suite owns these ports so it runs alongside an operator daemon or `pnpm dev`
@@ -38,6 +39,7 @@ export default defineConfig({
       timeout: 30_000,
       env: {
         CRAFTINGTABLE_CLAUDE_EXECUTABLE: FAKE_CLAUDE,
+        CRAFTINGTABLE_CODEX_EXECUTABLE: FAKE_CODEX,
         CRAFTINGTABLE_PORT: String(SERVER_PORT),
         CRAFTINGTABLE_PUBLIC_ORIGIN: WEB_URL,
       },

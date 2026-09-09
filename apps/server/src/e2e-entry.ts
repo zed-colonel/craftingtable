@@ -18,6 +18,9 @@ const config = configFromEnv({
   ...(process.env.CRAFTINGTABLE_CLAUDE_EXECUTABLE === undefined
     ? {}
     : { CRAFTINGTABLE_CLAUDE_EXECUTABLE: process.env.CRAFTINGTABLE_CLAUDE_EXECUTABLE }),
+  ...(process.env.CRAFTINGTABLE_CODEX_EXECUTABLE === undefined
+    ? {}
+    : { CRAFTINGTABLE_CODEX_EXECUTABLE: process.env.CRAFTINGTABLE_CODEX_EXECUTABLE }),
   ...(process.env.CRAFTINGTABLE_GIT_EXECUTABLE === undefined
     ? {}
     : { CRAFTINGTABLE_GIT_EXECUTABLE: process.env.CRAFTINGTABLE_GIT_EXECUTABLE }),

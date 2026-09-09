@@ -76,7 +76,14 @@ The daemon can serve the built browser app itself and listen on the LAN, but onl
 TLS: the session cookie is marked `Secure`, and the daemon refuses to bind a
 non-loopback address without a certificate or an HTTPS public origin fronted by a proxy.
 
-The simplest setup is a self-signed certificate for the workstation's LAN name:
+If the laptop and the workstation are already on a Tailscale tailnet, the easiest route
+is to leave the daemon on loopback and let `tailscale serve` terminate TLS in front of
+it: a real certificate, nothing opened on the LAN interface, and reachable from a phone
+later. That setup is in [`docs/operations.md`](docs/operations.md); the rest of this
+section is the direct-LAN alternative.
+
+Serving the LAN directly needs a certificate of your own, and the simplest is a
+self-signed one for the workstation's LAN name:
 
 ```sh
 mkdir -p ~/.config/craftingtable

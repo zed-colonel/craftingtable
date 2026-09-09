@@ -53,11 +53,11 @@ export type AgentSessionItem =
 export interface AgentSession {
   /** Process identifier, for diagnostics only. */
   readonly pid: number | undefined;
-  /** Items until the process exits; the final item is always `exited`. */
+  /** Items until the session ends; the final item is always `exited`. */
   readonly items: AsyncIterable<AgentSessionItem>;
   /** Queue another user message into the live session. */
   send(text: string): boolean;
-  /** Close the input stream so the agent finishes after its current turn. */
+  /** Finish the session after accepted messages have completed. */
   end(): void;
   /** Terminate the process group: SIGTERM, then SIGKILL after the grace period. */
   kill(): void;
@@ -98,3 +98,6 @@ export { ClaudeCodeBackend, resolveClaudeExecutable } from './claude-code/backen
 export { parseModelList } from './models.js';
 export { CLAUDE_CODE_MODELS } from './claude-code/models.js';
 export { ClaudeStreamNormalizer } from './claude-code/normalize.js';
+
+export { CodexBackend } from './codex/backend.js';
+export { CODEX_MODELS } from './codex/models.js';

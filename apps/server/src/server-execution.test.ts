@@ -37,6 +37,7 @@ import {
 } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
+import { mergeGateFor } from './services/execution-service.js';
 import { CSRF_HEADER_NAME } from './config.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
@@ -115,6 +116,7 @@ class ScriptedSession implements AgentSession {
   private waiter: ((item: IteratorResult<AgentSessionItem>) => void) | undefined;
   private closed = false;
   private turns = 0;
+  private delayed = false;
 
   constructor(request: AgentLaunchRequest, kind: AgentBackendKind) {
     this.push({
@@ -131,6 +133,7 @@ class ScriptedSession implements AgentSession {
         },
       },
     });
+    this.delayed = request.prompt.includes('DEFER-TURNS');
     this.respond(request.prompt);
   }
 
@@ -154,6 +157,11 @@ class ScriptedSession implements AgentSession {
   }
 
   private respond(text: string): void {
+    if (this.delayed) setTimeout(() => this.respondNow(text), 50);
+    else this.respondNow(text);
+  }
+
+  private respondNow(text: string): void {
     this.turns += 1;
     this.push({
       type: 'event',
@@ -1177,4 +1185,49 @@ describe('backend selection', () => {
     expect(response.body).toContain('Codex was not found');
     expect(state.backend.launches).toHaveLength(0);
   });
+});
+
+it('counts and displays a follow-up queued before the preceding turn completes', async () => {
+  const state = await ready({ backend: new ScriptedBackend('codex') });
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id, instructions: 'DEFER-TURNS' },
+  });
+  const { run } = startAgentRunResponseSchema.parse(response.json());
+  const sent = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/messages`,
+    headers: mutationHeaders(state),
+    payload: { text: 'second' },
+  });
+  expect(sent.statusCode, sent.body).toBe(200);
+  await waitFor(
+    () => state.context.storage.execution.runs.find(state.workspaceId, run.id)?.turnCount === 2,
+    'both queued turns counted',
+  );
+  expect(state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status).toBe(
+    'waiting',
+  );
+});
+
+it('never opens the merge gate for a failed, cancelled or interrupted review with an earlier verdict', async () => {
+  const state = await ready();
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  const id = await runToFinish(state, worktree.id, {
+    role: 'review',
+    instructions: 'VERDICT-MERGEABLE',
+  });
+  const run = state.context.storage.execution.runs.find(state.workspaceId, id);
+  const storedWorktree = state.context.storage.execution.worktrees.find(
+    state.workspaceId,
+    worktree.id,
+  );
+  if (run === undefined || storedWorktree === undefined) throw new Error('Missing fixtures');
+  expect(mergeGateFor(storedWorktree, [run]).mergeable).toBe(true);
+  for (const status of ['failed', 'cancelled', 'interrupted'] as const) {
+    expect(mergeGateFor(storedWorktree, [{ ...run, status }]).mergeable).toBe(false);
+  }
 });

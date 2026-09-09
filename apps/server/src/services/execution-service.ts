@@ -65,6 +65,9 @@ export function mergeGateFor(worktree: Worktree, runs: readonly AgentRun[]): Mer
   if (latest !== undefined && latest.id !== latestReview.id) {
     return { mergeable: false, reason: 'superseded-by-later-run', reviewRunId: latestReview.id };
   }
+  if (latestReview.status !== 'finished') {
+    return { mergeable: false, reason: 'review-pending', reviewRunId: latestReview.id };
+  }
   if (latestReview.verdict === 'mergeable') {
     return { mergeable: true, reason: 'ready', reviewRunId: latestReview.id };
   }

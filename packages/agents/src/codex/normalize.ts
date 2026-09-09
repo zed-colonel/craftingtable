@@ -175,7 +175,14 @@ export class CodexStreamNormalizer {
         name = `${stringOf(item.server)}/${stringOf(item.tool)}`.slice(0, 200);
         input = item.arguments ?? null;
         summary = name;
-        output = JSON.stringify(item.result ?? item.error ?? null);
+        {
+          const result = boundedJson(
+            item.result ?? item.error ?? null,
+            TOOL_RESULT_LIMIT_BYTES * 2,
+          );
+          output = typeof result === 'string' ? result : JSON.stringify(result);
+        }
+
         isError ||= item.error != null || (isRecord(item.result) && item.result.isError === true);
         break;
       case 'web_search':

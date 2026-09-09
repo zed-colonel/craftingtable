@@ -521,11 +521,17 @@ export class AgentRunService {
             billing: item.event.payload.billing,
           });
           break;
+        case 'assistant-message':
+        case 'tool-call':
+          // A message queued during the preceding turn can start after its result
+          // moved the run to waiting. Activity belongs to the new turn.
+          this.transition(workspaceId, runId, ['waiting'], 'running', {});
+          break;
         case 'turn-completed': {
           const run = this.storage.execution.runs.find(workspaceId, runId);
           const verdict =
             run?.role === 'review' ? parseVerdict(item.event.payload.resultText) : undefined;
-          this.transition(workspaceId, runId, ['starting', 'running'], 'waiting', {
+          this.transition(workspaceId, runId, ['starting', 'running', 'waiting'], 'waiting', {
             turnCountIncrement: 1,
             outcomeSummary: summarise(item.event.payload.resultText),
             ...(item.event.payload.costUsd === undefined

@@ -4,6 +4,8 @@ import {
   type AgentBackend,
   CLAUDE_CODE_MODELS,
   ClaudeCodeBackend,
+  CodexBackend,
+  CODEX_MODELS,
   parseModelList,
 } from '@craftingtable/agents';
 import { AGENT_BACKENDS, AGENT_BACKEND_LABELS, type AgentBackendKind } from '@craftingtable/domain';
@@ -127,7 +129,18 @@ export async function createServices(
         }),
       );
     }
-    // Codex registration follows when the adapter is implemented.
+    const codex = resolveExecutable('codex', config.execution.codexExecutable, process.env, [
+      join(homedir(), '.local', 'bin'),
+    ]);
+    if (codex !== undefined) {
+      backends.set(
+        'codex',
+        new CodexBackend({
+          executable: codex,
+          models: parseModelList(config.execution.codexModels, CODEX_MODELS),
+        }),
+      );
+    }
   }
   const executionService = new ExecutionService(
     storage,

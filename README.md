@@ -50,7 +50,7 @@ the orchestrator does not), Codex or other backends, interactive permission prom
 
 Prerequisites: pnpm 10 (see [`CONTRIBUTING.md`](CONTRIBUTING.md)), Git 2.32+, and
 [Claude Code](https://code.claude.com) installed and signed in (`claude` on PATH or
-in `~/.local/bin`). Node 24 is downloaded by pnpm automatically.
+in `~/.local/bin`), or Codex installed and signed in (`codex login`). Node 24 is downloaded by pnpm automatically.
 
 ```sh
 pnpm install
@@ -126,6 +126,8 @@ All settings are environment variables. Defaults suit the loopback dev setup.
 | `CRAFTINGTABLE_RUNS_ROOT` | `<data>/runs` | Per-run brief and plan documents handed to the agent. |
 | `CRAFTINGTABLE_GIT_EXECUTABLE` | first `git` on PATH | Absolute path override. |
 | `CRAFTINGTABLE_CLAUDE_EXECUTABLE` | first `claude` on PATH or `~/.local/bin` | Absolute path override. |
+| `CRAFTINGTABLE_CODEX_EXECUTABLE` | first `codex` on PATH or `~/.local/bin` | Absolute path override. |
+| `CRAFTINGTABLE_CODEX_MODELS` | built-in Codex model list | `id=Label,id=Label` entries for the model picker. |
 | `CRAFTINGTABLE_CLAUDE_MODELS` | built-in list (`opus`, `sonnet`, `haiku` aliases plus current ids) | `id=Label,id=Label` entries for the launch form's model picker. |
 | `CRAFTINGTABLE_DIFF_LIMIT_BYTES` | 4 MiB | Ceiling on one diff response's patch text. |
 | `CRAFTINGTABLE_SESSION_LIFETIME_SECONDS` | 30 days | Browser session lifetime. |

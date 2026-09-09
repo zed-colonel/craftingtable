@@ -28,6 +28,7 @@ export interface ExecutionConfig {
   readonly gitExecutable?: string;
   /** Explicit Claude Code executable; when absent the daemon searches PATH and ~/.local/bin. */
   readonly claudeExecutable?: string;
+  readonly codexExecutable?: string;
   /** Linked worktrees are created strictly below this directory. */
   readonly worktreeRoot: string;
   /** Per-run brief and plan documents are written strictly below this directory. */
@@ -36,6 +37,7 @@ export interface ExecutionConfig {
   readonly maxPatchBytes: number;
   /** `id=Label,id=Label` model options for the launch form; absent means the built-in list. */
   readonly claudeModels?: string;
+  readonly codexModels?: string;
 }
 
 export interface TlsConfig {
@@ -299,9 +301,11 @@ function defaultWebDistDir(): string | undefined {
 function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConfig {
   const gitExecutable = env.CRAFTINGTABLE_GIT_EXECUTABLE;
   const claudeExecutable = env.CRAFTINGTABLE_CLAUDE_EXECUTABLE;
+  const codexExecutable = env.CRAFTINGTABLE_CODEX_EXECUTABLE;
   for (const [label, value] of [
     ['CRAFTINGTABLE_GIT_EXECUTABLE', gitExecutable],
     ['CRAFTINGTABLE_CLAUDE_EXECUTABLE', claudeExecutable],
+    ['CRAFTINGTABLE_CODEX_EXECUTABLE', codexExecutable],
   ] as const) {
     if (value !== undefined && !isNormalizedAbsolutePath(value)) {
       throw new Error(`${label} must be a normalized absolute path`);
@@ -323,6 +327,10 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
   return Object.freeze({
     ...(gitExecutable === undefined ? {} : { gitExecutable }),
     ...(claudeExecutable === undefined ? {} : { claudeExecutable }),
+    ...(codexExecutable === undefined ? {} : { codexExecutable }),
+    ...(env.CRAFTINGTABLE_CODEX_MODELS === undefined
+      ? {}
+      : { codexModels: env.CRAFTINGTABLE_CODEX_MODELS }),
     worktreeRoot,
     runsRoot,
     ...(env.CRAFTINGTABLE_CLAUDE_MODELS === undefined

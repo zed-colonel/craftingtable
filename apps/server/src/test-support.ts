@@ -45,7 +45,10 @@ export async function createTestContext(
     readonly loggerStream?: { write(message: string): void };
     readonly streamHooks?: WorkspaceEventStreamHooks;
     readonly gitOperations?: GitOperations | null;
-    readonly agentBackend?: AgentBackend | null;
+    readonly agentBackends?: ReadonlyMap<
+      import('@craftingtable/domain').AgentBackendKind,
+      AgentBackend
+    >;
     readonly env?: Readonly<Record<string, string>>;
   } = {},
 ): Promise<TestContext> {
@@ -65,7 +68,7 @@ export async function createTestContext(
     ...(options.streamHooks === undefined ? {} : { streamHooks: options.streamHooks }),
     // Tests never reach the real Git or Claude executables unless they opt in.
     gitOperations: options.gitOperations === undefined ? null : options.gitOperations,
-    agentBackend: options.agentBackend === undefined ? null : options.agentBackend,
+    agentBackends: options.agentBackends ?? new Map(),
   });
   const app = buildServer(
     {

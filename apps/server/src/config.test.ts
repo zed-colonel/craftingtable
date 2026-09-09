@@ -200,3 +200,15 @@ describe('configFromEnv', () => {
     expect(() => configFromEnv({ CRAFTINGTABLE_DATA_DIR: './state' })).toThrow(/absolute/);
   });
 });
+
+it('validates Codex configuration like Claude configuration', () => {
+  expect(() => configFromEnv({ CRAFTINGTABLE_CODEX_EXECUTABLE: 'relative/codex' })).toThrow(
+    /CRAFTINGTABLE_CODEX_EXECUTABLE/,
+  );
+  expect(
+    configFromEnv({
+      CRAFTINGTABLE_CODEX_EXECUTABLE: '/tools/codex',
+      CRAFTINGTABLE_CODEX_MODELS: 'custom=Custom',
+    }).execution,
+  ).toMatchObject({ codexExecutable: '/tools/codex', codexModels: 'custom=Custom' });
+});

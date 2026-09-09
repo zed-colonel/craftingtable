@@ -8,6 +8,9 @@ import type {
   NormalizedAgentEvent,
 } from '@craftingtable/agents';
 import {
+  AGENT_BACKENDS,
+  AGENT_BACKEND_LABELS,
+  type AgentBackendKind,
   type AgentBillingSource,
   type AgentPermissionMode,
   type AgentRun,
@@ -36,6 +39,7 @@ import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 
 export interface StartRunInput {
+  readonly backend?: AgentBackendKind;
   readonly worktreeId: WorktreeId;
   readonly role: AgentRunRole;
   readonly permissionMode: AgentPermissionMode;
@@ -87,14 +91,18 @@ export class AgentRunService {
     private readonly storage: CraftingTableStorage,
     private readonly workspaceService: WorkspaceService,
     private readonly notifier: WorkspaceEventNotifier,
-    private readonly backend: AgentBackend | undefined,
+    private readonly backends: ReadonlyMap<AgentBackendKind, AgentBackend>,
     private readonly config: ExecutionConfig,
     private readonly log: RunLog = { warn: () => undefined },
     private readonly now: () => Date = () => new Date(),
   ) {}
 
   backendAvailable(): boolean {
-    return this.backend !== undefined;
+    return this.backends.size > 0;
+  }
+
+  defaultBackend(): AgentBackendKind | undefined {
+    return AGENT_BACKENDS.find((kind) => this.backends.has(kind));
   }
 
   liveCount(): number {
@@ -115,11 +123,14 @@ export class AgentRunService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
-    const backend = this.backend;
+    const kind = input.backend ?? this.defaultBackend();
+    const backend = kind === undefined ? undefined : this.backends.get(kind);
     if (backend === undefined) {
       throw new ExecutionRequestError(
         'unavailable',
-        'No Claude Code executable was found; set CRAFTINGTABLE_CLAUDE_EXECUTABLE or add claude to PATH',
+        kind === undefined
+          ? 'No agent executable was found; install Claude Code or Codex, or set CRAFTINGTABLE_CLAUDE_EXECUTABLE / CRAFTINGTABLE_CODEX_EXECUTABLE'
+          : `${AGENT_BACKEND_LABELS[kind]} was not found on this workstation`,
       );
     }
 

@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { type AgentBackend, ClaudeCodeBackend, parseModelList } from '@craftingtable/agents';
+import { AGENT_BACKENDS, AGENT_BACKEND_LABELS, type AgentBackendKind } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { type CraftingTableStorage, openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
@@ -57,7 +58,7 @@ export interface ServiceOverrides {
   /** Test seam: a Git operations implementation or `null` to simulate no Git. */
   readonly gitOperations?: GitOperations | null;
   /** Test seam: an agent backend or `null` to simulate a missing executable. */
-  readonly agentBackend?: AgentBackend | null;
+  readonly agentBackends?: ReadonlyMap<AgentBackendKind, AgentBackend>;
   readonly runLog?: RunLog;
 }
 
@@ -107,21 +108,22 @@ export async function createServices(
         ? undefined
         : createGitOperations({ gitExecutable })
       : (overrides.gitOperations ?? undefined);
-  const claudeExecutable =
-    overrides.agentBackend === undefined
-      ? resolveExecutable('claude', config.execution.claudeExecutable, process.env, [
-          join(homedir(), '.local', 'bin'),
-        ])
-      : undefined;
-  const agentBackend: AgentBackend | undefined =
-    overrides.agentBackend === undefined
-      ? claudeExecutable === undefined
-        ? undefined
-        : new ClaudeCodeBackend({
-            executable: claudeExecutable,
-            models: parseModelList(config.execution.claudeModels),
-          })
-      : (overrides.agentBackend ?? undefined);
+  const backends = new Map<AgentBackendKind, AgentBackend>(overrides.agentBackends);
+  if (overrides.agentBackends === undefined) {
+    const claude = resolveExecutable('claude', config.execution.claudeExecutable, process.env, [
+      join(homedir(), '.local', 'bin'),
+    ]);
+    if (claude !== undefined) {
+      backends.set(
+        'claude-code',
+        new ClaudeCodeBackend({
+          executable: claude,
+          models: parseModelList(config.execution.claudeModels),
+        }),
+      );
+    }
+    // Codex registration follows when the adapter is implemented.
+  }
   const executionService = new ExecutionService(
     storage,
     workspaceService,
@@ -135,7 +137,7 @@ export async function createServices(
     storage,
     workspaceService,
     notifier,
-    agentBackend,
+    backends,
     config.execution,
     overrides.runLog,
     now,
@@ -146,15 +148,16 @@ export async function createServices(
       available: gitOperations !== undefined,
       ...(gitExecutable === undefined ? {} : { executable: gitExecutable }),
     },
-    backends: [
-      {
-        kind: 'claude-code',
-        label: 'Claude Code',
-        available: agentBackend !== undefined,
-        ...(agentBackend === undefined ? {} : { executable: agentBackend.describe().executable }),
-        models: agentBackend === undefined ? [] : agentBackend.describe().models,
-      },
-    ],
+    backends: AGENT_BACKENDS.map((kind) => {
+      const backend = backends.get(kind);
+      return {
+        kind,
+        label: AGENT_BACKEND_LABELS[kind],
+        available: backend !== undefined,
+        ...(backend === undefined ? {} : { executable: backend.describe().executable }),
+        models: backend === undefined ? [] : backend.describe().models,
+      };
+    }),
   });
   return {
     bootstrapService: new BootstrapService(storage, passwordHasher, notifier, now),

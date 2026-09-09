@@ -23,9 +23,12 @@ const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
  * skipped rather than failing startup; an empty result falls back to the
  * built-in list.
  */
-export function parseModelList(value: string | undefined): readonly AgentModelOption[] {
+export function parseModelList(
+  value: string | undefined,
+  fallback: readonly AgentModelOption[] = CLAUDE_CODE_MODELS,
+): readonly AgentModelOption[] {
   if (value === undefined || value.trim().length === 0) {
-    return CLAUDE_CODE_MODELS;
+    return fallback;
   }
   const options: AgentModelOption[] = [];
   for (const entry of value.split(',')) {
@@ -37,5 +40,5 @@ export function parseModelList(value: string | undefined): readonly AgentModelOp
     const label = rest.join('=').trim();
     options.push({ id, label: label.length === 0 ? id : label.slice(0, 100) });
   }
-  return options.length === 0 ? CLAUDE_CODE_MODELS : options;
+  return options.length === 0 ? fallback : options;
 }

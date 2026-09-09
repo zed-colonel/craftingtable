@@ -25,6 +25,7 @@ import {
   worktreeDiffResponseSchema,
 } from '@craftingtable/contracts';
 import {
+  type AgentBackendKind,
   type AgentRunId,
   asPlanBundleId,
   asPlanVersionId,
@@ -81,7 +82,7 @@ function fixtureRepository(): string {
  * user message as an assistant turn, and exits when ended or killed.
  */
 class ScriptedBackend implements AgentBackend {
-  readonly kind = 'claude-code' as const;
+  constructor(readonly kind: AgentBackendKind = 'claude-code') {}
   readonly launches: AgentLaunchRequest[] = [];
   readonly sessions: ScriptedSession[] = [];
   failNextLaunch = false;
@@ -101,7 +102,7 @@ class ScriptedBackend implements AgentBackend {
       return Promise.reject(new Error('scripted launch failure'));
     }
     this.launches.push(request);
-    const session = new ScriptedSession(request);
+    const session = new ScriptedSession(request, this.kind);
     this.sessions.push(session);
     return Promise.resolve(session);
   }
@@ -115,13 +116,13 @@ class ScriptedSession implements AgentSession {
   private closed = false;
   private turns = 0;
 
-  constructor(request: AgentLaunchRequest) {
+  constructor(request: AgentLaunchRequest, kind: AgentBackendKind) {
     this.push({
       type: 'event',
       event: {
         kind: 'session-started',
         payload: {
-          backend: 'claude-code',
+          backend: kind,
           backendSessionId: 'scripted-session',
           model: 'scripted-model',
           permissionMode: request.permissionMode,
@@ -261,11 +262,16 @@ interface Ready {
   readonly backend: ScriptedBackend;
 }
 
-async function ready(options: { readonly backend?: ScriptedBackend | null } = {}): Promise<Ready> {
+async function ready(
+  options: {
+    readonly backend?: ScriptedBackend | null;
+    readonly backends?: ReadonlyMap<AgentBackendKind, AgentBackend>;
+  } = {},
+): Promise<Ready> {
   const backend = options.backend === undefined ? new ScriptedBackend() : options.backend;
   const context = await createTestContext({
     gitOperations: createGitOperations({ gitExecutable: 'git' }),
-    agentBackend: backend,
+    agentBackends: options.backends ?? new Map(backend === null ? [] : [[backend.kind, backend]]),
   });
   contexts.push(context);
   await context.bootstrap();
@@ -438,6 +444,7 @@ describe('repository registration', () => {
           available: true,
           models: [{ id: 'scripted-model', label: 'Scripted model' }],
         },
+        { kind: 'codex', available: false, models: [] },
       ],
     });
 
@@ -1097,5 +1104,77 @@ describe('review-gated merge', () => {
       payload: { worktreeId: worktree.id, role: 'implement', parentRunId: 'no-such-run' },
     });
     expect(other.statusCode).toBe(404);
+  });
+});
+
+describe('backend selection', () => {
+  it.each([
+    { kinds: ['codex', 'claude-code'], requested: undefined, expected: 'claude-code' },
+    { kinds: ['claude-code', 'codex'], requested: 'codex', expected: 'codex' },
+    { kinds: ['codex'], requested: undefined, expected: 'codex' },
+  ] as const)(
+    'selects $expected from $kinds (requested $requested)',
+    async ({ kinds, requested, expected }) => {
+      const backends = new Map<AgentBackendKind, AgentBackend>(
+        kinds.map((kind) => [kind, new ScriptedBackend(kind)]),
+      );
+      const state = await ready({ backends });
+      const { worktree } = await registerAndWorktree(state, fixtureRepository());
+      const response = await state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+        headers: mutationHeaders(state),
+        payload: {
+          worktreeId: worktree.id,
+          ...(requested === undefined ? {} : { backend: requested }),
+        },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      const { run } = startAgentRunResponseSchema.parse(response.json());
+      expect(run.backend).toBe(expected);
+      expect((backends.get(expected) as ScriptedBackend).launches).toHaveLength(1);
+      const status = await state.context.app.inject({
+        method: 'GET',
+        url: '/api/execution-status',
+        headers: { cookie: state.cookie },
+      });
+      expect(
+        executionStatusResponseSchema
+          .parse(status.json())
+          .backends.map(({ kind, available }) => ({ kind, available })),
+      ).toEqual([
+        { kind: 'claude-code', available: kinds.some((kind) => kind === 'claude-code') },
+        { kind: 'codex', available: true },
+      ]);
+      const audit = state.context.storage.audit.listWorkspace({
+        workspaceId: state.workspaceId,
+        limit: 100,
+      });
+      expect(audit.find((event) => event.action === 'agent-run.start')?.metadata).toMatchObject({
+        backend: expected,
+      });
+      const events = state.context.storage.workspaceEvents.listAfter({
+        workspaceId: state.workspaceId,
+        after: 0,
+        limit: 100,
+      });
+      expect(events.find((event) => event.kind === 'agent-run-started')?.payload).toMatchObject({
+        backend: expected,
+      });
+    },
+  );
+
+  it('names an explicitly selected unavailable backend without falling back', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, backend: 'codex' },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.body).toContain('Codex was not found');
+    expect(state.backend.launches).toHaveLength(0);
   });
 });

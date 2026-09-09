@@ -111,7 +111,7 @@ const MERGE_GATE_MESSAGES: Readonly<Record<MergeGateReason, string>> = {
 export interface ExecutionStatus {
   readonly git: { readonly available: boolean; readonly executable?: string };
   readonly backends: readonly {
-    readonly kind: 'claude-code';
+    readonly kind: import('@craftingtable/domain').AgentBackendKind;
     readonly label: string;
     readonly available: boolean;
     readonly executable?: string;

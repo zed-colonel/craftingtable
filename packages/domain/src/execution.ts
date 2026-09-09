@@ -73,8 +73,12 @@ export interface Worktree {
 /* Agent runs                                                                  */
 /* -------------------------------------------------------------------------- */
 
-export const AGENT_BACKENDS = ['claude-code'] as const;
+export const AGENT_BACKENDS = ['claude-code', 'codex'] as const;
 export type AgentBackendKind = (typeof AGENT_BACKENDS)[number];
+export const AGENT_BACKEND_LABELS: Readonly<Record<AgentBackendKind, string>> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+};
 
 /**
  * The role a run plays in the development loop. Roles are the composition

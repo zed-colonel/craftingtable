@@ -288,6 +288,7 @@ export const agentRunDetailResponseSchema = z.strictObject({
 });
 
 export const startAgentRunRequestSchema = z.strictObject({
+  backend: z.enum(AGENT_BACKENDS).optional(),
   worktreeId: worktreeIdSchema,
   role: z.enum(AGENT_RUN_ROLES).default('implement'),
   permissionMode: z.enum(AGENT_PERMISSION_MODES).default('auto'),

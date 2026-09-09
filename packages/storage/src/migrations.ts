@@ -166,20 +166,32 @@ export function runMigrations(
     if (migration === undefined) {
       throw new Error(`Missing migration ${version}`);
     }
-    database
-      .transaction(() => {
-        if (!ledgerExists(database)) {
-          database.exec(LEDGER_SQL);
-        }
-        database.exec(migration.sql);
-        database
-          .prepare(
-            `INSERT INTO schema_migrations (version, name, checksum, applied_at)
+    const foreignKeysOff = /^--\s*requires:\s*foreign_keys=off\s*$/m.test(migration.sql);
+    if (foreignKeysOff) {
+      if (database.inTransaction) throw new Error('Table rebuild requires an outermost migration');
+      database.pragma('foreign_keys = OFF');
+    }
+    try {
+      database
+        .transaction(() => {
+          if (!ledgerExists(database)) {
+            database.exec(LEDGER_SQL);
+          }
+          database.exec(migration.sql);
+          if (foreignKeysOff && database.prepare('PRAGMA foreign_key_check').all().length > 0) {
+            throw new Error(`Migration ${migration.version} left foreign key violations`);
+          }
+          database
+            .prepare(
+              `INSERT INTO schema_migrations (version, name, checksum, applied_at)
              VALUES (?, ?, ?, ?)`,
-          )
-          .run(migration.version, migration.name, migration.checksum, now());
-      })
-      .immediate();
+            )
+            .run(migration.version, migration.name, migration.checksum, now());
+        })
+        .immediate();
+    } finally {
+      if (foreignKeysOff) database.pragma('foreign_keys = ON');
+    }
   }
   return migrationStatus(database, migrations);
 }

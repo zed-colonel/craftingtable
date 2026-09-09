@@ -1,4 +1,16 @@
-import type { AgentBillingSource, AgentPermissionMode, JsonValue } from '@craftingtable/domain';
+import {
+  boundedJson,
+  boundedRaw,
+  firstLine,
+  isRecord,
+  MESSAGE_TEXT_LIMIT_BYTES,
+  stringOf,
+  TOOL_INPUT_LIMIT_BYTES,
+  TOOL_RESULT_LIMIT_BYTES,
+  truncateUtf8,
+} from '../bounded.js';
+export { RAW_LINE_LIMIT_BYTES, TOOL_RESULT_LIMIT_BYTES } from '../bounded.js';
+import type { AgentBillingSource, AgentPermissionMode } from '@craftingtable/domain';
 import type { NormalizedAgentEvent } from '../index.js';
 
 /**
@@ -9,49 +21,6 @@ import type { NormalizedAgentEvent } from '../index.js';
  * be large (tool inputs, tool results, raw lines) is truncated to a fixed
  * ceiling before it can reach storage.
  */
-
-export const RAW_LINE_LIMIT_BYTES = 64 * 1024;
-export const TOOL_INPUT_LIMIT_BYTES = 16 * 1024;
-export const TOOL_RESULT_LIMIT_BYTES = 32 * 1024;
-export const MESSAGE_TEXT_LIMIT_BYTES = 256 * 1024;
-
-const TRUNCATION_MARKER = '\n…[truncated by CraftingTable]';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function truncateUtf8(value: string, limit: number): { text: string; truncated: boolean } {
-  const bytes = Buffer.from(value, 'utf8');
-  if (bytes.byteLength <= limit) {
-    return { text: value, truncated: false };
-  }
-  return {
-    text: `${bytes.subarray(0, limit).toString('utf8')}${TRUNCATION_MARKER}`,
-    truncated: true,
-  };
-}
-
-function boundedRaw(line: string): string {
-  return truncateUtf8(line, RAW_LINE_LIMIT_BYTES).text;
-}
-
-function boundedJson(value: unknown, limit: number): JsonValue {
-  let serialized: string;
-  try {
-    serialized = JSON.stringify(value) ?? 'null';
-  } catch {
-    return '[unserialisable tool input]';
-  }
-  if (Buffer.byteLength(serialized, 'utf8') <= limit) {
-    return JSON.parse(serialized) as JsonValue;
-  }
-  return truncateUtf8(serialized, limit).text;
-}
-
-function stringOf(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
 
 /** Flattens tool_result content, which may be a string or an array of blocks. */
 function toolResultText(content: unknown): string {
@@ -82,11 +51,6 @@ function billingOf(apiKeySource: unknown): AgentBillingSource {
     return 'unknown';
   }
   return apiKeySource === 'none' ? 'subscription' : 'api-key';
-}
-
-function firstLine(value: string, limit = 200): string {
-  const line = value.split('\n')[0] ?? '';
-  return line.length > limit ? `${line.slice(0, limit)}…` : line;
 }
 
 export function summarizeToolCall(name: string, input: unknown): string {

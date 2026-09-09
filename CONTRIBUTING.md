@@ -43,10 +43,11 @@ shutdown, database-unit, and recoverable reset instructions are in
 [`docs/operations.md`](docs/operations.md); never point tests at that operator
 directory.
 
-The E2E gate always starts fresh servers from the current source, creates a
-unique temporary database, and fails explicitly if ports `4600`/`5173` are
-occupied. Stop any running `pnpm dev` first. It never reuses an operator daemon
-or normal data directory.
+The E2E gate always starts fresh servers from the current source on ports of its
+own (`4610` for the daemon, `5183` for Vite), creates a unique temporary
+database, and fails explicitly if those ports are occupied. It runs happily
+beside an operator daemon or `pnpm dev` on 4600/5173, and never reuses either
+those servers or a normal data directory.
 
 ## Quality expectations
 

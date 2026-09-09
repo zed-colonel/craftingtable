@@ -49,10 +49,11 @@ The daemon's environment is the environment agents inherit: PATH must reach `git
 `claude` (or set the explicit executable variables), and HOME must be the account Claude
 Code is signed in as.
 
-The unit owns port 4600, and both `pnpm dev` and the end-to-end suite in `pnpm check`
-bind that port themselves, so stop the service (`systemctl --user stop craftingtable`)
-before either. It serves whatever `apps/web/dist` holds, so a web change needs
-`pnpm build` and `systemctl --user restart craftingtable` to appear.
+The unit owns port 4600, which `pnpm dev` also binds, so stop the service
+(`systemctl --user stop craftingtable`) before a dev session; `pnpm check` needs no such
+care, because the end-to-end suite uses ports of its own. The unit serves whatever
+`apps/web/dist` holds, so a web change needs `pnpm build` and
+`systemctl --user restart craftingtable` to appear.
 
 ## Reaching the daemon from another machine
 

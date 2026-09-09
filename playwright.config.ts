@@ -4,8 +4,14 @@ import { defineConfig, devices } from '@playwright/test';
 /** The daemon under test launches this scripted stand-in instead of Claude Code. */
 const FAKE_CLAUDE = fileURLToPath(new URL('./e2e/fake-claude.mjs', import.meta.url));
 
-const WEB_URL = 'http://127.0.0.1:5173';
-const SERVER_HEALTH_URL = 'http://127.0.0.1:4600/api/health';
+// The suite owns these ports so it runs alongside an operator daemon or `pnpm dev`
+// on the usual 4600/5173. They must stay in step with the defaults in
+// `apps/server/src/e2e-entry.ts`.
+const SERVER_PORT = 4610;
+const WEB_PORT = 5183;
+const SERVER_ORIGIN = `http://127.0.0.1:${SERVER_PORT}`;
+const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
+const SERVER_HEALTH_URL = `${SERVER_ORIGIN}/api/health`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -30,14 +36,18 @@ export default defineConfig({
       url: SERVER_HEALTH_URL,
       reuseExistingServer: false,
       timeout: 30_000,
-      env: { CRAFTINGTABLE_CLAUDE_EXECUTABLE: FAKE_CLAUDE },
+      env: {
+        CRAFTINGTABLE_CLAUDE_EXECUTABLE: FAKE_CLAUDE,
+        CRAFTINGTABLE_PORT: String(SERVER_PORT),
+        CRAFTINGTABLE_PUBLIC_ORIGIN: WEB_URL,
+      },
     },
     {
-      command:
-        'pnpm --filter @craftingtable/web exec vite --host 127.0.0.1 --port 5173 --strictPort',
+      command: `pnpm --filter @craftingtable/web exec vite --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
       url: WEB_URL,
       reuseExistingServer: false,
       timeout: 30_000,
+      env: { CRAFTINGTABLE_DEV_API_TARGET: SERVER_ORIGIN },
     },
   ],
 });

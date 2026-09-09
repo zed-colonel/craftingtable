@@ -10,8 +10,10 @@ const directory = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-'));
 const config = configFromEnv({
   CRAFTINGTABLE_DATA_DIR: directory,
   CRAFTINGTABLE_HOST: '127.0.0.1',
-  CRAFTINGTABLE_PORT: '4600',
-  CRAFTINGTABLE_PUBLIC_ORIGIN: 'http://127.0.0.1:5173',
+  // Defaults match `playwright.config.ts`, away from the 4600/5173 an operator
+  // daemon or `pnpm dev` uses; Playwright passes both explicitly.
+  CRAFTINGTABLE_PORT: process.env.CRAFTINGTABLE_PORT ?? '4610',
+  CRAFTINGTABLE_PUBLIC_ORIGIN: process.env.CRAFTINGTABLE_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5183',
   CRAFTINGTABLE_LOG_LEVEL: 'warn',
   ...(process.env.CRAFTINGTABLE_CLAUDE_EXECUTABLE === undefined
     ? {}

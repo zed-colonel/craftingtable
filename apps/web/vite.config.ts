@@ -18,7 +18,8 @@ export default defineConfig({
     host: '127.0.0.1',
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:4600',
+        // The daemon's default port; the e2e run points this at its own daemon.
+        target: process.env.CRAFTINGTABLE_DEV_API_TARGET ?? 'http://127.0.0.1:4600',
       },
     },
   },

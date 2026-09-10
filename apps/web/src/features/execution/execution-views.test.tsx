@@ -13,7 +13,7 @@ import { DelegationPanel } from './DelegationPanel.js';
 import { DiffView } from './DiffView.js';
 import { RepositoriesPage } from './RepositoriesPage.js';
 import { RunPage } from './RunPage.js';
-import { handoffDefaults } from './handoff.js';
+import { handoffDefaults, handoffTarget } from './handoff.js';
 
 afterEach(cleanup);
 
@@ -727,5 +727,81 @@ describe('run profiles', () => {
       backend: 'claude-code',
       permissionMode: 'auto',
     });
+  });
+});
+
+describe('review handoff', () => {
+  it('names the handoff each run offers', () => {
+    expect(handoffTarget(run({ role: 'implement', status: 'finished' }))).toMatchObject({
+      role: 'review',
+      label: 'Review with',
+      button: 'Review',
+      pageButton: 'Review this implementation',
+    });
+    expect(handoffTarget(run({ role: 'implement', status: 'waiting' }))).toBeUndefined();
+    expect(handoffTarget(run({ role: 'review', status: 'finished' }))).toBeUndefined();
+    expect(
+      handoffTarget(run({ role: 'review', status: 'finished', verdict: 'mergeable' }))?.role,
+    ).toBe('implement');
+    expect(handoffTarget(run({ role: 'design', status: 'finished' }))?.role).toBe('implement');
+  });
+
+  it('opens a handoff form from Review on a finished implement run, pre-filled from the review profile', () => {
+    const onLaunch = vi.fn();
+    const implementer = run({
+      id: 'impl-1' as AgentRunSummary['id'],
+      status: 'finished',
+      role: 'implement',
+      backend: 'codex',
+    });
+    render(<DelegationPanel {...panelProps({ runs: [implementer], onLaunch })} />);
+    const table = screen.getByRole('table', { name: 'Agent runs' });
+    fireEvent.click(within(table).getByRole('button', { name: 'Review' }));
+    const form = screen.getByRole('form', { name: 'Review with' });
+    expect((within(form).getByLabelText('Agent') as HTMLSelectElement).value).toBe('claude-code');
+    fireEvent.click(within(form).getByRole('button', { name: 'Launch' }));
+    expect(onLaunch).toHaveBeenCalledWith({
+      backend: 'claude-code',
+      worktreeId: 'wt-1',
+      role: 'review',
+      permissionMode: 'auto',
+      model: 'opus',
+      parentRunId: 'impl-1',
+    });
+  });
+
+  it('offers the review handoff on the run page', () => {
+    const onHandoff = vi.fn();
+    render(
+      <RunPage
+        detail={
+          {
+            run: run({ status: 'finished', role: 'implement' }),
+            worktree,
+            brief: '# Work item AQ-01',
+            eventCount: 1,
+          } as AgentRunDetailResponse
+        }
+        events={[]}
+        connection="open"
+        backends={[claude, codex]}
+        profiles={profiles}
+        canMutate={true}
+        busy={false}
+        onSend={vi.fn()}
+        onEnd={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenWorkItem={vi.fn()}
+        onLoadDiff={vi.fn()}
+        onCloseDiff={vi.fn()}
+        onHandoff={onHandoff}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Review this implementation' }));
+    const form = screen.getByRole('form', { name: 'Review with' });
+    fireEvent.click(within(form).getByRole('button', { name: 'Launch' }));
+    expect(onHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'review', parentRunId: 'run-1' }),
+    );
   });
 });

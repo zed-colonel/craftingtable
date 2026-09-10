@@ -31,6 +31,7 @@ import type { ConnectionState } from '../../lib/workspace-projection.js';
 import { DiffView } from './DiffView.js';
 import {
   handoffDefaults,
+  handoffTarget,
   type LaunchInput,
   previousImplementerHint,
   type ProfileEntry,
@@ -197,17 +198,15 @@ export function RunPage({
   const live = isLiveStatus(run.status);
   const [draft, setDraft] = useState('');
   const [handoffOpen, setHandoffOpen] = useState(false);
-  const handoffChoice = handoffDefaults('implement', profiles ?? [], run, runs ?? []);
+  const target = handoffTarget(run);
+  const handoffChoice =
+    target === undefined
+      ? undefined
+      : handoffDefaults(target.role, profiles ?? [], run, runs ?? []);
   const handoffHint =
-    run.role === 'review'
+    run.role === 'review' && handoffChoice !== undefined
       ? previousImplementerHint(runs ?? [], run.worktreeId, handoffChoice)
       : undefined;
-  const handoffLabel =
-    run.role === 'review' && run.verdict !== undefined
-      ? 'Remediate with'
-      : run.role === 'design' && run.status === 'finished'
-        ? 'Implement with'
-        : undefined;
   const [showBrief, setShowBrief] = useState(false);
   const [expandAll, setExpandAll] = useState(false);
   const [hidden, setHidden] = useState<ReadonlySet<EventGroup>>(() => new Set(['system']));
@@ -308,19 +307,15 @@ export function RunPage({
           <button type="button" className="secondary-button" onClick={onLoadDiff}>
             {diff === undefined ? 'View diff' : 'Refresh diff'}
           </button>
-          {onHandoff !== undefined && handoffLabel !== undefined && (
+          {onHandoff !== undefined && target !== undefined && (
             <button
               type="button"
               className="primary-button"
               onClick={() => setHandoffOpen(true)}
               disabled={busy || handoffOpen}
-              title={
-                run.role === 'review'
-                  ? 'Launch an implement run in this worktree with these findings as its brief'
-                  : 'Launch an implement run in this worktree with this design as its plan'
-              }
+              title={target.title}
             >
-              {run.role === 'review' ? 'Remediate findings' : 'Implement this design'}
+              {target.pageButton}
             </button>
           )}
           {live && canMutate && (
@@ -340,29 +335,32 @@ export function RunPage({
           )}
         </div>
       </header>
-      {onHandoff !== undefined && handoffLabel !== undefined && handoffOpen && (
-        <section className="panel" aria-label="Handoff">
-          <HandoffForm
-            label={handoffLabel}
-            backends={backends ?? []}
-            defaults={handoffChoice}
-            {...(handoffHint === undefined ? {} : { hint: handoffHint })}
-            busy={busy}
-            onLaunch={(choice) => {
-              onHandoff({
-                backend: choice.backend,
-                worktreeId: run.worktreeId,
-                role: 'implement',
-                permissionMode: choice.permissionMode,
-                ...(choice.model === undefined ? {} : { model: choice.model }),
-                parentRunId: run.id,
-              });
-              setHandoffOpen(false);
-            }}
-            onCancel={() => setHandoffOpen(false)}
-          />
-        </section>
-      )}
+      {onHandoff !== undefined &&
+        target !== undefined &&
+        handoffChoice !== undefined &&
+        handoffOpen && (
+          <section className="panel" aria-label="Handoff">
+            <HandoffForm
+              label={target.label}
+              backends={backends ?? []}
+              defaults={handoffChoice}
+              {...(handoffHint === undefined ? {} : { hint: handoffHint })}
+              busy={busy}
+              onLaunch={(choice) => {
+                onHandoff({
+                  backend: choice.backend,
+                  worktreeId: run.worktreeId,
+                  role: target.role,
+                  permissionMode: choice.permissionMode,
+                  ...(choice.model === undefined ? {} : { model: choice.model }),
+                  parentRunId: run.id,
+                });
+                setHandoffOpen(false);
+              }}
+              onCancel={() => setHandoffOpen(false)}
+            />
+          </section>
+        )}
 
       {error !== undefined && (
         <p className="error-state" role="alert">

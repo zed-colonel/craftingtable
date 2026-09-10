@@ -33,6 +33,7 @@ import {
 } from '../../lib/execution-labels.js';
 import {
   handoffDefaults,
+  handoffTarget,
   type LaunchInput,
   previousImplementerHint,
   type ProfileEntry,
@@ -524,9 +525,13 @@ export function DelegationPanel({
               {runs.map((run) => {
                 const parent =
                   run.parentRunId === undefined ? undefined : runById.get(run.parentRunId);
-                const handoffDefault = handoffDefaults('implement', roleProfiles, run, runs);
+                const target = handoffTarget(run);
+                const handoffDefault =
+                  target === undefined
+                    ? undefined
+                    : handoffDefaults(target.role, roleProfiles, run, runs);
                 const handoffHint =
-                  run.role === 'review'
+                  run.role === 'review' && handoffDefault !== undefined
                     ? previousImplementerHint(runs, run.worktreeId, handoffDefault)
                     : undefined;
                 return (
@@ -590,61 +595,46 @@ export function DelegationPanel({
                         <OutcomeCell text={run.outcomeSummary} />
                       </td>
                       <td>
-                        {run.role === 'review' &&
-                          run.verdict !== undefined &&
-                          canMutate &&
-                          !itemCompleted && (
-                            <button
-                              type="button"
-                              className="text-button"
-                              onClick={() => setHandoffOpen(run.id)}
-                              disabled={busy || availableBackends.length === 0}
-                              title="Launch an implement run in this worktree with these findings as its brief"
-                            >
-                              Remediate
-                            </button>
-                          )}
-                        {run.role === 'design' &&
-                          run.status === 'finished' &&
-                          canMutate &&
-                          !itemCompleted && (
-                            <button
-                              type="button"
-                              className="text-button"
-                              onClick={() => setHandoffOpen(run.id)}
-                              disabled={busy || availableBackends.length === 0}
-                              title="Launch an implement run in this worktree with this design as its plan"
-                            >
-                              Implement
-                            </button>
-                          )}
+                        {target !== undefined && canMutate && !itemCompleted && (
+                          <button
+                            type="button"
+                            className="text-button"
+                            onClick={() => setHandoffOpen(run.id)}
+                            disabled={busy || availableBackends.length === 0}
+                            title={target.title}
+                          >
+                            {target.button}
+                          </button>
+                        )}
                       </td>
                     </tr>
-                    {handoffOpen === run.id && (
-                      <tr className="handoff-row">
-                        <td colSpan={9}>
-                          <HandoffForm
-                            label={run.role === 'review' ? 'Remediate with' : 'Implement with'}
-                            backends={backends}
-                            defaults={handoffDefault}
-                            {...(handoffHint === undefined ? {} : { hint: handoffHint })}
-                            busy={busy}
-                            onLaunch={(choice) => {
-                              onLaunch({
-                                backend: choice.backend,
-                                worktreeId: run.worktreeId,
-                                role: 'implement',
-                                permissionMode: choice.permissionMode,
-                                ...(choice.model === undefined ? {} : { model: choice.model }),
-                                parentRunId: run.id,
-                              });
-                              setHandoffOpen(undefined);
-                            }}
-                            onCancel={() => setHandoffOpen(undefined)}
-                          />
-                        </td>
-                      </tr>
-                    )}
+                    {handoffOpen === run.id &&
+                      target !== undefined &&
+                      handoffDefault !== undefined && (
+                        <tr className="handoff-row">
+                          <td colSpan={9}>
+                            <HandoffForm
+                              label={target.label}
+                              backends={backends}
+                              defaults={handoffDefault}
+                              {...(handoffHint === undefined ? {} : { hint: handoffHint })}
+                              busy={busy}
+                              onLaunch={(choice) => {
+                                onLaunch({
+                                  backend: choice.backend,
+                                  worktreeId: run.worktreeId,
+                                  role: target.role,
+                                  permissionMode: choice.permissionMode,
+                                  ...(choice.model === undefined ? {} : { model: choice.model }),
+                                  parentRunId: run.id,
+                                });
+                                setHandoffOpen(undefined);
+                              }}
+                              onCancel={() => setHandoffOpen(undefined)}
+                            />
+                          </td>
+                        </tr>
+                      )}
                   </Fragment>
                 );
               })}

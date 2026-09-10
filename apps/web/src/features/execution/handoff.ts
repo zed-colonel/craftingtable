@@ -124,3 +124,50 @@ export function previousImplementerHint(
   }
   return `The last implement run here used ${describeAgent(previous.backend, model)}.`;
 }
+
+/** What a finished run can be handed to, and how the buttons name it. */
+export interface HandoffTarget {
+  readonly role: Extract<AgentRunRole, 'implement' | 'review'>;
+  /** Accessible name of the inline form. */
+  readonly label: string;
+  /** Button text in the runs table. */
+  readonly button: string;
+  /** Button text on the run page. */
+  readonly pageButton: string;
+  readonly title: string;
+}
+
+/**
+ * The edges of the loop: a review with a verdict hands to remediation, a
+ * finished design to implementation, a finished implementation to review.
+ */
+export function handoffTarget(run: AgentRunSummary): HandoffTarget | undefined {
+  if (run.role === 'review' && run.verdict !== undefined) {
+    return {
+      role: 'implement',
+      label: 'Remediate with',
+      button: 'Remediate',
+      pageButton: 'Remediate findings',
+      title: 'Launch an implement run in this worktree with these findings as its brief',
+    };
+  }
+  if (run.role === 'design' && run.status === 'finished') {
+    return {
+      role: 'implement',
+      label: 'Implement with',
+      button: 'Implement',
+      pageButton: 'Implement this design',
+      title: 'Launch an implement run in this worktree with this design as its plan',
+    };
+  }
+  if (run.role === 'implement' && run.status === 'finished') {
+    return {
+      role: 'review',
+      label: 'Review with',
+      button: 'Review',
+      pageButton: 'Review this implementation',
+      title: 'Launch a review run in this worktree with this implementation as its claim to verify',
+    };
+  }
+  return undefined;
+}

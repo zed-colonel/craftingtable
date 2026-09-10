@@ -125,10 +125,14 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(page.getByText('Needs a review run')).toBeVisible();
     await expect(page.getByRole('button', { name: /Merge into/ })).toHaveCount(0);
 
-    // A review run returns a mergeable verdict and opens the gate.
+    // A finished implement run hands off to a review through the inline form; the
+    // review returns a mergeable verdict and opens the gate.
     const launchForm = page.getByRole('form', { name: 'Launch an agent' });
-    await launchForm.getByLabel('Role').selectOption('review');
-    await page.getByRole('button', { name: /Launch review run/ }).click();
+    await page.getByRole('button', { name: 'Review', exact: true }).click();
+    await page
+      .getByRole('form', { name: 'Review with' })
+      .getByRole('button', { name: 'Launch' })
+      .click();
     await expect(page.getByRole('heading', { name: /Review run/ })).toBeVisible();
     await expect(page.getByText('Mergeable').first()).toBeVisible();
     await page.getByRole('button', { name: 'End session' }).click();

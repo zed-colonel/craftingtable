@@ -43,7 +43,9 @@ it is mergeable.
 - **Agent profiles.** Workspace settings hold the agent, model, and permissions each run
   role starts with, so design and review can live on one agent and implementation on
   another. The launch form and every handoff pre-fill from the profile for the target
-  role and let each launch override it.
+  role and let each launch override it. Every edge of the loop has a handoff button:
+  Implement on a finished design, Review on a finished implementation, Remediate on a
+  review with a verdict.
 - **Workspaces and account.** Several workspaces per user, created and renamed from the
   browser; password change from the account page; dark theme by default with a light
   option.

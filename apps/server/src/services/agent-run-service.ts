@@ -39,6 +39,7 @@ import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/s
 import type { ExecutionConfig } from '../config.js';
 import type { AuthContext } from './auth-service.js';
 import { truncateUtf8Bytes } from './bounded-text.js';
+import type { BranchService } from './branch-service.js';
 import { composeBrief } from './brief.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
@@ -110,6 +111,7 @@ export class AgentRunService {
     private readonly log: RunLog = { warn: () => undefined },
     private readonly now: () => Date = () => new Date(),
     private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
+    private readonly branches?: BranchService,
   ) {}
 
   hasBackend(kind: AgentBackendKind): boolean {
@@ -227,7 +229,7 @@ export class AgentRunService {
     );
   }
 
-  async startForCycle(cycle: WorkCycle): Promise<AgentRun> {
+  private requireCycleLaunchAuthority(cycle: WorkCycle): void {
     const stored = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
     const user = this.storage.users.findById(cycle.createdByUserId);
     const authorization = this.storage.workspaces.findAuthorized(
@@ -246,6 +248,12 @@ export class AgentRunService {
         'Cycle no longer has authority to launch this step',
       );
     }
+    if (this.now().getTime() >= Date.parse(cycle.runDeadlineAt))
+      throw new ExecutionRequestError('conflict', 'Step time limit reached during Git preflight');
+  }
+
+  async startForCycle(cycle: WorkCycle): Promise<AgentRun> {
+    this.requireCycleLaunchAuthority(cycle);
     const existing = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
     if (existing !== undefined) return existing;
     const profile = cycle.profiles[cycle.step];
@@ -381,181 +389,213 @@ export class AgentRunService {
       };
     });
 
-    this.mutations.requireAvailable(input.worktreeId);
-    const runId = cycle?.currentRunId ?? asAgentRunId(randomUUID());
-    const runDirectory = join(this.config.runsRoot, runId);
-    const planDirectory = join(runDirectory, 'plan');
-    mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
-    const planDocuments = prepared.artifacts.map((artifact) => {
-      const path = join(planDirectory, artifact.logicalFilename);
-      writeFileSync(path, artifact.content, { mode: 0o600 });
-      return { filename: artifact.logicalFilename, role: artifact.role, path };
-    });
-    const handoff =
-      prepared.parentRun === undefined
-        ? undefined
-        : writeRunHandoff(
-            this.storage.execution,
-            prepared.parentRun,
-            join(runDirectory, 'handoff'),
+    return this.mutations.during(input.worktreeId, async () => {
+      let cancelled = false;
+      const cancelPreflight = () => {
+        cancelled = true;
+      };
+      if (cycle !== undefined) this.pendingCycleLaunches.set(cycle.currentRunId, cancelPreflight);
+      let reviewBranchContext: AgentRun['reviewBranchContext'];
+      try {
+        if (input.role !== 'review') await this.branches?.validateLaunch(prepared.worktree);
+        reviewBranchContext =
+          input.role === 'review'
+            ? await this.branches?.captureReview(prepared.worktree)
+            : undefined;
+        if (cancelled)
+          throw new ExecutionRequestError(
+            'conflict',
+            'Cycle launch cancelled during Git preflight',
           );
-    const brief = composeBrief({
-      role: input.role,
-      projectName: prepared.project.name,
-      workItem: {
-        sourceId: prepared.row.sourceId,
-        title: prepared.row.title,
-        risk: prepared.row.risk,
-        ...(prepared.row.phase === undefined ? {} : { phase: prepared.row.phase }),
-        primaryAreas: prepared.row.primaryAreas,
-        exitGate: prepared.row.exitGate,
-        sourceFields: prepared.row.sourceFields,
-      },
-      requiredDependencies: prepared.predecessors.filter((entry) => entry.kind === 'required'),
-      recommendedDependencies: prepared.predecessors.filter(
-        (entry) => entry.kind === 'recommended',
-      ),
-      worktree: {
-        path: prepared.worktree.path,
-        branchName: prepared.worktree.branchName,
-        baseBranch: prepared.worktree.baseBranch,
-        baseSha: prepared.worktree.baseSha,
-      },
-      planDocuments,
-      ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
-      ...(prepared.parentRun === undefined
-        ? {}
-        : {
-            parentRun: {
-              role: prepared.parentRun.role,
-              ...(prepared.parentRun.verdict === undefined
-                ? {}
-                : { verdict: prepared.parentRun.verdict }),
-              finalMessage: prepared.parentFinalMessage ?? '',
-              ...(handoff === undefined ? {} : { handoff }),
-            },
-          }),
-    });
-    writeFileSync(join(runDirectory, 'brief.md'), brief, { mode: 0o600 });
-
-    const createdAt = this.now().toISOString();
-    const run = this.storage.transaction((tx) => {
-      const inserted = tx.execution.runs.insert({
-        id: runId,
-        workspaceId,
-        worktreeId: prepared.worktree.id,
-        repositoryId: prepared.repository.id,
-        projectId: prepared.item.projectId,
-        workItemId,
-        ...(input.parentRunId === undefined ? {} : { parentRunId: input.parentRunId }),
-        backend: backend.kind,
-        role: input.role,
-        permissionMode: input.permissionMode,
-        ...(input.model === undefined ? {} : { model: input.model }),
-        brief,
-        createdAt,
-        createdByUserId: actor.userId,
+        if (cycle !== undefined) this.requireCycleLaunchAuthority(cycle);
+        else this.requireManualControl(workspaceId, input.worktreeId);
+      } finally {
+        if (
+          cycle !== undefined &&
+          this.pendingCycleLaunches.get(cycle.currentRunId) === cancelPreflight
+        )
+          this.pendingCycleLaunches.delete(cycle.currentRunId);
+      }
+      const runId = cycle?.currentRunId ?? asAgentRunId(randomUUID());
+      const runDirectory = join(this.config.runsRoot, runId);
+      const planDirectory = join(runDirectory, 'plan');
+      mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
+      const planDocuments = prepared.artifacts.map((artifact) => {
+        const path = join(planDirectory, artifact.logicalFilename);
+        writeFileSync(path, artifact.content, { mode: 0o600 });
+        return { filename: artifact.logicalFilename, role: artifact.role, path };
       });
-      tx.audit.append({
-        id: asAuditEventId(randomUUID()),
-        occurredAt: createdAt,
-        actorKind: actor.sessionId === undefined ? 'system' : 'user',
-        actorUserId: actor.userId,
-        ...(actor.sessionId === undefined ? {} : { sessionId: actor.sessionId }),
-        workspaceId,
-        ...(requestId === undefined ? {} : { requestId }),
-        action: 'agent-run.start',
-        targetType: 'agent-run',
-        targetId: runId,
-        outcome: 'succeeded',
-        metadata: {
-          workItemId,
+      const handoff =
+        prepared.parentRun === undefined
+          ? undefined
+          : writeRunHandoff(
+              this.storage.execution,
+              prepared.parentRun,
+              join(runDirectory, 'handoff'),
+            );
+      const brief = composeBrief({
+        role: input.role,
+        projectName: prepared.project.name,
+        workItem: {
+          sourceId: prepared.row.sourceId,
+          title: prepared.row.title,
+          risk: prepared.row.risk,
+          ...(prepared.row.phase === undefined ? {} : { phase: prepared.row.phase }),
+          primaryAreas: prepared.row.primaryAreas,
+          exitGate: prepared.row.exitGate,
+          sourceFields: prepared.row.sourceFields,
+        },
+        requiredDependencies: prepared.predecessors.filter((entry) => entry.kind === 'required'),
+        recommendedDependencies: prepared.predecessors.filter(
+          (entry) => entry.kind === 'recommended',
+        ),
+        worktree: {
+          path: prepared.worktree.path,
+          branchName: prepared.worktree.branchName,
+          baseBranch: prepared.worktree.baseBranch,
+          baseSha: prepared.worktree.baseSha,
+          ...(prepared.worktree.integrationBranch === undefined
+            ? {}
+            : { integrationBranch: prepared.worktree.integrationBranch }),
+        },
+        ...(reviewBranchContext === undefined ? {} : { reviewBranchContext }),
+        planDocuments,
+        ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
+        ...(prepared.parentRun === undefined
+          ? {}
+          : {
+              parentRun: {
+                role: prepared.parentRun.role,
+                ...(prepared.parentRun.verdict === undefined
+                  ? {}
+                  : { verdict: prepared.parentRun.verdict }),
+                finalMessage: prepared.parentFinalMessage ?? '',
+                ...(handoff === undefined ? {} : { handoff }),
+              },
+            }),
+      });
+      writeFileSync(join(runDirectory, 'brief.md'), brief, { mode: 0o600 });
+
+      const createdAt = this.now().toISOString();
+      const run = this.storage.transaction((tx) => {
+        const inserted = tx.execution.runs.insert({
+          id: runId,
+          workspaceId,
           worktreeId: prepared.worktree.id,
+          repositoryId: prepared.repository.id,
+          projectId: prepared.item.projectId,
+          workItemId,
+          ...(input.parentRunId === undefined ? {} : { parentRunId: input.parentRunId }),
+          backend: backend.kind,
           role: input.role,
           permissionMode: input.permissionMode,
-          backend: backend.kind,
-        },
-      });
-      tx.workspaceEvents.appendEvent({
-        id: asEventId(randomUUID()),
-        occurredAt: createdAt,
-        workspaceId,
-        actorUserId: actor.userId,
-        projectId: prepared.item.projectId,
-        workItemId,
-        runId,
-        kind: 'agent-run-started',
-        payload: {
-          runId,
-          worktreeId: prepared.worktree.id,
+          ...(input.model === undefined ? {} : { model: input.model }),
+          brief,
+          ...(reviewBranchContext === undefined ? {} : { reviewBranchContext }),
+          createdAt,
+          createdByUserId: actor.userId,
+        });
+        tx.audit.append({
+          id: asAuditEventId(randomUUID()),
+          occurredAt: createdAt,
+          actorKind: actor.sessionId === undefined ? 'system' : 'user',
+          actorUserId: actor.userId,
+          ...(actor.sessionId === undefined ? {} : { sessionId: actor.sessionId }),
+          workspaceId,
+          ...(requestId === undefined ? {} : { requestId }),
+          action: 'agent-run.start',
+          targetType: 'agent-run',
+          targetId: runId,
+          outcome: 'succeeded',
+          metadata: {
+            workItemId,
+            worktreeId: prepared.worktree.id,
+            role: input.role,
+            permissionMode: input.permissionMode,
+            backend: backend.kind,
+          },
+        });
+        tx.workspaceEvents.appendEvent({
+          id: asEventId(randomUUID()),
+          occurredAt: createdAt,
+          workspaceId,
+          actorUserId: actor.userId,
+          projectId: prepared.item.projectId,
           workItemId,
-          backend: backend.kind,
-          role: input.role,
+          runId,
+          kind: 'agent-run-started',
+          payload: {
+            runId,
+            worktreeId: prepared.worktree.id,
+            workItemId,
+            backend: backend.kind,
+            role: input.role,
+          },
+        });
+        return inserted;
+      });
+      this.notifier.notify();
+
+      const launch: AgentLaunchRequest = {
+        cwd: prepared.worktree.path,
+        prompt: brief,
+        permissionMode: input.permissionMode,
+        ...(input.model === undefined ? {} : { model: input.model }),
+        additionalDirectories: [runDirectory],
+        sessionName: `CraftingTable ${prepared.row.sourceId} ${input.role}`,
+      };
+      let session: AgentSession;
+      try {
+        session =
+          cycle === undefined
+            ? await backend.launch(launch)
+            : await this.launchCycleSession(backend, launch, cycle);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Agent could not be started';
+        this.finalize(
+          workspaceId,
+          runId,
+          error instanceof CycleLaunchCancelledError ? 'cancelled' : 'failed',
+          { message },
+        );
+        return this.storage.execution.runs.find(workspaceId, runId) ?? run;
+      }
+
+      this.appendEvent(workspaceId, runId, {
+        kind: 'user-message',
+        payload: {
+          text: brief,
+          ...(handoff === undefined ? {} : { handoffSources: handoff.sources }),
         },
       });
-      return inserted;
-    });
-    this.notifier.notify();
+      this.transition(workspaceId, runId, LIVE_STATUSES, 'running', {
+        startedAt: this.now().toISOString(),
+      });
 
-    const launch: AgentLaunchRequest = {
-      cwd: prepared.worktree.path,
-      prompt: brief,
-      permissionMode: input.permissionMode,
-      ...(input.model === undefined ? {} : { model: input.model }),
-      additionalDirectories: [runDirectory],
-      sessionName: `CraftingTable ${prepared.row.sourceId} ${input.role}`,
-    };
-    let session: AgentSession;
-    try {
-      session =
-        cycle === undefined
-          ? await backend.launch(launch)
-          : await this.launchCycleSession(backend, launch, cycle);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Agent could not be started';
-      this.finalize(
+      const liveRun: LiveRun = {
         workspaceId,
         runId,
-        error instanceof CycleLaunchCancelledError ? 'cancelled' : 'failed',
-        { message },
-      );
-      return this.storage.execution.runs.find(workspaceId, runId) ?? run;
-    }
-
-    this.appendEvent(workspaceId, runId, {
-      kind: 'user-message',
-      payload: {
-        text: brief,
-        ...(handoff === undefined ? {} : { handoffSources: handoff.sources }),
-      },
-    });
-    this.transition(workspaceId, runId, LIVE_STATUSES, 'running', {
-      startedAt: this.now().toISOString(),
-    });
-
-    const liveRun: LiveRun = {
-      workspaceId,
-      runId,
-      session,
-      cancelRequested: false,
-      done: Promise.resolve(),
-    };
-    this.live.set(runId, liveRun);
-    if (cycle !== undefined) {
-      const latest = this.storage.execution.cycles.find(workspaceId, cycle.id);
-      if (latest?.status === 'stopped' || latest?.currentRunId !== runId) {
-        liveRun.cancelRequested = true;
-        session.kill();
+        session,
+        cancelRequested: false,
+        done: Promise.resolve(),
+      };
+      this.live.set(runId, liveRun);
+      if (cycle !== undefined) {
+        const latest = this.storage.execution.cycles.find(workspaceId, cycle.id);
+        if (latest?.status === 'stopped' || latest?.currentRunId !== runId) {
+          liveRun.cancelRequested = true;
+          session.kill();
+        }
       }
-    }
-    liveRun.done = this.consume(liveRun).catch((error: unknown) => {
-      this.log.warn('agent run consumer failed', {
-        runId,
-        error: error instanceof Error ? error.message : String(error),
+      liveRun.done = this.consume(liveRun).catch((error: unknown) => {
+        this.log.warn('agent run consumer failed', {
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        this.finalize(workspaceId, runId, 'failed', { message: 'Run supervision failed' });
       });
-      this.finalize(workspaceId, runId, 'failed', { message: 'Run supervision failed' });
+      return this.storage.execution.runs.find(workspaceId, runId) ?? run;
     });
-    return this.storage.execution.runs.find(workspaceId, runId) ?? run;
   }
 
   private async launchCycleSession(

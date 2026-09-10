@@ -19,6 +19,7 @@ import type { GitOperations, WorktreeDiff } from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import type { AuthContext } from './auth-service.js';
+import { BranchService } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -33,7 +34,8 @@ export type MergeGateReason =
   | 'review-pending'
   | 'superseded-by-later-run'
   | 'run-live'
-  | 'worktree-removed';
+  | 'worktree-removed'
+  | 'branch-review-required';
 
 export interface MergeGate {
   readonly mergeable: boolean;
@@ -70,6 +72,13 @@ export function mergeGateFor(worktree: Worktree, runs: readonly AgentRun[]): Mer
   if (latestReview.status !== 'finished') {
     return { mergeable: false, reason: 'review-pending', reviewRunId: latestReview.id };
   }
+  if (
+    worktree.integrationBranch === undefined ||
+    latestReview.reviewBranchContext?.worktreeVersion !== worktree.version ||
+    latestReview.reviewBranchContext.targetBranch !== worktree.integrationBranch
+  ) {
+    return { mergeable: false, reason: 'branch-review-required', reviewRunId: latestReview.id };
+  }
   if (latestReview.verdict === 'mergeable') {
     return { mergeable: true, reason: 'ready', reviewRunId: latestReview.id };
   }
@@ -104,6 +113,7 @@ function slug(value: string, maximum = 40): string {
 }
 
 const MERGE_GATE_MESSAGES: Readonly<Record<MergeGateReason, string>> = {
+  'branch-review-required': 'Adopt an integration branch if needed and run a fresh review',
   ready: 'Ready to merge',
   'no-review': 'Merging requires a review run with a mergeable verdict; launch a review first',
   'changes-requested': 'The latest review requested changes; address them and review again',
@@ -134,6 +144,7 @@ export interface ExecutionStatus {
  * transaction followed by a notifier signal.
  */
 export class ExecutionService {
+  readonly branches: BranchService;
   constructor(
     private readonly storage: CraftingTableStorage,
     private readonly workspaceService: WorkspaceService,
@@ -143,7 +154,9 @@ export class ExecutionService {
     private readonly workItemService: WorkItemService,
     private readonly now: () => Date = () => new Date(),
     private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
-  ) {}
+  ) {
+    this.branches = new BranchService(storage, workspaceService, notifier, git, mutations, now);
+  }
 
   private requireGit(): GitOperations {
     if (this.git === undefined) {
@@ -324,18 +337,18 @@ export class ExecutionService {
     return listed.value;
   }
 
-  workItemExecution(
+  async workItemExecution(
     context: AuthContext,
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
     requestId?: string,
-  ): {
+  ): Promise<{
     readonly worktrees: readonly Worktree[];
     readonly runs: readonly AgentRun[];
     readonly mergeGates: Readonly<Record<string, MergeGate>>;
-  } {
+  }> {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
-    return this.storage.readTransaction((tx) => {
+    const result = this.storage.readTransaction((tx) => {
       if (tx.planning.workItems.find(workspaceId, workItemId) === undefined) {
         throw new NotFoundError();
       }
@@ -353,6 +366,23 @@ export class ExecutionService {
       }
       return { worktrees, runs, mergeGates };
     });
+    for (const worktree of result.worktrees) {
+      const gate = result.mergeGates[worktree.id];
+      if (!gate?.mergeable) continue;
+      try {
+        await this.branches.assertReview(
+          worktree,
+          result.runs.find((run) => run.id === gate.reviewRunId),
+        );
+      } catch {
+        result.mergeGates[worktree.id] = {
+          ...gate,
+          mergeable: false,
+          reason: 'branch-review-required',
+        };
+      }
+    }
+    return result;
   }
 
   /** Live runs first, then recent ones, with the context to list them anywhere. */
@@ -414,18 +444,12 @@ export class ExecutionService {
       `${slug(item.sourceId)}-${shortId}`,
     );
 
-    const identity = await git.inspectRepository(repository.rootPath);
-    if (!identity.ok) {
-      throw new ExecutionRequestError(
-        'unavailable',
-        `Repository is not available: ${identity.failure.message}`,
-      );
-    }
+    const base = await this.branches.creationBase(workspaceId, workItemId, repository.id);
     const created = await git.createWorktree({
       repositoryPath: repository.rootPath,
       worktreePath: path,
       branchName,
-      baseRef: identity.value.headSha,
+      baseRef: base.headSha,
     });
     if (!created.ok) {
       throw new ExecutionRequestError(
@@ -447,8 +471,9 @@ export class ExecutionService {
         projectId: item.projectId,
         workItemId,
         branchName,
-        baseSha: identity.value.headSha,
-        baseBranch: identity.value.branch,
+        baseSha: base.headSha,
+        baseBranch: base.branch,
+        integrationBranch: base.branch,
         path,
         createdAt: occurredAt,
         createdByUserId: context.user.id,
@@ -635,150 +660,165 @@ export class ExecutionService {
           gate: mergeGateFor(found, tx.execution.runs.listForWorktree(workspaceId, found.id)),
         };
       });
-      if (!gate.mergeable) {
-        throw new ExecutionRequestError('conflict', MERGE_GATE_MESSAGES[gate.reason]);
-      }
-      const worktreeState = await git.inspectRepository(worktree.path);
-      if (!worktreeState.ok) {
-        throw new ExecutionRequestError(
-          'unavailable',
-          `Worktree is not available: ${worktreeState.failure.message}`,
-        );
-      }
-      if (!worktreeState.value.clean) {
-        throw new ExecutionRequestError(
-          'conflict',
-          'The worktree has uncommitted changes; ask the agent to commit them, or discard them, before merging',
-        );
-      }
-      const cycle = this.storage.execution.cycles.activeForWorktree(workspaceId, worktreeId);
-      if (
-        cycle !== undefined &&
-        (cycle.status !== 'awaiting-merge' ||
-          cycle.currentRunId !== gate.reviewRunId ||
-          cycle.reviewHeadSha !== worktreeState.value.headSha ||
-          worktreeState.value.branch !== worktree.branchName)
-      ) {
-        throw new ExecutionRequestError(
-          'conflict',
-          'Automation has not approved this reviewed commit. Resume for a fresh review, or stop the cycle to use the manual merge flow.',
-        );
-      }
-      const targetBranch = input.targetBranch ?? repository.defaultBranch;
-      if (!isValidBranchName(targetBranch)) {
-        throw new ExecutionRequestError('invalid-request', 'Target branch name is not well formed');
-      }
-      if (targetBranch === worktree.branchName) {
-        throw new ExecutionRequestError(
-          'invalid-request',
-          'The target must be a different branch from the worktree branch',
-        );
-      }
-      // A target that does not exist yet starts from the default branch's current head.
-      const merged = await git.mergeBranch({
-        ...(cycle?.reviewHeadSha === undefined ? {} : { sourceCommitSha: cycle.reviewHeadSha }),
-        repositoryPath: repository.rootPath,
-        branchName: worktree.branchName,
-        targetBranch,
-        createTargetFrom: repository.defaultBranch,
-        scratchPath: join(this.config.worktreeRoot, '.merge', randomUUID()),
-        message: `Merge ${worktree.branchName}: ${item.sourceId} ${item.title}\n\nMerged by CraftingTable after a mergeable review.`,
-      });
-      if (!merged.ok) {
-        throw new ExecutionRequestError(
-          merged.failure.kind === 'merge-conflict' ? 'conflict' : 'invalid-request',
-          merged.failure.message,
-        );
-      }
-      const removed = await git.removeWorktree({
-        repositoryPath: repository.rootPath,
-        worktreePath: worktree.path,
-      });
-      if (!removed.ok) {
-        throw new ExecutionRequestError(
-          'unavailable',
-          `Merged as ${merged.value.mergeSha} but the worktree could not be removed: ${removed.failure.message}`,
-        );
-      }
-      // Best effort: the branch is fully merged, so `-d` is safe; a failure here
-      // only leaves a stale branch name behind.
-      await git.deleteBranch({
-        repositoryPath: repository.rootPath,
-        branchName: worktree.branchName,
-        mergedInto: targetBranch,
-      });
-
-      const occurredAt = this.now().toISOString();
-      const result = this.storage.transaction((tx) => {
-        const marked = tx.execution.worktrees.markMerged({
-          workspaceId,
-          worktreeId,
-          occurredAt,
-          mergeSha: merged.value.mergeSha,
-        });
-        if (marked === undefined) {
-          throw new NotFoundError();
+      return this.branches.duringMerge(repository.rootPath, async () => {
+        if (!gate.mergeable) {
+          throw new ExecutionRequestError('conflict', MERGE_GATE_MESSAGES[gate.reason]);
         }
-        tx.audit.append({
-          id: asAuditEventId(randomUUID()),
-          occurredAt,
-          actorKind: 'user',
-          actorUserId: context.user.id,
-          sessionId: context.session.id,
-          workspaceId,
-          ...(requestId === undefined ? {} : { requestId }),
-          action: 'worktree.merged',
-          targetType: 'worktree',
-          targetId: worktreeId,
-          outcome: 'succeeded',
-          priorVersion: worktree.version,
-          resultingVersion: marked.version,
-          metadata: {
-            branchName: worktree.branchName,
-            targetBranch,
-            createdTarget: merged.value.createdTarget,
-            mergeSha: merged.value.mergeSha,
-            ...(gate.reviewRunId === undefined ? {} : { reviewRunId: gate.reviewRunId }),
-          },
+        const worktreeState = await git.inspectRepository(worktree.path);
+        if (!worktreeState.ok) {
+          throw new ExecutionRequestError(
+            'unavailable',
+            `Worktree is not available: ${worktreeState.failure.message}`,
+          );
+        }
+        if (!worktreeState.value.clean) {
+          throw new ExecutionRequestError(
+            'conflict',
+            'The worktree has uncommitted changes; ask the agent to commit them, or discard them, before merging',
+          );
+        }
+        const cycle = this.storage.execution.cycles.activeForWorktree(workspaceId, worktreeId);
+        if (
+          cycle !== undefined &&
+          (cycle.status !== 'awaiting-merge' ||
+            cycle.currentRunId !== gate.reviewRunId ||
+            cycle.reviewHeadSha !== worktreeState.value.headSha ||
+            worktreeState.value.branch !== worktree.branchName)
+        ) {
+          throw new ExecutionRequestError(
+            'conflict',
+            'Automation has not approved this reviewed commit. Resume for a fresh review, or stop the cycle to use the manual merge flow.',
+          );
+        }
+        const review =
+          gate.reviewRunId === undefined
+            ? undefined
+            : this.storage.execution.runs.find(workspaceId, gate.reviewRunId);
+        const reviewed = await this.branches.assertReview(worktree, review);
+        const targetBranch = reviewed.targetBranch;
+        if (input.targetBranch !== undefined && input.targetBranch !== targetBranch) {
+          throw new ExecutionRequestError(
+            'conflict',
+            'Retarget the worktree explicitly and review again before merging elsewhere',
+          );
+        }
+        if (!isValidBranchName(targetBranch)) {
+          throw new ExecutionRequestError(
+            'invalid-request',
+            'Target branch name is not well formed',
+          );
+        }
+        if (targetBranch === worktree.branchName) {
+          throw new ExecutionRequestError(
+            'invalid-request',
+            'The target must be a different branch from the worktree branch',
+          );
+        }
+        const merged = await git.mergeBranch({
+          sourceCommitSha: reviewed.headSha,
+          expectedTargetSha: reviewed.targetSha,
+          repositoryPath: repository.rootPath,
+          branchName: worktree.branchName,
+          targetBranch,
+          scratchPath: join(this.config.worktreeRoot, '.merge', randomUUID()),
+          message: `Merge ${worktree.branchName}: ${item.sourceId} ${item.title}\n\nMerged by CraftingTable after a mergeable review.`,
         });
-        tx.workspaceEvents.appendEvent({
-          id: asEventId(randomUUID()),
-          occurredAt,
-          workspaceId,
-          actorUserId: context.user.id,
-          projectId: worktree.projectId,
-          workItemId: worktree.workItemId,
-          kind: 'worktree-merged',
-          payload: {
+        if (!merged.ok) {
+          throw new ExecutionRequestError(
+            merged.failure.kind === 'merge-conflict' ? 'conflict' : 'invalid-request',
+            merged.failure.message,
+          );
+        }
+        const removed = await git.removeWorktree({
+          repositoryPath: repository.rootPath,
+          worktreePath: worktree.path,
+        });
+        if (!removed.ok) {
+          throw new ExecutionRequestError(
+            'unavailable',
+            `Merged as ${merged.value.mergeSha} but the worktree could not be removed: ${removed.failure.message}`,
+          );
+        }
+        // Best effort: the branch is fully merged, so `-d` is safe; a failure here
+        // only leaves a stale branch name behind.
+        await git.deleteBranch({
+          repositoryPath: repository.rootPath,
+          branchName: worktree.branchName,
+          mergedInto: targetBranch,
+        });
+
+        const occurredAt = this.now().toISOString();
+        const result = this.storage.transaction((tx) => {
+          const marked = tx.execution.worktrees.markMerged({
+            workspaceId,
             worktreeId,
-            workItemId: worktree.workItemId,
-            branchName: worktree.branchName,
-            targetBranch,
+            occurredAt,
             mergeSha: merged.value.mergeSha,
-          },
+          });
+          if (marked === undefined) {
+            throw new NotFoundError();
+          }
+          tx.audit.append({
+            id: asAuditEventId(randomUUID()),
+            occurredAt,
+            actorKind: 'user',
+            actorUserId: context.user.id,
+            sessionId: context.session.id,
+            workspaceId,
+            ...(requestId === undefined ? {} : { requestId }),
+            action: 'worktree.merged',
+            targetType: 'worktree',
+            targetId: worktreeId,
+            outcome: 'succeeded',
+            priorVersion: worktree.version,
+            resultingVersion: marked.version,
+            metadata: {
+              branchName: worktree.branchName,
+              targetBranch,
+              createdTarget: merged.value.createdTarget,
+              mergeSha: merged.value.mergeSha,
+              ...(gate.reviewRunId === undefined ? {} : { reviewRunId: gate.reviewRunId }),
+            },
+          });
+          tx.workspaceEvents.appendEvent({
+            id: asEventId(randomUUID()),
+            occurredAt,
+            workspaceId,
+            actorUserId: context.user.id,
+            projectId: worktree.projectId,
+            workItemId: worktree.workItemId,
+            kind: 'worktree-merged',
+            payload: {
+              worktreeId,
+              workItemId: worktree.workItemId,
+              branchName: worktree.branchName,
+              targetBranch,
+              mergeSha: merged.value.mergeSha,
+            },
+          });
+          const completion =
+            item.status === 'admitted'
+              ? this.workItemService.completeWithin(tx, {
+                  context,
+                  workspaceId,
+                  workItemId: worktree.workItemId,
+                  occurredAt,
+                  ...(requestId === undefined ? {} : { requestId }),
+                  worktreeId,
+                  mergeSha: merged.value.mergeSha,
+                })
+              : { completed: false };
+          return { worktree: marked, workItemCompleted: completion.completed };
         });
-        const completion =
-          item.status === 'admitted'
-            ? this.workItemService.completeWithin(tx, {
-                context,
-                workspaceId,
-                workItemId: worktree.workItemId,
-                occurredAt,
-                ...(requestId === undefined ? {} : { requestId }),
-                worktreeId,
-                mergeSha: merged.value.mergeSha,
-              })
-            : { completed: false };
-        return { worktree: marked, workItemCompleted: completion.completed };
+        this.notifier.notify();
+        return {
+          worktree: result.worktree,
+          mergeSha: merged.value.mergeSha,
+          targetBranch,
+          createdTarget: merged.value.createdTarget,
+          workItemCompleted: result.workItemCompleted,
+        };
       });
-      this.notifier.notify();
-      return {
-        worktree: result.worktree,
-        mergeSha: merged.value.mergeSha,
-        targetBranch,
-        createdTarget: merged.value.createdTarget,
-        workItemCompleted: result.workItemCompleted,
-      };
     });
   }
 
@@ -796,9 +836,28 @@ export class ExecutionService {
     if (worktree.status !== 'active') {
       throw new ExecutionRequestError('conflict', 'Worktree has been removed');
     }
-    const diff = await this.requireGit().worktreeDiff({
+    const git = this.requireGit();
+    let baseSha = worktree.baseSha;
+    if (worktree.integrationBranch !== undefined) {
+      const repository = this.storage.execution.sourceRepositories.find(
+        workspaceId,
+        worktree.repositoryId,
+      );
+      if (repository === undefined) throw new NotFoundError();
+      const target = await git.resolveBranch(repository.rootPath, worktree.integrationBranch);
+      const state = await git.inspectRepository(worktree.path);
+      if (!target.ok || !state.ok)
+        throw new ExecutionRequestError(
+          'unavailable',
+          'The integration branch or worktree is unavailable',
+        );
+      const base = await git.commonAncestor(repository.rootPath, target.value, state.value.headSha);
+      if (!base.ok) throw new ExecutionRequestError('conflict', base.failure.message);
+      baseSha = base.value;
+    }
+    const diff = await git.worktreeDiff({
       worktreePath: worktree.path,
-      baseSha: worktree.baseSha,
+      baseSha,
       maxPatchBytes: this.config.maxPatchBytes,
     });
     if (!diff.ok) {

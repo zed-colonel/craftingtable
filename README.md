@@ -15,6 +15,11 @@ it is mergeable.
   bundle; browse projects, plan versions, and work items with their dependencies. Items
   move `Proposed → In agenda → Completed`; completing one unblocks its dependents.
 - **Repositories.** Register any local Git checkout by path.
+- **Plan branches.** Open **Projects → a plan → Repository & branches** to select a
+  registered repository and an existing integration branch, or explicitly create one
+  from another local branch. Settings apply to future worktrees for that plan version.
+  Existing plans need no reimport; existing worktrees can adopt or retarget a branch
+  explicitly without rewriting their starting history.
 - **Worktrees.** Create a linked worktree on a fresh `ct/<item>-<id>` branch for a work
   item, and remove it when done. The primary checkout is never touched by an agent.
 - **Agent runs.** Launch Claude Code or Codex in the worktree with a composed brief (the work
@@ -28,12 +33,18 @@ it is mergeable.
 - **Diffs.** See commits, changed files, and the unified patch of the worktree against
   its base at any time.
 - **Review-gated merge.** A review run ends with a verdict. When the latest run on a
-  worktree is a review that returned `mergeable`, the daemon offers Merge into a branch
-  you choose (the default branch, another existing branch, or a new one created from
-  the default branch): a merge commit, the worktree removed, the branch deleted, and
+  worktree is a review that returned `mergeable`, the daemon offers Merge into its
+  recorded integration target: a merge commit, the worktree removed, the branch deleted, and
   the work item completed, in one step. The primary checkout is never disturbed; when
   it is not on the target the merge happens in a scratch worktree. Any later run closes
   the gate again.
+- **Integration updates.** Each review records the item commit and integration commit.
+  If either changes, merge approval expires. End sessions and pause the cycle, use
+  **Update from integration**, then verify and review manually or resume the cycle for
+  a fresh review. Updates use normal merges and abort on conflict. Item diffs exclude
+  integration work already present in the item's ancestry. Required predecessors must
+  have integration commit evidence; plan settings can attach evidence to older manual
+  completions without changing their completion history.
 - **Remediation and findings.** A review's findings can be handed straight to a new
   implement run in the same worktree. Handoffs include the recorded conversation across
   the run lineage, including earlier messages and operator corrections, plus the full
@@ -90,14 +101,14 @@ pnpm dev            # daemon on http://127.0.0.1:4600 + Vite UI on http://127.0.
 
 Sign in at http://127.0.0.1:5173, import a plan (or use `fixtures/plan-bundles/aq-cont-1`
 to try it), open **Repositories** and register a checkout, open a work item, admit it,
-create a worktree, launch an implement run, then a review run, then merge.
+configure the plan’s integration branch, create a worktree, launch an implement run, then a review run, then merge.
 
 Forgotten password: run `pnpm craftingtable admin reset-password --username keith`
 on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 8 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 10 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

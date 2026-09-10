@@ -14,6 +14,7 @@ const ROUTES: readonly Route[] = [
   { name: 'home' },
   { name: 'account' },
   { name: 'dashboard', workspaceId: WORKSPACE },
+  { name: 'projects', workspaceId: WORKSPACE },
   { name: 'settings', workspaceId: WORKSPACE },
   { name: 'import', workspaceId: WORKSPACE },
   { name: 'repositories', workspaceId: WORKSPACE },
@@ -86,7 +87,7 @@ describe('route parsing', () => {
 
   it('degrades a partial path to the nearest valid route', () => {
     expect(parseRoute('/workspaces/workspace-1/projects')).toEqual({
-      name: 'dashboard',
+      name: 'projects',
       workspaceId: WORKSPACE,
     });
     expect(parseRoute('/workspaces/workspace-1/projects/project-1/plans')).toEqual({

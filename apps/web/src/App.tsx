@@ -40,9 +40,11 @@ import { AccountPage } from './features/account/AccountPage.js';
 import { CYCLE_STATUS_LABELS, CyclePanel } from './features/execution/CyclePanel.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
 import { DiffView } from './features/execution/DiffView.js';
+import { PlanBranchPanel } from './features/execution/PlanBranchPanel.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
 import { RunPage } from './features/execution/RunPage.js';
 import { RunList, RunsPage } from './features/execution/RunsPage.js';
+import { WorktreeBranchPanel } from './features/execution/WorktreeBranchPanel.js';
 import { WorkspacesPage } from './features/home/WorkspacesPage.js';
 import { AgendaPage } from './features/planning/AgendaPage.js';
 import { ImportPlanPage } from './features/planning/ImportPlanPage.js';
@@ -1177,6 +1179,18 @@ export function App() {
           />
         )}
 
+        {route.name === 'projects' && (
+          <div className="page">
+            <header className="page-header">
+              <h1>Projects</h1>
+            </header>
+            <ProjectCards
+              projects={projection.projects}
+              onOpen={(projectId) => go({ name: 'project', workspaceId, projectId })}
+              onImport={() => go({ name: 'import', workspaceId })}
+            />
+          </div>
+        )}
         {route.name === 'import' && (
           <ImportPlanPage
             projects={projection.projects}
@@ -1190,6 +1204,19 @@ export function App() {
         {route.name === 'project' && project?.project.id === route.projectId && (
           <ProjectPage
             detail={project}
+            branchSettings={
+              project.activeVersion && (
+                <PlanBranchPanel
+                  key={project.activeVersion.version.id}
+                  workspaceId={workspaceId}
+                  planVersionId={project.activeVersion.version.id}
+                  csrfToken={authenticated.csrfToken}
+                  editable={canMutate}
+                  refreshToken={refreshToken}
+                  onChanged={() => setRefreshToken((v) => v + 1)}
+                />
+              )
+            }
             onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
             onOpenVersion={(planVersionId) =>
               go({
@@ -1206,6 +1233,17 @@ export function App() {
         {route.name === 'plan-version' && planVersion?.version.id === route.planVersionId && (
           <PlanVersionPage
             detail={planVersion}
+            branchSettings={
+              <PlanBranchPanel
+                key={planVersion.version.id}
+                workspaceId={workspaceId}
+                planVersionId={planVersion.version.id}
+                csrfToken={authenticated.csrfToken}
+                editable={canMutate}
+                refreshToken={refreshToken}
+                onChanged={() => setRefreshToken((v) => v + 1)}
+              />
+            }
             onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
             onViewArtifact={viewArtifact}
           />
@@ -1228,6 +1266,30 @@ export function App() {
               busy={itemBusy}
               canMutate={canMutate}
               {...(itemError === undefined ? {} : { error: itemError })}
+            />
+            <PlanBranchPanel
+              key={workItem.workItem.planVersionId}
+              workspaceId={workspaceId}
+              planVersionId={workItem.workItem.planVersionId}
+              csrfToken={authenticated.csrfToken}
+              editable={false}
+              refreshToken={refreshToken}
+              onChanged={() => setRefreshToken((v) => v + 1)}
+              {...(canMutate && workItem.workItem.status !== 'completed'
+                ? {
+                    onCreateWorktree: (repositoryId: SourceRepositoryId) =>
+                      handleCreateWorktree(workItem.workItem.id, repositoryId),
+                  }
+                : {})}
+              creating={executionBusy}
+              onOpenSettings={() =>
+                go({
+                  name: 'plan-version',
+                  workspaceId,
+                  projectId: workItem.workItem.projectId,
+                  planVersionId: workItem.workItem.planVersionId,
+                })
+              }
             />
             {workItemExecution?.workItemId === route.workItemId &&
               cycleState?.workspaceId === workspaceId && (
@@ -1257,6 +1319,18 @@ export function App() {
             {workItemExecution?.workItemId === route.workItemId && (
               <DelegationPanel
                 repositories={repositories}
+                hideCreateWorktree
+                renderBranchControls={(worktree) => (
+                  <WorktreeBranchPanel
+                    key={worktree.id}
+                    workspaceId={workspaceId}
+                    worktree={worktree}
+                    csrfToken={authenticated.csrfToken}
+                    canMutate={canMutate}
+                    refreshToken={refreshToken}
+                    onChanged={() => setRefreshToken((v) => v + 1)}
+                  />
+                )}
                 worktrees={workItemExecution.worktrees}
                 runs={workItemExecution.runs}
                 mergeGates={workItemExecution.mergeGates}

@@ -2,6 +2,7 @@ import type { JsonValue } from './audit.js';
 import type {
   AgentRunEventId,
   AgentRunId,
+  PlanVersionId,
   ProjectId,
   SourceRepositoryId,
   UserId,
@@ -49,6 +50,23 @@ export interface SourceRepository {
 export const WORKTREE_STATUSES = ['active', 'removed'] as const;
 export type WorktreeStatus = (typeof WORKTREE_STATUSES)[number];
 
+export interface PlanBranchSettings {
+  readonly workspaceId: WorkspaceId;
+  readonly planVersionId: PlanVersionId;
+  readonly repositoryId: SourceRepositoryId;
+  readonly integrationBranch: string;
+  readonly updatedAt: string;
+  readonly updatedByUserId: UserId;
+  readonly version: number;
+}
+
+export interface ReviewBranchContext {
+  readonly headSha: string;
+  readonly targetBranch: string;
+  readonly targetSha: string;
+  readonly worktreeVersion: number;
+}
+
 export interface Worktree {
   readonly id: WorktreeId;
   readonly workspaceId: WorkspaceId;
@@ -58,13 +76,15 @@ export interface Worktree {
   readonly branchName: string;
   readonly baseSha: string;
   readonly baseBranch: string;
+  /** Frozen merge destination; absent on worktrees created before branch configuration. */
+  readonly integrationBranch?: string;
   /** Absolute path of the linked worktree under the managed worktree root. */
   readonly path: string;
   readonly status: WorktreeStatus;
   readonly createdAt: string;
   readonly createdByUserId: UserId;
   readonly removedAt?: string;
-  /** Set when removal was the result of merging the branch into its base branch. */
+  /** Set when removal was the result of merging into the recorded integration branch. */
   readonly mergedAt?: string;
   readonly mergeSha?: string;
   readonly version: number;
@@ -179,6 +199,7 @@ export interface AgentRun {
   /** Present only on review runs whose final message carried a verdict line. */
   readonly verdict?: AgentRunVerdict;
   /** The composed prompt handed to the agent as its first message. */
+  readonly reviewBranchContext?: ReviewBranchContext;
   readonly brief: string;
   /** Vendor session identifier, once the backend reports one. */
   readonly backendSessionId?: string;

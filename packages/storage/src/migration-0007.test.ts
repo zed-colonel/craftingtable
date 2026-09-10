@@ -47,10 +47,18 @@ it('preserves runs, lineage and journal rows while widening the backend constrai
       INSERT INTO agent_run_events (id,workspace_id,run_id,occurred_at,kind,payload_json,raw_json)
       VALUES ('event','workspace-a','run','now','notice','{"category":"other","message":"hello"}','raw');
     `);
-    const runs = database.prepare('SELECT * FROM agent_runs ORDER BY id').all();
+    const runs = database.prepare('SELECT * FROM agent_runs ORDER BY id').all() as Record<
+      string,
+      unknown
+    >[];
     const events = database.prepare('SELECT * FROM agent_run_events').all();
     runMigrations(database, migrations);
-    expect(database.prepare('SELECT * FROM agent_runs ORDER BY id').all()).toEqual(runs);
+    expect(database.prepare('SELECT * FROM agent_runs ORDER BY id').all()).toEqual(
+      runs.map((run) => ({ ...run, review_branch_context_json: null })),
+    );
+    expect(database.prepare('SELECT integration_branch FROM worktrees').get()).toEqual({
+      integration_branch: null,
+    });
     expect(database.prepare('SELECT * FROM agent_run_events').all()).toEqual(events);
     expect(database.pragma('foreign_key_check')).toEqual([]);
     expect(database.pragma('foreign_keys', { simple: true })).toBe(1);

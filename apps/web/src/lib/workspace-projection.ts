@@ -171,6 +171,12 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
         projectIds: unique([...current.projectIds, event.projectId]),
         workItemIds: unique([...current.workItemIds, event.workItemId]),
       };
+    case 'branches-changed':
+      return {
+        ...current,
+        workspaceSummary: true,
+        projectIds: unique([...current.projectIds, event.projectId]),
+      };
     case 'worktree-created':
     case 'worktree-removed':
     case 'work-cycle-changed':

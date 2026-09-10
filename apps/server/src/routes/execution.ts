@@ -27,6 +27,7 @@ import type { ServerConfig } from '../config.js';
 import type { AgentRunService } from '../services/agent-run-service.js';
 import type { AuthService } from '../services/auth-service.js';
 import type { ExecutionService, ExecutionStatus } from '../services/execution-service.js';
+import { registerBranchRoutes } from './branches.js';
 import { noStore, sendApiError } from './http.js';
 import { authenticate, authorizeMutation } from './request-security.js';
 import { runSummary } from './run-summary.js';
@@ -48,6 +49,7 @@ export function registerExecutionRoutes(
   status: () => ExecutionStatus,
   config: ServerConfig,
 ): void {
+  registerBranchRoutes(app, authService, executionService.branches, config);
   app.get('/api/execution-status', async (request, reply) => {
     authenticate(request, authService);
     return noStore(reply).send(executionStatusResponseSchema.parse(status()));
@@ -182,7 +184,7 @@ export function registerExecutionRoutes(
       if (!workspaceId.success || !workItemId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const result = executionService.workItemExecution(
+      const result = await executionService.workItemExecution(
         context,
         workspaceId.data,
         workItemId.data,

@@ -262,6 +262,10 @@ vi.mock('./lib/use-run-event-stream.js', () => ({
 }));
 
 // Delegation reads resolve empty so the work item page renders; commands are unused here.
+vi.mock('./lib/branch-api.js', () => ({
+  loadPlanBranchSettings: () => Promise.resolve({ issues: [], missingEvidence: [] }),
+}));
+
 vi.mock('./lib/work-cycle-api.js', () => ({
   loadWorkCycles: () => Promise.resolve({ cycles: [] }),
   startWorkCycle: () => new Promise(() => undefined),

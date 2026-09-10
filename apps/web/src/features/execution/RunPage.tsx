@@ -285,6 +285,10 @@ export function RunPage({
           <h1>{RUN_ROLE_LABELS[run.role]} run</h1>
           <div className="run-header-meta">
             <span className="mono">{worktree.branchName}</span>
+            <span className="hint">
+              {' '}
+              → {worktree.integrationBranch ?? 'Integration target not adopted'}
+            </span>
             <span>·</span>
             <span>{model === undefined ? 'default model' : model}</span>
             <span>·</span>
@@ -392,6 +396,20 @@ export function RunPage({
         </summary>
         <div className="disclosure-body">
           <dl className="definition-grid">
+            {run.reviewBranchContext && (
+              <>
+                <dt>Reviewed item commit</dt>
+                <dd>
+                  <code>{run.reviewBranchContext.headSha}</code>
+                </dd>
+                <dt>Reviewed integration</dt>
+                <dd>
+                  <code>
+                    {run.reviewBranchContext.targetBranch} @ {run.reviewBranchContext.targetSha}
+                  </code>
+                </dd>
+              </>
+            )}
             <dt>Model</dt>
             <dd>
               {run.resolvedModel ?? 'not reported yet'}

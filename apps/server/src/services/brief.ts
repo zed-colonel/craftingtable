@@ -1,4 +1,4 @@
-import type { AgentRunRole, JsonValue, WorkItem } from '@craftingtable/domain';
+import type { AgentRunRole, JsonValue, ReviewBranchContext, WorkItem } from '@craftingtable/domain';
 import type { HandoffFiles } from './run-handoff.js';
 
 /**
@@ -24,6 +24,7 @@ export interface BriefPlanDocument {
 }
 
 export interface BriefInput {
+  readonly reviewBranchContext?: ReviewBranchContext;
   readonly role: AgentRunRole;
   readonly projectName: string;
   readonly workItem: {
@@ -42,6 +43,7 @@ export interface BriefInput {
     readonly branchName: string;
     readonly baseBranch: string;
     readonly baseSha: string;
+    readonly integrationBranch?: string;
   };
   readonly planDocuments: readonly BriefPlanDocument[];
   readonly instructions?: string;
@@ -106,6 +108,7 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
   ].join(' '),
   review: [
     'You are an independent reviewer for this work item.',
+    'Run the repository-required verification checks on this exact branch, including the combined integration changes. Record the commands and results in exitGate.evidence. Do not change or commit code during review; request remediation when changes are needed.',
     'Do not modify any file. Compare the branch in this worktree against its base',
     'revision, read the changed code and its tests, and run the quality checks read-only.',
     'Summarize your conclusion in prose and include every finding in the structured',
@@ -177,6 +180,17 @@ export function composeBrief(input: BriefInput): string {
       'of this repository are off limits.',
     ].join('\n'),
   );
+  if (worktree.integrationBranch !== undefined) {
+    sections.push(
+      `Integration destination: ${worktree.integrationBranch}. Only the operator may merge into it.`,
+    );
+  }
+  if (input.reviewBranchContext !== undefined) {
+    const context = input.reviewBranchContext;
+    sections.push(
+      `Review baseline: item commit ${context.headSha}; integration branch ${context.targetBranch} at ${context.targetSha}. Verify this combined state and report the checks you ran. Do not move either branch during review.`,
+    );
+  }
   if (input.planDocuments.length > 0) {
     sections.push(
       [

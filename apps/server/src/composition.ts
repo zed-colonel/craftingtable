@@ -165,6 +165,7 @@ export async function createServices(
     overrides.runLog,
     now,
     worktreeMutations,
+    executionService.branches,
   );
   agentRunService.recoverInterrupted();
   const workCycleService = new WorkCycleService(
@@ -175,6 +176,7 @@ export async function createServices(
     notifier,
     now,
     worktreeMutations,
+    executionService.branches,
   );
   workCycleService.recoverInterrupted();
   const executionStatus = (): ExecutionStatus => ({

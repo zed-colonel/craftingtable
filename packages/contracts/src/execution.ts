@@ -13,6 +13,7 @@ import { z } from 'zod';
 import {
   agentRunEventIdSchema,
   agentRunIdSchema,
+  planVersionIdSchema,
   projectIdSchema,
   sourceRepositoryIdSchema,
   userIdSchema,
@@ -148,6 +149,7 @@ export const worktreeSummarySchema = z.strictObject({
   branchName: gitBranchNameSchema,
   baseSha: gitShaSchema,
   baseBranch: gitBranchNameSchema,
+  integrationBranch: gitBranchNameSchema.optional(),
   path: sourceRepositoryPathSchema,
   status: z.enum(WORKTREE_STATUSES),
   createdAt: z.iso.datetime(),
@@ -176,8 +178,8 @@ export const removeWorktreeResponseSchema = z.strictObject({
 
 export const mergeWorktreeRequestSchema = z.strictObject({
   /**
-   * Where to land the branch. Defaults to the repository's default branch; a
-   * branch that does not exist yet is created from the default branch first.
+   * Optional confirmation of the recorded integration target. A different target
+   * requires an explicit retarget and fresh review before merging.
    */
   targetBranch: gitBranchNameSchema.optional(),
 });
@@ -197,6 +199,7 @@ export const mergeGateSchema = z.strictObject({
     'superseded-by-later-run',
     'run-live',
     'worktree-removed',
+    'branch-review-required',
   ]),
   reviewRunId: agentRunIdSchema.optional(),
 });
@@ -270,6 +273,14 @@ export const agentRunSummarySchema = z.strictObject({
   resolvedModel: z.string().min(1).max(100).optional(),
   billing: z.enum(AGENT_BILLING_SOURCES).optional(),
   verdict: z.enum(AGENT_RUN_VERDICTS).optional(),
+  reviewBranchContext: z
+    .strictObject({
+      headSha: gitShaSchema,
+      targetBranch: gitBranchNameSchema,
+      targetSha: gitShaSchema,
+      worktreeVersion: positiveSafeInteger,
+    })
+    .optional(),
   backendSessionId: z.string().min(1).max(200).optional(),
   createdAt: z.iso.datetime(),
   createdByUserId: userIdSchema,
@@ -508,3 +519,49 @@ export type AgentRunCommandResponse = z.infer<typeof agentRunCommandResponseSche
 export type WorkItemExecutionResponse = z.infer<typeof workItemExecutionResponseSchema>;
 export type RunEventEnvelope = z.infer<typeof runEventEnvelopeSchema>;
 export type RunEventPageResponse = z.infer<typeof runEventPageResponseSchema>;
+
+export const planBranchSettingsSchema = z.strictObject({
+  workspaceId: workspaceIdSchema,
+  planVersionId: planVersionIdSchema,
+  repositoryId: sourceRepositoryIdSchema,
+  integrationBranch: gitBranchNameSchema,
+  updatedAt: z.iso.datetime(),
+  updatedByUserId: userIdSchema,
+  version: positiveSafeInteger,
+});
+export const planBranchSettingsResponseSchema = z.strictObject({
+  missingEvidence: z
+    .array(z.strictObject({ workItemId: workItemIdSchema, sourceId: z.string() }))
+    .max(1000)
+    .default([]),
+  settings: planBranchSettingsSchema.optional(),
+  headSha: gitShaSchema.optional(),
+  issues: z.array(z.string()).max(1000),
+});
+export const savePlanBranchSettingsRequestSchema = z.strictObject({
+  repositoryId: sourceRepositoryIdSchema,
+  integrationBranch: gitBranchNameSchema,
+  expectedVersion: nonNegativeSafeInteger,
+  /** Only this explicit action may create an integration branch. */
+  createFromBranch: gitBranchNameSchema.optional(),
+});
+export const worktreeBranchStatusResponseSchema = z.strictObject({
+  worktree: worktreeSummarySchema,
+  headSha: gitShaSchema.optional(),
+  targetSha: gitShaSchema.optional(),
+  containsTarget: z.boolean().optional(),
+  reviewCurrent: z.boolean(),
+  issues: z.array(z.string()).max(1000),
+});
+export const retargetWorktreeRequestSchema = z.strictObject({
+  integrationBranch: gitBranchNameSchema,
+  expectedVersion: positiveSafeInteger,
+});
+export const updateWorktreeRequestSchema = z.strictObject({
+  expectedVersion: positiveSafeInteger,
+});
+export type PlanBranchSettingsResponse = z.infer<typeof planBranchSettingsResponseSchema>;
+export type SavePlanBranchSettingsRequest = z.infer<typeof savePlanBranchSettingsRequestSchema>;
+export type WorktreeBranchStatusResponse = z.infer<typeof worktreeBranchStatusResponseSchema>;
+
+export const recordIntegrationEvidenceRequestSchema = z.strictObject({ commitSha: gitShaSchema });

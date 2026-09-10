@@ -1,5 +1,6 @@
 import type { PlanVersionDetailResponse } from '@craftingtable/contracts';
 import type { PlanArtifactId, WorkItemId } from '@craftingtable/domain';
+import type { ReactNode } from 'react';
 import { formatBytes, shortDigest } from '../../lib/planning-labels.js';
 import { DiagnosticList } from './DiagnosticList.js';
 import { WorkItemTable } from './WorkItemTable.js';
@@ -7,9 +8,11 @@ import { WorkItemTable } from './WorkItemTable.js';
 /** An immutable, content-addressed plan version. */
 export function PlanVersionPage({
   detail,
+  branchSettings,
   onOpenWorkItem,
   onViewArtifact,
 }: {
+  branchSettings?: ReactNode;
   detail: PlanVersionDetailResponse;
   onOpenWorkItem: (workItemId: WorkItemId) => void;
   onViewArtifact: (artifactId: PlanArtifactId, filename: string) => void;
@@ -25,6 +28,7 @@ export function PlanVersionPage({
           </p>
         </div>
       </header>
+      {branchSettings}
 
       <section className="panel" aria-label="Version identity">
         <dl className="definition-grid">

@@ -17,6 +17,7 @@ import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
 import type { AuthContext } from './auth-service.js';
+import type { BranchService } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { latestReviewReport, runLineage } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -37,6 +38,7 @@ export class WorkCycleService {
     private readonly notifier: WorkspaceEventNotifier,
     private readonly now: () => Date = () => new Date(),
     private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
+    private readonly branches?: BranchService,
   ) {}
 
   list(context: AuthContext, workspaceId: WorkspaceId): readonly WorkCycle[] {
@@ -360,6 +362,12 @@ export class WorkCycleService {
       this.attention(cycle, 'The worktree changed during review. A fresh review is required.');
       return;
     }
+    const reviewedWorktree = this.storage.execution.worktrees.find(
+      cycle.workspaceId,
+      cycle.worktreeId,
+    );
+    if (reviewedWorktree === undefined) throw new NotFoundError();
+    await this.branches?.assertReview(reviewedWorktree, run);
     const assessment = latestReviewReport(this.storage.execution, run);
     const decision = evaluateCompletion(cycle.policy, assessment);
     if (decision.action !== 'remediate') {

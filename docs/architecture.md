@@ -60,8 +60,8 @@ trigger on `work_items` stays in force; a completed predecessor unblocks its dep
 A worktree's merge gate is computed from its runs (`mergeGateFor` in the execution
 service): mergeable when the most recent run is a successfully finished review with a `mergeable` verdict and
 nothing is live. The single merge route re-evaluates the gate, merges with a merge
-commit into the branch the operator names (default: the repository's default branch;
-a missing branch is created from it), removes the worktree, deletes the branch, and
+commit into the worktree's recorded integration branch after verifying the review's
+source/target commits and worktree version, removes the worktree, deletes the branch, and
 completes the work item in one transaction. The merge happens in the primary checkout
 only when that checkout already has the target checked out; otherwise it runs in a
 scratch worktree under the worktree root. See ADR-021.
@@ -141,6 +141,13 @@ worktree against its base (commits, per-file status and counts, bounded unified 
 including untracked files), merge a branch into the checked-out branch with a merge
 commit (aborting on conflict), and delete a merged branch. Argument arrays only, bounded lifetime and output,
 process-group termination, and paths reach Git only as `cwd` or after `--`.
+
+Plan versions have mutable execution settings in `plan_branch_settings`, separate from
+immutable imported documents. New worktrees freeze the configured integration target
+and its starting commit. Retargeting and integration updates invalidate old reviews;
+all manual and automated reviews record source and target commits. Required predecessors'
+recorded integration evidence is checked by ancestry. Commands are owner/editor operations;
+only the final operator merge route advances an integration branch. See ADR-026.
 
 The CT-04A1 read-only inspector and its repository-evidence persistence remain in the
 tree, uncomposed. They are superseded for the working loop by the simpler source

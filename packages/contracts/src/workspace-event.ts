@@ -534,6 +534,18 @@ export const workCycleChangedEventSchema = workspaceEventBaseSchema.extend({
   }),
 });
 
+export const branchesChangedEventSchema = workspaceEventBaseSchema.extend({
+  kind: z.literal('branches-changed'),
+  projectId: projectIdSchema,
+  workItemId: forbiddenCorrelationSchema,
+  runId: forbiddenCorrelationSchema,
+  ...noRepositoryCorrelations,
+  payload: z.strictObject({
+    planVersionId: planVersionIdSchema,
+    action: z.enum(['configured', 'retargeted', 'update-requested', 'updated']),
+  }),
+});
+
 export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   workspaceCreatedEventSchema,
   projectCreatedEventSchema,
@@ -553,6 +565,7 @@ export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   workItemCompletedEventSchema,
   worktreeMergedEventSchema,
   workCycleChangedEventSchema,
+  branchesChangedEventSchema,
 ]);
 
 export const authenticationExpiredEventSchema = z.strictObject({

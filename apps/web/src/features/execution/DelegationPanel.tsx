@@ -17,7 +17,7 @@ import {
   type SourceRepositoryId,
   type WorktreeId,
 } from '@craftingtable/domain';
-import { type CSSProperties, type FormEvent, Fragment, useState } from 'react';
+import { type CSSProperties, type FormEvent, Fragment, type ReactNode, useState } from 'react';
 import {
   formatCost,
   isLiveStatus,
@@ -31,15 +31,15 @@ import {
   VERDICT_ACCENTS,
   VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
+import { HandoffForm } from './HandoffForm.js';
 import {
   handoffDefaults,
   handoffTarget,
   type LaunchInput,
-  previousImplementerHint,
   type ProfileEntry,
+  previousImplementerHint,
   profileChoice,
 } from './handoff.js';
-import { HandoffForm } from './HandoffForm.js';
 import { ModelField } from './ModelField.js';
 
 export type { LaunchInput } from './handoff.js';
@@ -74,6 +74,8 @@ function OutcomeCell({ text }: { text: string | undefined }) {
  * appears when the daemon says the gate is open.
  */
 export function DelegationPanel({
+  hideCreateWorktree,
+  renderBranchControls,
   repositories,
   worktrees,
   runs,
@@ -93,6 +95,8 @@ export function DelegationPanel({
   onOpenDiff,
   profiles,
 }: {
+  hideCreateWorktree?: boolean;
+  renderBranchControls?: (worktree: WorktreeSummary) => ReactNode;
   repositories: readonly SourceRepositorySummary[];
   worktrees: readonly WorktreeSummary[];
   runs: readonly AgentRunSummary[];
@@ -191,7 +195,7 @@ export function DelegationPanel({
     setMergeOpen(worktree.id);
     setMergeTargets((current) =>
       current[worktree.id] === undefined
-        ? { ...current, [worktree.id]: worktree.baseBranch }
+        ? { ...current, [worktree.id]: worktree.integrationBranch ?? worktree.baseBranch }
         : current,
     );
     onLoadBranches(worktree.repositoryId);
@@ -204,8 +208,8 @@ export function DelegationPanel({
           <h3>Delegation</h3>
           <p className="hint">
             Create a worktree on a fresh branch, launch an implement run, then a review run. A
-            mergeable review opens the Merge action, which lands the branch where you choose and
-            completes the item.
+            mergeable review opens the Merge action, which lands the branch in its integration
+            target and completes the item.
           </p>
         </div>
       </div>
@@ -229,7 +233,8 @@ export function DelegationPanel({
           {activeWorktrees.map((worktree) => {
             const gate = mergeGates[worktree.id];
             const hasLiveRun = liveRuns.some((run) => run.worktreeId === worktree.id);
-            const target = mergeTargets[worktree.id] ?? worktree.baseBranch;
+            const target =
+              worktree.integrationBranch ?? mergeTargets[worktree.id] ?? worktree.baseBranch;
             const listId = `branches-${worktree.id}`;
             return (
               <li key={worktree.id} className="worktree-item">
@@ -240,6 +245,7 @@ export function DelegationPanel({
                     from {worktree.baseBranch} @ {shortSha(worktree.baseSha)}
                   </span>
                   <div className="hint mono">{worktree.path}</div>
+                  {renderBranchControls?.(worktree)}
                   {gate !== undefined && (
                     <div className="worktree-gate">
                       <span
@@ -284,6 +290,7 @@ export function DelegationPanel({
                           type="text"
                           list={listId}
                           value={target}
+                          readOnly={worktree.integrationBranch !== undefined}
                           onChange={(event) =>
                             setMergeTargets((current) => ({
                               ...current,
@@ -319,7 +326,8 @@ export function DelegationPanel({
                         Cancel
                       </button>
                       <span className="hint">
-                        An existing branch, or a new one created from {worktree.baseBranch}.
+                        Merges into this worktree’s recorded integration target. Retargeting
+                        requires a new review.
                         {branches?.checkedOut !== undefined
                           ? ` The primary checkout is on ${branches.checkedOut}.`
                           : ''}
@@ -359,7 +367,7 @@ export function DelegationPanel({
           })}
         </ul>
       )}
-      {canMutate && !itemCompleted && (
+      {canMutate && !itemCompleted && !hideCreateWorktree && (
         <form
           className="inline-form"
           onSubmit={createWorktree}

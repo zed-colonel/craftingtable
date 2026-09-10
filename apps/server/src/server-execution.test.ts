@@ -35,6 +35,7 @@ import {
   asProjectId,
   asWorkItemDependencyId,
   asWorkItemId,
+  asWorktreeId,
   CYCLE_STEPS,
   type CycleProfiles,
   DEFAULT_COMPLETION_POLICY,
@@ -43,7 +44,7 @@ import {
   type WorkspaceId,
   type WorktreeId,
 } from '@craftingtable/domain';
-import { createGitOperations } from '@craftingtable/git';
+import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { mergeGateFor } from './services/execution-service.js';
@@ -310,12 +311,13 @@ async function ready(
     readonly now?: () => Date;
     readonly backend?: ScriptedBackend | null;
     readonly backends?: ReadonlyMap<AgentBackendKind, AgentBackend>;
+    readonly gitOperations?: GitOperations;
   } = {},
 ): Promise<Ready> {
   const backend = options.backend === undefined ? new ScriptedBackend() : options.backend;
   const context = await createTestContext({
     ...(options.now === undefined ? {} : { now: options.now }),
-    gitOperations: createGitOperations({ gitExecutable: 'git' }),
+    gitOperations: options.gitOperations ?? createGitOperations({ gitExecutable: 'git' }),
     agentBackends: options.backends ?? new Map(backend === null ? [] : [[backend.kind, backend]]),
   });
   contexts.push(context);
@@ -399,7 +401,11 @@ function mutationHeaders(ready: Ready): Record<string, string> {
   };
 }
 
-async function registerAndWorktree(state: Ready, repositoryPath: string) {
+async function registerAndWorktree(
+  state: Ready,
+  repositoryPath: string,
+  integrationBranch = 'main',
+) {
   const registered = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/repositories`,
@@ -408,6 +414,21 @@ async function registerAndWorktree(state: Ready, repositoryPath: string) {
   });
   expect(registered.statusCode, registered.body).toBe(200);
   const repository = registerSourceRepositoryResponseSchema.parse(registered.json());
+  const settings = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/plan-versions/version-1/branch-settings`,
+    headers: mutationHeaders(state),
+    payload: {
+      repositoryId: repository.repository.id,
+      integrationBranch,
+      expectedVersion:
+        state.context.storage.execution.branchSettings.find(
+          state.workspaceId,
+          asPlanVersionId('version-1'),
+        )?.version ?? 0,
+    },
+  });
+  expect(settings.statusCode, settings.body).toBe(200);
   const worktreeResponse = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/worktrees`,
@@ -1049,10 +1070,11 @@ describe('review-gated merge', () => {
     git(['checkout', 'main'], repositoryPath);
   });
 
-  it('merges into a named branch, creating it from the default branch when missing', async () => {
+  it('merges into the recorded integration branch without changing main', async () => {
     const state = await ready();
     const repositoryPath = fixtureRepository();
-    const { worktree } = await registerAndWorktree(state, repositoryPath);
+    git(['branch', 'aq-cont-1'], repositoryPath);
+    const { worktree } = await registerAndWorktree(state, repositoryPath, 'aq-cont-1');
     await admit(state);
     writeFileSync(join(worktree.path, 'feature.txt'), 'feature\n');
     git(['add', '--all'], worktree.path);
@@ -1065,20 +1087,20 @@ describe('review-gated merge', () => {
       headers: { cookie: state.cookie },
     });
     expect(repositoryBranchesResponseSchema.parse(branches.json())).toEqual({
-      branches: [worktree.branchName, 'main'],
+      branches: ['aq-cont-1', worktree.branchName, 'main'],
       checkedOut: 'main',
     });
 
     const invalid = await merge(state, worktree.id, { targetBranch: worktree.branchName });
-    expect(invalid.statusCode).toBe(400);
+    expect(invalid.statusCode).toBe(409);
     const hostile = await merge(state, worktree.id, { targetBranch: '--evil' });
-    expect(hostile.statusCode).toBe(400);
+    expect(hostile.statusCode).toBe(409);
 
     const mainHead = git(['rev-parse', 'main'], repositoryPath).trim();
     const merged = await merge(state, worktree.id, { targetBranch: 'aq-cont-1' });
     expect(merged.statusCode, merged.body).toBe(200);
     const result = mergeWorktreeResponseSchema.parse(merged.json());
-    expect(result).toMatchObject({ targetBranch: 'aq-cont-1', createdTarget: true });
+    expect(result).toMatchObject({ targetBranch: 'aq-cont-1', createdTarget: false });
     expect(git(['rev-parse', 'aq-cont-1'], repositoryPath).trim()).toBe(result.mergeSha);
     expect(git(['log', '--oneline', 'aq-cont-1'], repositoryPath)).toContain('add feature');
     // main is untouched and the worktree branch is gone.
@@ -1110,7 +1132,7 @@ describe('review-gated merge', () => {
     const conflict = await merge(state, worktree.id);
     expect(conflict.statusCode).toBe(409);
     expect(conflict.json()).toMatchObject({
-      error: { message: expect.stringMatching(/conflict/) },
+      error: { message: expect.stringMatching(/Integration branch advanced/) },
     });
     expect(git(['status', '--porcelain'], repositoryPath)).toBe('');
     expect(
@@ -2130,3 +2152,445 @@ it('does not lose earlier cycle findings when an unrelated manual run is resumed
   expect(response.body).toContain('handoff lineage');
   expect(backend.launches).toHaveLength(4);
 });
+
+/* Branch mechanics: real Git, authenticated commands, durable provenance. */
+async function branchCommand(state: Ready, path: string, payload: Record<string, unknown>) {
+  return state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/${path}`,
+    headers: mutationHeaders(state),
+    payload,
+  });
+}
+function commitFile(path: string, filename: string, content: string) {
+  writeFileSync(join(path, filename), content);
+  git(['add', '--all'], path);
+  git(['commit', '--no-gpg-sign', '-m', filename], path);
+  return git(['rev-parse', 'HEAD'], path).trim();
+}
+
+describe('plan integration branches', () => {
+  it('uses the integration head with main checked out, and preserves existing worktree targets across configuration changes', async () => {
+    const state = await ready();
+    const root = fixtureRepository();
+    const main = git(['rev-parse', 'main'], root).trim();
+    git(['checkout', '-b', 'revision'], root);
+    const revision = commitFile(root, 'integration.txt', 'previously merged item');
+    git(['checkout', 'main'], root);
+    const { repository, worktree } = await registerAndWorktree(state, root, 'revision');
+    expect(worktree).toMatchObject({
+      baseSha: revision,
+      baseBranch: 'revision',
+      integrationBranch: 'revision',
+    });
+    expect(readFileSync(join(worktree.path, 'integration.txt'), 'utf8')).toBe(
+      'previously merged item',
+    );
+    expect(git(['rev-parse', 'main'], root).trim()).toBe(main);
+    const changed = await branchCommand(state, 'plan-versions/version-1/branch-settings', {
+      repositoryId: repository.id,
+      integrationBranch: 'next-revision',
+      createFromBranch: 'revision',
+      expectedVersion: 1,
+    });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(git(['branch', '--show-current'], root).trim()).toBe('main');
+    expect(
+      state.context.storage.execution.worktrees.find(state.workspaceId, worktree.id)
+        ?.integrationBranch,
+    ).toBe('revision');
+    const next = await branchCommand(state, `work-items/${state.workItemId}/worktrees`, {
+      repositoryId: repository.id,
+    });
+    expect(next.statusCode, next.body).toBe(200);
+    expect(next.json().worktree).toMatchObject({
+      integrationBranch: 'next-revision',
+      baseSha: revision,
+    });
+    const stale = await branchCommand(state, 'plan-versions/version-1/branch-settings', {
+      repositoryId: repository.id,
+      integrationBranch: 'should-not-exist',
+      createFromBranch: 'main',
+      expectedVersion: 1,
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(git(['branch', '--list', 'should-not-exist'], root).trim()).toBe('');
+  });
+
+  it('rejects missing targets, unauthorized settings, and changing the target at merge time', async () => {
+    const state = await ready();
+    const root = fixtureRepository();
+    const { repository, worktree } = await registerAndWorktree(state, root);
+    const path = 'plan-versions/version-1/branch-settings';
+    const payload = {
+      repositoryId: repository.id,
+      integrationBranch: 'missing',
+      expectedVersion: 1,
+    };
+    const missing = await branchCommand(state, path, payload);
+    expect(missing.statusCode).toBe(409);
+    expect(git(['branch', '--list', 'missing'], root)).toBe('');
+    const csrf = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/${path}`,
+      headers: { cookie: state.cookie },
+      payload,
+    });
+    expect(csrf.statusCode).toBe(403);
+    const foreign = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/foreign/${path}`,
+      headers: mutationHeaders(state),
+      payload,
+    });
+    expect(foreign.statusCode).toBe(404);
+    await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+    const wrongTarget = await merge(state, worktree.id, { targetBranch: 'missing' });
+    expect(wrongTarget.statusCode).toBe(409);
+    expect(wrongTarget.body).toContain('Retarget');
+    expect(git(['branch', '--list', 'missing'], root)).toBe('');
+  });
+
+  it('refuses stale manual reviews, updates integration without completing the item, and requires review again', async () => {
+    const state = await ready();
+    const root = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, root);
+    await admit(state);
+    commitFile(worktree.path, 'item.txt', 'item');
+    const oldReview = await runToFinish(state, worktree.id, {
+      role: 'review',
+      instructions: 'VERDICT-MERGEABLE',
+    });
+    const target = commitFile(root, 'other-item.txt', 'integration advanced');
+    const before = git(['rev-parse', 'HEAD'], worktree.path).trim();
+    expect((await merge(state, worktree.id)).statusCode).toBe(409);
+    const updated = await branchCommand(state, `worktrees/${worktree.id}/update`, {
+      expectedVersion: worktree.version,
+    });
+    expect(updated.statusCode, updated.body).toBe(200);
+    expect(git(['rev-parse', 'main'], root).trim()).toBe(target);
+    expect(git(['rev-parse', 'HEAD'], worktree.path).trim()).not.toBe(before);
+    expect(readFileSync(join(worktree.path, 'other-item.txt'), 'utf8')).toBe(
+      'integration advanced',
+    );
+    expect(
+      state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.status,
+    ).toBe('admitted');
+    expect((await merge(state, worktree.id)).statusCode).toBe(409);
+    expect(
+      (await branchCommand(state, `worktrees/${worktree.id}/update`, { expectedVersion: 1 }))
+        .statusCode,
+    ).toBe(409);
+    const diffResponse = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/diff`,
+      headers: { cookie: state.cookie },
+    });
+    expect(diffResponse.statusCode).toBe(200);
+    expect(diffResponse.json().baseSha).toBe(target);
+    expect(diffResponse.json().files.map((file: { path: string }) => file.path)).toEqual([
+      'item.txt',
+    ]);
+    const review = await runToFinish(state, worktree.id, {
+      role: 'review',
+      instructions: 'VERDICT-MERGEABLE',
+      parentRunId: oldReview,
+    });
+    const run = state.context.storage.execution.runs.find(state.workspaceId, review);
+    expect(run?.reviewBranchContext).toMatchObject({
+      targetBranch: 'main',
+      targetSha: target,
+      worktreeVersion: 2,
+    });
+    expect(run?.brief).toContain(target);
+    const merged = await merge(state, worktree.id);
+    expect(merged.statusCode, merged.body).toBe(200);
+    expect(readFileSync(join(root, 'item.txt'), 'utf8')).toBe('item');
+  });
+
+  it('refuses a changed source commit and invalidates review on an explicit retarget', async () => {
+    const state = await ready();
+    const root = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, root);
+    await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+    commitFile(worktree.path, 'unreviewed.txt', 'unreviewed');
+    expect((await merge(state, worktree.id)).statusCode).toBe(409);
+    git(['branch', 'revision'], root);
+    const retarget = await branchCommand(state, `worktrees/${worktree.id}/retarget`, {
+      expectedVersion: 1,
+      integrationBranch: 'revision',
+    });
+    expect(retarget.statusCode).toBe(200);
+    expect(retarget.json().worktree).toMatchObject({
+      integrationBranch: 'revision',
+      baseBranch: 'main',
+      version: 2,
+    });
+    expect((await merge(state, worktree.id)).statusCode).toBe(409);
+    await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+    expect((await merge(state, worktree.id)).statusCode).toBe(200);
+    expect(existsSync(join(root, 'unreviewed.txt'))).toBe(false);
+  });
+
+  it('aborts conflicting integration updates, preserves both branches, and closes the review gate', async () => {
+    const state = await ready();
+    const root = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, root);
+    const source = commitFile(worktree.path, 'conflict.txt', 'item');
+    await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+    const target = commitFile(root, 'conflict.txt', 'integration');
+    const response = await branchCommand(state, `worktrees/${worktree.id}/update`, {
+      expectedVersion: 1,
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.body).toContain('conflict');
+    expect(git(['rev-parse', 'HEAD'], worktree.path).trim()).toBe(source);
+    expect(git(['rev-parse', 'HEAD'], root).trim()).toBe(target);
+    expect(git(['status', '--porcelain'], worktree.path)).toBe('');
+    expect(
+      state.context.storage.execution.worktrees.find(state.workspaceId, worktree.id)?.version,
+    ).toBe(2);
+    expect((await merge(state, worktree.id)).statusCode).toBe(409);
+  });
+
+  it('checks prerequisite commit ancestry and accepts explicit evidence for a historical manual completion', async () => {
+    const state = await ready();
+    const root = fixtureRepository();
+    const { repository } = await registerAndWorktree(state, root);
+    const prerequisite = asWorkItemId('prior');
+    state.context.storage.transaction((tx) => {
+      tx.planning.workItems.insertMany([
+        {
+          id: prerequisite,
+          workspaceId: state.workspaceId,
+          projectId: asProjectId('project-1'),
+          planVersionId: asPlanVersionId('version-1'),
+          sourceId: 'AQ-00',
+          ordinal: 2,
+          title: 'Prerequisite',
+          risk: 'low',
+          primaryAreas: [],
+          exitGate: 'done',
+          sourceFields: {},
+        },
+      ]);
+      tx.planning.workItems.complete({
+        workspaceId: state.workspaceId,
+        workItemId: prerequisite,
+        projectId: asProjectId('project-1'),
+        completedAt: new Date().toISOString(),
+        completedByUserId: state.userId,
+      });
+      tx.planning.dependencies.insertMany([
+        {
+          id: asWorkItemDependencyId('prior-edge'),
+          workspaceId: state.workspaceId,
+          planVersionId: asPlanVersionId('version-1'),
+          predecessorWorkItemId: prerequisite,
+          successorWorkItemId: state.workItemId,
+          kind: 'required',
+          ordinal: 0,
+        },
+      ]);
+    });
+    const blocked = await branchCommand(state, `work-items/${state.workItemId}/worktrees`, {
+      repositoryId: repository.id,
+    });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.body).toContain('no recorded merge commit');
+    git(['checkout', '-b', 'unmerged-prior'], root);
+    const evidence = commitFile(root, 'prerequisite.txt', 'prior work');
+    git(['checkout', 'main'], root);
+    expect(
+      (await branchCommand(state, 'work-items/prior/integration-evidence', { commitSha: evidence }))
+        .statusCode,
+    ).toBe(409);
+    git(['merge', '--no-ff', '--no-edit', 'unmerged-prior'], root);
+    const recorded = await branchCommand(state, 'work-items/prior/integration-evidence', {
+      commitSha: evidence.slice(0, 12),
+    });
+    expect(
+      state.context.storage.execution.branchSettings.evidence(
+        state.workspaceId,
+        prerequisite,
+        repository.id,
+      ),
+    ).toBe(evidence);
+    expect(recorded.statusCode, recorded.body).toBe(200);
+    expect(recorded.json().missingEvidence).toEqual([]);
+    // Historical completion is still immutable and untouched.
+    expect(
+      state.context.storage.planning.workItems.find(state.workspaceId, prerequisite)?.mergeSha,
+    ).toBeUndefined();
+    expect(
+      (
+        await branchCommand(state, `work-items/${state.workItemId}/worktrees`, {
+          repositoryId: repository.id,
+        })
+      ).statusCode,
+    ).toBe(200);
+  });
+
+  it('resumes an awaiting-merge cycle through a fresh review after updating integration', async () => {
+    const { state, backend, root, worktree } = await cycleFixture([
+      designDone,
+      implementationDone,
+      { resultText: reviewText([]) },
+      { resultText: reviewText([]) },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'initial approval');
+    const oldReview = currentCycle(state, cycle).currentRunId;
+    const target = commitFile(root, 'parallel-item.txt', 'approved elsewhere');
+    expect((await merge(state, worktree.id)).statusCode).toBe(409);
+    expect(
+      (await branchCommand(state, `worktrees/${worktree.id}/update`, { expectedVersion: 1 }))
+        .statusCode,
+    ).toBe(409);
+    const paused = await controlCycle(state, currentCycle(state, cycle), 'pause');
+    const update = await branchCommand(state, `worktrees/${worktree.id}/update`, {
+      expectedVersion: 1,
+    });
+    expect(update.statusCode, update.body).toBe(200);
+    await controlCycle(state, paused, 'resume');
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'renewed approval');
+    const renewed = currentCycle(state, cycle).currentRunId;
+    expect(renewed).not.toBe(oldReview);
+    expect(backend.launches).toHaveLength(4);
+    expect(
+      state.context.storage.execution.runs.find(state.workspaceId, renewed)?.reviewBranchContext
+        ?.targetSha,
+    ).toBe(target);
+    expect((await merge(state, worktree.id)).statusCode).toBe(200);
+  });
+});
+
+it('adopts a preexisting worktree without rewriting its original base and refuses changes while a session is open', async () => {
+  const state = await ready();
+  const root = fixtureRepository();
+  const { repository, worktree } = await registerAndWorktree(state, root);
+  const legacyPath = join(state.context.config.execution.worktreeRoot, 'legacy');
+  git(['worktree', 'add', '-b', 'legacy-item', legacyPath], root);
+  const legacy = state.context.storage.execution.worktrees.insert({
+    id: asWorktreeId('legacy'),
+    workspaceId: state.workspaceId,
+    repositoryId: repository.id,
+    projectId: worktree.projectId,
+    workItemId: state.workItemId,
+    branchName: 'legacy-item',
+    baseSha: worktree.baseSha,
+    baseBranch: 'main',
+    path: legacyPath,
+    createdAt: new Date().toISOString(),
+    createdByUserId: state.userId,
+  });
+  const launchPath = `work-items/${state.workItemId}/runs`;
+  expect(
+    (await branchCommand(state, launchPath, { worktreeId: legacy.id, role: 'review' })).statusCode,
+  ).toBe(409);
+  expect((await merge(state, legacy.id)).statusCode).toBe(409);
+  const adopted = await branchCommand(state, `worktrees/${legacy.id}/retarget`, {
+    expectedVersion: 1,
+    integrationBranch: 'main',
+  });
+  expect(adopted.statusCode, adopted.body).toBe(200);
+  expect(adopted.json().worktree).toMatchObject({
+    baseSha: legacy.baseSha,
+    baseBranch: 'main',
+    integrationBranch: 'main',
+    version: 2,
+  });
+  const launched = await branchCommand(state, launchPath, {
+    worktreeId: legacy.id,
+    role: 'review',
+    instructions: 'VERDICT-MERGEABLE',
+  });
+  expect(launched.statusCode).toBe(200);
+  expect(
+    (await branchCommand(state, `worktrees/${legacy.id}/update`, { expectedVersion: 2 }))
+      .statusCode,
+  ).toBe(409);
+  await branchCommand(state, `runs/${launched.json().run.id}/end`, {});
+  await waitFor(
+    () =>
+      state.context.storage.execution.runs.find(state.workspaceId, launched.json().run.id)
+        ?.status === 'finished',
+    'legacy review ended',
+  );
+  expect((await merge(state, legacy.id)).statusCode).toBe(200);
+});
+
+it('serializes operator merges for different items in the same repository', async () => {
+  const state = await ready();
+  const root = fixtureRepository();
+  const { worktree: first } = await registerAndWorktree(state, root);
+  const secondId = asWorkItemId('parallel-item');
+  state.context.storage.planning.workItems.insertMany([
+    {
+      id: secondId,
+      workspaceId: state.workspaceId,
+      projectId: first.projectId,
+      planVersionId: asPlanVersionId('version-1'),
+      sourceId: 'AQ-02',
+      ordinal: 1,
+      title: 'Independent item',
+      risk: 'low',
+      primaryAreas: [],
+      exitGate: 'done',
+      sourceFields: {},
+    },
+  ]);
+  const secondState = { ...state, workItemId: secondId };
+  const { worktree: second } = await registerAndWorktree(secondState, root);
+  commitFile(first.path, 'first.txt', 'first');
+  commitFile(second.path, 'second.txt', 'second');
+  await runToFinish(state, first.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+  await runToFinish(secondState, second.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+  const results = await Promise.all([merge(state, first.id), merge(secondState, second.id)]);
+  expect(results.map((result) => result.statusCode).sort()).toEqual([200, 409]);
+  expect(results.find((result) => result.statusCode === 409)?.body).toContain('Another merge');
+  expect(
+    Number(existsSync(join(root, 'first.txt'))) + Number(existsSync(join(root, 'second.txt'))),
+  ).toBe(1);
+});
+
+it.each(['pause', 'stop'] as const)(
+  'honors %s while Git preflight is pending without launching an agent',
+  async (action) => {
+    const realGit = createGitOperations({ gitExecutable: 'git' });
+    let blocking = false;
+    let entered = false;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const state = await ready({
+      gitOperations: {
+        ...realGit,
+        resolveBranch: async (path, branch) => {
+          if (blocking) {
+            entered = true;
+            await gate;
+          }
+          return realGit.resolveBranch(path, branch);
+        },
+      },
+    });
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    await admit(state);
+    blocking = true;
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => entered, 'Git preflight began');
+    try {
+      await controlCycle(state, currentCycle(state, cycle), action);
+    } finally {
+      release();
+    }
+    await state.context.services.workCycleService.shutdown();
+    expect(state.backend.launches).toHaveLength(0);
+    expect(
+      state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
+    ).toBeUndefined();
+    expect(currentCycle(state, cycle).status).toBe(action === 'pause' ? 'paused' : 'stopped');
+  },
+);

@@ -40,9 +40,12 @@ It submits:
   name and path under its managed worktree root;
 - a role, permission posture, optional model name, and free text that becomes the brief
   or a follow-up message to the agent;
-- a worktree to merge, optionally with a target branch name. The daemon validates the
-  name, refuses unless that worktree's most recent run is a review whose final message
-  carried a `mergeable` verdict and no run is live in it, and performs the merge in a
+- explicit plan branch settings, a selected starting branch when creating an integration
+  branch, or an existing worktree to adopt, retarget, or update. Git references are validated
+  through bounded argument-array operations; no rebase or force-push is exposed;
+- a worktree to merge into its recorded target. The daemon refuses unless its most recent
+  run is a review whose final message carried a `mergeable` verdict, both source and target
+  commits still match its recorded context, and no run is live in it. It performs the merge in a
   scratch worktree unless the primary checkout already has the target checked out. The implementation
   agent never holds merge authority; a review agent only produces the verdict the
   operator acts on.

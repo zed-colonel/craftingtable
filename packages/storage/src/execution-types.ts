@@ -46,6 +46,7 @@ export interface CreateWorktreeInput {
   readonly branchName: string;
   readonly baseSha: string;
   readonly baseBranch: string;
+  readonly integrationBranch?: string;
   readonly path: string;
   readonly createdAt: string;
   readonly createdByUserId: UserId;
@@ -63,6 +64,7 @@ export interface CreateAgentRunInput {
   readonly role: AgentRunRole;
   readonly permissionMode: AgentPermissionMode;
   readonly model?: string;
+  readonly reviewBranchContext?: AgentRun['reviewBranchContext'];
   readonly brief: string;
   readonly createdAt: string;
   readonly createdByUserId: UserId;
@@ -119,6 +121,12 @@ export interface SourceRepositoryRepository {
 }
 
 export interface WorktreeRepository {
+  setIntegrationBranch(input: {
+    workspaceId: WorkspaceId;
+    worktreeId: WorktreeId;
+    integrationBranch: string;
+    expectedVersion: number;
+  }): Worktree | undefined;
   insert(input: CreateWorktreeInput): Worktree;
   find(workspaceId: WorkspaceId, worktreeId: WorktreeId): Worktree | undefined;
   listForWorkItem(workspaceId: WorkspaceId, workItemId: WorkItemId): readonly Worktree[];
@@ -184,6 +192,7 @@ export interface RunProfileRepository {
 }
 
 export interface ExecutionRepositories {
+  readonly branchSettings: import('./repositories/execution/branch-settings.js').PlanBranchSettingsRepository;
   readonly cycles: import('./repositories/execution/work-cycles.js').WorkCycleRepository;
   readonly sourceRepositories: SourceRepositoryRepository;
   readonly worktrees: WorktreeRepository;

@@ -374,6 +374,7 @@ describe('migration 0002 journal preservation', () => {
       'agent-backends',
       'run-profiles',
       'work-cycles',
+      'branch-mechanics',
     ]);
     // The recorded checksum of 0001 is what every already-migrated installation
     // validates against; changing that file would lock operators out.

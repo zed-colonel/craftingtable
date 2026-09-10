@@ -85,6 +85,28 @@ export interface WorktreeDiff {
 }
 
 export interface GitOperations {
+  commonAncestor(
+    repositoryPath: string,
+    leftSha: string,
+    rightSha: string,
+  ): Promise<GitResult<string>>;
+  resolveBranch(repositoryPath: string, branchName: string): Promise<GitResult<string>>;
+  createBranch(
+    repositoryPath: string,
+    branchName: string,
+    fromBranch: string,
+  ): Promise<GitResult<string>>;
+  isAncestor(
+    repositoryPath: string,
+    ancestorSha: string,
+    descendantSha: string,
+  ): Promise<GitResult<boolean>>;
+  updateWorktree(input: {
+    worktreePath: string;
+    branchName: string;
+    expectedHeadSha: string;
+    targetSha: string;
+  }): Promise<GitResult<{ mergeSha: string }>>;
   inspectRepository(path: string): Promise<GitResult<RepositoryIdentity>>;
   createWorktree(input: {
     readonly repositoryPath: string;
@@ -115,6 +137,7 @@ export interface GitOperations {
   mergeBranch(input: {
     /** Pin an operator-approved review to this source commit even if its branch moves. */
     readonly sourceCommitSha?: string;
+    readonly expectedTargetSha?: string;
     readonly repositoryPath: string;
     readonly branchName: string;
     readonly targetBranch: string;
@@ -683,8 +706,20 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       readonly branchName: string;
       readonly message: string;
       readonly sourceCommitSha?: string;
+      readonly expectedTargetSha?: string;
     },
   ): Promise<GitResult<{ readonly mergeSha: string }>> {
+    if (input.expectedTargetSha !== undefined) {
+      if (!SHA_PATTERN.test(input.expectedTargetSha))
+        return fail('invalid-path', 'Expected target must be a Git object name');
+      const head = await runOk(['rev-parse', '--verify', 'HEAD'], cwd);
+      if (!head.ok) return head;
+      if (head.value.stdout.toString('utf8').trim() !== input.expectedTargetSha)
+        return fail(
+          'git-failed',
+          'Integration branch advanced; update the worktree and review again',
+        );
+    }
     const merged = await run(
       [
         'merge',
@@ -718,6 +753,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
 
   async function mergeBranch(input: {
     readonly sourceCommitSha?: string;
+    readonly expectedTargetSha?: string;
     readonly repositoryPath: string;
     readonly branchName: string;
     readonly targetBranch: string;
@@ -856,7 +892,101 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     return { ok: true, value: undefined };
   }
 
+  async function resolveBranch(
+    repositoryPath: string,
+    branchName: string,
+  ): Promise<GitResult<string>> {
+    if (!isSafeBranchName(branchName))
+      return fail('invalid-path', 'Branch name must be well formed');
+    const repo = await canonicalDirectory(repositoryPath);
+    if (!repo.ok) return repo;
+    const ref = await runOk(
+      ['rev-parse', '--verify', `refs/heads/${branchName}^{commit}`],
+      repo.value,
+    );
+    if (!ref.ok) return fail('git-failed', `Local branch ${branchName} is unavailable`);
+    return { ok: true, value: ref.value.stdout.toString('utf8').trim() };
+  }
+
+  async function createBranch(
+    repositoryPath: string,
+    branchName: string,
+    fromBranch: string,
+  ): Promise<GitResult<string>> {
+    if (!isSafeBranchName(branchName))
+      return fail('invalid-path', 'Branch name must be well formed');
+    const source = await resolveBranch(repositoryPath, fromBranch);
+    if (!source.ok) return source;
+    const repo = await canonicalDirectory(repositoryPath);
+    if (!repo.ok) return repo;
+    const created = await runOk(['branch', '--', branchName, source.value], repo.value);
+    if (!created.ok) return created;
+    return { ok: true, value: source.value };
+  }
+
+  async function isAncestor(
+    repositoryPath: string,
+    ancestorSha: string,
+    descendantSha: string,
+  ): Promise<GitResult<boolean>> {
+    if (!SHA_PATTERN.test(ancestorSha) || !SHA_PATTERN.test(descendantSha))
+      return fail('invalid-path', 'Ancestry requires Git object names');
+    const repo = await canonicalDirectory(repositoryPath);
+    if (!repo.ok) return repo;
+    const result = await run(
+      ['merge-base', '--is-ancestor', ancestorSha, descendantSha],
+      repo.value,
+    );
+    if (!result.ok) return result;
+    if (result.value.exitCode !== 0 && result.value.exitCode !== 1)
+      return fail('git-failed', 'Could not verify commit ancestry');
+    return { ok: true, value: result.value.exitCode === 0 };
+  }
+
+  async function updateWorktree(input: {
+    worktreePath: string;
+    branchName: string;
+    expectedHeadSha: string;
+    targetSha: string;
+  }): Promise<GitResult<{ mergeSha: string }>> {
+    if (!SHA_PATTERN.test(input.targetSha))
+      return fail('invalid-path', 'Integration commit must be a Git object name');
+    const identity = await inspectRepository(input.worktreePath);
+    if (!identity.ok) return identity;
+    if (
+      !identity.value.clean ||
+      identity.value.branch !== input.branchName ||
+      identity.value.headSha !== input.expectedHeadSha
+    )
+      return fail('git-failed', 'Worktree changed or is not clean; refresh before updating');
+    return mergeInto(identity.value.topLevel, {
+      branchName: input.branchName,
+      sourceCommitSha: input.targetSha,
+      expectedTargetSha: input.expectedHeadSha,
+      message: 'Merge integration changes before verification and review',
+    });
+  }
+
+  async function commonAncestor(
+    repositoryPath: string,
+    leftSha: string,
+    rightSha: string,
+  ): Promise<GitResult<string>> {
+    if (!SHA_PATTERN.test(leftSha) || !SHA_PATTERN.test(rightSha))
+      return fail('invalid-path', 'Merge base requires Git object names');
+    const repo = await canonicalDirectory(repositoryPath);
+    if (!repo.ok) return repo;
+    const result = await runOk(['merge-base', leftSha, rightSha], repo.value);
+    if (!result.ok) return result;
+    return { ok: true, value: result.value.stdout.toString('utf8').trim() };
+  }
+
   return {
+    commonAncestor,
+    resolveBranch,
+    createBranch,
+    isAncestor,
+    updateWorktree,
     inspectRepository,
     createWorktree,
     removeWorktree,

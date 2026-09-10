@@ -1,15 +1,18 @@
 import type { ProjectDetailResponse } from '@craftingtable/contracts';
 import type { PlanArtifactId, PlanVersionId, WorkItemId } from '@craftingtable/domain';
+import type { ReactNode } from 'react';
 import { formatBytes, RISK_LABELS, shortDigest } from '../../lib/planning-labels.js';
 import { DiagnosticList } from './DiagnosticList.js';
 import { WorkItemTable } from './WorkItemTable.js';
 
 export function ProjectPage({
   detail,
+  branchSettings,
   onOpenWorkItem,
   onOpenVersion,
   onViewArtifact,
 }: {
+  branchSettings?: ReactNode;
   detail: ProjectDetailResponse;
   onOpenWorkItem: (workItemId: WorkItemId) => void;
   onOpenVersion: (planVersionId: PlanVersionId) => void;
@@ -27,6 +30,7 @@ export function ProjectPage({
           </p>
         </div>
       </header>
+      {branchSettings}
 
       <section className="status-cards" aria-label="Plan summary">
         <SummaryTile

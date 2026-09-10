@@ -151,6 +151,15 @@ function assertStructuralShape(row: WorkspaceEventRow, kind: WorkspaceEventKind)
         invalidStructural(row);
       }
       return;
+    case 'branches-changed':
+      if (
+        !repositoryCorrelationsNull ||
+        row.project_id === null ||
+        row.work_item_id !== null ||
+        row.run_id !== null
+      )
+        invalidStructural(row);
+      return;
     case 'work-cycle-changed':
     case 'worktree-created':
     case 'worktree-removed':
@@ -374,6 +383,13 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
         projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
         workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
         payload: mapPayload<'worktree-removed'>(payload),
+      };
+    case 'branches-changed':
+      return {
+        ...commonFields(base),
+        kind,
+        projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
+        payload: mapPayload<'branches-changed'>(payload),
       };
     case 'work-cycle-changed':
       return {

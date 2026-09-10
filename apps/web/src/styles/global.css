@@ -1508,3 +1508,31 @@ button:disabled {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.branch-panel,
+.worktree-branches {
+  min-width: 0;
+}
+.branch-panel code,
+.worktree-branches code {
+  overflow-wrap: anywhere;
+}
+.branch-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: var(--space-3);
+}
+.branch-fields .field,
+.branch-fields input,
+.branch-fields select {
+  min-width: 0;
+  max-width: 100%;
+}
+.worktree-branches {
+  margin-block: var(--space-3);
+  padding-block: var(--space-2);
+  border-block: 1px solid var(--color-border);
+}
+.worktree-branches .inline-actions {
+  flex-wrap: wrap;
+}

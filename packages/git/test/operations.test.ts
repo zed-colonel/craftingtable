@@ -414,3 +414,58 @@ it('merges the approved source commit when its branch has advanced', async () =>
     approved,
   );
 });
+
+it('creates explicit local branches without checkout, resolves exact refs, and verifies commit ancestry', async () => {
+  const repo = fixture();
+  const main = await operations.resolveBranch(repo.repository, 'main');
+  if (!main.ok) throw new Error('missing fixture main');
+  expect(await operations.createBranch(repo.repository, 'revision', 'main')).toEqual(main);
+  expect(await operations.resolveBranch(repo.repository, 'revision')).toEqual(main);
+  expect(
+    runFixtureGit(['branch', '--show-current'], { cwd: repo.repository }).toString().trim(),
+  ).toBe('main');
+  expect((await operations.createBranch(repo.repository, 'revision', 'main')).ok).toBe(false);
+  expect((await operations.resolveBranch(repo.repository, 'missing')).ok).toBe(false);
+  expect((await operations.createBranch(repo.repository, '--bad', 'main')).ok).toBe(false);
+  expect(await operations.isAncestor(repo.repository, main.value, main.value)).toEqual({
+    ok: true,
+    value: true,
+  });
+  expect((await operations.isAncestor(repo.repository, '--bad', main.value)).ok).toBe(false);
+});
+
+it('rejects a stale integration snapshot before merging and preserves the target checkout', async () => {
+  const repo = fixture();
+  const original = await operations.resolveBranch(repo.repository, 'main');
+  if (!original.ok) throw new Error('missing fixture main');
+  const worktreePath = join(repo.root, 'reviewed');
+  expect(
+    (
+      await operations.createWorktree({
+        repositoryPath: repo.repository,
+        worktreePath,
+        branchName: 'item',
+        baseRef: original.value,
+      })
+    ).ok,
+  ).toBe(true);
+  writeFileSync(join(repo.repository, 'later.txt'), 'integration advanced');
+  runFixtureGit(['add', '.'], { cwd: repo.repository });
+  runFixtureGit(
+    ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'later'],
+    { cwd: repo.repository },
+  );
+  const before = await operations.resolveBranch(repo.repository, 'main');
+  const merged = await operations.mergeBranch({
+    repositoryPath: repo.repository,
+    branchName: 'item',
+    targetBranch: 'main',
+    sourceCommitSha: original.value,
+    expectedTargetSha: original.value,
+    scratchPath: join(repo.root, 'scratch'),
+    message: 'must not merge',
+  });
+  expect(merged.ok).toBe(false);
+  expect(await operations.resolveBranch(repo.repository, 'main')).toEqual(before);
+  expect(runFixtureGit(['status', '--porcelain'], { cwd: repo.repository }).toString()).toBe('');
+});

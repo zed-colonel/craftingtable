@@ -27,7 +27,7 @@ honest about state.
 ## Shell
 
 - A 220px navigation rail on the left holds the workspace picker, the workspace's
-  pages (Dashboard, Runs, Agenda, Repositories, Import plan, Settings), the
+  pages (Dashboard, Runs, Agenda, Projects, Repositories, Import plan, Settings), the
   cross-workspace pages (All workspaces, Account), the live-connection badge, the
   theme toggle, and Log out. Navigation appears nowhere else.
 - `/` resolves to the last workspace used; `/workspaces` lists every workspace as a

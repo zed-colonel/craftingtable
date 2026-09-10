@@ -28,6 +28,7 @@ import type {
   TransitionAgentRunInput,
   WorktreeRepository,
 } from '../../execution-types.js';
+import { SqlitePlanBranchSettingsRepository } from './branch-settings.js';
 import { SqliteWorkCycleRepository } from './work-cycles.js';
 
 /* -------------------------------------------------------------------------- */
@@ -73,6 +74,7 @@ interface WorktreeRow {
   branch_name: string;
   base_sha: string;
   base_branch: string;
+  integration_branch: string | null;
   path: string;
   status: Worktree['status'];
   created_at: string;
@@ -93,6 +95,7 @@ function mapWorktree(row: WorktreeRow): Worktree {
     branchName: row.branch_name,
     baseSha: row.base_sha,
     baseBranch: row.base_branch,
+    ...(row.integration_branch === null ? {} : { integrationBranch: row.integration_branch }),
     path: row.path,
     status: row.status,
     createdAt: row.created_at,
@@ -120,6 +123,7 @@ interface AgentRunRow {
   resolved_model: string | null;
   billing: AgentRun['billing'] | null;
   verdict: AgentRun['verdict'] | null;
+  review_branch_context_json: string | null;
   brief: string;
   backend_session_id: string | null;
   created_at: string;
@@ -152,6 +156,9 @@ function mapAgentRun(row: AgentRunRow): AgentRun {
     ...(row.resolved_model === null ? {} : { resolvedModel: row.resolved_model }),
     ...(row.billing === null ? {} : { billing: row.billing }),
     ...(row.verdict === null ? {} : { verdict: row.verdict }),
+    ...(row.review_branch_context_json === null
+      ? {}
+      : { reviewBranchContext: JSON.parse(row.review_branch_context_json) }),
     brief: row.brief,
     ...(row.backend_session_id === null ? {} : { backendSessionId: row.backend_session_id }),
     createdAt: row.created_at,
@@ -287,8 +294,8 @@ class SqliteWorktreeRepository implements WorktreeRepository {
       .prepare(
         `INSERT INTO worktrees (
           id, workspace_id, repository_id, project_id, work_item_id, branch_name,
-          base_sha, base_branch, path, status, created_at, created_by_user_id, version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, 1)`,
+          base_sha, base_branch, integration_branch, path, status, created_at, created_by_user_id, version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, 1)`,
       )
       .run(
         input.id,
@@ -299,6 +306,7 @@ class SqliteWorktreeRepository implements WorktreeRepository {
         input.branchName,
         input.baseSha,
         input.baseBranch,
+        input.integrationBranch ?? null,
         input.path,
         input.createdAt,
         input.createdByUserId,
@@ -339,6 +347,19 @@ class SqliteWorktreeRepository implements WorktreeRepository {
         )
         .all(workspaceId) as WorktreeRow[]
     ).map(mapWorktree);
+  }
+
+  setIntegrationBranch(input: {
+    workspaceId: WorkspaceId;
+    worktreeId: WorktreeId;
+    integrationBranch: string;
+    expectedVersion: number;
+  }): Worktree | undefined {
+    const result = this.database
+      .prepare(`UPDATE worktrees SET integration_branch = ?, version = version + 1
+      WHERE workspace_id = ? AND id = ? AND status = 'active' AND version = ?`)
+      .run(input.integrationBranch, input.workspaceId, input.worktreeId, input.expectedVersion);
+    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.worktreeId);
   }
 
   markRemoved(input: {
@@ -391,8 +412,8 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         `INSERT INTO agent_runs (
           id, workspace_id, worktree_id, repository_id, project_id, work_item_id,
           parent_run_id, backend, role, status, permission_mode, model, brief,
-          created_at, created_by_user_id, turn_count, version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, 0, 1)`,
+          created_at, created_by_user_id, review_branch_context_json, turn_count, version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, 0, 1)`,
       )
       .run(
         input.id,
@@ -409,6 +430,7 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         input.brief,
         input.createdAt,
         input.createdByUserId,
+        input.reviewBranchContext === undefined ? null : JSON.stringify(input.reviewBranchContext),
       );
     const created = this.find(input.workspaceId, input.id);
     if (created === undefined) {
@@ -660,6 +682,7 @@ class SqliteRunProfileRepository implements RunProfileRepository {
 export function executionRepositories(database: Database.Database): ExecutionRepositories {
   return {
     cycles: new SqliteWorkCycleRepository(database),
+    branchSettings: new SqlitePlanBranchSettingsRepository(database),
     sourceRepositories: new SqliteSourceRepositoryRepository(database),
     worktrees: new SqliteWorktreeRepository(database),
     runs: new SqliteAgentRunRepository(database),

@@ -26,6 +26,7 @@ import {
   asAuditEventId,
   asEventId,
   isTerminalAgentRunStatus,
+  type ReviewReportAssessment,
   type WorkItemId,
   type WorkspaceId,
   type Worktree,
@@ -35,8 +36,10 @@ import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/s
 import type { ExecutionConfig } from '../config.js';
 import type { AuthContext } from './auth-service.js';
 import { truncateUtf8Bytes } from './bounded-text.js';
-import { composeBrief, parseVerdict } from './brief.js';
+import { composeBrief } from './brief.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { assessReviewReport, finalVerdict } from './review-report.js';
+import { latestReviewReport, recordedFindingIds, writeRunHandoff } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 
@@ -71,7 +74,7 @@ const LIVE_STATUSES: readonly AgentRunStatus[] = ['starting', 'running', 'waitin
 /** Bytes, matching the wire contract and the storage CHECK. */
 const OUTCOME_SUMMARY_LIMIT_BYTES = 4000;
 /** A parent run's findings are reproduced in the brief up to this size. */
-const PARENT_MESSAGE_LIMIT_BYTES = 120_000;
+const PARENT_MESSAGE_LIMIT_BYTES = 256 * 1024;
 /** The order roles occur in the development loop, for profile listings. */
 const ROLE_ORDER: readonly AgentRunRole[] = ['design', 'implement', 'review'];
 const SHUTDOWN_GRACE_MS = 10_000;
@@ -235,8 +238,18 @@ export class AgentRunService {
       let parentFinalMessage: string | undefined;
       if (input.parentRunId !== undefined) {
         parentRun = tx.execution.runs.find(workspaceId, input.parentRunId);
-        if (parentRun === undefined || parentRun.workItemId !== workItemId) {
+        if (
+          parentRun === undefined ||
+          parentRun.workItemId !== workItemId ||
+          parentRun.worktreeId !== input.worktreeId
+        ) {
           throw new NotFoundError();
+        }
+        if (parentRun.status === 'starting' || parentRun.status === 'running') {
+          throw new ExecutionRequestError(
+            'conflict',
+            'Wait for the source turn to finish before handing it off',
+          );
         }
         // The journal holds the full final message; the run row only a bounded summary.
         const lastTurn = tx.execution.runEvents.latestOfKind(
@@ -275,6 +288,14 @@ export class AgentRunService {
       writeFileSync(path, artifact.content, { mode: 0o600 });
       return { filename: artifact.logicalFilename, role: artifact.role, path };
     });
+    const handoff =
+      prepared.parentRun === undefined
+        ? undefined
+        : writeRunHandoff(
+            this.storage.execution,
+            prepared.parentRun,
+            join(runDirectory, 'handoff'),
+          );
     const brief = composeBrief({
       role: input.role,
       projectName: prepared.project.name,
@@ -299,7 +320,7 @@ export class AgentRunService {
       },
       planDocuments,
       ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
-      ...(prepared.parentRun === undefined || prepared.parentFinalMessage === undefined
+      ...(prepared.parentRun === undefined
         ? {}
         : {
             parentRun: {
@@ -307,7 +328,8 @@ export class AgentRunService {
               ...(prepared.parentRun.verdict === undefined
                 ? {}
                 : { verdict: prepared.parentRun.verdict }),
-              finalMessage: prepared.parentFinalMessage,
+              finalMessage: prepared.parentFinalMessage ?? '',
+              ...(handoff === undefined ? {} : { handoff }),
             },
           }),
     });
@@ -389,7 +411,13 @@ export class AgentRunService {
       return this.storage.execution.runs.find(workspaceId, runId) ?? run;
     }
 
-    this.appendEvent(workspaceId, runId, { kind: 'user-message', payload: { text: brief } });
+    this.appendEvent(workspaceId, runId, {
+      kind: 'user-message',
+      payload: {
+        text: brief,
+        ...(handoff === undefined ? {} : { handoffSources: handoff.sources }),
+      },
+    });
     this.transition(workspaceId, runId, LIVE_STATUSES, 'running', {
       startedAt: this.now().toISOString(),
     });
@@ -503,7 +531,12 @@ export class AgentRunService {
     workspaceId: WorkspaceId,
     runId: AgentRunId,
     requestId?: string,
-  ): { readonly run: AgentRun; readonly worktree: Worktree; readonly eventCount: number } {
+  ): {
+    readonly run: AgentRun;
+    readonly worktree: Worktree;
+    readonly eventCount: number;
+    readonly reviewReport?: ReviewReportAssessment;
+  } {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
     return this.storage.readTransaction((tx) => {
       const run = tx.execution.runs.find(workspaceId, runId);
@@ -514,7 +547,13 @@ export class AgentRunService {
       if (worktree === undefined) {
         throw new NotFoundError();
       }
-      return { run, worktree, eventCount: tx.execution.runEvents.countForRun(workspaceId, runId) };
+      const reviewReport = latestReviewReport(tx.execution, run);
+      return {
+        run,
+        worktree,
+        eventCount: tx.execution.runEvents.countForRun(workspaceId, runId),
+        ...(reviewReport === undefined ? {} : { reviewReport }),
+      };
     });
   }
 
@@ -591,13 +630,31 @@ export class AgentRunService {
         });
         return;
       }
-      this.appendEvent(workspaceId, runId, item.event);
-      switch (item.event.kind) {
+      let event = item.event;
+      if (event.kind === 'turn-completed') {
+        const run = this.storage.execution.runs.find(workspaceId, runId);
+        if (run?.role === 'review') {
+          const reviewReport =
+            event.payload.outcome === 'error'
+              ? {
+                  status: 'invalid' as const,
+                  issues: ['The review turn failed; request a successful consolidated report.'],
+                }
+              : assessReviewReport(
+                  event.payload.resultText,
+                  event.payload.truncated,
+                  recordedFindingIds(this.storage.execution, run),
+                );
+          event = { ...event, payload: { ...event.payload, reviewReport } };
+        }
+      }
+      this.appendEvent(workspaceId, runId, event);
+      switch (event.kind) {
         case 'session-started':
           this.transition(workspaceId, runId, ['starting', 'running', 'waiting'], 'running', {
-            backendSessionId: item.event.payload.backendSessionId,
-            resolvedModel: item.event.payload.model,
-            billing: item.event.payload.billing,
+            backendSessionId: event.payload.backendSessionId,
+            resolvedModel: event.payload.model,
+            billing: event.payload.billing,
           });
           break;
         case 'assistant-message':
@@ -609,17 +666,17 @@ export class AgentRunService {
         case 'turn-completed': {
           const run = this.storage.execution.runs.find(workspaceId, runId);
           const verdict =
-            run?.role === 'review' ? parseVerdict(item.event.payload.resultText) : undefined;
+            run?.role === 'review' &&
+            event.payload.outcome === 'success' &&
+            event.payload.reviewReport?.status !== 'invalid'
+              ? finalVerdict(event.payload.resultText)
+              : undefined;
           this.transition(workspaceId, runId, ['starting', 'running', 'waiting'], 'waiting', {
             turnCountIncrement: 1,
-            ...(item.event.payload.model === undefined
-              ? {}
-              : { resolvedModel: item.event.payload.model }),
-            outcomeSummary: summarise(item.event.payload.resultText),
-            ...(item.event.payload.costUsd === undefined
-              ? {}
-              : { costUsd: item.event.payload.costUsd }),
-            ...(verdict === undefined ? {} : { verdict }),
+            ...(event.payload.model === undefined ? {} : { resolvedModel: event.payload.model }),
+            outcomeSummary: summarise(event.payload.resultText),
+            ...(event.payload.costUsd === undefined ? {} : { costUsd: event.payload.costUsd }),
+            ...(run?.role === 'review' ? { verdict: verdict ?? null } : {}),
           });
           break;
         }
@@ -663,7 +720,7 @@ export class AgentRunService {
       readonly backendSessionId?: string;
       readonly resolvedModel?: string;
       readonly billing?: AgentBillingSource;
-      readonly verdict?: AgentRunVerdict;
+      readonly verdict?: AgentRunVerdict | null;
       readonly startedAt?: string;
       readonly exitCode?: number;
       readonly outcomeSummary?: string;

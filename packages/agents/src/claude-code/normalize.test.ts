@@ -251,3 +251,16 @@ describe('ClaudeStreamNormalizer', () => {
     expect(summarizeToolCall('Custom', 'not-an-object')).toBe('Custom');
   });
 });
+
+it('marks oversized assistant messages and final results as truncated', () => {
+  const subject = normalizer();
+  const text = '😀'.repeat(70000);
+  const assistant = subject.normalizeLine(
+    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } }),
+  );
+  expect(assistant[0]).toMatchObject({ kind: 'assistant-message', payload: { truncated: true } });
+  const final = subject.normalizeLine(
+    JSON.stringify({ type: 'result', result: text, subtype: 'success', is_error: false }),
+  );
+  expect(final[0]).toMatchObject({ kind: 'turn-completed', payload: { truncated: true } });
+});

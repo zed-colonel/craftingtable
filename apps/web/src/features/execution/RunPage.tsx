@@ -29,14 +29,15 @@ import {
 } from '../../lib/execution-labels.js';
 import type { ConnectionState } from '../../lib/workspace-projection.js';
 import { DiffView } from './DiffView.js';
+import { HandoffForm } from './HandoffForm.js';
 import {
   handoffDefaults,
   handoffTarget,
   type LaunchInput,
-  previousImplementerHint,
   type ProfileEntry,
+  previousImplementerHint,
 } from './handoff.js';
-import { HandoffForm } from './HandoffForm.js';
+import { ReviewFindings } from './ReviewFindings.js';
 
 type EventGroup = 'messages' | 'tools' | 'notices' | 'system';
 
@@ -195,6 +196,11 @@ export function RunPage({
   onHandoff?: (input: LaunchInput) => void;
 }) {
   const { run, worktree } = detail;
+  const latestTurn = events.findLast((event) => event.kind === 'turn-completed');
+  const reviewReport =
+    latestTurn?.kind === 'turn-completed'
+      ? (latestTurn.payload.reviewReport ?? detail.reviewReport)
+      : detail.reviewReport;
   const live = isLiveStatus(run.status);
   const [draft, setDraft] = useState('');
   const [handoffOpen, setHandoffOpen] = useState(false);
@@ -370,6 +376,10 @@ export function RunPage({
         <p className="error-state" role="alert">
           {error}
         </p>
+      )}
+
+      {run.role === 'review' && reviewReport !== undefined && (
+        <ReviewFindings assessment={reviewReport} />
       )}
 
       <details className="disclosure" aria-label="Run summary">

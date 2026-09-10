@@ -162,3 +162,23 @@ it('excludes previous history from a resumed thread and marks declined commands 
     })[1]?.payload,
   ).toMatchObject({ isError: true });
 });
+
+it('marks oversized assistant and final messages so downstream reports cannot appear complete', () => {
+  const normalizer = new CodexStreamNormalizer();
+  normalizer.beginTurn();
+  const events = normalizer.normalize('item/completed', {
+    item: { type: 'agentMessage', id: 'large', text: '😀'.repeat(70000) },
+  });
+  expect(events[0]).toMatchObject({ kind: 'assistant-message', payload: { truncated: true } });
+  expect(normalizer.complete({ status: 'completed' }, 'model')).toMatchObject({
+    kind: 'turn-completed',
+    payload: { truncated: true },
+  });
+  normalizer.beginTurn();
+  normalizer.normalize('item/completed', {
+    item: { type: 'agentMessage', id: 'small', text: 'Complete report.' },
+  });
+  expect(normalizer.complete({ status: 'completed' }, 'model').payload).not.toHaveProperty(
+    'truncated',
+  );
+});

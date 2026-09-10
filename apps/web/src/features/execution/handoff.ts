@@ -142,11 +142,15 @@ export interface HandoffTarget {
 }
 
 /**
- * The edges of the loop: a review with a verdict hands to remediation, a
+ * The edges of the loop: a completed review turn hands to manual remediation, a
  * finished design to implementation, a finished implementation to review.
  */
 export function handoffTarget(run: AgentRunSummary): HandoffTarget | undefined {
-  if (run.role === 'review' && run.verdict !== undefined) {
+  if (
+    run.role === 'review' &&
+    run.turnCount > 0 &&
+    (run.status === 'waiting' || run.status === 'finished')
+  ) {
     return {
       role: 'implement',
       label: 'Remediate with',

@@ -9,7 +9,9 @@ import {
   TOOL_RESULT_LIMIT_BYTES,
   truncateUtf8,
 } from '../bounded.js';
+
 export { RAW_LINE_LIMIT_BYTES, TOOL_RESULT_LIMIT_BYTES } from '../bounded.js';
+
 import type { AgentBillingSource, AgentPermissionMode } from '@craftingtable/domain';
 import type { NormalizedAgentEvent } from '../index.js';
 
@@ -266,9 +268,10 @@ export class ClaudeStreamNormalizer {
       if (block.type === 'text') {
         const text = stringOf(block.text);
         if (text.length === 0) continue;
+        const bounded = truncateUtf8(text, MESSAGE_TEXT_LIMIT_BYTES);
         events.push({
           kind: 'assistant-message',
-          payload: { text: truncateUtf8(text, MESSAGE_TEXT_LIMIT_BYTES).text },
+          payload: { text: bounded.text, ...(bounded.truncated ? { truncated: true } : {}) },
           raw,
         });
       } else if (block.type === 'tool_use') {
@@ -328,12 +331,14 @@ export class ClaudeStreamNormalizer {
     const resultText =
       stringOf(message.result) ||
       (isError ? `Turn ended: ${stringOf(message.subtype) || 'error'}` : '');
+    const bounded = truncateUtf8(resultText, MESSAGE_TEXT_LIMIT_BYTES);
     return [
       {
         kind: 'turn-completed',
         payload: {
           outcome: isError ? 'error' : 'success',
-          resultText: truncateUtf8(resultText, MESSAGE_TEXT_LIMIT_BYTES).text,
+          resultText: bounded.text,
+          ...(bounded.truncated ? { truncated: true } : {}),
           ...(cost === undefined ? {} : { costUsd: cost }),
           turns,
           durationMs: duration,

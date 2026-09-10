@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -87,6 +87,7 @@ class ScriptedBackend implements AgentBackend {
   constructor(readonly kind: AgentBackendKind = 'claude-code') {}
   readonly launches: AgentLaunchRequest[] = [];
   readonly sessions: ScriptedSession[] = [];
+  repliesForNextRun: ScriptedReply[] = [];
   failNextLaunch = false;
 
   describe() {
@@ -104,10 +105,16 @@ class ScriptedBackend implements AgentBackend {
       return Promise.reject(new Error('scripted launch failure'));
     }
     this.launches.push(request);
-    const session = new ScriptedSession(request, this.kind);
+    const session = new ScriptedSession(request, this.kind, this.repliesForNextRun.splice(0));
     this.sessions.push(session);
     return Promise.resolve(session);
   }
+}
+
+interface ScriptedReply {
+  readonly messages?: readonly string[];
+  readonly resultText: string;
+  readonly truncated?: boolean;
 }
 
 class ScriptedSession implements AgentSession {
@@ -119,7 +126,11 @@ class ScriptedSession implements AgentSession {
   private turns = 0;
   private delayed = false;
 
-  constructor(request: AgentLaunchRequest, kind: AgentBackendKind) {
+  constructor(
+    request: AgentLaunchRequest,
+    kind: AgentBackendKind,
+    private readonly replies: ScriptedReply[] = [],
+  ) {
     this.push({
       type: 'event',
       event: {
@@ -164,6 +175,7 @@ class ScriptedSession implements AgentSession {
 
   private respondNow(text: string): void {
     this.turns += 1;
+    const reply = this.replies.shift();
     this.push({
       type: 'event',
       event: {
@@ -188,17 +200,20 @@ class ScriptedSession implements AgentSession {
         },
       },
     });
-    this.push({
-      type: 'event',
-      event: { kind: 'assistant-message', payload: { text: `echo: ${text.slice(0, 20)}` } },
-    });
+    for (const message of reply?.messages ?? [`echo: ${text.slice(0, 20)}`]) {
+      this.push({
+        type: 'event',
+        event: { kind: 'assistant-message', payload: { text: message } },
+      });
+    }
     this.push({
       type: 'event',
       event: {
         kind: 'turn-completed',
         payload: {
           outcome: 'success',
-          resultText: this.resultText(text),
+          resultText: reply?.resultText ?? this.resultText(text),
+          ...(reply?.truncated === undefined ? {} : { truncated: reply.truncated }),
           costUsd: 0.5 * this.turns,
           ...(text.includes('TELEMETRY')
             ? {
@@ -1350,4 +1365,290 @@ describe('run profiles', () => {
     });
     expect(unknown.statusCode).toBe(400);
   });
+});
+
+const structuredFinding = {
+  id: 'F-001',
+  severity: 'minor',
+  status: 'open',
+  title: 'Boundary coverage',
+  explanation: 'Cover the boundary.',
+  recommendation: 'Add a regression case.',
+};
+function reviewText(findings: readonly unknown[]) {
+  return `\`\`\`craftingtable-review\n${JSON.stringify({ version: 1, complete: true, verdict: 'mergeable', exitGate: { met: true, evidence: 'Checks passed.' }, findings })}\n\`\`\`\nVERDICT: mergeable`;
+}
+
+async function runDetail(state: Ready, id: AgentRunId) {
+  const response = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${state.workspaceId}/runs/${id}`,
+    headers: { cookie: state.cookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return agentRunDetailResponseSchema.parse(response.json());
+}
+
+describe('complete review handoffs', () => {
+  it('hands off earlier messages across journal pages and the full final message beyond the old ceiling', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const longFinal = `${'→'.repeat(60000)}\nLast finding after 180,000 bytes.\nVERDICT: mergeable`;
+    state.backend.repliesForNextRun = [
+      {
+        messages: [
+          'Earlier finding: missing race coverage.',
+          ...Array.from({ length: 120 }, (_, index) => `Review observation ${index}`),
+        ],
+        resultText: longFinal,
+      },
+    ];
+    const review = await runToFinish(state, worktree.id, { role: 'review' });
+    const child = await runToFinish(state, worktree.id, { role: 'implement', parentRunId: review });
+    const detail = await runDetail(state, child);
+    expect(detail.brief).toContain('Last finding after 180,000 bytes.');
+    const root = state.backend.launches.at(-1)?.additionalDirectories?.[0];
+    if (root === undefined) throw new Error('Missing run directory');
+    const handoff = join(root, 'handoff');
+    const manifest = JSON.parse(readFileSync(join(handoff, 'manifest.json'), 'utf8'));
+    expect(manifest.sourceRunId).toBe(review);
+    expect(manifest.sources[0].messageCount).toBeGreaterThan(120);
+    const conversation = readFileSync(join(handoff, manifest.sources[0].conversation), 'utf8');
+    expect(conversation).toContain('Earlier finding: missing race coverage.');
+    expect(conversation).toContain('Review observation 119');
+    expect(readFileSync(join(handoff, manifest.sources[0].finalMessage), 'utf8')).toBe(longFinal);
+    expect(manifest.warnings.join(' ')).toContain('No structured findings report');
+  });
+
+  it('preserves operator corrections, prior turns, and the review report through remediation', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    state.backend.repliesForNextRun = [{ resultText: reviewText([structuredFinding]) }];
+    const review = await runToFinish(state, worktree.id, { role: 'review' });
+    expect((await runDetail(state, review)).reviewReport).toMatchObject({
+      status: 'complete',
+      report: { findings: [structuredFinding] },
+    });
+    state.backend.repliesForNextRun = [{ resultText: 'F-001: fixed, added boundary test.' }];
+    const implement = await runToFinish(state, worktree.id, {
+      role: 'implement',
+      parentRunId: review,
+    });
+    state.backend.repliesForNextRun = [{ resultText: reviewText([]) }];
+    const missing = await runToFinish(state, worktree.id, {
+      role: 'review',
+      parentRunId: implement,
+    });
+    expect((await runDetail(state, missing)).reviewReport).toMatchObject({
+      status: 'invalid',
+      issues: [expect.stringContaining('F-001')],
+    });
+    expect((await runDetail(state, missing)).run.verdict).toBeUndefined();
+    expect((await mergeGate(state, worktree.id))?.mergeable).toBe(false);
+    const root = state.backend.launches.at(-1)?.additionalDirectories?.[0];
+    if (root === undefined) throw new Error('Missing run directory');
+    const manifest = JSON.parse(readFileSync(join(root, 'handoff/manifest.json'), 'utf8'));
+    expect(manifest.sources.map((source: { runId: string }) => source.runId)).toEqual([
+      implement,
+      review,
+    ]);
+    const inherited = JSON.parse(
+      readFileSync(join(root, 'handoff', manifest.sources[1].report), 'utf8'),
+    );
+    expect(inherited.report.findings[0].id).toBe('F-001');
+  });
+
+  it('clears an earlier mergeable verdict when a follow-up omits its finding, then accepts an explicit withdrawal', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    state.backend.repliesForNextRun = [
+      { resultText: reviewText([structuredFinding]) },
+      { resultText: 'Nothing to add.\nVERDICT: mergeable' },
+      {
+        resultText: reviewText([
+          {
+            ...structuredFinding,
+            status: 'withdrawn',
+            disposition: 'The operator identified existing coverage; verified it.',
+          },
+        ]),
+      },
+    ];
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, role: 'review' },
+    });
+    const { run } = startAgentRunResponseSchema.parse(started.json());
+    await waitFor(
+      () => state.context.storage.execution.runs.find(state.workspaceId, run.id)?.turnCount === 1,
+      'initial report',
+    );
+    expect((await runDetail(state, run.id)).run.verdict).toBe('mergeable');
+    for (const [index, text] of [
+      'Please consolidate.',
+      'Existing boundary coverage is in tests/boundary.ts; reconcile F-001.',
+    ].entries()) {
+      await state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/messages`,
+        headers: mutationHeaders(state),
+        payload: { text },
+      });
+      await waitFor(
+        () =>
+          state.context.storage.execution.runs.find(state.workspaceId, run.id)?.turnCount ===
+          index + 2,
+        'follow-up report',
+      );
+      const detail = await runDetail(state, run.id);
+      expect(detail.reviewReport?.status).toBe(index === 0 ? 'invalid' : 'complete');
+      expect(detail.run.verdict).toBe(index === 0 ? undefined : 'mergeable');
+    }
+    await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/end`,
+      headers: mutationHeaders(state),
+      payload: {},
+    });
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'finished',
+      'end review',
+    );
+    await runToFinish(state, worktree.id, { role: 'implement', parentRunId: run.id });
+    const root = state.backend.launches.at(-1)?.additionalDirectories?.[0];
+    if (root === undefined) throw new Error('Missing run directory');
+    const conversation = readFileSync(join(root, 'handoff/0000-conversation.md'), 'utf8');
+    expect(conversation).toContain('Existing boundary coverage is in tests/boundary.ts');
+    expect(conversation).toContain('Nothing to add.');
+    expect(conversation).toContain('withdrawn');
+  });
+
+  it('flags irrecoverable upstream truncation and never accepts its verdict', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    state.backend.repliesForNextRun = [{ resultText: reviewText([]), truncated: true }];
+    const review = await runToFinish(state, worktree.id, { role: 'review' });
+    expect((await runDetail(state, review)).run.verdict).toBeUndefined();
+    await runToFinish(state, worktree.id, { role: 'implement', parentRunId: review });
+    expect(state.backend.launches.at(-1)?.prompt).toContain('already truncated upstream');
+  });
+});
+
+it('validates a later review against the source snapshot delivered to its implementer', async () => {
+  const state = await ready();
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  state.backend.repliesForNextRun = [
+    { resultText: reviewText([structuredFinding]) },
+    {
+      resultText: reviewText([
+        structuredFinding,
+        { ...structuredFinding, id: 'F-002', title: 'Later finding' },
+      ]),
+    },
+  ];
+  const started = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id, role: 'review' },
+  });
+  const { run } = startAgentRunResponseSchema.parse(started.json());
+  await waitFor(
+    () => state.context.storage.execution.runs.find(state.workspaceId, run.id)?.turnCount === 1,
+    'source review',
+  );
+  const implement = await runToFinish(state, worktree.id, {
+    role: 'implement',
+    parentRunId: run.id,
+  });
+  await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/messages`,
+    headers: mutationHeaders(state),
+    payload: { text: 'Check another edge case.' },
+  });
+  await waitFor(
+    () => state.context.storage.execution.runs.find(state.workspaceId, run.id)?.turnCount === 2,
+    'later source revision',
+  );
+  expect((await runDetail(state, run.id)).reviewReport).toMatchObject({
+    status: 'complete',
+    report: { findings: [expect.anything(), expect.objectContaining({ id: 'F-002' })] },
+  });
+  state.backend.repliesForNextRun = [
+    {
+      resultText: reviewText([
+        { ...structuredFinding, status: 'resolved', disposition: 'Regression verified.' },
+      ]),
+    },
+  ];
+  const review = await runToFinish(state, worktree.id, { role: 'review', parentRunId: implement });
+  expect((await runDetail(state, review)).reviewReport?.status).toBe('complete');
+  const root = state.backend.launches.at(-1)?.additionalDirectories?.[0];
+  if (root === undefined) throw new Error('Missing run directory');
+  const manifest = JSON.parse(readFileSync(join(root, 'handoff/manifest.json'), 'utf8'));
+  const original = JSON.parse(
+    readFileSync(join(root, 'handoff', manifest.sources[1].report), 'utf8'),
+  );
+  expect(original.report.findings.map((finding: { id: string }) => finding.id)).toEqual(['F-001']);
+  const initial = state.context.storage.execution.runEvents.listAfter({
+    workspaceId: state.workspaceId,
+    runId: review,
+    after: 0,
+    limit: 1,
+  })[0];
+  expect(initial).toMatchObject({
+    kind: 'user-message',
+    payload: {
+      handoffSources: [
+        expect.objectContaining({ runId: implement }),
+        expect.objectContaining({ runId: run.id }),
+      ],
+    },
+  });
+});
+
+it('refuses a handoff across worktrees even when both runs belong to the same work item', async () => {
+  const state = await ready();
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  const review = await runToFinish(state, worktree.id, {
+    role: 'review',
+    instructions: 'VERDICT-MERGEABLE',
+  });
+  const other = await registerAndWorktree(state, fixtureRepository());
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: other.worktree.id, role: 'implement', parentRunId: review },
+  });
+  expect(response.statusCode).toBe(404);
+  expect(state.backend.launches).toHaveLength(1);
+});
+
+it('rejects oversized conversation handoffs before launching instead of dropping messages', async () => {
+  const state = await ready();
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  state.backend.repliesForNextRun = [
+    {
+      messages: Array.from({ length: 130 }, () => 'x'.repeat(256 * 1024)),
+      resultText: 'VERDICT: mergeable',
+    },
+  ];
+  const review = await runToFinish(state, worktree.id, { role: 'review' });
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id, role: 'implement', parentRunId: review },
+  });
+  expect(response.statusCode).toBe(409);
+  expect(response.body).toContain('exceeds 32 MiB');
+  expect(state.backend.launches).toHaveLength(1);
+  expect(
+    state.context.storage.execution.runs.listForWorkItem(state.workspaceId, state.workItemId),
+  ).toHaveLength(1);
 });

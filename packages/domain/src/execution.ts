@@ -9,6 +9,7 @@ import type {
   WorkspaceId,
   WorktreeId,
 } from './ids.js';
+import type { ReviewReportAssessment } from './review.js';
 
 /**
  * Execution model: the durable vocabulary for delegating a work item to a
@@ -222,6 +223,12 @@ export const AGENT_NOTICE_CATEGORIES = [
 ] as const;
 export type AgentNoticeCategory = (typeof AGENT_NOTICE_CATEGORIES)[number];
 
+/** Journal cursor of a source conversation actually supplied to a child run. */
+export interface RunHandoffSource {
+  readonly runId: AgentRunId;
+  readonly throughSequence: number;
+}
+
 export interface AgentRunEventPayloads {
   readonly 'session-started': {
     readonly backend: AgentBackendKind;
@@ -231,8 +238,11 @@ export interface AgentRunEventPayloads {
     readonly cwd: string;
     readonly billing: AgentBillingSource;
   };
-  readonly 'user-message': { readonly text: string };
-  readonly 'assistant-message': { readonly text: string };
+  readonly 'user-message': {
+    readonly text: string;
+    readonly handoffSources?: readonly RunHandoffSource[];
+  };
+  readonly 'assistant-message': { readonly text: string; readonly truncated?: boolean };
   readonly 'tool-call': {
     readonly toolUseId: string;
     readonly name: string;
@@ -250,6 +260,9 @@ export interface AgentRunEventPayloads {
   readonly 'turn-completed': {
     readonly outcome: 'success' | 'error';
     readonly resultText: string;
+    readonly truncated?: boolean;
+    /** Added by the daemon for review turns; adapters do not interpret findings. */
+    readonly reviewReport?: ReviewReportAssessment;
     readonly costUsd?: number;
     readonly turns: number;
     readonly durationMs: number;

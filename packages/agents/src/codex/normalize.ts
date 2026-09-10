@@ -17,6 +17,7 @@ export class CodexStreamNormalizer {
   private turns = 0;
   private startedAt = Date.now();
   private lastMessage = '';
+  private lastMessageTruncated = false;
   private usage: AgentRunEventPayloads['turn-completed']['tokenUsage'];
   private totalUsage: AgentRunEventPayloads['turn-completed']['tokenUsage'];
   private baselineUsage: AgentRunEventPayloads['turn-completed']['tokenUsage'];
@@ -34,6 +35,7 @@ export class CodexStreamNormalizer {
   }
   beginTurn(): void {
     this.lastMessage = '';
+    this.lastMessageTruncated = false;
     this.usage = undefined;
     this.baselineUsage = this.totalUsage;
     this.startedAt = Date.now();
@@ -114,17 +116,19 @@ export class CodexStreamNormalizer {
   complete(turn: Record<string, unknown>, model: string, costUsd?: number): NormalizedAgentEvent {
     this.turns += 1;
     const failed = turn.status !== 'completed';
+    const result = failed
+      ? truncateUtf8(
+          (isRecord(turn.error) ? stringOf(turn.error.message) : '') ||
+            `Codex turn ${stringOf(turn.status)}`,
+          MESSAGE_TEXT_LIMIT_BYTES,
+        )
+      : { text: this.lastMessage, truncated: this.lastMessageTruncated };
     return {
       kind: 'turn-completed',
       payload: {
         outcome: failed ? 'error' : 'success',
-        resultText: failed
-          ? truncateUtf8(
-              (isRecord(turn.error) ? stringOf(turn.error.message) : '') ||
-                `Codex turn ${stringOf(turn.status)}`,
-              MESSAGE_TEXT_LIMIT_BYTES,
-            ).text
-          : this.lastMessage,
+        resultText: result.text,
+        ...(result.truncated ? { truncated: true } : {}),
         turns: this.turns,
         durationMs: Math.max(0, Date.now() - this.startedAt),
         model,
@@ -155,8 +159,16 @@ export class CodexStreamNormalizer {
     if (type === 'reasoning' || type === 'userMessage') return [];
     if (type === 'agentMessage') {
       if (!completed) return [];
-      this.lastMessage = truncateUtf8(stringOf(item.text), MESSAGE_TEXT_LIMIT_BYTES).text;
-      return [{ kind: 'assistant-message', payload: { text: this.lastMessage }, raw }];
+      const bounded = truncateUtf8(stringOf(item.text), MESSAGE_TEXT_LIMIT_BYTES);
+      this.lastMessage = bounded.text;
+      this.lastMessageTruncated = bounded.truncated;
+      return [
+        {
+          kind: 'assistant-message',
+          payload: { text: bounded.text, ...(bounded.truncated ? { truncated: true } : {}) },
+          raw,
+        },
+      ];
     }
     if (type === 'error') return completed ? [this.notice(stringOf(item.message), raw)] : [];
     // Scope vendor ids to a turn, including tools from resumed sessions.

@@ -20,6 +20,7 @@ import {
   workspaceIdSchema,
   worktreeIdSchema,
 } from './ids.js';
+import { reviewReportAssessmentSchema } from './review.js';
 
 export const SSE_RUN_EVENT_NAME = 'run-event';
 
@@ -285,6 +286,7 @@ export const agentRunDetailResponseSchema = z.strictObject({
   worktree: worktreeSummarySchema,
   brief: z.string(),
   eventCount: nonNegativeSafeInteger,
+  reviewReport: reviewReportAssessmentSchema.optional(),
 });
 
 export const startAgentRunRequestSchema = z.strictObject({
@@ -393,11 +395,17 @@ export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
   }),
   runEventBaseSchema.extend({
     kind: z.literal('user-message'),
-    payload: z.strictObject({ text: z.string() }),
+    payload: z.strictObject({
+      text: z.string(),
+      handoffSources: z
+        .array(z.strictObject({ runId: agentRunIdSchema, throughSequence: nonNegativeSafeInteger }))
+        .max(1000)
+        .optional(),
+    }),
   }),
   runEventBaseSchema.extend({
     kind: z.literal('assistant-message'),
-    payload: z.strictObject({ text: z.string() }),
+    payload: z.strictObject({ text: z.string(), truncated: z.boolean().optional() }),
   }),
   runEventBaseSchema.extend({
     kind: z.literal('tool-call'),
@@ -422,6 +430,8 @@ export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
     payload: z.strictObject({
       outcome: z.enum(['success', 'error']),
       resultText: z.string(),
+      truncated: z.boolean().optional(),
+      reviewReport: reviewReportAssessmentSchema.optional(),
       costUsd: z.number().nonnegative().optional(),
       turns: nonNegativeSafeInteger,
       durationMs: nonNegativeSafeInteger,

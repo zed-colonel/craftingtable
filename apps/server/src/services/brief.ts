@@ -1,4 +1,5 @@
 import type { AgentRunRole, JsonValue, WorkItem } from '@craftingtable/domain';
+import type { HandoffFiles } from './run-handoff.js';
 
 /**
  * Composes the prompt handed to an agent as its first message.
@@ -53,14 +54,17 @@ export interface BriefParentRun {
   readonly verdict?: 'mergeable' | 'changes-requested';
   /** The parent's final message: a review's findings, an implementation's summary. */
   readonly finalMessage: string;
+  readonly handoff?: Omit<HandoffFiles, 'sources'>;
 }
 
 const REMEDIATION_INSTRUCTIONS = [
   'This run remediates a review. The review findings are reproduced below, numbered as the',
-  'reviewer wrote them. Work through every finding: fix it, or if you disagree explain',
+  'reviewer wrote them. Read the handoff files and reconcile earlier messages with later',
+  'corrections and withdrawals. Preserve finding IDs. Work through every open finding: fix it, or if you disagree explain',
   'precisely why in your final message. Run the quality checks, commit on this branch,',
   'and finish with a disposition for each finding (fixed, disagreed, or deferred with a',
-  'reason) followed by your usual summary.',
+  'reason) followed by your usual summary. Your disposition is a claim for the next',
+  'reviewer to verify; it does not itself close the finding.',
 ].join(' ');
 
 const ACCEPTED_DESIGN_INSTRUCTIONS = [
@@ -70,6 +74,25 @@ const ACCEPTED_DESIGN_INSTRUCTIONS = [
   'questions, resolve each one with the simplest choice consistent with the exit gate',
   'and state the choice you made.',
 ].join(' ');
+
+const REVIEW_REPORT_INSTRUCTIONS = [
+  'Immediately before that final verdict line, include exactly one fenced JSON block',
+  'with the language craftingtable-review. It is your authoritative consolidated report.',
+  'Reconcile ALL findings raised anywhere in this run and the handoff lineage, including',
+  'operator corrections. Keep prior IDs; never omit or recycle them. Use new IDs such as',
+  'F-001, F-002. A later reviewer verifies fixes before marking a finding resolved.',
+  'Retain withdrawn findings with the reason. Do not silently drop disagreements.',
+  'The report shape is:',
+  '```craftingtable-review',
+  '{"version":1,"complete":true,"verdict":"changes-requested","exitGate":{"met":false,"evidence":"Explain which criteria and checks passed or failed."},"findings":[{"id":"F-001","severity":"major","status":"open","title":"Short title","location":{"path":"src/example.ts","line":10},"explanation":"What is wrong and why.","recommendation":"What would resolve it."}]}',
+  '```',
+  'Allowed severities: blocking, major, minor, nit. Allowed statuses: open, resolved,',
+  'withdrawn. Location is optional for findings that have no file location. Resolved and',
+  'withdrawn findings require a disposition string with evidence or a reason. Use an',
+  'empty findings array when none exist. The verdict must match your final VERDICT line.',
+  'Set complete to true only once you have consolidated the entire review. A mergeable',
+  'report requires exitGate.met=true and no open blocking or major findings.',
+].join('\n');
 
 const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
   implement: [
@@ -85,12 +108,13 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
     'You are an independent reviewer for this work item.',
     'Do not modify any file. Compare the branch in this worktree against its base',
     'revision, read the changed code and its tests, and run the quality checks read-only.',
-    'Report findings as a numbered list, each with a severity (blocking, major, minor,',
-    'nit), the file and line, what is wrong, and what would resolve it. State explicitly',
+    'Summarize your conclusion in prose and include every finding in the structured',
+    'report below; do not duplicate the full findings in prose. State explicitly',
     'whether the work meets the exit gate. The very last line of your final message must',
     'be exactly `VERDICT: mergeable` if the branch can be merged as it stands, or',
     '`VERDICT: changes-requested` if anything blocking or major remains. CraftingTable',
     'reads that line; a merge is only offered after a mergeable verdict.',
+    REVIEW_REPORT_INSTRUCTIONS,
   ].join(' '),
   design: [
     'You are exploring and designing this work item before implementation.',
@@ -114,17 +138,6 @@ function formatDependencies(entries: readonly BriefDependency[]): string {
 function formatSourceFields(value: JsonValue): string {
   const serialized = JSON.stringify(value, null, 2) ?? 'null';
   return serialized.length > 20_000 ? `${serialized.slice(0, 20_000)}\n…(truncated)` : serialized;
-}
-
-const VERDICT_LINE = /^\s*VERDICT:\s*(mergeable|changes-requested)\s*$/gim;
-
-/** The last verdict line in a review's final message, if it wrote one. */
-export function parseVerdict(text: string): 'mergeable' | 'changes-requested' | undefined {
-  let verdict: 'mergeable' | 'changes-requested' | undefined;
-  for (const match of text.matchAll(VERDICT_LINE)) {
-    verdict = match[1]?.toLowerCase() as 'mergeable' | 'changes-requested';
-  }
-  return verdict;
 }
 
 export function composeBrief(input: BriefInput): string {
@@ -188,7 +201,24 @@ export function composeBrief(input: BriefInput): string {
     ].join('\n'),
   );
   const parent = input.parentRun;
-  if (parent !== undefined && parent.finalMessage.trim().length > 0) {
+  if (parent?.handoff !== undefined) {
+    sections.push(
+      [
+        '## Handoff source files',
+        '',
+        `Read the handoff manifest at \`${parent.handoff.manifestPath}\` and the conversation and report files it lists before starting.`,
+        'These files include earlier messages, operator corrections, and prior runs in this lineage. Paths in the manifest are relative to its directory.',
+        'Reports with status complete are structurally validated reviewer assertions. Unstructured or invalid reports require reconciliation against the conversation; ask the operator about unresolved ambiguity.',
+        'Earlier findings may be corrected or withdrawn later. Do not treat every historical statement as a current finding. Preserve existing finding IDs across review rounds.',
+        `The full recorded final message is at \`${parent.handoff.finalMessagePath}\`. The inline text below is only a preview when it ends with a truncation marker.`,
+        ...parent.handoff.warnings.map((warning) => `Handoff warning: ${warning}`),
+      ].join('\n\n'),
+    );
+  }
+  if (
+    parent !== undefined &&
+    (parent.finalMessage.trim().length > 0 || parent.handoff !== undefined)
+  ) {
     if (parent.role === 'review' && input.role === 'implement') {
       sections.push(`## Remediation\n\n${REMEDIATION_INSTRUCTIONS}`);
       sections.push(

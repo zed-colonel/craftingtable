@@ -80,3 +80,10 @@ bounded YAML profile and served back only as escaped text. Agent output is trans
 into bounded normalized events; unknown shapes become notices, oversized values are
 truncated before storage, and the browser renders event text and patches as text, never
 as HTML.
+
+Structured review reports are untrusted reviewer assertions validated by the daemon.
+Invalid reports cannot supply a verdict, and a follow-up review without a verdict clears
+an earlier one. Legacy unstructured reviews retain the manual verdict path. Materialized
+handoff files are copies for agent context, not a new authorization surface; the durable
+report source remains the daemon's event journal. Source runs are checked against the
+child's workspace, work item, and worktree before their conversations are copied.

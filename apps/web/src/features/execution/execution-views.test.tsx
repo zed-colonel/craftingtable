@@ -11,9 +11,9 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DelegationPanel } from './DelegationPanel.js';
 import { DiffView } from './DiffView.js';
+import { handoffDefaults, handoffTarget } from './handoff.js';
 import { RepositoriesPage } from './RepositoriesPage.js';
 import { RunPage } from './RunPage.js';
-import { handoffDefaults, handoffTarget } from './handoff.js';
 
 afterEach(cleanup);
 
@@ -748,7 +748,7 @@ describe('review handoff', () => {
       pageButton: 'Review this implementation',
     });
     expect(handoffTarget(run({ role: 'implement', status: 'waiting' }))).toBeUndefined();
-    expect(handoffTarget(run({ role: 'review', status: 'finished' }))).toBeUndefined();
+    expect(handoffTarget(run({ role: 'review', status: 'finished' }))?.role).toBe('implement');
     expect(
       handoffTarget(run({ role: 'review', status: 'finished', verdict: 'mergeable' }))?.role,
     ).toBe('implement');

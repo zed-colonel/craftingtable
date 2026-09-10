@@ -7,8 +7,8 @@ import type {
   AgentRunEventId,
   AgentRunEventKind,
   AgentRunEventPayload,
-  AgentRunProfile,
   AgentRunId,
+  AgentRunProfile,
   AgentRunRole,
   AgentRunStatus,
   AgentRunVerdict,
@@ -82,7 +82,7 @@ export interface TransitionAgentRunInput {
   readonly backendSessionId?: string;
   readonly resolvedModel?: string;
   readonly billing?: AgentBillingSource;
-  readonly verdict?: AgentRunVerdict;
+  readonly verdict?: AgentRunVerdict | null;
   readonly startedAt?: string;
   readonly finishedAt?: string;
   readonly exitCode?: number;

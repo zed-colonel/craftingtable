@@ -66,8 +66,16 @@ completes the work item in one transaction. The merge happens in the primary che
 only when that checkout already has the target checked out; otherwise it runs in a
 scratch worktree under the worktree root. See ADR-021.
 
-A run started with `parentRunId` receives the parent's final message from the journal
-in its brief: an implement run after a review gets the findings to remediate, a review
+A run started with `parentRunId` receives a 256 KiB preview of the parent's final
+message plus source files materialized from the journal. The handoff manifest identifies
+source runs and event cursors, also recorded on the launch message to pin inherited
+context; it includes conversations, final messages, and review assessments throughout
+the parent lineage. Source text is not clipped to the inline
+preview; a handoff exceeding 32 MiB is rejected before launch. Known upstream truncation
+is explicitly reported. Parent and child must belong to the same worktree, and a source
+turn must stop running before it can be handed off.
+
+Within the brief: an implement run after a review gets the findings to remediate, a review
 after an implement run gets the implementation's own summary as a claim to verify, and
 an implement run after a design gets the proposal as its accepted plan. The operator
 accepts a design by launching that implement run; nothing parents to a design run
@@ -81,6 +89,15 @@ unsaved roles with the daemon's default backend. The launch form applies the pro
 the selected role, and a handoff opens the same inline form pre-filled from the target
 role's profile so the operator can override it per launch. An orchestrator will read the
 same profiles to choose a backend without a human.
+
+Review turns also carry a daemon-validated, versioned findings assessment in their
+`turn-completed` event. It is reconstructed from the journal after restart without a
+new mutable findings table. A complete report is a structurally valid reviewer
+assertion, not proof of correctness or prose coverage. The daemon checks verdict
+consistency and preserves finding IDs across reports in the explicit parent lineage.
+An implementer's disposition remains a claim for the next reviewer. A failed or invalid
+latest review clears the stored verdict; unstructured legacy reviews may still supply
+one for manual operation. See ADR-024.
 
 ## Agent backend seam
 

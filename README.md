@@ -34,9 +34,17 @@ it is mergeable.
   the work item completed, in one step. The primary checkout is never disturbed; when
   it is not on the target the merge happens in a scratch worktree. Any later run closes
   the gate again.
-- **Remediation.** A review's findings can be handed straight to a new implement run
-  in the same worktree; its brief reproduces the findings and asks for a disposition on
-  each.
+- **Remediation and findings.** A review's findings can be handed straight to a new
+  implement run in the same worktree. Handoffs include the recorded conversation across
+  the run lineage, including earlier messages and operator corrections, plus the full
+  recorded final messages. The inline preview allows 256 KiB; source files are not
+  clipped to that preview. Known upstream truncation is flagged explicitly.
+- **Consolidated review reports.** Reviewers finish with a structured report containing
+  stable finding IDs, severity, location, explanation, suggested fix, and reviewer-owned
+  open/resolved/withdrawn status. The run page counts open findings and retains closed
+  ones with their dispositions. Later reports must retain prior IDs in their handoff
+  lineage. Invalid reports cannot supply a merge verdict; legacy unstructured reviews
+  remain usable manually, with their conversation included in handoffs.
 - **Design handoff.** A finished design run can be accepted with one click: the implement
   run that follows gets the proposal as its plan. Design runs end with their open
   questions so the operator sees what still needs a decision before accepting.

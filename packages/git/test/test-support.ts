@@ -64,7 +64,9 @@ export function runFixtureGit(
   args: readonly string[],
   options: { readonly cwd?: string; readonly environment?: Readonly<Record<string, string>> } = {},
 ): Buffer {
-  const result = spawnSync(GIT_EXECUTABLE, [...args], {
+  // Fixture commits must not leave background maintenance changing the tree
+  // after setup returns: inspection tests compare exact before/after evidence.
+  const result = spawnSync(GIT_EXECUTABLE, ['-c', 'maintenance.auto=false', ...args], {
     cwd: options.cwd,
     env: { ...FIXTURE_GIT_ENVIRONMENT, ...options.environment },
     shell: false,

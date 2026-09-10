@@ -87,3 +87,17 @@ an earlier one. Legacy unstructured reviews retain the manual verdict path. Mate
 handoff files are copies for agent context, not a new authorization surface; the durable
 report source remains the daemon's event journal. Source runs are checked against the
 child's workspace, work item, and worktree before their conversations are copied.
+
+## Delegated work-item cycles
+
+Starting a cycle is an owner/editor command protected by the existing session, origin,
+and CSRF checks. Background launches derive authority from that recorded initiating
+user and current workspace membership, without manufacturing browser sessions. Logout
+or session expiry leaves deliberate delegation active; pause/stop are explicit controls.
+Manual launches and steering require takeover while automation owns the worktree.
+
+A cycle reserves run IDs before launch and never resumes automatically after restart.
+Review approval requires a clean managed branch at the recorded commit; operator merge
+rechecks it and pins the Git source commit. A shared daemon guard keeps agent launches
+and cycle resumes out of an in-flight merge or removal. Only the operator merge route
+has merge authority; quality thresholds never grant it to the controller or an agent.

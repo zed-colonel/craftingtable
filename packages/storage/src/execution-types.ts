@@ -184,6 +184,7 @@ export interface RunProfileRepository {
 }
 
 export interface ExecutionRepositories {
+  readonly cycles: import('./repositories/execution/work-cycles.js').WorkCycleRepository;
   readonly sourceRepositories: SourceRepositoryRepository;
   readonly worktrees: WorktreeRepository;
   readonly runs: AgentRunRepository;

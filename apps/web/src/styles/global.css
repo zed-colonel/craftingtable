@@ -1457,3 +1457,54 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+.cycle-panel {
+  margin-block: 1rem;
+}
+.cycle-panel details {
+  margin-block: 0.75rem;
+}
+.cycle-panel form {
+  display: grid;
+  gap: 1rem;
+}
+.cycle-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+.cycle-settings-grid fieldset {
+  min-width: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.cycle-notices {
+  margin-block: 1rem;
+}
+
+.cycle-panel .field,
+.cycle-panel .field select,
+.cycle-panel .field input {
+  min-width: 0;
+  max-width: 100%;
+}
+.cycle-settings-grid fieldset {
+  grid-template-columns: minmax(0, 1fr);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-2);
+  padding: var(--space-3);
+}
+.cycle-panel form > button {
+  justify-self: start;
+}
+.cycle-panel .inline-actions,
+.cycle-panel > p + p {
+  margin-top: var(--space-2);
+}
+.cycle-panel summary {
+  cursor: pointer;
+}
+.cycle-panel pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

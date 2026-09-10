@@ -151,6 +151,7 @@ function assertStructuralShape(row: WorkspaceEventRow, kind: WorkspaceEventKind)
         invalidStructural(row);
       }
       return;
+    case 'work-cycle-changed':
     case 'worktree-created':
     case 'worktree-removed':
     case 'worktree-merged':
@@ -373,6 +374,14 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
         projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
         workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
         payload: mapPayload<'worktree-removed'>(payload),
+      };
+    case 'work-cycle-changed':
+      return {
+        ...commonFields(base),
+        kind,
+        projectId: base.projectId as NonNullable<WorkspaceEventBase['projectId']>,
+        workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
+        payload: mapPayload<'work-cycle-changed'>(payload),
       };
     case 'worktree-merged':
       return {

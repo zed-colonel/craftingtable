@@ -113,6 +113,8 @@ export interface GitOperations {
    * conflicting merge is aborted and reported, leaving everything as it was.
    */
   mergeBranch(input: {
+    /** Pin an operator-approved review to this source commit even if its branch moves. */
+    readonly sourceCommitSha?: string;
     readonly repositoryPath: string;
     readonly branchName: string;
     readonly targetBranch: string;
@@ -677,10 +679,22 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
   /** Runs the merge in `cwd`; on any failure the merge is aborted so `cwd` is left as it was. */
   async function mergeInto(
     cwd: string,
-    input: { readonly branchName: string; readonly message: string },
+    input: {
+      readonly branchName: string;
+      readonly message: string;
+      readonly sourceCommitSha?: string;
+    },
   ): Promise<GitResult<{ readonly mergeSha: string }>> {
     const merged = await run(
-      ['merge', '--no-ff', '--no-edit', '-m', input.message, '--', input.branchName],
+      [
+        'merge',
+        '--no-ff',
+        '--no-edit',
+        '-m',
+        input.message,
+        '--',
+        input.sourceCommitSha ?? input.branchName,
+      ],
       cwd,
     );
     if (!merged.ok) return merged;
@@ -703,6 +717,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
   }
 
   async function mergeBranch(input: {
+    readonly sourceCommitSha?: string;
     readonly repositoryPath: string;
     readonly branchName: string;
     readonly targetBranch: string;
@@ -715,6 +730,8 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     if (!isSafeBranchName(input.branchName) || !isSafeBranchName(input.targetBranch)) {
       return fail('invalid-path', 'Branch names must be well formed');
     }
+    if (input.sourceCommitSha !== undefined && !SHA_PATTERN.test(input.sourceCommitSha))
+      return fail('invalid-path', 'Source commit must be a Git object name');
     if (input.branchName === input.targetBranch) {
       return fail('invalid-path', 'A branch cannot be merged into itself');
     }

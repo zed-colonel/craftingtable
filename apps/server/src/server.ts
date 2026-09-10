@@ -9,6 +9,7 @@ import { registerHealthRoute } from './routes/health.js';
 import { sendApiError } from './routes/http.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerStaticWebRoutes } from './routes/static-web.js';
+import { registerWorkCycleRoutes } from './routes/work-cycles.js';
 import { registerWorkspaceEventRoute } from './routes/workspace-events.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import type { AgentRunService } from './services/agent-run-service.js';
@@ -24,6 +25,7 @@ import type { ExecutionService, ExecutionStatus } from './services/execution-ser
 import type { PlanImportService } from './services/plan-import-service.js';
 import type { PlanningQueryService } from './services/planning-query-service.js';
 import type { RunEventStreamService } from './services/run-event-stream-service.js';
+import type { WorkCycleService } from './services/work-cycle-service.js';
 import type { WorkItemService } from './services/work-item-service.js';
 import type { WorkspaceEventStreamService } from './services/workspace-event-stream-service.js';
 import type { WorkspaceService } from './services/workspace-service.js';
@@ -37,6 +39,7 @@ export interface ServerDependencies {
   readonly workspaceEventStreamService: WorkspaceEventStreamService;
   readonly executionService: ExecutionService;
   readonly agentRunService: AgentRunService;
+  readonly workCycleService: WorkCycleService;
   readonly runEventStreamService: RunEventStreamService;
   readonly executionStatus: () => ExecutionStatus;
 }
@@ -76,6 +79,13 @@ export function buildServer(
         }) as unknown as FastifyInstance);
   void app.register(cookie);
 
+  app.addHook('onReady', async () => {
+    deps.workCycleService.startWorker();
+  });
+  app.addHook('preClose', async () => {
+    await deps.workCycleService.shutdown();
+  });
+  registerWorkCycleRoutes(app, deps.authService, deps.workCycleService, config);
   registerHealthRoute(app);
   registerAuthRoutes(app, deps.authService, config);
   registerWorkspaceRoutes(app, deps.authService, deps.workspaceService, config);

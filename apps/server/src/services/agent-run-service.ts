@@ -27,6 +27,9 @@ import {
   asEventId,
   isTerminalAgentRunStatus,
   type ReviewReportAssessment,
+  type SessionId,
+  type UserId,
+  type WorkCycle,
   type WorkItemId,
   type WorkspaceId,
   type Worktree,
@@ -42,6 +45,7 @@ import { assessReviewReport, finalVerdict } from './review-report.js';
 import { latestReviewReport, recordedFindingIds, writeRunHandoff } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
+import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
 
 export interface StartRunInput {
   readonly backend?: AgentBackendKind;
@@ -61,6 +65,8 @@ export interface RunCommandResult {
 export interface RunLog {
   warn(message: string, detail?: Readonly<Record<string, unknown>>): void;
 }
+
+class CycleLaunchCancelledError extends Error {}
 
 interface LiveRun {
   readonly workspaceId: WorkspaceId;
@@ -93,6 +99,7 @@ function summarise(text: string): string {
  */
 export class AgentRunService {
   private readonly live = new Map<string, LiveRun>();
+  private readonly pendingCycleLaunches = new Map<AgentRunId, () => void>();
 
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -102,7 +109,12 @@ export class AgentRunService {
     private readonly config: ExecutionConfig,
     private readonly log: RunLog = { warn: () => undefined },
     private readonly now: () => Date = () => new Date(),
+    private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
   ) {}
+
+  hasBackend(kind: AgentBackendKind): boolean {
+    return this.backends.has(kind);
+  }
 
   backendAvailable(): boolean {
     return this.backends.size > 0;
@@ -205,6 +217,96 @@ export class AgentRunService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
+    this.requireManualControl(workspaceId, input.worktreeId);
+    return this.launchAuthorized(
+      workspaceId,
+      workItemId,
+      input,
+      { userId: context.user.id, sessionId: context.session.id },
+      requestId,
+    );
+  }
+
+  async startForCycle(cycle: WorkCycle): Promise<AgentRun> {
+    const stored = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+    const user = this.storage.users.findById(cycle.createdByUserId);
+    const authorization = this.storage.workspaces.findAuthorized(
+      cycle.createdByUserId,
+      cycle.workspaceId,
+    );
+    if (
+      stored?.status !== 'running' ||
+      stored.version !== cycle.version ||
+      user?.status !== 'active' ||
+      !authorization ||
+      !['owner', 'editor'].includes(authorization.membership.role)
+    ) {
+      throw new ExecutionRequestError(
+        'conflict',
+        'Cycle no longer has authority to launch this step',
+      );
+    }
+    const existing = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+    if (existing !== undefined) return existing;
+    const profile = cycle.profiles[cycle.step];
+    return this.launchAuthorized(
+      cycle.workspaceId,
+      cycle.workItemId,
+      {
+        ...profile,
+        worktreeId: cycle.worktreeId,
+        role: cycle.step === 'remediate' ? 'implement' : cycle.step,
+        ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
+        instructions: [
+          cycle.instructions,
+          'This run is one step of an operator-authorized automated cycle. Do not merge. Complete this step and provide a final message; the controller handles the next step.',
+          cycle.step === 'design'
+            ? 'End with exactly one section headed ## Open questions. Its entire body must be none when there are no unresolved questions. Otherwise list the questions for the operator.'
+            : '',
+          cycle.step === 'remediate'
+            ? `Address all open blocking, major, and minor findings, and reduce open nits to at most ${cycle.policy.maxNits}. Preserve finding IDs and give the reviewer evidence of each resolution.`
+            : '',
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+      },
+      { userId: cycle.createdByUserId },
+      undefined,
+      cycle,
+    );
+  }
+
+  /** Only the controller can close/terminate its reserved session. No browser authority bypass. */
+  finishCycleTurn(cycle: WorkCycle, cancel = false): void {
+    const stored = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+    if (stored?.currentRunId !== cycle.currentRunId) return;
+    if (cancel) this.pendingCycleLaunches.get(cycle.currentRunId)?.();
+    const live = this.liveRun(cycle.workspaceId, cycle.currentRunId);
+    if (live === undefined) return;
+    if (cancel) {
+      live.cancelRequested = true;
+      live.session.kill();
+    } else live.session.end();
+  }
+
+  private requireManualControl(workspaceId: WorkspaceId, worktreeId: WorktreeId): void {
+    const cycle = this.storage.execution.cycles.activeForWorktree(workspaceId, worktreeId);
+    if (cycle?.status === 'running' || cycle?.status === 'awaiting-merge') {
+      throw new ExecutionRequestError(
+        'conflict',
+        'Pause or stop automation before taking manual control of this worktree',
+      );
+    }
+  }
+
+  private async launchAuthorized(
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
+    input: StartRunInput,
+    actor: { readonly userId: UserId; readonly sessionId?: SessionId },
+    requestId?: string,
+    cycle?: WorkCycle,
+  ): Promise<AgentRun> {
     const kind = input.backend ?? this.defaultBackend();
     const backend = kind === undefined ? undefined : this.backends.get(kind);
     if (backend === undefined) {
@@ -279,7 +381,8 @@ export class AgentRunService {
       };
     });
 
-    const runId = asAgentRunId(randomUUID());
+    this.mutations.requireAvailable(input.worktreeId);
+    const runId = cycle?.currentRunId ?? asAgentRunId(randomUUID());
     const runDirectory = join(this.config.runsRoot, runId);
     const planDirectory = join(runDirectory, 'plan');
     mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
@@ -351,14 +454,14 @@ export class AgentRunService {
         ...(input.model === undefined ? {} : { model: input.model }),
         brief,
         createdAt,
-        createdByUserId: context.user.id,
+        createdByUserId: actor.userId,
       });
       tx.audit.append({
         id: asAuditEventId(randomUUID()),
         occurredAt: createdAt,
-        actorKind: 'user',
-        actorUserId: context.user.id,
-        sessionId: context.session.id,
+        actorKind: actor.sessionId === undefined ? 'system' : 'user',
+        actorUserId: actor.userId,
+        ...(actor.sessionId === undefined ? {} : { sessionId: actor.sessionId }),
         workspaceId,
         ...(requestId === undefined ? {} : { requestId }),
         action: 'agent-run.start',
@@ -377,7 +480,7 @@ export class AgentRunService {
         id: asEventId(randomUUID()),
         occurredAt: createdAt,
         workspaceId,
-        actorUserId: context.user.id,
+        actorUserId: actor.userId,
         projectId: prepared.item.projectId,
         workItemId,
         runId,
@@ -404,10 +507,18 @@ export class AgentRunService {
     };
     let session: AgentSession;
     try {
-      session = await backend.launch(launch);
+      session =
+        cycle === undefined
+          ? await backend.launch(launch)
+          : await this.launchCycleSession(backend, launch, cycle);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Agent could not be started';
-      this.finalize(workspaceId, runId, 'failed', { message });
+      this.finalize(
+        workspaceId,
+        runId,
+        error instanceof CycleLaunchCancelledError ? 'cancelled' : 'failed',
+        { message },
+      );
       return this.storage.execution.runs.find(workspaceId, runId) ?? run;
     }
 
@@ -430,6 +541,13 @@ export class AgentRunService {
       done: Promise.resolve(),
     };
     this.live.set(runId, liveRun);
+    if (cycle !== undefined) {
+      const latest = this.storage.execution.cycles.find(workspaceId, cycle.id);
+      if (latest?.status === 'stopped' || latest?.currentRunId !== runId) {
+        liveRun.cancelRequested = true;
+        session.kill();
+      }
+    }
     liveRun.done = this.consume(liveRun).catch((error: unknown) => {
       this.log.warn('agent run consumer failed', {
         runId,
@@ -438,6 +556,42 @@ export class AgentRunService {
       this.finalize(workspaceId, runId, 'failed', { message: 'Run supervision failed' });
     });
     return this.storage.execution.runs.find(workspaceId, runId) ?? run;
+  }
+
+  private async launchCycleSession(
+    backend: AgentBackend,
+    request: AgentLaunchRequest,
+    cycle: WorkCycle,
+  ): Promise<AgentSession> {
+    let cancelled = false;
+    let cancel: () => void = () => undefined;
+    const cancellation = new Promise<never>((_resolve, reject) => {
+      cancel = () => {
+        cancelled = true;
+        reject(new CycleLaunchCancelledError('Cycle launch cancelled or step time limit reached'));
+      };
+    });
+    this.pendingCycleLaunches.set(cycle.currentRunId, cancel);
+    const timeout = setTimeout(
+      cancel,
+      Math.max(1, Date.parse(cycle.runDeadlineAt) - this.now().getTime()),
+    );
+    // A late backend result must be terminated without touching storage after shutdown.
+    const launching = Promise.resolve().then(async () => {
+      if (cancelled) throw new CycleLaunchCancelledError('Cycle launch cancelled');
+      const session = await backend.launch(request);
+      if (cancelled) {
+        session.kill();
+        throw new CycleLaunchCancelledError('Cycle launch cancelled');
+      }
+      return session;
+    });
+    try {
+      return await Promise.race([launching, cancellation]);
+    } finally {
+      clearTimeout(timeout);
+      this.pendingCycleLaunches.delete(cycle.currentRunId);
+    }
   }
 
   sendMessage(
@@ -451,6 +605,7 @@ export class AgentRunService {
       ...(requestId === undefined ? {} : { requestId }),
     });
     const run = this.requireRun(workspaceId, runId);
+    this.requireManualControl(workspaceId, run.worktreeId);
     const liveRun = this.liveRun(workspaceId, runId);
     if (liveRun === undefined || !liveRun.session.send(text)) {
       return { run, accepted: false };
@@ -487,6 +642,7 @@ export class AgentRunService {
       ...(requestId === undefined ? {} : { requestId }),
     });
     const run = this.requireRun(workspaceId, runId);
+    this.requireManualControl(workspaceId, run.worktreeId);
     const liveRun = this.liveRun(workspaceId, runId);
     if (liveRun === undefined) {
       return { run, accepted: false };
@@ -506,6 +662,7 @@ export class AgentRunService {
       ...(requestId === undefined ? {} : { requestId }),
     });
     const run = this.requireRun(workspaceId, runId);
+    this.requireManualControl(workspaceId, run.worktreeId);
     const liveRun = this.liveRun(workspaceId, runId);
     if (liveRun !== undefined) {
       liveRun.cancelRequested = true;

@@ -262,6 +262,12 @@ vi.mock('./lib/use-run-event-stream.js', () => ({
 }));
 
 // Delegation reads resolve empty so the work item page renders; commands are unused here.
+vi.mock('./lib/work-cycle-api.js', () => ({
+  loadWorkCycles: () => Promise.resolve({ cycles: [] }),
+  startWorkCycle: () => new Promise(() => undefined),
+  controlWorkCycle: () => new Promise(() => undefined),
+}));
+
 vi.mock('./lib/execution-api.js', () => ({
   loadExecutionStatus: () => Promise.resolve({ git: { available: true }, backends: [] }),
   loadRunProfiles: () => Promise.resolve({ profiles: [] }),

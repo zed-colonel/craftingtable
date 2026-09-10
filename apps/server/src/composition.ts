@@ -4,11 +4,11 @@ import {
   type AgentBackend,
   CLAUDE_CODE_MODELS,
   ClaudeCodeBackend,
-  CodexBackend,
   CODEX_MODELS,
+  CodexBackend,
   parseModelList,
 } from '@craftingtable/agents';
-import { AGENT_BACKENDS, AGENT_BACKEND_LABELS, type AgentBackendKind } from '@craftingtable/domain';
+import { AGENT_BACKEND_LABELS, AGENT_BACKENDS, type AgentBackendKind } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { type CraftingTableStorage, openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
@@ -31,6 +31,7 @@ import {
 } from './services/repository-inspector-provider.js';
 import { createRepositoryObservationPort } from './services/repository-observation-adapter.js';
 import { RunEventStreamService } from './services/run-event-stream-service.js';
+import { WorkCycleService } from './services/work-cycle-service.js';
 import { WorkItemService } from './services/work-item-service.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
 import {
@@ -38,6 +39,7 @@ import {
   WorkspaceEventStreamService,
 } from './services/workspace-event-stream-service.js';
 import { WorkspaceService } from './services/workspace-service.js';
+import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
 
 export interface ServiceSet {
   readonly bootstrapService: BootstrapService;
@@ -51,6 +53,7 @@ export interface ServiceSet {
   readonly repositoryInspectorProvider: RepositoryInspectorProvider;
   readonly executionService: ExecutionService;
   readonly agentRunService: AgentRunService;
+  readonly workCycleService: WorkCycleService;
   readonly runEventStreamService: RunEventStreamService;
   readonly executionStatus: () => ExecutionStatus;
 }
@@ -142,6 +145,7 @@ export async function createServices(
       );
     }
   }
+  const worktreeMutations = new WorktreeMutationGuard();
   const executionService = new ExecutionService(
     storage,
     workspaceService,
@@ -150,6 +154,7 @@ export async function createServices(
     config.execution,
     workItemService,
     now,
+    worktreeMutations,
   );
   const agentRunService = new AgentRunService(
     storage,
@@ -159,8 +164,19 @@ export async function createServices(
     config.execution,
     overrides.runLog,
     now,
+    worktreeMutations,
   );
   agentRunService.recoverInterrupted();
+  const workCycleService = new WorkCycleService(
+    storage,
+    workspaceService,
+    agentRunService,
+    gitOperations,
+    notifier,
+    now,
+    worktreeMutations,
+  );
+  workCycleService.recoverInterrupted();
   const executionStatus = (): ExecutionStatus => ({
     git: {
       available: gitOperations !== undefined,
@@ -195,6 +211,7 @@ export async function createServices(
     repositoryInspectorProvider,
     executionService,
     agentRunService,
+    workCycleService,
     runEventStreamService: new RunEventStreamService(
       storage,
       authService,
@@ -230,6 +247,7 @@ export async function createRuntime(
         workspaceEventStreamService: services.workspaceEventStreamService,
         executionService: services.executionService,
         agentRunService: services.agentRunService,
+        workCycleService: services.workCycleService,
         runEventStreamService: services.runEventStreamService,
         executionStatus: services.executionStatus,
       },

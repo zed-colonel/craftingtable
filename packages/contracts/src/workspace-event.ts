@@ -513,6 +513,27 @@ export const worktreeMergedEventSchema = workspaceEventBaseSchema
   })
   .superRefine(requireWorkItemAgreement);
 
+export const workCycleChangedEventSchema = workspaceEventBaseSchema.extend({
+  kind: z.literal('work-cycle-changed'),
+  projectId: projectIdSchema,
+  workItemId: workItemIdSchema,
+  runId: forbiddenCorrelationSchema,
+  ...noRepositoryCorrelations,
+  payload: z.strictObject({
+    cycleId: z.string().uuid(),
+    status: z.enum([
+      'running',
+      'paused',
+      'needs-attention',
+      'awaiting-merge',
+      'stopped',
+      'completed',
+    ]),
+    step: z.enum(['design', 'implement', 'review', 'remediate']),
+    reason: z.string().max(4000),
+  }),
+});
+
 export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   workspaceCreatedEventSchema,
   projectCreatedEventSchema,
@@ -531,6 +552,7 @@ export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   workspaceUpdatedEventSchema,
   workItemCompletedEventSchema,
   worktreeMergedEventSchema,
+  workCycleChangedEventSchema,
 ]);
 
 export const authenticationExpiredEventSchema = z.strictObject({

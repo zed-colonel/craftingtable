@@ -28,6 +28,7 @@ import type {
   TransitionAgentRunInput,
   WorktreeRepository,
 } from '../../execution-types.js';
+import { SqliteWorkCycleRepository } from './work-cycles.js';
 
 /* -------------------------------------------------------------------------- */
 /* Rows and mappers                                                            */
@@ -429,7 +430,7 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         .prepare(
           `SELECT * FROM agent_runs
            WHERE workspace_id = ? AND work_item_id = ?
-           ORDER BY created_at DESC, id DESC`,
+           ORDER BY created_at DESC, rowid DESC`,
         )
         .all(workspaceId, workItemId) as AgentRunRow[]
     ).map(mapAgentRun);
@@ -441,7 +442,7 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         .prepare(
           `SELECT * FROM agent_runs
            WHERE workspace_id = ? AND worktree_id = ?
-           ORDER BY created_at DESC, id DESC`,
+           ORDER BY created_at DESC, rowid DESC`,
         )
         .all(workspaceId, worktreeId) as AgentRunRow[]
     ).map(mapAgentRun);
@@ -466,7 +467,7 @@ class SqliteAgentRunRepository implements AgentRunRepository {
           `SELECT * FROM agent_runs
            WHERE workspace_id = ?
            ORDER BY CASE WHEN status IN ('starting', 'running', 'waiting') THEN 0 ELSE 1 END,
-                    created_at DESC, id DESC
+                    created_at DESC, rowid DESC
            LIMIT ?`,
         )
         .all(workspaceId, limit) as AgentRunRow[]
@@ -658,6 +659,7 @@ class SqliteRunProfileRepository implements RunProfileRepository {
 
 export function executionRepositories(database: Database.Database): ExecutionRepositories {
   return {
+    cycles: new SqliteWorkCycleRepository(database),
     sourceRepositories: new SqliteSourceRepositoryRepository(database),
     worktrees: new SqliteWorktreeRepository(database),
     runs: new SqliteAgentRunRepository(database),

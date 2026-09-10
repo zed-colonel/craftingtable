@@ -45,6 +45,17 @@ it is mergeable.
   ones with their dispositions. Later reports must retain prior IDs in their handoff
   lineage. Invalid reports cannot supply a merge verdict; legacy unstructured reviews
   remain usable manually, with their conversation included in handoffs.
+- **Automated work-item cycles.** On an admitted, unblocked item's page, create a
+  worktree and open **Automated cycle → Set up a cycle**. Choose each step's agent,
+  model, and permissions; the daemon runs design → implement → review → remediate,
+  stopping for your merge approval. Design advances only with an explicit `none` in
+  its final Open questions section. Completion requires zero open blocking, major,
+  or minor findings, and a configurable nit allowance (default 3). Remediation rounds
+  and step time are bounded; incomplete reports, failures, and stalled reviews pause
+  for attention. Pause/resume supports manual intervention; stop returns the worktree
+  to the manual flow. Cycle settings stay fixed after start. Workspace notices persist
+  across reloads, and daemon restart requires explicit resume. Review and merge check
+  the reviewed source commit; automation never merges on its own.
 - **Design handoff.** A finished design run can be accepted with one click: the implement
   run that follows gets the proposal as its plan. Design runs end with their open
   questions so the operator sees what still needs a decision before accepting.
@@ -60,8 +71,8 @@ it is mergeable.
 - **Durability.** Runs, events, worktrees, and repositories live in SQLite. A daemon
   restart marks runs that were live as interrupted; nothing is lost.
 
-Not yet: automated implement → review → merge cycles (every step exists as a command,
-the orchestrator does not), additional backends, interactive permission prompts.
+Not yet: roadmap scheduling, cross-project dependency maps, parallel cycle scheduling,
+email/SMS notifications, additional backends, or interactive permission prompts.
 
 ## Quickstart on the workstation
 

@@ -25,6 +25,7 @@ describe('workspace event vocabulary', () => {
       'workspace-updated',
       'work-item-completed',
       'worktree-merged',
+      'work-cycle-changed',
     ]);
     expect(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA).toEqual({
       'workspace-created': 1,
@@ -44,6 +45,7 @@ describe('workspace event vocabulary', () => {
       'workspace-updated': 6,
       'work-item-completed': 6,
       'worktree-merged': 6,
+      'work-cycle-changed': 9,
     });
     expect(Object.keys(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA)).toEqual(WORKSPACE_EVENT_KINDS);
   });

@@ -8,13 +8,13 @@ import type {
   ProjectDetailResponse,
   RepositoryBranchesResponse,
   RunEventEnvelope,
+  RunProfilesResponse,
   SessionSummary,
   SourceRepositorySummary,
   WorkItemDetailResponse,
   WorkItemExecutionResponse,
   WorkspaceEventEnvelope,
   WorkspaceOverview,
-  RunProfilesResponse,
   WorkspaceRunsResponse,
   WorkspaceWorkItemListResponse,
   WorktreeDiffResponse,
@@ -25,6 +25,7 @@ import type {
   PlanArtifactId,
   SessionId,
   SourceRepositoryId,
+  WorkCycle,
   WorkItemId,
   WorkspaceId,
   WorktreeId,
@@ -36,6 +37,7 @@ import { LoginPage } from './components/LoginPage.js';
 import { StatusCards } from './components/StatusCards.js';
 import { WorkspaceShell } from './components/WorkspaceShell.js';
 import { AccountPage } from './features/account/AccountPage.js';
+import { CYCLE_STATUS_LABELS, CyclePanel } from './features/execution/CyclePanel.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
 import { DiffView } from './features/execution/DiffView.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
@@ -74,9 +76,9 @@ import {
   loadRepositoryBranches,
   loadRun,
   loadRunEvents,
+  loadRunProfiles,
   loadWorkItemExecution,
   loadWorkspaceRuns,
-  loadRunProfiles,
   loadWorktreeDiff,
   mergeWorktree,
   registerRepository,
@@ -109,6 +111,7 @@ import {
 import { useRoute } from './lib/use-route.js';
 import { useRunEventStream } from './lib/use-run-event-stream.js';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
+import { controlWorkCycle, loadWorkCycles, startWorkCycle } from './lib/work-cycle-api.js';
 import {
   type ConnectionState,
   INITIAL_WORKSPACE_PROJECTION,
@@ -173,6 +176,11 @@ export function App() {
   const [itemBusy, setItemBusy] = useState(false);
   const [itemError, setItemError] = useState<string>();
   const [refreshToken, setRefreshToken] = useState(0);
+  const [cycleState, setCycleState] = useState<{
+    workspaceId: WorkspaceId;
+    cycles: readonly WorkCycle[];
+  }>();
+  const [cycleLoadError, setCycleLoadError] = useState<WorkspaceId>();
 
   // Delegation state: repositories, the active work item's worktrees and runs,
   // one run being followed live, and one diff being inspected.
@@ -399,6 +407,26 @@ export function App() {
   }, [projection.stale]);
 
   const workspaceId = activeWorkspaceId;
+  const cycles =
+    cycleState !== undefined && cycleState.workspaceId === workspaceId ? cycleState.cycles : [];
+  // biome-ignore lint/correctness/useExhaustiveDependencies: workspace events explicitly refresh persisted cycle status
+  useEffect(() => {
+    if (authenticationStatus !== 'authenticated' || workspaceId === undefined) return;
+    let cancelled = false;
+    void loadWorkCycles(workspaceId)
+      .then((result) => {
+        if (!cancelled && activeWorkspaceIdRef.current === workspaceId) {
+          setCycleState({ workspaceId, cycles: result.cycles });
+          setCycleLoadError(undefined);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCycleLoadError(workspaceId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, authenticationStatus, refreshToken]);
 
   // Detail views refetch whenever their route or the refresh token changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: deliberate refetch trigger
@@ -1084,6 +1112,33 @@ export function App() {
           </>
         )}
 
+        {cycleLoadError === workspaceId && (
+          <p role="alert">
+            Cycle status could not be loaded. Refresh before controlling automation.
+          </p>
+        )}
+        {cycles.some((cycle) => ['needs-attention', 'awaiting-merge'].includes(cycle.status)) && (
+          <section className="panel cycle-notices" aria-label="Cycles needing attention">
+            <h2>Cycles needing your attention</h2>
+            {cycles
+              .filter((cycle) => ['needs-attention', 'awaiting-merge'].includes(cycle.status))
+              .map((cycle) => (
+                <div key={cycle.id}>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() =>
+                      go({ name: 'work-item', workspaceId, workItemId: cycle.workItemId })
+                    }
+                  >
+                    {cycle.workItemSourceId}: {CYCLE_STATUS_LABELS[cycle.status]}
+                  </button>
+                  <p>{cycle.reason}</p>
+                </div>
+              ))}
+          </section>
+        )}
+
         {route.name === 'runs' && (
           <RunsPage
             runs={runsOverview?.runs ?? []}
@@ -1174,6 +1229,31 @@ export function App() {
               canMutate={canMutate}
               {...(itemError === undefined ? {} : { error: itemError })}
             />
+            {workItemExecution?.workItemId === route.workItemId &&
+              cycleState?.workspaceId === workspaceId && (
+                <CyclePanel
+                  key={route.workItemId}
+                  cycles={cycles.filter((cycle) => cycle.workItemId === route.workItemId)}
+                  worktrees={workItemExecution.worktrees}
+                  runs={workItemExecution.runs}
+                  backends={executionStatus?.backends ?? []}
+                  profiles={runProfiles?.profiles ?? []}
+                  canMutate={canMutate}
+                  busy={executionBusy}
+                  admitted={workItem.workItem.status === 'admitted'}
+                  onStart={(input) =>
+                    executionCommand(async (csrfToken, forWorkspace) => {
+                      await startWorkCycle(forWorkspace, workItem.workItem.id, input, csrfToken);
+                    })
+                  }
+                  onControl={(cycle, action) =>
+                    executionCommand(async (csrfToken) => {
+                      await controlWorkCycle(cycle, action, csrfToken);
+                    })
+                  }
+                  onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
+                />
+              )}
             {workItemExecution?.workItemId === route.workItemId && (
               <DelegationPanel
                 repositories={repositories}

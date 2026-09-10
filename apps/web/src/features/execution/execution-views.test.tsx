@@ -7,8 +7,15 @@ import type {
   WorktreeDiffResponse,
   WorktreeSummary,
 } from '@craftingtable/contracts';
+import {
+  CYCLE_STEPS,
+  type CycleProfiles,
+  DEFAULT_COMPLETION_POLICY,
+  type WorkCycle,
+} from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CyclePanel } from './CyclePanel.js';
 import { DelegationPanel } from './DelegationPanel.js';
 import { DiffView } from './DiffView.js';
 import { handoffDefaults, handoffTarget } from './handoff.js';
@@ -812,5 +819,109 @@ describe('review handoff', () => {
     expect(onHandoff).toHaveBeenCalledWith(
       expect.objectContaining({ role: 'review', parentRunId: 'run-1' }),
     );
+  });
+});
+
+describe('automated cycle controls', () => {
+  const backends = [
+    {
+      kind: 'claude-code' as const,
+      label: 'Claude Code',
+      available: true,
+      models: [{ id: 'review-model', label: 'Review model' }],
+    },
+  ];
+  const profiles = [
+    {
+      role: 'review' as const,
+      backend: 'claude-code' as const,
+      permissionMode: 'auto' as const,
+      model: 'review-model',
+    },
+  ];
+  it('submits the configurable nit allowance and a frozen choice for every step', () => {
+    const onStart = vi.fn();
+    render(
+      <CyclePanel
+        cycles={[]}
+        worktrees={[worktree]}
+        runs={[]}
+        backends={backends}
+        profiles={profiles}
+        canMutate
+        busy={false}
+        admitted
+        onStart={onStart}
+        onControl={vi.fn()}
+        onOpenRun={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText('Set up a cycle'));
+    expect((screen.getByLabelText('Allowed nits') as HTMLInputElement).value).toBe('3');
+    fireEvent.change(screen.getByLabelText('Allowed nits'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Instructions for every step'), {
+      target: { value: 'Keep the public API compatible.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start automated cycle' }));
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        worktreeId: worktree.id,
+        policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 1 },
+        instructions: 'Keep the public API compatible.',
+        profiles: expect.objectContaining({
+          review: { backend: 'claude-code', model: 'review-model', permissionMode: 'auto' },
+        }),
+      }),
+    );
+    expect(Object.keys(onStart.mock.calls[0]?.[0].profiles)).toEqual([...CYCLE_STEPS]);
+  });
+  it('keeps merge approval with the operator and exposes explicit pause/stop controls', () => {
+    const onControl = vi.fn();
+    const cycle: WorkCycle = {
+      id: 'aab388ca-d51a-41c9-9da6-e12a21c5fb25',
+      workspaceId: worktree.workspaceId,
+      projectId: worktree.projectId,
+      workItemId: worktree.workItemId,
+      workItemSourceId: 'AQ-01',
+      workItemTitle: 'Queue',
+      worktreeId: worktree.id,
+      createdByUserId: worktree.createdByUserId,
+      createdAt: worktree.createdAt,
+      updatedAt: worktree.createdAt,
+      version: 7,
+      status: 'awaiting-merge',
+      step: 'review',
+      policy: DEFAULT_COMPLETION_POLICY,
+      profiles: Object.fromEntries(
+        CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
+      ) as CycleProfiles,
+      instructions: '',
+      currentRunId: run().id,
+      runDeadlineAt: worktree.createdAt,
+      remediationRounds: 1,
+      stalledReviews: 0,
+      reason: 'Operator merge approval required.',
+    };
+    render(
+      <CyclePanel
+        cycles={[cycle]}
+        worktrees={[worktree]}
+        runs={[run({ status: 'finished', role: 'review' })]}
+        backends={backends}
+        profiles={profiles}
+        canMutate
+        busy={false}
+        admitted
+        onStart={vi.fn()}
+        onControl={onControl}
+        onOpenRun={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Awaiting merge approval')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Pause automation' }));
+    expect(onControl).toHaveBeenCalledWith(cycle, 'pause');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
+    expect(onControl).toHaveBeenCalledWith(cycle, 'stop');
   });
 });

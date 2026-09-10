@@ -71,6 +71,7 @@ export const MERGE_GATE_LABELS: Readonly<Record<MergeGate['reason'], string>> = 
   ready: 'Reviewed and mergeable',
   'no-review': 'Needs a review run',
   'changes-requested': 'Review requested changes',
+  'automation-active': 'Automation has not reached merge approval',
   'review-pending': 'Review has no verdict yet',
   'superseded-by-later-run': 'A run started after the review; review again',
   'run-live': 'A run is live in this worktree',

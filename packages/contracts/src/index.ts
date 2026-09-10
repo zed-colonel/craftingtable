@@ -7,5 +7,6 @@ export * from './planning.js';
 export * from './repository.js';
 export * from './review.js';
 export * from './snapshot.js';
+export * from './work-cycle.js';
 export * from './workspace.js';
 export * from './workspace-event.js';

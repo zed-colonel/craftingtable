@@ -31,7 +31,7 @@ function git(args: readonly string[], cwd: string): void {
 
 test('registers a repository, delegates a work item, follows the run, and reads the diff', async ({
   page,
-}) => {
+}, testInfo) => {
   test.setTimeout(60_000);
   const repository = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-repo-'));
   try {
@@ -78,7 +78,12 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(page.getByText('In agenda', { exact: true }).first()).toBeVisible();
     await page.getByRole('button', { name: 'Create worktree' }).click();
     await expect(page.getByRole('heading', { name: 'Worktrees (1)' })).toBeVisible();
-    await expect(page.getByText(/^ct\/aq-01-[0-9a-f]{8}$/).first()).toBeVisible();
+    await expect(
+      page
+        .getByRole('region', { name: 'Delegation', exact: true })
+        .getByText(/^ct\/aq-01-[0-9a-f]{8}$/)
+        .first(),
+    ).toBeVisible();
 
     // The item is now in progress. Launch the agent and follow it live.
     await expect(page.getByText('In progress', { exact: true })).toBeVisible();
@@ -248,6 +253,42 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(launchForm.getByLabel('Permissions')).toHaveValue('edit-only');
     await launchForm.getByLabel('Role').selectOption('review');
     await expect(launchForm.getByRole('combobox', { name: /^Agent/ })).toHaveValue('claude-code');
+
+    // The same admitted, unblocked item can now run the complete cycle from the browser.
+    const cyclePanel = page.getByRole('region', { name: 'Automated cycle', exact: true });
+    await cyclePanel.getByText('Set up a cycle').click();
+    for (const step of ['Design', 'Implement', 'Review', 'Remediate']) {
+      await cyclePanel
+        .getByRole('group', { name: step, exact: true })
+        .getByRole('combobox', { name: 'Agent', exact: true })
+        .selectOption('claude-code');
+    }
+    await expect(cyclePanel.getByLabel('Allowed nits')).toHaveValue('3');
+    await cyclePanel.getByLabel('Allowed nits').fill('0');
+    await cyclePanel.screenshot({ path: testInfo.outputPath('cycle-settings.png') });
+    const beforeCycle = execFileSync('git', ['rev-parse', 'main'], {
+      cwd: repository,
+      encoding: 'utf8',
+    });
+    await cyclePanel.getByRole('button', { name: 'Start automated cycle' }).click();
+    await expect(cyclePanel.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    expect(execFileSync('git', ['rev-parse', 'main'], { cwd: repository, encoding: 'utf8' })).toBe(
+      beforeCycle,
+    );
+    await page.reload();
+    await expect(cyclePanel.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Cycles needing attention' })).toContainText(
+      'AQ-02: Awaiting merge approval',
+    );
+    await cyclePanel.screenshot({ path: testInfo.outputPath('cycle-approval.png') });
+    await page.getByRole('button', { name: 'Merge…' }).click();
+    await page
+      .getByRole('form', { name: 'Merge target' })
+      .getByRole('button', { name: 'Merge', exact: true })
+      .click();
+    await expect(cyclePanel.getByText(/Previous cycle: Completed/)).toBeVisible();
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }

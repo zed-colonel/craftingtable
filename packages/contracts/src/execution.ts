@@ -193,6 +193,7 @@ export const mergeGateSchema = z.strictObject({
     'no-review',
     'changes-requested',
     'review-pending',
+    'automation-active',
     'superseded-by-later-run',
     'run-live',
     'worktree-removed',

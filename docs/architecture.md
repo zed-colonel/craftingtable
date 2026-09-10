@@ -78,17 +78,17 @@ turn must stop running before it can be handed off.
 Within the brief: an implement run after a review gets the findings to remediate, a review
 after an implement run gets the implementation's own summary as a claim to verify, and
 an implement run after a design gets the proposal as its accepted plan. The operator
-accepts a design by launching that implement run; nothing parents to a design run
-automatically. Those three edges plus implement-then-review give every step of the loop
-the same shape for a later orchestrator.
+accepts a design by launching that implement run in the manual flow. The automated
+cycle accepts it only when its explicit final Open questions section says `none`.
+Those edges plus implement-then-review give every step of the loop the same shape.
 
 Which agent runs each step is a workspace setting, not a property of the previous run.
 `workspace_run_profiles` holds one profile per role (backend, model, permission
 posture); `GET/POST /api/workspaces/:id/run-profiles` reads and replaces the set, filling
 unsaved roles with the daemon's default backend. The launch form applies the profile of
 the selected role, and a handoff opens the same inline form pre-filled from the target
-role's profile so the operator can override it per launch. An orchestrator will read the
-same profiles to choose a backend without a human.
+role's profile so the operator can override it per launch. The cycle form seeds its
+four step choices from these profiles and stores the operator's chosen settings at start.
 
 Review turns also carry a daemon-validated, versioned findings assessment in their
 `turn-completed` event. It is reconstructed from the journal after restart without a
@@ -98,6 +98,13 @@ consistency and preserves finding IDs across reports in the explicit parent line
 An implementer's disposition remains a claim for the next reviewer. A failed or invalid
 latest review clears the stored verdict; unstructured legacy reviews may still supply
 one for manual operation. See ADR-024.
+
+`WorkCycleService` uses those commands and handoffs to run one admitted, unblocked work
+item through design, implementation, and bounded review/remediation. `work_cycles`
+stores the fixed completion policy, step profiles, run reservation, and versioned state.
+Changes append audit and workspace events; the browser exposes pause/resume/stop and
+persistent attention notices. The controller never merges and never relaunches an
+interrupted step without explicit resume. See ADR-025 for completion and recovery rules.
 
 ## Agent backend seam
 

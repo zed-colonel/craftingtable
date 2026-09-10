@@ -204,6 +204,18 @@ const validEvents = {
       mergeSha: '0123456789abcdef0123456789abcdef01234567',
     },
   },
+  'work-cycle-changed': {
+    ...base,
+    projectId: 'project-1',
+    workItemId: 'work-item-1',
+    kind: 'work-cycle-changed',
+    payload: {
+      cycleId: 'aab388ca-d51a-41c9-9da6-e12a21c5fb25',
+      status: 'running',
+      step: 'design',
+      reason: 'Starting design.',
+    },
+  },
   'worktree-merged': {
     ...base,
     projectId: 'project-1',
@@ -397,6 +409,7 @@ describe('WorkspaceEventEnvelope', () => {
       'workspace-updated': [],
       'work-item-completed': [],
       'worktree-merged': [],
+      'work-cycle-changed': [],
     } as const satisfies Readonly<Record<WorkspaceEventKind, readonly string[]>>;
 
     for (const kind of Object.keys(validEvents) as WorkspaceEventKind[]) {

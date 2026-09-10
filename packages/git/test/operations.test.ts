@@ -378,3 +378,39 @@ describe('git operations', () => {
     expect(!result.ok && result.failure.kind).toBe('timed-out');
   });
 });
+
+it('merges the approved source commit when its branch has advanced', async () => {
+  const repo = fixture();
+  const worktreePath = join(repo.root, 'pinned-review');
+  await operations.createWorktree({
+    repositoryPath: repo.repository,
+    worktreePath,
+    branchName: 'ct/pinned',
+    baseRef: runFixtureGit(['rev-parse', 'main'], { cwd: repo.repository }).toString().trim(),
+  });
+  const commit = (filename: string) => {
+    writeFileSync(join(worktreePath, filename), filename);
+    runFixtureGit(['add', '.'], { cwd: worktreePath });
+    runFixtureGit(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', filename],
+      { cwd: worktreePath },
+    );
+    return runFixtureGit(['rev-parse', 'HEAD'], { cwd: worktreePath }).toString().trim();
+  };
+  const approved = commit('approved.txt');
+  commit('later.txt');
+  const result = await operations.mergeBranch({
+    repositoryPath: repo.repository,
+    branchName: 'ct/pinned',
+    targetBranch: 'main',
+    sourceCommitSha: approved,
+    scratchPath: join(repo.root, 'scratch'),
+    message: 'Approved change',
+  });
+  expect(result.ok, JSON.stringify(result)).toBe(true);
+  expect(existsSync(join(repo.repository, 'approved.txt'))).toBe(true);
+  expect(existsSync(join(repo.repository, 'later.txt'))).toBe(false);
+  expect(runFixtureGit(['rev-parse', 'HEAD^2'], { cwd: repo.repository }).toString().trim()).toBe(
+    approved,
+  );
+});

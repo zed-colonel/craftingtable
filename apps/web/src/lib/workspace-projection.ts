@@ -173,6 +173,7 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
       };
     case 'worktree-created':
     case 'worktree-removed':
+    case 'work-cycle-changed':
     case 'worktree-merged':
     case 'agent-run-started':
     case 'agent-run-status-changed':

@@ -15,6 +15,8 @@ import { createInterface } from 'node:readline';
 const cwd = process.cwd();
 let turns = 0;
 let reviewing = false;
+let automated = false;
+let designing = false;
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 
 emit({
@@ -52,24 +54,49 @@ lines.on('line', (line) => {
     text = line;
   }
   turns += 1;
+  if (turns === 1) {
+    automated = text.includes('one step of an operator-authorized automated cycle');
+    designing = /^Role: design$/m.test(text);
+  }
+  if (automated && designing) {
+    const result = 'Design complete.\n\n## Open questions\nnone';
+    emit({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: result }] },
+    });
+    emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result,
+      num_turns: turns,
+      duration_ms: 25,
+      total_cost_usd: 0.01,
+      session_id: 'fake-session-0001',
+    });
+    return;
+  }
   // A review brief is read-only and ends with a verdict, like the real thing.
   if (turns === 1 && /^Role: review$/m.test(text)) {
     reviewing = true;
   }
   if (reviewing) {
     const verdict = text.includes('VERDICT-CHANGES') ? 'changes-requested' : 'mergeable';
+    const reviewResult = automated
+      ? `\`\`\`craftingtable-review\n${JSON.stringify({ version: 1, complete: true, verdict, exitGate: { met: verdict === 'mergeable', evidence: 'Fixture checks passed.' }, findings: [] })}\n\`\`\`\nVERDICT: ${verdict}`
+      : `fake review turn ${turns}\n\nVERDICT: ${verdict}`;
     emit({
       type: 'assistant',
       message: {
         role: 'assistant',
-        content: [{ type: 'text', text: `fake review turn ${turns}\n\nVERDICT: ${verdict}` }],
+        content: [{ type: 'text', text: reviewResult }],
       },
     });
     emit({
       type: 'result',
       subtype: 'success',
       is_error: false,
-      result: `fake review turn ${turns}\n\nVERDICT: ${verdict}`,
+      result: reviewResult,
       num_turns: turns,
       duration_ms: 25,
       total_cost_usd: 0.01 * turns,

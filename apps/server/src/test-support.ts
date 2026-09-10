@@ -80,6 +80,7 @@ export async function createTestContext(
       workspaceEventStreamService: services.workspaceEventStreamService,
       executionService: services.executionService,
       agentRunService: services.agentRunService,
+      workCycleService: services.workCycleService,
       runEventStreamService: services.runEventStreamService,
       executionStatus: services.executionStatus,
     },

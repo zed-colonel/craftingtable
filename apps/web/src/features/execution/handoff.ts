@@ -32,6 +32,8 @@ export interface HandoffChoice {
   readonly backend: AgentBackendKind;
   readonly model?: string;
   readonly permissionMode: AgentPermissionMode;
+  /** Free-form guidance appended to the child's brief as operator instructions. */
+  readonly instructions?: string;
 }
 
 /** The model a run asked for, or the one its backend reported if it was not the default. */
@@ -135,6 +137,8 @@ export interface HandoffTarget {
   /** Button text on the run page. */
   readonly pageButton: string;
   readonly title: string;
+  /** Example guidance for the form's instructions box. */
+  readonly placeholder: string;
 }
 
 /**
@@ -149,6 +153,8 @@ export function handoffTarget(run: AgentRunSummary): HandoffTarget | undefined {
       button: 'Remediate',
       pageButton: 'Remediate findings',
       title: 'Launch an implement run in this worktree with these findings as its brief',
+      placeholder:
+        'e.g. Address findings 1 and 3; leave the nits. Disagree in writing if a finding is wrong.',
     };
   }
   if (run.role === 'design' && run.status === 'finished') {
@@ -158,6 +164,7 @@ export function handoffTarget(run: AgentRunSummary): HandoffTarget | undefined {
       button: 'Implement',
       pageButton: 'Implement this design',
       title: 'Launch an implement run in this worktree with this design as its plan',
+      placeholder: 'e.g. Take option B for the open question; keep the migration out of this run.',
     };
   }
   if (run.role === 'implement' && run.status === 'finished') {
@@ -167,6 +174,7 @@ export function handoffTarget(run: AgentRunSummary): HandoffTarget | undefined {
       button: 'Review',
       pageButton: 'Review this implementation',
       title: 'Launch a review run in this worktree with this implementation as its claim to verify',
+      placeholder: 'e.g. Focus on the storage changes; treat missing tests as major.',
     };
   }
   return undefined;

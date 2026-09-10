@@ -618,6 +618,7 @@ export function DelegationPanel({
                               backends={backends}
                               defaults={handoffDefault}
                               {...(handoffHint === undefined ? {} : { hint: handoffHint })}
+                              placeholder={target.placeholder}
                               busy={busy}
                               onLaunch={(choice) => {
                                 onLaunch({
@@ -626,6 +627,9 @@ export function DelegationPanel({
                                   role: target.role,
                                   permissionMode: choice.permissionMode,
                                   ...(choice.model === undefined ? {} : { model: choice.model }),
+                                  ...(choice.instructions === undefined
+                                    ? {}
+                                    : { instructions: choice.instructions }),
                                   parentRunId: run.id,
                                 });
                                 setHandoffOpen(undefined);

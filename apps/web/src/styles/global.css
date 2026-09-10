@@ -1216,6 +1216,15 @@ button:disabled {
   margin: 0;
 }
 
+.handoff-form-instructions {
+  flex-basis: 100%;
+}
+
+.handoff-form-instructions textarea {
+  width: 100%;
+  resize: vertical;
+}
+
 .handoff-row td {
   background: var(--color-surface-raised, transparent);
 }

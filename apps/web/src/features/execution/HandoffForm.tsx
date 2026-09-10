@@ -19,6 +19,7 @@ export function HandoffForm({
   backends,
   defaults,
   hint,
+  placeholder,
   busy,
   onLaunch,
   onCancel,
@@ -28,6 +29,8 @@ export function HandoffForm({
   backends: ExecutionStatusResponse['backends'];
   defaults: HandoffChoice;
   hint?: string;
+  /** Example guidance shown in the empty instructions box. */
+  placeholder?: string;
   busy: boolean;
   onLaunch: (choice: HandoffChoice) => void;
   onCancel: () => void;
@@ -37,6 +40,7 @@ export function HandoffForm({
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>(
     defaults.permissionMode,
   );
+  const [instructions, setInstructions] = useState('');
   const selected = backends.find((candidate) => candidate.kind === backend);
   const available = selected?.available === true;
 
@@ -46,10 +50,12 @@ export function HandoffForm({
       return;
     }
     const trimmedModel = model.trim();
+    const trimmedInstructions = instructions.trim();
     onLaunch({
       backend,
       ...(trimmedModel.length === 0 ? {} : { model: trimmedModel }),
       permissionMode,
+      ...(trimmedInstructions.length === 0 ? {} : { instructions: trimmedInstructions }),
     });
   };
 
@@ -96,6 +102,17 @@ export function HandoffForm({
             </option>
           ))}
         </select>
+      </label>
+      <label className="field handoff-form-instructions">
+        Instructions for this run (optional)
+        <textarea
+          value={instructions}
+          onChange={(event) => setInstructions(event.target.value)}
+          rows={2}
+          disabled={busy}
+          maxLength={20000}
+          {...(placeholder === undefined ? {} : { placeholder })}
+        />
       </label>
       <button type="submit" className="primary-button" disabled={busy || !available}>
         Launch

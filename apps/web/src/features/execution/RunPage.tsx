@@ -345,6 +345,7 @@ export function RunPage({
               backends={backends ?? []}
               defaults={handoffChoice}
               {...(handoffHint === undefined ? {} : { hint: handoffHint })}
+              placeholder={target.placeholder}
               busy={busy}
               onLaunch={(choice) => {
                 onHandoff({
@@ -353,6 +354,9 @@ export function RunPage({
                   role: target.role,
                   permissionMode: choice.permissionMode,
                   ...(choice.model === undefined ? {} : { model: choice.model }),
+                  ...(choice.instructions === undefined
+                    ? {}
+                    : { instructions: choice.instructions }),
                   parentRunId: run.id,
                 });
                 setHandoffOpen(false);

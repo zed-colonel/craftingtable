@@ -622,6 +622,10 @@ describe('run profiles', () => {
     expect(within(form).getByText(/last implement run here used Claude Code · opus/)).toBeDefined();
     fireEvent.change(within(form).getByLabelText('Agent'), { target: { value: 'claude-code' } });
     fireEvent.change(within(form).getByLabelText('Model'), { target: { value: 'opus' } });
+    // Remediation is where guidance matters most: which findings, and whether nits count.
+    fireEvent.change(within(form).getByLabelText(/Instructions for this run/), {
+      target: { value: 'Address findings 1 and 3 only; skip the nits.  ' },
+    });
     fireEvent.click(within(form).getByRole('button', { name: 'Launch' }));
     expect(onLaunch).toHaveBeenCalledWith({
       backend: 'claude-code',
@@ -629,6 +633,7 @@ describe('run profiles', () => {
       role: 'implement',
       permissionMode: 'edit-only',
       model: 'opus',
+      instructions: 'Address findings 1 and 3 only; skip the nits.',
       parentRunId: 'review-1',
     });
     expect(screen.queryByRole('form', { name: 'Remediate with' })).toBeNull();
@@ -696,6 +701,9 @@ describe('run profiles', () => {
     fireEvent.change(within(form).getByLabelText('Permissions'), {
       target: { value: 'unrestricted' },
     });
+    fireEvent.change(within(form).getByLabelText(/Instructions for this run/), {
+      target: { value: 'Fix the blocking finding first.' },
+    });
     fireEvent.click(within(form).getByRole('button', { name: 'Launch' }));
     expect(onHandoff).toHaveBeenCalledWith({
       backend: 'codex',
@@ -703,6 +711,7 @@ describe('run profiles', () => {
       role: 'implement',
       permissionMode: 'unrestricted',
       model: 'gpt-5.6-luna',
+      instructions: 'Fix the blocking finding first.',
       parentRunId: 'run-1',
     });
   });

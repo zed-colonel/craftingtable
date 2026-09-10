@@ -158,9 +158,20 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(remediateForm.getByRole('combobox', { name: /^Agent/ })).toHaveValue(
       'claude-code',
     );
+    await remediateForm
+      .getByLabel(/Instructions for this run/)
+      .fill('Address finding 1 only; leave the nits.');
     await remediateForm.getByRole('button', { name: 'Launch' }).click();
     await expect(page.getByRole('heading', { name: /Implement run/ })).toBeVisible();
     await expect(page.getByText('Claude Code', { exact: false }).first()).toBeVisible();
+    // The guidance reaches the agent as operator instructions in its brief.
+    const summary = page.getByRole('group', { name: 'Run summary' });
+    await summary.locator('summary').click();
+    await summary.getByRole('button', { name: 'Show brief' }).click();
+    await expect(page.getByTestId('run-brief')).toContainText(
+      'Address finding 1 only; leave the nits.',
+    );
+    await summary.locator('summary').click();
     await expect(page.getByText('Awaiting your input').first()).toBeVisible();
     await page.getByRole('button', { name: 'End session' }).click();
     await page.getByRole('button', { name: 'Work item' }).click();

@@ -52,6 +52,7 @@ export const WORKSPACE_EVENT_KINDS = [
   'work-cycle-changed',
   'branches-changed',
   'notifications-changed',
+  'roadmap-changed',
 ] as const;
 export type WorkspaceEventKind = (typeof WORKSPACE_EVENT_KINDS)[number];
 
@@ -76,7 +77,8 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'work-cycle-changed': 9,
   'branches-changed': 10,
   'notifications-changed': 11,
-} as const satisfies Readonly<Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11>>;
+  'roadmap-changed': 12,
+} as const satisfies Readonly<Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11 | 12>>;
 
 export function isWorkspaceEventKind(value: unknown): value is WorkspaceEventKind {
   return (WORKSPACE_EVENT_KINDS as readonly string[]).includes(value as string);
@@ -422,7 +424,22 @@ export interface NotificationsChangedEvent extends WorkspaceEventBase {
   readonly payload: { readonly action: 'settings' | 'attention' | 'delivery' | 'test' };
 }
 
+export interface RoadmapChangedEvent extends WorkspaceEventBase {
+  readonly kind: 'roadmap-changed';
+  readonly projectId?: never;
+  readonly workItemId?: never;
+  readonly runId?: never;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: {
+    readonly roadmapId: string;
+    readonly status: import('./roadmap.js').RoadmapStatus;
+    readonly reason: string;
+  };
+}
 export type WorkspaceEvent =
+  | RoadmapChangedEvent
   | NotificationsChangedEvent
   | BranchesChangedEvent
   | WorkCycleChangedEvent

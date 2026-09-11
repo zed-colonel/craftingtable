@@ -28,6 +28,7 @@ describe('workspace event vocabulary', () => {
       'work-cycle-changed',
       'branches-changed',
       'notifications-changed',
+      'roadmap-changed',
     ]);
     expect(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA).toEqual({
       'workspace-created': 1,
@@ -50,6 +51,7 @@ describe('workspace event vocabulary', () => {
       'work-cycle-changed': 9,
       'branches-changed': 10,
       'notifications-changed': 11,
+      'roadmap-changed': 12,
     });
     expect(Object.keys(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA)).toEqual(WORKSPACE_EVENT_KINDS);
   });

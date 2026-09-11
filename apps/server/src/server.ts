@@ -1,3 +1,5 @@
+import type { RoadmapService } from './services/roadmap-service.js';
+import { registerRoadmapRoutes } from './routes/roadmaps.js';
 import type { NotificationService } from './services/notification-service.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
 import { readFileSync } from 'node:fs';
@@ -33,6 +35,7 @@ import type { WorkspaceEventStreamService } from './services/workspace-event-str
 import type { WorkspaceService } from './services/workspace-service.js';
 
 export interface ServerDependencies {
+  readonly roadmapService: RoadmapService;
   readonly notificationService: NotificationService;
   readonly authService: AuthService;
   readonly workspaceService: WorkspaceService;
@@ -89,13 +92,16 @@ export function buildServer(
   void app.register(cookie);
 
   app.addHook('onReady', async () => {
+    deps.roadmapService.startWorker();
     deps.workCycleService.startWorker();
     deps.notificationService.startWorker();
   });
   app.addHook('preClose', async () => {
+    await deps.roadmapService.shutdown();
     await deps.notificationService.shutdown();
     await deps.workCycleService.shutdown();
   });
+  registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);
   registerNotificationRoutes(app, deps.authService, deps.notificationService, config);
   registerWorkCycleRoutes(app, deps.authService, deps.workCycleService, config);
   registerHealthRoute(app);

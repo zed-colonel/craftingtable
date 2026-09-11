@@ -210,7 +210,10 @@ export interface WorkspaceEventRepository {
   }): readonly WorkspaceEvent[];
 }
 
+import type { RoadmapRepository } from './repositories/roadmaps.js';
+
 export interface StorageRepositories {
+  readonly roadmaps: RoadmapRepository;
   readonly notifications: NotificationRepository;
   readonly users: UserRepository;
   readonly sessions: SessionRepository;

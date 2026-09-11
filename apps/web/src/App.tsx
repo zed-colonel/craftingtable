@@ -53,6 +53,7 @@ import { ProjectCards } from './features/planning/ProjectCards.js';
 import { ProjectPage } from './features/planning/ProjectPage.js';
 import { SourceText } from './features/planning/SourceText.js';
 import { WorkItemPage } from './features/planning/WorkItemPage.js';
+import { RoadmapsPage } from './features/planning/RoadmapsPage.js';
 import { NotificationPanel } from './features/workspace/NotificationPanel.js';
 import { SettingsPage } from './features/workspace/SettingsPage.js';
 import {
@@ -709,6 +710,7 @@ export function App() {
     }
     const requestedFor = workspaceId;
     setImportBusy(true);
+    setImportResult(undefined);
     setImportError(undefined);
     void importPlanBundle(workspaceId, upload, authenticated.csrfToken)
       .then((response) => {
@@ -717,7 +719,7 @@ export function App() {
         }
         setImportResult(response);
         setRefreshToken((current) => current + 1);
-        if (response.outcome !== 'failed-validation') {
+        if (response.outcome === 'succeeded') {
           go({ name: 'project', workspaceId: requestedFor, projectId: response.projectId });
         }
       })
@@ -1159,6 +1161,16 @@ export function App() {
             onSelectFilter={(filter) => go({ name: 'agenda', workspaceId, filter })}
             onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
             onOpenProject={(projectId) => go({ name: 'project', workspaceId, projectId })}
+          />
+        )}
+
+        {route.name === 'roadmaps' && activeWorkspace && (
+          <RoadmapsPage
+            key={workspaceId}
+            workspaceId={workspaceId}
+            csrfToken={authenticated.csrfToken}
+            canMutate={['owner', 'editor'].includes(activeWorkspace.role)}
+            onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
           />
         )}
 

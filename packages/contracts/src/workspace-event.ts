@@ -555,8 +555,21 @@ const notificationsChangedEventSchema = workspaceEventBaseSchema.extend({
   payload: z.strictObject({ action: z.enum(['settings', 'attention', 'delivery', 'test']) }),
 });
 
+const roadmapChangedEventSchema = workspaceEventBaseSchema.extend({
+  kind: z.literal('roadmap-changed'),
+  projectId: forbiddenCorrelationSchema,
+  workItemId: forbiddenCorrelationSchema,
+  runId: forbiddenCorrelationSchema,
+  ...noRepositoryCorrelations,
+  payload: z.strictObject({
+    roadmapId: z.string().uuid(),
+    status: z.enum(['draft', 'running', 'paused', 'needs-attention', 'stopped', 'completed']),
+    reason: z.string().max(4000),
+  }),
+});
 export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   notificationsChangedEventSchema,
+  roadmapChangedEventSchema,
   workspaceCreatedEventSchema,
   projectCreatedEventSchema,
   planVersionImportedEventSchema,

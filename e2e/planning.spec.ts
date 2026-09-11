@@ -22,10 +22,10 @@ async function signIn(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Default workspace' })).toBeVisible();
 }
 
-async function importAqBundle(page: Page): Promise<void> {
+async function importAqBundle(page: Page, projectName = 'ActionQueue — AQ-CONT-1'): Promise<void> {
   await page.getByRole('link', { name: 'Import plan' }).click();
   await expect(page.getByRole('heading', { name: 'Import a plan bundle' })).toBeVisible();
-  await page.getByLabel('Project name').fill('ActionQueue — AQ-CONT-1');
+  await page.getByLabel('Project name').fill(projectName);
   await page
     .getByLabel('Implementation plan (required)')
     .setInputFiles(fixture('aq-cont-1/aq-cont-1-implementation-plan.md'));
@@ -106,11 +106,18 @@ test('imports AQ-CONT-1, admits AQ-01, and survives a refresh', async ({ page })
 
 test('distinguishes duplicate and failed import outcomes', async ({ page }) => {
   await signIn(page);
-  await importAqBundle(page);
-  await expect(page.getByRole('heading', { name: 'ActionQueue — AQ-CONT-1' })).toBeVisible();
+  await page.getByRole('link', { name: 'All workspaces', exact: true }).click();
+  const create = page.getByRole('region', { name: 'New workspace' });
+  await create.getByLabel('Name', { exact: true }).fill('Import outcome workspace');
+  await create.getByRole('button', { name: 'Create workspace' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Import outcome workspace', exact: true }),
+  ).toBeVisible();
+  await importAqBundle(page, 'Duplicate outcome project');
+  await expect(page.getByRole('heading', { name: 'Duplicate outcome project' })).toBeVisible();
 
   // Re-importing the identical bytes is recognised, not duplicated (CT03-A64).
-  await importAqBundle(page);
+  await importAqBundle(page, 'Duplicate outcome project');
   const duplicate = page.getByRole('region', { name: 'Import result' });
   await expect(duplicate).toContainText('Identical to an existing plan version');
 

@@ -30,6 +30,7 @@ export type Route =
   /** `/workspaces`: every workspace as a card. */
   | { readonly name: 'home' }
   | { readonly name: 'account' }
+  | { readonly name: 'roadmaps'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'projects'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'dashboard'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'settings'; readonly workspaceId: WorkspaceId }
@@ -96,6 +97,8 @@ export function parseRoute(pathname: string): Route {
   const section = segments[2];
   if (segments.length === 3) {
     switch (section) {
+      case 'roadmaps':
+        return { name: 'roadmaps', workspaceId };
       case 'projects':
         return { name: 'projects', workspaceId };
       case 'import':
@@ -156,6 +159,8 @@ export function buildPath(route: Route): string {
       return '/account';
     case 'dashboard':
       return workspace(route.workspaceId);
+    case 'roadmaps':
+      return `${workspace(route.workspaceId)}/roadmaps`;
     case 'projects':
       return `${workspace(route.workspaceId)}/projects`;
     case 'settings':

@@ -1742,3 +1742,20 @@ button:disabled {
 .notification-records p {
   margin: var(--space-1) 0;
 }
+
+.roadmap-entries {
+  padding-inline-start: 1.5rem;
+}
+.roadmap-entries > li {
+  padding: 0.75rem;
+  margin-block: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  overflow-wrap: anywhere;
+}
+.roadmap-entries .panel {
+  padding: 0.75rem;
+}
+.roadmap-instructions {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

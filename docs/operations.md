@@ -200,3 +200,47 @@ the operator read it. A crash or lost response after provider acceptance can cau
 duplicate: Pushover does not offer an idempotency key. A claimed send is recovered after
 its one-minute lease expires. A notification already in flight may arrive after the
 operator resolves an item or disables notifications; subsequent reminders stop.
+
+## Sequential roadmaps
+
+Restart the daemon after upgrading to apply schema 12. Existing imports, branch settings,
+cycles, and notification credentials remain usable.
+
+1. Configure **Projects → a plan → Repository & branches** for every plan you will use.
+2. Open **Roadmaps → New roadmap**, name the sequence, and add work items from active
+   imported plans. Expand each entry to choose its agents, models, permissions, instructions,
+   and completion limits. Workspace profiles seed these choices.
+3. Put required predecessors before their selected dependents. Save to review the exact
+   plan bindings, integration branches, and current blockers. Saving does not start work.
+4. Select **Start roadmap**. One entry executes at a time in that workspace. The scheduler
+   waits for required predecessors and for other unmerged worktrees in the same registered
+   checkout, including manual worktrees. It does not adopt existing worktrees or cycles.
+5. At **Awaiting merge approval**, open the item, inspect the review/diff, and use the existing
+   **Merge…** confirmation. The next item starts from the updated integration head.
+
+A mergeable verdict or manually marking the current item complete does not release its
+roadmap successor; its own worktree must be merged. Items already completed before the
+roadmap reaches them are reused. Existing predecessor commit-evidence checks still apply.
+The sequence is strict: a blocked entry holds later entries, even if they are independent.
+Cross-project requirements from the draft concurrency sidecar are not imported or inferred.
+
+**Pause roadmap** suspends scheduling and pauses a running cycle for manual work. A cycle
+already awaiting merge retains that approval and its normal merge reminders. You can merge
+while the roadmap is paused; the next item waits for **Resume roadmap**. Edit queued entries
+while paused or needing attention; already-started entries and their positions stay fixed.
+Saving creates a new revision, and new attempts bind that revision. **View revisions** retains
+all prior definitions. A branch-settings change before dispatch needs an explicit queued
+revision; starting work never follows a silently changed integration target.
+
+**Stop roadmap** ends its current cycle and leaves existing worktrees for manual work. An
+ended roadmap is historical; create a new one for remaining items. After a daemon restart,
+inspect the current item and explicitly resume the roadmap. A completed operator merge is
+recognized without rerunning that item. Reserved preparation IDs prevent replay from creating
+another recorded worktree or cycle. Git and SQLite still do not form an atomic transaction:
+if Git succeeded but its record was never committed, inspect the managed worktree/branch
+before retrying, as with manual worktree creation.
+
+Configured Pushover delivery handles item merge/attention checkpoints with the existing
+reminder schedule. Scheduler failures without an existing item alert also produce roadmap
+attention reminders; pause/stop resolves those reminders. Normal prerequisite/capacity waits
+remain visible on the roadmap. Roadmap completion is shown in the app and activity journal.

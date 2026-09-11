@@ -67,6 +67,13 @@ it is mergeable.
   to the manual flow. Cycle settings stay fixed after start. Workspace notices persist
   across reloads, and daemon restart requires explicit resume. Review and merge check
   the reviewed source commit; automation never merges on its own.
+- **Sequential roadmaps.** Open **Roadmaps** to select and order imported work items,
+  set each step's agent/model/permissions and completion policy, then save and explicitly
+  start. The daemon admits eligible items, creates worktrees from their bound integration
+  branches, and delegates existing automated cycles. Each operator merge releases the
+  next item. Dependencies outside the roadmap and existing unmerged worktrees remain
+  visible blockers. Pause supports manual work and queued edits; immutable revisions
+  retain started settings and execution history. Restart requires explicit roadmap resume.
 - **Design handoff.** A finished design run can be accepted with one click: the implement
   run that follows gets the proposal as its plan. Design runs end with their open
   questions so the operator sees what still needs a decision before accepting.
@@ -86,7 +93,7 @@ it is mergeable.
 - **Durability.** Runs, events, worktrees, and repositories live in SQLite. A daemon
   restart marks runs that were live as interrupted; nothing is lost.
 
-Not yet: roadmap scheduling, cross-project dependency maps, parallel cycle scheduling,
+Not yet: cross-project dependency maps, parallel cycle scheduling,
 email/SMS notifications, additional backends, or interactive permission prompts.
 
 Pushover notifications are configured per workspace in **Settings**. Owners can save
@@ -117,7 +124,7 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 11 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 12 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

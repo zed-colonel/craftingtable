@@ -14,7 +14,12 @@ const LAST_SEEN_WRITE_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_PASSWORD_BYTES = 12;
 const MAX_PASSWORD_BYTES = 1024;
 
-export interface AuthContext {
+export interface CommandContext {
+  readonly user: StoredUser;
+  readonly session?: StoredSession;
+}
+
+export interface AuthContext extends CommandContext {
   readonly user: StoredUser;
   readonly session: StoredSession;
 }

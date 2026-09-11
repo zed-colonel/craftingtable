@@ -337,16 +337,20 @@ class SqliteWorktreeRepository implements WorktreeRepository {
     ).map(mapWorktree);
   }
 
-  listActive(workspaceId: WorkspaceId): readonly Worktree[] {
-    return (
-      this.database
-        .prepare(
-          `SELECT * FROM worktrees
-           WHERE workspace_id = ? AND status = 'active'
-           ORDER BY created_at DESC, id DESC`,
-        )
-        .all(workspaceId) as WorktreeRow[]
-    ).map(mapWorktree);
+  listActive(workspaceId?: WorkspaceId): readonly Worktree[] {
+    const rows =
+      workspaceId === undefined
+        ? this.database
+            .prepare(
+              "SELECT * FROM worktrees WHERE status = 'active' ORDER BY created_at DESC, id DESC",
+            )
+            .all()
+        : this.database
+            .prepare(
+              "SELECT * FROM worktrees WHERE workspace_id = ? AND status = 'active' ORDER BY created_at DESC, id DESC",
+            )
+            .all(workspaceId);
+    return (rows as WorktreeRow[]).map(mapWorktree);
   }
 
   setIntegrationBranch(input: {

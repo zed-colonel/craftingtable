@@ -162,6 +162,7 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
       };
     case 'source-repository-registered':
       return { ...current, repositoryList: true };
+    case 'roadmap-changed':
     case 'notifications-changed':
     case 'workspace-updated':
       return { ...current, workspaceSummary: true };

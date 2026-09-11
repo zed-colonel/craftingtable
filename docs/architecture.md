@@ -184,3 +184,13 @@ It wakes from the workspace notifier and a five-second timer; no browser connect
 required. Pushover sits behind an injectable transport. Settings and workflow/delivery
 changes append audit and workspace events in the same transaction; claim bookkeeping is
 internal. See ADR-027 for delivery and credential semantics.
+
+## Sequential roadmaps
+
+`RoadmapService` selects the next entry in one ordered queue per workspace and delegates
+whole-item execution to `WorkCycleService`. Schema 12 separates immutable roadmap
+revisions from mutable, versioned control state and independently identified attempts.
+Each attempt reserves its worktree and cycle IDs before Git work; cycle creation and
+attempt attachment commit together. Branch targets and effective step settings are bound
+explicitly. The scheduler never calls merge. See ADR-029 for admission, capacity, recovery,
+and manual takeover behavior; ADR-028 preserves the later slice and Studio boundaries.

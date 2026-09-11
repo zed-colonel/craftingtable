@@ -18,7 +18,7 @@ import {
 import type { GitOperations, WorktreeDiff } from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
-import type { AuthContext } from './auth-service.js';
+import type { AuthContext, CommandContext } from './auth-service.js';
 import { BranchService } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { WorkItemService } from './work-item-service.js';
@@ -412,11 +412,12 @@ export class ExecutionService {
   }
 
   async createWorktree(
-    context: AuthContext,
+    context: CommandContext,
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
     input: { readonly repositoryId: SourceRepositoryId; readonly branchName?: string },
     requestId?: string,
+    reservation?: { readonly id: WorktreeId; readonly check: () => void },
   ): Promise<Worktree> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
@@ -433,7 +434,8 @@ export class ExecutionService {
     if (repository.status !== 'active') {
       throw new ExecutionRequestError('conflict', 'Repository is retired');
     }
-    const shortId = randomUUID().slice(0, 8);
+    reservation?.check();
+    const shortId = (reservation?.id ?? randomUUID()).slice(0, 8);
     const branchName = input.branchName ?? `ct/${slug(item.sourceId)}-${shortId}`;
     if (!isValidBranchName(branchName)) {
       throw new ExecutionRequestError('invalid-request', 'Branch name is not well formed');
@@ -445,6 +447,7 @@ export class ExecutionService {
     );
 
     const base = await this.branches.creationBase(workspaceId, workItemId, repository.id);
+    reservation?.check();
     const created = await git.createWorktree({
       repositoryPath: repository.rootPath,
       worktreePath: path,
@@ -465,7 +468,7 @@ export class ExecutionService {
     const occurredAt = this.now().toISOString();
     const worktree = this.storage.transaction((tx) => {
       const inserted = tx.execution.worktrees.insert({
-        id: asWorktreeId(randomUUID()),
+        id: reservation?.id ?? asWorktreeId(randomUUID()),
         workspaceId,
         repositoryId: repository.id,
         projectId: item.projectId,
@@ -481,9 +484,9 @@ export class ExecutionService {
       tx.audit.append({
         id: asAuditEventId(randomUUID()),
         occurredAt,
-        actorKind: 'user',
+        actorKind: context.session === undefined ? 'system' : 'user',
         actorUserId: context.user.id,
-        sessionId: context.session.id,
+        ...(context.session === undefined ? {} : { sessionId: context.session.id }),
         workspaceId,
         ...(requestId === undefined ? {} : { requestId }),
         action: 'worktree.create',

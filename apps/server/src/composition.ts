@@ -1,3 +1,4 @@
+import { RoadmapService } from './services/roadmap-service.js';
 import { NotificationService } from './services/notification-service.js';
 import {
   PushoverTransport,
@@ -47,6 +48,7 @@ import { WorkspaceService } from './services/workspace-service.js';
 import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
 
 export interface ServiceSet {
+  readonly roadmapService: RoadmapService;
   readonly notificationService: NotificationService;
   readonly bootstrapService: BootstrapService;
   readonly authService: AuthService;
@@ -186,6 +188,16 @@ export async function createServices(
     executionService.branches,
   );
   workCycleService.recoverInterrupted();
+  const roadmapService = new RoadmapService(
+    storage,
+    workspaceService,
+    workItemService,
+    executionService,
+    workCycleService,
+    notifier,
+    now,
+  );
+  roadmapService.recoverInterrupted();
   const executionStatus = (): ExecutionStatus => ({
     git: {
       available: gitOperations !== undefined,
@@ -203,6 +215,7 @@ export async function createServices(
     }),
   });
   return {
+    roadmapService,
     notificationService: new NotificationService(
       storage,
       workspaceService,
@@ -266,6 +279,7 @@ export async function createRuntime(
         agentRunService: services.agentRunService,
         workCycleService: services.workCycleService,
         notificationService: services.notificationService,
+        roadmapService: services.roadmapService,
         runEventStreamService: services.runEventStreamService,
         executionStatus: services.executionStatus,
       },

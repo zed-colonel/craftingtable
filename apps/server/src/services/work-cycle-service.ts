@@ -16,7 +16,7 @@ import {
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
-import type { AuthContext } from './auth-service.js';
+import type { CommandContext } from './auth-service.js';
 import type { BranchService } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { latestReviewReport, runLineage } from './run-handoff.js';
@@ -41,18 +41,12 @@ export class WorkCycleService {
     private readonly branches?: BranchService,
   ) {}
 
-  list(context: AuthContext, workspaceId: WorkspaceId): readonly WorkCycle[] {
+  list(context: CommandContext, workspaceId: WorkspaceId): readonly WorkCycle[] {
     this.workspaceService.requireAuthorized(context, workspaceId);
     return this.storage.execution.cycles.list(workspaceId);
   }
 
-  start(
-    context: AuthContext,
-    workspaceId: WorkspaceId,
-    workItemId: WorkItemId,
-    input: StartWorkCycleRequest,
-  ): WorkCycle {
-    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+  validateSettings(input: Pick<StartWorkCycleRequest, 'profiles'>): void {
     if (Object.values(input.profiles).some((profile) => !this.runs.hasBackend(profile.backend)))
       throw new ExecutionRequestError(
         'unavailable',
@@ -60,6 +54,17 @@ export class WorkCycleService {
       );
     if (this.git === undefined)
       throw new ExecutionRequestError('unavailable', 'Git is required for an automated cycle');
+  }
+
+  start(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
+    input: StartWorkCycleRequest,
+    reservedId?: string,
+  ): WorkCycle {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    this.validateSettings(input);
     const worktree = this.storage.execution.worktrees.find(workspaceId, input.worktreeId);
     if (!worktree || worktree.workItemId !== workItemId) throw new NotFoundError();
     this.mutations.requireAvailable(input.worktreeId);
@@ -85,7 +90,7 @@ export class WorkCycleService {
     }
     const occurredAt = this.now().toISOString();
     const cycle: WorkCycle = {
-      id: randomUUID(),
+      id: reservedId ?? randomUUID(),
       workspaceId,
       workItemId,
       projectId: worktree.projectId,
@@ -118,7 +123,7 @@ export class WorkCycleService {
   }
 
   async control(
-    context: AuthContext,
+    context: CommandContext,
     workspaceId: WorkspaceId,
     id: string,
     action: 'pause' | 'resume' | 'stop',
@@ -411,7 +416,7 @@ export class WorkCycleService {
     cycle: WorkCycle,
     step: CycleStep,
     parent?: AgentRun,
-    context?: AuthContext,
+    context?: CommandContext,
     changes: Partial<WorkCycle> = {},
   ): Promise<WorkCycle> {
     const reviewHeadSha = step === 'review' ? await this.cleanHead(cycle) : undefined;
@@ -473,7 +478,7 @@ export class WorkCycleService {
     cycle: WorkCycle,
     changes: Partial<WorkCycle>,
     action = 'advance',
-    context?: AuthContext,
+    context?: CommandContext,
   ): WorkCycle {
     const updated = {
       ...cycle,
@@ -497,14 +502,14 @@ export class WorkCycleService {
     tx: StorageRepositories,
     cycle: WorkCycle,
     action: string,
-    context?: AuthContext,
+    context?: CommandContext,
   ): void {
     tx.audit.append({
       id: asAuditEventId(randomUUID()),
       occurredAt: cycle.updatedAt,
-      actorKind: context === undefined ? 'system' : 'user',
+      actorKind: context?.session === undefined ? 'system' : 'user',
       actorUserId: context?.user.id ?? cycle.createdByUserId,
-      ...(context === undefined ? {} : { sessionId: context.session.id }),
+      ...(context?.session === undefined ? {} : { sessionId: context.session.id }),
       workspaceId: cycle.workspaceId,
       action: 'work-cycle.updated',
       targetType: 'work-cycle',

@@ -269,6 +269,26 @@ export class NotificationService {
         path: `/workspaces/${encodeURIComponent(workspaceId)}/work-items/${encodeURIComponent(item.id)}`,
       });
     }
+    if (settings.preferences.needsAttention) {
+      for (const roadmap of tx.roadmaps.list(workspaceId)) {
+        if (roadmap.status !== 'needs-attention') continue;
+        const active = roadmap.attempts.find((attempt) => attempt.status !== 'completed');
+        const cycle = active && cycles.find((candidate) => candidate.id === active.cycleId);
+        // The item alert already carries findings and branch details for this checkpoint.
+        if (
+          cycle &&
+          result.some((source) => source.sourceKey === `cycle:${cycle.id}:${cycle.version}`)
+        )
+          continue;
+        result.push({
+          sourceKey: `roadmap:${roadmap.id}:${roadmap.version}`,
+          kind: 'attention',
+          title: notificationText(`${roadmap.definition.name} · Roadmap needs attention`, 250),
+          message: notificationText(roadmap.reason, 1024),
+          path: `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`,
+        });
+      }
+    }
     return result;
   }
   private record(workspaceId: WorkspaceId, source: Attention): NotificationRecord {

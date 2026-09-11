@@ -130,7 +130,7 @@ export interface WorktreeRepository {
   insert(input: CreateWorktreeInput): Worktree;
   find(workspaceId: WorkspaceId, worktreeId: WorktreeId): Worktree | undefined;
   listForWorkItem(workspaceId: WorkspaceId, workItemId: WorkItemId): readonly Worktree[];
-  listActive(workspaceId: WorkspaceId): readonly Worktree[];
+  listActive(workspaceId?: WorkspaceId): readonly Worktree[];
   markRemoved(input: {
     readonly workspaceId: WorkspaceId;
     readonly worktreeId: WorktreeId;

@@ -31,6 +31,7 @@ ADR-025-bounded-work-item-cycles.md
 ADR-026-plan-integration-branches.md
 ADR-027-persistent-attention-notifications.md
 ADR-028-roadmaps-and-planning-studio-boundaries.md
+ADR-029-sequential-roadmap-execution.md
 ```
 
 Each ADR should contain:

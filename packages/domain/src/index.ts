@@ -9,3 +9,4 @@ export * from './work-cycle.js';
 export * from './workspace.js';
 export * from './workspace-events.js';
 export * from './notification.js';
+export * from './roadmap.js';

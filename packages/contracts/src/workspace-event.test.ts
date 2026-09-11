@@ -222,6 +222,15 @@ const validEvents = {
       reason: 'Starting design.',
     },
   },
+  'roadmap-changed': {
+    ...base,
+    kind: 'roadmap-changed',
+    payload: {
+      roadmapId: '00000000-0000-4000-8000-000000000001',
+      status: 'running',
+      reason: 'Scheduling enabled.',
+    },
+  },
   'notifications-changed': {
     ...base,
     kind: 'notifications-changed',
@@ -423,6 +432,7 @@ describe('WorkspaceEventEnvelope', () => {
       'work-cycle-changed': [],
       'branches-changed': [],
       'notifications-changed': [],
+      'roadmap-changed': [],
     } as const satisfies Readonly<Record<WorkspaceEventKind, readonly string[]>>;
 
     for (const kind of Object.keys(validEvents) as WorkspaceEventKind[]) {

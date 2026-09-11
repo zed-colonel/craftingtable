@@ -76,6 +76,7 @@ export function WorkspaceShell({
             label: 'Agenda',
             ...(selected.admittedCount > 0 ? { count: selected.admittedCount } : {}),
           },
+          { route: { name: 'roadmaps', workspaceId: selected.id }, label: 'Roadmaps' },
           { route: { name: 'projects', workspaceId: selected.id }, label: 'Projects' },
           { route: { name: 'repositories', workspaceId: selected.id }, label: 'Repositories' },
           { route: { name: 'import', workspaceId: selected.id }, label: 'Import plan' },

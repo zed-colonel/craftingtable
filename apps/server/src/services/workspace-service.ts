@@ -12,7 +12,7 @@ import type {
   CraftingTableStorage,
   StorageRepositories,
 } from '@craftingtable/storage';
-import type { AuthContext } from './auth-service.js';
+import type { AuthContext, CommandContext } from './auth-service.js';
 import { ExecutionRequestError, ForbiddenError, NotFoundError } from './errors.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 
@@ -258,11 +258,11 @@ export class WorkspaceService {
     return page;
   }
 
-  isAuthorized(context: AuthContext, workspaceId: WorkspaceId): boolean {
+  isAuthorized(context: CommandContext, workspaceId: WorkspaceId): boolean {
     return this.storage.workspaces.findAuthorized(context.user.id, workspaceId) !== undefined;
   }
 
-  requireAuthorized(context: AuthContext, workspaceId: WorkspaceId, requestId?: string): void {
+  requireAuthorized(context: CommandContext, workspaceId: WorkspaceId, requestId?: string): void {
     if (!this.isAuthorized(context, workspaceId)) {
       this.recordDenied(context, workspaceId, requestId);
       throw new NotFoundError();
@@ -277,7 +277,7 @@ export class WorkspaceService {
    * already know the workspace exists, so there is nothing to conceal.
    */
   requireRole(
-    context: AuthContext,
+    context: CommandContext,
     workspaceId: WorkspaceId,
     roles: readonly WorkspaceRole[],
     options: { readonly requestId?: string } = {},
@@ -293,15 +293,19 @@ export class WorkspaceService {
     return authorized;
   }
 
-  private recordDenied(context: AuthContext, workspaceId: WorkspaceId, requestId?: string): void {
+  private recordDenied(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    requestId?: string,
+  ): void {
     const exists = this.storage.workspaces.exists(workspaceId);
     this.storage.transaction((tx: StorageRepositories) => {
       tx.audit.append({
         id: asAuditEventId(randomUUID()),
         occurredAt: this.now().toISOString(),
-        actorKind: 'user',
+        actorKind: context.session === undefined ? 'system' : 'user',
         actorUserId: context.user.id,
-        sessionId: context.session.id,
+        ...(context.session === undefined ? {} : { sessionId: context.session.id }),
         ...(exists ? { workspaceId } : {}),
         ...(requestId === undefined ? {} : { requestId }),
         action: 'workspace.access.denied',

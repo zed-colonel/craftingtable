@@ -8,7 +8,7 @@ import {
   type WorktreeId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
-import type { AuthContext } from './auth-service.js';
+import type { AuthContext, CommandContext } from './auth-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -48,7 +48,7 @@ export class WorkItemService {
    * visible; delegation is governed by worktrees and runs, not by this flag.
    */
   admit(
-    context: AuthContext,
+    context: CommandContext,
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
     requestId?: string,
@@ -82,9 +82,9 @@ export class WorkItemService {
       tx.audit.append({
         id: asAuditEventId(randomUUID()),
         occurredAt,
-        actorKind: 'user',
+        actorKind: context.session === undefined ? 'system' : 'user',
         actorUserId: context.user.id,
-        sessionId: context.session.id,
+        ...(context.session === undefined ? {} : { sessionId: context.session.id }),
         workspaceId,
         ...(requestId === undefined ? {} : { requestId }),
         action: 'work-item.admitted',

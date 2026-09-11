@@ -714,3 +714,50 @@ describe('notification routes and credentials', () => {
     ).toThrow(/credentials/);
   });
 });
+
+it('repeats roadmap preparation alerts and resolves on pause', async () => {
+  const f = await fixture();
+  await f.context.services.roadmapService.shutdown();
+  f.setCycle('paused');
+  const id = randomUUID();
+  const roadmap: import('@craftingtable/domain').Roadmap = {
+    id,
+    workspaceId: f.workspaceId,
+    version: 1,
+    status: 'needs-attention',
+    reason: 'Worktree preparation failed. Inspect the repository.',
+    createdAt: f.now().toISOString(),
+    updatedAt: f.now().toISOString(),
+    createdByUserId: f.auth.user.id,
+    delegatedByUserId: f.auth.user.id,
+    attempts: [],
+    definition: {
+      roadmapId: id,
+      revision: 1,
+      name: 'AQ sequence',
+      entries: [],
+      createdAt: f.now().toISOString(),
+      createdByUserId: f.auth.user.id,
+    },
+  };
+  f.context.storage.roadmaps.save(roadmap, 0);
+  await f.service.tick();
+  expect(f.send).toHaveBeenCalledTimes(1);
+  expect(f.send.mock.calls[0]?.[0]).toMatchObject({
+    title: 'AQ sequence · Roadmap needs attention',
+    url: `https://craft.example/workspaces/${f.workspaceId}/roadmaps`,
+  });
+  f.advance(30);
+  await f.service.tick();
+  expect(f.send).toHaveBeenCalledTimes(2);
+  f.context.storage.roadmaps.save({ ...roadmap, status: 'paused', version: 2 }, 1);
+  f.advance(60);
+  await f.service.tick();
+  expect(f.send).toHaveBeenCalledTimes(2);
+  expect(
+    f.context.storage.notifications
+      .records(f.workspaceId)
+      .filter((r) => r.sourceKey.startsWith('roadmap:'))
+      .every((r) => r.state === 'resolved'),
+  ).toBe(true);
+});

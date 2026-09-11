@@ -56,6 +56,7 @@ export const AUDIT_ACTIONS = [
   'work-cycle.updated',
   'branches.updated',
   'notifications.updated',
+  'roadmap.updated',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -96,7 +97,8 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'work-cycle.updated': 9,
   'branches.updated': 10,
   'notifications.updated': 11,
-} as const satisfies Readonly<Record<AuditAction, 1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11>>;
+  'roadmap.updated': 12,
+} as const satisfies Readonly<Record<AuditAction, 1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12>>;
 
 export function isAuditAction(value: unknown): value is AuditAction {
   return (AUDIT_ACTIONS as readonly string[]).includes(value as string);

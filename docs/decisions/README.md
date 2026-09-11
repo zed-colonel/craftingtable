@@ -30,6 +30,7 @@ ADR-024-complete-handoffs-and-review-findings.md
 ADR-025-bounded-work-item-cycles.md
 ADR-026-plan-integration-branches.md
 ADR-027-persistent-attention-notifications.md
+ADR-028-roadmaps-and-planning-studio-boundaries.md
 ```
 
 Each ADR should contain:

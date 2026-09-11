@@ -42,7 +42,8 @@ it is mergeable.
   If either changes, merge approval expires. End sessions and pause the cycle, use
   **Update from integration**, then verify and review manually or resume the cycle for
   a fresh review. Updates use normal merges and abort on conflict. Item diffs exclude
-  integration work already present in the item's ancestry. Required predecessors must
+  integration work already present in the item's ancestry. Parallel roadmap cycles automate
+  that update and fresh review at safe step boundaries. Required predecessors must
   have integration commit evidence; plan settings can attach evidence to older manual
   completions without changing their completion history.
 - **Remediation and findings.** A review's findings can be handed straight to a new
@@ -67,13 +68,17 @@ it is mergeable.
   to the manual flow. Cycle settings stay fixed after start. Workspace notices persist
   across reloads, and daemon restart requires explicit resume. Review and merge check
   the reviewed source commit; automation never merges on its own.
-- **Sequential roadmaps.** Open **Roadmaps** to select and order imported work items,
+- **Roadmaps.** Open **Roadmaps** to select and order imported work items,
   set each step's agent/model/permissions and completion policy, then save and explicitly
   start. The daemon admits eligible items, creates worktrees from their bound integration
   branches, and delegates existing automated cycles. Each operator merge releases the
   next item. Dependencies outside the roadmap and existing unmerged worktrees remain
   visible blockers. Pause supports manual work and queued edits; immutable revisions
   retain started settings and execution history. Restart requires explicit roadmap resume.
+  Sequential mode preserves strict order. Parallel mode uses order as priority, with bounded
+  in-flight items, repository capacity, and per-entry exclusion groups. Items needing attention
+  pause independently. Sibling merges trigger an idle worktree update and fresh review; conflicts
+  and a bounded refresh budget require attention. Every final merge still belongs to you.
 - **Design handoff.** A finished design run can be accepted with one click: the implement
   run that follows gets the proposal as its plan. Design runs end with their open
   questions so the operator sees what still needs a decision before accepting.
@@ -93,7 +98,7 @@ it is mergeable.
 - **Durability.** Runs, events, worktrees, and repositories live in SQLite. A daemon
   restart marks runs that were live as interrupted; nothing is lost.
 
-Not yet: cross-project dependency maps, parallel cycle scheduling,
+Not yet: cross-project dependency maps, pinned upstream build environments,
 email/SMS notifications, additional backends, or interactive permission prompts.
 
 Pushover notifications are configured per workspace in **Settings**. Owners can save

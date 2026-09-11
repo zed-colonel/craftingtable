@@ -90,3 +90,12 @@ A bare "Ready", "Blocked", "Approved", or "Verified" never appears.
 - Semantic landmarks and one `h1` per page.
 - Colour is never the sole carrier of status.
 - Respect reduced-motion preferences.
+
+## Roadmaps
+
+Keep sequential execution the default. Parallel mode exposes in-flight and per-repository
+limits plus a bounded integration-refresh allowance. Label order as priority, show each
+entry's exact waiting reason, and distinguish dependency, capacity, exclusion, and operator
+attention. In-flight counts include paused and merge-ready work; running-cycle counts do
+not. Individual pause/resume controls must not imply that sibling work will stop. Existing
+work-item links retain the review, diff, manual takeover, and explicit merge controls.

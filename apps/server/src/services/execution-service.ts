@@ -446,80 +446,82 @@ export class ExecutionService {
       `${slug(item.sourceId)}-${shortId}`,
     );
 
-    const base = await this.branches.creationBase(workspaceId, workItemId, repository.id);
-    reservation?.check();
-    const created = await git.createWorktree({
-      repositoryPath: repository.rootPath,
-      worktreePath: path,
-      branchName,
-      baseRef: base.headSha,
-    });
-    if (!created.ok) {
-      throw new ExecutionRequestError(
-        'invalid-request',
-        `Could not create worktree: ${created.failure.message}${
-          created.failure.stderr
-            ? ` (${created.failure.stderr.trim().split('\n').at(-1) ?? ''})`
-            : ''
-        }`,
-      );
-    }
-
-    const occurredAt = this.now().toISOString();
-    const worktree = this.storage.transaction((tx) => {
-      const inserted = tx.execution.worktrees.insert({
-        id: reservation?.id ?? asWorktreeId(randomUUID()),
-        workspaceId,
-        repositoryId: repository.id,
-        projectId: item.projectId,
-        workItemId,
+    return this.branches.duringMerge(repository.rootPath, async () => {
+      const base = await this.branches.creationBase(workspaceId, workItemId, repository.id);
+      reservation?.check();
+      const created = await git.createWorktree({
+        repositoryPath: repository.rootPath,
+        worktreePath: path,
         branchName,
-        baseSha: base.headSha,
-        baseBranch: base.branch,
-        integrationBranch: base.branch,
-        path,
-        createdAt: occurredAt,
-        createdByUserId: context.user.id,
+        baseRef: base.headSha,
       });
-      tx.audit.append({
-        id: asAuditEventId(randomUUID()),
-        occurredAt,
-        actorKind: context.session === undefined ? 'system' : 'user',
-        actorUserId: context.user.id,
-        ...(context.session === undefined ? {} : { sessionId: context.session.id }),
-        workspaceId,
-        ...(requestId === undefined ? {} : { requestId }),
-        action: 'worktree.create',
-        targetType: 'worktree',
-        targetId: inserted.id,
-        outcome: 'succeeded',
-        metadata: {
-          workItemId,
+      if (!created.ok) {
+        throw new ExecutionRequestError(
+          'invalid-request',
+          `Could not create worktree: ${created.failure.message}${
+            created.failure.stderr
+              ? ` (${created.failure.stderr.trim().split('\n').at(-1) ?? ''})`
+              : ''
+          }`,
+        );
+      }
+
+      const occurredAt = this.now().toISOString();
+      const worktree = this.storage.transaction((tx) => {
+        const inserted = tx.execution.worktrees.insert({
+          id: reservation?.id ?? asWorktreeId(randomUUID()),
+          workspaceId,
           repositoryId: repository.id,
-          branchName,
-          baseSha: inserted.baseSha,
-        },
-      });
-      tx.workspaceEvents.appendEvent({
-        id: asEventId(randomUUID()),
-        occurredAt,
-        workspaceId,
-        actorUserId: context.user.id,
-        projectId: item.projectId,
-        workItemId,
-        kind: 'worktree-created',
-        payload: {
-          worktreeId: inserted.id,
-          sourceRepositoryId: repository.id,
+          projectId: item.projectId,
           workItemId,
           branchName,
-          baseSha: inserted.baseSha,
-        },
+          baseSha: base.headSha,
+          baseBranch: base.branch,
+          integrationBranch: base.branch,
+          path,
+          createdAt: occurredAt,
+          createdByUserId: context.user.id,
+        });
+        tx.audit.append({
+          id: asAuditEventId(randomUUID()),
+          occurredAt,
+          actorKind: context.session === undefined ? 'system' : 'user',
+          actorUserId: context.user.id,
+          ...(context.session === undefined ? {} : { sessionId: context.session.id }),
+          workspaceId,
+          ...(requestId === undefined ? {} : { requestId }),
+          action: 'worktree.create',
+          targetType: 'worktree',
+          targetId: inserted.id,
+          outcome: 'succeeded',
+          metadata: {
+            workItemId,
+            repositoryId: repository.id,
+            branchName,
+            baseSha: inserted.baseSha,
+          },
+        });
+        tx.workspaceEvents.appendEvent({
+          id: asEventId(randomUUID()),
+          occurredAt,
+          workspaceId,
+          actorUserId: context.user.id,
+          projectId: item.projectId,
+          workItemId,
+          kind: 'worktree-created',
+          payload: {
+            worktreeId: inserted.id,
+            sourceRepositoryId: repository.id,
+            workItemId,
+            branchName,
+            baseSha: inserted.baseSha,
+          },
+        });
+        return inserted;
       });
-      return inserted;
+      this.notifier.notify();
+      return worktree;
     });
-    this.notifier.notify();
-    return worktree;
   }
 
   async removeWorktree(
@@ -563,56 +565,66 @@ export class ExecutionService {
       if (liveRuns.length > 0) {
         throw new ExecutionRequestError('conflict', 'A run is still live in this worktree');
       }
-      const removed = await this.requireGit().removeWorktree({
-        repositoryPath: repository.rootPath,
-        worktreePath: worktree.path,
-      });
-      if (!removed.ok) {
-        throw new ExecutionRequestError(
-          'invalid-request',
-          `Could not remove worktree: ${removed.failure.message}`,
-        );
-      }
-      const occurredAt = this.now().toISOString();
-      const result = this.storage.transaction((tx) => {
-        const marked = tx.execution.worktrees.markRemoved({ workspaceId, worktreeId, occurredAt });
-        if (marked === undefined) {
-          const current = tx.execution.worktrees.find(workspaceId, worktreeId);
-          if (current === undefined) throw new NotFoundError();
-          return { worktree: current, changed: false };
+      return this.branches.duringMerge(repository.rootPath, async () => {
+        const removed = await this.requireGit().removeWorktree({
+          repositoryPath: repository.rootPath,
+          worktreePath: worktree.path,
+        });
+        if (!removed.ok) {
+          throw new ExecutionRequestError(
+            'invalid-request',
+            `Could not remove worktree: ${removed.failure.message}`,
+          );
         }
-        tx.audit.append({
-          id: asAuditEventId(randomUUID()),
-          occurredAt,
-          actorKind: 'user',
-          actorUserId: context.user.id,
-          sessionId: context.session.id,
-          workspaceId,
-          ...(requestId === undefined ? {} : { requestId }),
-          action: 'worktree.remove',
-          targetType: 'worktree',
-          targetId: worktreeId,
-          outcome: 'succeeded',
-          priorVersion: worktree.version,
-          resultingVersion: marked.version,
-          metadata: { branchName: worktree.branchName },
+        const occurredAt = this.now().toISOString();
+        const result = this.storage.transaction((tx) => {
+          const marked = tx.execution.worktrees.markRemoved({
+            workspaceId,
+            worktreeId,
+            occurredAt,
+          });
+          if (marked === undefined) {
+            const current = tx.execution.worktrees.find(workspaceId, worktreeId);
+            if (current === undefined) throw new NotFoundError();
+            return { worktree: current, changed: false };
+          }
+          tx.audit.append({
+            id: asAuditEventId(randomUUID()),
+            occurredAt,
+            actorKind: 'user',
+            actorUserId: context.user.id,
+            sessionId: context.session.id,
+            workspaceId,
+            ...(requestId === undefined ? {} : { requestId }),
+            action: 'worktree.remove',
+            targetType: 'worktree',
+            targetId: worktreeId,
+            outcome: 'succeeded',
+            priorVersion: worktree.version,
+            resultingVersion: marked.version,
+            metadata: { branchName: worktree.branchName },
+          });
+          tx.workspaceEvents.appendEvent({
+            id: asEventId(randomUUID()),
+            occurredAt,
+            workspaceId,
+            actorUserId: context.user.id,
+            projectId: worktree.projectId,
+            workItemId: worktree.workItemId,
+            kind: 'worktree-removed',
+            payload: {
+              worktreeId,
+              workItemId: worktree.workItemId,
+              branchName: worktree.branchName,
+            },
+          });
+          return { worktree: marked, changed: true };
         });
-        tx.workspaceEvents.appendEvent({
-          id: asEventId(randomUUID()),
-          occurredAt,
-          workspaceId,
-          actorUserId: context.user.id,
-          projectId: worktree.projectId,
-          workItemId: worktree.workItemId,
-          kind: 'worktree-removed',
-          payload: { worktreeId, workItemId: worktree.workItemId, branchName: worktree.branchName },
-        });
-        return { worktree: marked, changed: true };
+        if (result.changed) {
+          this.notifier.notify();
+        }
+        return result;
       });
-      if (result.changed) {
-        this.notifier.notify();
-      }
-      return result;
     });
   }
 

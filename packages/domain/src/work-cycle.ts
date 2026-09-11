@@ -49,6 +49,7 @@ export interface WorkCycle {
   readonly stalledReviews: number;
   readonly previousFindingFingerprint?: string;
   readonly reviewHeadSha?: string;
+  readonly integrationRefreshes?: number;
   readonly reason: string;
 }
 export interface CompletionDecision {

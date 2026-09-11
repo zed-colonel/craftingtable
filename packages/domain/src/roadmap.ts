@@ -18,6 +18,22 @@ export const ROADMAP_STATUSES = [
   'completed',
 ] as const;
 export type RoadmapStatus = (typeof ROADMAP_STATUSES)[number];
+export interface RoadmapScheduling {
+  readonly mode: 'sequential' | 'parallel';
+  readonly maxInFlight: number;
+  readonly maxPerRepository: number;
+  readonly maxIntegrationRefreshes: number;
+}
+export const DEFAULT_ROADMAP_SCHEDULING: RoadmapScheduling = {
+  mode: 'sequential',
+  maxInFlight: 2,
+  maxPerRepository: 2,
+  maxIntegrationRefreshes: 3,
+};
+export interface RoadmapEntryHold {
+  readonly status: 'paused' | 'needs-attention';
+  readonly reason: string;
+}
 export interface RoadmapEntry {
   readonly id: string;
   readonly workItemId: WorkItemId;
@@ -30,6 +46,7 @@ export interface RoadmapEntry {
   readonly profiles: CycleProfiles;
   readonly policy: CompletionPolicy;
   readonly instructions: string;
+  readonly exclusionGroups?: readonly string[];
 }
 /** Immutable adopted definition; draft changes also create new revisions. */
 export interface RoadmapDefinition {
@@ -37,6 +54,7 @@ export interface RoadmapDefinition {
   readonly revision: number;
   readonly name: string;
   readonly entries: readonly RoadmapEntry[];
+  readonly scheduling?: RoadmapScheduling;
   readonly createdAt: string;
   readonly createdByUserId: UserId;
 }
@@ -63,12 +81,16 @@ export interface Roadmap {
   readonly createdByUserId: UserId;
   readonly delegatedByUserId?: UserId;
   readonly attempts: readonly RoadmapAttempt[];
+  readonly entryHolds?: Readonly<Record<string, RoadmapEntryHold>>;
 }
 export interface RoadmapEntryProgress {
   readonly entryId: string;
   readonly status:
     | 'queued'
     | 'dependency-blocked'
+    | 'capacity-blocked'
+    | 'exclusion-blocked'
+    | 'paused'
     | 'running'
     | 'awaiting-merge'
     | 'needs-attention'

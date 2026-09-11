@@ -63,6 +63,7 @@ export const workCycleSchema = z.strictObject({
     .string()
     .regex(/^[0-9a-f]{7,64}$/)
     .optional(),
+  integrationRefreshes: z.number().int().nonnegative().optional(),
   reason: z.string().max(4000),
 });
 export const workCyclesResponseSchema = z.strictObject({ cycles: z.array(workCycleSchema) });

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { StartWorkCycleRequest } from '@craftingtable/contracts';
 import {
+  DEFAULT_ROADMAP_SCHEDULING,
   type AgentRun,
   asAgentRunId,
   asAuditEventId,
@@ -17,7 +18,7 @@ import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
 import type { CommandContext } from './auth-service.js';
-import type { BranchService } from './branch-service.js';
+import { RepositoryMutationBusyError, type BranchService } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { latestReviewReport, runLineage } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -260,7 +261,10 @@ export class WorkCycleService {
           await this.reconcile(cycle);
         } catch (error) {
           const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-          if (current?.version === cycle.version && current.status === 'running') {
+          if (
+            current?.version === cycle.version &&
+            ['running', 'awaiting-merge'].includes(current.status)
+          ) {
             this.attention(
               current,
               error instanceof ExecutionRequestError
@@ -287,7 +291,7 @@ export class WorkCycleService {
       });
       return;
     }
-    if (cycle.status !== 'running') return;
+    if (!['running', 'awaiting-merge'].includes(cycle.status)) return;
     if (worktree?.status !== 'active') {
       this.attention(cycle, 'Worktree is no longer active.');
       return;
@@ -307,6 +311,11 @@ export class WorkCycleService {
       return;
     }
     this.requireReady(cycle.workspaceId, cycle.workItemId);
+    if (cycle.status === 'awaiting-merge') {
+      const review = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+      await this.refreshIntegration(cycle, review);
+      return;
+    }
     if (this.now().getTime() >= Date.parse(cycle.runDeadlineAt)) {
       this.runs.finishCycleTurn(cycle, true);
       this.attention(
@@ -317,6 +326,16 @@ export class WorkCycleService {
     }
     const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
     if (!run) {
+      if (
+        cycle.step === 'review' &&
+        (await this.refreshIntegration(
+          cycle,
+          cycle.parentRunId
+            ? this.storage.execution.runs.find(cycle.workspaceId, cycle.parentRunId)
+            : undefined,
+        ))
+      )
+        return;
       await this.runs.startForCycle(cycle);
       return;
     }
@@ -359,6 +378,7 @@ export class WorkCycleService {
       return;
     }
     if (cycle.step === 'implement' || cycle.step === 'remediate') {
+      if (await this.refreshIntegration(cycle, run)) return;
       await this.next(cycle, 'review', run);
       return;
     }
@@ -367,6 +387,7 @@ export class WorkCycleService {
       this.attention(cycle, 'The worktree changed during review. A fresh review is required.');
       return;
     }
+    if (await this.refreshIntegration(cycle, run)) return;
     const reviewedWorktree = this.storage.execution.worktrees.find(
       cycle.workspaceId,
       cycle.worktreeId,
@@ -412,6 +433,153 @@ export class WorkCycleService {
     });
   }
 
+  /** Only an actively delegated parallel attempt may refresh itself. Settings bind to its revision. */
+  private refreshOwner(cycle: WorkCycle) {
+    const roadmap = this.storage.roadmaps
+      .list(cycle.workspaceId)
+      .find((r) => r.attempts.some((a) => a.cycleId === cycle.id && a.status === 'active'));
+    if (roadmap?.status !== 'running') return;
+    const attempt = roadmap.attempts.find((a) => a.cycleId === cycle.id);
+    if (!attempt || roadmap.entryHolds?.[attempt.entryId]) return;
+    const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId);
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    if (
+      !entry ||
+      tree?.integrationBranch !== entry.integrationBranch ||
+      tree.repositoryId !== entry.repositoryId
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'The roadmap worktree branch binding changed. Reconcile it before resuming.',
+      );
+    const definition =
+      roadmap.definition.revision === attempt.definitionRevision
+        ? roadmap.definition
+        : this.storage.roadmaps
+            .history(cycle.workspaceId, roadmap.id)
+            .find((d) => d.revision === attempt.definitionRevision);
+    const settings = definition?.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
+    if (settings.mode !== 'parallel') return;
+    const user =
+      roadmap.delegatedByUserId && this.storage.users.findById(roadmap.delegatedByUserId);
+    const membership = user && this.storage.workspaces.findAuthorized(user.id, cycle.workspaceId);
+    if (
+      user?.status !== 'active' ||
+      !membership ||
+      !['owner', 'editor'].includes(membership.membership.role)
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'The roadmap initiating user no longer has permission.',
+      );
+    return { settings, context: { user } };
+  }
+
+  private async refreshIntegration(cycle: WorkCycle, parent?: AgentRun): Promise<boolean> {
+    const owner = this.refreshOwner(cycle);
+    if (!owner || !this.branches) return false;
+    const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    if (
+      !worktree ||
+      this.storage.execution.runs
+        .listForWorktree(cycle.workspaceId, cycle.worktreeId)
+        .some((run) => !isTerminalAgentRunStatus(run.status))
+    )
+      return false;
+    const advanced = await this.branches.integrationAdvanced(
+      worktree,
+      cycle.step === 'review' && parent?.id === cycle.currentRunId ? parent : undefined,
+    );
+    if (advanced === undefined) return true; // Wait for the repository's mutation lane.
+    if (!advanced) return false;
+    // Reserve a bounded attempt before Git. A restart cannot silently retry a partial update.
+    const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+    if (
+      this.abort.signal.aborted ||
+      current?.version !== cycle.version ||
+      !this.refreshOwner(cycle)
+    )
+      return true;
+    if ((cycle.integrationRefreshes ?? 0) >= owner.settings.maxIntegrationRefreshes) {
+      this.attention(
+        cycle,
+        'Integration refresh limit reached. Update from integration manually, then resume for fresh review.',
+      );
+      return true;
+    }
+    const reserved = this.change(cycle, {
+      status: 'running',
+      integrationRefreshes: (cycle.integrationRefreshes ?? 0) + 1,
+      reason: 'Updating from integration before a fresh review of the combined changes.',
+    });
+    const check = () => {
+      const latest = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+      if (
+        this.abort.signal.aborted ||
+        latest?.version !== reserved.version ||
+        latest.status !== 'running' ||
+        !this.refreshOwner(reserved)
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Integration refresh was superseded by an operator command.',
+        );
+      const user = this.storage.users.findById(cycle.createdByUserId);
+      const access = this.storage.workspaces.findAuthorized(
+        cycle.createdByUserId,
+        cycle.workspaceId,
+      );
+      if (
+        user?.status !== 'active' ||
+        !access ||
+        !['owner', 'editor'].includes(access.membership.role)
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'The initiating user no longer has permission to run this cycle.',
+        );
+    };
+    try {
+      check();
+      await this.branches.changeWorktree(
+        owner.context,
+        cycle.workspaceId,
+        cycle.worktreeId,
+        { expectedVersion: worktree.version },
+        true,
+        { cycleId: cycle.id, check },
+      );
+      check();
+      await this.next(reserved, 'review', parent);
+    } catch (error) {
+      const latest = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+      if (
+        latest?.version === reserved.version &&
+        latest.status === 'running' &&
+        error instanceof RepositoryMutationBusyError
+      ) {
+        this.change(latest, {
+          status: cycle.status,
+          integrationRefreshes: cycle.integrationRefreshes ?? 0,
+          reason: 'Waiting for the repository mutation to finish before refreshing.',
+        });
+        return true;
+      }
+      if (
+        latest?.version === reserved.version &&
+        latest.status === 'running' &&
+        !this.abort.signal.aborted
+      )
+        this.attention(
+          latest,
+          error instanceof ExecutionRequestError
+            ? error.message
+            : 'Integration update failed. Inspect the worktree before resuming.',
+        );
+    }
+    return true;
+  }
+
   private async next(
     cycle: WorkCycle,
     step: CycleStep,
@@ -420,7 +588,11 @@ export class WorkCycleService {
     changes: Partial<WorkCycle> = {},
   ): Promise<WorkCycle> {
     const reviewHeadSha = step === 'review' ? await this.cleanHead(cycle) : undefined;
-    if (this.abort.signal.aborted) return cycle;
+    if (
+      this.abort.signal.aborted ||
+      this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !== cycle.version
+    )
+      return cycle;
     return this.change(
       cycle,
       {

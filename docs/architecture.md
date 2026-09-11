@@ -185,12 +185,22 @@ required. Pushover sits behind an injectable transport. Settings and workflow/de
 changes append audit and workspace events in the same transaction; claim bookkeeping is
 internal. See ADR-027 for delivery and credential semantics.
 
-## Sequential roadmaps
+## Roadmaps
 
-`RoadmapService` selects the next entry in one ordered queue per workspace and delegates
-whole-item execution to `WorkCycleService`. Schema 12 separates immutable roadmap
+`RoadmapService` selects eligible entries in one delegated roadmap per workspace and delegates
+whole-item execution to `WorkCycleService`. Sequential mode preserves strict order; parallel
+mode scans in priority order under dependency, in-flight, repository, and exclusion constraints. Schema 12 separates immutable roadmap
 revisions from mutable, versioned control state and independently identified attempts.
 Each attempt reserves its worktree and cycle IDs before Git work; cycle creation and
 attempt attachment commit together. Branch targets and effective step settings are bound
 explicitly. The scheduler never calls merge. See ADR-029 for admission, capacity, recovery,
 and manual takeover behavior; ADR-028 preserves the later slice and Studio boundaries.
+
+Parallel settings and item holds are additive JSON fields in schema 12; older definitions
+retain sequential semantics. Attempts reserve capacity before Git creation. The single
+scheduler serializes admission, and repository mutation guards serialize daemon creation,
+removal, integration updates, and merges. Paused items retain reservations; item attention
+does not disable scheduling for siblings. Only a started attempt's own merge releases its
+successors. `WorkCycleService` refreshes only actively delegated parallel attempts, with
+limits bound to the attempt's immutable revision. It waits for idle sessions, invalidates
+review context before Git, and reserves a fresh review after updating. See ADR-030.

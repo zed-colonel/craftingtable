@@ -20,7 +20,7 @@ import {
 } from '@craftingtable/domain';
 import type { GitOperations, GitResult } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
-import type { AuthContext } from './auth-service.js';
+import type { AuthContext, CommandContext } from './auth-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -32,6 +32,15 @@ function value<T>(result: GitResult<T>): T {
 }
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
+}
+
+export class RepositoryMutationBusyError extends ExecutionRequestError {
+  constructor() {
+    super(
+      'conflict',
+      'Another merge or repository mutation is in progress; retry after it finishes',
+    );
+  }
 }
 
 /** Plan execution settings are mutable; imported plan contents and worktree bases are not. */
@@ -374,7 +383,7 @@ export class BranchService {
     }
   }
 
-  private requireIdle(worktree: Worktree, expectedVersion: number) {
+  private requireIdle(worktree: Worktree, expectedVersion: number, ownedCycleId?: string) {
     if (worktree.version !== expectedVersion) conflict('Worktree changed; refresh and try again');
     if (
       this.storage.execution.runs
@@ -386,85 +395,124 @@ export class BranchService {
       worktree.workspaceId,
       worktree.id,
     );
-    if (cycle?.status === 'running' || cycle?.status === 'awaiting-merge')
+    if (
+      (cycle?.status === 'running' || cycle?.status === 'awaiting-merge') &&
+      cycle.id !== ownedCycleId
+    )
       conflict('Pause the cycle before changing or updating this worktree, then resume for review');
   }
 
   async changeWorktree(
-    context: AuthContext,
+    context: CommandContext,
     workspaceId: WorkspaceId,
     worktreeId: WorktreeId,
     input: { expectedVersion: number; integrationBranch?: string },
     update: boolean,
+    delegation?: { cycleId: string; check: () => void },
   ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
-    this.worktree(workspaceId, worktreeId);
-    return this.mutations.during(worktreeId, async () => {
-      const worktree = this.worktree(workspaceId, worktreeId);
-      this.requireIdle(worktree, input.expectedVersion);
-      const repo = this.repository(workspaceId, worktree.repositoryId);
-      const target = input.integrationBranch ?? worktree.integrationBranch;
-      if (target === undefined) conflict('Adopt an integration branch first');
-      if (
-        this.storage.execution.worktrees
-          .listActive(workspaceId)
-          .some((w) => w.repositoryId === repo.id && w.branchName === target)
-      )
-        conflict('A managed work-item branch cannot be an integration branch');
-      const git = this.requireGit();
-      const targetSha = value(await git.resolveBranch(repo.rootPath, target));
-      const item = this.storage.planning.workItems.find(workspaceId, worktree.workItemId);
-      if (item === undefined) throw new NotFoundError();
-      const state = value(await git.inspectRepository(worktree.path));
-      if (!state.clean || state.branch !== worktree.branchName)
-        conflict('A clean worktree on its managed branch is required');
-      // Invalidate previous reviews durably before Git can change the worktree, including a failed update.
-      const changed = this.storage.transaction((tx) => {
-        const saved = tx.execution.worktrees.setIntegrationBranch({
-          workspaceId,
-          worktreeId,
-          integrationBranch: target,
-          expectedVersion: input.expectedVersion,
-        });
-        if (saved === undefined) conflict('Worktree changed; refresh and try again');
-        this.record(
-          tx,
-          context,
-          workspaceId,
-          item.projectId,
-          item.planVersionId,
-          update ? 'update-requested' : 'retargeted',
-          { worktreeId, integrationBranch: target, version: saved.version },
+    const initial = this.worktree(workspaceId, worktreeId);
+    const repository = this.repository(workspaceId, initial.repositoryId);
+    return this.duringMerge(repository.rootPath, () =>
+      this.mutations.during(worktreeId, async () => {
+        const worktree = this.worktree(workspaceId, worktreeId);
+        delegation?.check();
+        this.requireIdle(worktree, input.expectedVersion, delegation?.cycleId);
+        const repo = this.repository(workspaceId, worktree.repositoryId);
+        const target = input.integrationBranch ?? worktree.integrationBranch;
+        if (target === undefined) conflict('Adopt an integration branch first');
+        if (
+          this.storage.execution.worktrees
+            .listActive(workspaceId)
+            .some((w) => w.repositoryId === repo.id && w.branchName === target)
+        )
+          conflict('A managed work-item branch cannot be an integration branch');
+        const git = this.requireGit();
+        const targetSha = value(await git.resolveBranch(repo.rootPath, target));
+        const item = this.storage.planning.workItems.find(workspaceId, worktree.workItemId);
+        if (item === undefined) throw new NotFoundError();
+        const state = value(await git.inspectRepository(worktree.path));
+        if (!state.clean || state.branch !== worktree.branchName)
+          conflict('A clean worktree on its managed branch is required');
+        delegation?.check();
+        this.requireIdle(
+          this.worktree(workspaceId, worktreeId),
+          input.expectedVersion,
+          delegation?.cycleId,
         );
-        return saved;
-      });
-      this.notifier.notify();
-      if (update) {
-        const updated = value(
-          await git.updateWorktree({
-            worktreePath: worktree.path,
-            branchName: worktree.branchName,
-            expectedHeadSha: state.headSha,
-            targetSha,
-          }),
-        );
-        this.storage.transaction((tx) =>
-          this.record(tx, context, workspaceId, item.projectId, item.planVersionId, 'updated', {
+        // Invalidate previous reviews durably before Git can change the worktree, including a failed update.
+        const changed = this.storage.transaction((tx) => {
+          const saved = tx.execution.worktrees.setIntegrationBranch({
+            workspaceId,
             worktreeId,
             integrationBranch: target,
-            headSha: updated.mergeSha,
-            targetSha,
-          }),
-        );
+            expectedVersion: input.expectedVersion,
+          });
+          if (saved === undefined) conflict('Worktree changed; refresh and try again');
+          this.record(
+            tx,
+            context,
+            workspaceId,
+            item.projectId,
+            item.planVersionId,
+            update ? 'update-requested' : 'retargeted',
+            { worktreeId, integrationBranch: target, version: saved.version },
+          );
+          return saved;
+        });
         this.notifier.notify();
-      }
-      return { worktree: changed };
-    });
+        if (update) {
+          const updated = value(
+            await git.updateWorktree({
+              worktreePath: worktree.path,
+              branchName: worktree.branchName,
+              expectedHeadSha: state.headSha,
+              targetSha,
+            }),
+          );
+          this.storage.transaction((tx) =>
+            this.record(tx, context, workspaceId, item.projectId, item.planVersionId, 'updated', {
+              worktreeId,
+              integrationBranch: target,
+              headSha: updated.mergeSha,
+              targetSha,
+            }),
+          );
+          this.notifier.notify();
+        }
+        return { worktree: changed };
+      }),
+    );
+  }
+
+  /** Read-only freshness probe, used only at idle cycle boundaries. */
+  async integrationAdvanced(worktree: Worktree, reviewed?: AgentRun): Promise<boolean | undefined> {
+    if (!worktree.integrationBranch) conflict('Worktree has no integration branch.');
+    const repo = this.repository(worktree.workspaceId, worktree.repositoryId);
+    if (this.mergingRepositories.has(repo.rootPath)) return undefined;
+    const git = this.requireGit();
+    const targetResult = await git.resolveBranch(repo.rootPath, worktree.integrationBranch);
+    const stateResult = await git.inspectRepository(worktree.path);
+    if (
+      this.mergingRepositories.has(repo.rootPath) ||
+      this.storage.execution.worktrees.find(worktree.workspaceId, worktree.id)?.status !== 'active'
+    )
+      return undefined;
+    const target = value(targetResult);
+    const state = value(stateResult);
+    return (
+      !value(await git.isAncestor(repo.rootPath, target, state.headSha)) ||
+      (reviewed?.reviewBranchContext !== undefined &&
+        reviewed.reviewBranchContext.targetSha !== target)
+    );
+  }
+
+  repositoryBusy(repositoryPath: string): boolean {
+    return this.mergingRepositories.has(repositoryPath);
   }
 
   async duringMerge<T>(repositoryPath: string, operation: () => Promise<T>): Promise<T> {
-    if (this.mergingRepositories.has(repositoryPath))
-      conflict('Another merge is in progress for this repository; refresh after it finishes');
+    if (this.mergingRepositories.has(repositoryPath)) throw new RepositoryMutationBusyError();
     this.mergingRepositories.add(repositoryPath);
     try {
       return await operation();
@@ -475,7 +523,7 @@ export class BranchService {
 
   private record(
     tx: StorageRepositories,
-    context: AuthContext,
+    context: CommandContext,
     workspaceId: WorkspaceId,
     projectId: ProjectId,
     planVersionId: PlanVersionId,
@@ -486,9 +534,9 @@ export class BranchService {
     tx.audit.append({
       id: asAuditEventId(randomUUID()),
       occurredAt,
-      actorKind: 'user',
+      actorKind: context.session ? 'user' : 'system',
       actorUserId: context.user.id,
-      sessionId: context.session.id,
+      ...(context.session ? { sessionId: context.session.id } : {}),
       workspaceId,
       action: 'branches.updated',
       targetType: 'plan-version',

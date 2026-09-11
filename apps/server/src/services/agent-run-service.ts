@@ -271,6 +271,9 @@ export class AgentRunService {
           cycle.step === 'design'
             ? 'End with exactly one section headed ## Open questions. Its entire body must be none when there are no unresolved questions. Otherwise list the questions for the operator.'
             : '',
+          cycle.step === 'review' && (cycle.integrationRefreshes ?? 0) > 0
+            ? 'The integration branch has been refreshed during this cycle. Review the combined changes and rerun the relevant repository checks; a prior review or a clean Git merge is not verification of this state.'
+            : '',
           cycle.step === 'remediate'
             ? `Address all open blocking, major, and minor findings, and reduce open nits to at most ${cycle.policy.maxNits}. Preserve finding IDs and give the reviewer evidence of each resolution.`
             : '',

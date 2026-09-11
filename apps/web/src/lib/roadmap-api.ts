@@ -27,9 +27,14 @@ export const controlRoadmap = (
   roadmap: Roadmap,
   action: 'start' | 'pause' | 'resume' | 'stop',
   csrfToken: string,
+  entryId?: string,
 ) =>
   request(
     `${base(roadmap.workspaceId)}/${roadmap.id}/control`,
     roadmapViewSchema,
-    mutation(csrfToken, { action, expectedVersion: roadmap.version }),
+    mutation(csrfToken, {
+      action,
+      expectedVersion: roadmap.version,
+      ...(entryId ? { entryId } : {}),
+    }),
   );

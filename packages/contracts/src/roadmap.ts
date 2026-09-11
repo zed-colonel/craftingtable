@@ -11,18 +11,30 @@ import {
 } from './ids.js';
 import { cycleProfilesSchema, completionPolicySchema } from './work-cycle.js';
 export const roadmapIdSchema = z.string().uuid();
+export const roadmapSchedulingSchema = z.strictObject({
+  mode: z.enum(['sequential', 'parallel']),
+  maxInFlight: z.number().int().min(1).max(16),
+  maxPerRepository: z.number().int().min(1).max(16),
+  maxIntegrationRefreshes: z.number().int().min(1).max(20),
+});
 export const roadmapEntryInputSchema = z.strictObject({
   id: z.string().uuid(),
   workItemId: workItemIdSchema,
   profiles: cycleProfilesSchema,
   policy: completionPolicySchema,
   instructions: z.string().max(16000),
+  exclusionGroups: z
+    .array(z.string().trim().min(1).max(80))
+    .max(20)
+    .refine((groups) => new Set(groups).size === groups.length, 'Exclusion groups must be unique')
+    .optional(),
 });
 export const saveRoadmapRequestSchema = z
   .strictObject({
     expectedVersion: z.number().int().nonnegative(),
     name: z.string().trim().min(1).max(120),
     entries: z.array(roadmapEntryInputSchema).min(1).max(100),
+    scheduling: roadmapSchedulingSchema.optional(),
   })
   .refine(
     (x) =>
@@ -34,6 +46,7 @@ export type SaveRoadmapRequest = z.infer<typeof saveRoadmapRequestSchema>;
 export const controlRoadmapRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
   action: z.enum(['start', 'pause', 'resume', 'stop']),
+  entryId: z.string().uuid().optional(),
 });
 const entrySchema = roadmapEntryInputSchema.extend({
   projectId: projectIdSchema,
@@ -48,6 +61,7 @@ export const roadmapDefinitionSchema = z.strictObject({
   revision: z.number().int().positive(),
   name: z.string(),
   entries: z.array(entrySchema),
+  scheduling: roadmapSchedulingSchema.optional(),
   createdAt: z.iso.datetime(),
   createdByUserId: userIdSchema,
 });
@@ -62,6 +76,15 @@ export const roadmapSchema = z.strictObject({
   updatedAt: z.iso.datetime(),
   createdByUserId: userIdSchema,
   delegatedByUserId: userIdSchema.optional(),
+  entryHolds: z
+    .record(
+      z.string().uuid(),
+      z.strictObject({
+        status: z.enum(['paused', 'needs-attention']),
+        reason: z.string().max(4000),
+      }),
+    )
+    .optional(),
   attempts: z.array(
     z.strictObject({
       id: z.string().uuid(),
@@ -83,6 +106,9 @@ export const roadmapViewSchema = z.strictObject({
       status: z.enum([
         'queued',
         'dependency-blocked',
+        'capacity-blocked',
+        'exclusion-blocked',
+        'paused',
         'running',
         'awaiting-merge',
         'needs-attention',

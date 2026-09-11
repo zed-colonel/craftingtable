@@ -6,6 +6,7 @@ import type {
 import {
   CYCLE_STEPS,
   DEFAULT_COMPLETION_POLICY,
+  DEFAULT_ROADMAP_SCHEDULING,
   type CycleProfiles,
   type Roadmap,
   type RoadmapDefinition,
@@ -119,11 +120,15 @@ export function RoadmapsPage({
   }, [workspaceId]);
   const apply = (view: RoadmapView) =>
     setRoadmaps((current) => [view, ...current.filter((r) => r.roadmap.id !== view.roadmap.id)]);
-  const command = async (roadmap: Roadmap, action: 'start' | 'pause' | 'resume' | 'stop') => {
+  const command = async (
+    roadmap: Roadmap,
+    action: 'start' | 'pause' | 'resume' | 'stop',
+    entryId?: string,
+  ) => {
     setBusy(true);
     setError(undefined);
     try {
-      apply(await controlRoadmap(roadmap, action, csrfToken));
+      apply(await controlRoadmap(roadmap, action, csrfToken, entryId));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Roadmap command failed.');
     } finally {
@@ -135,13 +140,15 @@ export function RoadmapsPage({
       id: roadmap.id,
       expectedVersion: roadmap.version,
       name: roadmap.definition.name,
+      scheduling: roadmap.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING,
       entries: roadmap.definition.entries.map(
-        ({ id, workItemId, profiles, policy, instructions }) => ({
+        ({ id, workItemId, profiles, policy, instructions, exclusionGroups }) => ({
           id,
           workItemId,
           profiles,
           policy,
           instructions,
+          ...(exclusionGroups === undefined ? {} : { exclusionGroups: [...exclusionGroups] }),
         }),
       ),
     });
@@ -152,6 +159,7 @@ export function RoadmapsPage({
     current?.definition.entries.findLastIndex((e) =>
       current.attempts.some((a) => a.entryId === e.id),
     ) ?? -1;
+  const parallel = draft?.scheduling?.mode === 'parallel';
   const updateEntry = (index: number, changes: Partial<SaveRoadmapRequest['entries'][number]>) => {
     if (draft)
       setDraft({
@@ -165,7 +173,7 @@ export function RoadmapsPage({
         <div>
           <h1>Roadmaps</h1>
           <p className="subtitle">
-            An ordered sequence of work items, with your approval at every merge.
+            Sequential or parallel work items, with your approval at every merge.
           </p>
         </div>
         {canMutate && !draft && (
@@ -174,7 +182,13 @@ export function RoadmapsPage({
             className="primary-button"
             disabled={busy || !defaults}
             onClick={() =>
-              setDraft({ id: crypto.randomUUID(), expectedVersion: 0, name: '', entries: [] })
+              setDraft({
+                id: crypto.randomUUID(),
+                expectedVersion: 0,
+                name: '',
+                entries: [],
+                scheduling: DEFAULT_ROADMAP_SCHEDULING,
+              })
             }
           >
             New roadmap
@@ -187,10 +201,11 @@ export function RoadmapsPage({
         </p>
       )}
       <p className="hint">
-        One delegated roadmap per workspace. Each item waits for earlier entries and required
-        predecessors. The daemon creates its branch and worktree when eligible, runs its automated
-        cycle, and waits for you to merge. Closing the browser leaves scheduling active. Restarting
-        the daemon requires explicit resume.
+        One delegated roadmap per workspace. Sequential mode follows list order; parallel mode
+        starts eligible items in priority order, subject to dependencies, capacity, and exclusion
+        groups. The daemon creates its branch and worktree when eligible, runs its automated cycle,
+        and waits for you to merge. Closing the browser leaves scheduling active. Restarting the
+        daemon requires explicit resume.
       </p>
       {draft && (
         <section className="panel" aria-label="Roadmap editor">
@@ -221,6 +236,62 @@ export function RoadmapsPage({
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               />
             </label>
+            <label className="field">
+              Scheduling mode
+              <select
+                value={draft.scheduling?.mode ?? 'sequential'}
+                disabled={busy || !!current?.attempts.some((a) => a.status !== 'completed')}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    scheduling: {
+                      ...(draft.scheduling ?? DEFAULT_ROADMAP_SCHEDULING),
+                      mode: e.target.value as 'sequential' | 'parallel',
+                    },
+                  })
+                }
+              >
+                <option value="sequential">Sequential</option>
+                <option value="parallel">Parallel</option>
+              </select>
+            </label>
+            {parallel && (
+              <>
+                <p className="hint">
+                  List order is scheduling priority. Required predecessors must be merged first.
+                  Items awaiting merge or attention retain their capacity and exclusion groups.
+                  Refresh limits are fixed for each item when it starts.
+                </p>
+                {(
+                  [
+                    ['maxInFlight', 'Maximum in-flight items', 16],
+                    ['maxPerRepository', 'Maximum in-flight items per repository', 16],
+                    ['maxIntegrationRefreshes', 'Maximum integration refreshes per item', 20],
+                  ] as const
+                ).map(([key, label, max]) => (
+                  <label className="field" key={key}>
+                    {label}
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      max={max}
+                      disabled={busy}
+                      value={draft.scheduling?.[key] ?? DEFAULT_ROADMAP_SCHEDULING[key]}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          scheduling: {
+                            ...(draft.scheduling ?? DEFAULT_ROADMAP_SCHEDULING),
+                            [key]: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+              </>
+            )}
             <label className="field">
               Add work item
               <select
@@ -272,7 +343,9 @@ export function RoadmapsPage({
                 const item =
                   items.find((i) => i.id === entry.workItemId) ??
                   current?.definition.entries.find((i) => i.workItemId === entry.workItemId);
-                const frozen = index <= lastStarted;
+                const frozen = parallel
+                  ? !!current?.attempts.some((a) => a.entryId === entry.id)
+                  : index <= lastStarted;
                 return (
                   <li key={entry.id} className="panel">
                     <h3>
@@ -282,7 +355,9 @@ export function RoadmapsPage({
                       <button
                         type="button"
                         className="secondary-button"
-                        disabled={busy || frozen || index <= lastStarted + 1}
+                        disabled={
+                          busy || (parallel ? index === 0 : frozen || index <= lastStarted + 1)
+                        }
                         onClick={() => {
                           const entries = [...draft.entries];
                           const prior = entries[index - 1];
@@ -298,7 +373,9 @@ export function RoadmapsPage({
                       <button
                         type="button"
                         className="secondary-button"
-                        disabled={busy || frozen || index === draft.entries.length - 1}
+                        disabled={
+                          busy || (!parallel && frozen) || index === draft.entries.length - 1
+                        }
                         onClick={() => {
                           const entries = [...draft.entries];
                           const next = entries[index + 1];
@@ -327,8 +404,31 @@ export function RoadmapsPage({
                     </div>
                     {frozen && (
                       <p className="hint">
-                        This entry has started. Its position and effective settings stay fixed.
+                        This entry has started. Its effective settings stay fixed.
                       </p>
+                    )}
+                    {parallel && (
+                      <label className="field">
+                        Exclusion groups (comma separated)
+                        <input
+                          disabled={busy || frozen}
+                          value={(entry.exclusionGroups ?? []).join(', ')}
+                          onChange={(e) =>
+                            updateEntry(index, {
+                              exclusionGroups: e.target.value
+                                .split(',')
+                                .map((group) => group.trim()),
+                            })
+                          }
+                          onBlur={() =>
+                            updateEntry(index, {
+                              exclusionGroups: [
+                                ...new Set((entry.exclusionGroups ?? []).filter(Boolean)),
+                              ],
+                            })
+                          }
+                        />
+                      </label>
                     )}
                     <details>
                       <summary>Agents, models, and completion policy</summary>
@@ -395,6 +495,15 @@ export function RoadmapsPage({
             <strong>{labels[roadmap.status]}</strong> ·{' '}
             {progress.filter((p) => p.status === 'completed').length}/{progress.length} completed ·
             Revision {roadmap.definition.revision}
+          </p>
+          <p>
+            {roadmap.definition.scheduling?.mode === 'parallel'
+              ? `Parallel · ${roadmap.definition.scheduling.maxInFlight} in-flight slots · ${roadmap.definition.scheduling.maxPerRepository} per repository`
+              : 'Sequential'}
+          </p>
+          <p>
+            {roadmap.attempts.filter((a) => a.status !== 'completed').length} in flight ·{' '}
+            {progress.filter((p) => p.status === 'running').length} cycles running
           </p>
           <p role="status">{roadmap.reason}</p>
           <div className="inline-actions">
@@ -489,19 +598,51 @@ export function RoadmapsPage({
                     <strong>
                       {state?.status === 'awaiting-merge'
                         ? 'Awaiting merge approval'
-                        : state?.status === 'dependency-blocked'
-                          ? 'Waiting on prerequisites'
-                          : state?.status === 'needs-attention'
-                            ? 'Needs attention'
-                            : state?.status === 'completed'
-                              ? 'Completed'
-                              : state?.status === 'running'
-                                ? 'Running'
-                                : 'Queued'}
+                        : state?.status === 'paused'
+                          ? 'Item paused'
+                          : state?.status === 'capacity-blocked'
+                            ? 'Waiting for capacity'
+                            : state?.status === 'exclusion-blocked'
+                              ? 'Waiting for exclusion group'
+                              : state?.status === 'dependency-blocked'
+                                ? 'Waiting on prerequisites'
+                                : state?.status === 'needs-attention'
+                                  ? 'Needs attention'
+                                  : state?.status === 'completed'
+                                    ? 'Completed'
+                                    : state?.status === 'running'
+                                      ? 'Running'
+                                      : 'Queued'}
                     </strong>{' '}
                     · <code>{entry.integrationBranch}</code>
                   </p>
                   <p className="hint">{state?.reason}</p>
+                  {!!entry.exclusionGroups?.length && (
+                    <p className="hint">Exclusion groups: {entry.exclusionGroups.join(', ')}</p>
+                  )}
+                  {canMutate &&
+                    roadmap.status === 'running' &&
+                    roadmap.definition.scheduling?.mode === 'parallel' &&
+                    state?.status !== 'completed' && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={busy}
+                        onClick={() =>
+                          void command(
+                            roadmap,
+                            ['paused', 'needs-attention'].includes(state?.status ?? '')
+                              ? 'resume'
+                              : 'pause',
+                            entry.id,
+                          )
+                        }
+                      >
+                        {['paused', 'needs-attention'].includes(state?.status ?? '')
+                          ? 'Resume item'
+                          : 'Pause item'}
+                      </button>
+                    )}
                   <details>
                     <summary>Bound plan and cycle settings</summary>
                     <p className="hint">

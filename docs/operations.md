@@ -244,3 +244,45 @@ Configured Pushover delivery handles item merge/attention checkpoints with the e
 reminder schedule. Scheduler failures without an existing item alert also produce roadmap
 attention reminders; pause/stop resolves those reminders. Normal prerequisite/capacity waits
 remain visible on the roadmap. Roadmap completion is shown in the app and activity journal.
+
+
+## Parallel roadmaps
+
+Choose **Scheduling mode → Parallel** when creating a roadmap. Existing definitions remain
+sequential. No new migration is needed beyond schema 12. Set maximum in-flight items and
+maximum in-flight items per repository (both default to 2), plus the integration-refresh
+limit for each new item (default 3). In-flight includes work waiting for merge, paused work,
+and work needing attention. The summary separately shows cycles currently running.
+
+List order is scheduling priority. A blocked earlier entry does not stop an eligible later
+entry. Required dependencies still come from the imported plan, and only operator merges
+release started prerequisites. There is no implicit merge order based on position or item
+number, and this increment does not import the draft cross-project map.
+
+For a fork such as AQ-08 → AQ-09 and AQ-10, select all three and start once. AQ-08 runs first;
+after its merge, both successors can get their own worktree from the updated integration
+head. After merging either successor, the other updates from integration at an idle review
+boundary and runs a fresh review with the combined-state checks. It may need remediation
+again. Conflicts abort the update and require manual attention; the existing **Update from
+integration** and cycle resume controls remain available. Exhausting the refresh limit also
+requires a manual update before resuming. No controller performs a final merge.
+
+Use comma-separated **Exclusion groups** on entries that must not overlap. Names are exact
+and workspace-scoped; sharing any group prevents overlap until the holder merges or its
+worktree is removed. Existing manual worktrees consume repository capacity, and an item
+with a manual worktree is not delegated a duplicate. When multiple workspace roadmaps share
+one registered checkout, admission respects the tightest active repository limit.
+
+**Pause item** holds just that entry. **Resume item** retries its preparation or resumes its
+paused cycle through normal handoff checks. Other eligible items continue if capacity permits.
+An item already awaiting merge keeps its checkpoint, including when paused. Its operator
+merge is still recognized and releases dependents. Item preparation failures use the existing
+Pushover reminder schedule; sibling progress does not reset those reminders.
+
+**Pause roadmap** stops new admission and pauses every running owned cycle; **Stop roadmap**
+ends all owned cycles and retains their worktrees for manual work. Restart requires explicit
+roadmap resume. Individually paused entries remain paused when the roadmap resumes. Parallel
+priority can be reordered while paused, but started entries cannot be removed or have their
+settings changed. Capacity edits apply to admission; lowering limits never cancels work.
+Scheduling mode cannot change while attempts are in flight. Refresh limits for started items
+remain bound to their execution revision, visible through **View revisions**.

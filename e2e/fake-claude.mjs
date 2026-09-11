@@ -122,7 +122,10 @@ lines.on('line', (line) => {
     });
     return;
   }
-  const filename = `SMOKE-${turns}.md`;
+  const itemSuffix = text.includes('PARALLEL-ROADMAP')
+    ? `-${/^# Work item ([A-Z0-9-]+)/m.exec(text)?.[1] ?? 'fixture'}`
+    : '';
+  const filename = `SMOKE${itemSuffix}-${turns}.md`;
   writeFileSync(join(cwd, filename), `turn ${turns}: ${text.split('\n')[0]}\n`);
   if (text.includes('MOBILE-FINDINGS')) {
     writeFileSync(join(cwd, 'mobile-layout.md'), `${'Long diff line '.repeat(50)}\n`);

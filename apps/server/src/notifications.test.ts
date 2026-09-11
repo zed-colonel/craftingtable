@@ -761,3 +761,85 @@ it('repeats roadmap preparation alerts and resolves on pause', async () => {
       .every((r) => r.state === 'resolved'),
   ).toBe(true);
 });
+
+it('retains parallel item reminder timing while siblings progress and resolves an item hold on pause', async () => {
+  const f = await fixture();
+  await f.context.services.roadmapService.shutdown();
+  f.setCycle('paused');
+  const id = randomUUID();
+  const entryId = randomUUID();
+  const cycle = f.context.storage.execution.cycles.list(f.workspaceId)[0];
+  if (!cycle) throw new Error('Missing fixture cycle');
+  const roadmap: import('@craftingtable/domain').Roadmap = {
+    id,
+    workspaceId: f.workspaceId,
+    version: 1,
+    status: 'running',
+    reason: 'Parallel scheduling enabled.',
+    createdAt: f.now().toISOString(),
+    updatedAt: f.now().toISOString(),
+    createdByUserId: f.auth.user.id,
+    delegatedByUserId: f.auth.user.id,
+    attempts: [],
+    entryHolds: { [entryId]: { status: 'needs-attention', reason: 'Cannot prepare worktree.' } },
+    definition: {
+      roadmapId: id,
+      revision: 1,
+      name: 'Parallel queue',
+      scheduling: {
+        mode: 'parallel',
+        maxInFlight: 2,
+        maxPerRepository: 2,
+        maxIntegrationRefreshes: 3,
+      },
+      entries: [
+        {
+          id: entryId,
+          workItemId: f.workItemId,
+          projectId: f.projectId,
+          planVersionId: asPlanVersionId('plan-1'),
+          sourceId: 'AQ-05',
+          title: 'Next queue improvement',
+          repositoryId: f.repositoryId,
+          integrationBranch: 'aq-cont-1',
+          profiles: cycle.profiles,
+          policy: cycle.policy,
+          instructions: '',
+        },
+      ],
+      createdAt: f.now().toISOString(),
+      createdByUserId: f.auth.user.id,
+    },
+  };
+  f.context.storage.roadmaps.save(roadmap, 0);
+  await f.service.tick();
+  expect(f.send).toHaveBeenCalledTimes(1);
+  expect(f.send.mock.calls[0]?.[0].title).toContain('AQ-05');
+  f.context.storage.roadmaps.save(
+    { ...roadmap, version: 2, reason: 'A sibling is now running.' },
+    1,
+  );
+  f.advance(29);
+  await f.service.tick();
+  expect(f.send).toHaveBeenCalledTimes(1);
+  f.advance(1);
+  await f.service.tick();
+  expect(f.send).toHaveBeenCalledTimes(2);
+  f.context.storage.roadmaps.save(
+    {
+      ...roadmap,
+      version: 3,
+      entryHolds: { [entryId]: { status: 'paused', reason: 'Operator paused this item.' } },
+    },
+    2,
+  );
+  f.advance(60);
+  await f.service.tick();
+  expect(f.send).toHaveBeenCalledTimes(2);
+  expect(
+    f.context.storage.notifications
+      .records(f.workspaceId)
+      .filter((r) => r.sourceKey.startsWith('roadmap:'))
+      .every((r) => r.state === 'resolved'),
+  ).toBe(true);
+});

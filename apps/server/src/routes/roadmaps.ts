@@ -74,6 +74,22 @@ export function registerRoadmapRoutes(
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       if (!body.success)
         return sendApiError(reply, 400, 'invalid-request', 'Invalid roadmap command');
+      if (body.data.entryId) {
+        if (body.data.action !== 'pause' && body.data.action !== 'resume')
+          return sendApiError(reply, 400, 'invalid-request', 'Items support pause and resume.');
+        return noStore(reply).send(
+          roadmapViewSchema.parse(
+            await roadmaps.controlEntry(
+              context,
+              workspace.data,
+              request.params.roadmapId,
+              body.data.entryId,
+              body.data.action,
+              body.data.expectedVersion,
+            ),
+          ),
+        );
+      }
       return noStore(reply).send(
         roadmapViewSchema.parse(
           await roadmaps.control(

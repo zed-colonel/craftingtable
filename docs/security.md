@@ -126,7 +126,7 @@ configured recipient; they do not include full conversations or findings text. P
 error bodies are never surfaced or logged. Notifications grant no workflow or merge
 authority; links open the existing authenticated UI.
 
-## Delegated sequential roadmaps
+## Delegated roadmaps
 
 Saving a roadmap does not delegate execution. Start/resume are owner/editor commands
 with the normal authenticated session, CSRF, and origin checks. The daemon rechecks the
@@ -136,3 +136,13 @@ and cycle commands accept a user-attributed command context without inventing a 
 session. HTTP routes still require authenticated sessions. Merge remains exclusively an
 operator command. Pause/stop supersede pending preparation; a Git operation already in
 flight may finish creating a recorded worktree, but cannot launch a superseded cycle.
+
+Parallel scheduling retains the same authority checks and operator-only merge route. Item
+controls use authenticated, version-checked roadmap commands. Automatic integration refresh
+requires an active parallel delegation, the frozen branch binding, current initiating-user
+permissions, and no live sessions. It merges integration into the item branch only. Review
+context is invalidated durably before mutation; each refresh uses the repository and worktree
+guards and rechecks delegation before Git and before reserving another review. Pause/stop
+can supersede an in-flight update without permitting a late agent launch. Exclusion groups
+and capacities coordinate daemon work; they do not constrain arbitrary external Git processes
+or an agent running with the operator's OS authority.

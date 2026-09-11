@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SaveRoadmapRequest } from '@craftingtable/contracts';
 import {
+  DEFAULT_ROADMAP_SCHEDULING,
   asAuditEventId,
   asEventId,
   asWorktreeId,
@@ -12,6 +13,7 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext, CommandContext } from './auth-service.js';
+import { RepositoryMutationBusyError } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { ExecutionService } from './execution-service.js';
 import type { WorkItemService } from './work-item-service.js';
@@ -26,7 +28,7 @@ function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
 
-/** One ordered whole-item queue per workspace. The cycle controller owns every agent step. */
+/** One delegated roadmap per workspace. The cycle controller owns every agent step. */
 export class RoadmapService {
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
@@ -69,7 +71,19 @@ export class RoadmapService {
     const lastStarted =
       old?.definition.entries.findLastIndex((e) => old.attempts.some((a) => a.entryId === e.id)) ??
       -1;
-    const started = old?.definition.entries.slice(0, lastStarted + 1) ?? [];
+    const scheduling = input.scheduling ?? old?.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
+    const parallel = scheduling.mode === 'parallel';
+    if (
+      old?.attempts.some((a) => a.status !== 'completed') &&
+      scheduling.mode !== (old.definition.scheduling?.mode ?? 'sequential')
+    )
+      conflict(
+        'Finish the in-flight attempts before changing scheduling mode. Capacity limits can be edited while paused.',
+      );
+    const started =
+      (parallel
+        ? old?.definition.entries.filter((e) => old.attempts.some((a) => a.entryId === e.id))
+        : old?.definition.entries.slice(0, lastStarted + 1)) ?? [];
     const entries: RoadmapEntry[] = input.entries.map((entry, index) => {
       const item = this.storage.planning.workItems.find(workspaceId, entry.workItemId);
       if (!item) throw new NotFoundError();
@@ -82,12 +96,15 @@ export class RoadmapService {
             profiles: frozen.profiles,
             policy: frozen.policy,
             instructions: frozen.instructions,
+            ...(frozen.exclusionGroups === undefined
+              ? {}
+              : { exclusionGroups: frozen.exclusionGroups }),
           }) !== JSON.stringify(entry)
         )
           conflict('Started entries keep their original work item and settings.');
         return frozen;
       }
-      if (index < started.length)
+      if (!parallel && index < started.length)
         conflict('Started entries must remain at the front in their original order.');
       const settings = this.storage.execution.branchSettings.find(workspaceId, item.planVersionId);
       if (!settings) conflict(`Configure Repository & branches for ${item.sourceId}'s plan first.`);
@@ -107,7 +124,11 @@ export class RoadmapService {
         integrationBranch: settings.integrationBranch,
       };
     });
-    if (started.some((e, index) => entries[index]?.id !== e.id))
+    if (
+      started.some((e, index) =>
+        parallel ? !entries.some((entry) => entry.id === e.id) : entries[index]?.id !== e.id,
+      )
+    )
       conflict('Started entries cannot be removed or reordered.');
     for (const [index, entry] of entries.entries()) {
       for (const dependency of this.storage.planning.dependencies.listPredecessors(
@@ -115,6 +136,7 @@ export class RoadmapService {
         entry.workItemId,
       )) {
         if (
+          !parallel &&
           dependency.kind === 'required' &&
           dependency.status !== 'completed' &&
           entries.findIndex((e) => e.workItemId === dependency.workItemId) > index
@@ -129,6 +151,7 @@ export class RoadmapService {
       roadmapId: id,
       revision: (old?.definition.revision ?? 0) + 1,
       name: input.name,
+      scheduling,
       entries,
       createdAt: at,
       createdByUserId: context.user.id,
@@ -199,19 +222,30 @@ export class RoadmapService {
       )
         conflict('This workspace already has a delegated roadmap. Stop or finish it first.');
       // Explicit resume may adopt the owned cycle's manual handoff, using its normal guards.
-      const attempt = roadmap.attempts.find((a) => a.status !== 'completed');
-      const cycle = attempt && this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
-      if (cycle && ['paused', 'needs-attention'].includes(cycle.status)) {
-        const worktree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
-        if (!worktree?.mergedAt)
-          await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
+      for (const attempt of roadmap.attempts.filter((a) => a.status !== 'completed')) {
+        if (roadmap.entryHolds?.[attempt.entryId]?.status === 'paused') continue;
+        const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
+        if (cycle && ['paused', 'needs-attention'].includes(cycle.status)) {
+          const worktree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
+          if (!worktree?.mergedAt) {
+            try {
+              await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
+            } catch (error) {
+              if (roadmap.definition.scheduling?.mode !== 'parallel') throw error;
+              // The item keeps its attention state; independent siblings may resume.
+            }
+          }
+        }
       }
       roadmap = this.change(
         roadmap,
         {
           status: 'running',
           delegatedByUserId: context.user.id,
-          reason: 'Sequential scheduling enabled. Every merge requires operator approval.',
+          reason: 'Scheduling enabled. Every merge requires operator approval.',
+          entryHolds: Object.fromEntries(
+            Object.entries(roadmap.entryHolds ?? {}).filter(([, hold]) => hold.status === 'paused'),
+          ),
         },
         action,
         context,
@@ -229,16 +263,64 @@ export class RoadmapService {
         action,
         context,
       );
-      const attempt = roadmap.attempts.find((a) => a.status !== 'completed');
-      const cycle = attempt && this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
-      if (
-        cycle &&
-        !['stopped', 'completed'].includes(cycle.status) &&
-        (action === 'stop' || cycle.status === 'running')
-      )
-        await this.cycles.control(context, workspaceId, cycle.id, action, cycle.version);
+      for (const attempt of roadmap.attempts.filter((a) => a.status !== 'completed')) {
+        const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
+        if (
+          cycle &&
+          !['stopped', 'completed'].includes(cycle.status) &&
+          (action === 'stop' || cycle.status === 'running')
+        )
+          await this.cycles.control(context, workspaceId, cycle.id, action, cycle.version);
+      }
     }
     return this.view(this.find(workspaceId, id));
+  }
+
+  async controlEntry(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    entryId: string,
+    action: 'pause' | 'resume',
+    expectedVersion: number,
+  ): Promise<RoadmapView> {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    if (this.controlling.has(id)) conflict('A roadmap command is already in progress.');
+    this.controlling.add(id);
+    try {
+      let roadmap = this.find(workspaceId, id);
+      if (roadmap.version !== expectedVersion)
+        conflict('Roadmap changed; refresh before issuing this command.');
+      if (roadmap.status !== 'running' || roadmap.definition.scheduling?.mode !== 'parallel')
+        conflict('Item controls require a running parallel roadmap.');
+      const entry = roadmap.definition.entries.find((e) => e.id === entryId);
+      if (!entry || this.complete(roadmap, entry))
+        conflict('This entry is unavailable or completed.');
+      const holds = { ...roadmap.entryHolds };
+      const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
+      const cycle = attempt && this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
+      if (action === 'pause') {
+        holds[entryId] = {
+          status: 'paused',
+          reason: 'Item paused by operator. Independent items may continue.',
+        };
+        roadmap = this.change(roadmap, { entryHolds: holds }, 'pause-entry', context);
+        if (cycle && ['running', 'needs-attention'].includes(cycle.status))
+          await this.cycles.control(context, workspaceId, cycle.id, 'pause', cycle.version);
+      } else {
+        if (cycle && ['stopped', 'completed'].includes(cycle.status))
+          conflict(
+            'This cycle has ended. Stop the roadmap and reconcile the remaining work before starting a new roadmap.',
+          );
+        if (cycle && ['paused', 'needs-attention'].includes(cycle.status))
+          await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
+        delete holds[entryId];
+        roadmap = this.change(roadmap, { entryHolds: holds }, 'resume-entry', context);
+      }
+      return this.view(roadmap);
+    } finally {
+      this.controlling.delete(id);
+    }
   }
 
   recoverInterrupted(): void {
@@ -278,7 +360,11 @@ export class RoadmapService {
         try {
           await this.advance(roadmap);
         } catch (error) {
-          if (error instanceof SupersededRoadmapOperation) continue;
+          if (
+            error instanceof SupersededRoadmapOperation ||
+            error instanceof RepositoryMutationBusyError
+          )
+            continue;
           const current = this.find(roadmap.workspaceId, roadmap.id);
           if (current.status === 'running')
             this.change(current, {
@@ -304,12 +390,64 @@ export class RoadmapService {
     return { user };
   }
   private async advance(roadmap: Roadmap): Promise<void> {
-    const context = this.authority(roadmap);
+    this.authority(roadmap);
+    if (roadmap.definition.scheduling?.mode === 'parallel') {
+      for (const entry of roadmap.definition.entries) {
+        const current = this.find(roadmap.workspaceId, roadmap.id);
+        if (
+          current.status !== 'running' ||
+          this.controlling.has(current.id) ||
+          this.abort.signal.aborted
+        )
+          return;
+        this.authority(current);
+        if (this.complete(current, entry)) continue;
+        const heldAttempt = current.attempts.find((a) => a.entryId === entry.id);
+        const merged =
+          heldAttempt &&
+          this.storage.execution.worktrees.find(current.workspaceId, heldAttempt.worktreeId)
+            ?.mergedAt;
+        if (current.entryHolds?.[entry.id] && !merged) continue;
+        try {
+          await this.advanceEntry(current, entry);
+        } catch (error) {
+          if (error instanceof SupersededRoadmapOperation) throw error;
+          if (error instanceof RepositoryMutationBusyError) continue;
+          const latest = this.find(roadmap.workspaceId, roadmap.id);
+          if (latest.status !== 'running' || this.controlling.has(latest.id)) return;
+          const reason =
+            error instanceof ExecutionRequestError
+              ? error.message
+              : 'Could not prepare this item. Inspect it before resuming.';
+          this.change(latest, {
+            entryHolds: {
+              ...latest.entryHolds,
+              [entry.id]: { status: 'needs-attention', reason: reason.slice(0, 4000) },
+            },
+          });
+        }
+      }
+      const current = this.find(roadmap.workspaceId, roadmap.id);
+      if (current.status !== 'running') return;
+      if (current.definition.entries.every((e) => this.complete(current, e)))
+        this.change(current, { status: 'completed', reason: 'All roadmap entries are completed.' });
+      else
+        this.reason(
+          current,
+          'Parallel scheduling enabled. Items progress independently; every merge requires your approval.',
+        );
+      return;
+    }
     const entry = roadmap.definition.entries.find((e) => !this.complete(roadmap, e));
     if (!entry) {
       this.change(roadmap, { status: 'completed', reason: 'All roadmap entries are completed.' });
       return;
     }
+    await this.advanceEntry(roadmap, entry);
+  }
+  private async advanceEntry(roadmap: Roadmap, entry: RoadmapEntry): Promise<void> {
+    const context = this.authority(roadmap);
+    const parallel = roadmap.definition.scheduling?.mode === 'parallel';
     let attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
     if (attempt) {
       const worktree = this.storage.execution.worktrees.find(
@@ -332,6 +470,9 @@ export class RoadmapService {
               : a,
           ),
           reason: `${entry.sourceId} merged by operator.`,
+          entryHolds: Object.fromEntries(
+            Object.entries(roadmap.entryHolds ?? {}).filter(([id]) => id !== entry.id),
+          ),
         });
         return;
       }
@@ -344,6 +485,7 @@ export class RoadmapService {
         );
       const cycle = this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
       if (cycle) {
+        if (parallel) return;
         if (['paused', 'needs-attention', 'stopped', 'completed'].includes(cycle.status))
           this.change(roadmap, {
             status: 'needs-attention',
@@ -359,6 +501,10 @@ export class RoadmapService {
     }
     const blocker = this.blocker(roadmap, entry, attempt);
     if (blocker) {
+      if (parallel) {
+        if (blocker.needsAttention) conflict(blocker.reason);
+        return;
+      }
       if (blocker.needsAttention)
         this.change(roadmap, { status: 'needs-attention', reason: blocker.reason });
       else this.reason(roadmap, blocker.reason);
@@ -445,8 +591,18 @@ export class RoadmapService {
     roadmap: Roadmap,
     entry: RoadmapEntry,
     attempt?: RoadmapAttempt,
-  ): { reason: string; needsAttention: boolean } | undefined {
-    const blocked = (reason: string, needsAttention = true) => ({ reason, needsAttention });
+  ):
+    | {
+        reason: string;
+        needsAttention: boolean;
+        kind: 'dependency-blocked' | 'capacity-blocked' | 'exclusion-blocked';
+      }
+    | undefined {
+    const blocked = (
+      reason: string,
+      needsAttention = true,
+      kind: 'dependency-blocked' | 'capacity-blocked' | 'exclusion-blocked' = 'dependency-blocked',
+    ) => ({ reason, needsAttention, kind });
     const item = this.storage.planning.workItems.find(roadmap.workspaceId, entry.workItemId);
     if (!item || item.planVersionId !== entry.planVersionId)
       return blocked(`${entry.sourceId}: Bound plan item is unavailable.`);
@@ -456,7 +612,18 @@ export class RoadmapService {
       );
     const required = this.storage.planning.dependencies
       .listPredecessors(roadmap.workspaceId, entry.workItemId)
-      .filter((e) => e.kind === 'required' && e.status !== 'completed');
+      .filter(
+        (e) =>
+          e.kind === 'required' &&
+          (e.status !== 'completed' ||
+            roadmap.attempts.some(
+              (a) =>
+                a.status !== 'completed' &&
+                roadmap.definition.entries.some(
+                  (bound) => bound.id === a.entryId && bound.workItemId === e.workItemId,
+                ),
+            )),
+      );
     if (required.length)
       return blocked(
         `${entry.sourceId}: Waiting for required predecessors: ${required.map((e) => `${e.sourceId}${roadmap.definition.entries.some((item) => item.workItemId === e.workItemId) ? '' : ' (outside this roadmap)'}`).join(', ')}.`,
@@ -478,18 +645,84 @@ export class RoadmapService {
       entry.repositoryId,
     );
     if (repo?.status !== 'active') return blocked(`${entry.sourceId}: Repository is unavailable.`);
-    const occupied = this.storage.execution.worktrees
-      .listActive()
-      .find(
-        (w) =>
-          w.id !== attempt?.worktreeId &&
-          this.storage.execution.sourceRepositories.find(w.workspaceId, w.repositoryId)
-            ?.rootPath === repo.rootPath,
-      );
-    if (occupied)
+    if (!attempt && this.execution.branches.repositoryBusy(repo.rootPath))
       return blocked(
-        `${entry.sourceId}: Repository has an unmerged worktree (${occupied.branchName}). Finish or remove it before this item starts.`,
+        `${entry.sourceId}: Waiting for a repository mutation to finish.`,
         false,
+        'capacity-blocked',
+      );
+    const policy = roadmap.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
+    const parallel = policy.mode === 'parallel';
+    const activeAttempts = roadmap.attempts.filter(
+      (a) => a.status !== 'completed' && a.id !== attempt?.id,
+    );
+    if (parallel && activeAttempts.length >= policy.maxInFlight)
+      return blocked(
+        `${entry.sourceId}: All ${policy.maxInFlight} in-flight slots are occupied (including items awaiting merge or attention).`,
+        false,
+        'capacity-blocked',
+      );
+    const trees = this.storage.execution.worktrees.listActive();
+    if (
+      trees.some(
+        (tree) =>
+          tree.workspaceId === roadmap.workspaceId &&
+          tree.workItemId === entry.workItemId &&
+          tree.id !== attempt?.worktreeId,
+      )
+    )
+      return blocked(
+        `${entry.sourceId}: This item already has an unmerged worktree. Finish or remove it before delegating another attempt.`,
+        false,
+        'capacity-blocked',
+      );
+    const occupied = trees.filter(
+      (w) =>
+        w.id !== attempt?.worktreeId &&
+        this.storage.execution.sourceRepositories.find(w.workspaceId, w.repositoryId)?.rootPath ===
+          repo.rootPath,
+    );
+    // Include reserved preparations before a worktree exists, across workspace schedulers.
+    let reservations = 0;
+    let repositoryLimit = parallel ? policy.maxPerRepository : 1;
+    for (const other of this.storage.roadmaps.list()) {
+      for (const reservation of other.attempts) {
+        if (reservation.status === 'completed' || reservation.worktreeId === attempt?.worktreeId)
+          continue;
+        const bound = other.definition.entries.find((e) => e.id === reservation.entryId);
+        if (!bound) continue;
+        const tree = trees.find((w) => w.id === reservation.worktreeId);
+        const pending = !ended(other) && reservation.status === 'preparing' && !tree;
+        if (!tree && !pending) continue;
+        if (
+          other.workspaceId === roadmap.workspaceId &&
+          bound.exclusionGroups?.some((group) => entry.exclusionGroups?.includes(group))
+        )
+          return blocked(
+            `${entry.sourceId}: Exclusion group is held by ${bound.sourceId} until merge or worktree removal.`,
+            false,
+            'exclusion-blocked',
+          );
+        if (
+          this.storage.execution.sourceRepositories.find(other.workspaceId, bound.repositoryId)
+            ?.rootPath !== repo.rootPath
+        )
+          continue;
+        if (pending) reservations++;
+        if (!ended(other))
+          repositoryLimit = Math.min(
+            repositoryLimit,
+            other.definition.scheduling?.mode === 'parallel'
+              ? other.definition.scheduling.maxPerRepository
+              : 1,
+          );
+      }
+    }
+    if (occupied.length + reservations >= repositoryLimit)
+      return blocked(
+        `${entry.sourceId}: Repository has ${occupied.length + reservations} unmerged worktree(s) or reservations; capacity is ${repositoryLimit}. Finish or remove existing work before this item starts.`,
+        false,
+        'capacity-blocked',
       );
     return undefined;
   }
@@ -499,6 +732,8 @@ export class RoadmapService {
       progress: roadmap.definition.entries.map((entry) => {
         if (this.complete(roadmap, entry))
           return { entryId: entry.id, status: 'completed', reason: 'Completed.' };
+        const hold = roadmap.entryHolds?.[entry.id];
+        if (hold) return { entryId: entry.id, status: hold.status, reason: hold.reason };
         const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
         const cycle =
           attempt && this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
@@ -516,11 +751,7 @@ export class RoadmapService {
         const reason = this.blocker(roadmap, entry, attempt);
         return {
           entryId: entry.id,
-          status: reason?.needsAttention
-            ? 'needs-attention'
-            : reason
-              ? 'dependency-blocked'
-              : 'queued',
+          status: reason?.needsAttention ? 'needs-attention' : reason ? reason.kind : 'queued',
           reason: reason?.reason ?? 'Waiting for its turn in the sequence.',
         };
       }),

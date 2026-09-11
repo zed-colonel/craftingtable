@@ -24,10 +24,17 @@ it('retains definitions across reopen, rejects stale writes, and rolls back revi
     updatedAt: SEED_NOW,
     createdByUserId: seed.userId,
     attempts: [],
+    entryHolds: { [randomUUID()]: { status: 'paused', reason: 'Operator paused item.' } },
     definition: {
       roadmapId: id,
       revision: 1,
       name: 'Queue',
+      scheduling: {
+        mode: 'parallel',
+        maxInFlight: 2,
+        maxPerRepository: 2,
+        maxIntegrationRefreshes: 3,
+      },
       entries: [],
       createdAt: SEED_NOW,
       createdByUserId: seed.userId,

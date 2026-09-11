@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { NotificationStatus, SaveNotificationsRequest } from '@craftingtable/contracts';
 import {
   asEventId,
@@ -271,6 +271,27 @@ export class NotificationService {
     }
     if (settings.preferences.needsAttention) {
       for (const roadmap of tx.roadmaps.list(workspaceId)) {
+        if (roadmap.status === 'running') {
+          for (const [entryId, hold] of Object.entries(roadmap.entryHolds ?? {})) {
+            if (hold.status !== 'needs-attention') continue;
+            const entry = roadmap.definition.entries.find((e) => e.id === entryId);
+            if (!entry) continue;
+            const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
+            const cycle = attempt && cycles.find((c) => c.id === attempt.cycleId);
+            if (
+              cycle &&
+              result.some((source) => source.sourceKey === `cycle:${cycle.id}:${cycle.version}`)
+            )
+              continue;
+            result.push({
+              sourceKey: `roadmap:${roadmap.id}:entry:${entryId}:${createHash('sha256').update(hold.reason).digest('hex')}`,
+              kind: 'attention',
+              title: notificationText(`${entry.sourceId} · Roadmap item needs attention`, 250),
+              message: notificationText(`${entry.title}\n${hold.reason}`, 1024),
+              path: `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`,
+            });
+          }
+        }
         if (roadmap.status !== 'needs-attention') continue;
         const active = roadmap.attempts.find((attempt) => attempt.status !== 'completed');
         const cycle = active && cycles.find((candidate) => candidate.id === active.cycleId);

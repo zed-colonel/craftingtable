@@ -82,9 +82,27 @@ lines.on('line', (line) => {
   }
   if (reviewing) {
     const verdict = text.includes('VERDICT-CHANGES') ? 'changes-requested' : 'mergeable';
-    const reviewResult = automated
-      ? `\`\`\`craftingtable-review\n${JSON.stringify({ version: 1, complete: true, verdict, exitGate: { met: verdict === 'mergeable', evidence: 'Fixture checks passed.' }, findings: [] })}\n\`\`\`\nVERDICT: ${verdict}`
-      : `fake review turn ${turns}\n\nVERDICT: ${verdict}`;
+    const findings = text.includes('MOBILE-FINDINGS')
+      ? [
+          {
+            id: 'F-001',
+            severity: 'nit',
+            status: 'open',
+            title: 'Clarify the example in the integration guide',
+            location: {
+              path: `docs/${'long-directory-name/'.repeat(8)}integration-guide.md`,
+              line: 12,
+            },
+            explanation:
+              'The behavior is correct, but the example could explain the integration target more clearly.',
+            recommendation: 'Add a short explanation alongside the example.',
+          },
+        ]
+      : [];
+    const reviewResult =
+      automated || findings.length > 0
+        ? `\`\`\`craftingtable-review\n${JSON.stringify({ version: 1, complete: true, verdict, exitGate: { met: verdict === 'mergeable', evidence: 'Fixture checks passed.' }, findings })}\n\`\`\`\nVERDICT: ${verdict}`
+        : `fake review turn ${turns}\n\nVERDICT: ${verdict}`;
     emit({
       type: 'assistant',
       message: {
@@ -106,6 +124,9 @@ lines.on('line', (line) => {
   }
   const filename = `SMOKE-${turns}.md`;
   writeFileSync(join(cwd, filename), `turn ${turns}: ${text.split('\n')[0]}\n`);
+  if (text.includes('MOBILE-FINDINGS')) {
+    writeFileSync(join(cwd, 'mobile-layout.md'), `${'Long diff line '.repeat(50)}\n`);
+  }
   // Commit the file the way the implement brief asks for, so a later merge is clean.
   git(['add', '--all']);
   git(['commit', '--allow-empty', '--no-gpg-sign', '-q', '-m', `fake agent turn ${turns}`]);

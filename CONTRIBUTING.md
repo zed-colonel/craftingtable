@@ -13,7 +13,7 @@ for the areas you touch.
 
 - pnpm 10 (`packageManager` field pins the tested version).
 - Node.js ≥ 24 for anything you run outside pnpm scripts (LTS floor; see ADR-008) — `.nvmrc` pins 24. Workspace **scripts** always run under the pnpm-managed Node pinned by `useNodeVersion` in `pnpm-workspace.yaml`; pnpm downloads it automatically on first use, so `pnpm check` works even when no `node` is on `PATH`.
-- One-time: `pnpm exec playwright install chromium` for the smoke test.
+- One-time: `pnpm exec playwright install chromium` for the desktop and phone browser tests.
 
 ## Commands
 
@@ -27,7 +27,7 @@ pnpm format:check  formatting check only
 pnpm lint          lint with Biome
 pnpm typecheck     tsc -b across project references + web app
 pnpm test          Vitest unit tests
-pnpm test:e2e      Playwright browser smoke test
+pnpm test:e2e      Playwright desktop and phone browser tests
 pnpm db:migrate    migrate the configured SQLite database
 pnpm db:status     report configured SQLite schema status
 pnpm check:scope   forbidden-scope check (no Exo Stack dependencies, process authority)
@@ -48,6 +48,13 @@ own (`4610` for the daemon, `5183` for Vite), creates a unique temporary
 database, and fails explicitly if those ports are occupied. It runs happily
 beside an operator daemon or `pnpm dev` on 4600/5173, and never reuses either
 those servers or a normal data directory.
+
+The browser gate uses desktop Chromium plus Chromium with an iPhone-sized touch
+viewport. The phone workflow checks menu accessibility, page overflow, manual
+steering, cycle controls, findings, diff scrolling, sign-in links, and explicit
+merge approval. Run it alone with `pnpm test:e2e --project=mobile-chromium`.
+Chromium emulation does not validate Safari, the iPhone keyboard, or safe areas;
+those still need an actual-device check.
 
 ## Quality expectations
 

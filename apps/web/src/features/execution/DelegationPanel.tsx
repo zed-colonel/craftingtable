@@ -284,6 +284,9 @@ export function DelegationPanel({
                         }
                       }}
                     >
+                      <p className="merge-destination">
+                        Merge <code>{worktree.branchName}</code> into <code>{target}</code>.
+                      </p>
                       <label className="field">
                         Merge into
                         <input

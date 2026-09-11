@@ -76,6 +76,10 @@ it is mergeable.
   role and let each launch override it. Every edge of the loop has a handoff button:
   Implement on a finished design, Review on a finished implementation, Remediate on a
   review with a verdict.
+- **Phone supervision.** A compact navigation menu, larger touch controls, wrapping
+  findings and branch names, and contained table/diff scrolling support checking
+  cycles, steering runs, and explicitly approving merges from a phone browser.
+  Work-item links preserve their destination through sign-in.
 - **Workspaces and account.** Several workspaces per user, created and renamed from the
   browser; password change from the account page; dark theme by default with a light
   option.

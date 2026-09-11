@@ -20,14 +20,24 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: WEB_URL,
+    screenshot: 'only-on-failure',
   },
   projects: [
     {
       name: 'chromium',
+      testIgnore: '**/mobile.spec.ts',
       use: {
         ...devices['Desktop Chrome'],
         // Typical MacBook browser viewport (acceptance criterion 5).
         viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
+      name: 'mobile-chromium',
+      testMatch: '**/mobile.spec.ts',
+      use: {
+        ...devices['iPhone 13'],
+        browserName: 'chromium',
       },
     },
   ],

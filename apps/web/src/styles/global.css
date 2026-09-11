@@ -130,6 +130,24 @@ button:disabled {
   overflow-y: auto;
 }
 
+.rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.rail-menu-toggle {
+  display: none;
+}
+
+.rail-menu {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
 .rail-brand {
   display: flex;
   align-items: center;
@@ -249,6 +267,7 @@ button:disabled {
 }
 
 .main {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -262,6 +281,7 @@ button:disabled {
 /* ------------------------------------------------------------------------ */
 
 .page {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -301,6 +321,7 @@ button:disabled {
 }
 
 .panel {
+  min-width: 0;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-3);
@@ -377,6 +398,7 @@ button:disabled {
 
 /* Collapsible utility panels (activity, audit) */
 .disclosure {
+  min-width: 0;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-3);
@@ -548,7 +570,7 @@ button:disabled {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: var(--space-3);
 }
 
@@ -634,6 +656,8 @@ button:disabled {
 /* ------------------------------------------------------------------------ */
 
 .table-scroll {
+  /* Contain absolutely positioned screen-reader labels as well as table cells. */
+  position: relative;
   overflow-x: auto;
 }
 
@@ -826,6 +850,7 @@ button:disabled {
 }
 
 .field {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -838,6 +863,8 @@ button:disabled {
 .field input,
 .field select,
 .field textarea {
+  min-width: 0;
+  max-width: 100%;
   text-transform: none;
   letter-spacing: normal;
   font-size: var(--text-sm);
@@ -983,6 +1010,8 @@ button:disabled {
 }
 
 .login-form input {
+  min-width: 0;
+  width: 100%;
   text-transform: none;
   letter-spacing: normal;
   font-size: var(--text-sm);
@@ -1197,6 +1226,10 @@ button:disabled {
   overflow: auto;
 }
 
+.merge-destination {
+  flex-basis: 100%;
+}
+
 .merge-form {
   margin-top: var(--space-2);
   align-items: center;
@@ -1230,6 +1263,7 @@ button:disabled {
 }
 
 .profile-row {
+  min-width: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md, 6px);
   padding: var(--space-2) var(--space-3);
@@ -1431,7 +1465,8 @@ button:disabled {
 
 @media (max-width: 900px) {
   .shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
   }
 
   .rail {
@@ -1439,6 +1474,17 @@ button:disabled {
     height: auto;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
+  }
+
+  .rail-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  .rail-menu[data-open="false"] {
+    display: none;
   }
 
   .rail-foot {
@@ -1535,4 +1581,155 @@ button:disabled {
 }
 .worktree-branches .inline-actions {
   flex-wrap: wrap;
+}
+
+/* Keep long identifiers and intrinsic form/table widths inside their panels. */
+.main {
+  overflow-wrap: anywhere;
+}
+.main:focus {
+  outline: none;
+}
+.page-header > *,
+.panel-header > *,
+.disclosure-body,
+.table-scroll,
+.form-row > *,
+.worktree-item > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.review-findings .disclosure-body {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+}
+.review-finding {
+  display: grid;
+  gap: var(--space-2);
+  padding-block: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 600px), (max-width: 900px) and (pointer: coarse) {
+  :root {
+    --text-base: 1rem;
+    --text-sm: 0.9375rem;
+    --text-xs: 0.8125rem;
+  }
+
+  .rail {
+    padding: var(--space-2) var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .rail-title {
+    font-size: 0.875rem;
+  }
+
+  .main {
+    padding: var(--space-3);
+  }
+
+  .panel {
+    padding: var(--space-3);
+  }
+
+  button,
+  .rail-link,
+  .rail-brand {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* biome-ignore lint/style/noDescendingSpecificity: all disclosures get a touch target; component padding still takes precedence. */
+  details > summary {
+    min-height: 44px;
+    padding-block: var(--space-2);
+    cursor: pointer;
+  }
+
+  .login-form input,
+  .field input,
+  .field select,
+  .field textarea,
+  .workspace-picker select {
+    min-height: 44px;
+    font-size: 1rem;
+  }
+
+  .checkbox-row {
+    min-height: 44px;
+  }
+
+  .workspace-picker select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .inline-form .field {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+
+  .form-row,
+  .cycle-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .worktree-item,
+  .run-row,
+  .activity-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .run-row > .status-badge,
+  .run-row > button {
+    justify-self: start;
+  }
+
+  .run-row-title,
+  .run-row-meta,
+  .status-badge {
+    white-space: normal;
+  }
+
+  .run-row-title {
+    overflow: visible;
+  }
+
+  .run-event-head,
+  .compact-list li,
+  .card-title,
+  .crumbs {
+    flex-wrap: wrap;
+  }
+
+  .disclosure > summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .disclosure > summary > .hint {
+    grid-row: 2;
+    grid-column: 1 / -1;
+  }
+
+  .disclosure > summary::after {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .feed {
+    height: 55svh;
+    padding: var(--space-1);
+  }
+
+  .run-event {
+    padding-inline: var(--space-2);
+  }
+
+  .diff-text {
+    max-height: 60svh;
+  }
 }

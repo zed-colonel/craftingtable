@@ -22,7 +22,7 @@ export function ReviewFindings({ assessment }: { assessment: ReviewReportAssessm
   }
   const report = assessment.report;
   return (
-    <details className="disclosure" aria-label="Review findings">
+    <details className="disclosure review-findings" aria-label="Review findings">
       <summary>
         <span>Review findings</span>
         <span className="hint">
@@ -44,7 +44,7 @@ export function ReviewFindings({ assessment }: { assessment: ReviewReportAssessm
           <p>No findings reported.</p>
         ) : (
           report.findings.map((finding) => (
-            <article key={finding.id}>
+            <article key={finding.id} className="review-finding">
               <h3>
                 <span className="mono">{finding.id}</span> · {finding.severity} · {finding.status} ·{' '}
                 {finding.title}

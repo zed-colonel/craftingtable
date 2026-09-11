@@ -21,8 +21,12 @@ honest about state.
   summaries everywhere else.
 - Motion only when it communicates a state transition (a live-run pulse); no
   decorative animation, and none at all under reduced-motion.
-- Desktop-first, but usable on a laptop at 900px where the rail collapses above
-  the content.
+- Keep the desktop rail above 900px. At narrower widths, use a compact header
+  with a Menu button; navigation expands in the page and closes on navigation or
+  Escape. New destinations start at the top on these screens.
+- On phones, use at least 44px touch targets and 16px form text. Stack controls
+  and metadata; wrap long paths, branch names, and findings. Tables and patches
+  scroll inside their own panels, never by widening the page.
 
 ## Shell
 
@@ -75,6 +79,10 @@ A bare "Ready", "Blocked", "Approved", or "Verified" never appears.
 - Groups (messages, tools, notices, system) are filter chips with counts; system
   events are hidden by default and tool output is collapsed by default.
 - Everything from the agent is rendered as text, never markup.
+- Findings retain their IDs, severity, status, location, and full explanation on
+  phones. Separate findings visibly and let long locations wrap.
+- Merge confirmation shows the complete source and target branches as wrapping
+  text, alongside the explicit Merge and Cancel controls.
 
 ## Accessibility
 

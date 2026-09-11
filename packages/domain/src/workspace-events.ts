@@ -51,6 +51,7 @@ export const WORKSPACE_EVENT_KINDS = [
   'worktree-merged',
   'work-cycle-changed',
   'branches-changed',
+  'notifications-changed',
 ] as const;
 export type WorkspaceEventKind = (typeof WORKSPACE_EVENT_KINDS)[number];
 
@@ -74,7 +75,8 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'worktree-merged': 6,
   'work-cycle-changed': 9,
   'branches-changed': 10,
-} as const satisfies Readonly<Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10>>;
+  'notifications-changed': 11,
+} as const satisfies Readonly<Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11>>;
 
 export function isWorkspaceEventKind(value: unknown): value is WorkspaceEventKind {
   return (WORKSPACE_EVENT_KINDS as readonly string[]).includes(value as string);
@@ -409,7 +411,19 @@ export interface BranchesChangedEvent extends WorkspaceEventBase {
   };
 }
 
+export interface NotificationsChangedEvent extends WorkspaceEventBase {
+  readonly kind: 'notifications-changed';
+  readonly projectId?: never;
+  readonly workItemId?: never;
+  readonly runId?: never;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: { readonly action: 'settings' | 'attention' | 'delivery' | 'test' };
+}
+
 export type WorkspaceEvent =
+  | NotificationsChangedEvent
   | BranchesChangedEvent
   | WorkCycleChangedEvent
   | WorkspaceCreatedEvent

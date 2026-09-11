@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { SqliteNotificationRepository } from './repositories/notifications.js';
 import { openDatabase } from './database.js';
 import { discoverMigrations, runMigrations } from './migrations.js';
 import { SqliteAuditRepository } from './repositories/audit.js';
@@ -13,6 +14,7 @@ import type { CraftingTableStorage, MigrationStatus, StorageRepositories } from 
 
 function repositories(database: Database.Database): StorageRepositories {
   return {
+    notifications: new SqliteNotificationRepository(database),
     users: new SqliteUserRepository(database),
     sessions: new SqliteSessionRepository(database),
     workspaces: new SqliteWorkspaceRepository(database),
@@ -25,6 +27,7 @@ function repositories(database: Database.Database): StorageRepositories {
 }
 
 class SqliteCraftingTableStorage implements CraftingTableStorage {
+  readonly notifications;
   readonly users;
   readonly sessions;
   readonly workspaces;
@@ -42,6 +45,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     readonly migrationStatus: MigrationStatus,
   ) {
     const repos = repositories(database);
+    this.notifications = repos.notifications;
     this.users = repos.users;
     this.sessions = repos.sessions;
     this.workspaces = repos.workspaces;

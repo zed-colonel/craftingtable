@@ -222,6 +222,11 @@ const validEvents = {
       reason: 'Starting design.',
     },
   },
+  'notifications-changed': {
+    ...base,
+    kind: 'notifications-changed',
+    payload: { action: 'settings' },
+  },
   'worktree-merged': {
     ...base,
     projectId: 'project-1',
@@ -417,6 +422,7 @@ describe('WorkspaceEventEnvelope', () => {
       'worktree-merged': [],
       'work-cycle-changed': [],
       'branches-changed': [],
+      'notifications-changed': [],
     } as const satisfies Readonly<Record<WorkspaceEventKind, readonly string[]>>;
 
     for (const kind of Object.keys(validEvents) as WorkspaceEventKind[]) {

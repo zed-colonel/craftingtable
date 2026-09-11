@@ -9,7 +9,7 @@ import {
   type AgentPermissionMode,
   type AgentRunProfile,
 } from '@craftingtable/domain';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, type ReactNode, useState } from 'react';
 import {
   PERMISSION_MODE_LABELS,
   RUN_ROLE_DESCRIPTIONS,
@@ -24,6 +24,7 @@ export function SettingsPage({
   error,
   notice,
   onRename,
+  notifications,
   backends,
   profiles,
   profilesBusy,
@@ -31,6 +32,7 @@ export function SettingsPage({
   profilesNotice,
   onSaveProfiles,
 }: {
+  notifications?: ReactNode;
   workspace: WorkspaceOverview;
   canEdit: boolean;
   busy: boolean;
@@ -108,6 +110,8 @@ export function SettingsPage({
           </p>
         )}
       </section>
+
+      {notifications}
 
       {profiles !== undefined && onSaveProfiles !== undefined && (
         <ProfilesSection

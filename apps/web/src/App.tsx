@@ -53,6 +53,7 @@ import { ProjectCards } from './features/planning/ProjectCards.js';
 import { ProjectPage } from './features/planning/ProjectPage.js';
 import { SourceText } from './features/planning/SourceText.js';
 import { WorkItemPage } from './features/planning/WorkItemPage.js';
+import { NotificationPanel } from './features/workspace/NotificationPanel.js';
 import { SettingsPage } from './features/workspace/SettingsPage.js';
 import {
   ApiError,
@@ -1169,6 +1170,14 @@ export function App() {
             busy={workspaceBusy}
             {...(workspaceError === undefined ? {} : { error: workspaceError })}
             {...(workspaceNotice === undefined ? {} : { notice: workspaceNotice })}
+            notifications={
+              activeWorkspace.role === 'owner' ? (
+                <NotificationPanel
+                  workspaceId={activeWorkspace.id}
+                  csrfToken={authenticated.csrfToken}
+                />
+              ) : undefined
+            }
             onRename={handleRenameWorkspace}
             {...(executionStatus === undefined ? {} : { backends: executionStatus.backends })}
             {...(runProfiles === undefined ? {} : { profiles: runProfiles.profiles })}

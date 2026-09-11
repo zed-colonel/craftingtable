@@ -89,6 +89,11 @@ it is mergeable.
 Not yet: roadmap scheduling, cross-project dependency maps, parallel cycle scheduling,
 email/SMS notifications, additional backends, or interactive permission prompts.
 
+Pushover notifications are configured per workspace in **Settings**. Owners can save
+write-only credentials, choose merge/attention alerts, send a test, and inspect delivery
+status. Reminders persist across restarts: immediately, +30 minutes, +1 through +6 hours,
+then daily at 21:00 in the configured timezone (default America/Los_Angeles).
+
 ## Quickstart on the workstation
 
 Prerequisites: pnpm 10 (see [`CONTRIBUTING.md`](CONTRIBUTING.md)), Git 2.32+, and
@@ -112,7 +117,7 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 10 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 11 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

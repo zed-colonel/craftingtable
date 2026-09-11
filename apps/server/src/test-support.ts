@@ -1,3 +1,4 @@
+import type { NotificationTransport } from './services/notification-transport.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,6 +40,7 @@ export interface TestContext {
 
 export async function createTestContext(
   options: {
+    readonly notificationTransport?: NotificationTransport;
     readonly now?: () => Date;
     readonly passwordHasher?: PasswordHasher;
     readonly publicOrigin?: string;
@@ -63,6 +65,9 @@ export async function createTestContext(
   });
   const storage = openCraftingTableStorage(config.databasePath);
   const services = await createServices(storage, config, {
+    notificationTransport: options.notificationTransport ?? {
+      send: async () => ({ status: 'accepted' }),
+    },
     passwordHasher: options.passwordHasher ?? new FastTestPasswordHasher(),
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.streamHooks === undefined ? {} : { streamHooks: options.streamHooks }),
@@ -81,6 +86,7 @@ export async function createTestContext(
       executionService: services.executionService,
       agentRunService: services.agentRunService,
       workCycleService: services.workCycleService,
+      notificationService: services.notificationService,
       runEventStreamService: services.runEventStreamService,
       executionStatus: services.executionStatus,
     },

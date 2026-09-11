@@ -546,7 +546,17 @@ export const branchesChangedEventSchema = workspaceEventBaseSchema.extend({
   }),
 });
 
+const notificationsChangedEventSchema = workspaceEventBaseSchema.extend({
+  kind: z.literal('notifications-changed'),
+  projectId: forbiddenCorrelationSchema,
+  workItemId: forbiddenCorrelationSchema,
+  runId: forbiddenCorrelationSchema,
+  ...noRepositoryCorrelations,
+  payload: z.strictObject({ action: z.enum(['settings', 'attention', 'delivery', 'test']) }),
+});
+
 export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
+  notificationsChangedEventSchema,
   workspaceCreatedEventSchema,
   projectCreatedEventSchema,
   planVersionImportedEventSchema,

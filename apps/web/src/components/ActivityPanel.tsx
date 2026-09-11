@@ -2,6 +2,8 @@ import type { WorkspaceEventEnvelope } from '@craftingtable/contracts';
 
 export function describeEvent(event: WorkspaceEventEnvelope): string {
   switch (event.kind) {
+    case 'notifications-changed':
+      return `Notifications: ${event.payload.action} updated`;
     case 'branches-changed':
       return `Branch settings ${event.payload.action}`;
     case 'work-cycle-changed':

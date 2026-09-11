@@ -34,7 +34,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-chromium',
-      testMatch: '**/mobile.spec.ts',
+      testMatch: ['**/mobile.spec.ts', '**/notifications.spec.ts'],
       use: {
         ...devices['iPhone 13'],
         browserName: 'chromium',

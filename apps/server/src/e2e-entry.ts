@@ -25,7 +25,10 @@ const config = configFromEnv({
     ? {}
     : { CRAFTINGTABLE_GIT_EXECUTABLE: process.env.CRAFTINGTABLE_GIT_EXECUTABLE }),
 });
-const runtime = await createRuntime(config, { logger: true });
+const runtime = await createRuntime(config, {
+  logger: true,
+  overrides: { notificationTransport: { send: async () => ({ status: 'accepted' }) } },
+});
 await runtime.services.bootstrapService.bootstrap(E2E_USERNAME, E2E_PASSWORD);
 
 let closing = false;

@@ -7,6 +7,9 @@ import { createTestContext } from './test-support.js';
  */
 
 const EXPECTED_ROUTES = [
+  'GET /api/workspaces/:workspaceId/notifications',
+  'POST /api/workspaces/:workspaceId/notifications',
+  'POST /api/workspaces/:workspaceId/notifications/test',
   'GET /api/auth/session',
   'GET /api/auth/sessions',
   'GET /api/execution-status',

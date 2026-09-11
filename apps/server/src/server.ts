@@ -1,3 +1,5 @@
+import type { NotificationService } from './services/notification-service.js';
+import { registerNotificationRoutes } from './routes/notifications.js';
 import { readFileSync } from 'node:fs';
 import cookie from '@fastify/cookie';
 import { type FastifyInstance, fastify } from 'fastify';
@@ -31,6 +33,7 @@ import type { WorkspaceEventStreamService } from './services/workspace-event-str
 import type { WorkspaceService } from './services/workspace-service.js';
 
 export interface ServerDependencies {
+  readonly notificationService: NotificationService;
   readonly authService: AuthService;
   readonly workspaceService: WorkspaceService;
   readonly planImportService: PlanImportService;
@@ -60,7 +63,13 @@ export function buildServer(
       : {
           level: config.logLevel,
           redact: {
-            paths: ['req.headers.cookie', 'req.headers.authorization', 'res.headers.set-cookie'],
+            paths: [
+              'req.headers.cookie',
+              'req.headers.authorization',
+              'res.headers.set-cookie',
+              'req.body.applicationToken',
+              'req.body.userKey',
+            ],
             censor: '[REDACTED]',
           },
           ...(options.loggerStream === undefined ? {} : { stream: options.loggerStream }),
@@ -81,10 +90,13 @@ export function buildServer(
 
   app.addHook('onReady', async () => {
     deps.workCycleService.startWorker();
+    deps.notificationService.startWorker();
   });
   app.addHook('preClose', async () => {
+    await deps.notificationService.shutdown();
     await deps.workCycleService.shutdown();
   });
+  registerNotificationRoutes(app, deps.authService, deps.notificationService, config);
   registerWorkCycleRoutes(app, deps.authService, deps.workCycleService, config);
   registerHealthRoute(app);
   registerAuthRoutes(app, deps.authService, config);

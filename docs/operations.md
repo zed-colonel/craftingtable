@@ -154,3 +154,49 @@ resets need no restart.
 Stop the daemon, then delete the data directory. Registered repositories are untouched,
 but linked worktrees under `worktrees/` will disappear from those repositories' worktree
 lists only after `git worktree prune` in each primary checkout.
+
+## Pushover notifications
+
+After upgrading, restart the daemon to apply schema 11 and start the notification worker.
+In workspace **Settings → Pushover notifications**:
+
+1. Install and sign in to Pushover on the phone, create a Pushover application at
+   https://pushover.net/apps/build, and copy its API token and your account user key.
+2. Enter both credentials. Optionally enter the phone's Pushover device name; blank
+   sends to all devices registered to that account.
+3. Check the timezone and daily time (America/Los_Angeles, 21:00 by default), enable
+   notifications, save, and send a test. The activity list shows acceptance or failure.
+
+Notification links use `CRAFTINGTABLE_PUBLIC_ORIGIN`, so keep its private HTTPS address
+configured and connect the phone to Tailscale when opening a link. Push delivery itself
+uses Pushover's public service and requires outbound HTTPS from the workstation; the
+phone does not need Tailscale just to receive a push. Normal priority respects Pushover
+quiet hours. No email or SMS provider is configured.
+
+Alerts cover automated merge checkpoints and attention stops (design questions, failed
+runs, exhausted limits, restart interruption), plus manual review outcomes, unresolved
+design conclusions, and failed/interrupted manual runs. Explicit cycle pause/stop does
+not nag. Resuming, completing, merging, or removing the work resolves the corresponding
+alert. Manual review alerts report the reviewer verdict; opening the item and the merge
+command still check current Git state. Git is not polled by the notification service.
+
+The first *accepted* message anchors reminders at +30, +60, +120, +180, +240, +300,
+and +360 minutes, followed by daily reminders at the configured local time. Restart or
+network downtime produces at most one overdue reminder per item, skipping missed stages.
+A local time skipped by daylight saving is skipped that day; a repeated local time sends
+once. Changing daily time/timezone updates outstanding schedules on save.
+
+Transient failures retry after 30 seconds, 1 minute, 5 minutes, 15 minutes, then hourly.
+These retries do not consume reminder stages. Rate-limit cooldowns honor Pushover's
+quota reset / Retry-After and apply across the workspace. Rejected credentials pause
+delivery until settings are saved or a test is requested. Save corrected credentials to
+retry pending deliveries. Tests are durable, have no reminder schedule, and are limited
+to one pending test and one request per minute. Disabling attention notifications still
+allows an explicitly requested test. The status list shows the latest 50 records.
+
+The SQLite database holds schedules, attempts, and credentials, so include it in private
+backups. Delivery means Pushover accepted a request, not proof the phone displayed it or
+the operator read it. A crash or lost response after provider acceptance can cause a
+duplicate: Pushover does not offer an idempotency key. A claimed send is recovered after
+its one-minute lease expires. A notification already in flight may arrive after the
+operator resolves an item or disables notifications; subsequent reminders stop.

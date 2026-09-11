@@ -104,3 +104,24 @@ Review approval requires a clean managed branch at the recorded commit; operator
 rechecks it and pins the Git source commit. A shared daemon guard keeps agent launches
 and cycle resumes out of an in-flight merge or removal. Only the operator merge route
 has merge authority; quality thresholds never grant it to the controller or an agent.
+
+## Pushover delivery
+
+Only workspace owners can view notification settings, configure a recipient, or request
+a test; mutation routes retain session, CSRF, and origin checks. Background delivery
+rechecks the configuring owner's active account, active workspace, and current owner
+membership. Session expiry or logout does not revoke that standing configuration.
+
+Application tokens and user keys are write-only and stored as plaintext in the existing
+private SQLite database (0700 data directory, 0600 database). They are omitted from API
+responses, audit metadata, workspace events, logs, briefs, and spawned-agent environments.
+This uses the existing OS-user trust boundary: a process running with that user's full
+filesystem authority can read the database. Backups require the same care. Clearing
+credentials removes the active values but does not securely erase SQLite pages or backups.
+
+The daemon sends only to Pushover's fixed HTTPS endpoint, rejects redirects, bounds the
+response, and times out requests. Notifications expose project/item names, short workflow
+reasons, findings counts, branch names, and a private application link to Pushover and the
+configured recipient; they do not include full conversations or findings text. Provider
+error bodies are never surfaced or logged. Notifications grant no workflow or merge
+authority; links open the existing authenticated UI.

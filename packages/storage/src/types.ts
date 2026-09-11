@@ -21,6 +21,8 @@ import type { ExecutionRepositories } from './execution-types.js';
 import type { PlanningRepositories } from './planning-types.js';
 import type { RepositoryRegistryRepositories } from './repository-types.js';
 
+import type { NotificationRepository } from './notification-types.js';
+export * from './notification-types.js';
 export * from './execution-types.js';
 export * from './planning-types.js';
 export * from './repository-types.js';
@@ -209,6 +211,7 @@ export interface WorkspaceEventRepository {
 }
 
 export interface StorageRepositories {
+  readonly notifications: NotificationRepository;
   readonly users: UserRepository;
   readonly sessions: SessionRepository;
   readonly workspaces: WorkspaceRepository;

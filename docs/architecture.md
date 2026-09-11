@@ -177,3 +177,10 @@ them all, and every workspace page hangs off `/workspaces/:id`. The run page loa
 committed events once and then follows the live stream from the last sequence inside
 its own scroll pane. No agent output is ever rendered as markup. The visual language is
 in `docs/ui-principles.md`.
+
+The notification service reconciles durable work-item attention into a SQLite outbox,
+claims deliveries with expiring leases, and schedules retries and local-time reminders.
+It wakes from the workspace notifier and a five-second timer; no browser connection is
+required. Pushover sits behind an injectable transport. Settings and workflow/delivery
+changes append audit and workspace events in the same transaction; claim bookkeeping is
+internal. See ADR-027 for delivery and credential semantics.

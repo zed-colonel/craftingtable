@@ -141,6 +141,7 @@ function assertStructuralShape(row: WorkspaceEventRow, kind: WorkspaceEventKind)
       if (!repositoryCorrelationsNull) invalidStructural(row);
       return;
     case 'source-repository-registered':
+    case 'notifications-changed':
     case 'workspace-updated':
       if (
         !repositoryCorrelationsNull ||
@@ -250,6 +251,7 @@ function assertPayloadCorrelations(
     case 'plan-version-imported':
     case 'work-item-admitted':
     case 'source-repository-registered':
+    case 'notifications-changed':
     case 'workspace-updated':
       return;
     case 'worktree-created':
@@ -415,6 +417,8 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
         workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
         payload: mapPayload<'work-item-completed'>(payload),
       };
+    case 'notifications-changed':
+      return { ...commonFields(base), kind, payload: mapPayload<'notifications-changed'>(payload) };
     case 'workspace-updated':
       return {
         ...commonFields(base),
@@ -514,6 +518,7 @@ function assertAppendAgreement(input: AppendWorkspaceEventInput): void {
     case 'plan-version-imported':
     case 'work-item-admitted':
     case 'source-repository-registered':
+    case 'notifications-changed':
     case 'workspace-updated':
       return;
     case 'worktree-created':

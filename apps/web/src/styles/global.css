@@ -1733,3 +1733,12 @@ button:disabled {
     max-height: 60svh;
   }
 }
+
+.notification-records {
+  display: grid;
+  gap: var(--space-4);
+  overflow-wrap: anywhere;
+}
+.notification-records p {
+  margin: var(--space-1) 0;
+}

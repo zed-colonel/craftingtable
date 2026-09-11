@@ -1,3 +1,8 @@
+import { NotificationService } from './services/notification-service.js';
+import {
+  PushoverTransport,
+  type NotificationTransport,
+} from './services/notification-transport.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -42,6 +47,7 @@ import { WorkspaceService } from './services/workspace-service.js';
 import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
 
 export interface ServiceSet {
+  readonly notificationService: NotificationService;
   readonly bootstrapService: BootstrapService;
   readonly authService: AuthService;
   readonly workspaceService: WorkspaceService;
@@ -59,6 +65,7 @@ export interface ServiceSet {
 }
 
 export interface ServiceOverrides {
+  readonly notificationTransport?: NotificationTransport;
   readonly passwordHasher?: PasswordHasher;
   readonly now?: () => Date;
   readonly streamHooks?: WorkspaceEventStreamHooks;
@@ -196,6 +203,14 @@ export async function createServices(
     }),
   });
   return {
+    notificationService: new NotificationService(
+      storage,
+      workspaceService,
+      notifier,
+      overrides.notificationTransport ?? new PushoverTransport(fetch, now),
+      config.publicOrigin,
+      now,
+    ),
     bootstrapService: new BootstrapService(storage, passwordHasher, notifier, now),
     authService,
     workspaceService,
@@ -250,6 +265,7 @@ export async function createRuntime(
         executionService: services.executionService,
         agentRunService: services.agentRunService,
         workCycleService: services.workCycleService,
+        notificationService: services.notificationService,
         runEventStreamService: services.runEventStreamService,
         executionStatus: services.executionStatus,
       },

@@ -62,7 +62,9 @@ never required reading.
 
 - The browser must never submit arbitrary shell commands.
 - The implementation agent must not gain merge authority. Merging is a daemon command
-  the operator triggers, gated on a review run's verdict (ADR-021).
+  gated on current review evidence. The operator may delegate integration merges through
+  a roadmap policy; final promotion into main or another protected destination always
+  requires explicit operator approval (ADR-033).
 - Repository policy, acceptance criteria, and protected checks are controller-owned concepts.
 - Do not add secrets, credentials, tokens, or machine-specific paths to the repository.
 - Spawn processes with argument arrays, never shell-concatenated strings, and only from

@@ -42,6 +42,7 @@ import type { AuthContext } from './auth-service.js';
 import { truncateUtf8Bytes } from './bounded-text.js';
 import type { BranchService } from './branch-service.js';
 import { composeBrief } from './brief.js';
+import { finalizationForCycle, finalizationInstructions } from './finalization-policy.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
 import { latestReviewReport, recordedFindingIds, writeRunHandoff } from './run-handoff.js';
@@ -258,7 +259,17 @@ export class AgentRunService {
     const existing = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
     if (existing !== undefined) return existing;
     const resolution = ownsIntegrationResolution(cycle) ? cycle.integrationResolution : undefined;
-    const profile = resolution?.profile ?? cycle.profiles[cycle.step];
+    const finalization = finalizationForCycle(this.storage, cycle);
+    const round = finalization?.rounds[cycle.polishRound ?? 0];
+    const profile =
+      resolution?.profile ??
+      (finalization
+        ? cycle.step === 'review'
+          ? cycle.polishPhase === 'final-review'
+            ? finalization.finalReview
+            : (round?.review ?? finalization.finalReview)
+          : (round?.polish ?? cycle.profiles.remediate)
+        : cycle.profiles[cycle.step]);
     return this.launchAuthorized(
       cycle.workspaceId,
       cycle.workItemId,
@@ -269,6 +280,7 @@ export class AgentRunService {
         ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
         instructions: [
           cycle.instructions,
+          finalization ? finalizationInstructions(finalization, cycle) : '',
           resolution ? '' : (cycle.housekeepingInstructions ?? ''),
           ...(resolution
             ? [
@@ -335,12 +347,17 @@ export class AgentRunService {
 
   private async launchAuthorized(
     workspaceId: WorkspaceId,
-    workItemId: WorkItemId,
+    workItemId: WorkItemId | undefined,
     input: StartRunInput,
     actor: { readonly userId: UserId; readonly sessionId?: SessionId },
     requestId?: string,
     cycle?: WorkCycle,
   ): Promise<AgentRun> {
+    if (this.storage.execution.merges.latest(workspaceId, input.worktreeId)?.status === 'reserved')
+      throw new ExecutionRequestError(
+        'conflict',
+        'Recover the reserved integration merge before launching another run',
+      );
     const kind = input.backend ?? this.defaultBackend();
     const backend = kind === undefined ? undefined : this.backends.get(kind);
     if (backend === undefined) {
@@ -353,23 +370,44 @@ export class AgentRunService {
     }
 
     const prepared = this.storage.readTransaction((tx) => {
-      const item = tx.planning.workItems.find(workspaceId, workItemId);
+      const item = workItemId ? tx.planning.workItems.find(workspaceId, workItemId) : undefined;
       const worktree = tx.execution.worktrees.find(workspaceId, input.worktreeId);
-      if (item === undefined || worktree === undefined || worktree.workItemId !== workItemId) {
+      if (
+        worktree === undefined ||
+        worktree.workItemId !== workItemId ||
+        (!item && !worktree.planVersionId)
+      ) {
         throw new NotFoundError();
       }
       if (worktree.status !== 'active') {
         throw new ExecutionRequestError('conflict', 'Worktree has been removed');
       }
       const repository = tx.execution.sourceRepositories.find(workspaceId, worktree.repositoryId);
-      const project = tx.planning.projects.find(workspaceId, item.projectId);
-      const row = tx.planning.workItems
-        .listForVersion(workspaceId, item.planVersionId)
-        .find((candidate) => candidate.id === workItemId);
+      const planVersionId = item?.planVersionId ?? worktree.planVersionId;
+      if (!planVersionId) throw new NotFoundError();
+      const project = tx.planning.projects.find(workspaceId, worktree.projectId);
+      const row =
+        tx.planning.workItems
+          .listForVersion(workspaceId, planVersionId)
+          .find((candidate) => candidate.id === workItemId) ??
+        (worktree.planVersionId
+          ? {
+              sourceId: 'Finalization',
+              title: 'Plan conformance, simplification and polish',
+              risk: 'high',
+              phase: undefined,
+              primaryAreas: [],
+              exitGate:
+                'The entire adopted plan conforms, required checks pass, and the final findings policy is met.',
+              sourceFields: { planVersionId, scope: 'whole-plan' },
+            }
+          : undefined);
       if (repository === undefined || project === undefined || row === undefined) {
         throw new NotFoundError();
       }
-      const predecessors = tx.planning.dependencies.listPredecessors(workspaceId, workItemId);
+      const predecessors = workItemId
+        ? tx.planning.dependencies.listPredecessors(workspaceId, workItemId)
+        : [];
       let parentRun: AgentRun | undefined;
       let parentFinalMessage: string | undefined;
       if (input.parentRunId !== undefined) {
@@ -399,11 +437,11 @@ export class AgentRunService {
             : parentRun.outcomeSummary;
       }
       const artifacts = tx.planning.artifacts
-        .listForVersion(workspaceId, item.planVersionId)
+        .listForVersion(workspaceId, planVersionId)
         .map((artifact) => tx.planning.artifacts.findWithContent(workspaceId, artifact.id))
         .filter((artifact) => artifact !== undefined);
       return {
-        item,
+        planVersionId,
         worktree,
         repository,
         project,
@@ -458,6 +496,23 @@ export class AgentRunService {
         writeFileSync(path, artifact.content, { mode: 0o600 });
         return { filename: artifact.logicalFilename, role: artifact.role, path };
       });
+      if (prepared.worktree.planVersionId) {
+        const inventoryPath = join(planDirectory, 'craftingtable-work-items.json');
+        writeFileSync(
+          inventoryPath,
+          JSON.stringify(
+            this.storage.planning.workItems.listForVersion(workspaceId, prepared.planVersionId),
+            null,
+            2,
+          ),
+          { mode: 0o600 },
+        );
+        planDocuments.push({
+          filename: 'craftingtable-work-items.json',
+          role: 'work-breakdown',
+          path: inventoryPath,
+        });
+      }
       const handoff =
         prepared.parentRun === undefined
           ? undefined
@@ -468,6 +523,7 @@ export class AgentRunService {
             );
       const brief = composeBrief({
         resolvingIntegration: ownsIntegrationResolution(cycle),
+        planFinalization: !!prepared.worktree.planVersionId,
         temporaryDirectory,
         role: input.role,
         projectName: prepared.project.name,
@@ -518,8 +574,8 @@ export class AgentRunService {
           workspaceId,
           worktreeId: prepared.worktree.id,
           repositoryId: prepared.repository.id,
-          projectId: prepared.item.projectId,
-          workItemId,
+          projectId: prepared.worktree.projectId,
+          ...(workItemId ? { workItemId } : { planVersionId: prepared.planVersionId }),
           ...(input.parentRunId === undefined ? {} : { parentRunId: input.parentRunId }),
           backend: backend.kind,
           role: input.role,
@@ -543,7 +599,7 @@ export class AgentRunService {
           targetId: runId,
           outcome: 'succeeded',
           metadata: {
-            workItemId,
+            ...(workItemId ? { workItemId } : { planVersionId: prepared.planVersionId }),
             worktreeId: prepared.worktree.id,
             role: input.role,
             permissionMode: input.permissionMode,
@@ -555,14 +611,14 @@ export class AgentRunService {
           occurredAt: createdAt,
           workspaceId,
           actorUserId: actor.userId,
-          projectId: prepared.item.projectId,
+          projectId: prepared.worktree.projectId,
           workItemId,
           runId,
           kind: 'agent-run-started',
           payload: {
             runId,
             worktreeId: prepared.worktree.id,
-            workItemId,
+            ...(workItemId ? { workItemId } : { planVersionId: prepared.planVersionId }),
             backend: backend.kind,
             role: input.role,
           },
@@ -1119,7 +1175,7 @@ function appendStatusChanged(
     kind: 'agent-run-status-changed',
     payload: {
       runId: run.id,
-      workItemId: run.workItemId,
+      ...(run.workItemId ? { workItemId: run.workItemId } : { planVersionId: run.planVersionId }),
       fromStatus,
       toStatus: run.status,
     },

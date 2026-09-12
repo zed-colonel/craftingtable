@@ -108,3 +108,18 @@ item and incoming commits, agent attempt links and the selected resolution profi
 and commit IDs on phones. Keep completion of the integration update distinct from final merge
 approval. Abandonment names the merge resolution it discards and explains that unrelated edits and
 untracked files may remain.
+
+
+## Integration policy and final review
+
+Roadmaps expose separate merge and conflict-delegation controls with manual defaults and
+per-entry overrides. Execution displays the policy bound to the started attempt, even after
+queued defaults change. Questions and exhausted recovery remain attention states.
+
+Plan finalization lives on the plan-version page beside branch settings. Its setup names
+round count, profiles, focus and final destination. Each attempt shows its integration
+snapshot, current outcome above activity, complete candidate diff, history and controls.
+Pause retains the integration hold; Stop explains retained work. Final approval names the
+exact candidate and destination commits and is always a separate operator action.
+Successful merges with cleanup failures display a retry action without implying the merge
+failed or holding dependent items back. All controls remain usable on phone layouts.

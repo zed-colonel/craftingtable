@@ -55,7 +55,11 @@ export function ownsIntegrationResolution(cycle: WorkCycle | undefined): boolean
 export interface WorkCycle {
   readonly id: string;
   readonly workspaceId: WorkspaceId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
+  readonly finalizationId?: string;
+  readonly planVersionId?: import('./ids.js').PlanVersionId;
+  readonly polishRound?: number;
+  readonly polishPhase?: 'assess' | 'polish' | 'verify' | 'final-review';
   readonly workItemSourceId: string;
   readonly workItemTitle: string;
   readonly projectId: ProjectId;

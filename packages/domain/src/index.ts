@@ -10,3 +10,7 @@ export * from './workspace.js';
 export * from './workspace-events.js';
 export * from './notification.js';
 export * from './roadmap.js';
+
+export * from './merge-operation.js';
+
+export * from './finalization.js';

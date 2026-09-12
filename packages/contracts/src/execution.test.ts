@@ -38,3 +38,49 @@ it('validates optional turn telemetry while keeping historical events readable',
     ).toBe(false);
   }
 });
+
+it('requires one unambiguous work-item or plan-version execution subject', async () => {
+  const { worktreeSummarySchema, agentRunSummarySchema } = await import('./execution.js');
+  const common = {
+    id: 'tree-1',
+    workspaceId: 'workspace-1',
+    repositoryId: 'repo-1',
+    projectId: 'project-1',
+    createdAt: '2026-09-12T00:00:00.000Z',
+    createdByUserId: 'user-1',
+    version: 1,
+  };
+  const records = [
+    {
+      schema: worktreeSummarySchema,
+      value: {
+        ...common,
+        branchName: 'candidate',
+        baseSha: '1'.repeat(40),
+        baseBranch: 'revision',
+        path: '/worktrees/candidate',
+        status: 'active',
+      },
+    },
+    {
+      schema: agentRunSummarySchema,
+      value: {
+        ...common,
+        worktreeId: 'tree-1',
+        backend: 'claude-code',
+        role: 'review',
+        status: 'running',
+        permissionMode: 'auto',
+        turnCount: 0,
+      },
+    },
+  ];
+  for (const { schema, value } of records) {
+    expect(schema.safeParse({ ...value, workItemId: 'item-1' }).success).toBe(true);
+    expect(schema.safeParse({ ...value, planVersionId: 'plan-1' }).success).toBe(true);
+    expect(schema.safeParse(value).success).toBe(false);
+    expect(
+      schema.safeParse({ ...value, workItemId: 'item-1', planVersionId: 'plan-1' }).success,
+    ).toBe(false);
+  }
+});

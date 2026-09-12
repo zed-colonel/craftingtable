@@ -42,7 +42,8 @@ export interface CreateWorktreeInput {
   readonly workspaceId: WorkspaceId;
   readonly repositoryId: SourceRepositoryId;
   readonly projectId: ProjectId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
+  readonly planVersionId?: import('@craftingtable/domain').PlanVersionId;
   readonly branchName: string;
   readonly baseSha: string;
   readonly baseBranch: string;
@@ -58,7 +59,8 @@ export interface CreateAgentRunInput {
   readonly worktreeId: WorktreeId;
   readonly repositoryId: SourceRepositoryId;
   readonly projectId: ProjectId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
+  readonly planVersionId?: import('@craftingtable/domain').PlanVersionId;
   readonly parentRunId?: AgentRunId;
   readonly backend: AgentBackendKind;
   readonly role: AgentRunRole;
@@ -192,6 +194,8 @@ export interface RunProfileRepository {
 }
 
 export interface ExecutionRepositories {
+  readonly finalizations: import('./repositories/execution/finalizations.js').FinalizationRepository;
+  readonly merges: import('./repositories/execution/merges.js').MergeOperationRepository;
   readonly branchSettings: import('./repositories/execution/branch-settings.js').PlanBranchSettingsRepository;
   readonly cycles: import('./repositories/execution/work-cycles.js').WorkCycleRepository;
   readonly sourceRepositories: SourceRepositoryRepository;

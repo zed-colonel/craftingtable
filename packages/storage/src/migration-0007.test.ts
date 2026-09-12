@@ -54,7 +54,7 @@ it('preserves runs, lineage and journal rows while widening the backend constrai
     const events = database.prepare('SELECT * FROM agent_run_events').all();
     runMigrations(database, migrations);
     expect(database.prepare('SELECT * FROM agent_runs ORDER BY id').all()).toEqual(
-      runs.map((run) => ({ ...run, review_branch_context_json: null })),
+      runs.map((run) => ({ ...run, review_branch_context_json: null, plan_version_id: null })),
     );
     expect(database.prepare('SELECT integration_branch FROM worktrees').get()).toEqual({
       integration_branch: null,

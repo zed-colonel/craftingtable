@@ -1,3 +1,5 @@
+import type { FinalizationService } from './services/finalization-service.js';
+import { registerFinalizationRoutes } from './routes/finalizations.js';
 import type { RoadmapService } from './services/roadmap-service.js';
 import { registerRoadmapRoutes } from './routes/roadmaps.js';
 import type { NotificationService } from './services/notification-service.js';
@@ -36,6 +38,7 @@ import type { WorkspaceService } from './services/workspace-service.js';
 
 export interface ServerDependencies {
   readonly roadmapService: RoadmapService;
+  readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
   readonly authService: AuthService;
   readonly workspaceService: WorkspaceService;
@@ -101,6 +104,7 @@ export function buildServer(
     await deps.notificationService.shutdown();
     await deps.workCycleService.shutdown();
   });
+  registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);
   registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);
   registerNotificationRoutes(app, deps.authService, deps.notificationService, config);
   registerWorkCycleRoutes(app, deps.authService, deps.workCycleService, config);

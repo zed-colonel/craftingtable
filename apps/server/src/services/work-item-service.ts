@@ -156,7 +156,7 @@ export class WorkItemService {
   completeWithin(
     tx: StorageRepositories,
     input: {
-      readonly context: AuthContext;
+      readonly context: CommandContext;
       readonly workspaceId: WorkspaceId;
       readonly workItemId: WorkItemId;
       readonly occurredAt: string;
@@ -194,9 +194,9 @@ export class WorkItemService {
     tx.audit.append({
       id: asAuditEventId(randomUUID()),
       occurredAt,
-      actorKind: 'user',
+      actorKind: context.session ? 'user' : 'system',
       actorUserId: context.user.id,
-      sessionId: context.session.id,
+      ...(context.session ? { sessionId: context.session.id } : {}),
       workspaceId,
       ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
       action: 'work-item.completed',

@@ -59,10 +59,10 @@ trigger on `work_items` stays in force; a completed predecessor unblocks its dep
 
 A worktree's merge gate is computed from its runs (`mergeGateFor` in the execution
 service): mergeable when the most recent run is a successfully finished review with a `mergeable` verdict and
-nothing is live. The single merge route re-evaluates the gate, merges with a merge
+nothing is live. The shared merge command re-evaluates the gate, reserves a durable operation, and merges with a merge
 commit into the worktree's recorded integration branch after verifying the review's
-source/target commits and worktree version, removes the worktree, deletes the branch, and
-completes the work item in one transaction. The merge happens in the primary checkout
+source/target commits and worktree version. The Git commit is reconciled into database
+completion before worktree and branch cleanup; cleanup can be retried independently. The merge happens in the primary checkout
 only when that checkout already has the target checked out; otherwise it runs in a
 scratch worktree under the worktree root. See ADR-021.
 
@@ -103,8 +103,8 @@ one for manual operation. See ADR-024.
 item through design, implementation, and bounded review/remediation. `work_cycles`
 stores the fixed completion policy, step profiles, run reservation, and versioned state.
 Changes append audit and workspace events; the browser exposes pause/resume/stop and
-persistent attention notices. The controller never merges and never relaunches an
-interrupted step without explicit resume. See ADR-025 for completion and recovery rules.
+persistent attention notices. Standalone cycles stop for merge approval; a roadmap may
+explicitly delegate integration merges. Interrupted steps require explicit resume. See ADR-025 for completion and recovery rules.
 Before automated review, tracked edits and staged additions can be finalized through a
 content-bound, durably reserved Git checkpoint. Negative reviews bypass approval cleanliness
 checks and carry housekeeping instructions into the same bounded remediation run; positive
@@ -157,7 +157,8 @@ immutable imported documents. New worktrees freeze the configured integration ta
 and its starting commit. Retargeting and integration updates invalidate old reviews;
 all manual and automated reviews record source and target commits. Required predecessors'
 recorded integration evidence is checked by ancestry. Commands are owner/editor operations;
-only the final operator merge route advances an integration branch. See ADR-026.
+the shared review-gated merge command advances an integration branch, under explicit
+operator action or delegated roadmap policy. See ADR-026 and ADR-033.
 
 The CT-04A1 read-only inspector and its repository-evidence persistence remain in the
 tree, uncomposed. They are superseded for the working loop by the simpler source
@@ -203,7 +204,8 @@ mode scans in priority order under dependency, in-flight, repository, and exclus
 revisions from mutable, versioned control state and independently identified attempts.
 Each attempt reserves its worktree and cycle IDs before Git work; cycle creation and
 attempt attachment commit together. Branch targets and effective step settings are bound
-explicitly. The scheduler never calls merge. See ADR-029 for admission, capacity, recovery,
+explicitly. The scheduler calls the shared merge command only under the effective policy
+from the attempt's immutable definition revision. See ADR-029 for admission, capacity, recovery,
 and manual takeover behavior; ADR-028 preserves the later slice and Studio boundaries.
 
 Parallel settings and item holds are additive JSON fields in schema 12; older definitions
@@ -211,7 +213,7 @@ retain sequential semantics. Attempts reserve capacity before Git creation. The 
 scheduler serializes admission, and repository mutation guards serialize daemon creation,
 removal, integration updates, and merges. Paused items retain reservations; item attention
 does not disable scheduling for siblings. Only a started attempt's own merge releases its
-successors. `WorkCycleService` refreshes only actively delegated parallel attempts, with
+successors. `WorkCycleService` refreshes actively delegated parallel or automatic-integration attempts, with
 limits bound to the attempt's immutable revision. It waits for idle sessions, invalidates
 review context before Git, and reserves a fresh review after updating. See ADR-030.
 
@@ -225,3 +227,22 @@ resolve/stage/verify while leaving commit authority with the daemon. The browser
 inspection, agent selection, attempt links, guided retry and explicit abandonment. Operations
 reserve the worktree durably and take repository/worktree mutation locks only around Git.
 Restart pauses without discarding edits or replaying launches. See ADR-032.
+
+
+## Delegated integration and finalization
+
+Schema 13 adds durable merge reservations and additional protected destinations; optional
+roadmap policy fields retain manual defaults for existing definitions. A reservation pins
+source, destination, review, authorizer and definition revision. Recovery verifies a unique
+commit marker and its exact parents in bounded first-parent history. Completion and audit
+are committed before cleanup. Repository/worktree guards serialize mutation; external Git
+is detected through commit and cleanliness checks. Automatic conflicts use the existing
+bounded resolution workflow and always lead to fresh review.
+
+Schema 14 permits an explicit plan-version subject on worktrees and runs, preserving existing
+item history. `FinalizationService` reserves an integration snapshot and candidate worktree,
+then delegates assessment/polish/verification rounds to `WorkCycleService`. Whole-plan
+artifacts and a complete item inventory supply context; item completion remains independent.
+Finalization holds further integration merges and ends with a separate review. Only an
+authenticated finalization command approving the exact candidate/destination pair can
+promote it. Preparation reservations survive restart and require explicit resume. See ADR-033.

@@ -293,7 +293,7 @@ export function RunPage({
         <div>
           <div className="crumbs">
             <button type="button" className="link-button" onClick={onOpenWorkItem}>
-              Work item
+              {detail.run.planVersionId ? 'Plan finalization' : 'Work item'}
             </button>
             <span>/</span>
             <span>{RUN_ROLE_LABELS[run.role]} run</span>

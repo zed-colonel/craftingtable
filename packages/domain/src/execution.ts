@@ -51,6 +51,7 @@ export const WORKTREE_STATUSES = ['active', 'removed'] as const;
 export type WorktreeStatus = (typeof WORKTREE_STATUSES)[number];
 
 export interface PlanBranchSettings {
+  readonly manualMergeBranches?: readonly string[];
   readonly workspaceId: WorkspaceId;
   readonly planVersionId: PlanVersionId;
   readonly repositoryId: SourceRepositoryId;
@@ -72,7 +73,8 @@ export interface Worktree {
   readonly workspaceId: WorkspaceId;
   readonly repositoryId: SourceRepositoryId;
   readonly projectId: ProjectId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
+  readonly planVersionId?: PlanVersionId;
   readonly branchName: string;
   readonly baseSha: string;
   readonly baseBranch: string;
@@ -185,7 +187,8 @@ export interface AgentRun {
   readonly worktreeId: WorktreeId;
   readonly repositoryId: SourceRepositoryId;
   readonly projectId: ProjectId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
+  readonly planVersionId?: PlanVersionId;
   readonly parentRunId?: AgentRunId;
   readonly backend: AgentBackendKind;
   readonly role: AgentRunRole;

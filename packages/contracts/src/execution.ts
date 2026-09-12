@@ -140,25 +140,35 @@ export const retireSourceRepositoryResponseSchema = z.strictObject({
 /* Worktrees                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export const worktreeSummarySchema = z.strictObject({
-  id: worktreeIdSchema,
-  workspaceId: workspaceIdSchema,
-  repositoryId: sourceRepositoryIdSchema,
-  projectId: projectIdSchema,
-  workItemId: workItemIdSchema,
-  branchName: gitBranchNameSchema,
-  baseSha: gitShaSchema,
-  baseBranch: gitBranchNameSchema,
-  integrationBranch: gitBranchNameSchema.optional(),
-  path: sourceRepositoryPathSchema,
-  status: z.enum(WORKTREE_STATUSES),
-  createdAt: z.iso.datetime(),
-  createdByUserId: userIdSchema,
-  removedAt: z.iso.datetime().optional(),
-  mergedAt: z.iso.datetime().optional(),
-  mergeSha: gitShaSchema.optional(),
-  version: positiveSafeInteger,
-});
+function hasExecutionSubject(value: { workItemId?: string; planVersionId?: string }): boolean {
+  return (value.workItemId !== undefined) !== (value.planVersionId !== undefined);
+}
+
+export const worktreeSummarySchema = z
+  .strictObject({
+    id: worktreeIdSchema,
+    workspaceId: workspaceIdSchema,
+    repositoryId: sourceRepositoryIdSchema,
+    projectId: projectIdSchema,
+    workItemId: workItemIdSchema.optional(),
+    planVersionId: planVersionIdSchema.optional(),
+    branchName: gitBranchNameSchema,
+    baseSha: gitShaSchema,
+    baseBranch: gitBranchNameSchema,
+    integrationBranch: gitBranchNameSchema.optional(),
+    path: sourceRepositoryPathSchema,
+    status: z.enum(WORKTREE_STATUSES),
+    createdAt: z.iso.datetime(),
+    createdByUserId: userIdSchema,
+    removedAt: z.iso.datetime().optional(),
+    mergedAt: z.iso.datetime().optional(),
+    mergeSha: gitShaSchema.optional(),
+    mergeCleanupError: z.string().max(4000).optional(),
+    version: positiveSafeInteger,
+  })
+  .refine(hasExecutionSubject, {
+    message: 'Execution must have exactly one work-item or plan-version subject',
+  });
 
 export const createWorktreeRequestSchema = z.strictObject({
   repositoryId: sourceRepositoryIdSchema,
@@ -200,6 +210,7 @@ export const mergeGateSchema = z.strictObject({
     'run-live',
     'worktree-removed',
     'branch-review-required',
+    'merge-recovery-required',
   ]),
   reviewRunId: agentRunIdSchema.optional(),
 });
@@ -257,41 +268,46 @@ export const worktreeDiffResponseSchema = z.strictObject({
 /* Agent runs                                                                  */
 /* -------------------------------------------------------------------------- */
 
-export const agentRunSummarySchema = z.strictObject({
-  id: agentRunIdSchema,
-  workspaceId: workspaceIdSchema,
-  worktreeId: worktreeIdSchema,
-  repositoryId: sourceRepositoryIdSchema,
-  projectId: projectIdSchema,
-  workItemId: workItemIdSchema,
-  parentRunId: agentRunIdSchema.optional(),
-  backend: z.enum(AGENT_BACKENDS),
-  role: z.enum(AGENT_RUN_ROLES),
-  status: z.enum(AGENT_RUN_STATUSES),
-  permissionMode: z.enum(AGENT_PERMISSION_MODES),
-  model: z.string().min(1).max(100).optional(),
-  resolvedModel: z.string().min(1).max(100).optional(),
-  billing: z.enum(AGENT_BILLING_SOURCES).optional(),
-  verdict: z.enum(AGENT_RUN_VERDICTS).optional(),
-  reviewBranchContext: z
-    .strictObject({
-      headSha: gitShaSchema,
-      targetBranch: gitBranchNameSchema,
-      targetSha: gitShaSchema,
-      worktreeVersion: positiveSafeInteger,
-    })
-    .optional(),
-  backendSessionId: z.string().min(1).max(200).optional(),
-  createdAt: z.iso.datetime(),
-  createdByUserId: userIdSchema,
-  startedAt: z.iso.datetime().optional(),
-  finishedAt: z.iso.datetime().optional(),
-  exitCode: z.number().int().optional(),
-  outcomeSummary: boundedUtf8(4000).optional(),
-  costUsd: z.number().nonnegative().optional(),
-  turnCount: nonNegativeSafeInteger,
-  version: positiveSafeInteger,
-});
+export const agentRunSummarySchema = z
+  .strictObject({
+    id: agentRunIdSchema,
+    workspaceId: workspaceIdSchema,
+    worktreeId: worktreeIdSchema,
+    repositoryId: sourceRepositoryIdSchema,
+    projectId: projectIdSchema,
+    workItemId: workItemIdSchema.optional(),
+    planVersionId: planVersionIdSchema.optional(),
+    parentRunId: agentRunIdSchema.optional(),
+    backend: z.enum(AGENT_BACKENDS),
+    role: z.enum(AGENT_RUN_ROLES),
+    status: z.enum(AGENT_RUN_STATUSES),
+    permissionMode: z.enum(AGENT_PERMISSION_MODES),
+    model: z.string().min(1).max(100).optional(),
+    resolvedModel: z.string().min(1).max(100).optional(),
+    billing: z.enum(AGENT_BILLING_SOURCES).optional(),
+    verdict: z.enum(AGENT_RUN_VERDICTS).optional(),
+    reviewBranchContext: z
+      .strictObject({
+        headSha: gitShaSchema,
+        targetBranch: gitBranchNameSchema,
+        targetSha: gitShaSchema,
+        worktreeVersion: positiveSafeInteger,
+      })
+      .optional(),
+    backendSessionId: z.string().min(1).max(200).optional(),
+    createdAt: z.iso.datetime(),
+    createdByUserId: userIdSchema,
+    startedAt: z.iso.datetime().optional(),
+    finishedAt: z.iso.datetime().optional(),
+    exitCode: z.number().int().optional(),
+    outcomeSummary: boundedUtf8(4000).optional(),
+    costUsd: z.number().nonnegative().optional(),
+    turnCount: nonNegativeSafeInteger,
+    version: positiveSafeInteger,
+  })
+  .refine(hasExecutionSubject, {
+    message: 'Execution must have exactly one work-item or plan-version subject',
+  });
 
 export const runOutcomeSchema = z.strictObject({
   sequence: nonNegativeSafeInteger,
@@ -376,7 +392,7 @@ export const workItemExecutionResponseSchema = z.strictObject({
 });
 
 /** A run with enough context to be listed outside its work item. */
-export const runOverviewSchema = agentRunSummarySchema.extend({
+export const runOverviewSchema = agentRunSummarySchema.safeExtend({
   workItemSourceId: z.string().min(1).max(64),
   workItemTitle: z.string().min(1).max(300),
   projectName: z.string().min(1).max(120),
@@ -529,6 +545,7 @@ export type RunEventEnvelope = z.infer<typeof runEventEnvelopeSchema>;
 export type RunEventPageResponse = z.infer<typeof runEventPageResponseSchema>;
 
 export const planBranchSettingsSchema = z.strictObject({
+  manualMergeBranches: z.array(gitBranchNameSchema).max(30).readonly().optional(),
   workspaceId: workspaceIdSchema,
   planVersionId: planVersionIdSchema,
   repositoryId: sourceRepositoryIdSchema,
@@ -547,6 +564,7 @@ export const planBranchSettingsResponseSchema = z.strictObject({
   issues: z.array(z.string()).max(1000),
 });
 export const savePlanBranchSettingsRequestSchema = z.strictObject({
+  manualMergeBranches: z.array(gitBranchNameSchema).max(30).readonly().optional(),
   repositoryId: sourceRepositoryIdSchema,
   integrationBranch: gitBranchNameSchema,
   expectedVersion: nonNegativeSafeInteger,

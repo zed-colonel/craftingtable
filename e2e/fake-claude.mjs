@@ -17,6 +17,7 @@ let turns = 0;
 let reviewing = false;
 let automated = false;
 let designing = false;
+let finalizing = false;
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 
 emit({
@@ -57,6 +58,7 @@ lines.on('line', (line) => {
   if (turns === 1) {
     automated = text.includes('one step of an operator-authorized automated cycle');
     designing = /^Role: design$/m.test(text);
+    finalizing = /^# Plan finalization:/m.test(text);
   }
   if (automated && designing) {
     const result = 'Design complete.\n\n## Open questions\nnone';
@@ -121,9 +123,12 @@ lines.on('line', (line) => {
         ]
       : [];
     const reviewResult =
-      automated || findings.length > 0
+      (finalizing
+        ? 'Whole-plan conformance and fixture checks passed.\n\n## Open questions\nnone\n\n## Review report\n'
+        : '') +
+      (automated || findings.length > 0
         ? `\`\`\`craftingtable-review\n${JSON.stringify({ version: 1, complete: true, verdict, exitGate: { met: verdict === 'mergeable', evidence: 'Fixture checks passed.' }, findings })}\n\`\`\`\nVERDICT: ${verdict}`
-        : `fake review turn ${turns}\n\nVERDICT: ${verdict}`;
+        : `fake review turn ${turns}\n\nVERDICT: ${verdict}`);
     emit({
       type: 'assistant',
       message: {
@@ -146,7 +151,7 @@ lines.on('line', (line) => {
   const itemSuffix = text.includes('PARALLEL-ROADMAP')
     ? `-${/^# Work item ([A-Z0-9-]+)/m.exec(text)?.[1] ?? 'fixture'}`
     : '';
-  const filename = `SMOKE${itemSuffix}-${turns}.md`;
+  const filename = `${finalizing ? 'POLISH' : 'SMOKE'}${itemSuffix}-${turns}.md`;
   writeFileSync(join(cwd, filename), `turn ${turns}: ${text.split('\n')[0]}\n`);
   if (text.includes('MOBILE-FINDINGS')) {
     writeFileSync(join(cwd, 'mobile-layout.md'), `${'Long diff line '.repeat(50)}\n`);
@@ -193,7 +198,7 @@ lines.on('line', (line) => {
     type: 'result',
     subtype: 'success',
     is_error: false,
-    result: `fake agent finished turn ${turns}`,
+    result: `fake agent finished turn ${turns}${finalizing ? '\n\n## Open questions\nnone' : ''}`,
     num_turns: turns,
     duration_ms: 25,
     total_cost_usd: 0.01 * turns,

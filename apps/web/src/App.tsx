@@ -48,6 +48,7 @@ import { WorktreeBranchPanel } from './features/execution/WorktreeBranchPanel.js
 import { WorkspacesPage } from './features/home/WorkspacesPage.js';
 import { AgendaPage } from './features/planning/AgendaPage.js';
 import { ImportPlanPage } from './features/planning/ImportPlanPage.js';
+import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
 import { PlanVersionPage } from './features/planning/PlanVersionPage.js';
 import { ProjectCards } from './features/planning/ProjectCards.js';
 import { ProjectPage } from './features/planning/ProjectPage.js';
@@ -535,7 +536,12 @@ export function App() {
     } else if (route.name === 'run') {
       void Promise.all([
         loadRun(workspaceId, route.runId).then((detail) =>
-          Promise.all([detail, loadWorkItemExecution(workspaceId, detail.run.workItemId)]),
+          Promise.all([
+            detail,
+            detail.run.workItemId
+              ? loadWorkItemExecution(workspaceId, detail.run.workItemId)
+              : Promise.resolve(undefined),
+          ]),
         ),
         loadExecutionStatus(),
         loadRunProfiles(workspaceId),
@@ -1138,7 +1144,15 @@ export function App() {
                     type="button"
                     className="text-button"
                     onClick={() =>
-                      go({ name: 'work-item', workspaceId, workItemId: cycle.workItemId })
+                      cycle.workItemId
+                        ? go({ name: 'work-item', workspaceId, workItemId: cycle.workItemId })
+                        : cycle.planVersionId &&
+                          go({
+                            name: 'plan-version',
+                            workspaceId,
+                            projectId: cycle.projectId,
+                            planVersionId: cycle.planVersionId,
+                          })
                     }
                   >
                     {cycle.workItemSourceId}: {CYCLE_STATUS_LABELS[cycle.status]}
@@ -1260,15 +1274,25 @@ export function App() {
           <PlanVersionPage
             detail={planVersion}
             branchSettings={
-              <PlanBranchPanel
-                key={planVersion.version.id}
-                workspaceId={workspaceId}
-                planVersionId={planVersion.version.id}
-                csrfToken={authenticated.csrfToken}
-                editable={canMutate}
-                refreshToken={refreshToken}
-                onChanged={() => setRefreshToken((v) => v + 1)}
-              />
+              <>
+                <PlanBranchPanel
+                  key={planVersion.version.id}
+                  workspaceId={workspaceId}
+                  planVersionId={planVersion.version.id}
+                  csrfToken={authenticated.csrfToken}
+                  editable={canMutate}
+                  refreshToken={refreshToken}
+                  onChanged={() => setRefreshToken((v) => v + 1)}
+                />
+                <FinalizationPanel
+                  key={`finalize-${planVersion.version.id}`}
+                  workspaceId={workspaceId}
+                  planVersionId={planVersion.version.id}
+                  csrfToken={authenticated.csrfToken}
+                  canMutate={canMutate}
+                  onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
+                />
+              </>
             }
             onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
             onViewArtifact={viewArtifact}
@@ -1415,17 +1439,29 @@ export function App() {
             onEnd={() => handleEndRun(run.run.id)}
             onCancel={() => handleCancelRun(run.run.id)}
             onOpenWorkItem={() =>
-              go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId })
+              run.run.workItemId
+                ? go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId })
+                : run.run.planVersionId &&
+                  go({
+                    name: 'plan-version',
+                    workspaceId,
+                    projectId: run.run.projectId,
+                    planVersionId: run.run.planVersionId,
+                  })
             }
             onLoadDiff={() => handleLoadDiff(run.worktree.id)}
             onCloseDiff={() => setDiff(undefined)}
             {...(executionStatus === undefined ? {} : { backends: executionStatus.backends })}
             {...(runProfiles === undefined ? {} : { profiles: runProfiles.profiles })}
-            {...(workItemExecution?.workItemId === run.run.workItemId
+            {...(workItemExecution && workItemExecution.workItemId === run.run.workItemId
               ? { runs: workItemExecution.runs }
               : {})}
-            {...(canMutate && run.worktree.status === 'active'
-              ? { onHandoff: (input: LaunchInput) => handleLaunch(run.run.workItemId, input) }
+            {...(canMutate && run.run.workItemId && run.worktree.status === 'active'
+              ? {
+                  onHandoff: (input: LaunchInput) => {
+                    if (run.run.workItemId) handleLaunch(run.run.workItemId, input);
+                  },
+                }
               : {})}
           />
         )}

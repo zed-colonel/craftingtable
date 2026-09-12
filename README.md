@@ -84,18 +84,42 @@ it is mergeable.
   for attention. Pause/resume supports manual intervention; stop returns the worktree
   to the manual flow. Cycle settings stay fixed after start. Workspace notices persist
   across reloads, and daemon restart requires explicit resume. Review and merge check
-  the reviewed source commit; automation never merges on its own.
+  the reviewed source and target commits. Standalone cycles stop for your merge approval;
+  roadmaps can delegate integration merges explicitly.
 - **Roadmaps.** Open **Roadmaps** to select and order imported work items,
   set each step's agent/model/permissions and completion policy, then save and explicitly
   start. The daemon admits eligible items, creates worktrees from their bound integration
-  branches, and delegates existing automated cycles. Each operator merge releases the
-  next item. Dependencies outside the roadmap and existing unmerged worktrees remain
+  branches, and delegates existing automated cycles. Each completed integration merge releases
+  the next eligible item. Dependencies outside the roadmap and existing unmerged worktrees remain
   visible blockers. Pause supports manual work and queued edits; immutable revisions
   retain started settings and execution history. Restart requires explicit roadmap resume.
   Sequential mode preserves strict order. Parallel mode uses order as priority, with bounded
   in-flight items, repository capacity, and per-entry exclusion groups. Items needing attention
   pause independently. Sibling merges trigger an idle worktree update and fresh review; conflicts
-  and a bounded refresh budget require attention. Every final merge still belongs to you.
+  and exhausted recovery budgets require attention. **Integration automation** separately controls
+  automatic merges and agent conflict resolution, with manual defaults and per-item overrides.
+  Started items retain the policy from their saved revision. Automatic merges retain the same
+  clean-worktree, findings, fresh-review, and exact-commit gates. `main`, `master`, repository
+  defaults, finalization destinations, and additional protected branches always require approval.
+  Choose additional protections in the plan's **Repository & branches** settings.
+- **Plan finalization.** Open **Projects → project → plan version → Finalize integration** after
+  all plan items are integrated. Select the final destination, 0–10 improvement rounds,
+  each round's assessment/verification and polish profiles, a separate final-review profile,
+  completion limits, and focus instructions. Each round assesses whole-plan conformance,
+  performs justified polish, then verifies it; a final independent review follows. Open
+  questions, invalid results, and exhausted remediation budgets require attention. Answers
+  can be supplied with **Resume finalization**. Pausing retains the integration hold; stopping
+  releases it and retains the candidate for inspection or removal.
+  Finalization works on a dedicated candidate branch from a pinned integration snapshot.
+  Further daemon merges into that integration branch wait until finalization ends. Review
+  the full candidate diff and run outcomes, then explicitly approve the exact candidate and
+  destination commits. The polished candidate merges directly into the final destination;
+  the source integration branch remains at its snapshot. External integration drift requires
+  a new finalization. No round count or roadmap policy can approve final promotion.
+- **Merge recovery.** Merge reservations survive interruptions between Git and database
+  completion. Recovery checks the recorded commit and parents before recording completion,
+  without repeating a completed merge. Cleanup follows completion; failed cleanup remains
+  visible with **Retry worktree cleanup**, and later edits or commits are retained.
 - **Design handoff.** A finished design run can be accepted with one click: the implement
   run that follows gets the proposal as its plan. Design runs end with their open
   questions so the operator sees what still needs a decision before accepting.
@@ -146,7 +170,7 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 12 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 14 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

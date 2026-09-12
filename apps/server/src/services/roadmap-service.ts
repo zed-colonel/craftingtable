@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { SaveRoadmapRequest } from '@craftingtable/contracts';
 import {
   DEFAULT_ROADMAP_SCHEDULING,
+  DEFAULT_ROADMAP_AUTOMATION,
   asAuditEventId,
   asEventId,
   asWorktreeId,
@@ -13,7 +14,8 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext, CommandContext } from './auth-service.js';
-import { RepositoryMutationBusyError } from './branch-service.js';
+import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
+import { RepositoryMutationBusyError, IntegrationHeldError } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { ExecutionService } from './execution-service.js';
 import type { WorkItemService } from './work-item-service.js';
@@ -96,6 +98,7 @@ export class RoadmapService {
             profiles: frozen.profiles,
             policy: frozen.policy,
             instructions: frozen.instructions,
+            ...(frozen.automation ? { automation: frozen.automation } : {}),
             ...(frozen.exclusionGroups === undefined
               ? {}
               : { exclusionGroups: frozen.exclusionGroups }),
@@ -152,6 +155,7 @@ export class RoadmapService {
       revision: (old?.definition.revision ?? 0) + 1,
       name: input.name,
       scheduling,
+      ...(input.automation ? { automation: input.automation } : {}),
       entries,
       createdAt: at,
       createdByUserId: context.user.id,
@@ -227,7 +231,11 @@ export class RoadmapService {
         const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
         if (cycle && ['paused', 'needs-attention'].includes(cycle.status)) {
           const worktree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
-          if (!worktree?.mergedAt) {
+          if (
+            !worktree?.mergedAt &&
+            this.storage.execution.merges.latest(workspaceId, cycle.worktreeId)?.status !==
+              'reserved'
+          ) {
             try {
               await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
             } catch (error) {
@@ -242,7 +250,7 @@ export class RoadmapService {
         {
           status: 'running',
           delegatedByUserId: context.user.id,
-          reason: 'Scheduling enabled. Every merge requires operator approval.',
+          reason: 'Scheduling enabled. Integration follows each item’s delegated merge policy.',
           entryHolds: Object.fromEntries(
             Object.entries(roadmap.entryHolds ?? {}).filter(([, hold]) => hold.status === 'paused'),
           ),
@@ -362,7 +370,9 @@ export class RoadmapService {
         } catch (error) {
           if (
             error instanceof SupersededRoadmapOperation ||
-            error instanceof RepositoryMutationBusyError
+            error instanceof RepositoryMutationBusyError ||
+            error instanceof WorktreeMutationBusyError ||
+            error instanceof IntegrationHeldError
           )
             continue;
           const current = this.find(roadmap.workspaceId, roadmap.id);
@@ -412,7 +422,12 @@ export class RoadmapService {
           await this.advanceEntry(current, entry);
         } catch (error) {
           if (error instanceof SupersededRoadmapOperation) throw error;
-          if (error instanceof RepositoryMutationBusyError) continue;
+          if (
+            error instanceof RepositoryMutationBusyError ||
+            error instanceof WorktreeMutationBusyError ||
+            error instanceof IntegrationHeldError
+          )
+            continue;
           const latest = this.find(roadmap.workspaceId, roadmap.id);
           if (latest.status !== 'running' || this.controlling.has(latest.id)) return;
           const reason =
@@ -434,7 +449,7 @@ export class RoadmapService {
       else
         this.reason(
           current,
-          'Parallel scheduling enabled. Items progress independently; every merge requires your approval.',
+          'Parallel scheduling enabled. Items progress independently; integration follows each item’s merge policy.',
         );
       return;
     }
@@ -469,7 +484,7 @@ export class RoadmapService {
               ? { ...a, status: 'completed' as const, completedAt: worktree.mergedAt }
               : a,
           ),
-          reason: `${entry.sourceId} merged by operator.`,
+          reason: `${entry.sourceId} integrated.`,
           entryHolds: Object.fromEntries(
             Object.entries(roadmap.entryHolds ?? {}).filter(([id]) => id !== entry.id),
           ),
@@ -485,6 +500,79 @@ export class RoadmapService {
         );
       const cycle = this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
       if (cycle) {
+        const boundAttempt = attempt;
+        const definition = this.storage.roadmaps
+          .history(roadmap.workspaceId, roadmap.id)
+          .find((d) => d.revision === boundAttempt.definitionRevision);
+        const bound = definition?.entries.find((e) => e.id === entry.id);
+        const automation =
+          bound?.automation ?? definition?.automation ?? DEFAULT_ROADMAP_AUTOMATION;
+        const check = () => {
+          const current = this.find(roadmap.workspaceId, roadmap.id);
+          if (
+            current.status !== 'running' ||
+            current.entryHolds?.[entry.id] ||
+            this.controlling.has(current.id) ||
+            this.abort.signal.aborted
+          )
+            throw new SupersededRoadmapOperation();
+          this.authority(current);
+          const tree = this.storage.execution.worktrees.find(
+            roadmap.workspaceId,
+            boundAttempt.worktreeId,
+          );
+          if (
+            tree?.integrationBranch !== entry.integrationBranch ||
+            tree.repositoryId !== entry.repositoryId
+          )
+            conflict('Roadmap integration binding changed.');
+        };
+        if (
+          cycle.status === 'needs-attention' &&
+          cycle.integrationResolution?.status === 'detected' &&
+          automation.integrationConflicts === 'automatic'
+        ) {
+          check();
+          await this.cycles.resolveIntegration(
+            context,
+            roadmap.workspaceId,
+            cycle.id,
+            {
+              action: 'start',
+              expectedVersion: cycle.version,
+              profile: automation.resolutionProfile ?? entry.profiles.remediate,
+            },
+            check,
+          );
+          return;
+        }
+        const pending = this.storage.execution.merges.latest(
+          roadmap.workspaceId,
+          attempt.worktreeId,
+        );
+        if (
+          automation.integrationMerge === 'automatic' &&
+          (cycle.status === 'awaiting-merge' || pending?.status === 'reserved')
+        ) {
+          check();
+          if (
+            pending?.status !== 'reserved' &&
+            (await this.cycles.refreshIntegration(
+              cycle,
+              this.storage.execution.runs.find(roadmap.workspaceId, cycle.currentRunId),
+            ))
+          )
+            return;
+          await this.execution.mergeWorktree(
+            context,
+            roadmap.workspaceId,
+            attempt.worktreeId,
+            {},
+            undefined,
+            { roadmapId: roadmap.id, definitionRevision: attempt.definitionRevision, check },
+          );
+          return;
+        }
         if (parallel) return;
         if (['paused', 'needs-attention', 'stopped', 'completed'].includes(cycle.status))
           this.change(roadmap, {
@@ -729,32 +817,48 @@ export class RoadmapService {
   private view(roadmap: Roadmap): RoadmapView {
     return {
       roadmap,
-      progress: roadmap.definition.entries.map((entry) => {
-        if (this.complete(roadmap, entry))
-          return { entryId: entry.id, status: 'completed', reason: 'Completed.' };
-        const hold = roadmap.entryHolds?.[entry.id];
-        if (hold) return { entryId: entry.id, status: hold.status, reason: hold.reason };
-        const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
-        const cycle =
-          attempt && this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
-        if (cycle)
+      progress: roadmap.definition.entries
+        .map((entry): import('@craftingtable/domain').RoadmapEntryProgress => {
+          if (this.complete(roadmap, entry))
+            return { entryId: entry.id, status: 'completed', reason: 'Completed.' };
+          const hold = roadmap.entryHolds?.[entry.id];
+          if (hold) return { entryId: entry.id, status: hold.status, reason: hold.reason };
+          const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
+          const cycle =
+            attempt && this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+          if (cycle)
+            return {
+              entryId: entry.id,
+              status:
+                cycle.status === 'running'
+                  ? 'running'
+                  : cycle.status === 'awaiting-merge'
+                    ? 'awaiting-merge'
+                    : 'needs-attention',
+              reason: cycle.reason,
+            };
+          const reason = this.blocker(roadmap, entry, attempt);
           return {
             entryId: entry.id,
-            status:
-              cycle.status === 'running'
-                ? 'running'
-                : cycle.status === 'awaiting-merge'
-                  ? 'awaiting-merge'
-                  : 'needs-attention',
-            reason: cycle.reason,
+            status: reason?.needsAttention ? 'needs-attention' : reason ? reason.kind : 'queued',
+            reason: reason?.reason ?? 'Waiting for its turn in the sequence.',
           };
-        const reason = this.blocker(roadmap, entry, attempt);
-        return {
-          entryId: entry.id,
-          status: reason?.needsAttention ? 'needs-attention' : reason ? reason.kind : 'queued',
-          reason: reason?.reason ?? 'Waiting for its turn in the sequence.',
-        };
-      }),
+        })
+        .map((progress) => {
+          const attempt = roadmap.attempts.find((a) => a.entryId === progress.entryId);
+          const definition = attempt
+            ? this.storage.roadmaps
+                .history(roadmap.workspaceId, roadmap.id)
+                .find((d) => d.revision === attempt.definitionRevision)
+            : roadmap.definition;
+          return {
+            ...progress,
+            effectiveAutomation:
+              definition?.entries.find((e) => e.id === progress.entryId)?.automation ??
+              definition?.automation ??
+              DEFAULT_ROADMAP_AUTOMATION,
+          };
+        }),
     };
   }
   private find(workspaceId: WorkspaceId, id: string): Roadmap {

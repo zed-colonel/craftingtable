@@ -219,6 +219,26 @@ export function DelegationPanel({
         </p>
       )}
 
+      {mergedWorktrees
+        .filter((tree) => tree.mergeCleanupError)
+        .map((tree) => (
+          <div className="error-state" role="status" key={tree.id}>
+            <p>
+              Merge succeeded. Cleanup for {tree.branchName} needs attention:{' '}
+              {tree.mergeCleanupError}
+            </p>
+            {canMutate && (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => onMergeWorktree(tree.id, tree.integrationBranch ?? tree.baseBranch)}
+              >
+                Retry worktree cleanup
+              </button>
+            )}
+          </div>
+        ))}
       <h4>Worktrees ({activeWorktrees.length})</h4>
       {activeWorktrees.length === 0 ? (
         <p className="empty-state">

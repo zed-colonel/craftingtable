@@ -1,0 +1,344 @@
+import { randomUUID } from 'node:crypto';
+import type {
+  ControlFinalizationRequest,
+  StartFinalizationRequest,
+} from '@craftingtable/contracts';
+import {
+  asAuditEventId,
+  asEventId,
+  asWorktreeId,
+  type Finalization,
+  type PlanVersionId,
+  type WorkspaceId,
+} from '@craftingtable/domain';
+import type { GitOperations } from '@craftingtable/git';
+import type { CraftingTableStorage } from '@craftingtable/storage';
+import type { AuthContext } from './auth-service.js';
+import { ExecutionRequestError, NotFoundError } from './errors.js';
+import type { ExecutionService } from './execution-service.js';
+import type { WorkCycleService } from './work-cycle-service.js';
+import type { WorkspaceService } from './workspace-service.js';
+import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
+
+function conflict(message: string): never {
+  throw new ExecutionRequestError('conflict', message);
+}
+export class FinalizationService {
+  private readonly controlling = new Set<string>();
+  constructor(
+    private readonly storage: CraftingTableStorage,
+    private readonly workspaces: WorkspaceService,
+    private readonly execution: ExecutionService,
+    private readonly cycles: WorkCycleService,
+    private readonly git: GitOperations | undefined,
+    private readonly notifier: WorkspaceEventNotifier,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+  list(context: AuthContext, workspaceId: WorkspaceId, planVersionId: PlanVersionId) {
+    this.workspaces.requireAuthorized(context, workspaceId);
+    return this.storage.execution.finalizations
+      .list(workspaceId)
+      .filter((f) => f.planVersionId === planVersionId)
+      .map((f) => this.view(f));
+  }
+  async start(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    planVersionId: PlanVersionId,
+    input: StartFinalizationRequest,
+  ) {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    const plan = this.storage.planning.versions.find(workspaceId, planVersionId);
+    const settings = this.storage.execution.branchSettings.find(workspaceId, planVersionId);
+    const repo =
+      settings &&
+      this.storage.execution.sourceRepositories.find(workspaceId, settings.repositoryId);
+    const git = this.git;
+    if (!plan || !settings || !repo || !git) throw new NotFoundError();
+    for (const profile of [input.finalReview, ...input.rounds.flatMap((r) => [r.review, r.polish])])
+      this.cycles.validateSettings({
+        profiles: { design: profile, implement: profile, review: profile, remediate: profile },
+      });
+    const value = await this.execution.branches.duringMerge(repo.rootPath, async () => {
+      this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+      if (
+        repo.status !== 'active' ||
+        this.storage.execution.branchSettings.find(workspaceId, planVersionId)?.version !==
+          input.expectedBranchVersion
+      )
+        conflict('Branch settings changed. Refresh before starting finalization.');
+      if (input.targetBranch === settings.integrationBranch)
+        conflict('Final destination must differ from the integration branch.');
+      this.execution.branches.requireIntegrationAvailable(
+        repo.rootPath,
+        settings.integrationBranch,
+      );
+      if (
+        this.storage.execution.worktrees
+          .listActive()
+          .some(
+            (tree) =>
+              tree.branchName === input.targetBranch &&
+              this.storage.execution.sourceRepositories.find(tree.workspaceId, tree.repositoryId)
+                ?.rootPath === repo.rootPath,
+          )
+      )
+        conflict('A managed work branch cannot be the final destination.');
+      if (
+        this.storage.execution.merges.pending().some((op) => {
+          const tree = this.storage.execution.worktrees.find(op.workspaceId, op.worktreeId);
+          return (
+            op.status === 'reserved' &&
+            tree &&
+            this.storage.execution.sourceRepositories.find(tree.workspaceId, tree.repositoryId)
+              ?.rootPath === repo.rootPath
+          );
+        })
+      )
+        conflict('Recover pending repository merges before starting finalization.');
+      const integration = await git.resolveBranch(repo.rootPath, settings.integrationBranch);
+      const target = await git.resolveBranch(repo.rootPath, input.targetBranch);
+      if (!integration.ok || !target.ok)
+        conflict('Integration and final destination branches must already exist.');
+      const items = this.storage.planning.workItems.listForVersion(workspaceId, planVersionId);
+      for (const item of items) {
+        if (item.status !== 'completed')
+          conflict(`${item.sourceId} is incomplete. Finalization covers the entire plan.`);
+        const evidence =
+          this.storage.planning.workItems.find(workspaceId, item.id)?.mergeSha ??
+          this.storage.execution.branchSettings.evidence(workspaceId, item.id, repo.id);
+        const included = evidence
+          ? await git.isAncestor(repo.rootPath, evidence, integration.value)
+          : undefined;
+        if (!included?.ok || !included.value)
+          conflict(`${item.sourceId} needs integration commit evidence before plan finalization.`);
+      }
+      const finalization: Finalization = {
+        id: randomUUID(),
+        workspaceId,
+        planVersionId,
+        projectId: plan.projectId,
+        repositoryId: repo.id,
+        integrationBranch: settings.integrationBranch,
+        integrationSha: integration.value,
+        targetBranch: input.targetBranch,
+        targetSha: target.value,
+        worktreeId: asWorktreeId(randomUUID()),
+        cycleId: randomUUID(),
+        rounds: input.rounds,
+        finalReview: input.finalReview,
+        policy: input.policy,
+        instructions: input.instructions,
+        status: 'preparing',
+        reason: 'Integration held while the finalization worktree is prepared.',
+        version: 1,
+        createdAt: this.now().toISOString(),
+        createdByUserId: context.user.id,
+      };
+      this.save(finalization, 0, context, 'start');
+      return finalization;
+    });
+    return this.prepare(context, value);
+  }
+  async control(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: ControlFinalizationRequest,
+  ) {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    if (this.controlling.has(id)) conflict('A finalization command is in progress.');
+    this.controlling.add(id);
+    try {
+      let value = this.storage.execution.finalizations.find(workspaceId, id);
+      if (!value) throw new NotFoundError();
+      if (value.version !== input.expectedVersion)
+        conflict('Finalization changed; refresh before continuing.');
+      const cycle = this.storage.execution.cycles.find(workspaceId, value.cycleId);
+      if (cycle && cycle.version !== input.expectedCycleVersion)
+        conflict('Finalization cycle changed; refresh before continuing.');
+      if (input.action === 'remove-worktree') {
+        if (value.status !== 'stopped') conflict('Stop finalization before removing its worktree.');
+        await this.execution.removeWorktree(context, workspaceId, value.worktreeId);
+        return this.view(value);
+      }
+      if (input.action === 'retry-cleanup') {
+        if (!this.storage.execution.worktrees.find(workspaceId, value.worktreeId)?.mergedAt)
+          conflict('Cleanup is available only after a recorded merge.');
+        await this.execution.mergeWorktree(context, workspaceId, value.worktreeId);
+        return this.view(value);
+      }
+      if (input.action === 'merge') {
+        if (!input.expectedHeadSha || !input.expectedTargetSha)
+          conflict('Review the exact candidate and destination before approving.');
+        if (!cycle) conflict('Finalization cycle is unavailable.');
+        await this.execution.mergeWorktree(
+          context,
+          workspaceId,
+          value.worktreeId,
+          { targetBranch: value.targetBranch },
+          undefined,
+          undefined,
+          {
+            finalizationId: value.id,
+            expectedHeadSha: input.expectedHeadSha,
+            expectedTargetSha: input.expectedTargetSha,
+          },
+        );
+        const promoted = this.storage.execution.finalizations.find(workspaceId, id);
+        if (!promoted) throw new NotFoundError();
+        return this.view(promoted);
+      }
+      if (
+        input.action !== 'pause' &&
+        this.storage.execution.merges.latest(workspaceId, value.worktreeId)?.status === 'reserved'
+      )
+        conflict('Recover the approved promotion before resuming or stopping finalization.');
+      if (['stopped', 'completed'].includes(value.status))
+        conflict('This finalization has ended. Start a new one for further work.');
+      if (input.action === 'stop' && value.status === 'preparing')
+        await this.execution.createFinalizationWorktree(
+          context,
+          value,
+          () => {
+            const current = this.storage.execution.finalizations.find(workspaceId, id);
+            if (current?.version !== input.expectedVersion)
+              conflict('Preparation changed; refresh before stopping.');
+          },
+          true,
+        );
+      if (input.action === 'resume' && value.status === 'preparing')
+        return this.prepare(context, value);
+      if (input.action === 'resume' && !cycle) {
+        await this.cycles.startFinalization(context, value);
+        return this.view(value);
+      }
+      if (cycle && !['stopped', 'completed'].includes(cycle.status)) {
+        if (input.action === 'resume' && input.instructions?.trim())
+          await this.cycles.guideFinalization(context, cycle, input.instructions);
+        else await this.cycles.control(context, workspaceId, cycle.id, input.action, cycle.version);
+        const after = this.storage.execution.cycles.find(workspaceId, cycle.id);
+        if (input.action === 'stop' && after?.status !== 'stopped') return this.view(value); // Owned resolution remains reserved until explicitly abandoned.
+      }
+      value = {
+        ...value,
+        version: value.version + 1,
+        ...(input.action === 'stop'
+          ? {
+              status: 'stopped' as const,
+              reason:
+                'Finalization stopped; integration scheduling may continue. Worktree and run history are retained.',
+            }
+          : {
+              reason:
+                input.action === 'pause'
+                  ? 'Finalization paused; integration remains held.'
+                  : 'Finalization resumed; integration remains held.',
+            }),
+      };
+      this.save(value, input.expectedVersion, context, input.action);
+      return this.view(value);
+    } finally {
+      this.controlling.delete(id);
+    }
+  }
+  private async prepare(context: AuthContext, value: Finalization) {
+    const check = () => {
+      this.workspaces.requireRole(context, value.workspaceId, ['owner', 'editor']);
+      const current = this.storage.execution.finalizations.find(value.workspaceId, value.id);
+      if (current?.version !== value.version || current.status !== 'preparing')
+        conflict('Finalization preparation was superseded.');
+    };
+    try {
+      await this.execution.createFinalizationWorktree(context, value, check);
+      check();
+      const active = {
+        ...value,
+        status: 'active' as const,
+        version: value.version + 1,
+        reason: 'Reviewing the plan integration snapshot. Further integration merges are held.',
+      };
+      this.save(active, value.version, context, 'prepared');
+      await this.cycles.startFinalization(context, active);
+      return this.view(active);
+    } catch (error) {
+      const current = this.storage.execution.finalizations.find(value.workspaceId, value.id);
+      if (current?.status === 'preparing') {
+        const failed = {
+          ...current,
+          version: current.version + 1,
+          reason:
+            error instanceof ExecutionRequestError
+              ? error.message
+              : 'Preparation interrupted. Inspect and explicitly resume or stop finalization.',
+        };
+        this.save(failed, current.version, context, 'preparation-failed');
+      }
+      throw error;
+    }
+  }
+  private view(value: Finalization) {
+    return {
+      finalization: value,
+      cycle: this.storage.execution.cycles.find(value.workspaceId, value.cycleId),
+      worktree: (() => {
+        const tree = this.storage.execution.worktrees.find(value.workspaceId, value.worktreeId);
+        return tree
+          ? {
+              ...tree,
+              mergeCleanupError: this.storage.execution.merges.latest(
+                value.workspaceId,
+                value.worktreeId,
+              )?.cleanupError,
+            }
+          : undefined;
+      })(),
+      runs: this.storage.execution.runs
+        .listForWorktree(value.workspaceId, value.worktreeId)
+        .map(({ brief: _brief, ...run }) => run),
+      mergeRecoveryPending:
+        this.storage.execution.merges.latest(value.workspaceId, value.worktreeId)?.status ===
+        'reserved',
+    };
+  }
+  private save(
+    value: Finalization,
+    expectedVersion: number,
+    context: AuthContext,
+    action: string,
+  ): void {
+    this.storage.transaction((tx) => {
+      if (!tx.execution.finalizations.save(value, expectedVersion))
+        conflict('Finalization changed during this command.');
+      tx.audit.append({
+        id: asAuditEventId(randomUUID()),
+        occurredAt: this.now().toISOString(),
+        workspaceId: value.workspaceId,
+        actorKind: 'user',
+        actorUserId: context.user.id,
+        sessionId: context.session.id,
+        action: 'finalization.updated',
+        targetType: 'finalization',
+        targetId: value.id,
+        outcome: 'succeeded',
+        resultingVersion: value.version,
+        metadata: {
+          action,
+          status: value.status,
+          integrationSha: value.integrationSha,
+          targetBranch: value.targetBranch,
+        },
+      });
+      tx.workspaceEvents.appendEvent({
+        id: asEventId(randomUUID()),
+        occurredAt: this.now().toISOString(),
+        workspaceId: value.workspaceId,
+        actorUserId: context.user.id,
+        projectId: value.projectId,
+        kind: 'branches-changed',
+        payload: { planVersionId: value.planVersionId, action: 'updated' },
+      });
+    });
+    this.notifier.notify();
+  }
+}

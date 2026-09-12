@@ -200,7 +200,14 @@ export class NotificationService {
     const cycles = tx.execution.cycles.list(workspaceId);
     const result: Attention[] = [];
     for (const tree of tx.execution.worktrees.listActive(workspaceId)) {
-      const item = tx.planning.workItems.find(workspaceId, tree.workItemId);
+      const item = tree.workItemId
+        ? tx.planning.workItems.find(workspaceId, tree.workItemId)
+        : {
+            id: '',
+            status: 'admitted',
+            sourceId: 'Finalization',
+            title: 'Plan conformance, simplification and polish',
+          };
       if (item === undefined || item.status === 'completed') continue;
       const project = tx.planning.projects.find(workspaceId, tree.projectId);
       const cycle = cycles.find((candidate) => candidate.worktreeId === tree.id);
@@ -210,6 +217,28 @@ export class NotificationService {
       let sourceKey: string;
       if (cycle !== undefined && !['stopped', 'completed'].includes(cycle.status)) {
         if (cycle.status !== 'awaiting-merge' && cycle.status !== 'needs-attention') continue;
+        const owner = tx.roadmaps
+          .list(workspaceId)
+          .find((r) => r.status === 'running' && r.attempts.some((a) => a.cycleId === cycle.id));
+        const attempt = owner?.attempts.find((a) => a.cycleId === cycle.id);
+        const definition =
+          owner &&
+          attempt &&
+          tx.roadmaps
+            .history(workspaceId, owner.id)
+            .find((d) => d.revision === attempt.definitionRevision);
+        const automation =
+          definition?.entries.find((e) => e.id === attempt?.entryId)?.automation ??
+          definition?.automation;
+        if (
+          owner &&
+          attempt &&
+          !owner.entryHolds?.[attempt.entryId] &&
+          ((cycle.status === 'awaiting-merge' && automation?.integrationMerge === 'automatic') ||
+            (cycle.integrationResolution?.status === 'detected' &&
+              automation?.integrationConflicts === 'automatic'))
+        )
+          continue;
         kind = cycle.status === 'awaiting-merge' ? 'merge' : 'attention';
         reason = `${cycle.step}: ${cycle.reason}`;
         sourceKey = `cycle:${cycle.id}:${cycle.version}`;
@@ -266,7 +295,9 @@ export class NotificationService {
           `${item.title}\n${reason}\nBranch: ${tree.branchName} → ${tree.integrationBranch ?? tree.baseBranch}`,
           1024,
         ),
-        path: `/workspaces/${encodeURIComponent(workspaceId)}/work-items/${encodeURIComponent(item.id)}`,
+        path: tree.planVersionId
+          ? `/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(tree.projectId)}/plans/${encodeURIComponent(tree.planVersionId)}`
+          : `/workspaces/${encodeURIComponent(workspaceId)}/work-items/${encodeURIComponent(item.id)}`,
       });
     }
     if (settings.preferences.needsAttention) {

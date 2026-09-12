@@ -39,6 +39,7 @@ export function PlanBranchPanel({
   const [target, setTarget] = useState('');
   const [create, setCreate] = useState(false);
   const [from, setFrom] = useState('');
+  const [manualBranches, setManualBranches] = useState('');
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -86,6 +87,7 @@ export function PlanBranchPanel({
       data?.settings?.repositoryId ?? repositories.find((r) => r.status === 'active')?.id ?? '',
     );
     setTarget(data?.settings?.integrationBranch ?? '');
+    setManualBranches((data?.settings?.manualMergeBranches ?? []).join(', '));
     setCreate(false);
     setFrom('');
     setEditing(true);
@@ -141,8 +143,8 @@ export function PlanBranchPanel({
           )}
           <br />
           <span className="hint">
-            New worktrees start from this branch’s latest commit and merge back after your approval.
-            Existing worktrees keep their targets.
+            New worktrees start from this branch’s latest commit and merge back under their selected
+            approval policy. Existing worktrees keep their targets.
           </span>
         </p>
       ) : (
@@ -236,6 +238,14 @@ export function PlanBranchPanel({
                 repositoryId: repositoryId as SourceRepositoryId,
                 integrationBranch: target,
                 expectedVersion: editingVersion,
+                manualMergeBranches: [
+                  ...new Set(
+                    manualBranches
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  ),
+                ],
                 ...(create ? { createFromBranch: from } : {}),
               },
               csrfToken,
@@ -335,6 +345,19 @@ export function PlanBranchPanel({
               </label>
             )}
           </div>
+          <label className="field">
+            Additional branches requiring manual merge approval (comma separated)
+            <input
+              value={manualBranches}
+              onChange={(e) => setManualBranches(e.target.value)}
+              disabled={busy}
+              maxLength={2000}
+            />
+          </label>
+          <p className="hint">
+            main, master, and the registered default branch always require your approval. Additional
+            protections apply to automatic merges into this repository across plans.
+          </p>
           <p className="hint">
             These settings belong to this plan version. Changing them affects future worktrees.
             Creating a branch does not switch the primary checkout.

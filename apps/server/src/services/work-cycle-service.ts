@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { IntegrationResolutionRequest, StartWorkCycleRequest } from '@craftingtable/contracts';
 import {
   DEFAULT_ROADMAP_SCHEDULING,
+  DEFAULT_ROADMAP_AUTOMATION,
   ownsIntegrationResolution,
   type AgentRun,
   asAgentRunId,
@@ -25,6 +26,7 @@ import {
   type BranchService,
 } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { finalizationForCycle, finalizationHasNoQuestions } from './finalization-policy.js';
 import { latestReviewReport, runLineage } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -128,6 +130,91 @@ export class WorkCycleService {
     return cycle;
   }
 
+  async startFinalization(
+    context: CommandContext,
+    value: import('@craftingtable/domain').Finalization,
+  ): Promise<WorkCycle> {
+    this.workspaceService.requireRole(context, value.workspaceId, ['owner', 'editor']);
+    const existing = this.storage.execution.cycles.find(value.workspaceId, value.cycleId);
+    if (existing) return existing;
+    const round = value.rounds[0];
+    const profile = round?.polish ?? value.finalReview;
+    const profiles = {
+      design: profile,
+      implement: profile,
+      remediate: profile,
+      review: round?.review ?? value.finalReview,
+    };
+    this.validateSettings({ profiles });
+    const cycle: WorkCycle = {
+      id: value.cycleId,
+      workspaceId: value.workspaceId,
+      finalizationId: value.id,
+      planVersionId: value.planVersionId,
+      projectId: value.projectId,
+      worktreeId: value.worktreeId,
+      workItemSourceId: 'Finalization',
+      workItemTitle: 'Plan conformance, simplification and polish',
+      createdByUserId: context.user.id,
+      createdAt: this.now().toISOString(),
+      updatedAt: this.now().toISOString(),
+      version: 1,
+      status: 'running',
+      step: 'review',
+      policy: value.policy,
+      profiles,
+      instructions: '',
+      currentRunId: asAgentRunId(randomUUID()),
+      runDeadlineAt: this.deadline(value.policy.maxRunMinutes),
+      remediationRounds: 0,
+      stalledReviews: 0,
+      polishRound: 0,
+      polishPhase: round ? 'assess' : 'final-review',
+      reason: 'Starting plan-wide conformance review.',
+    };
+    const head = await this.cleanHead(cycle);
+    finalizationForCycle(this.storage, cycle);
+    this.storage.transaction((tx) => {
+      tx.execution.cycles.insert({ ...cycle, reviewHeadSha: head });
+      this.record(tx, cycle, 'start-finalization', context);
+    });
+    this.notifier.notify();
+    return { ...cycle, reviewHeadSha: head };
+  }
+
+  async guideFinalization(
+    context: CommandContext,
+    cycle: WorkCycle,
+    instructions: string,
+  ): Promise<WorkCycle> {
+    this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+    finalizationForCycle(this.storage, cycle);
+    if (
+      this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
+      'reserved'
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Recover the pending merge before launching another attempt.',
+      );
+    if (
+      !cycle.finalizationId ||
+      !['paused', 'needs-attention'].includes(cycle.status) ||
+      ownsIntegrationResolution(cycle)
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Pause finalization first; pending conflicts use their resolution controls.',
+      );
+    const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
+    if (runs.some((run) => !isTerminalAgentRunStatus(run.status)))
+      throw new ExecutionRequestError(
+        'conflict',
+        'End the current session before resuming with guidance.',
+      );
+    return this.next(cycle, cycle.step, runs[0], context, { instructions });
+  }
+
   async control(
     context: CommandContext,
     workspaceId: WorkspaceId,
@@ -145,6 +232,14 @@ export class WorkCycleService {
       );
     if (['stopped', 'completed'].includes(cycle.status))
       throw new ExecutionRequestError('conflict', 'This cycle has ended');
+    if (
+      action !== 'pause' &&
+      this.storage.execution.merges.latest(workspaceId, cycle.worktreeId)?.status === 'reserved'
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Recover the pending merge before resuming or stopping this cycle.',
+      );
     if (action === 'stop' && ownsIntegrationResolution(cycle)) {
       const paused = this.change(
         cycle,
@@ -194,7 +289,8 @@ export class WorkCycleService {
         expectedVersion,
       });
     this.mutations.requireAvailable(cycle.worktreeId);
-    this.requireReady(workspaceId, cycle.workItemId);
+    if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId);
+    else finalizationForCycle(this.storage, cycle);
     const allRuns = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
     const run = allRuns[0];
     if (
@@ -327,7 +423,7 @@ export class WorkCycleService {
     if (worktree?.mergedAt !== undefined) {
       this.change(cycle, {
         status: 'completed',
-        reason: 'Worktree merged by operator; cycle complete.',
+        reason: 'Worktree integrated; cycle complete.',
       });
       return;
     }
@@ -350,7 +446,13 @@ export class WorkCycleService {
       this.attention(cycle, 'The initiating user no longer has permission to run this cycle.');
       return;
     }
-    this.requireReady(cycle.workspaceId, cycle.workItemId);
+    if (cycle.workItemId) this.requireReady(cycle.workspaceId, cycle.workItemId);
+    else finalizationForCycle(this.storage, cycle);
+    if (
+      this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
+      'reserved'
+    )
+      return;
     if (cycle.status === 'awaiting-merge') {
       const review = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
       await this.refreshIntegration(cycle, review);
@@ -421,6 +523,14 @@ export class WorkCycleService {
       await this.advanceResolution(cycle);
       return;
     }
+    const finalization = finalizationForCycle(this.storage, cycle);
+    if (finalization && !finalizationHasNoQuestions(turn.payload.resultText)) {
+      this.attention(
+        cycle,
+        'Finalization needs your input or a complete Open questions checkpoint. Inspect the outcome and provide guidance before resuming.',
+      );
+      return;
+    }
     if (cycle.step === 'design') {
       if (!designHasNoOpenQuestions(turn.payload.resultText)) {
         this.attention(
@@ -436,11 +546,25 @@ export class WorkCycleService {
       const finalized = await this.finalizeImplementation(cycle, run);
       if (!finalized) return;
       if (await this.refreshIntegration(finalized, run)) return;
-      await this.next(finalized, 'review', run);
+      await this.next(
+        finalized,
+        'review',
+        run,
+        undefined,
+        finalization && cycle.polishPhase === 'polish' ? { polishPhase: 'verify' } : {},
+      );
       return;
     }
     const assessment = latestReviewReport(this.storage.execution, run);
     const decision = evaluateCompletion(cycle.policy, assessment);
+    if (finalization && cycle.polishPhase === 'assess') {
+      if (decision.action === 'needs-attention') {
+        this.attention(cycle, decision.reason);
+        return;
+      }
+      await this.next(cycle, 'remediate', run, undefined, { polishPhase: 'polish' });
+      return;
+    }
     // Findings can request more work without granting approval to the reviewed state.
     if (decision.action === 'remediate') {
       await this.reviewRemediation(cycle, run);
@@ -476,7 +600,21 @@ export class WorkCycleService {
     );
     if (reviewedWorktree === undefined) throw new NotFoundError();
     await this.branches?.assertReview(reviewedWorktree, run);
-    this.change(cycle, { status: 'awaiting-merge', reason: decision.reason });
+    if (finalization && cycle.polishPhase !== 'final-review') {
+      const nextRound = (cycle.polishRound ?? 0) + 1;
+      await this.next(cycle, 'review', run, undefined, {
+        polishRound: nextRound,
+        polishPhase: nextRound < finalization.rounds.length ? 'assess' : 'final-review',
+        stalledReviews: 0,
+      });
+      return;
+    }
+    this.change(cycle, {
+      status: 'awaiting-merge',
+      reason: finalization
+        ? 'Final independent review meets the completion policy. Inspect the conformance assessment, changes and verification; only you can approve promotion.'
+        : decision.reason,
+    });
   }
 
   private housekeepingGuidance(): string {
@@ -679,6 +817,21 @@ export class WorkCycleService {
 
   /** Only an actively delegated parallel attempt may refresh itself. Settings bind to its revision. */
   private refreshOwner(cycle: WorkCycle) {
+    const finalization = finalizationForCycle(this.storage, cycle);
+    if (finalization) {
+      const user = this.storage.users.findById(cycle.createdByUserId);
+      const access = user && this.storage.workspaces.findAuthorized(user.id, cycle.workspaceId);
+      if (
+        user?.status !== 'active' ||
+        !access ||
+        !['owner', 'editor'].includes(access.membership.role)
+      )
+        throw new ExecutionRequestError('conflict', 'Finalization authority was revoked');
+      return {
+        settings: { ...DEFAULT_ROADMAP_SCHEDULING, maxIntegrationRefreshes: 3 },
+        context: { user },
+      };
+    }
     const roadmap = this.storage.roadmaps
       .list(cycle.workspaceId)
       .find((r) => r.attempts.some((a) => a.cycleId === cycle.id && a.status === 'active'));
@@ -703,7 +856,16 @@ export class WorkCycleService {
             .history(cycle.workspaceId, roadmap.id)
             .find((d) => d.revision === attempt.definitionRevision);
     const settings = definition?.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
-    if (settings.mode !== 'parallel') return;
+    const automation =
+      definition?.entries.find((e) => e.id === attempt.entryId)?.automation ??
+      definition?.automation ??
+      DEFAULT_ROADMAP_AUTOMATION;
+    if (
+      settings.mode !== 'parallel' &&
+      automation.integrationMerge !== 'automatic' &&
+      automation.integrationConflicts !== 'automatic'
+    )
+      return;
     const user =
       roadmap.delegatedByUserId && this.storage.users.findById(roadmap.delegatedByUserId);
     const membership = user && this.storage.workspaces.findAuthorized(user.id, cycle.workspaceId);
@@ -719,7 +881,7 @@ export class WorkCycleService {
     return { settings, context: { user } };
   }
 
-  private async refreshIntegration(cycle: WorkCycle, parent?: AgentRun): Promise<boolean> {
+  async refreshIntegration(cycle: WorkCycle, parent?: AgentRun): Promise<boolean> {
     const owner = this.refreshOwner(cycle);
     if (!owner || !this.branches) return false;
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
@@ -903,6 +1065,7 @@ export class WorkCycleService {
     workspaceId: WorkspaceId,
     id: string,
     input: IntegrationResolutionRequest,
+    delegatedCheck?: () => void,
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
@@ -918,8 +1081,14 @@ export class WorkCycleService {
     const git = this.git;
     const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
     if (!git || !tree?.integrationBranch || tree.status !== 'active') throw new NotFoundError();
-    this.requireReady(workspaceId, cycle.workItemId);
-    return this.resolutionMutation(cycle, async (check) => {
+    if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId);
+    else finalizationForCycle(this.storage, cycle);
+    return this.resolutionMutation(cycle, async (checkOwned) => {
+      const check = () => {
+        checkOwned();
+        delegatedCheck?.();
+      };
+      check();
       let resolution = cycle.integrationResolution;
       if (input.action === 'inspect') {
         if (ownsIntegrationResolution(cycle))
@@ -1127,8 +1296,7 @@ export class WorkCycleService {
               status: 'resolving',
               paths: result.value.conflicts,
             },
-            reason:
-              'Agent resolving the pinned integration update; final merge remains operator-controlled.',
+            reason: 'Agent resolving the pinned integration update before a fresh review.',
           },
           'resolution-prepared',
         );
@@ -1330,7 +1498,13 @@ export class WorkCycleService {
       projectId: cycle.projectId,
       workItemId: cycle.workItemId,
       kind: 'work-cycle-changed',
-      payload: { cycleId: cycle.id, status: cycle.status, step: cycle.step, reason: cycle.reason },
+      payload: {
+        ...(cycle.planVersionId ? { planVersionId: cycle.planVersionId } : {}),
+        cycleId: cycle.id,
+        status: cycle.status,
+        step: cycle.step,
+        reason: cycle.reason,
+      },
     });
   }
 }

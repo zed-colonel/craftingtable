@@ -29,6 +29,8 @@ import type {
   WorktreeRepository,
 } from '../../execution-types.js';
 import { SqlitePlanBranchSettingsRepository } from './branch-settings.js';
+import { SqliteFinalizationRepository } from './finalizations.js';
+import { SqliteMergeOperationRepository } from './merges.js';
 import { SqliteWorkCycleRepository } from './work-cycles.js';
 
 /* -------------------------------------------------------------------------- */
@@ -70,7 +72,8 @@ interface WorktreeRow {
   workspace_id: string;
   repository_id: string;
   project_id: string;
-  work_item_id: string;
+  work_item_id: string | null;
+  plan_version_id: string | null;
   branch_name: string;
   base_sha: string;
   base_branch: string;
@@ -91,7 +94,9 @@ function mapWorktree(row: WorktreeRow): Worktree {
     workspaceId: row.workspace_id as Worktree['workspaceId'],
     repositoryId: row.repository_id as Worktree['repositoryId'],
     projectId: row.project_id as Worktree['projectId'],
-    workItemId: row.work_item_id as Worktree['workItemId'],
+    ...(row.work_item_id
+      ? { workItemId: row.work_item_id as Worktree['workItemId'] }
+      : { planVersionId: row.plan_version_id as Worktree['planVersionId'] }),
     branchName: row.branch_name,
     baseSha: row.base_sha,
     baseBranch: row.base_branch,
@@ -113,7 +118,8 @@ interface AgentRunRow {
   worktree_id: string;
   repository_id: string;
   project_id: string;
-  work_item_id: string;
+  work_item_id: string | null;
+  plan_version_id: string | null;
   parent_run_id: string | null;
   backend: AgentRun['backend'];
   role: AgentRun['role'];
@@ -144,7 +150,9 @@ function mapAgentRun(row: AgentRunRow): AgentRun {
     worktreeId: row.worktree_id as AgentRun['worktreeId'],
     repositoryId: row.repository_id as AgentRun['repositoryId'],
     projectId: row.project_id as AgentRun['projectId'],
-    workItemId: row.work_item_id as AgentRun['workItemId'],
+    ...(row.work_item_id
+      ? { workItemId: row.work_item_id as AgentRun['workItemId'] }
+      : { planVersionId: row.plan_version_id as AgentRun['planVersionId'] }),
     ...(row.parent_run_id === null
       ? {}
       : { parentRunId: row.parent_run_id as NonNullable<AgentRun['parentRunId']> }),
@@ -293,16 +301,17 @@ class SqliteWorktreeRepository implements WorktreeRepository {
     this.database
       .prepare(
         `INSERT INTO worktrees (
-          id, workspace_id, repository_id, project_id, work_item_id, branch_name,
+          id, workspace_id, repository_id, project_id, work_item_id, plan_version_id, branch_name,
           base_sha, base_branch, integration_branch, path, status, created_at, created_by_user_id, version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, 1)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, 1)`,
       )
       .run(
         input.id,
         input.workspaceId,
         input.repositoryId,
         input.projectId,
-        input.workItemId,
+        input.workItemId ?? null,
+        input.planVersionId ?? null,
         input.branchName,
         input.baseSha,
         input.baseBranch,
@@ -414,10 +423,10 @@ class SqliteAgentRunRepository implements AgentRunRepository {
     this.database
       .prepare(
         `INSERT INTO agent_runs (
-          id, workspace_id, worktree_id, repository_id, project_id, work_item_id,
+          id, workspace_id, worktree_id, repository_id, project_id, work_item_id, plan_version_id,
           parent_run_id, backend, role, status, permission_mode, model, brief,
           created_at, created_by_user_id, review_branch_context_json, turn_count, version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, 0, 1)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, 0, 1)`,
       )
       .run(
         input.id,
@@ -425,7 +434,8 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         input.worktreeId,
         input.repositoryId,
         input.projectId,
-        input.workItemId,
+        input.workItemId ?? null,
+        input.planVersionId ?? null,
         input.parentRunId ?? null,
         input.backend,
         input.role,
@@ -685,6 +695,8 @@ class SqliteRunProfileRepository implements RunProfileRepository {
 
 export function executionRepositories(database: Database.Database): ExecutionRepositories {
   return {
+    finalizations: new SqliteFinalizationRepository(database),
+    merges: new SqliteMergeOperationRepository(database),
     cycles: new SqliteWorkCycleRepository(database),
     branchSettings: new SqlitePlanBranchSettingsRepository(database),
     sourceRepositories: new SqliteSourceRepositoryRepository(database),

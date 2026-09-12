@@ -60,6 +60,15 @@ export class RepositoryMutationBusyError extends ExecutionRequestError {
   }
 }
 
+export class IntegrationHeldError extends ExecutionRequestError {
+  constructor(branch: string) {
+    super(
+      'conflict',
+      `Integration branch ${branch} is held for plan finalization. Finish or stop finalization before integrating more items.`,
+    );
+  }
+}
+
 /** Plan execution settings are mutable; imported plan contents and worktree bases are not. */
 export class BranchService {
   private readonly saving = new Set<string>();
@@ -147,6 +156,14 @@ export class BranchService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const plan = this.plan(workspaceId, planVersionId);
     const repo = this.repository(workspaceId, input.repositoryId);
+    if (
+      this.storage.execution.finalizations
+        .list(workspaceId)
+        .some(
+          (f) => f.planVersionId === planVersionId && ['preparing', 'active'].includes(f.status),
+        )
+    )
+      conflict('Finish or stop this plan finalization before changing its branch settings.');
     const key = `${workspaceId}/${planVersionId}`;
     if (this.saving.has(key)) conflict('Branch settings are already being changed');
     this.saving.add(key);
@@ -173,6 +190,7 @@ export class BranchService {
             planVersionId,
             repositoryId: input.repositoryId,
             integrationBranch: input.integrationBranch,
+            manualMergeBranches: input.manualMergeBranches ?? [],
             updatedAt: this.now().toISOString(),
             updatedByUserId: context.user.id,
             version: input.expectedVersion + 1,
@@ -319,20 +337,22 @@ export class BranchService {
     const target = value(await git.resolveBranch(repo.rootPath, worktree.integrationBranch));
     const state = value(await git.inspectRepository(worktree.path));
     if (state.branch !== worktree.branchName) conflict('The worktree is not on its managed branch');
-    await this.requirePredecessors(
-      worktree.workspaceId,
-      worktree.workItemId,
-      repo.rootPath,
-      target,
-      repo.id,
-    );
-    await this.requirePredecessors(
-      worktree.workspaceId,
-      worktree.workItemId,
-      repo.rootPath,
-      state.headSha,
-      repo.id,
-    );
+    if (worktree.workItemId)
+      await this.requirePredecessors(
+        worktree.workspaceId,
+        worktree.workItemId,
+        repo.rootPath,
+        target,
+        repo.id,
+      );
+    if (worktree.workItemId)
+      await this.requirePredecessors(
+        worktree.workspaceId,
+        worktree.workItemId,
+        repo.rootPath,
+        state.headSha,
+        repo.id,
+      );
   }
 
   async captureReview(worktree: Worktree): Promise<ReviewBranchContext> {
@@ -345,13 +365,14 @@ export class BranchService {
     if (!state.clean || state.branch !== worktree.branchName)
       conflict('Review requires a clean worktree on its managed branch');
     const targetSha = value(await git.resolveBranch(repo.rootPath, targetBranch));
-    await this.requirePredecessors(
-      worktree.workspaceId,
-      worktree.workItemId,
-      repo.rootPath,
-      targetSha,
-      repo.id,
-    );
+    if (worktree.workItemId)
+      await this.requirePredecessors(
+        worktree.workspaceId,
+        worktree.workItemId,
+        repo.rootPath,
+        targetSha,
+        repo.id,
+      );
     if (!value(await git.isAncestor(repo.rootPath, targetSha, state.headSha)))
       conflict(
         'Integration branch advanced; update the worktree, verify the combined changes, and review again',
@@ -420,6 +441,10 @@ export class BranchService {
   }
 
   private requireIdle(worktree: Worktree, expectedVersion: number, ownedCycleId?: string) {
+    if (
+      this.storage.execution.merges.latest(worktree.workspaceId, worktree.id)?.status === 'reserved'
+    )
+      conflict('Recover the reserved merge before changing branches');
     if (worktree.version !== expectedVersion) conflict('Worktree changed; refresh and try again');
     if (
       this.storage.execution.runs
@@ -440,6 +465,49 @@ export class BranchService {
       cycle.id !== ownedCycleId
     )
       conflict('Pause the cycle before changing or updating this worktree, then resume for review');
+  }
+
+  requireIntegrationAvailable(repositoryPath: string, branch: string): void {
+    const hold = this.storage.execution.finalizations
+      .list()
+      .find(
+        (f) =>
+          ['preparing', 'active'].includes(f.status) &&
+          f.integrationBranch === branch &&
+          this.storage.execution.sourceRepositories.find(f.workspaceId, f.repositoryId)
+            ?.rootPath === repositoryPath,
+      );
+    if (hold) throw new IntegrationHeldError(branch);
+  }
+
+  requireAutomaticMergeTarget(
+    workspaceId: WorkspaceId,
+    repositoryId: SourceRepositoryId,
+    branch: string,
+  ): void {
+    const repository = this.storage.execution.sourceRepositories.find(workspaceId, repositoryId);
+    if (repository?.status !== 'active') conflict('Repository unavailable');
+    const protectedBranches = new Set(['main', 'master', repository.defaultBranch]);
+    for (const settings of this.storage.execution.branchSettings.list()) {
+      const other = this.storage.execution.sourceRepositories.find(
+        settings.workspaceId,
+        settings.repositoryId,
+      );
+      if (other?.rootPath === repository.rootPath) {
+        protectedBranches.add(other.defaultBranch);
+        for (const name of settings.manualMergeBranches ?? []) protectedBranches.add(name);
+      }
+    }
+    for (const finalization of this.storage.execution.finalizations.list())
+      if (
+        this.storage.execution.sourceRepositories.find(
+          finalization.workspaceId,
+          finalization.repositoryId,
+        )?.rootPath === repository.rootPath
+      )
+        protectedBranches.add(finalization.targetBranch);
+    if (protectedBranches.has(branch))
+      conflict(`${branch} always requires explicit operator merge approval.`);
   }
 
   async changeWorktree(
@@ -469,8 +537,11 @@ export class BranchService {
           conflict('A managed work-item branch cannot be an integration branch');
         const git = this.requireGit();
         const targetSha = value(await git.resolveBranch(repo.rootPath, target));
-        const item = this.storage.planning.workItems.find(workspaceId, worktree.workItemId);
-        if (item === undefined) throw new NotFoundError();
+        const item = worktree.workItemId
+          ? this.storage.planning.workItems.find(workspaceId, worktree.workItemId)
+          : undefined;
+        const planVersionId = item?.planVersionId ?? worktree.planVersionId;
+        if (!planVersionId) throw new NotFoundError();
         const state = value(await git.inspectRepository(worktree.path));
         if (!state.clean || state.branch !== worktree.branchName)
           conflict('A clean worktree on its managed branch is required');
@@ -493,8 +564,8 @@ export class BranchService {
             tx,
             context,
             workspaceId,
-            item.projectId,
-            item.planVersionId,
+            worktree.projectId,
+            planVersionId,
             update ? 'update-requested' : 'retargeted',
             { worktreeId, integrationBranch: target, version: saved.version },
           );
@@ -518,7 +589,7 @@ export class BranchService {
             });
           const updated = value(result);
           this.storage.transaction((tx) =>
-            this.record(tx, context, workspaceId, item.projectId, item.planVersionId, 'updated', {
+            this.record(tx, context, workspaceId, worktree.projectId, planVersionId, 'updated', {
               worktreeId,
               integrationBranch: target,
               headSha: updated.mergeSha,

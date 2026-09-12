@@ -25,6 +25,7 @@ export interface BriefPlanDocument {
 
 export interface BriefInput {
   readonly resolvingIntegration?: boolean;
+  readonly planFinalization?: boolean;
   readonly temporaryDirectory?: string;
   readonly reviewBranchContext?: ReviewBranchContext;
   readonly role: AgentRunRole;
@@ -149,7 +150,11 @@ function formatSourceFields(value: JsonValue): string {
 export function composeBrief(input: BriefInput): string {
   const { workItem, worktree } = input;
   const sections: string[] = [];
-  sections.push(`# Work item ${workItem.sourceId}: ${workItem.title}`);
+  sections.push(
+    input.planFinalization
+      ? `# Plan finalization: ${workItem.title}`
+      : `# Work item ${workItem.sourceId}: ${workItem.title}`,
+  );
   sections.push(`Project: ${input.projectName}\nRole: ${input.role}`);
   sections.push(
     `## Your role\n\n${input.resolvingIntegration ? 'Resolve the daemon-prepared integration merge in this worktree. Stage intended changes and verify the combined behavior. Do not commit, switch branches, start another merge, abort the merge, or move any branch. The daemon owns completion. Follow the pinned resolution instructions below.' : ROLE_INSTRUCTIONS[input.role]}`,
@@ -187,7 +192,7 @@ export function composeBrief(input: BriefInput): string {
   );
   if (worktree.integrationBranch !== undefined) {
     sections.push(
-      `Integration destination: ${worktree.integrationBranch}. Only the operator may merge into it.`,
+      `Integration destination: ${worktree.integrationBranch}. Only the daemon may merge into it under the operator’s approval or recorded integration policy.`,
     );
   }
   if (input.reviewBranchContext !== undefined) {
@@ -210,7 +215,9 @@ export function composeBrief(input: BriefInput): string {
         '## Plan documents',
         '',
         'The plan bundle this work item came from is available read-only at these paths.',
-        'Read the parts that concern this work item before starting.',
+        input.planFinalization
+          ? 'Read the entire plan and work-item inventory before starting.'
+          : 'Read the parts that concern this work item before starting.',
         '',
         ...input.planDocuments.map((document) => `- ${document.role}: \`${document.path}\``),
       ].join('\n'),

@@ -7,6 +7,7 @@ import {
 import { z } from 'zod';
 import {
   agentRunIdSchema,
+  planVersionIdSchema,
   projectIdSchema,
   userIdSchema,
   workItemIdSchema,
@@ -60,51 +61,63 @@ export const integrationResolutionRequestSchema = z.strictObject({
   instructions: z.string().max(16000).optional(),
 });
 export type IntegrationResolutionRequest = z.infer<typeof integrationResolutionRequestSchema>;
-export const workCycleSchema = z.strictObject({
-  id: z.string().uuid(),
-  workspaceId: workspaceIdSchema,
-  workItemId: workItemIdSchema,
-  workItemSourceId: z.string().min(1).max(64),
-  workItemTitle: z.string().min(1).max(500),
-  projectId: projectIdSchema,
-  worktreeId: worktreeIdSchema,
-  createdByUserId: userIdSchema,
-  createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
-  version: z.number().int().positive(),
-  status: z.enum(CYCLE_STATUSES),
-  step: z.enum(CYCLE_STEPS),
-  policy: completionPolicySchema,
-  profiles: cycleProfilesSchema,
-  instructions: z.string().max(16000),
-  currentRunId: agentRunIdSchema,
-  parentRunId: agentRunIdSchema.optional(),
-  runDeadlineAt: z.iso.datetime(),
-  remediationRounds: z.number().int().nonnegative(),
-  stalledReviews: z.number().int().nonnegative(),
-  previousFindingFingerprint: z.string().max(128).optional(),
-  reviewHeadSha: z
-    .string()
-    .regex(/^[0-9a-f]{7,64}$/)
-    .optional(),
-  housekeepingInstructions: z.string().max(16000).optional(),
-  checkpoint: z
-    .strictObject({
-      sourceRunId: agentRunIdSchema,
-      previousHeadSha: z.string().regex(/^[0-9a-f]{40,64}$/),
-      fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
-      paths: z.array(z.string()).max(1000),
-      createdAt: z.iso.datetime(),
-      commitSha: z
-        .string()
-        .regex(/^[0-9a-f]{40,64}$/)
-        .optional(),
-    })
-    .optional(),
-  integrationResolution: integrationResolutionSchema.optional(),
-  integrationRefreshes: z.number().int().nonnegative().optional(),
-  reason: z.string().max(4000),
-});
+export const workCycleSchema = z
+  .strictObject({
+    id: z.string().uuid(),
+    workspaceId: workspaceIdSchema,
+    workItemId: workItemIdSchema.optional(),
+    finalizationId: z.string().uuid().optional(),
+    planVersionId: planVersionIdSchema.optional(),
+    polishRound: z.number().int().min(0).max(10).optional(),
+    polishPhase: z.enum(['assess', 'polish', 'verify', 'final-review']).optional(),
+    workItemSourceId: z.string().min(1).max(64),
+    workItemTitle: z.string().min(1).max(500),
+    projectId: projectIdSchema,
+    worktreeId: worktreeIdSchema,
+    createdByUserId: userIdSchema,
+    createdAt: z.iso.datetime(),
+    updatedAt: z.iso.datetime(),
+    version: z.number().int().positive(),
+    status: z.enum(CYCLE_STATUSES),
+    step: z.enum(CYCLE_STEPS),
+    policy: completionPolicySchema,
+    profiles: cycleProfilesSchema,
+    instructions: z.string().max(16000),
+    currentRunId: agentRunIdSchema,
+    parentRunId: agentRunIdSchema.optional(),
+    runDeadlineAt: z.iso.datetime(),
+    remediationRounds: z.number().int().nonnegative(),
+    stalledReviews: z.number().int().nonnegative(),
+    previousFindingFingerprint: z.string().max(128).optional(),
+    reviewHeadSha: z
+      .string()
+      .regex(/^[0-9a-f]{7,64}$/)
+      .optional(),
+    housekeepingInstructions: z.string().max(16000).optional(),
+    checkpoint: z
+      .strictObject({
+        sourceRunId: agentRunIdSchema,
+        previousHeadSha: z.string().regex(/^[0-9a-f]{40,64}$/),
+        fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+        paths: z.array(z.string()).max(1000),
+        createdAt: z.iso.datetime(),
+        commitSha: z
+          .string()
+          .regex(/^[0-9a-f]{40,64}$/)
+          .optional(),
+      })
+      .optional(),
+    integrationResolution: integrationResolutionSchema.optional(),
+    integrationRefreshes: z.number().int().nonnegative().optional(),
+    reason: z.string().max(4000),
+  })
+  .refine(
+    (cycle) =>
+      cycle.workItemId !== undefined
+        ? cycle.planVersionId === undefined && cycle.finalizationId === undefined
+        : cycle.planVersionId !== undefined && cycle.finalizationId !== undefined,
+    { message: 'A cycle requires a work item or an explicit plan finalization subject' },
+  );
 export const workCyclesResponseSchema = z.strictObject({ cycles: z.array(workCycleSchema) });
 export const workCycleResponseSchema = z.strictObject({ cycle: workCycleSchema });
 export const controlWorkCycleRequestSchema = z.strictObject({

@@ -10,6 +10,11 @@ import {
   worktreeIdSchema,
 } from './ids.js';
 import { cycleProfilesSchema, completionPolicySchema } from './work-cycle.js';
+export const roadmapAutomationSchema = z.strictObject({
+  integrationMerge: z.enum(['manual', 'automatic']),
+  integrationConflicts: z.enum(['manual', 'automatic']),
+  resolutionProfile: cycleProfilesSchema.shape.remediate.optional(),
+});
 export const roadmapIdSchema = z.string().uuid();
 export const roadmapSchedulingSchema = z.strictObject({
   mode: z.enum(['sequential', 'parallel']),
@@ -23,6 +28,7 @@ export const roadmapEntryInputSchema = z.strictObject({
   profiles: cycleProfilesSchema,
   policy: completionPolicySchema,
   instructions: z.string().max(16000),
+  automation: roadmapAutomationSchema.optional(),
   exclusionGroups: z
     .array(z.string().trim().min(1).max(80))
     .max(20)
@@ -35,6 +41,7 @@ export const saveRoadmapRequestSchema = z
     name: z.string().trim().min(1).max(120),
     entries: z.array(roadmapEntryInputSchema).min(1).max(100),
     scheduling: roadmapSchedulingSchema.optional(),
+    automation: roadmapAutomationSchema.optional(),
   })
   .refine(
     (x) =>
@@ -62,6 +69,7 @@ export const roadmapDefinitionSchema = z.strictObject({
   name: z.string(),
   entries: z.array(entrySchema),
   scheduling: roadmapSchedulingSchema.optional(),
+  automation: roadmapAutomationSchema.optional(),
   createdAt: z.iso.datetime(),
   createdByUserId: userIdSchema,
 });
@@ -103,6 +111,7 @@ export const roadmapViewSchema = z.strictObject({
   progress: z.array(
     z.strictObject({
       entryId: z.string().uuid(),
+      effectiveAutomation: roadmapAutomationSchema.optional(),
       status: z.enum([
         'queued',
         'dependency-blocked',

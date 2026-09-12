@@ -157,12 +157,14 @@ export interface GitOperations {
   }): Promise<GitResult<{ mergeSha: string }>>;
   inspectRepository(path: string): Promise<GitResult<RepositoryIdentity>>;
   createWorktree(input: {
+    readonly recoverExisting?: boolean;
     readonly repositoryPath: string;
     readonly worktreePath: string;
     readonly branchName: string;
     readonly baseRef: string;
   }): Promise<GitResult<{ readonly headSha: string }>>;
   removeWorktree(input: {
+    readonly force?: boolean;
     readonly repositoryPath: string;
     readonly worktreePath: string;
   }): Promise<GitResult<undefined>>;
@@ -182,6 +184,13 @@ export interface GitOperations {
    * touched; a missing target is created from `createTargetFrom` first. A
    * conflicting merge is aborted and reported, leaving everything as it was.
    */
+  inspectMergeOperation(input: {
+    repositoryPath: string;
+    targetBranch: string;
+    sourceSha: string;
+    targetSha: string;
+    id: string;
+  }): Promise<GitResult<string | undefined>>;
   mergeBranch(input: {
     /** Pin an operator-approved review to this source commit even if its branch moves. */
     readonly sourceCommitSha?: string;
@@ -472,6 +481,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
   }
 
   async function createWorktree(input: {
+    readonly recoverExisting?: boolean;
     readonly repositoryPath: string;
     readonly worktreePath: string;
     readonly branchName: string;
@@ -489,6 +499,25 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     ) {
       return fail('invalid-path', 'Branch name and base revision must be well formed');
     }
+    if (input.recoverExisting) {
+      const listed = await listWorktrees(repository.value);
+      if (!listed.ok) return listed;
+      const existing = listed.value.find((tree) => tree.path === input.worktreePath);
+      if (existing) {
+        const identity = await inspectRepository(input.worktreePath);
+        if (!identity.ok) return identity;
+        if (
+          existing.branch !== input.branchName ||
+          identity.value.headSha !== input.baseRef ||
+          !identity.value.clean
+        )
+          return fail(
+            'git-failed',
+            'Reserved worktree changed during preparation; preserve and inspect it before resuming',
+          );
+        return { ok: true, value: { headSha: identity.value.headSha } };
+      }
+    }
     try {
       await mkdir(dirname(input.worktreePath), { recursive: true, mode: 0o700 });
     } catch (error) {
@@ -505,6 +534,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
   }
 
   async function removeWorktree(input: {
+    readonly force?: boolean;
     readonly repositoryPath: string;
     readonly worktreePath: string;
   }): Promise<GitResult<undefined>> {
@@ -514,7 +544,13 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       return fail('invalid-path', 'Worktree path must be absolute');
     }
     const removed = await runOk(
-      ['worktree', 'remove', '--force', '--', input.worktreePath],
+      [
+        'worktree',
+        'remove',
+        ...(input.force === false ? [] : ['--force']),
+        '--',
+        input.worktreePath,
+      ],
       repository.value,
     );
     if (!removed.ok) {
@@ -808,6 +844,47 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     const head = await runOk(['rev-parse', '--verify', 'HEAD'], cwd);
     if (!head.ok) return head;
     return { ok: true, value: { mergeSha: head.value.stdout.toString('utf8').trim() } };
+  }
+
+  async function inspectMergeOperation(input: {
+    repositoryPath: string;
+    targetBranch: string;
+    sourceSha: string;
+    targetSha: string;
+    id: string;
+  }): Promise<GitResult<string | undefined>> {
+    if (
+      !isSafeBranchName(input.targetBranch) ||
+      !SHA_PATTERN.test(input.sourceSha) ||
+      !SHA_PATTERN.test(input.targetSha) ||
+      !/^[0-9a-f-]{36}$/.test(input.id)
+    )
+      return fail('invalid-path', 'Invalid merge reservation');
+    const result = await runOk(
+      [
+        'log',
+        '--first-parent',
+        '--max-count=1000',
+        '--format=%H%x00%P%x00%s',
+        `refs/heads/${input.targetBranch}`,
+        '--',
+      ],
+      input.repositoryPath,
+    );
+    if (!result.ok) return result;
+    for (const line of result.value.stdout.toString('utf8').trim().split('\n')) {
+      const [sha, parents, subject] = line.split('\0');
+      if (subject === `CraftingTable integration merge ${input.id}`) {
+        if (parents !== `${input.targetSha} ${input.sourceSha}`)
+          return fail('git-failed', 'Recorded merge marker has unexpected parents');
+        return { ok: true, value: sha };
+      }
+      if (sha === input.targetSha) return { ok: true, value: undefined };
+    }
+    return fail(
+      'git-failed',
+      'Cannot reconcile merge reservation within target history; inspect before retrying',
+    );
   }
 
   async function mergeBranch(input: {
@@ -1438,6 +1515,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     worktreeDiff,
     listBranches,
     mergeBranch,
+    inspectMergeOperation,
     deleteBranch,
   };
 }

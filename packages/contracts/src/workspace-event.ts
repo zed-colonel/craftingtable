@@ -363,9 +363,15 @@ export const sourceRepositoryRegisteredEventSchema = workspaceEventBaseSchema.ex
 });
 
 const requireWorkItemAgreement = (
-  event: { workItemId: string; payload: { workItemId: string } },
+  event: { workItemId?: string; payload: { workItemId?: string; planVersionId?: string } },
   context: z.RefinementCtx,
 ): void => {
+  if ((event.workItemId === undefined) === (event.payload.planVersionId === undefined))
+    context.addIssue({
+      code: 'custom',
+      path: ['payload'],
+      message: 'Execution requires exactly one work-item or plan subject',
+    });
   if (event.workItemId !== event.payload.workItemId) {
     context.addIssue({
       code: 'custom',
@@ -379,13 +385,14 @@ export const worktreeCreatedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('worktree-created'),
     projectId: projectIdSchema,
-    workItemId: workItemIdSchema,
+    workItemId: workItemIdSchema.optional(),
     runId: forbiddenCorrelationSchema,
     ...noRepositoryCorrelations,
     payload: z.strictObject({
+      planVersionId: planVersionIdSchema.optional(),
       worktreeId: worktreeIdSchema,
       sourceRepositoryId: sourceRepositoryIdSchema,
-      workItemId: workItemIdSchema,
+      workItemId: workItemIdSchema.optional(),
       branchName: gitBranchNameSchema,
       baseSha: gitShaSchema,
     }),
@@ -396,12 +403,13 @@ export const worktreeRemovedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('worktree-removed'),
     projectId: projectIdSchema,
-    workItemId: workItemIdSchema,
+    workItemId: workItemIdSchema.optional(),
     runId: forbiddenCorrelationSchema,
     ...noRepositoryCorrelations,
     payload: z.strictObject({
+      planVersionId: planVersionIdSchema.optional(),
       worktreeId: worktreeIdSchema,
-      workItemId: workItemIdSchema,
+      workItemId: workItemIdSchema.optional(),
       branchName: gitBranchNameSchema,
     }),
   })
@@ -424,13 +432,14 @@ export const agentRunStartedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('agent-run-started'),
     projectId: projectIdSchema,
-    workItemId: workItemIdSchema,
+    workItemId: workItemIdSchema.optional(),
     runId: agentRunIdSchema,
     ...noRepositoryCorrelations,
     payload: z.strictObject({
+      planVersionId: planVersionIdSchema.optional(),
       runId: agentRunIdSchema,
       worktreeId: worktreeIdSchema,
-      workItemId: workItemIdSchema,
+      workItemId: workItemIdSchema.optional(),
       backend: z.enum(AGENT_BACKENDS),
       role: z.enum(AGENT_RUN_ROLES),
     }),
@@ -444,12 +453,13 @@ export const agentRunStatusChangedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('agent-run-status-changed'),
     projectId: projectIdSchema,
-    workItemId: workItemIdSchema,
+    workItemId: workItemIdSchema.optional(),
     runId: agentRunIdSchema,
     ...noRepositoryCorrelations,
     payload: z.strictObject({
+      planVersionId: planVersionIdSchema.optional(),
       runId: agentRunIdSchema,
-      workItemId: workItemIdSchema,
+      workItemId: workItemIdSchema.optional(),
       fromStatus: z.enum(AGENT_RUN_STATUSES),
       toStatus: z.enum(AGENT_RUN_STATUSES),
     }),
@@ -500,12 +510,13 @@ export const worktreeMergedEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('worktree-merged'),
     projectId: projectIdSchema,
-    workItemId: workItemIdSchema,
+    workItemId: workItemIdSchema.optional(),
     runId: forbiddenCorrelationSchema,
     ...noRepositoryCorrelations,
     payload: z.strictObject({
+      planVersionId: planVersionIdSchema.optional(),
       worktreeId: worktreeIdSchema,
-      workItemId: workItemIdSchema,
+      workItemId: workItemIdSchema.optional(),
       branchName: gitBranchNameSchema,
       targetBranch: gitBranchNameSchema,
       mergeSha: gitShaSchema,
@@ -513,26 +524,36 @@ export const worktreeMergedEventSchema = workspaceEventBaseSchema
   })
   .superRefine(requireWorkItemAgreement);
 
-export const workCycleChangedEventSchema = workspaceEventBaseSchema.extend({
-  kind: z.literal('work-cycle-changed'),
-  projectId: projectIdSchema,
-  workItemId: workItemIdSchema,
-  runId: forbiddenCorrelationSchema,
-  ...noRepositoryCorrelations,
-  payload: z.strictObject({
-    cycleId: z.string().uuid(),
-    status: z.enum([
-      'running',
-      'paused',
-      'needs-attention',
-      'awaiting-merge',
-      'stopped',
-      'completed',
-    ]),
-    step: z.enum(['design', 'implement', 'review', 'remediate']),
-    reason: z.string().max(4000),
-  }),
-});
+export const workCycleChangedEventSchema = workspaceEventBaseSchema
+  .extend({
+    kind: z.literal('work-cycle-changed'),
+    projectId: projectIdSchema,
+    workItemId: workItemIdSchema.optional(),
+    runId: forbiddenCorrelationSchema,
+    ...noRepositoryCorrelations,
+    payload: z.strictObject({
+      planVersionId: planVersionIdSchema.optional(),
+      cycleId: z.string().uuid(),
+      status: z.enum([
+        'running',
+        'paused',
+        'needs-attention',
+        'awaiting-merge',
+        'stopped',
+        'completed',
+      ]),
+      step: z.enum(['design', 'implement', 'review', 'remediate']),
+      reason: z.string().max(4000),
+    }),
+  })
+  .superRefine((event, context) => {
+    if ((event.workItemId === undefined) === (event.payload.planVersionId === undefined))
+      context.addIssue({
+        code: 'custom',
+        path: ['payload'],
+        message: 'Cycle requires a work-item or plan subject',
+      });
+  });
 
 export const branchesChangedEventSchema = workspaceEventBaseSchema.extend({
   kind: z.literal('branches-changed'),

@@ -128,11 +128,19 @@ function invalidStructural(row: WorkspaceEventRow): never {
   );
 }
 
-function assertStructuralShape(row: WorkspaceEventRow, kind: WorkspaceEventKind): void {
+function assertStructuralShape(
+  row: WorkspaceEventRow,
+  kind: WorkspaceEventKind,
+  payload: Record<string, unknown>,
+): void {
   const repositoryCorrelationsNull =
     row.repository_id === null &&
     row.repository_inspection_id === null &&
     row.repository_binding_id === null;
+  const executionSubject =
+    row.work_item_id !== null
+      ? payload.planVersionId === undefined
+      : typeof payload.planVersionId === 'string' && payload.planVersionId.length > 0;
   switch (kind) {
     case 'workspace-created':
     case 'project-created':
@@ -170,7 +178,7 @@ function assertStructuralShape(row: WorkspaceEventRow, kind: WorkspaceEventKind)
       if (
         !repositoryCorrelationsNull ||
         row.project_id === null ||
-        row.work_item_id === null ||
+        (kind === 'work-item-completed' ? row.work_item_id === null : !executionSubject) ||
         row.run_id !== null
       ) {
         invalidStructural(row);
@@ -181,7 +189,7 @@ function assertStructuralShape(row: WorkspaceEventRow, kind: WorkspaceEventKind)
       if (
         !repositoryCorrelationsNull ||
         row.project_id === null ||
-        row.work_item_id === null ||
+        !executionSubject ||
         row.run_id === null
       ) {
         invalidStructural(row);
@@ -231,7 +239,7 @@ function requireMatchingPayloadId(
   row: WorkspaceEventRow,
   payload: Record<string, unknown>,
   payloadKey: string,
-  structuralValue: string,
+  structuralValue: string | undefined,
 ): void {
   if (payload[payloadKey] !== structuralValue) {
     throw new WorkspaceEventMappingError(
@@ -260,11 +268,11 @@ function assertPayloadCorrelations(
     case 'worktree-removed':
     case 'worktree-merged':
     case 'work-item-completed':
-      requireMatchingPayloadId(row, payload, 'workItemId', row.work_item_id as string);
+      requireMatchingPayloadId(row, payload, 'workItemId', row.work_item_id ?? undefined);
       return;
     case 'agent-run-started':
     case 'agent-run-status-changed':
-      requireMatchingPayloadId(row, payload, 'workItemId', row.work_item_id as string);
+      requireMatchingPayloadId(row, payload, 'workItemId', row.work_item_id ?? undefined);
       requireMatchingPayloadId(row, payload, 'runId', row.run_id as string);
       return;
     case 'repository-registered':
@@ -336,8 +344,8 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
     );
   }
   const kind = row.kind;
-  assertStructuralShape(row, kind);
   const payload = parsePayload(row);
+  assertStructuralShape(row, kind, payload);
   assertPayloadCorrelations(row, kind, payload);
   const base = mapBase(row);
 

@@ -16,6 +16,7 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
+import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
@@ -141,13 +142,15 @@ export function RoadmapsPage({
       expectedVersion: roadmap.version,
       name: roadmap.definition.name,
       scheduling: roadmap.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING,
+      ...(roadmap.definition.automation ? { automation: roadmap.definition.automation } : {}),
       entries: roadmap.definition.entries.map(
-        ({ id, workItemId, profiles, policy, instructions, exclusionGroups }) => ({
+        ({ id, workItemId, profiles, policy, instructions, exclusionGroups, automation }) => ({
           id,
           workItemId,
           profiles,
           policy,
           instructions,
+          ...(automation ? { automation } : {}),
           ...(exclusionGroups === undefined ? {} : { exclusionGroups: [...exclusionGroups] }),
         }),
       ),
@@ -173,7 +176,7 @@ export function RoadmapsPage({
         <div>
           <h1>Roadmaps</h1>
           <p className="subtitle">
-            Sequential or parallel work items, with your approval at every merge.
+            Sequential or parallel work items, with configurable integration automation.
           </p>
         </div>
         {canMutate && !draft && (
@@ -292,6 +295,12 @@ export function RoadmapsPage({
                 ))}
               </>
             )}
+            <RoadmapAutomationFields
+              value={draft.automation}
+              onChange={(automation) => setDraft({ ...draft, automation })}
+              disabled={busy}
+              backends={backends}
+            />
             <label className="field">
               Add work item
               <select
@@ -430,6 +439,35 @@ export function RoadmapsPage({
                         />
                       </label>
                     )}
+                    <label className="field">
+                      Integration policy
+                      <select
+                        disabled={busy || frozen}
+                        value={entry.automation ? 'override' : 'inherit'}
+                        onChange={(e) =>
+                          updateEntry(index, {
+                            automation:
+                              e.target.value === 'override'
+                                ? (draft.automation ?? {
+                                    integrationMerge: 'manual',
+                                    integrationConflicts: 'manual',
+                                  })
+                                : undefined,
+                          })
+                        }
+                      >
+                        <option value="inherit">Use roadmap defaults</option>
+                        <option value="override">Override for this item</option>
+                      </select>
+                    </label>
+                    {entry.automation && (
+                      <RoadmapAutomationFields
+                        value={entry.automation}
+                        onChange={(automation) => updateEntry(index, { automation })}
+                        disabled={busy || frozen}
+                        backends={backends}
+                      />
+                    )}
                     <details>
                       <summary>Agents, models, and completion policy</summary>
                       <CycleSettingsFields
@@ -450,7 +488,8 @@ export function RoadmapsPage({
             <p className="hint">
               Saving binds these exact plan versions and their configured integration branches.
               Starting delegates only the selected items. Dependencies outside this sequence remain
-              visible blockers. Design pauses for open questions; every merge remains yours.
+              visible blockers. Design pauses for open questions. Starting authorizes the selected
+              integration policies; merging into main always remains yours.
             </p>
             {current && current.version !== draft.expectedVersion && (
               <p role="alert">
@@ -617,6 +656,24 @@ export function RoadmapsPage({
                     · <code>{entry.integrationBranch}</code>
                   </p>
                   <p className="hint">{state?.reason}</p>
+                  <p className="hint">
+                    Integration merge:{' '}
+                    {(
+                      state?.effectiveAutomation ??
+                      entry.automation ??
+                      roadmap.definition.automation
+                    )?.integrationMerge === 'automatic'
+                      ? 'Automatic when reviewed and ready'
+                      : 'Your approval required'}{' '}
+                    · Conflicts:{' '}
+                    {(
+                      state?.effectiveAutomation ??
+                      entry.automation ??
+                      roadmap.definition.automation
+                    )?.integrationConflicts === 'automatic'
+                      ? 'Automatic delegation'
+                      : 'Ask you'}
+                  </p>
                   {!!entry.exclusionGroups?.length && (
                     <p className="hint">Exclusion groups: {entry.exclusionGroups.join(', ')}</p>
                   )}

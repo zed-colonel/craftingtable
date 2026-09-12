@@ -1036,8 +1036,10 @@ describe('review-gated merge', () => {
       .map((event) => event.kind);
     expect(kinds).toEqual(expect.arrayContaining(['worktree-merged', 'work-item-completed']));
 
-    // Merging again is refused: the worktree is gone.
-    expect((await merge(state, worktree.id)).statusCode).toBe(409);
+    // An acknowledged merge retry reconciles the same durable result without another commit.
+    const previousHead = git(['rev-parse', 'HEAD'], repositoryPath);
+    expect((await merge(state, worktree.id)).statusCode).toBe(200);
+    expect(git(['rev-parse', 'HEAD'], repositoryPath)).toBe(previousHead);
   });
 
   it('refuses a merge when the worktree is dirty or the primary checkout is not on the default branch', async () => {
@@ -4114,4 +4116,644 @@ it('stop during resolution preparation preserves ownership and supports explicit
   expect(abandoned.statusCode, abandoned.body).toBe(200);
   expect(git(['status', '--porcelain'], worktree.path)).toBe('');
   expect((await controlCycle(state, currentCycle(state, cycle), 'stop')).status).toBe('stopped');
+});
+
+async function useIntegration(
+  fixture: Awaited<ReturnType<typeof roadmapFixture>>,
+  name = 'revision',
+) {
+  const { state, root, repository } = fixture;
+  git(['branch', name], root);
+  const settings = present(
+    state.context.storage.execution.branchSettings.find(
+      state.workspaceId,
+      asPlanVersionId('version-1'),
+    ),
+  );
+  const result = await branchCommand(state, 'plan-versions/version-1/branch-settings', {
+    expectedVersion: settings.version,
+    repositoryId: repository.id,
+    integrationBranch: name,
+  });
+  expect(result.statusCode, result.body).toBe(200);
+}
+
+it('automatically integrates sequential entries while preserving a per-item manual checkpoint', {
+  timeout: 15000,
+}, async () => {
+  const fixture = await roadmapFixture();
+  const { state, backend, root } = fixture;
+  await useIntegration(fixture);
+  backend.replyForRequest = (request) =>
+    request.model === 'design-model'
+      ? designDone
+      : request.model === 'review-model'
+        ? { resultText: reviewText([]) }
+        : implementationDone;
+  const input = roadmapInput(state);
+  const saved = await saveRoadmapRequest(state, {
+    ...input,
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'automatic' },
+    entries: input.entries.map((e, i) =>
+      i ? { ...e, automation: { integrationMerge: 'manual', integrationConflicts: 'manual' } } : e,
+    ),
+  });
+  expect(saved.statusCode, saved.body).toBe(200);
+  const main = git(['rev-parse', 'main'], root);
+  await roadmapControl(state, 'start');
+  const second = await awaitRoadmapMerge(state, 1);
+  expect(storedRoadmap(state).attempts[0]?.status).toBe('completed');
+  expect(git(['rev-parse', 'main'], root)).toBe(main);
+  expect(git(['rev-parse', 'revision'], root)).not.toBe(main);
+  const first = present(storedRoadmap(state).attempts[0]);
+  const operation = present(
+    state.context.storage.execution.merges.latest(state.workspaceId, first.worktreeId),
+  );
+  expect(operation).toMatchObject({ status: 'cleaned', roadmapId, definitionRevision: 1 });
+  expect(
+    state.context.storage.execution.worktrees.find(state.workspaceId, second.worktreeId)?.mergedAt,
+  ).toBeUndefined();
+  await mergeRoadmapAttempt(state, second.worktreeId);
+  await waitFor(
+    () => storedRoadmap(state).status === 'completed',
+    'manual override completes roadmap',
+  );
+});
+
+it('keeps main protected from automatic roadmap merges', { timeout: 10000 }, async () => {
+  const { state, root } = await roadmapFixture();
+  const main = git(['rev-parse', 'main'], root);
+  await saveRoadmapRequest(state, {
+    ...roadmapInput(state, [state.workItemId]),
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
+  });
+  await roadmapControl(state, 'start');
+  await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'protected main');
+  expect(storedRoadmap(state).reason).toContain('explicit operator');
+  expect(git(['rev-parse', 'main'], root)).toBe(main);
+});
+
+it('automatically resolves parallel integration conflicts and freshly reviews before integrating', {
+  timeout: 20000,
+}, async () => {
+  const fixture = await parallelFixture();
+  const { state, backend, input, root } = fixture;
+  await useIntegration(fixture);
+  const base = git(['rev-parse', 'main'], root);
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model')
+      commitFile(request.cwd, 'README.md', `behavior ${request.cwd}\n`);
+    if (request.model === 'resolution-auto') {
+      writeFileSync(join(request.cwd, 'README.md'), 'both sibling behaviors\n');
+      git(['add', 'README.md'], request.cwd);
+    }
+  };
+  backend.replyForRequest = (request) =>
+    request.model === 'design-model'
+      ? designDone
+      : request.model === 'resolution-auto'
+        ? { resultText: 'Combined checks passed.\n\n## Resolution status\nready' }
+        : request.model === 'review-model'
+          ? { resultText: reviewText([]) }
+          : implementationDone;
+  await saveRoadmapRequest(state, {
+    ...input,
+    automation: {
+      integrationMerge: 'automatic',
+      integrationConflicts: 'automatic',
+      resolutionProfile: { ...cycleProfiles.remediate, model: 'resolution-auto' },
+    },
+  });
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () => storedRoadmap(state).status === 'completed',
+    'unattended parallel integration',
+    15000,
+  );
+  expect(git(['rev-parse', 'main'], root)).toBe(base);
+  expect(backend.launches.some((r) => r.model === 'resolution-auto')).toBe(true);
+  const resolved = state.context.storage.execution.cycles
+    .list(state.workspaceId)
+    .find((c) => c.integrationResolution?.status === 'completed');
+  expect(resolved?.status).toBe('completed');
+  expect(
+    state.context.storage.execution.runs.find(state.workspaceId, present(resolved).currentRunId)
+      ?.role,
+  ).toBe('review');
+});
+
+async function finalizationFixture(options: { gitOperations?: GitOperations } = {}) {
+  const fixture = await roadmapFixture(undefined, options);
+  const { state, backend, root, second } = fixture;
+  await useIntegration(fixture);
+  git(['checkout', 'revision'], root);
+  const integration = commitFile(root, 'feature.txt', 'integrated feature\n').trim();
+  git(['checkout', 'main'], root);
+  for (const id of [state.workItemId, second]) {
+    await admit({ ...state, workItemId: id });
+    const completed = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${id}/complete`,
+      headers: mutationHeaders(state),
+      payload: {},
+    });
+    expect(completed.statusCode, completed.body).toBe(200);
+    const evidence = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${id}/integration-evidence`,
+      headers: mutationHeaders(state),
+      payload: { commitSha: integration },
+    });
+    expect(evidence.statusCode, evidence.body).toBe(200);
+  }
+  backend.onLaunch = undefined;
+  backend.replyForRequest = (request) => ({
+    resultText: request.model?.includes('polish')
+      ? 'Polish verified.\n\n## Open questions\nnone'
+      : `Conformance assessed against the whole plan.\n\n## Open questions\nnone\n\n## Review report\n${reviewText([])}`,
+  });
+  const profile = cycleProfiles.review;
+  const input = {
+    expectedBranchVersion: present(
+      state.context.storage.execution.branchSettings.find(
+        state.workspaceId,
+        asPlanVersionId('version-1'),
+      ),
+    ).version,
+    targetBranch: 'main',
+    rounds: [
+      {
+        review: { ...profile, model: 'assessment-model' },
+        polish: { ...profile, model: 'polish-model' },
+        instructions: 'Simplify repeated logic without changing behavior',
+      },
+    ],
+    finalReview: { ...profile, model: 'final-review-model' },
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 0 },
+    instructions: 'Check complete plan conformance and improve clarity',
+  };
+  return { ...fixture, input, integration };
+}
+async function beginFinalization(
+  fixture: Awaited<ReturnType<typeof finalizationFixture>>,
+  input = fixture.input,
+) {
+  const { state } = fixture;
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/plans/version-1/finalizations`,
+    headers: mutationHeaders(state),
+    payload: input,
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json().finalization as import('@craftingtable/domain').Finalization;
+}
+function finalizationCycle(state: Ready, value: import('@craftingtable/domain').Finalization) {
+  return present(state.context.storage.execution.cycles.find(state.workspaceId, value.cycleId));
+}
+async function finalizationCommand(
+  state: Ready,
+  value: import('@craftingtable/domain').Finalization,
+  action: string,
+  extra: Record<string, unknown> = {},
+) {
+  const current = present(
+    state.context.storage.execution.finalizations.find(state.workspaceId, value.id),
+  );
+  const cycle = state.context.storage.execution.cycles.find(state.workspaceId, value.cycleId);
+  return state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/finalizations/${value.id}/control`,
+    headers: mutationHeaders(state),
+    payload: {
+      action,
+      expectedVersion: current.version,
+      expectedCycleVersion: cycle?.version,
+      ...extra,
+    },
+  });
+}
+
+it('runs plan-scoped polish and independent verification, then requires explicit exact-commit promotion', {
+  timeout: 15000,
+}, async () => {
+  const fixture = await finalizationFixture();
+  const { state, backend, root, integration } = fixture;
+  const main = git(['rev-parse', 'main'], root);
+  backend.onLaunch = (request) => {
+    if (request.model === 'polish-model') commitFile(request.cwd, 'polish.txt', 'simplified\n');
+  };
+  const value = await beginFinalization(fixture);
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'awaiting-merge',
+    'final independent review',
+    8000,
+  );
+  const cycle = finalizationCycle(state, value);
+  expect(backend.launches.map((r) => r.model)).toEqual([
+    'assessment-model',
+    'polish-model',
+    'assessment-model',
+    'final-review-model',
+  ]);
+  expect(cycle.polishPhase).toBe('final-review');
+  expect(backend.launches[0]?.prompt).toContain('# Plan finalization');
+  expect(backend.launches[0]?.prompt).toContain('craftingtable-work-items.json');
+  expect(git(['rev-parse', 'main'], root)).toBe(main);
+  expect(git(['rev-parse', 'revision'], root).trim()).toBe(integration);
+  const tree = present(
+    state.context.storage.execution.worktrees.find(state.workspaceId, value.worktreeId),
+  );
+  expect(tree.workItemId).toBeUndefined();
+  expect(tree.planVersionId).toBe('version-1');
+  expect(
+    state.context.storage.execution.runs.listForWorkItem(state.workspaceId, state.workItemId),
+  ).toHaveLength(0);
+  expect((await merge(state, tree.id)).statusCode).toBe(409);
+  const review = present(
+    state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
+  ).reviewBranchContext;
+  if (!review) throw new Error('Expected final review context');
+  expect(
+    (
+      await finalizationCommand(state, value, 'merge', {
+        expectedHeadSha: '0'.repeat(40),
+        expectedTargetSha: review.targetSha,
+      })
+    ).statusCode,
+  ).toBe(409);
+  const promoted = await finalizationCommand(state, value, 'merge', {
+    expectedHeadSha: review.headSha,
+    expectedTargetSha: review.targetSha,
+  });
+  expect(promoted.statusCode, promoted.body).toBe(200);
+  expect(promoted.json().finalization.status).toBe('completed');
+  expect(readFileSync(join(root, 'polish.txt'), 'utf8')).toBe('simplified\n');
+  expect(git(['rev-parse', 'revision'], root).trim()).toBe(integration);
+  expect(
+    state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.mergeSha,
+  ).toBeUndefined();
+});
+
+it('stops finalization for genuine questions and never converts exhausted remediation into approval', {
+  timeout: 15000,
+}, async () => {
+  const fixture = await finalizationFixture();
+  const { state, backend, root } = fixture;
+  const main = git(['rev-parse', 'main'], root);
+  backend.replyForRequest = () => ({
+    resultText: `## Open questions\nMay I change the intended public API?\n\n## Review report\n${reviewText([])}`,
+  });
+  const value = await beginFinalization(fixture, {
+    ...fixture.input,
+    rounds: [],
+    policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
+  });
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'needs-attention',
+    'finalization question',
+  );
+  expect(backend.launches).toHaveLength(1);
+  expect(finalizationCycle(state, value).reason).toContain('input');
+  backend.replyForRequest = () => ({
+    resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([structuredFinding])}`,
+  });
+  const resumed = await finalizationCommand(state, value, 'resume', {
+    instructions: 'Keep the public API unchanged; identify required fixes within the plan.',
+  });
+  expect(resumed.statusCode, resumed.body).toBe(200);
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'needs-attention',
+    'finalization remediation limit',
+  );
+  expect(finalizationCycle(state, value).reason).toContain('limit');
+  expect(git(['rev-parse', 'main'], root)).toBe(main);
+});
+
+it('invalidates final promotion after integration drift and preserves the snapshot on stop', {
+  timeout: 10000,
+}, async () => {
+  const fixture = await finalizationFixture();
+  const { state, root } = fixture;
+  const value = await beginFinalization(fixture, { ...fixture.input, rounds: [] });
+  await waitFor(() => finalizationCycle(state, value).status === 'awaiting-merge', 'final review');
+  const cycle = finalizationCycle(state, value);
+  const context = present(
+    state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
+  ).reviewBranchContext;
+  if (!context) throw new Error('Expected final review context');
+  git(['checkout', 'revision'], root);
+  commitFile(root, 'extra.txt', 'external integration\n');
+  git(['checkout', 'main'], root);
+  const rejected = await finalizationCommand(state, value, 'merge', {
+    expectedHeadSha: context.headSha,
+    expectedTargetSha: context.targetSha,
+  });
+  expect(rejected.statusCode, rejected.body).toBe(409);
+  expect(rejected.body).toContain('Integration changed');
+  const stopped = await finalizationCommand(state, value, 'stop');
+  expect(stopped.statusCode, stopped.body).toBe(200);
+  expect(stopped.json().finalization.status).toBe('stopped');
+  expect(
+    existsSync(
+      present(state.context.storage.execution.worktrees.find(state.workspaceId, value.worktreeId))
+        .path,
+    ),
+  ).toBe(true);
+});
+
+it('reconciles a committed delegated merge after interruption without merging or reviewing twice', {
+  timeout: 15000,
+}, async () => {
+  const realGit = createGitOperations({ gitExecutable: 'git' });
+  let calls = 0;
+  const fixture = await roadmapFixture(undefined, {
+    gitOperations: {
+      ...realGit,
+      mergeBranch: async (input) => {
+        calls++;
+        const result = await realGit.mergeBranch(input);
+        if (result.ok && calls === 1)
+          throw new Error('Interruption after Git commit, before recording completion');
+        return result;
+      },
+    },
+  });
+  const { state, backend, root } = fixture;
+  await useIntegration(fixture);
+  await saveRoadmapRequest(state, {
+    ...roadmapInput(state, [state.workItemId]),
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
+  });
+  await roadmapControl(state, 'start');
+  await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'interrupted merge');
+  const attempt = present(storedRoadmap(state).attempts[0]);
+  const operation = present(
+    state.context.storage.execution.merges.latest(state.workspaceId, attempt.worktreeId),
+  );
+  expect(operation.status).toBe('reserved');
+  const committed = git(['rev-parse', 'revision'], root);
+  expect(git(['log', '-1', '--format=%s', 'revision'], root)).toContain(operation.id);
+  expect(
+    state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.status,
+  ).toBe('admitted');
+  const stop = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${attempt.cycleId}/control`,
+    headers: mutationHeaders(state),
+    payload: {
+      action: 'stop',
+      expectedVersion: present(
+        state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId),
+      ).version,
+    },
+  });
+  expect(stop.statusCode).toBe(409);
+  expect(stop.body).toContain('pending merge');
+  state.context.services.roadmapService.recoverInterrupted();
+  state.context.services.workCycleService.recoverInterrupted();
+  const launches = backend.launches.length;
+  await roadmapControl(state, 'resume');
+  await waitFor(() => storedRoadmap(state).status === 'completed', 'reconciled merge');
+  expect(calls).toBe(1);
+  expect(backend.launches).toHaveLength(launches);
+  expect(git(['rev-parse', 'revision'], root)).toBe(committed);
+  expect(
+    state.context.storage.execution.merges.latest(state.workspaceId, attempt.worktreeId)?.status,
+  ).toBe('cleaned');
+  expect(
+    state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.status,
+  ).toBe('completed');
+});
+
+it('records completion before cleanup, exposes retry, and preserves edits added after integration', {
+  timeout: 15000,
+}, async () => {
+  const realGit = createGitOperations({ gitExecutable: 'git' });
+  let preserve = false;
+  let calls = 0;
+  const { state, backend, worktree, root } = await cycleFixture(
+    [designDone, implementationDone, { resultText: reviewText([]) }],
+    undefined,
+    {
+      ...realGit,
+      mergeBranch: async (input) => {
+        calls++;
+        return realGit.mergeBranch(input);
+      },
+      removeWorktree: async (input) =>
+        preserve && !input.worktreePath.includes('/.merge/')
+          ? {
+              ok: false,
+              failure: { kind: 'git-failed', message: 'Simulated cleanup interruption' },
+            }
+          : realGit.removeWorktree(input),
+    },
+  );
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model')
+      commitFile(request.cwd, 'feature.txt', 'reviewed implementation');
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'reviewed branch');
+  preserve = true;
+  const response = await merge(state, worktree.id);
+  expect(response.statusCode, response.body).toBe(200);
+  expect(
+    state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.status,
+  ).toBe('completed');
+  expect(existsSync(worktree.path)).toBe(true);
+  const committed = git(['rev-parse', 'main'], root);
+  const view = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/execution`,
+    headers: { cookie: state.cookie },
+  });
+  expect(view.statusCode, view.body).toBe(200);
+  expect(view.json().worktrees[0].mergeCleanupError).toContain('cleanup interruption');
+  const source = git(['rev-parse', 'HEAD'], worktree.path).trim();
+  preserve = false;
+  commitFile(worktree.path, 'operator.txt', 'later operator commit');
+  const retained = await merge(state, worktree.id);
+  expect(retained.statusCode, retained.body).toBe(200);
+  expect(existsSync(worktree.path)).toBe(true);
+  expect(
+    state.context.storage.execution.merges.latest(state.workspaceId, worktree.id)?.cleanupError,
+  ).toContain('different branch or commit');
+  // Remove only this test's extra commit, then retry the browser command.
+  git(['reset', '--hard', source], worktree.path);
+  const cleaned = await merge(state, worktree.id);
+  expect(cleaned.statusCode, cleaned.body).toBe(200);
+  expect(calls).toBe(1);
+  expect(existsSync(worktree.path)).toBe(false);
+  expect(git(['rev-parse', 'main'], root)).toBe(committed);
+  expect(
+    state.context.storage.execution.merges.latest(state.workspaceId, worktree.id),
+  ).toMatchObject({ status: 'cleaned' });
+  expect(
+    state.context.storage.execution.merges.latest(state.workspaceId, worktree.id)?.cleanupError,
+  ).toBeUndefined();
+});
+
+it('recovers finalization preparation only on explicit resume and preserves its reserved worktree', {
+  timeout: 15000,
+}, async () => {
+  const realGit = createGitOperations({ gitExecutable: 'git' });
+  let interrupted = false;
+  const fixture = await finalizationFixture({
+    gitOperations: {
+      ...realGit,
+      createWorktree: async (input) => {
+        const result = await realGit.createWorktree(input);
+        if (result.ok && input.branchName.startsWith('ct/finalize-') && !interrupted) {
+          interrupted = true;
+          throw new Error('Simulated interruption after finalization worktree creation');
+        }
+        return result;
+      },
+    },
+  });
+  const { state, backend, root } = fixture;
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/plans/version-1/finalizations`,
+    headers: mutationHeaders(state),
+    payload: { ...fixture.input, rounds: [] },
+  });
+  expect(response.statusCode).toBe(500);
+  const value = present(state.context.storage.execution.finalizations.list(state.workspaceId)[0]);
+  expect(value.status).toBe('preparing');
+  expect(backend.launches).toHaveLength(0);
+  const before = git(['worktree', 'list', '--porcelain'], root);
+  expect(before).toContain(`ct/finalize-${value.id}`);
+  state.context.services.workCycleService.recoverInterrupted();
+  expect(backend.launches).toHaveLength(0);
+  const resumed = await finalizationCommand(state, value, 'resume');
+  expect(resumed.statusCode, resumed.body).toBe(200);
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'awaiting-merge',
+    'recovered plan review',
+  );
+  expect(git(['worktree', 'list', '--porcelain'], root)).toBe(before);
+  expect(backend.launches).toHaveLength(1);
+});
+
+it('keeps a started entry manual when queued defaults change to automatic integration', {
+  timeout: 15000,
+}, async () => {
+  const fixture = await roadmapFixture();
+  const { state, backend } = fixture;
+  await useIntegration(fixture);
+  backend.replyForRequest = (request) =>
+    request.model === 'design-model'
+      ? designDone
+      : request.model === 'review-model'
+        ? { resultText: reviewText([]) }
+        : implementationDone;
+  await saveRoadmapRequest(state);
+  await roadmapControl(state, 'start');
+  const first = await awaitRoadmapMerge(state, 0);
+  await roadmapControl(state, 'pause');
+  const saved = await saveRoadmapRequest(state, {
+    ...roadmapInput(state),
+    expectedVersion: storedRoadmap(state).version,
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'automatic' },
+  });
+  expect(saved.statusCode, saved.body).toBe(200);
+  expect(saved.json().progress[0].effectiveAutomation.integrationMerge).toBe('manual');
+  expect(saved.json().progress[1].effectiveAutomation.integrationMerge).toBe('automatic');
+  await roadmapControl(state, 'resume');
+  expect(
+    state.context.storage.execution.merges.latest(state.workspaceId, first.worktreeId),
+  ).toBeUndefined();
+  await mergeRoadmapAttempt(state, first.worktreeId);
+  await waitFor(
+    () => storedRoadmap(state).status === 'completed',
+    'queued automatic integration',
+    8000,
+  );
+  expect(
+    state.context.storage.execution.merges.latest(state.workspaceId, first.worktreeId)?.roadmapId,
+  ).toBeUndefined();
+  const second = present(storedRoadmap(state).attempts[1]);
+  expect(
+    state.context.storage.execution.merges.latest(state.workspaceId, second.worktreeId),
+  ).toMatchObject({ roadmapId, definitionRevision: 2 });
+});
+
+it('holds integration merges while finalization is active or paused and releases them on stop', {
+  timeout: 10000,
+}, async () => {
+  const fixture = await finalizationFixture();
+  const { state, repository, root } = fixture;
+  const value = await beginFinalization(fixture, { ...fixture.input, rounds: [] });
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'awaiting-merge',
+    'ready finalization',
+  );
+  const created = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/worktrees`,
+    headers: mutationHeaders(state),
+    payload: { repositoryId: repository.id },
+  });
+  expect(created.statusCode, created.body).toBe(200);
+  const tree = createWorktreeResponseSchema.parse(created.json()).worktree;
+  commitFile(tree.path, 'late-fix.txt', 'late integrated change');
+  await runToFinish(state, tree.id, { role: 'review' });
+  const initial = git(['rev-parse', 'revision'], root);
+  const held = await merge(state, tree.id);
+  expect(held.statusCode).toBe(409);
+  expect(held.body).toContain('held for plan finalization');
+  expect((await finalizationCommand(state, value, 'pause')).statusCode).toBe(200);
+  expect((await merge(state, tree.id)).statusCode).toBe(409);
+  expect(git(['rev-parse', 'revision'], root)).toBe(initial);
+  const stopped = await finalizationCommand(state, value, 'stop');
+  expect(stopped.statusCode, stopped.body).toBe(200);
+  const released = await merge(state, tree.id);
+  expect(released.statusCode, released.body).toBe(200);
+  expect(git(['rev-parse', 'revision'], root)).not.toBe(initial);
+});
+
+it('cleans an interrupted reserved scratch worktree before retrying an uncommitted merge', {
+  timeout: 15000,
+}, async () => {
+  const realGit = createGitOperations({ gitExecutable: 'git' });
+  let interrupted = false;
+  const fixture = await roadmapFixture(undefined, {
+    gitOperations: {
+      ...realGit,
+      mergeBranch: async (input) => {
+        if (!interrupted) {
+          interrupted = true;
+          git(
+            ['worktree', 'add', '--', input.scratchPath, input.targetBranch],
+            input.repositoryPath,
+          );
+          throw new Error('Interruption before merge');
+        }
+        return realGit.mergeBranch(input);
+      },
+    },
+  });
+  const { state, root } = fixture;
+  await useIntegration(fixture);
+  await saveRoadmapRequest(state, {
+    ...roadmapInput(state, [state.workItemId]),
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
+  });
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () => storedRoadmap(state).status === 'needs-attention',
+    'reserved scratch interruption',
+  );
+  const attempt = present(storedRoadmap(state).attempts[0]);
+  const operation = present(
+    state.context.storage.execution.merges.latest(state.workspaceId, attempt.worktreeId),
+  );
+  expect(operation.status).toBe('reserved');
+  expect(git(['worktree', 'list', '--porcelain'], root)).toContain(operation.id);
+  await roadmapControl(state, 'resume');
+  await waitFor(() => storedRoadmap(state).status === 'completed', 'recovered scratch merge', 8000);
+  expect(git(['worktree', 'list', '--porcelain'], root)).not.toContain(operation.id);
 });

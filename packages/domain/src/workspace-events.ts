@@ -272,15 +272,16 @@ export interface SourceRepositoryRegisteredEvent extends WorkspaceEventBase {
 export interface WorktreeCreatedEvent extends WorkspaceEventBase {
   readonly kind: 'worktree-created';
   readonly projectId: ProjectId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
   readonly runId?: never;
   readonly repositoryId?: never;
   readonly repositoryInspectionId?: never;
   readonly repositoryBindingId?: never;
   readonly payload: {
+    readonly planVersionId?: PlanVersionId;
     readonly worktreeId: WorktreeId;
     readonly sourceRepositoryId: SourceRepositoryId;
-    readonly workItemId: WorkItemId;
+    readonly workItemId?: WorkItemId;
     readonly branchName: string;
     readonly baseSha: string;
   };
@@ -289,14 +290,15 @@ export interface WorktreeCreatedEvent extends WorkspaceEventBase {
 export interface WorktreeRemovedEvent extends WorkspaceEventBase {
   readonly kind: 'worktree-removed';
   readonly projectId: ProjectId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
   readonly runId?: never;
   readonly repositoryId?: never;
   readonly repositoryInspectionId?: never;
   readonly repositoryBindingId?: never;
   readonly payload: {
+    readonly planVersionId?: PlanVersionId;
     readonly worktreeId: WorktreeId;
-    readonly workItemId: WorkItemId;
+    readonly workItemId?: WorkItemId;
     readonly branchName: string;
   };
 }
@@ -304,15 +306,16 @@ export interface WorktreeRemovedEvent extends WorkspaceEventBase {
 export interface AgentRunStartedEvent extends WorkspaceEventBase {
   readonly kind: 'agent-run-started';
   readonly projectId: ProjectId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
   readonly runId: AgentRunId;
   readonly repositoryId?: never;
   readonly repositoryInspectionId?: never;
   readonly repositoryBindingId?: never;
   readonly payload: {
+    readonly planVersionId?: PlanVersionId;
     readonly runId: AgentRunId;
     readonly worktreeId: WorktreeId;
-    readonly workItemId: WorkItemId;
+    readonly workItemId?: WorkItemId;
     readonly backend: AgentBackendKind;
     readonly role: AgentRunRole;
   };
@@ -321,14 +324,15 @@ export interface AgentRunStartedEvent extends WorkspaceEventBase {
 export interface AgentRunStatusChangedEvent extends WorkspaceEventBase {
   readonly kind: 'agent-run-status-changed';
   readonly projectId: ProjectId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
   readonly runId: AgentRunId;
   readonly repositoryId?: never;
   readonly repositoryInspectionId?: never;
   readonly repositoryBindingId?: never;
   readonly payload: {
+    readonly planVersionId?: PlanVersionId;
     readonly runId: AgentRunId;
-    readonly workItemId: WorkItemId;
+    readonly workItemId?: WorkItemId;
     readonly fromStatus: AgentRunStatus;
     readonly toStatus: AgentRunStatus;
   };
@@ -369,14 +373,15 @@ export interface WorkItemCompletedEvent extends WorkspaceEventBase {
 export interface WorktreeMergedEvent extends WorkspaceEventBase {
   readonly kind: 'worktree-merged';
   readonly projectId: ProjectId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
   readonly runId?: never;
   readonly repositoryId?: never;
   readonly repositoryInspectionId?: never;
   readonly repositoryBindingId?: never;
   readonly payload: {
+    readonly planVersionId?: PlanVersionId;
     readonly worktreeId: WorktreeId;
-    readonly workItemId: WorkItemId;
+    readonly workItemId?: WorkItemId;
     readonly branchName: string;
     readonly targetBranch: string;
     readonly mergeSha: string;
@@ -386,12 +391,13 @@ export interface WorktreeMergedEvent extends WorkspaceEventBase {
 export interface WorkCycleChangedEvent extends WorkspaceEventBase {
   readonly kind: 'work-cycle-changed';
   readonly projectId: ProjectId;
-  readonly workItemId: WorkItemId;
+  readonly workItemId?: WorkItemId;
   readonly runId?: never;
   readonly repositoryId?: never;
   readonly repositoryInspectionId?: never;
   readonly repositoryBindingId?: never;
   readonly payload: {
+    readonly planVersionId?: PlanVersionId;
     readonly cycleId: string;
     readonly status: import('./work-cycle.js').CycleStatus;
     readonly step: import('./work-cycle.js').CycleStep;

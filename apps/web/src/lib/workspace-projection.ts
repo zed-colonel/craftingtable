@@ -171,7 +171,9 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
         ...current,
         workspaceSummary: true,
         projectIds: unique([...current.projectIds, event.projectId]),
-        workItemIds: unique([...current.workItemIds, event.workItemId]),
+        workItemIds: event.workItemId
+          ? unique([...current.workItemIds, event.workItemId])
+          : current.workItemIds,
       };
     case 'branches-changed':
       return {
@@ -188,7 +190,9 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
       return {
         ...current,
         workspaceSummary: true,
-        workItemIds: unique([...current.workItemIds, event.workItemId]),
+        workItemIds: event.workItemId
+          ? unique([...current.workItemIds, event.workItemId])
+          : current.workItemIds,
       };
   }
 }

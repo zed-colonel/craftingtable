@@ -9,6 +9,7 @@ import type {
 import type Database from 'better-sqlite3';
 
 export interface PlanBranchSettingsRepository {
+  list(): readonly PlanBranchSettings[];
   evidence(
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
@@ -27,6 +28,13 @@ export interface PlanBranchSettingsRepository {
 }
 export class SqlitePlanBranchSettingsRepository implements PlanBranchSettingsRepository {
   constructor(private readonly database: Database.Database) {}
+  list(): readonly PlanBranchSettings[] {
+    return (
+      this.database
+        .prepare('SELECT workspace_id, plan_version_id FROM plan_branch_settings')
+        .all() as { workspace_id: WorkspaceId; plan_version_id: PlanVersionId }[]
+    ).map((row) => this.find(row.workspace_id, row.plan_version_id) as PlanBranchSettings);
+  }
   evidence(
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
@@ -57,12 +65,18 @@ export class SqlitePlanBranchSettingsRepository implements PlanBranchSettingsRep
       .run(input);
   }
   find(workspaceId: WorkspaceId, planVersionId: PlanVersionId): PlanBranchSettings | undefined {
-    return this.database
+    const row = this.database
       .prepare(`SELECT workspace_id AS workspaceId, plan_version_id AS planVersionId,
       repository_id AS repositoryId, integration_branch AS integrationBranch, updated_at AS updatedAt,
-      updated_by_user_id AS updatedByUserId, version FROM plan_branch_settings
+      updated_by_user_id AS updatedByUserId, manual_merge_branches_json AS manualMergeBranchesJson, version FROM plan_branch_settings
       WHERE workspace_id = ? AND plan_version_id = ?`)
-      .get(workspaceId, planVersionId) as PlanBranchSettings | undefined;
+      .get(workspaceId, planVersionId) as
+      | (PlanBranchSettings & { manualMergeBranchesJson: string })
+      | undefined;
+    if (!row) return undefined;
+    const { manualMergeBranchesJson, ...settings } = row;
+    const branches = JSON.parse(manualMergeBranchesJson) as string[];
+    return { ...settings, ...(branches.length ? { manualMergeBranches: branches } : {}) };
   }
   save(settings: PlanBranchSettings, expectedVersion: number): PlanBranchSettings | undefined {
     const current = this.find(settings.workspaceId, settings.planVersionId);
@@ -70,12 +84,15 @@ export class SqlitePlanBranchSettingsRepository implements PlanBranchSettingsRep
       return undefined;
     this.database
       .prepare(`INSERT INTO plan_branch_settings
-      (workspace_id, plan_version_id, repository_id, integration_branch, updated_at, updated_by_user_id, version)
-      VALUES (@workspaceId, @planVersionId, @repositoryId, @integrationBranch, @updatedAt, @updatedByUserId, @version)
+      (workspace_id, plan_version_id, repository_id, integration_branch, updated_at, updated_by_user_id, version, manual_merge_branches_json)
+      VALUES (@workspaceId, @planVersionId, @repositoryId, @integrationBranch, @updatedAt, @updatedByUserId, @version, @manualMergeBranchesJson)
       ON CONFLICT(workspace_id, plan_version_id) DO UPDATE SET repository_id = excluded.repository_id,
       integration_branch = excluded.integration_branch, updated_at = excluded.updated_at,
-      updated_by_user_id = excluded.updated_by_user_id, version = excluded.version`)
-      .run(settings);
+      updated_by_user_id = excluded.updated_by_user_id, version = excluded.version, manual_merge_branches_json = excluded.manual_merge_branches_json`)
+      .run({
+        ...settings,
+        manualMergeBranchesJson: JSON.stringify(settings.manualMergeBranches ?? []),
+      });
     return this.find(settings.workspaceId, settings.planVersionId);
   }
 }

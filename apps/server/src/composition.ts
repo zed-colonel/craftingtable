@@ -1,3 +1,4 @@
+import { FinalizationService } from './services/finalization-service.js';
 import { RoadmapService } from './services/roadmap-service.js';
 import { NotificationService } from './services/notification-service.js';
 import {
@@ -49,6 +50,7 @@ import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
 
 export interface ServiceSet {
   readonly roadmapService: RoadmapService;
+  readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
   readonly bootstrapService: BootstrapService;
   readonly authService: AuthService;
@@ -215,6 +217,15 @@ export async function createServices(
     }),
   });
   return {
+    finalizationService: new FinalizationService(
+      storage,
+      workspaceService,
+      executionService,
+      workCycleService,
+      gitOperations,
+      notifier,
+      now,
+    ),
     roadmapService,
     notificationService: new NotificationService(
       storage,
@@ -278,6 +289,7 @@ export async function createRuntime(
         executionService: services.executionService,
         agentRunService: services.agentRunService,
         workCycleService: services.workCycleService,
+        finalizationService: services.finalizationService,
         notificationService: services.notificationService,
         roadmapService: services.roadmapService,
         runEventStreamService: services.runEventStreamService,

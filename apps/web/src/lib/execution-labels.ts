@@ -75,6 +75,7 @@ export const MERGE_GATE_LABELS: Readonly<Record<MergeGate['reason'], string>> = 
   'review-pending': 'Review has no verdict yet',
   'superseded-by-later-run': 'A run started after the review; review again',
   'run-live': 'A run is live in this worktree',
+  'merge-recovery-required': 'Recover the reserved integration merge',
   'branch-review-required': 'Fresh review of the integration target required',
   'worktree-removed': 'Worktree removed',
 };

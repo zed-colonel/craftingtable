@@ -24,7 +24,7 @@ export class SqliteWorkCycleRepository implements WorkCycleRepository {
       .run(
         state.id,
         state.workspaceId,
-        state.workItemId,
+        state.workItemId ?? null,
         state.worktreeId,
         state.status,
         state.version,

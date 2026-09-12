@@ -68,9 +68,9 @@ export function RunList({
             <button
               type="button"
               className="ghost-button"
-              onClick={() => onOpenWorkItem(run.workItemId)}
+              onClick={() => (run.workItemId ? onOpenWorkItem(run.workItemId) : onOpenRun(run.id))}
             >
-              Work item
+              {run.workItemId ? 'Work item' : 'Finalization run'}
             </button>
           </li>
         );

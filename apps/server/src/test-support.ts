@@ -86,6 +86,7 @@ export async function createTestContext(
       executionService: services.executionService,
       agentRunService: services.agentRunService,
       workCycleService: services.workCycleService,
+      finalizationService: services.finalizationService,
       notificationService: services.notificationService,
       roadmapService: services.roadmapService,
       runEventStreamService: services.runEventStreamService,

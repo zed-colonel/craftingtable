@@ -18,6 +18,15 @@ export const ROADMAP_STATUSES = [
   'completed',
 ] as const;
 export type RoadmapStatus = (typeof ROADMAP_STATUSES)[number];
+export interface RoadmapAutomation {
+  readonly integrationMerge: 'manual' | 'automatic';
+  readonly integrationConflicts: 'manual' | 'automatic';
+  readonly resolutionProfile?: Omit<import('./execution.js').AgentRunProfile, 'role'>;
+}
+export const DEFAULT_ROADMAP_AUTOMATION: RoadmapAutomation = {
+  integrationMerge: 'manual',
+  integrationConflicts: 'manual',
+};
 export interface RoadmapScheduling {
   readonly mode: 'sequential' | 'parallel';
   readonly maxInFlight: number;
@@ -46,6 +55,7 @@ export interface RoadmapEntry {
   readonly profiles: CycleProfiles;
   readonly policy: CompletionPolicy;
   readonly instructions: string;
+  readonly automation?: RoadmapAutomation;
   readonly exclusionGroups?: readonly string[];
 }
 /** Immutable adopted definition; draft changes also create new revisions. */
@@ -55,6 +65,7 @@ export interface RoadmapDefinition {
   readonly name: string;
   readonly entries: readonly RoadmapEntry[];
   readonly scheduling?: RoadmapScheduling;
+  readonly automation?: RoadmapAutomation;
   readonly createdAt: string;
   readonly createdByUserId: UserId;
 }
@@ -84,6 +95,7 @@ export interface Roadmap {
   readonly entryHolds?: Readonly<Record<string, RoadmapEntryHold>>;
 }
 export interface RoadmapEntryProgress {
+  readonly effectiveAutomation?: RoadmapAutomation;
   readonly entryId: string;
   readonly status:
     | 'queued'

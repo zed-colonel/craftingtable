@@ -47,8 +47,8 @@ It submits:
   run is a review whose final message carried a `mergeable` verdict, both source and target
   commits still match its recorded context, and no run is live in it. It performs the merge in a
   scratch worktree unless the primary checkout already has the target checked out. The implementation
-  agent never holds merge authority; a review agent only produces the verdict the
-  operator acts on.
+  agent never holds merge authority; a review agent supplies evidence for the daemon
+  command under operator approval or explicit integration delegation.
 
 Process authority is confined to three modules listed in
 `scripts/check-forbidden-scope.mjs`. Every spawn uses argument arrays with `shell: false`,
@@ -100,10 +100,11 @@ or session expiry leaves deliberate delegation active; pause/stop are explicit c
 Manual launches and steering require takeover while automation owns the worktree.
 
 A cycle reserves run IDs before launch and never resumes automatically after restart.
-Review approval requires a clean managed branch at the recorded commit; operator merge
-rechecks it and pins the Git source commit. A shared daemon guard keeps agent launches
-and cycle resumes out of an in-flight merge or removal. Only the operator merge route
-has merge authority; quality thresholds never grant it to the controller or an agent.
+Review approval requires a clean managed branch at the recorded commit; the shared merge
+command rechecks it and pins the Git source and destination commits. A shared daemon guard keeps agent launches
+and cycle resumes out of an in-flight merge or removal. Quality thresholds alone grant
+no merge authority: integration requires explicit operator approval or a saved roadmap
+delegation; protected destinations always require explicit approval.
 Automated finalization may commit tracked edits and explicitly staged new files on the
 managed item branch after the implementation session ends. It cannot stage arbitrary
 untracked files or merge. A reserved content fingerprint, parent commit and explicit path
@@ -141,13 +142,13 @@ with the normal authenticated session, CSRF, and origin checks. The daemon reche
 recorded delegating user's active account and workspace membership before preparing a
 worktree; each cycle retains its own existing launch checks. Internal admission, worktree,
 and cycle commands accept a user-attributed command context without inventing a browser
-session. HTTP routes still require authenticated sessions. Merge remains exclusively an
-operator command. Pause/stop supersede pending preparation; a Git operation already in
+session. HTTP routes still require authenticated sessions. Integration merges may be
+delegated through the saved roadmap policy; final promotion remains an operator command. Pause/stop supersede pending preparation; a Git operation already in
 flight may finish creating a recorded worktree, but cannot launch a superseded cycle.
 
-Parallel scheduling retains the same authority checks and operator-only merge route. Item
+Parallel scheduling retains the same authority checks and review-gated merge command. Item
 controls use authenticated, version-checked roadmap commands. Automatic integration refresh
-requires an active parallel delegation, the frozen branch binding, current initiating-user
+requires an active parallel or automatic-integration delegation, the frozen branch binding, current initiating-user
 permissions, and no live sessions. It merges integration into the item branch only. Review
 context is invalidated durably before mutation; each refresh uses the repository and worktree
 guards and rechecks delegation before Git and before reserving another review. Pause/stop
@@ -157,13 +158,29 @@ or an agent running with the operator's OS authority.
 
 ## Integration resolution authority
 
-An explicit owner/editor cycle command authorizes a pinned integration merge into the item
+An explicit owner/editor cycle command or saved roadmap conflict policy authorizes a pinned integration merge into the item
 branch. Resolution agents edit, stage and verify; they receive no final-merge authority.
 The controller checks HEAD, MERGE_HEAD, resolved index, staged tree and absence of unknown
 files before completing a reserved two-parent commit. Normal source/target review freshness
-and operator-only final merge still apply. While a resolution owns the worktree, unrelated
+and the configured integration merge authority still apply. While a resolution owns the worktree, unrelated
 launches and branch mutations are rejected even while paused. Browser guidance addresses
 only the existing owned run. Abandonment requires an explicit UI confirmation, aborts only
 the recorded pending merge and never deletes arbitrary untracked files. Git hooks and
 external tools still execute with the existing workstation trust model; these guards do
 not sandbox an agent or external Git process. See ADR-032.
+
+
+## Final promotion authority
+
+Finalization starts through an authenticated, CSRF/origin-checked command after validating
+plan completion and integration evidence. It creates a managed candidate branch from a
+pinned integration snapshot. Agent runs retain existing permission postures and cannot
+approve promotion. The daemon holds integration merges while the candidate is active or
+paused; external Git remains outside this coordination and invalidates the snapshot.
+
+`main`, `master`, registered defaults, additional plan protections and recorded finalization
+destinations cannot be automatic roadmap targets. Promotion requires a separate authenticated
+operator command carrying the exact reviewed source and destination commits. Questions,
+missing reports and exhausted budgets do not relax that gate. Durable reservations permit
+reconciliation of an already-approved commit after restart, without authorizing a new merge.
+Cleanup does not force-remove dirty checkouts or unexpected later commits. See ADR-033.

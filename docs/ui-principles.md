@@ -102,3 +102,9 @@ entry's exact waiting reason, and distinguish dependency, capacity, exclusion, a
 attention. In-flight counts include paused and merge-ready work; running-cycle counts do
 not. Individual pause/resume controls must not imply that sibling work will stop. Existing
 work-item links retain the review, diff, manual takeover, and explicit merge controls.
+
+Integration conflict recovery belongs beside the cycle status. Show conflicting paths, exact
+item and incoming commits, agent attempt links and the selected resolution profile. Wrap paths
+and commit IDs on phones. Keep completion of the integration update distinct from final merge
+approval. Abandonment names the merge resolution it discards and explains that unrelated edits and
+untracked files may remain.

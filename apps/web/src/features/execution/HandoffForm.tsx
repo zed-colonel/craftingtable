@@ -23,6 +23,7 @@ export function HandoffForm({
   busy,
   onLaunch,
   onCancel,
+  maxInstructionsLength = 20000,
 }: {
   /** Accessible name, e.g. "Remediate with". */
   label: string;
@@ -34,6 +35,7 @@ export function HandoffForm({
   busy: boolean;
   onLaunch: (choice: HandoffChoice) => void;
   onCancel: () => void;
+  maxInstructionsLength?: number;
 }) {
   const [backend, setBackend] = useState<AgentBackendKind>(defaults.backend);
   const [model, setModel] = useState(defaults.model ?? '');
@@ -110,7 +112,7 @@ export function HandoffForm({
           onChange={(event) => setInstructions(event.target.value)}
           rows={2}
           disabled={busy}
-          maxLength={20000}
+          maxLength={maxInstructionsLength}
           {...(placeholder === undefined ? {} : { placeholder })}
         />
       </label>

@@ -115,7 +115,12 @@ import {
 import { useRoute } from './lib/use-route.js';
 import { useRunEventStream } from './lib/use-run-event-stream.js';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
-import { controlWorkCycle, loadWorkCycles, startWorkCycle } from './lib/work-cycle-api.js';
+import {
+  controlWorkCycle,
+  loadWorkCycles,
+  startWorkCycle,
+  resolveIntegration,
+} from './lib/work-cycle-api.js';
 import {
   type ConnectionState,
   INITIAL_WORKSPACE_PROJECTION,
@@ -1332,6 +1337,11 @@ export function App() {
                   onControl={(cycle, action) =>
                     executionCommand(async (csrfToken) => {
                       await controlWorkCycle(cycle, action, csrfToken);
+                    })
+                  }
+                  onResolution={(cycle, input) =>
+                    executionCommand(async (csrfToken) => {
+                      await resolveIntegration(cycle, input, csrfToken);
                     })
                   }
                   onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}

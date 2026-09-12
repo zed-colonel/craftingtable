@@ -1,6 +1,8 @@
+import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
 import { CycleSettingsFields } from './CycleSettingsFields.js';
 import type {
   AgentRunSummary,
+  IntegrationResolutionRequest,
   ExecutionStatusResponse,
   StartWorkCycleRequest,
   WorktreeSummary,
@@ -39,6 +41,7 @@ export function CyclePanel({
   onStart,
   onControl,
   onOpenRun,
+  onResolution,
 }: {
   cycles: readonly WorkCycle[];
   worktrees: readonly WorktreeSummary[];
@@ -51,6 +54,10 @@ export function CyclePanel({
   onStart: (input: StartWorkCycleRequest) => void;
   onControl: (cycle: WorkCycle, action: 'pause' | 'resume' | 'stop') => void;
   onOpenRun: (id: AgentRunId) => void;
+  onResolution?: (
+    cycle: WorkCycle,
+    input: Omit<IntegrationResolutionRequest, 'expectedVersion'>,
+  ) => void;
 }) {
   const active = cycles.find((cycle) => !['stopped', 'completed'].includes(cycle.status));
   const activeWorktrees = worktrees.filter((worktree) => worktree.status === 'active');
@@ -123,16 +130,17 @@ export function CyclePanel({
                 Pause automation
               </button>
             )}
-            {['paused', 'needs-attention'].includes(active.status) && (
-              <button
-                type="button"
-                className="primary-button"
-                disabled={disabled}
-                onClick={() => onControl(active, 'resume')}
-              >
-                Resume automation
-              </button>
-            )}
+            {['paused', 'needs-attention'].includes(active.status) &&
+              active.integrationResolution?.status !== 'detected' && (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={disabled}
+                  onClick={() => onControl(active, 'resume')}
+                >
+                  Resume automation
+                </button>
+              )}
             <button
               type="button"
               className="secondary-button danger"
@@ -142,6 +150,17 @@ export function CyclePanel({
               Stop automation
             </button>
           </div>
+          {onResolution && (
+            <IntegrationResolutionPanel
+              cycle={active}
+              backends={backends}
+              busy={disabled}
+              canMutate={canMutate}
+              onCommand={(input) => onResolution(active, input)}
+              onOpenRun={onOpenRun}
+              runIds={runs.map((run) => run.id)}
+            />
+          )}
           <details>
             <summary>Cycle settings</summary>
             <ul>

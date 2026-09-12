@@ -1,3 +1,4 @@
+import { ownsIntegrationResolution, type IntegrationResolution } from '@craftingtable/domain';
 import { randomUUID } from 'node:crypto';
 import type {
   PlanBranchSettingsResponse,
@@ -29,6 +30,22 @@ import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
 function value<T>(result: GitResult<T>): T {
   if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
   return result.value;
+}
+export class IntegrationUpdateConflict extends ExecutionRequestError {
+  constructor(
+    readonly details: {
+      headSha: string;
+      targetSha: string;
+      targetBranch: string;
+      paths: readonly string[];
+      diagnostics: string;
+    },
+  ) {
+    super(
+      'conflict',
+      `Updating from ${details.targetBranch} conflicts in ${details.paths.length} files. Resolve integration conflicts from the automated cycle.`,
+    );
+  }
 }
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
@@ -275,6 +292,25 @@ export class BranchService {
     }
   }
 
+  async validateResolutionLaunch(
+    worktree: Worktree,
+    resolution: IntegrationResolution,
+  ): Promise<void> {
+    if (worktree.integrationBranch !== resolution.targetBranch)
+      conflict('Resolution integration binding changed');
+    const state = value(
+      await this.requireGit().inspectIntegrationResolution({
+        worktreePath: worktree.path,
+        branchName: worktree.branchName,
+        headSha: resolution.headSha,
+        targetSha: resolution.targetSha,
+      }),
+    );
+    if (state.headSha !== resolution.headSha || state.mergeHeadSha !== resolution.targetSha)
+      conflict('The pinned resolution merge is no longer pending');
+    await this.validateLaunch(worktree);
+  }
+
   async validateLaunch(worktree: Worktree): Promise<void> {
     if (worktree.integrationBranch === undefined)
       conflict('Adopt an integration branch for this existing worktree before launching an agent');
@@ -395,6 +431,10 @@ export class BranchService {
       worktree.workspaceId,
       worktree.id,
     );
+    if (ownsIntegrationResolution(cycle))
+      conflict(
+        'Resume or abandon the owned integration resolution before another branch operation',
+      );
     if (
       (cycle?.status === 'running' || cycle?.status === 'awaiting-merge') &&
       cycle.id !== ownedCycleId
@@ -462,14 +502,21 @@ export class BranchService {
         });
         this.notifier.notify();
         if (update) {
-          const updated = value(
-            await git.updateWorktree({
-              worktreePath: worktree.path,
-              branchName: worktree.branchName,
-              expectedHeadSha: state.headSha,
+          const result = await git.updateWorktree({
+            worktreePath: worktree.path,
+            branchName: worktree.branchName,
+            expectedHeadSha: state.headSha,
+            targetSha,
+          });
+          if (!result.ok && result.failure.kind === 'merge-conflict')
+            throw new IntegrationUpdateConflict({
+              headSha: state.headSha,
               targetSha,
-            }),
-          );
+              targetBranch: target,
+              paths: (result.failure.conflictPaths ?? []).slice(0, 1000),
+              diagnostics: result.failure.diagnostics ?? result.failure.message,
+            });
+          const updated = value(result);
           this.storage.transaction((tx) =>
             this.record(tx, context, workspaceId, item.projectId, item.planVersionId, 'updated', {
               worktreeId,

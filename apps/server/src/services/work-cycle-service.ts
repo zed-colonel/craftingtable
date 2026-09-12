@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { StartWorkCycleRequest } from '@craftingtable/contracts';
+import type { IntegrationResolutionRequest, StartWorkCycleRequest } from '@craftingtable/contracts';
 import {
   DEFAULT_ROADMAP_SCHEDULING,
+  ownsIntegrationResolution,
   type AgentRun,
   asAgentRunId,
   asAuditEventId,
@@ -18,12 +19,16 @@ import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
 import type { CommandContext } from './auth-service.js';
-import { RepositoryMutationBusyError, type BranchService } from './branch-service.js';
+import {
+  IntegrationUpdateConflict,
+  RepositoryMutationBusyError,
+  type BranchService,
+} from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { latestReviewReport, runLineage } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
-import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
+import { WorktreeMutationGuard, WorktreeMutationBusyError } from './worktree-mutation-guard.js';
 
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
 export class WorkCycleService {
@@ -140,6 +145,20 @@ export class WorkCycleService {
       );
     if (['stopped', 'completed'].includes(cycle.status))
       throw new ExecutionRequestError('conflict', 'This cycle has ended');
+    if (action === 'stop' && ownsIntegrationResolution(cycle)) {
+      const paused = this.change(
+        cycle,
+        {
+          status: 'paused',
+          reason:
+            'Resolution stopped with edits preserved. Resume or explicitly abandon the integration resolution.',
+        },
+        action,
+        context,
+      );
+      this.runs.finishCycleTurn(paused, true);
+      return paused;
+    }
     if (action === 'stop') {
       const stopped = this.change(
         cycle,
@@ -164,6 +183,16 @@ export class WorkCycleService {
     }
     if (!['paused', 'needs-attention'].includes(cycle.status))
       throw new ExecutionRequestError('conflict', 'Only a paused cycle can resume');
+    if (cycle.integrationResolution?.status === 'detected')
+      throw new ExecutionRequestError(
+        'conflict',
+        'Use Resolve integration conflicts to delegate the detected conflict.',
+      );
+    if (ownsIntegrationResolution(cycle))
+      return this.resolveIntegration(context, workspaceId, id, {
+        action: 'resume',
+        expectedVersion,
+      });
     this.mutations.requireAvailable(cycle.worktreeId);
     this.requireReady(workspaceId, cycle.workItemId);
     const allRuns = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
@@ -266,6 +295,11 @@ export class WorkCycleService {
         try {
           await this.reconcile(cycle);
         } catch (error) {
+          if (
+            error instanceof RepositoryMutationBusyError ||
+            error instanceof WorktreeMutationBusyError
+          )
+            continue;
           const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
           if (
             current?.version === cycle.version &&
@@ -330,6 +364,10 @@ export class WorkCycleService {
       );
       return;
     }
+    if (ownsIntegrationResolution(cycle) && cycle.integrationResolution?.status !== 'resolving') {
+      await this.advanceResolution(cycle);
+      return;
+    }
     const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
     if (!run) {
       if (
@@ -370,6 +408,17 @@ export class WorkCycleService {
         cycle,
         'The step did not finish with a complete successful result. Inspect it before resuming.',
       );
+      return;
+    }
+    if (ownsIntegrationResolution(cycle)) {
+      if (!/\n## Resolution status\s*\nready\s*$/i.test(`\n${turn.payload.resultText}`)) {
+        this.attention(
+          cycle,
+          'Resolution needs guidance or verification. Inspect the final outcome, then resume with instructions.',
+        );
+        return;
+      }
+      await this.advanceResolution(cycle);
       return;
     }
     if (cycle.step === 'design') {
@@ -765,14 +814,384 @@ export class WorkCycleService {
         latest.status === 'running' &&
         !this.abort.signal.aborted
       )
-        this.attention(
-          latest,
-          error instanceof ExecutionRequestError
-            ? error.message
-            : 'Integration update failed. Inspect the worktree before resuming.',
-        );
+        this.change(latest, {
+          status: 'needs-attention',
+          reason:
+            error instanceof ExecutionRequestError
+              ? error.message
+              : 'Integration update failed. Inspect the worktree before resuming.',
+          ...(error instanceof IntegrationUpdateConflict
+            ? {
+                integrationResolution: {
+                  id: randomUUID(),
+                  status: 'detected' as const,
+                  ...error.details,
+                  createdAt: this.now().toISOString(),
+                  attempts: 0,
+                },
+              }
+            : {}),
+        });
     }
     return true;
+  }
+
+  private resolutionContext(cycle: WorkCycle) {
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    const resolution = cycle.integrationResolution;
+    if (
+      tree?.status !== 'active' ||
+      !resolution ||
+      tree.integrationBranch !== resolution.targetBranch
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Resolution worktree or integration binding changed',
+      );
+    return {
+      worktreePath: tree.path,
+      branchName: tree.branchName,
+      headSha: resolution.headSha,
+      targetSha: resolution.targetSha,
+    };
+  }
+  private async resolutionMutation<T>(
+    cycle: WorkCycle,
+    operation: (check: () => void) => Promise<T>,
+  ): Promise<T> {
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    const repository =
+      tree && this.storage.execution.sourceRepositories.find(cycle.workspaceId, tree.repositoryId);
+    if (!tree || !repository || !this.branches || !this.git) throw new NotFoundError();
+    const check = () => {
+      const saved = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+      const user = this.storage.users.findById(cycle.createdByUserId);
+      const access = this.storage.workspaces.findAuthorized(
+        cycle.createdByUserId,
+        cycle.workspaceId,
+      );
+      if (
+        this.abort.signal.aborted ||
+        saved?.version !== cycle.version ||
+        user?.status !== 'active' ||
+        !access ||
+        !['owner', 'editor'].includes(access.membership.role)
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Resolution was superseded or delegation was revoked',
+        );
+      if (
+        this.storage.execution.runs
+          .listForWorktree(cycle.workspaceId, cycle.worktreeId)
+          .some((run) => !isTerminalAgentRunStatus(run.status))
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'End the active agent session before changing resolution state',
+        );
+    };
+    return this.branches.duringMerge(repository.rootPath, () =>
+      this.mutations.during(tree.id, async () => {
+        check();
+        return operation(check);
+      }),
+    );
+  }
+  async resolveIntegration(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: IntegrationResolutionRequest,
+  ): Promise<WorkCycle> {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    if (!cycle) throw new NotFoundError();
+    if (
+      cycle.version !== input.expectedVersion ||
+      !['paused', 'needs-attention'].includes(cycle.status)
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Pause the cycle and refresh before resolving integration conflicts',
+      );
+    const git = this.git;
+    const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
+    if (!git || !tree?.integrationBranch || tree.status !== 'active') throw new NotFoundError();
+    this.requireReady(workspaceId, cycle.workItemId);
+    return this.resolutionMutation(cycle, async (check) => {
+      let resolution = cycle.integrationResolution;
+      if (input.action === 'inspect') {
+        if (ownsIntegrationResolution(cycle))
+          throw new ExecutionRequestError('conflict', 'Resume or abandon the existing resolution');
+        const head = await git.inspectRepository(tree.path);
+        const target = await git.resolveBranch(tree.path, tree.integrationBranch ?? '');
+        if (!head.ok || !target.ok)
+          throw new ExecutionRequestError('conflict', 'Cannot inspect integration commits');
+        const result = await git.previewIntegration({
+          worktreePath: tree.path,
+          branchName: tree.branchName,
+          headSha: head.value.headSha,
+          targetSha: target.value,
+        });
+        if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
+        check();
+        if (!result.value.paths.length)
+          throw new ExecutionRequestError(
+            'conflict',
+            'No textual conflicts found. Use Update from integration, then resume for review.',
+          );
+        return this.change(
+          cycle,
+          {
+            integrationResolution: {
+              id: randomUUID(),
+              status: 'detected',
+              headSha: head.value.headSha,
+              targetSha: target.value,
+              targetBranch: tree.integrationBranch ?? '',
+              ...result.value,
+              createdAt: this.now().toISOString(),
+              attempts: 0,
+            },
+            reason: `Integration conflicts in ${result.value.paths.length} files. Delegate resolution when ready.`,
+          },
+          'resolution-inspected',
+          context,
+        );
+      }
+      if (!resolution)
+        throw new ExecutionRequestError('conflict', 'Inspect integration conflicts first');
+      if (input.action === 'abandon') {
+        if (!ownsIntegrationResolution(cycle))
+          throw new ExecutionRequestError(
+            'conflict',
+            'No pending integration resolution to abandon',
+          );
+        if (ownsIntegrationResolution(cycle)) {
+          const result = await git.abortIntegrationResolution(this.resolutionContext(cycle));
+          if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
+        }
+        check();
+        return this.change(
+          cycle,
+          {
+            integrationResolution: { ...resolution, status: 'abandoned' },
+            status: 'needs-attention',
+            reason:
+              'Resolution abandoned. The owned merge was aborted; untracked files and any unrelated edits are preserved. Inspect the diff before starting again.',
+          },
+          'resolution-abandoned',
+          context,
+        );
+      }
+      if (input.action === 'start') {
+        if (resolution.status !== 'detected')
+          throw new ExecutionRequestError(
+            'conflict',
+            'Inspect conflicts before starting another resolution',
+          );
+        const target = await git.resolveBranch(tree.path, resolution.targetBranch);
+        const head = await git.inspectRepository(tree.path);
+        if (
+          !target.ok ||
+          !head.ok ||
+          target.value !== resolution.targetSha ||
+          head.value.headSha !== resolution.headSha ||
+          !head.value.clean ||
+          head.value.branch !== tree.branchName
+        )
+          throw new ExecutionRequestError(
+            'conflict',
+            'Branches changed since inspection. Inspect integration conflicts again.',
+          );
+        const profile = input.profile ?? cycle.profiles.remediate;
+        if (!this.runs.hasBackend(profile.backend))
+          throw new ExecutionRequestError('unavailable', 'Resolution agent is unavailable');
+        check();
+        const source =
+          this.storage.execution.runs.find(workspaceId, cycle.currentRunId) ??
+          (cycle.parentRunId
+            ? this.storage.execution.runs.find(workspaceId, cycle.parentRunId)
+            : undefined);
+        if (!source)
+          throw new ExecutionRequestError(
+            'conflict',
+            'Resolution requires the prior cycle handoff',
+          );
+        const runId = asAgentRunId(randomUUID());
+        resolution = {
+          ...resolution,
+          status: 'preparing',
+          profile,
+          instructions: input.instructions ?? '',
+          attempts: 1,
+          runIds: [runId],
+        };
+        return this.change(
+          cycle,
+          {
+            integrationResolution: resolution,
+            status: 'running',
+            step: 'remediate',
+            parentRunId: source.id,
+            currentRunId: runId,
+            runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+            reason: 'Preparing the pinned integration merge for agent resolution.',
+          },
+          'resolution-started',
+          context,
+        );
+      }
+      if (!ownsIntegrationResolution(cycle))
+        throw new ExecutionRequestError('conflict', 'There is no pending resolution to resume');
+      const run = this.storage.execution.runs.find(workspaceId, cycle.currentRunId);
+      if (
+        resolution.status === 'resolving' &&
+        run?.status === 'finished' &&
+        cycle.status === 'paused' &&
+        input.instructions === undefined &&
+        input.profile === undefined
+      ) {
+        check();
+        return this.change(
+          cycle,
+          {
+            status: 'running',
+            runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+            reason: 'Resuming verification of the completed resolution run.',
+          },
+          'resolution-resumed',
+          context,
+        );
+      }
+      if (resolution.status === 'resolving' && run) {
+        if (resolution.attempts >= 3)
+          throw new ExecutionRequestError(
+            'conflict',
+            'Resolution reached its three-agent-attempt limit. Abandon and inspect again to authorize a new attempt.',
+          );
+        const profile = input.profile ?? resolution.profile ?? cycle.profiles.remediate;
+        if (!this.runs.hasBackend(profile.backend))
+          throw new ExecutionRequestError('unavailable', 'Resolution agent is unavailable');
+        check();
+        const runId = asAgentRunId(randomUUID());
+        return this.change(
+          cycle,
+          {
+            integrationResolution: {
+              ...resolution,
+              profile,
+              instructions: input.instructions ?? resolution.instructions ?? '',
+              attempts: resolution.attempts + 1,
+              runIds: [...(resolution.runIds ?? []), runId],
+            },
+            status: 'running',
+            parentRunId: run.id,
+            currentRunId: runId,
+            runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+            reason: 'Resuming conflict resolution with the existing edits and handoff.',
+          },
+          'resolution-resumed',
+          context,
+        );
+      }
+      check();
+      return this.change(
+        cycle,
+        {
+          status: 'running',
+          runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+          reason: 'Resuming the reserved integration operation.',
+        },
+        'resolution-resumed',
+        context,
+      );
+    });
+  }
+  private async advanceResolution(cycle: WorkCycle): Promise<void> {
+    const git = this.git;
+    const resolution = cycle.integrationResolution;
+    if (!git || !resolution) throw new NotFoundError();
+    await this.resolutionMutation(cycle, async (check) => {
+      const input = this.resolutionContext(cycle);
+      if (resolution.status === 'preparing') {
+        const result = await git.prepareIntegrationResolution(input);
+        if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
+        check();
+        this.change(
+          cycle,
+          {
+            integrationResolution: {
+              ...resolution,
+              status: 'resolving',
+              paths: result.value.conflicts,
+            },
+            reason:
+              'Agent resolving the pinned integration update; final merge remains operator-controlled.',
+          },
+          'resolution-prepared',
+        );
+        return;
+      }
+      if (resolution.status === 'resolving') {
+        const state = await git.inspectIntegrationResolution(input);
+        if (!state.ok) throw new ExecutionRequestError('conflict', state.failure.message);
+        if (
+          state.value.headSha !== resolution.headSha ||
+          state.value.mergeHeadSha !== resolution.targetSha ||
+          state.value.conflicts.length ||
+          state.value.untracked.length ||
+          state.value.unstaged ||
+          !state.value.treeSha
+        )
+          throw new ExecutionRequestError(
+            'conflict',
+            'Resolution is not ready: resolve and stage all changes, clear generated files, and keep the pinned merge pending. Resume with guidance.',
+          );
+        check();
+        this.change(
+          cycle,
+          {
+            integrationResolution: {
+              ...resolution,
+              status: 'committing',
+              treeSha: state.value.treeSha,
+            },
+            reason:
+              'Recording the verified resolution tree before the daemon commits the integration update.',
+          },
+          'resolution-commit-reserved',
+        );
+        return;
+      }
+      if (resolution.status === 'committing') {
+        if (!resolution.treeSha)
+          throw new ExecutionRequestError('conflict', 'Missing resolution tree reservation');
+        const result = await git.finishIntegrationResolution({
+          ...input,
+          treeSha: resolution.treeSha,
+          resolutionId: resolution.id,
+        });
+        if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
+        check();
+        const changed = this.change(
+          cycle,
+          {
+            integrationResolution: {
+              ...resolution,
+              status: 'completed',
+              commitSha: result.value.commitSha,
+            },
+            reason:
+              'Integration conflict resolved. A fresh review of the combined changes is required.',
+          },
+          'resolution-completed',
+        );
+        const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+        await this.next(changed, 'review', run);
+      }
+    });
   }
 
   private async next(
@@ -890,6 +1309,14 @@ export class WorkCycleService {
         step: cycle.step,
         reason: cycle.reason,
         runId: cycle.currentRunId,
+        ...(cycle.integrationResolution
+          ? {
+              integrationResolution: {
+                ...cycle.integrationResolution,
+                paths: [...cycle.integrationResolution.paths],
+              },
+            }
+          : {}),
         ...(cycle.checkpoint
           ? { checkpoint: { ...cycle.checkpoint, paths: [...cycle.checkpoint.paths] } }
           : {}),

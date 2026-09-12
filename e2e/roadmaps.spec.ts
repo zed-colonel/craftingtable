@@ -36,6 +36,9 @@ for (const mode of ['sequential', 'parallel'] as const) {
       await page.getByLabel('Username').fill('e2e-admin');
       await page.getByLabel('Password').fill('correct horse battery staple');
       await page.getByRole('button', { name: 'Sign in' }).click();
+      await expect(
+        page.getByRole('heading', { name: 'Default workspace', exact: true }),
+      ).toBeVisible();
       const navigate = async (name: string) => {
         if (info.project.name === 'mobile-chromium')
           await page.getByRole('button', { name: 'Menu', exact: true }).click();
@@ -105,12 +108,14 @@ for (const mode of ['sequential', 'parallel'] as const) {
         .click();
       await editor.getByLabel('Allowed nits').first().fill('1');
       if (mode === 'parallel') {
-        // Use independent fixture changes so the browser exercise reaches refresh and review.
+        // Independent smoke files plus a shared README exercise conflict resolution after the first sibling merge.
         for (const item of await editor.locator('li.panel').all()) {
           const summary = item.getByText('Agents, models, and completion policy', { exact: true });
           if (!(await item.getByLabel('Instructions for every step').isVisible()))
             await summary.click();
-          await item.getByLabel('Instructions for every step').fill('PARALLEL-ROADMAP');
+          await item
+            .getByLabel('Instructions for every step')
+            .fill('PARALLEL-ROADMAP CONFLICT-RESOLUTION');
         }
         await editor.getByLabel('Exclusion groups (comma separated)').first().fill('setup');
       }
@@ -147,6 +152,40 @@ for (const mode of ['sequential', 'parallel'] as const) {
           timeout: 15000,
         });
         await navigate('Roadmaps');
+        if (mode === 'parallel' && sourceId === 'AQ-02') {
+          await expect(roadmap.getByText('Needs attention', { exact: true })).toBeVisible({
+            timeout: 15000,
+          });
+          await roadmap.getByRole('link', { name: /^AQ-03 ·/ }).click();
+          const conflicts = page.getByRole('region', {
+            name: 'Integration conflicts',
+            exact: true,
+          });
+          await expect(conflicts.getByText('README.md', { exact: true })).toBeVisible();
+          await page.reload();
+          await conflicts
+            .getByRole('button', { name: 'Resolve integration conflicts', exact: true })
+            .click();
+          await conflicts
+            .getByLabel('Instructions for this run (optional)')
+            .fill('Preserve both sibling behaviors and verify their combined state.');
+          await expect
+            .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+            .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+          await conflicts.screenshot({
+            path: info.outputPath('integration-conflict-resolution.png'),
+          });
+          const targetBefore = git(['rev-parse', 'revision-roadmap'], repository);
+          await conflicts.getByRole('button', { name: 'Launch', exact: true }).click();
+          await expect(
+            page
+              .getByRole('region', { name: 'Automated cycle', exact: true })
+              .getByText('Awaiting merge approval', { exact: true }),
+          ).toBeVisible({ timeout: 20000 });
+          await expect(conflicts.getByText('completed', { exact: true })).toBeVisible();
+          expect(git(['rev-parse', 'revision-roadmap'], repository)).toBe(targetBefore);
+          await navigate('Roadmaps');
+        }
         if (sourceId !== sourceIds.at(-1))
           await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toHaveCount(
             mode === 'parallel' && sourceId === 'AQ-01' ? 2 : 1,

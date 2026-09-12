@@ -36,6 +36,30 @@ export const startWorkCycleRequestSchema = z.strictObject({
   profiles: cycleProfilesSchema,
   instructions: z.string().max(16000).default(''),
 });
+const commitShaSchema = z.string().regex(/^[0-9a-f]{40,64}$/);
+export const integrationResolutionSchema = z.strictObject({
+  runIds: z.array(agentRunIdSchema).max(3).optional(),
+  id: z.string().uuid(),
+  status: z.enum(['detected', 'preparing', 'resolving', 'committing', 'completed', 'abandoned']),
+  headSha: commitShaSchema,
+  targetSha: commitShaSchema,
+  targetBranch: z.string().min(1).max(1024),
+  paths: z.array(z.string().min(1)).max(1000),
+  diagnostics: z.string().max(12000),
+  createdAt: z.iso.datetime(),
+  attempts: z.number().int().min(0).max(3),
+  profile: cycleProfileSchema.optional(),
+  instructions: z.string().max(16000).optional(),
+  treeSha: commitShaSchema.optional(),
+  commitSha: commitShaSchema.optional(),
+});
+export const integrationResolutionRequestSchema = z.strictObject({
+  action: z.enum(['inspect', 'start', 'resume', 'abandon']),
+  expectedVersion: z.number().int().positive(),
+  profile: cycleProfileSchema.optional(),
+  instructions: z.string().max(16000).optional(),
+});
+export type IntegrationResolutionRequest = z.infer<typeof integrationResolutionRequestSchema>;
 export const workCycleSchema = z.strictObject({
   id: z.string().uuid(),
   workspaceId: workspaceIdSchema,
@@ -77,6 +101,7 @@ export const workCycleSchema = z.strictObject({
         .optional(),
     })
     .optional(),
+  integrationResolution: integrationResolutionSchema.optional(),
   integrationRefreshes: z.number().int().nonnegative().optional(),
   reason: z.string().max(4000),
 });

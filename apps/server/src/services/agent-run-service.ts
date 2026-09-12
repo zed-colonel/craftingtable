@@ -26,6 +26,7 @@ import {
   asAuditEventId,
   asEventId,
   isTerminalAgentRunStatus,
+  ownsIntegrationResolution,
   type ReviewReportAssessment,
   type SessionId,
   type UserId,
@@ -256,7 +257,8 @@ export class AgentRunService {
     this.requireCycleLaunchAuthority(cycle);
     const existing = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
     if (existing !== undefined) return existing;
-    const profile = cycle.profiles[cycle.step];
+    const resolution = ownsIntegrationResolution(cycle) ? cycle.integrationResolution : undefined;
+    const profile = resolution?.profile ?? cycle.profiles[cycle.step];
     return this.launchAuthorized(
       cycle.workspaceId,
       cycle.workItemId,
@@ -267,7 +269,18 @@ export class AgentRunService {
         ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
         instructions: [
           cycle.instructions,
-          cycle.housekeepingInstructions ?? '',
+          resolution ? '' : (cycle.housekeepingInstructions ?? ''),
+          ...(resolution
+            ? [
+                'This is a daemon-owned integration conflict resolution. Do not start, abort, or commit a merge; do not commit source edits. Resolve files and explicitly stage all intended changes. The daemon completes the merge.',
+                `Keep item HEAD at ${resolution.headSha} and MERGE_HEAD at ${resolution.targetSha}. The integration branch is ${resolution.targetBranch}; do not move it.`,
+                `Conflict files: ${resolution.paths.join(', ')}`,
+                resolution.diagnostics,
+                'Read the supplied plan and both sides of the incoming commits. Preserve both work items’ intended behavior, including automatically merged files. Use the supplied scratch directory, run the repository checks on the combined state, and report commands, outcomes and any semantic decisions. Remove only your confirmed generated files; leave no untracked files. Preserve existing finding IDs in the handoff.',
+                'If questions remain or checks fail, explain them and end with ## Resolution status followed by blocked. Only when every conflict is resolved, intended changes are staged, and checks pass, end with ## Resolution status followed by ready. A successful process exit alone is not approval.',
+                resolution.instructions ?? '',
+              ]
+            : []),
           'This run is one step of an operator-authorized automated cycle. Do not merge. Complete this step and provide a final message; the controller handles the next step.',
           cycle.step === 'design'
             ? 'End with exactly one section headed ## Open questions. Its entire body must be none when there are no unresolved questions. Otherwise list the questions for the operator.'
@@ -275,7 +288,7 @@ export class AgentRunService {
           cycle.step === 'review' && (cycle.integrationRefreshes ?? 0) > 0
             ? 'The integration branch has been refreshed during this cycle. Review the combined changes and rerun the relevant repository checks; a prior review or a clean Git merge is not verification of this state.'
             : '',
-          cycle.step === 'remediate'
+          !resolution && cycle.step === 'remediate'
             ? `Address all open blocking, major, and minor findings, and reduce open nits to at most ${cycle.policy.maxNits}. Preserve finding IDs and give the reviewer evidence of each resolution.`
             : '',
         ]
@@ -301,8 +314,17 @@ export class AgentRunService {
     } else live.session.end();
   }
 
-  private requireManualControl(workspaceId: WorkspaceId, worktreeId: WorktreeId): void {
+  private requireManualControl(
+    workspaceId: WorkspaceId,
+    worktreeId: WorktreeId,
+    existingRunId?: AgentRunId,
+  ): void {
     const cycle = this.storage.execution.cycles.activeForWorktree(workspaceId, worktreeId);
+    if (ownsIntegrationResolution(cycle) && existingRunId !== cycle?.currentRunId)
+      throw new ExecutionRequestError(
+        'conflict',
+        'This worktree belongs to an integration resolution. Resume or abandon that resolution first.',
+      );
     if (cycle?.status === 'running' || cycle?.status === 'awaiting-merge') {
       throw new ExecutionRequestError(
         'conflict',
@@ -401,7 +423,12 @@ export class AgentRunService {
       if (cycle !== undefined) this.pendingCycleLaunches.set(cycle.currentRunId, cancelPreflight);
       let reviewBranchContext: AgentRun['reviewBranchContext'];
       try {
-        if (input.role !== 'review') await this.branches?.validateLaunch(prepared.worktree);
+        if (ownsIntegrationResolution(cycle) && cycle?.integrationResolution)
+          await this.branches?.validateResolutionLaunch(
+            prepared.worktree,
+            cycle.integrationResolution,
+          );
+        else if (input.role !== 'review') await this.branches?.validateLaunch(prepared.worktree);
         reviewBranchContext =
           input.role === 'review'
             ? await this.branches?.captureReview(prepared.worktree)
@@ -440,6 +467,7 @@ export class AgentRunService {
               join(runDirectory, 'handoff'),
             );
       const brief = composeBrief({
+        resolvingIntegration: ownsIntegrationResolution(cycle),
         temporaryDirectory,
         role: input.role,
         projectName: prepared.project.name,
@@ -653,7 +681,7 @@ export class AgentRunService {
       ...(requestId === undefined ? {} : { requestId }),
     });
     const run = this.requireRun(workspaceId, runId);
-    this.requireManualControl(workspaceId, run.worktreeId);
+    this.requireManualControl(workspaceId, run.worktreeId, runId);
     const liveRun = this.liveRun(workspaceId, runId);
     if (liveRun === undefined || !liveRun.session.send(text)) {
       return { run, accepted: false };
@@ -690,7 +718,7 @@ export class AgentRunService {
       ...(requestId === undefined ? {} : { requestId }),
     });
     const run = this.requireRun(workspaceId, runId);
-    this.requireManualControl(workspaceId, run.worktreeId);
+    this.requireManualControl(workspaceId, run.worktreeId, runId);
     const liveRun = this.liveRun(workspaceId, runId);
     if (liveRun === undefined) {
       return { run, accepted: false };
@@ -710,7 +738,7 @@ export class AgentRunService {
       ...(requestId === undefined ? {} : { requestId }),
     });
     const run = this.requireRun(workspaceId, runId);
-    this.requireManualControl(workspaceId, run.worktreeId);
+    this.requireManualControl(workspaceId, run.worktreeId, runId);
     const liveRun = this.liveRun(workspaceId, runId);
     if (liveRun !== undefined) {
       liveRun.cancelRequested = true;

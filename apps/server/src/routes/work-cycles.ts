@@ -1,5 +1,6 @@
 import {
   controlWorkCycleRequestSchema,
+  integrationResolutionRequestSchema,
   startWorkCycleRequestSchema,
   workCycleResponseSchema,
   workCyclesResponseSchema,
@@ -63,6 +64,29 @@ export function registerWorkCycleRoutes(
         request.params.cycleId,
         body.data.action,
         body.data.expectedVersion,
+      );
+      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
+    },
+  );
+  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/integration-resolution',
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const body = integrationResolutionRequestSchema.safeParse(request.body);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      if (!body.success)
+        return sendApiError(
+          reply,
+          400,
+          'invalid-request',
+          'Invalid integration resolution command',
+        );
+      const cycle = await cycles.resolveIntegration(
+        context,
+        workspace.data,
+        request.params.cycleId,
+        body.data,
       );
       return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
     },

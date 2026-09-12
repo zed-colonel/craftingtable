@@ -24,6 +24,34 @@ export const DEFAULT_COMPLETION_POLICY: CompletionPolicy = {
   maxRunMinutes: 120,
 };
 export type CycleProfiles = Readonly<Record<CycleStep, Omit<AgentRunProfile, 'role'>>>;
+export interface IntegrationResolution {
+  readonly runIds?: readonly AgentRunId[];
+  readonly id: string;
+  readonly status:
+    | 'detected'
+    | 'preparing'
+    | 'resolving'
+    | 'committing'
+    | 'completed'
+    | 'abandoned';
+  readonly headSha: string;
+  readonly targetSha: string;
+  readonly targetBranch: string;
+  readonly paths: readonly string[];
+  readonly diagnostics: string;
+  readonly createdAt: string;
+  readonly attempts: number;
+  readonly profile?: Omit<AgentRunProfile, 'role'>;
+  readonly instructions?: string;
+  readonly treeSha?: string;
+  readonly commitSha?: string;
+}
+export function ownsIntegrationResolution(cycle: WorkCycle | undefined): boolean {
+  return (
+    !!cycle?.integrationResolution &&
+    ['preparing', 'resolving', 'committing'].includes(cycle.integrationResolution.status)
+  );
+}
 export interface WorkCycle {
   readonly id: string;
   readonly workspaceId: WorkspaceId;
@@ -58,6 +86,7 @@ export interface WorkCycle {
     readonly createdAt: string;
     readonly commitSha?: string;
   };
+  readonly integrationResolution?: IntegrationResolution;
   readonly integrationRefreshes?: number;
   readonly reason: string;
 }

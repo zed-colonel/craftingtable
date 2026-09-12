@@ -76,6 +76,27 @@ lines.on('line', (line) => {
     });
     return;
   }
+  if (/## Your role\n\nResolve the daemon-prepared integration merge/.test(text)) {
+    writeFileSync(join(cwd, 'README.md'), 'Combined AQ-02 and AQ-03 behavior.\n');
+    git(['add', 'README.md']);
+    const result =
+      'Resolved both work items and verified the combined fixture.\n\n## Resolution status\nready';
+    emit({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: result }] },
+    });
+    emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result,
+      num_turns: turns,
+      duration_ms: 25,
+      total_cost_usd: 0.01,
+      session_id: 'fake-session-0001',
+    });
+    return;
+  }
   // A review brief is read-only and ends with a verdict, like the real thing.
   if (turns === 1 && /^Role: review$/m.test(text)) {
     reviewing = true;
@@ -129,6 +150,11 @@ lines.on('line', (line) => {
   writeFileSync(join(cwd, filename), `turn ${turns}: ${text.split('\n')[0]}\n`);
   if (text.includes('MOBILE-FINDINGS')) {
     writeFileSync(join(cwd, 'mobile-layout.md'), `${'Long diff line '.repeat(50)}\n`);
+  }
+  if (text.includes('CONFLICT-RESOLUTION')) {
+    const item = /^# Work item (AQ-\d+)/m.exec(text)?.[1];
+    if (item === 'AQ-02' || item === 'AQ-03')
+      writeFileSync(join(cwd, 'README.md'), `${item} behavior.\n`);
   }
   // Commit the file the way the implement brief asks for, so a later merge is clean.
   git(['add', '--all']);

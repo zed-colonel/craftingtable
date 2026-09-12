@@ -24,6 +24,7 @@ export interface BriefPlanDocument {
 }
 
 export interface BriefInput {
+  readonly resolvingIntegration?: boolean;
   readonly temporaryDirectory?: string;
   readonly reviewBranchContext?: ReviewBranchContext;
   readonly role: AgentRunRole;
@@ -150,7 +151,9 @@ export function composeBrief(input: BriefInput): string {
   const sections: string[] = [];
   sections.push(`# Work item ${workItem.sourceId}: ${workItem.title}`);
   sections.push(`Project: ${input.projectName}\nRole: ${input.role}`);
-  sections.push(`## Your role\n\n${ROLE_INSTRUCTIONS[input.role]}`);
+  sections.push(
+    `## Your role\n\n${input.resolvingIntegration ? 'Resolve the daemon-prepared integration merge in this worktree. Stage intended changes and verify the combined behavior. Do not commit, switch branches, start another merge, abort the merge, or move any branch. The daemon owns completion. Follow the pinned resolution instructions below.' : ROLE_INSTRUCTIONS[input.role]}`,
+  );
   sections.push(
     [
       '## Objective and exit gate',
@@ -243,14 +246,18 @@ export function composeBrief(input: BriefInput): string {
     parent !== undefined &&
     (parent.finalMessage.trim().length > 0 || parent.handoff !== undefined)
   ) {
-    if (parent.role === 'review' && input.role === 'implement') {
+    if (!input.resolvingIntegration && parent.role === 'review' && input.role === 'implement') {
       sections.push(`## Remediation\n\n${REMEDIATION_INSTRUCTIONS}`);
       sections.push(
         `## Review findings to address${
           parent.verdict === undefined ? '' : ` (verdict: ${parent.verdict})`
         }\n\n${parent.finalMessage.trim()}`,
       );
-    } else if (parent.role === 'design' && input.role === 'implement') {
+    } else if (
+      !input.resolvingIntegration &&
+      parent.role === 'design' &&
+      input.role === 'implement'
+    ) {
       sections.push(`## Accepted design\n\n${ACCEPTED_DESIGN_INSTRUCTIONS}`);
       sections.push(`## Design proposal\n\n${parent.finalMessage.trim()}`);
     } else if (parent.role === 'implement' && input.role === 'review') {

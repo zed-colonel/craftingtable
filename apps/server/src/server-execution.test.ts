@@ -1741,9 +1741,17 @@ async function controlCycle(state: Ready, cycle: WorkCycle, action: 'pause' | 'r
   expect(response.statusCode, response.body).toBe(200);
   return workCycleResponseSchema.parse(response.json()).cycle;
 }
-async function cycleFixture(outputs: readonly ScriptedReply[], now?: () => Date) {
+async function cycleFixture(
+  outputs: readonly ScriptedReply[],
+  now?: () => Date,
+  gitOperations?: GitOperations,
+) {
   const backend = new CycleBackend(outputs);
-  const state = await ready({ backend, ...(now === undefined ? {} : { now }) });
+  const state = await ready({
+    backend,
+    ...(now === undefined ? {} : { now }),
+    ...(gitOperations ? { gitOperations } : {}),
+  });
   const root = fixtureRepository();
   const { worktree } = await registerAndWorktree(state, root);
   await admit(state);
@@ -3819,3 +3827,291 @@ it.each(['untracked artifact', 'index-only change'])(
     expect(git(['status', '--porcelain'], worktree.path)).toBe('');
   },
 );
+
+async function resolutionCommand(state: Ready, cycle: WorkCycle, input: Record<string, unknown>) {
+  return state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/integration-resolution`,
+    headers: mutationHeaders(state),
+    payload: { expectedVersion: cycle.version, ...input },
+  });
+}
+async function resolutionFixture(gitOperations?: GitOperations) {
+  const fixture = await cycleFixture(
+    [designDone, implementationDone, { resultText: reviewText([]) }],
+    undefined,
+    gitOperations,
+  );
+  const { state, backend, worktree, root } = fixture;
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model')
+      commitFile(worktree.path, 'README.md', 'item behavior\n');
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'initial approval');
+  await controlCycle(state, currentCycle(state, cycle), 'pause');
+  const target = commitFile(root, 'README.md', 'integration behavior\n');
+  const inspected = await resolutionCommand(state, currentCycle(state, cycle), {
+    action: 'inspect',
+  });
+  expect(inspected.statusCode, inspected.body).toBe(200);
+  expect(currentCycle(state, cycle).integrationResolution?.paths).toEqual(['README.md']);
+  return { ...fixture, cycle, target };
+}
+
+it('delegates a pinned conflict resolution from the browser and requires fresh review without moving integration', {
+  timeout: 15000,
+}, async () => {
+  const { state, backend, worktree, root, cycle, target } = await resolutionFixture();
+  const beforeRounds = currentCycle(state, cycle).remediationRounds;
+  backend.replyForRequest = (request) =>
+    request.model === 'resolution-model'
+      ? { resultText: 'Combined checks passed.\n\n## Resolution status\nready' }
+      : { resultText: reviewText([]) };
+  backend.onLaunch = (request) => {
+    if (request.model === 'resolution-model') {
+      expect(request.prompt).toContain('Do not commit');
+      expect(request.prompt).toContain(target.trim());
+      expect(request.prompt).toContain('Preserve both behaviors');
+      expect(request.prompt).not.toContain('commit your work on this branch');
+      expect(git(['rev-parse', 'MERGE_HEAD'], worktree.path).trim()).toBe(target.trim());
+      writeFileSync(join(worktree.path, 'README.md'), 'both behaviors\n');
+      git(['add', 'README.md'], worktree.path);
+    }
+  };
+  const started = await resolutionCommand(state, currentCycle(state, cycle), {
+    action: 'start',
+    profile: { ...cycleProfiles.remediate, model: 'resolution-model' },
+    instructions: 'Preserve both behaviors',
+  });
+  expect(started.statusCode, started.body).toBe(200);
+  await waitFor(
+    () => currentCycle(state, cycle).status === 'awaiting-merge',
+    'resolved fresh review',
+    6000,
+  );
+  const final = currentCycle(state, cycle);
+  expect(final.integrationResolution?.status).toBe('completed');
+  expect(final.integrationResolution?.commitSha).toBe(final.reviewHeadSha);
+  expect(final.remediationRounds).toBe(beforeRounds);
+  expect(backend.launches.slice(-2).map((request) => request.model)).toEqual([
+    'resolution-model',
+    'review-model',
+  ]);
+  expect(git(['rev-parse', 'main'], root).trim()).toBe(target.trim());
+  expect(git(['log', '-1', '--format=%P'], worktree.path).trim().split(' ')).toEqual([
+    final.integrationResolution?.headSha,
+    target.trim(),
+  ]);
+  expect(git(['status', '--porcelain'], worktree.path)).toBe('');
+});
+
+it('keeps blocked resolution edits for guided retries and safely abandons from the browser', {
+  timeout: 15000,
+}, async () => {
+  const { state, backend, worktree, cycle } = await resolutionFixture();
+  backend.replyForRequest = () => ({
+    resultText: 'Need a semantic choice.\n\n## Resolution status\nblocked',
+  });
+  backend.onLaunch = () => {
+    writeFileSync(join(worktree.path, 'README.md'), 'partial choice\n');
+  };
+  const started = await resolutionCommand(state, currentCycle(state, cycle), { action: 'start' });
+  expect(started.statusCode, started.body).toBe(200);
+  await waitFor(
+    () => currentCycle(state, cycle).status === 'needs-attention',
+    'resolution asks question',
+  );
+  expect(readFileSync(join(worktree.path, 'README.md'), 'utf8')).toBe('partial choice\n');
+  const manual = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id, role: 'implement', permissionMode: 'auto' },
+  });
+  expect(manual.statusCode).toBe(409);
+  const resumed = await resolutionCommand(state, currentCycle(state, cycle), {
+    action: 'resume',
+    instructions: 'Preserve both behaviors',
+  });
+  expect(resumed.statusCode, resumed.body).toBe(200);
+  await waitFor(
+    () => currentCycle(state, cycle).status === 'needs-attention',
+    'second resolution question',
+  );
+  expect(backend.launches.length, JSON.stringify(currentCycle(state, cycle))).toBe(5);
+  expect(backend.launches.at(-1)?.prompt).toContain('Preserve both behaviors');
+  expect(currentCycle(state, cycle).integrationResolution?.attempts).toBe(2);
+  expect(
+    (await resolutionCommand(state, currentCycle(state, cycle), { action: 'resume' })).statusCode,
+  ).toBe(200);
+  await waitFor(
+    () => currentCycle(state, cycle).status === 'needs-attention',
+    'third resolution question',
+  );
+  expect(currentCycle(state, cycle).integrationResolution?.attempts).toBe(3);
+  const capped = await resolutionCommand(state, currentCycle(state, cycle), { action: 'resume' });
+  expect(capped.statusCode).toBe(409);
+  expect(capped.body).toContain('three-agent-attempt limit');
+  writeFileSync(join(worktree.path, 'keep.txt'), 'untracked operator file');
+  const abandoned = await resolutionCommand(state, currentCycle(state, cycle), {
+    action: 'abandon',
+  });
+  expect(abandoned.statusCode, abandoned.body).toBe(200);
+  expect(currentCycle(state, cycle).integrationResolution?.status).toBe('abandoned');
+  expect(readFileSync(join(worktree.path, 'README.md'), 'utf8')).toBe('item behavior\n');
+  expect(existsSync(join(worktree.path, 'keep.txt'))).toBe(true);
+});
+
+it('protects resolution commands with CSRF and version checks and refuses a stale integration target', {
+  timeout: 15000,
+}, async () => {
+  const { state, worktree, root, cycle } = await resolutionFixture();
+  const csrf = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/integration-resolution`,
+    headers: { cookie: state.cookie },
+    payload: { action: 'start', expectedVersion: currentCycle(state, cycle).version },
+  });
+  expect(csrf.statusCode).toBe(403);
+  expect((await resolutionCommand(state, cycle, { action: 'start' })).statusCode).toBe(409);
+  commitFile(root, 'later.txt', 'integration advanced');
+  const stale = await resolutionCommand(state, currentCycle(state, cycle), { action: 'start' });
+  expect(stale.statusCode, stale.body).toBe(409);
+  expect(stale.body).toContain('Branches changed');
+  expect(git(['status', '--porcelain'], worktree.path)).toBe('');
+});
+
+it.each(['preparing', 'committing'] as const)(
+  'recovers the %s integration reservation without repeating a finished Git operation or launching before explicit resume',
+  { timeout: 15000 },
+  async (phase) => {
+    const real = createGitOperations({ gitExecutable: 'git' });
+    let enter: (() => void) | undefined;
+    let release: (() => void) | undefined;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    const pauseResult = async <T>(result: T) => {
+      if (!held) {
+        held = true;
+        enter?.();
+        await barrier;
+      }
+      return result;
+    };
+    const fixture = await resolutionFixture({
+      ...real,
+      ...(phase === 'preparing'
+        ? {
+            prepareIntegrationResolution: async (input) =>
+              pauseResult(await real.prepareIntegrationResolution(input)),
+          }
+        : {
+            finishIntegrationResolution: async (input) =>
+              pauseResult(await real.finishIntegrationResolution(input)),
+          }),
+    });
+    const { state, backend, cycle, worktree, root } = fixture;
+    backend.replyForRequest = (request) =>
+      request.model === 'review-model'
+        ? { resultText: reviewText([]) }
+        : { resultText: 'Verified both behaviors.\n\n## Resolution status\nready' };
+    backend.onLaunch = (request) => {
+      if (request.model !== 'review-model') {
+        writeFileSync(join(worktree.path, 'README.md'), 'both behaviors\n');
+        git(['add', 'README.md'], worktree.path);
+      }
+    };
+    expect(
+      (await resolutionCommand(state, currentCycle(state, cycle), { action: 'start' })).statusCode,
+    ).toBe(200);
+    try {
+      await entered;
+      expect(currentCycle(state, cycle).integrationResolution?.status).toBe(phase);
+      const beforeLaunches = backend.launches.length;
+      state.context.services.workCycleService.recoverInterrupted();
+      expect(currentCycle(state, cycle).status).toBe('needs-attention');
+      expect(backend.launches).toHaveLength(beforeLaunches);
+    } finally {
+      release?.();
+    }
+    await waitFor(
+      () => !state.context.services.executionService.branches.repositoryBusy(root),
+      'Git reservation released',
+    );
+    expect(
+      (await resolutionCommand(state, currentCycle(state, cycle), { action: 'resume' })).statusCode,
+    ).toBe(200);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'awaiting-merge',
+      'recovered resolution',
+      6000,
+    );
+    expect(currentCycle(state, cycle).integrationResolution?.attempts).toBe(1);
+    expect(backend.launches).toHaveLength(5);
+    expect(
+      git(['log', '--format=%s'], worktree.path)
+        .split('\n')
+        .filter((line) => line.startsWith('CraftingTable: resolve integration')),
+    ).toHaveLength(1);
+  },
+);
+
+it('stop during resolution preparation preserves ownership and supports explicit browser abandonment', {
+  timeout: 15000,
+}, async () => {
+  const real = createGitOperations({ gitExecutable: 'git' });
+  let enter: (() => void) | undefined;
+  let release: (() => void) | undefined;
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { state, backend, worktree, root, cycle } = await resolutionFixture({
+    ...real,
+    prepareIntegrationResolution: async (input) => {
+      const result = await real.prepareIntegrationResolution(input);
+      enter?.();
+      await barrier;
+      return result;
+    },
+  });
+  expect(
+    (await resolutionCommand(state, currentCycle(state, cycle), { action: 'start' })).statusCode,
+  ).toBe(200);
+  try {
+    await entered;
+    await controlCycle(state, currentCycle(state, cycle), 'stop');
+  } finally {
+    release?.();
+  }
+  await waitFor(
+    () => !state.context.services.executionService.branches.repositoryBusy(root),
+    'stopped preparation',
+  );
+  expect(currentCycle(state, cycle).status).toBe('paused');
+  expect(backend.launches).toHaveLength(3);
+  expect(git(['rev-parse', 'MERGE_HEAD'], worktree.path).trim()).toBe(
+    currentCycle(state, cycle).integrationResolution?.targetSha,
+  );
+  const branch = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/update`,
+    headers: mutationHeaders(state),
+    payload: { expectedVersion: worktree.version },
+  });
+  expect(branch.statusCode).toBe(409);
+  const abandoned = await resolutionCommand(state, currentCycle(state, cycle), {
+    action: 'abandon',
+  });
+  expect(abandoned.statusCode, abandoned.body).toBe(200);
+  expect(git(['status', '--porcelain'], worktree.path)).toBe('');
+  expect((await controlCycle(state, currentCycle(state, cycle), 'stop')).status).toBe('stopped');
+});

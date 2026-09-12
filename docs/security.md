@@ -154,3 +154,16 @@ guards and rechecks delegation before Git and before reserving another review. P
 can supersede an in-flight update without permitting a late agent launch. Exclusion groups
 and capacities coordinate daemon work; they do not constrain arbitrary external Git processes
 or an agent running with the operator's OS authority.
+
+## Integration resolution authority
+
+An explicit owner/editor cycle command authorizes a pinned integration merge into the item
+branch. Resolution agents edit, stage and verify; they receive no final-merge authority.
+The controller checks HEAD, MERGE_HEAD, resolved index, staged tree and absence of unknown
+files before completing a reserved two-parent commit. Normal source/target review freshness
+and operator-only final merge still apply. While a resolution owns the worktree, unrelated
+launches and branch mutations are rejected even while paused. Browser guidance addresses
+only the existing owned run. Abandonment requires an explicit UI confirmation, aborts only
+the recorded pending merge and never deletes arbitrary untracked files. Git hooks and
+external tools still execute with the existing workstation trust model; these guards do
+not sandbox an agent or external Git process. See ADR-032.

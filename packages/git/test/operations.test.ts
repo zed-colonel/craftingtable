@@ -542,3 +542,86 @@ it('never stages unknown descendants when a tracked file has been replaced by a 
   const after = await operations.inspectWorktreeChanges(repo.repository);
   expect(after.ok && after.value.untracked).toEqual(['README.md/generated.wal']);
 });
+
+function integrationConflictFixture() {
+  const repo = fixture();
+  const git = (args: string[]) => runFixtureGit(args, { cwd: repo.repository }).toString().trim();
+  git(['checkout', '-b', 'item']);
+  writeFileSync(join(repo.repository, 'README.md'), 'item behavior\n');
+  git(['add', 'README.md']);
+  git(['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'item change']);
+  const headSha = git(['rev-parse', 'HEAD']);
+  git(['checkout', 'main']);
+  writeFileSync(join(repo.repository, 'README.md'), 'integration behavior\n');
+  git(['add', 'README.md']);
+  git([
+    '-c',
+    'user.name=T',
+    '-c',
+    'user.email=t@example.invalid',
+    'commit',
+    '-m',
+    'incoming change',
+  ]);
+  const targetSha = git(['rev-parse', 'HEAD']);
+  git(['checkout', 'item']);
+  return {
+    repo,
+    git,
+    input: { worktreePath: repo.repository, branchName: 'item', headSha, targetSha },
+  };
+}
+
+it('previews conflicts without changing the index, prepares idempotently, and commits the exact staged resolution with two parents', async () => {
+  const { repo, git, input } = integrationConflictFixture();
+  const preview = await operations.previewIntegration(input);
+  expect(preview.ok && preview.value.paths).toEqual(['README.md']);
+  expect(git(['status', '--porcelain'])).toBe('');
+  const started = await operations.prepareIntegrationResolution(input);
+  expect(started.ok && started.value.conflicts).toEqual(['README.md']);
+  expect(await operations.prepareIntegrationResolution(input)).toEqual(started);
+  writeFileSync(join(repo.repository, 'README.md'), 'both item and integration behavior\n');
+  git(['add', 'README.md']);
+  const ready = await operations.inspectIntegrationResolution(input);
+  if (!ready.ok || !ready.value.treeSha) throw new Error('Missing resolved tree');
+  const request = { ...input, treeSha: ready.value.treeSha, resolutionId: 'resolution-1' };
+  const committed = await operations.finishIntegrationResolution(request);
+  expect(committed.ok, JSON.stringify(committed)).toBe(true);
+  expect(await operations.finishIntegrationResolution(request)).toEqual(committed);
+  expect(git(['log', '-1', '--format=%P'])).toBe(`${input.headSha} ${input.targetSha}`);
+  expect(git(['rev-parse', 'main'])).toBe(input.targetSha);
+  expect(git(['status', '--porcelain'])).toBe('');
+});
+
+it('refuses unresolved markers, unstaged files, tree drift, and unknown files during resolution completion', async () => {
+  const { repo, git, input } = integrationConflictFixture();
+  await operations.prepareIntegrationResolution(input);
+  const treeSha = git(['rev-parse', 'HEAD^{tree}']);
+  const request = { ...input, treeSha, resolutionId: 'resolution-2' };
+  expect((await operations.finishIntegrationResolution(request)).ok).toBe(false);
+  git(['add', 'README.md']); // Staging markers must not make a resolution valid.
+  request.treeSha = git(['write-tree']);
+  expect((await operations.finishIntegrationResolution(request)).ok).toBe(false);
+  writeFileSync(join(repo.repository, 'README.md'), 'resolved\n');
+  expect((await operations.finishIntegrationResolution(request)).ok).toBe(false);
+  git(['add', 'README.md']);
+  expect((await operations.finishIntegrationResolution(request)).ok).toBe(false); // Reserved tree differs.
+  request.treeSha = git(['write-tree']);
+  writeFileSync(join(repo.repository, 'unknown.wal'), 'generated');
+  expect((await operations.finishIntegrationResolution(request)).ok).toBe(false);
+  expect(git(['rev-parse', 'HEAD'])).toBe(input.headSha);
+});
+
+it('aborts only the pinned merge, restores tracked content and preserves unknown files', async () => {
+  const { repo, git, input } = integrationConflictFixture();
+  await operations.prepareIntegrationResolution(input);
+  writeFileSync(join(repo.repository, 'README.md'), 'partial resolution\n');
+  writeFileSync(join(repo.repository, 'keep.txt'), 'operator file');
+  expect(
+    (await operations.abortIntegrationResolution({ ...input, targetSha: input.headSha })).ok,
+  ).toBe(false);
+  expect((await operations.abortIntegrationResolution(input)).ok).toBe(true);
+  expect(git(['rev-parse', 'HEAD'])).toBe(input.headSha);
+  expect(git(['show', 'HEAD:README.md'])).toBe('item behavior');
+  expect(existsSync(join(repo.repository, 'keep.txt'))).toBe(true);
+});

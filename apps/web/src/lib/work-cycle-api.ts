@@ -1,5 +1,6 @@
 import {
   type StartWorkCycleRequest,
+  type IntegrationResolutionRequest,
   workCycleResponseSchema,
   workCyclesResponseSchema,
 } from '@craftingtable/contracts';
@@ -36,5 +37,17 @@ export function controlWorkCycle(
     `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/control`,
     workCycleResponseSchema,
     mutation(csrfToken, { action, expectedVersion: cycle.version }),
+  );
+}
+
+export function resolveIntegration(
+  cycle: WorkCycle,
+  input: Omit<IntegrationResolutionRequest, 'expectedVersion'>,
+  csrfToken: string,
+) {
+  return request(
+    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/integration-resolution`,
+    workCycleResponseSchema,
+    mutation(csrfToken, { ...input, expectedVersion: cycle.version }),
   );
 }

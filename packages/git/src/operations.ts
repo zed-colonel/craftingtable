@@ -36,6 +36,8 @@ export interface GitFailure {
   readonly message: string;
   readonly exitCode?: number;
   readonly stderr?: string;
+  readonly conflictPaths?: readonly string[];
+  readonly diagnostics?: string;
 }
 
 export type GitResult<T> =
@@ -94,7 +96,34 @@ export interface WorktreeChanges {
   readonly fingerprint: string;
   readonly conflicted: boolean;
 }
+export interface IntegrationMergeContext {
+  worktreePath: string;
+  branchName: string;
+  headSha: string;
+  targetSha: string;
+}
+export interface IntegrationMergeState {
+  headSha: string;
+  mergeHeadSha?: string;
+  conflicts: readonly string[];
+  untracked: readonly string[];
+  unstaged: boolean;
+  treeSha?: string;
+}
 export interface GitOperations {
+  previewIntegration(
+    input: IntegrationMergeContext,
+  ): Promise<GitResult<{ paths: readonly string[]; diagnostics: string }>>;
+  prepareIntegrationResolution(
+    input: IntegrationMergeContext,
+  ): Promise<GitResult<IntegrationMergeState>>;
+  inspectIntegrationResolution(
+    input: IntegrationMergeContext,
+  ): Promise<GitResult<IntegrationMergeState>>;
+  finishIntegrationResolution(
+    input: IntegrationMergeContext & { treeSha: string; resolutionId: string },
+  ): Promise<GitResult<{ commitSha: string }>>;
+  abortIntegrationResolution(input: IntegrationMergeContext): Promise<GitResult<void>>;
   inspectWorktreeChanges(path: string): Promise<GitResult<WorktreeChanges>>;
   checkpointWorktree(input: {
     worktreePath: string;
@@ -755,14 +784,25 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     if (merged.value.exitCode !== 0) {
       const stderr = merged.value.stderr.toString('utf8');
       const stdout = merged.value.stdout.toString('utf8');
-      await run(['merge', '--abort'], cwd);
+      const unmerged = await runOk(['diff', '--name-only', '--diff-filter=U', '-z'], cwd);
+      const aborted = await run(['merge', '--abort'], cwd);
+      if (!aborted.ok || aborted.value.exitCode !== 0)
+        return fail(
+          'git-failed',
+          'Integration merge failed and could not be aborted; inspect the pending merge.',
+        );
       const conflict = /CONFLICT|Automatic merge failed/.test(`${stdout}\n${stderr}`);
       return fail(
         conflict ? 'merge-conflict' : 'git-failed',
         conflict
           ? `Merging ${input.branchName} conflicts; resolve it by hand`
           : `git merge failed: ${stderr.trim().split('\n').at(-1) ?? 'unknown error'}`,
-        { ...(merged.value.exitCode === null ? {} : { exitCode: merged.value.exitCode }), stderr },
+        {
+          ...(merged.value.exitCode === null ? {} : { exitCode: merged.value.exitCode }),
+          stderr,
+          conflictPaths: unmerged.ok ? splitNul(unmerged.value.stdout) : [],
+          diagnostics: `${stdout}\n${stderr}`.slice(0, 12000),
+        },
       );
     }
     const head = await runOk(['rev-parse', '--verify', 'HEAD'], cwd);
@@ -1154,6 +1194,217 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     return checkpointWorktree(input, true);
   }
 
+  async function integrationIdentity(input: IntegrationMergeContext) {
+    if (
+      !SHA_PATTERN.test(input.headSha) ||
+      !SHA_PATTERN.test(input.targetSha) ||
+      !isSafeBranchName(input.branchName)
+    )
+      return fail<RepositoryIdentity>('invalid-path', 'Invalid integration resolution context');
+    const state = await inspectRepository(input.worktreePath);
+    if (!state.ok) return state;
+    if (state.value.branch !== input.branchName)
+      return fail<RepositoryIdentity>('git-failed', 'Resolution worktree left its managed branch');
+    return state;
+  }
+  async function inspectIntegrationResolution(
+    input: IntegrationMergeContext,
+  ): Promise<GitResult<IntegrationMergeState>> {
+    const identity = await integrationIdentity(input);
+    if (!identity.ok) return identity;
+    const mergeHead = await run(['rev-parse', '--verify', 'MERGE_HEAD'], input.worktreePath);
+    if (!mergeHead.ok) return mergeHead;
+    const conflicts = await runOk(
+      ['diff', '--name-only', '--diff-filter=U', '-z'],
+      input.worktreePath,
+    );
+    if (!conflicts.ok) return conflicts;
+    const untracked = await runOk(
+      ['ls-files', '--others', '--exclude-standard', '-z'],
+      input.worktreePath,
+    );
+    if (!untracked.ok) return untracked;
+    const unstaged = await runOk(['diff', '--quiet', '--no-ext-diff'], input.worktreePath, [0, 1]);
+    if (!unstaged.ok) return unstaged;
+    const paths = splitNul(conflicts.value.stdout);
+    const tree = paths.length === 0 ? await runOk(['write-tree'], input.worktreePath) : undefined;
+    if (tree && !tree.ok) return tree;
+    return {
+      ok: true,
+      value: {
+        headSha: identity.value.headSha,
+        ...(mergeHead.value.exitCode === 0
+          ? { mergeHeadSha: mergeHead.value.stdout.toString('utf8').trim() }
+          : {}),
+        conflicts: paths,
+        untracked: splitNul(untracked.value.stdout),
+        unstaged: unstaged.value.exitCode !== 0,
+        ...(tree?.ok ? { treeSha: tree.value.stdout.toString('utf8').trim() } : {}),
+      },
+    };
+  }
+  async function previewIntegration(
+    input: IntegrationMergeContext,
+  ): Promise<GitResult<{ paths: readonly string[]; diagnostics: string }>> {
+    const state = await integrationIdentity(input);
+    if (!state.ok) return state;
+    if (!state.value.clean || state.value.headSha !== input.headSha)
+      return fail('git-failed', 'Inspect conflicts from a clean unchanged item branch');
+    // This writes only unreachable tree/blob objects, never the index, refs or working files.
+    const preview = await runOk(
+      ['merge-tree', '--write-tree', '--name-only', '-z', input.headSha, input.targetSha],
+      input.worktreePath,
+      [0, 1],
+    );
+    if (!preview.ok) return preview;
+    const records = splitNul(preview.value.stdout);
+    const separator = records.indexOf('', 1);
+    const paths =
+      preview.value.exitCode === 1
+        ? records.slice(1, separator < 0 ? records.length : separator)
+        : [];
+    if (paths.length > 1000)
+      return fail('git-failed', 'Integration conflict exceeds the 1000-file limit');
+    const messages: string[] = [];
+    let cursor = separator + 1;
+    while (separator >= 0 && cursor < records.length) {
+      const count = Number(records[cursor++]);
+      if (!Number.isSafeInteger(count) || count < 0) break;
+      cursor += count + 1; // Paths and message type precede the readable message.
+      const message = records[cursor++];
+      if (message) messages.push(message);
+    }
+    const log = await runOk(
+      ['log', '--oneline', '--max-count=50', `${input.headSha}..${input.targetSha}`],
+      input.worktreePath,
+    );
+    if (!log.ok) return log;
+    return {
+      ok: true,
+      value: {
+        paths,
+        diagnostics:
+          `Incoming commits:\n${log.value.stdout.toString('utf8')}\n${messages.join('\n')}`.slice(
+            0,
+            12000,
+          ),
+      },
+    };
+  }
+  async function prepareIntegrationResolution(
+    input: IntegrationMergeContext,
+  ): Promise<GitResult<IntegrationMergeState>> {
+    const before = await inspectIntegrationResolution(input);
+    if (!before.ok) return before;
+    if (before.value.headSha !== input.headSha)
+      return fail('git-failed', 'Item commit changed before resolution');
+    if (before.value.mergeHeadSha) {
+      return before.value.mergeHeadSha === input.targetSha
+        ? before
+        : fail('git-failed', 'A different merge is already pending');
+    }
+    const identity = await inspectRepository(input.worktreePath);
+    if (!identity.ok) return identity;
+    if (!identity.value.clean)
+      return fail('git-failed', 'Resolution preparation requires a clean worktree');
+    const merge = await run(
+      ['merge', '--no-ff', '--no-commit', '--', input.targetSha],
+      input.worktreePath,
+    );
+    if (!merge.ok) return merge;
+    const after = await inspectIntegrationResolution(input);
+    if (!after.ok) return after;
+    if (after.value.mergeHeadSha !== input.targetSha)
+      return fail('git-failed', 'Could not prepare the pinned integration merge');
+    return after;
+  }
+  async function finishIntegrationResolution(
+    input: IntegrationMergeContext & { treeSha: string; resolutionId: string },
+  ): Promise<GitResult<{ commitSha: string }>> {
+    if (!SHA_PATTERN.test(input.treeSha) || !/^[a-zA-Z0-9-]{1,100}$/.test(input.resolutionId))
+      return fail('invalid-path', 'Invalid resolution commit reservation');
+    const subject = `CraftingTable: resolve integration ${input.resolutionId}`;
+    const verify = async (): Promise<GitResult<{ commitSha: string }>> => {
+      const identity = await integrationIdentity(input);
+      if (!identity.ok) return identity;
+      const commit = await runOk(['log', '-1', '--format=%P%n%T%n%s'], input.worktreePath);
+      if (!commit.ok) return commit;
+      const [parents, tree, message] = commit.value.stdout.toString('utf8').trim().split('\n');
+      if (
+        parents !== `${input.headSha} ${input.targetSha}` ||
+        tree !== input.treeSha ||
+        message !== subject ||
+        !identity.value.clean
+      )
+        return fail(
+          'git-failed',
+          'Resolution commit does not match its reserved parents, tree and message',
+        );
+      return { ok: true, value: { commitSha: identity.value.headSha } };
+    };
+    const state = await inspectIntegrationResolution(input);
+    if (!state.ok) return state;
+    if (state.value.headSha !== input.headSha) return verify();
+    if (
+      state.value.mergeHeadSha !== input.targetSha ||
+      state.value.conflicts.length ||
+      state.value.untracked.length ||
+      state.value.unstaged ||
+      state.value.treeSha !== input.treeSha
+    )
+      return fail(
+        'git-failed',
+        'Resolve and stage every conflict and intended change; leave no untracked files before completion',
+      );
+    const checked = await runOk(
+      ['diff', '--cached', '--check', input.headSha, '--'],
+      input.worktreePath,
+    );
+    if (!checked.ok)
+      return fail('git-failed', 'Resolution contains conflict markers or whitespace errors');
+    const committed = await runOk(
+      [
+        '-c',
+        'user.name=CraftingTable',
+        '-c',
+        'user.email=craftingtable@localhost',
+        'commit',
+        '--no-gpg-sign',
+        '-m',
+        subject,
+      ],
+      input.worktreePath,
+    );
+    if (!committed.ok) return committed;
+    return verify();
+  }
+  async function abortIntegrationResolution(
+    input: IntegrationMergeContext,
+  ): Promise<GitResult<void>> {
+    const state = await inspectIntegrationResolution(input);
+    if (!state.ok) return state;
+    if (state.value.headSha !== input.headSha)
+      return fail('git-failed', 'Cannot abandon a resolution after HEAD changed');
+    if (state.value.mergeHeadSha && state.value.mergeHeadSha !== input.targetSha)
+      return fail('git-failed', 'Refusing to abort a different merge');
+    if (state.value.mergeHeadSha) {
+      const aborted = await runOk(['merge', '--abort'], input.worktreePath);
+      if (!aborted.ok) return aborted;
+    } else {
+      const identity = await inspectRepository(input.worktreePath);
+      if (!identity.ok) return identity;
+      const originalTree = await runOk(['rev-parse', 'HEAD^{tree}'], input.worktreePath);
+      if (!originalTree.ok) return originalTree;
+      if (
+        state.value.unstaged ||
+        state.value.conflicts.length ||
+        state.value.treeSha !== originalTree.value.stdout.toString('utf8').trim()
+      )
+        return fail('git-failed', 'No owned merge is pending; preserve and inspect existing edits');
+    }
+    return { ok: true, value: undefined };
+  }
+
   async function commonAncestor(
     repositoryPath: string,
     leftSha: string,
@@ -1169,6 +1420,11 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
   }
 
   return {
+    previewIntegration,
+    prepareIntegrationResolution,
+    inspectIntegrationResolution,
+    finishIntegrationResolution,
+    abortIntegrationResolution,
     inspectWorktreeChanges,
     checkpointWorktree,
     commonAncestor,

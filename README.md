@@ -47,6 +47,16 @@ it is mergeable.
   that update and fresh review at safe step boundaries. Required predecessors must
   have integration commit evidence; plan settings can attach evidence to older manual
   completions without changing their completion history.
+- **Integration conflict resolution.** An automated cycle with integration conflicts offers
+  **Resolve integration conflicts**. Select an agent/model and instructions; the daemon
+  prepares the pinned merge, the agent resolves and stages files and runs checks, and the
+  daemon commits the update before a fresh review. Older failures use **Inspect integration
+  conflicts** first. Pause to guide the agent from its run page; end its session before
+  resuming. Failed attempts retain edits and allow up to three agent attempts. **Abandon
+  resolution** aborts the pending merge and discards its resolution; unrelated edits may
+  remain, and untracked files are preserved.
+  Restart requires explicit resume. Stop preserves an owned resolution until it is resumed
+  or abandoned. Final merge into integration remains your action.
 - **Remediation and findings.** A review's findings can be handed straight to a new
   implement run in the same worktree. Handoffs include the recorded conversation across
   the run lineage, including earlier messages and operator corrections, plus the full

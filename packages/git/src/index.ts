@@ -21,6 +21,8 @@ export type {
   GitFailure,
   GitFailureKind,
   GitOperations,
+  IntegrationMergeContext,
+  IntegrationMergeState,
   GitOperationsOptions,
   GitResult,
   RepositoryIdentity,

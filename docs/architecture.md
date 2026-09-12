@@ -214,3 +214,14 @@ does not disable scheduling for siblings. Only a started attempt's own merge rel
 successors. `WorkCycleService` refreshes only actively delegated parallel attempts, with
 limits bound to the attempt's immutable revision. It waits for idle sessions, invalidates
 review context before Git, and reserves a fresh review after updating. See ADR-030.
+
+## Integration conflict recovery
+
+`WorkCycleService` persists a resolution operation alongside its cycle: detected, preparing,
+resolving, committing, completed or abandoned. The Git adapter captures conflict diagnostics,
+prepares pinned merges without committing, validates staged resolutions and reconciles exact
+reserved merge commits. A dedicated implementation brief changes agent responsibilities to
+resolve/stage/verify while leaving commit authority with the daemon. The browser offers
+inspection, agent selection, attempt links, guided retry and explicit abandonment. Operations
+reserve the worktree durably and take repository/worktree mutation locks only around Git.
+Restart pauses without discarding edits or replaying launches. See ADR-032.

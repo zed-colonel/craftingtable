@@ -63,6 +63,20 @@ export const workCycleSchema = z.strictObject({
     .string()
     .regex(/^[0-9a-f]{7,64}$/)
     .optional(),
+  housekeepingInstructions: z.string().max(16000).optional(),
+  checkpoint: z
+    .strictObject({
+      sourceRunId: agentRunIdSchema,
+      previousHeadSha: z.string().regex(/^[0-9a-f]{40,64}$/),
+      fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+      paths: z.array(z.string()).max(1000),
+      createdAt: z.iso.datetime(),
+      commitSha: z
+        .string()
+        .regex(/^[0-9a-f]{40,64}$/)
+        .optional(),
+    })
+    .optional(),
   integrationRefreshes: z.number().int().nonnegative().optional(),
   reason: z.string().max(4000),
 });

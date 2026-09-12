@@ -25,6 +25,7 @@ export type {
   GitResult,
   RepositoryIdentity,
   WorktreeDiff,
+  WorktreeChanges,
 } from './operations.js';
 export { createGitOperations } from './operations.js';
 export { createRepositoryInspector } from './repository-inspector.js';

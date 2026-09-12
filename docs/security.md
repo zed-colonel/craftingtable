@@ -104,6 +104,14 @@ Review approval requires a clean managed branch at the recorded commit; operator
 rechecks it and pins the Git source commit. A shared daemon guard keeps agent launches
 and cycle resumes out of an in-flight merge or removal. Only the operator merge route
 has merge authority; quality thresholds never grant it to the controller or an agent.
+Automated finalization may commit tracked edits and explicitly staged new files on the
+managed item branch after the implementation session ends. It cannot stage arbitrary
+untracked files or merge. A reserved content fingerprint, parent commit and explicit path
+list bind each checkpoint; hooks run normally and unexpected drift stops advancement.
+Repository and worktree guards serialize it with other daemon mutations. External Git
+processes remain outside these guards. Negative review findings can request remediation on
+a dirty tree without granting merge approval. Scratch directories live under private run
+storage and are granted through the existing run-file scope. See ADR-031.
 
 ## Pushover delivery
 

@@ -24,6 +24,7 @@ export interface BriefPlanDocument {
 }
 
 export interface BriefInput {
+  readonly temporaryDirectory?: string;
   readonly reviewBranchContext?: ReviewBranchContext;
   readonly role: AgentRunRole;
   readonly projectName: string;
@@ -102,7 +103,8 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
     'Implement it completely inside this worktree. Write focused tests where behaviour is',
     'non-trivial, run the project’s quality checks, and commit your work on this branch',
     'with clear commit messages as you reach coherent increments. Do not push, do not',
-    'switch branches, and do not modify anything outside this worktree.',
+    'switch branches, and keep source changes inside this worktree. Use the provided temporary directory for scratch files.',
+    'After all verification, inspect git status including untracked files. Commit intended source changes; explicitly stage any intended new source files even if you cannot finish the commit. Never stage generated test output, scratch files, credentials, or unrelated files. Report remaining paths and why they remain.',
     'Finish with a summary of what changed, how you verified it, and anything left undone',
     'or worth the operator’s attention.',
   ].join(' '),
@@ -189,6 +191,14 @@ export function composeBrief(input: BriefInput): string {
     const context = input.reviewBranchContext;
     sections.push(
       `Review baseline: item commit ${context.headSha}; integration branch ${context.targetBranch} at ${context.targetSha}. Verify this combined state and report the checks you ran. Do not move either branch during review.`,
+    );
+  }
+  if (input.temporaryDirectory) {
+    sections.push(
+      [
+        '## Temporary files',
+        `TMPDIR, TMP, and TEMP point to ${input.temporaryDirectory}. Use this controller-owned directory for test temporary files and scratch output. It is outside the Git worktree and available to this run. Do not redirect temporary files to the worktree root. Do not commit test artifacts. Preserve verification results in your final message. Source edits remain restricted to the worktree; this directory is for temporary data only.`,
+      ].join('\n\n'),
     );
   }
   if (input.planDocuments.length > 0) {

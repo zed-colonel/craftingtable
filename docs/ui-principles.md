@@ -78,7 +78,10 @@ A bare "Ready", "Blocked", "Approved", or "Verified" never appears.
   latest" control returns. The page itself never moves under the reader.
 - Groups (messages, tools, notices, system) are filter chips with counts; system
   events are hidden by default and tool output is collapsed by default.
-- Everything from the agent is rendered as text, never markup.
+- Agent HTML is always escaped. The final-outcome panel above activity supports controlled
+  bold and inline-code formatting; it never evaluates HTML or loads remote content. The full
+  original message remains available in a disclosure. A validated report is shown as findings
+  separately, and closed findings are grouped apart from open work.
 - Findings retain their IDs, severity, status, location, and full explanation on
   phones. Separate findings visibly and let long locations wrap.
 - Merge confirmation shows the complete source and target branches as wrapping

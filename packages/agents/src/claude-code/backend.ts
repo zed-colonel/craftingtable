@@ -91,7 +91,16 @@ export class ClaudeCodeBackend implements AgentBackend {
         executable: this.options.executable,
         args: claudeCodeArguments(request),
         cwd: request.cwd,
-        env: this.options.env ?? process.env,
+        env: {
+          ...(this.options.env ?? process.env),
+          ...(request.temporaryDirectory
+            ? {
+                TMPDIR: request.temporaryDirectory,
+                TMP: request.temporaryDirectory,
+                TEMP: request.temporaryDirectory,
+              }
+            : {}),
+        },
         terminationGraceMs: this.options.terminationGraceMs ?? 5000,
         maxLineBytes: MAX_LINE_BYTES,
       });

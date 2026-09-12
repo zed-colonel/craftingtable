@@ -267,6 +267,7 @@ export class AgentRunService {
         ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
         instructions: [
           cycle.instructions,
+          cycle.housekeepingInstructions ?? '',
           'This run is one step of an operator-authorized automated cycle. Do not merge. Complete this step and provide a final message; the controller handles the next step.',
           cycle.step === 'design'
             ? 'End with exactly one section headed ## Open questions. Its entire body must be none when there are no unresolved questions. Otherwise list the questions for the operator.'
@@ -421,6 +422,8 @@ export class AgentRunService {
       }
       const runId = cycle?.currentRunId ?? asAgentRunId(randomUUID());
       const runDirectory = join(this.config.runsRoot, runId);
+      const temporaryDirectory = join(runDirectory, 'scratch');
+      mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
       const planDirectory = join(runDirectory, 'plan');
       mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
       const planDocuments = prepared.artifacts.map((artifact) => {
@@ -437,6 +440,7 @@ export class AgentRunService {
               join(runDirectory, 'handoff'),
             );
       const brief = composeBrief({
+        temporaryDirectory,
         role: input.role,
         projectName: prepared.project.name,
         workItem: {
@@ -541,6 +545,7 @@ export class AgentRunService {
 
       const launch: AgentLaunchRequest = {
         cwd: prepared.worktree.path,
+        temporaryDirectory,
         prompt: brief,
         permissionMode: input.permissionMode,
         ...(input.model === undefined ? {} : { model: input.model }),
@@ -735,6 +740,13 @@ export class AgentRunService {
     readonly run: AgentRun;
     readonly worktree: Worktree;
     readonly eventCount: number;
+    readonly latestOutcome?: {
+      sequence: number;
+      occurredAt: string;
+      text: string;
+      outcome: 'success' | 'error';
+      truncated: boolean;
+    };
     readonly reviewReport?: ReviewReportAssessment;
   } {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
@@ -748,7 +760,19 @@ export class AgentRunService {
         throw new NotFoundError();
       }
       const reviewReport = latestReviewReport(tx.execution, run);
+      const lastTurn = tx.execution.runEvents.latestOfKind(workspaceId, runId, 'turn-completed');
       return {
+        ...(lastTurn?.kind === 'turn-completed'
+          ? {
+              latestOutcome: {
+                sequence: lastTurn.sequence,
+                occurredAt: lastTurn.occurredAt,
+                text: lastTurn.payload.resultText,
+                outcome: lastTurn.payload.outcome,
+                truncated: lastTurn.payload.truncated ?? false,
+              },
+            }
+          : {}),
         run,
         worktree,
         eventCount: tx.execution.runEvents.countForRun(workspaceId, runId),

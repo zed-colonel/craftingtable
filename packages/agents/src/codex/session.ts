@@ -48,7 +48,16 @@ export class CodexSession implements AgentSession {
       executable: options.executable,
       args: ['app-server', '--stdio'],
       cwd: request.cwd,
-      env: options.env ?? process.env,
+      env: {
+        ...(options.env ?? process.env),
+        ...(request.temporaryDirectory
+          ? {
+              TMPDIR: request.temporaryDirectory,
+              TMP: request.temporaryDirectory,
+              TEMP: request.temporaryDirectory,
+            }
+          : {}),
+      },
       terminationGraceMs: options.terminationGraceMs ?? 5000,
       maxLineBytes: 4 * 1024 * 1024,
     });

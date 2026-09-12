@@ -217,6 +217,12 @@ export class WorkCycleService {
       return this.next(cycle, cycle.step, run, context);
     }
     if (cycle.step === 'review' && run.status === 'finished') {
+      const assessment = latestReviewReport(this.storage.execution, run);
+      if (
+        assessment?.status === 'complete' &&
+        evaluateCompletion(cycle.policy, assessment).action === 'remediate'
+      )
+        return this.reviewRemediation(cycle, run, context);
       return this.next(cycle, 'review', run, context);
     }
     return this.change(
@@ -378,8 +384,35 @@ export class WorkCycleService {
       return;
     }
     if (cycle.step === 'implement' || cycle.step === 'remediate') {
-      if (await this.refreshIntegration(cycle, run)) return;
-      await this.next(cycle, 'review', run);
+      const finalized = await this.finalizeImplementation(cycle, run);
+      if (!finalized) return;
+      if (await this.refreshIntegration(finalized, run)) return;
+      await this.next(finalized, 'review', run);
+      return;
+    }
+    const assessment = latestReviewReport(this.storage.execution, run);
+    const decision = evaluateCompletion(cycle.policy, assessment);
+    // Findings can request more work without granting approval to the reviewed state.
+    if (decision.action === 'remediate') {
+      await this.reviewRemediation(cycle, run);
+      return;
+    }
+    if (decision.action === 'needs-attention') {
+      this.attention(cycle, decision.reason);
+      return;
+    }
+    const changes = await this.git?.inspectWorktreeChanges(worktree.path);
+    if (!changes?.ok || changes.value.branch !== worktree.branchName || changes.value.conflicted)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Review approval requires the managed branch without unresolved Git operations.',
+      );
+    if (!changes.value.clean || changes.value.headSha !== cycle.reviewHeadSha) {
+      await this.housekeeping(
+        cycle,
+        run,
+        'Verification changed the worktree. Inspect these changes and generated files, restore a reviewable state, and commit intended source changes. The prior approval is invalid.',
+      );
       return;
     }
     const head = await this.cleanHead(cycle);
@@ -394,17 +427,33 @@ export class WorkCycleService {
     );
     if (reviewedWorktree === undefined) throw new NotFoundError();
     await this.branches?.assertReview(reviewedWorktree, run);
+    this.change(cycle, { status: 'awaiting-merge', reason: decision.reason });
+  }
+
+  private housekeepingGuidance(): string {
+    return 'Before addressing the review findings, inspect git status including untracked files and reconcile any verification artifacts using the source run journal. Never blindly commit untracked files. Remove only confirmed generated test artifacts; preserve intended new source by staging it. Use the provided TMPDIR for tests. Complete the substantive findings in this same run, run checks, commit intended changes, and finish with a clean worktree.';
+  }
+
+  private async reviewRemediation(
+    cycle: WorkCycle,
+    run: AgentRun,
+    context?: CommandContext,
+  ): Promise<WorkCycle> {
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    if (!tree || !this.git) throw new NotFoundError();
+    const state = await this.git.inspectWorktreeChanges(tree.path);
+    if (!state.ok || state.value.branch !== tree.branchName || state.value.conflicted)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Remediation requires the managed branch without unresolved Git operations.',
+      );
     const assessment = latestReviewReport(this.storage.execution, run);
     const decision = evaluateCompletion(cycle.policy, assessment);
-    if (decision.action !== 'remediate') {
-      this.change(cycle, { status: decision.action, reason: decision.reason });
-      return;
-    }
     if (cycle.remediationRounds >= cycle.policy.maxRemediationRounds) {
       this.attention(cycle, `Remediation limit reached. ${decision.reason}`);
-      return;
+      return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
     }
-    if (assessment?.status !== 'complete') return;
+    if (assessment?.status !== 'complete') return cycle;
     const fingerprint = createHash('sha256')
       .update(
         JSON.stringify({
@@ -424,13 +473,159 @@ export class WorkCycleService {
         cycle,
         'Two remediation rounds left the same open findings and gate result. Operator attention is required.',
       );
-      return;
+      return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
     }
-    await this.next(cycle, 'remediate', run, undefined, {
+    return this.next(cycle, 'remediate', run, context, {
+      housekeepingInstructions: this.housekeepingGuidance(),
       remediationRounds: cycle.remediationRounds + 1,
       previousFindingFingerprint: fingerprint,
       stalledReviews,
     });
+  }
+
+  private async housekeeping(cycle: WorkCycle, run: AgentRun, reason: string): Promise<void> {
+    if (cycle.remediationRounds >= cycle.policy.maxRemediationRounds) {
+      this.attention(cycle, `Remediation limit reached. ${reason}`);
+      return;
+    }
+    await this.next(cycle, 'remediate', run, undefined, {
+      remediationRounds: cycle.remediationRounds + 1,
+      housekeepingInstructions: `${reason}\n\n${this.housekeepingGuidance()}`,
+    });
+  }
+
+  private async finalizeImplementation(
+    cycle: WorkCycle,
+    run: AgentRun,
+  ): Promise<WorkCycle | undefined> {
+    const git = this.git;
+    if (!git || !this.branches || run.role !== 'implement') return cycle;
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    const repo =
+      tree && this.storage.execution.sourceRepositories.find(cycle.workspaceId, tree.repositoryId);
+    if (!tree || !repo) throw new NotFoundError();
+    if (this.branches.repositoryBusy(repo.rootPath)) return;
+    let current = cycle;
+    const check = () => {
+      const saved = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+      const user = this.storage.users.findById(cycle.createdByUserId);
+      const access = this.storage.workspaces.findAuthorized(
+        cycle.createdByUserId,
+        cycle.workspaceId,
+      );
+      if (
+        this.abort.signal.aborted ||
+        saved?.version !== current.version ||
+        saved.status !== 'running' ||
+        user?.status !== 'active' ||
+        !access ||
+        !['owner', 'editor'].includes(access.membership.role)
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Finalization was superseded or its authority was revoked.',
+        );
+      if (
+        this.storage.execution.runs
+          .listForWorktree(cycle.workspaceId, cycle.worktreeId)
+          .some((candidate) => !isTerminalAgentRunStatus(candidate.status))
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'End agent sessions before finalizing the worktree.',
+        );
+    };
+    try {
+      return await this.branches.duringMerge(repo.rootPath, () =>
+        this.mutations.during(tree.id, async () => {
+          check();
+          const inspected = await git.inspectWorktreeChanges(tree.path);
+          if (!inspected.ok) throw new ExecutionRequestError('conflict', inspected.failure.message);
+          const state = inspected.value;
+          if (state.paths.length > 1000)
+            throw new ExecutionRequestError(
+              'conflict',
+              'Checkpoint exceeds the 1000-file finalization limit.',
+            );
+          if (state.branch !== tree.branchName || state.conflicted)
+            throw new ExecutionRequestError(
+              'conflict',
+              'Finalization requires the managed branch without unresolved Git operations.',
+            );
+          check();
+          const pending =
+            current.checkpoint?.sourceRunId === run.id && !current.checkpoint.commitSha
+              ? current.checkpoint
+              : undefined;
+          if (pending || state.paths.length) {
+            if (!pending)
+              current = this.change(
+                current,
+                {
+                  checkpoint: {
+                    sourceRunId: run.id,
+                    previousHeadSha: state.headSha,
+                    fingerprint: state.fingerprint,
+                    paths: state.paths,
+                    createdAt: this.now().toISOString(),
+                  },
+                  reason: 'Checkpointing implementation changes before review.',
+                },
+                'checkpoint-reserved',
+              );
+            const checkpoint = current.checkpoint;
+            if (!checkpoint) throw new Error('Missing checkpoint reservation');
+            check();
+            const result = await git.checkpointWorktree({
+              worktreePath: tree.path,
+              branchName: tree.branchName,
+              expectedHeadSha: checkpoint.previousHeadSha,
+              fingerprint: checkpoint.fingerprint,
+              paths: checkpoint.paths,
+              sourceRunId: run.id,
+            });
+            if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
+            check();
+            current = this.change(
+              current,
+              {
+                checkpoint: { ...checkpoint, commitSha: result.value.commitSha },
+                reason: 'Implementation checkpoint committed; preparing review.',
+              },
+              'checkpoint-completed',
+            );
+          }
+          check();
+          const after = await git.inspectWorktreeChanges(tree.path);
+          if (!after.ok) throw new ExecutionRequestError('conflict', after.failure.message);
+          check();
+          if (!after.value.clean) {
+            await this.housekeeping(
+              current,
+              run,
+              'Files remain after implementation finalization. Classify and reconcile them before a fresh review.',
+            );
+            return;
+          }
+          return current;
+        }),
+      );
+    } catch (error) {
+      const latest = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+      if (
+        latest?.version === current.version &&
+        latest.status === 'running' &&
+        !this.abort.signal.aborted &&
+        !(error instanceof RepositoryMutationBusyError)
+      )
+        this.attention(
+          latest,
+          error instanceof ExecutionRequestError
+            ? error.message
+            : 'Worktree finalization failed. Inspect the checkpoint before resuming.',
+        );
+      return;
+    }
   }
 
   /** Only an actively delegated parallel attempt may refresh itself. Settings bind to its revision. */
@@ -596,6 +791,7 @@ export class WorkCycleService {
     return this.change(
       cycle,
       {
+        housekeepingInstructions: '',
         ...changes,
         status: 'running',
         step,
@@ -694,6 +890,9 @@ export class WorkCycleService {
         step: cycle.step,
         reason: cycle.reason,
         runId: cycle.currentRunId,
+        ...(cycle.checkpoint
+          ? { checkpoint: { ...cycle.checkpoint, paths: [...cycle.checkpoint.paths] } }
+          : {}),
       },
     });
     tx.workspaceEvents.appendEvent({

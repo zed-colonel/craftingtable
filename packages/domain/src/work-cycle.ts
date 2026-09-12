@@ -49,6 +49,15 @@ export interface WorkCycle {
   readonly stalledReviews: number;
   readonly previousFindingFingerprint?: string;
   readonly reviewHeadSha?: string;
+  readonly housekeepingInstructions?: string;
+  readonly checkpoint?: {
+    readonly sourceRunId: AgentRunId;
+    readonly previousHeadSha: string;
+    readonly fingerprint: string;
+    readonly paths: readonly string[];
+    readonly createdAt: string;
+    readonly commitSha?: string;
+  };
   readonly integrationRefreshes?: number;
   readonly reason: string;
 }

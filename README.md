@@ -29,7 +29,8 @@ it is mergeable.
   dollar usage is shown only when the account reports it.
 - **Live supervision.** Every tool call, result, message, and turn is journaled and
   streamed to the browser into a feed you can filter and scroll without losing your
-  place. Send follow-up messages, end the session, or cancel.
+  place. The final outcome appears above activity, with the full recorded message available
+  separately from raw events. Send follow-up messages, end the session, or cancel.
 - **Diffs.** See commits, changed files, and the unified patch of the worktree against
   its base at any time.
 - **Review-gated merge.** A review run ends with a verdict. When the latest run on a
@@ -51,6 +52,12 @@ it is mergeable.
   the run lineage, including earlier messages and operator corrections, plus the full
   recorded final messages. The inline preview allows 256 KiB; source files are not
   clipped to that preview. Known upstream truncation is flagged explicitly.
+- **Automatic worktree housekeeping.** New runs get temporary space outside Git. Automated
+  implementations checkpoint tracked edits and explicitly staged new source before review;
+  unknown files go to bounded remediation for classification. Negative reviews hand off
+  findings even when verification leaves artifacts. Dirty positive reviews require cleanup
+  and a fresh review. Final merge remains your decision. Scratch files remain under each
+  run's directory for inspection (they are not automatically pruned).
 - **Consolidated review reports.** Reviewers finish with a structured report containing
   stable finding IDs, severity, location, explanation, suggested fix, and reviewer-owned
   open/resolved/withdrawn status. The run page counts open findings and retains closed

@@ -293,7 +293,15 @@ export const agentRunSummarySchema = z.strictObject({
   version: positiveSafeInteger,
 });
 
+export const runOutcomeSchema = z.strictObject({
+  sequence: nonNegativeSafeInteger,
+  occurredAt: z.iso.datetime(),
+  text: z.string(),
+  outcome: z.enum(['success', 'error']),
+  truncated: z.boolean(),
+});
 export const agentRunDetailResponseSchema = z.strictObject({
+  latestOutcome: runOutcomeSchema.optional(),
   run: agentRunSummarySchema,
   worktree: worktreeSummarySchema,
   brief: z.string(),

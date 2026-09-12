@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { mkdir, realpath, stat } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
@@ -84,7 +85,25 @@ export interface WorktreeDiff {
   readonly patchTruncated: boolean;
 }
 
+export interface WorktreeChanges {
+  readonly clean: boolean;
+  readonly headSha: string;
+  readonly branch: string;
+  readonly paths: readonly string[];
+  readonly untracked: readonly string[];
+  readonly fingerprint: string;
+  readonly conflicted: boolean;
+}
 export interface GitOperations {
+  inspectWorktreeChanges(path: string): Promise<GitResult<WorktreeChanges>>;
+  checkpointWorktree(input: {
+    worktreePath: string;
+    branchName: string;
+    expectedHeadSha: string;
+    fingerprint: string;
+    paths: readonly string[];
+    sourceRunId: string;
+  }): Promise<GitResult<{ commitSha: string }>>;
   commonAncestor(
     repositoryPath: string,
     leftSha: string,
@@ -967,6 +986,174 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     });
   }
 
+  async function inspectWorktreeChanges(path: string): Promise<GitResult<WorktreeChanges>> {
+    const identity = await inspectRepository(path);
+    if (!identity.ok) return identity;
+    const diff = await runOk(
+      [
+        'diff',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--no-renames',
+        '--binary',
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
+        '--no-color',
+        '--full-index',
+        'HEAD',
+        '--',
+      ],
+      path,
+    );
+    if (!diff.ok) return diff;
+    const names = await runOk(
+      ['diff', '--no-ext-diff', '--no-renames', '--name-only', '-z', 'HEAD', '--'],
+      path,
+    );
+    if (!names.ok) return names;
+    const untracked = await runOk(['ls-files', '--others', '--exclude-standard', '-z'], path);
+    if (!untracked.ok) return untracked;
+    const conflicts = await runOk(['ls-files', '--unmerged', '-z'], path);
+    if (!conflicts.ok) return conflicts;
+    let pendingOperation = false;
+    for (const ref of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD']) {
+      const pending = await run(['rev-parse', '--verify', ref], path);
+      if (!pending.ok) return pending;
+      pendingOperation ||= pending.value.exitCode === 0;
+    }
+    return {
+      ok: true,
+      value: {
+        headSha: identity.value.headSha,
+        branch: identity.value.branch,
+        clean: identity.value.clean,
+        paths: splitNul(names.value.stdout),
+        untracked: splitNul(untracked.value.stdout),
+        fingerprint: createHash('sha256').update(diff.value.stdout).digest('hex'),
+        conflicted: conflicts.value.stdout.length > 0 || pendingOperation,
+      },
+    };
+  }
+
+  /** Checkpoint only named tracked/indexed paths; arbitrary untracked files are never staged. */
+  async function checkpointWorktree(
+    input: {
+      worktreePath: string;
+      branchName: string;
+      expectedHeadSha: string;
+      fingerprint: string;
+      paths: readonly string[];
+      sourceRunId: string;
+    },
+    verifyOnly = false,
+  ): Promise<GitResult<{ commitSha: string }>> {
+    if (
+      !SHA_PATTERN.test(input.expectedHeadSha) ||
+      !isSafeBranchName(input.branchName) ||
+      !/^[a-zA-Z0-9-]{1,100}$/.test(input.sourceRunId) ||
+      input.paths.length === 0 ||
+      input.paths.length > 1000 ||
+      input.paths.some(
+        (p) => !p || p.startsWith('/') || p.split('/').includes('..') || p.includes('\0'),
+      ) ||
+      input.paths.join('').length > 100000
+    )
+      return fail('invalid-path', 'Invalid checkpoint context');
+    const before = await inspectWorktreeChanges(input.worktreePath);
+    if (!before.ok) return before;
+    if (before.value.branch !== input.branchName || before.value.conflicted)
+      return fail(
+        'git-failed',
+        'Checkpoint requires the managed branch without an in-progress merge or conflicts',
+      );
+    const message = `CraftingTable: finalize run ${input.sourceRunId}`;
+    if (before.value.headSha !== input.expectedHeadSha) {
+      // Recover the Git/SQLite gap only for the exact reserved checkpoint, never an arbitrary commit.
+      const log = await runOk(['log', '-1', '--format=%P%n%s'], input.worktreePath);
+      if (!log.ok) return log;
+      const [parent, subject] = log.value.stdout.toString('utf8').trim().split('\n');
+      const patch = await runOk(
+        [
+          'diff',
+          '--no-ext-diff',
+          '--no-textconv',
+          '--no-renames',
+          '--binary',
+          '--src-prefix=a/',
+          '--dst-prefix=b/',
+          '--no-color',
+          '--full-index',
+          input.expectedHeadSha,
+          'HEAD',
+          '--',
+        ],
+        input.worktreePath,
+      );
+      if (!patch.ok) return patch;
+      if (
+        parent === input.expectedHeadSha &&
+        subject === message &&
+        createHash('sha256').update(patch.value.stdout).digest('hex') === input.fingerprint
+      )
+        return { ok: true, value: { commitSha: before.value.headSha } };
+      return fail('git-failed', 'Checkpoint HEAD changed; inspect the branch before resuming');
+    }
+    if (verifyOnly) return fail('git-failed', 'Checkpoint commit did not advance HEAD');
+    if (
+      before.value.fingerprint !== input.fingerprint ||
+      JSON.stringify(before.value.paths) !== JSON.stringify(input.paths)
+    )
+      return fail('git-failed', 'Checkpoint content changed since reservation');
+    const added = await runOk(
+      ['--literal-pathspecs', 'add', '--update', '--', ...input.paths],
+      input.worktreePath,
+    );
+    if (!added.ok) return added;
+    const staged = await runOk(
+      [
+        'diff',
+        '--cached',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--no-renames',
+        '--binary',
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
+        '--no-color',
+        '--full-index',
+        'HEAD',
+        '--',
+      ],
+      input.worktreePath,
+    );
+    if (!staged.ok) return staged;
+    if (createHash('sha256').update(staged.value.stdout).digest('hex') !== input.fingerprint)
+      return fail('git-failed', 'Staged content changed during checkpoint');
+    const identity = await inspectRepository(input.worktreePath);
+    if (!identity.ok) return identity;
+    if (
+      identity.value.headSha !== input.expectedHeadSha ||
+      identity.value.branch !== input.branchName
+    )
+      return fail('git-failed', 'Checkpoint branch changed during preparation');
+    const committed = await runOk(
+      [
+        '-c',
+        'user.name=CraftingTable',
+        '-c',
+        'user.email=craftingtable@localhost',
+        'commit',
+        '--no-gpg-sign',
+        '-m',
+        message,
+      ],
+      input.worktreePath,
+    );
+    if (!committed.ok) return committed;
+    // Reuse the recovery checks to verify the exact committed patch and parent (including hook effects).
+    return checkpointWorktree(input, true);
+  }
+
   async function commonAncestor(
     repositoryPath: string,
     leftSha: string,
@@ -982,6 +1169,8 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
   }
 
   return {
+    inspectWorktreeChanges,
+    checkpointWorktree,
     commonAncestor,
     resolveBranch,
     createBranch,

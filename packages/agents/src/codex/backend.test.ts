@@ -12,6 +12,7 @@ const mode = process.env.FAKE_MODE;
 const emit = value => process.stdout.write(JSON.stringify(value) + '\\n');
 const trace = value => fs.appendFileSync('rpc.jsonl', JSON.stringify(value) + '\\n');
 trace({args: process.argv.slice(2), pid: process.pid});
+if (mode === 'scratch') trace({temporaryPaths: [process.env.TMPDIR, process.env.TMP, process.env.TEMP]});
 if (mode === 'ignore-term') process.on('SIGTERM', () => {});
 if (mode === 'shutdown-error') process.on('SIGTERM', () => process.exit(2));
 let initialized = false, threadId = 'fake-thread', turns = 0, active, timer, texts = [];
@@ -322,4 +323,17 @@ it('preserves a backend error during graceful shutdown instead of authorizing su
   await done;
   expect(turns(items)[0]?.outcome).toBe('success');
   expect(items.at(-1)).toMatchObject({ type: 'exited', exitCode: 2 });
+});
+
+it('passes managed scratch space into the app-server child environment', async () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'craftingtable-scratch-'));
+  directories.push(scratch);
+  const { session, items, done, messages } = await launch('scratch', {
+    temporaryDirectory: scratch,
+    additionalDirectories: [scratch],
+  });
+  await waitFor(() => turns(items).length === 1);
+  session.end();
+  await done;
+  expect(messages()).toContainEqual({ temporaryPaths: [scratch, scratch, scratch] });
 });

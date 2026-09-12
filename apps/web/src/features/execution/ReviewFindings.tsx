@@ -43,24 +43,39 @@ export function ReviewFindings({ assessment }: { assessment: ReviewReportAssessm
         {report.findings.length === 0 ? (
           <p>No findings reported.</p>
         ) : (
-          report.findings.map((finding) => (
-            <article key={finding.id} className="review-finding">
-              <h3>
-                <span className="mono">{finding.id}</span> · {finding.severity} · {finding.status} ·{' '}
-                {finding.title}
-              </h3>
-              {finding.location !== undefined && (
-                <p className="mono">
-                  {finding.location.path}
-                  {finding.location.line === undefined ? '' : `:${finding.location.line}`}
-                </p>
+          ['open', 'resolved', 'withdrawn'].map((status) => (
+            <section key={status}>
+              {report.findings.some((finding) => finding.status === status) && (
+                <h3>
+                  {status === 'open'
+                    ? 'Open findings'
+                    : status === 'resolved'
+                      ? 'Verified resolutions'
+                      : 'Withdrawn findings'}
+                </h3>
               )}
-              <p>{finding.explanation}</p>
-              <p>Suggested fix: {finding.recommendation}</p>
-              {finding.disposition !== undefined && (
-                <p>Reviewer disposition: {finding.disposition}</p>
-              )}
-            </article>
+              {report.findings
+                .filter((finding) => finding.status === status)
+                .map((finding) => (
+                  <article key={finding.id} className="review-finding">
+                    <h3>
+                      <span className="mono">{finding.id}</span> · {finding.severity} ·{' '}
+                      {finding.status} · {finding.title}
+                    </h3>
+                    {finding.location !== undefined && (
+                      <p className="mono">
+                        {finding.location.path}
+                        {finding.location.line === undefined ? '' : `:${finding.location.line}`}
+                      </p>
+                    )}
+                    <p>{finding.explanation}</p>
+                    <p>Suggested fix: {finding.recommendation}</p>
+                    {finding.disposition !== undefined && (
+                      <p>Reviewer disposition: {finding.disposition}</p>
+                    )}
+                  </article>
+                ))}
+            </section>
           ))
         )}
       </div>

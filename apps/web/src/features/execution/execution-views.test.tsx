@@ -20,6 +20,7 @@ import { DelegationPanel } from './DelegationPanel.js';
 import { DiffView } from './DiffView.js';
 import { handoffDefaults, handoffTarget } from './handoff.js';
 import { RepositoriesPage } from './RepositoriesPage.js';
+import { outcomeProse, RunOutcome } from './RunOutcome.js';
 import { RunPage } from './RunPage.js';
 
 afterEach(cleanup);
@@ -286,6 +287,54 @@ describe('RunPage', () => {
     brief: '# Work item AQ-01: Establish the queue',
     eventCount: 4,
   } as AgentRunDetailResponse;
+
+  it('shows the persisted final message above activity even when events have only an older turn', () => {
+    render(
+      <RunPage
+        detail={{
+          ...detail,
+          run: run({ status: 'finished' }),
+          latestOutcome: {
+            sequence: 99,
+            occurredAt: '2026-09-11T10:00:00Z',
+            text: '**Complete**: verified `source.ts` <script>alert(1)</script>',
+            outcome: 'success',
+            truncated: false,
+          },
+        }}
+        events={[
+          event(4, {
+            kind: 'turn-completed',
+            payload: {
+              outcome: 'success',
+              resultText: 'Older conclusion',
+              turns: 1,
+              durationMs: 1,
+            },
+          }),
+        ]}
+        connection="open"
+        canMutate={false}
+        busy={false}
+        onSend={vi.fn()}
+        onEnd={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenWorkItem={vi.fn()}
+        onLoadDiff={vi.fn()}
+        onCloseDiff={vi.fn()}
+      />,
+    );
+    const outcome = screen.getByRole('region', { name: 'Run outcome' });
+    expect(within(outcome).getByRole('heading', { name: 'Final outcome' })).toBeDefined();
+    expect(outcome.querySelector('strong')?.textContent).toBe('Complete');
+    expect(outcome.querySelector('code')?.textContent).toBe('source.ts');
+    expect(outcome.textContent).not.toContain('Older conclusion');
+    expect(
+      outcome.compareDocumentPosition(screen.getByTestId('run-feed')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(document.querySelector('script')).toBeNull();
+  });
 
   it('renders the status, events, and a message box for a live run', () => {
     const onSend = vi.fn();
@@ -924,4 +973,55 @@ describe('automated cycle controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
     expect(onControl).toHaveBeenCalledWith(cycle, 'stop');
   });
+});
+
+it('labels a previous turn honestly and warns about backend truncation', () => {
+  render(
+    <RunOutcome
+      outcome={{
+        sequence: 1,
+        occurredAt: '2026-09-11T10:00:00Z',
+        text: 'Partial output',
+        outcome: 'error',
+        truncated: true,
+      }}
+      finished={false}
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'Latest completed turn' })).toBeDefined();
+  expect(screen.getByRole('alert').textContent).toContain('truncated');
+});
+
+it('folds only the exact validated review report and retains other code and raw text', () => {
+  const report = {
+    version: 1 as const,
+    complete: true as const,
+    verdict: 'mergeable' as const,
+    exitGate: { met: true, evidence: 'Checks passed' },
+    findings: [],
+  };
+  const assessment = { status: 'complete' as const, report, issues: [] };
+  const text =
+    'All checks passed.\n\n```craftingtable-review\n' +
+    JSON.stringify(report) +
+    '\n```\n\nVERDICT: mergeable';
+  expect(outcomeProse(text, assessment)).toBe('All checks passed.\n\n\n\nVERDICT: mergeable');
+  const invalid = '```craftingtable-review\n{invalid JSON}\n```';
+  expect(outcomeProse(invalid, assessment)).toBe(invalid);
+  expect(outcomeProse(text)).toBe(text);
+  render(
+    <RunOutcome
+      outcome={{
+        sequence: 1,
+        occurredAt: '2026-09-11T10:00:00Z',
+        text,
+        outcome: 'success',
+        truncated: false,
+      }}
+      finished={true}
+      assessment={assessment}
+    />,
+  );
+  expect(document.querySelector('.run-outcome-prose')?.textContent).not.toContain('"findings"');
+  expect(document.querySelector('.run-event-body')?.textContent).toBe(text);
 });

@@ -18,6 +18,8 @@ import type {
 export interface AgentLaunchRequest {
   /** Absolute worktree path used as the agent's working directory. */
   readonly cwd: string;
+  /** Controller-owned scratch directory, outside the Git worktree. */
+  readonly temporaryDirectory?: string;
   /** The first user message. */
   readonly prompt: string;
   readonly permissionMode: AgentPermissionMode;

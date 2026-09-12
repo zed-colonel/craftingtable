@@ -469,3 +469,76 @@ it('rejects a stale integration snapshot before merging and preserves the target
   expect(await operations.resolveBranch(repo.repository, 'main')).toEqual(before);
   expect(runFixtureGit(['status', '--porcelain'], { cwd: repo.repository }).toString()).toBe('');
 });
+
+it('checkpoints tracked changes and staged additions, excludes unknown files, and reconciles a repeated reservation', async () => {
+  const repo = fixture();
+  writeFileSync(join(repo.repository, 'README.md'), 'updated source');
+  writeFileSync(join(repo.repository, 'new-source.ts'), 'export const answer = 42;');
+  runFixtureGit(['add', '--', 'new-source.ts'], { cwd: repo.repository });
+  writeFileSync(join(repo.repository, 'test-output.wal'), 'temporary data');
+  const before = await operations.inspectWorktreeChanges(repo.repository);
+  if (!before.ok) throw new Error(before.failure.message);
+  expect(before.value.paths).toEqual(['README.md', 'new-source.ts']);
+  expect(before.value.untracked).toEqual(['test-output.wal']);
+  const input = {
+    worktreePath: repo.repository,
+    branchName: 'main',
+    expectedHeadSha: before.value.headSha,
+    fingerprint: before.value.fingerprint,
+    paths: before.value.paths,
+    sourceRunId: 'run-finalize-1',
+  };
+  const result = await operations.checkpointWorktree(input);
+  expect(result.ok, JSON.stringify(result)).toBe(true);
+  const repeat = await operations.checkpointWorktree(input);
+  expect(repeat).toEqual(result);
+  const after = await operations.inspectWorktreeChanges(repo.repository);
+  expect(after.ok && after.value.paths).toEqual([]);
+  expect(after.ok && after.value.untracked).toEqual(['test-output.wal']);
+});
+
+it('refuses checkpoint content drift and interprets pathspec metacharacters literally', async () => {
+  const repo = fixture();
+  writeFileSync(join(repo.repository, '[source].ts'), 'original');
+  runFixtureGit(['add', '--', '[source].ts'], { cwd: repo.repository });
+  const before = await operations.inspectWorktreeChanges(repo.repository);
+  if (!before.ok) throw new Error(before.failure.message);
+  const input = {
+    worktreePath: repo.repository,
+    branchName: 'main',
+    expectedHeadSha: before.value.headSha,
+    fingerprint: before.value.fingerprint,
+    paths: before.value.paths,
+    sourceRunId: 'run-finalize-2',
+  };
+  writeFileSync(join(repo.repository, '[source].ts'), 'changed while reserved');
+  expect((await operations.checkpointWorktree(input)).ok).toBe(false);
+  writeFileSync(join(repo.repository, '[source].ts'), 'original');
+  writeFileSync(join(repo.repository, 's.ts'), 'unrelated');
+  expect((await operations.checkpointWorktree(input)).ok).toBe(true);
+  const after = await operations.inspectWorktreeChanges(repo.repository);
+  expect(after.ok && after.value.untracked).toEqual(['s.ts']);
+});
+
+it('never stages unknown descendants when a tracked file has been replaced by a directory', async () => {
+  const repo = fixture();
+  rmSync(join(repo.repository, 'README.md'));
+  mkdirSync(join(repo.repository, 'README.md'));
+  writeFileSync(join(repo.repository, 'README.md', 'generated.wal'), 'generated');
+  const before = await operations.inspectWorktreeChanges(repo.repository);
+  if (!before.ok) throw new Error(before.failure.message);
+  const result = await operations.checkpointWorktree({
+    worktreePath: repo.repository,
+    branchName: 'main',
+    expectedHeadSha: before.value.headSha,
+    fingerprint: before.value.fingerprint,
+    paths: before.value.paths,
+    sourceRunId: 'run-path-replacement',
+  });
+  expect(result.ok, JSON.stringify(result)).toBe(true);
+  expect(runFixtureGit(['ls-files'], { cwd: repo.repository }).toString()).not.toContain(
+    'generated.wal',
+  );
+  const after = await operations.inspectWorktreeChanges(repo.repository);
+  expect(after.ok && after.value.untracked).toEqual(['README.md/generated.wal']);
+});

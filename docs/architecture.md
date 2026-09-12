@@ -105,6 +105,16 @@ stores the fixed completion policy, step profiles, run reservation, and versione
 Changes append audit and workspace events; the browser exposes pause/resume/stop and
 persistent attention notices. The controller never merges and never relaunches an
 interrupted step without explicit resume. See ADR-025 for completion and recovery rules.
+Before automated review, tracked edits and staged additions can be finalized through a
+content-bound, durably reserved Git checkpoint. Negative reviews bypass approval cleanliness
+checks and carry housekeeping instructions into the same bounded remediation run; positive
+reviews retain exact clean-commit gates. Per-run scratch space is passed to both backends.
+See ADR-031 for authority, commit recovery, and retained scratch files.
+
+Run detail reads the latest completed turn directly from the persisted event journal. The
+browser shows its complete message above activity independently of feed pagination, folds
+only an exact validated review-report block into the findings display, and retains the
+original final text in a disclosure.
 
 ## Agent backend seam
 

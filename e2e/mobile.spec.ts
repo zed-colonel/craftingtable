@@ -144,6 +144,11 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await expect(feed.getByText('fake agent finished turn 2', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'End session', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Cancel run', exact: true })).toHaveCount(0);
+    const outcome = page.getByRole('region', { name: 'Run outcome' });
+    await expect(outcome.getByRole('heading', { name: 'Final outcome' })).toBeVisible();
+    await expect(outcome.locator('.run-outcome-prose')).toContainText('fake agent finished turn 2');
+    await outcome.screenshot({ path: info.outputPath('phone-final-outcome.png') });
+    await fitsPhone(page);
     await page.getByRole('button', { name: 'Work item', exact: true }).click();
     const cycle = page.getByRole('region', { name: 'Automated cycle', exact: true });
     await cycle.getByText('Set up a cycle', { exact: true }).click();

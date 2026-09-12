@@ -96,6 +96,7 @@ export function registerAgentRunRoutes(
           worktree: detail.worktree,
           brief: detail.run.brief,
           eventCount: detail.eventCount,
+          ...(detail.latestOutcome ? { latestOutcome: detail.latestOutcome } : {}),
           ...(detail.reviewReport === undefined ? {} : { reviewReport: detail.reviewReport }),
         }),
       );

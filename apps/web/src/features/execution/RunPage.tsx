@@ -37,6 +37,7 @@ import {
   type ProfileEntry,
   previousImplementerHint,
 } from './handoff.js';
+import { RunOutcome } from './RunOutcome.js';
 import { ReviewFindings } from './ReviewFindings.js';
 
 type EventGroup = 'messages' | 'tools' | 'notices' | 'system';
@@ -198,9 +199,24 @@ export function RunPage({
   const { run, worktree } = detail;
   const latestTurn = events.findLast((event) => event.kind === 'turn-completed');
   const reviewReport =
-    latestTurn?.kind === 'turn-completed'
+    latestTurn?.kind === 'turn-completed' &&
+    latestTurn.sequence >= (detail.latestOutcome?.sequence ?? -1)
       ? (latestTurn.payload.reviewReport ?? detail.reviewReport)
       : detail.reviewReport;
+  const streamedOutcome =
+    latestTurn?.kind === 'turn-completed'
+      ? {
+          sequence: latestTurn.sequence,
+          occurredAt: latestTurn.occurredAt,
+          text: latestTurn.payload.resultText,
+          outcome: latestTurn.payload.outcome,
+          truncated: latestTurn.payload.truncated ?? false,
+        }
+      : undefined;
+  const outcome =
+    streamedOutcome && streamedOutcome.sequence >= (detail.latestOutcome?.sequence ?? -1)
+      ? streamedOutcome
+      : detail.latestOutcome;
   const live = isLiveStatus(run.status);
   const [draft, setDraft] = useState('');
   const [handoffOpen, setHandoffOpen] = useState(false);
@@ -380,6 +396,14 @@ export function RunPage({
         <p className="error-state" role="alert">
           {error}
         </p>
+      )}
+
+      {outcome && (
+        <RunOutcome
+          outcome={outcome}
+          finished={run.status === 'finished'}
+          assessment={reviewReport}
+        />
       )}
 
       {run.role === 'review' && reviewReport !== undefined && (

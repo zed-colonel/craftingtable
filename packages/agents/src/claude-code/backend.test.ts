@@ -23,7 +23,7 @@ const rl = readline.createInterface({ input: process.stdin });
 let turns = 0;
 rl.on('line', (line) => {
   const message = JSON.parse(line);
-  const text = message.message.content[0].text;
+  const text = message.message.content[0].text === 'ENV' ? JSON.stringify([process.env.TMPDIR, process.env.TMP, process.env.TEMP]) : message.message.content[0].text;
   turns += 1;
   process.stdout.write(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'echo: ' + text }] } }) + '\\n');
   process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'echo: ' + text, num_turns: turns, duration_ms: 5, total_cost_usd: 0.01, session_id: 'fake-session' }) + '\\n');
@@ -116,6 +116,34 @@ describe('ClaudeCodeBackend', () => {
     expect(Date.now() - started).toBeLessThan(5000);
     const exited = items.at(-1);
     expect(exited?.type === 'exited' && exited.signal).toBe('SIGKILL');
+  });
+
+  it('passes controller scratch space to the child instead of inherited temporary paths', async () => {
+    const fake = fakeClaude();
+    const backend = new ClaudeCodeBackend({
+      executable: fake.executable,
+      env: { ...process.env, TMPDIR: '/old-temp' },
+    });
+    const session = await backend.launch({
+      cwd: fake.cwd,
+      prompt: 'ENV',
+      permissionMode: 'auto',
+      temporaryDirectory: fake.cwd,
+    });
+    const items: AgentSessionItem[] = [];
+    for await (const item of session.items) {
+      items.push(item);
+      if (item.type === 'event' && item.event.kind === 'turn-completed') session.end();
+    }
+    expect(
+      items.some(
+        (item) =>
+          item.type === 'event' &&
+          item.event.kind === 'turn-completed' &&
+          item.event.payload.resultText ===
+            `echo: ${JSON.stringify([fake.cwd, fake.cwd, fake.cwd])}`,
+      ),
+    ).toBe(true);
   });
 
   it('rejects an invalid launch request without spawning', async () => {

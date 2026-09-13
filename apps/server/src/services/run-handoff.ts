@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type {
   AgentRun,
   AgentRunEvent,
+  ReviewFinding,
   ReviewReportAssessment,
   RunHandoffSource,
 } from '@craftingtable/domain';
@@ -98,17 +99,30 @@ function sourceRuns(
   ];
 }
 
-export function recordedFindingIds(execution: Execution, run: AgentRun): ReadonlySet<string> {
-  const ids = new Set<string>();
-  for (const { run: source, throughSequence } of sourceRuns(execution, run)) {
+/** Latest valid reviewer disposition, replayed only from the delivered source snapshots. */
+export function recordedFindings(execution: Execution, run: AgentRun) {
+  const findings = new Map<
+    string,
+    { finding: ReviewFinding; runId: AgentRun['id']; sequence: number }
+  >();
+  for (const { run: source, throughSequence } of sourceRuns(execution, run).toReversed()) {
     if (source.role !== 'review') continue;
     for (const event of runEvents(execution, source, throughSequence)) {
       if (event.kind === 'turn-completed' && event.payload.reviewReport?.status === 'complete') {
-        for (const finding of event.payload.reviewReport.report.findings) ids.add(finding.id);
+        for (const finding of event.payload.reviewReport.report.findings)
+          findings.set(finding.id, { finding, runId: source.id, sequence: event.sequence });
       }
     }
   }
-  return ids;
+  return findings;
+}
+
+export function requiredFindingIds(execution: Execution, run: AgentRun): ReadonlySet<string> {
+  return new Set(
+    [...recordedFindings(execution, run).values()]
+      .filter(({ finding }) => !run.planVersionId || finding.status === 'open')
+      .map(({ finding }) => finding.id),
+  );
 }
 
 export function latestReviewReport(
@@ -137,6 +151,7 @@ export interface HandoffFiles {
   readonly finalMessagePath: string;
   readonly warnings: readonly string[];
   readonly sources: readonly RunHandoffSource[];
+  readonly findingsPath?: string;
 }
 
 /**
@@ -229,6 +244,34 @@ export function writeRunHandoff(
       ...(report === undefined ? {} : { report }),
     };
   });
+  let findingsPath: string | undefined;
+  if (parent.planVersionId) {
+    const findings = [...recordedFindings(execution, parent).values()];
+    const open = findings.filter(({ finding }) => finding.status === 'open');
+    const closed = findings.filter(({ finding }) => finding.status !== 'open');
+    findingsPath = join(directory, 'findings.json');
+    write(
+      join(directory, 'closed-findings.json'),
+      JSON.stringify({ version: 1, findings: closed }, null, 2),
+    );
+    write(
+      findingsPath,
+      JSON.stringify(
+        {
+          version: 1,
+          scope: 'finalization',
+          requiredFindingIds: open.map(({ finding }) => finding.id),
+          openFindings: open,
+          closedFindingIds: closed.map(({ finding }) => finding.id),
+          closedHistory: 'closed-findings.json',
+          instructions:
+            'Report every previously open finding with its current status, plus new or reopened findings. Unchanged closed findings may be omitted; their reviewer dispositions remain in the recorded history. Invalid reports do not update this snapshot; reconcile their observations from the source files.',
+        },
+        null,
+        2,
+      ),
+    );
+  }
   const manifestPath = join(directory, 'manifest.json');
   write(
     manifestPath,
@@ -239,6 +282,7 @@ export function writeRunHandoff(
         order: 'newest run first; messages within each file are chronological',
         warnings,
         sources,
+        ...(findingsPath ? { findings: 'findings.json' } : {}),
       },
       null,
       2,
@@ -249,5 +293,6 @@ export function writeRunHandoff(
     finalMessagePath: join(directory, '0000-final.md'),
     warnings,
     sources: sources.map(({ runId, throughSequence }) => ({ runId, throughSequence })),
+    ...(findingsPath ? { findingsPath } : {}),
   };
 }

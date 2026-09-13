@@ -46,7 +46,7 @@ import { composeBrief } from './brief.js';
 import { finalizationForCycle, finalizationInstructions } from './finalization-policy.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
-import { latestReviewReport, recordedFindingIds, writeRunHandoff } from './run-handoff.js';
+import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -524,7 +524,38 @@ export class AgentRunService {
               prepared.parentRun,
               join(runDirectory, 'handoff'),
             );
+      const parentAssessment =
+        prepared.parentRun && latestReviewReport(this.storage.execution, prepared.parentRun);
+      const parentTurn =
+        prepared.parentRun &&
+        this.storage.execution.runEvents.latestOfKind(
+          workspaceId,
+          prepared.parentRun.id,
+          'turn-completed',
+        );
+      const parentContext = prepared.parentRun?.reviewBranchContext;
       const brief = composeBrief({
+        ...(prepared.worktree.planVersionId &&
+        input.role === 'review' &&
+        parentAssessment?.status === 'invalid'
+          ? {
+              reviewReportRetry: {
+                issues: parentAssessment.issues,
+                reuseVerification: !!(
+                  parentContext &&
+                  reviewBranchContext &&
+                  parentContext.headSha === reviewBranchContext.headSha &&
+                  parentContext.targetSha === reviewBranchContext.targetSha &&
+                  parentContext.targetBranch === reviewBranchContext.targetBranch &&
+                  prepared.parentRun?.status === 'finished' &&
+                  parentTurn?.kind === 'turn-completed' &&
+                  parentTurn.payload.outcome === 'success' &&
+                  !parentTurn.payload.truncated &&
+                  !parentTurn.payload.resultText.endsWith('…[truncated by CraftingTable]')
+                ),
+              },
+            }
+          : {}),
         resolvingIntegration: ownsIntegrationResolution(cycle),
         planFinalization: !!prepared.worktree.planVersionId,
         temporaryDirectory,
@@ -955,7 +986,7 @@ export class AgentRunService {
               : assessReviewReport(
                   event.payload.resultText,
                   event.payload.truncated,
-                  recordedFindingIds(this.storage.execution, run),
+                  requiredFindingIds(this.storage.execution, run),
                 );
           event = { ...event, payload: { ...event.payload, reviewReport } };
         }

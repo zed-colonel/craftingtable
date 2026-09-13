@@ -71,8 +71,8 @@ it is mergeable.
 - **Consolidated review reports.** Reviewers finish with a structured report containing
   stable finding IDs, severity, location, explanation, suggested fix, and reviewer-owned
   open/resolved/withdrawn status. The run page counts open findings and retains closed
-  ones with their dispositions. Later reports must retain prior IDs in their handoff
-  lineage. Invalid reports cannot supply a merge verdict; legacy unstructured reviews
+  ones with their dispositions. Work-item reports retain prior IDs in their handoff
+  lineage; finalization reports may omit findings already closed by a valid review. Invalid reports cannot supply a merge verdict; legacy unstructured reviews
   remain usable manually, with their conversation included in handoffs.
 - **Automated work-item cycles.** On an admitted, unblocked item's page, create a
   worktree and open **Automated cycle → Set up a cycle**. Choose each step's agent,
@@ -108,7 +108,14 @@ it is mergeable.
   completion limits, and focus instructions. Each round assesses whole-plan conformance,
   performs justified polish, then verifies it; a final independent review follows. Open
   questions, invalid results, and exhausted remediation budgets require attention. Answers
-  can be supplied with **Resume finalization**. Pausing retains the integration hold; stopping
+  can be supplied with **Resume finalization** and apply to that attempt; their recorded
+  answers remain in the handoff. Finalization reports include every previously open finding
+  with its current disposition, plus new or reopened findings. Unchanged closed findings
+  stay in recorded history and a separate handoff archive, rather than being repeated in
+  each report. Evidence summarizes current checks and references detailed records; it does
+  not accumulate earlier reports. A rejected report's retry receives its validation errors
+  and may reuse complete verification only against unchanged candidate/destination commits.
+  Pausing retains the integration hold; stopping
   releases it and retains the candidate for inspection or removal.
   Finalization works on a dedicated candidate branch from a pinned integration snapshot.
   Further daemon merges into that integration branch wait until finalization ends. Review

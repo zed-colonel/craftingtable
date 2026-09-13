@@ -95,6 +95,11 @@ Review turns also carry a daemon-validated, versioned findings assessment in the
 new mutable findings table. A complete report is a structurally valid reviewer
 assertion, not proof of correctness or prose coverage. The daemon checks verdict
 consistency and preserves finding IDs across reports in the explicit parent lineage.
+Finalization requires current dispositions for every previously open finding; already closed
+findings may be omitted. Their latest valid dispositions are reconstructed from pinned
+source events, including reopenings, and materialized separately from active findings.
+Invalid reports and implementer claims never close findings. Work-item reports retain the
+original all-ID continuity rule. See ADR-035.
 An implementer's disposition remains a claim for the next reviewer. A failed or invalid
 latest review clears the stored verdict; unstructured legacy reviews may still supply
 one for manual operation. See ADR-024.

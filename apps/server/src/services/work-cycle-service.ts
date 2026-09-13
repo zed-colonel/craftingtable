@@ -557,6 +557,13 @@ export class WorkCycleService {
     }
     const assessment = latestReviewReport(this.storage.execution, run);
     const decision = evaluateCompletion(cycle.policy, assessment);
+    if (finalization && assessment?.status === 'invalid') {
+      this.attention(
+        cycle,
+        `Review report rejected: ${assessment.issues.join(' ').slice(0, 3500)}`,
+      );
+      return;
+    }
     if (finalization && cycle.polishPhase === 'assess') {
       if (decision.action === 'needs-attention') {
         this.attention(cycle, decision.reason);
@@ -1379,6 +1386,8 @@ export class WorkCycleService {
       cycle,
       {
         housekeepingInstructions: '',
+        // Resume guidance belongs to that attempt; its answers remain in the handoff journal.
+        ...(cycle.finalizationId && parent?.id === cycle.currentRunId ? { instructions: '' } : {}),
         ...changes,
         status: 'running',
         step,

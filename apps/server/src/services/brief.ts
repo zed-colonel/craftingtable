@@ -26,6 +26,10 @@ export interface BriefPlanDocument {
 export interface BriefInput {
   readonly resolvingIntegration?: boolean;
   readonly planFinalization?: boolean;
+  readonly reviewReportRetry?: {
+    readonly issues: readonly string[];
+    readonly reuseVerification: boolean;
+  };
   readonly temporaryDirectory?: string;
   readonly reviewBranchContext?: ReviewBranchContext;
   readonly role: AgentRunRole;
@@ -63,7 +67,7 @@ export interface BriefParentRun {
 }
 
 const REMEDIATION_INSTRUCTIONS = [
-  'This run remediates a review. The review findings are reproduced below, numbered as the',
+  'This run remediates a review. The review findings are supplied in the handoff as the',
   'reviewer wrote them. Read the handoff files and reconcile earlier messages with later',
   'corrections and withdrawals. Preserve finding IDs. Work through every open finding: fix it, or if you disagree explain',
   'precisely why in your final message. Run the quality checks, commit on this branch,',
@@ -83,10 +87,9 @@ const ACCEPTED_DESIGN_INSTRUCTIONS = [
 const REVIEW_REPORT_INSTRUCTIONS = [
   'Immediately before that final verdict line, include exactly one fenced JSON block',
   'with the language craftingtable-review. It is your authoritative consolidated report.',
-  'Reconcile ALL findings raised anywhere in this run and the handoff lineage, including',
-  'operator corrections. Keep prior IDs; never omit or recycle them. Use new IDs such as',
-  'F-001, F-002. A later reviewer verifies fixes before marking a finding resolved.',
-  'Retain withdrawn findings with the reason. Do not silently drop disagreements.',
+  'A later reviewer verifies fixes before marking a finding resolved. Do not silently drop disagreements.',
+  'Finding IDs must start with a letter or digit and contain only letters, digits, periods, underscores or hyphens, at most 64 characters; use F-001 or AQ-11.F-009, never slashes.',
+  'Keep exitGate.evidence concise: summarize current checks and conformance, cite detailed evidence, and stay below its 20,000-character limit. Never append evidence from prior reports. Each explanation, recommendation and disposition also has a 20,000-character limit; titles have a 500-character limit.',
   'The report shape is:',
   '```craftingtable-review',
   '{"version":1,"complete":true,"verdict":"changes-requested","exitGate":{"met":false,"evidence":"Explain which criteria and checks passed or failed."},"findings":[{"id":"F-001","severity":"major","status":"open","title":"Short title","location":{"path":"src/example.ts","line":10},"explanation":"What is wrong and why.","recommendation":"What would resolve it."}]}',
@@ -113,7 +116,7 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
   review: [
     'You are an independent reviewer for this work item.',
     'Run the repository-required verification checks on this exact branch, including the combined integration changes. Record the commands and results in exitGate.evidence. Do not change or commit code during review; request remediation when changes are needed.',
-    'Do not modify any file. Compare the branch in this worktree against its base',
+    'Do not modify repository files. Verification records belong in the provided temporary directory. Compare the branch in this worktree against its base',
     'revision, read the changed code and its tests, and run the quality checks read-only.',
     'Summarize your conclusion in prose and include every finding in the structured',
     'report below; do not duplicate the full findings in prose. State explicitly',
@@ -134,6 +137,15 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
     'run that follows.',
   ].join(' '),
 };
+
+const FINALIZATION_FINDINGS_INSTRUCTIONS = [
+  'Finalization reports cover active findings and changes in reviewer disposition.',
+  'Report every previously OPEN finding with its current status, plus every new or reopened finding. Verify a fix before reporting its resolution, with a concise disposition.',
+  'Unchanged resolved or withdrawn findings may be omitted from later reports. They remain in the journal and closed-findings history; omission does not reopen, erase or re-resolve them. Never recycle their IDs.',
+  'Do not import closed work-item findings into the finalization report merely to recount history. Assess the combined implementation against the plan; reopen a historical concern only if current evidence warrants it.',
+  'Reconcile findings and operator corrections from this run and the handoff, including observations in invalid reports. An invalid report cannot establish closure or approval.',
+  'Use an empty findings array only when no new findings exist and no previously open findings require a current disposition. A report that silently omits an open finding is rejected.',
+].join(' ');
 
 function formatDependencies(entries: readonly BriefDependency[]): string {
   if (entries.length === 0) {
@@ -159,6 +171,20 @@ export function composeBrief(input: BriefInput): string {
   sections.push(
     `## Your role\n\n${input.resolvingIntegration ? 'Resolve the daemon-prepared integration merge in this worktree. Stage intended changes and verify the combined behavior. Do not commit, switch branches, start another merge, abort the merge, or move any branch. The daemon owns completion. Follow the pinned resolution instructions below.' : ROLE_INSTRUCTIONS[input.role]}`,
   );
+  if (input.role === 'review' && !input.resolvingIntegration) {
+    sections.push(
+      `## Findings continuity\n\n${
+        input.planFinalization
+          ? FINALIZATION_FINDINGS_INSTRUCTIONS
+          : 'Reconcile ALL findings raised anywhere in this run and the handoff lineage, including operator corrections. Keep prior IDs; never omit or recycle them. Retain resolved and withdrawn findings with their dispositions.'
+      }`,
+    );
+  }
+  if (input.planFinalization && input.role !== 'review') {
+    sections.push(
+      '## Findings scope\n\nAddress the open findings and report dispositions for work done in this attempt. Previously closed findings remain in the recorded history; do not repeat or re-resolve them without new evidence.',
+    );
+  }
   sections.push(
     [
       '## Objective and exit gate',
@@ -240,15 +266,26 @@ export function composeBrief(input: BriefInput): string {
       [
         '## Handoff source files',
         '',
-        `Read the handoff manifest at \`${parent.handoff.manifestPath}\` and the conversation and report files it lists before starting.`,
+        input.planFinalization
+          ? `Start with the handoff manifest at \`${parent.handoff.manifestPath}\`, the active findings snapshot and the immediate parent's complete outcome. Consult source conversations for operator decisions, corrections, uncertain observations and evidence; older reports are history, not text to reproduce.`
+          : `Read the handoff manifest at \`${parent.handoff.manifestPath}\` and the conversation and report files it lists before starting.`,
         'These files include earlier messages, operator corrections, and prior runs in this lineage. Paths in the manifest are relative to its directory.',
         'Reports with status complete are structurally validated reviewer assertions. Unstructured or invalid reports require reconciliation against the conversation; ask the operator about unresolved ambiguity.',
         'Earlier findings may be corrected or withdrawn later. Do not treat every historical statement as a current finding. Preserve existing finding IDs across review rounds.',
-        `The full recorded final message is at \`${parent.handoff.finalMessagePath}\`. The inline text below is only a preview when it ends with a truncation marker.`,
+        `The full recorded final message is at \`${parent.handoff.finalMessagePath}\`.`,
+        ...(parent.handoff.findingsPath
+          ? [
+              `Active findings and closed-history index: \`${parent.handoff.findingsPath}\`. This is derived from valid reports at the delivered event cursors. Omitted closed findings retain their last reviewer disposition.`,
+            ]
+          : []),
         ...parent.handoff.warnings.map((warning) => `Handoff warning: ${warning}`),
       ].join('\n\n'),
     );
   }
+  const parentMessage =
+    input.planFinalization && parent?.handoff
+      ? `Read the complete outcome at \`${parent.handoff.finalMessagePath}\`. Use the active findings snapshot; do not copy the historical report into your response.`
+      : (parent?.finalMessage.trim() ?? '');
   if (
     parent !== undefined &&
     (parent.finalMessage.trim().length > 0 || parent.handoff !== undefined)
@@ -258,7 +295,7 @@ export function composeBrief(input: BriefInput): string {
       sections.push(
         `## Review findings to address${
           parent.verdict === undefined ? '' : ` (verdict: ${parent.verdict})`
-        }\n\n${parent.finalMessage.trim()}`,
+        }\n\n${parentMessage}`,
       );
     } else if (
       !input.resolvingIntegration &&
@@ -266,17 +303,30 @@ export function composeBrief(input: BriefInput): string {
       input.role === 'implement'
     ) {
       sections.push(`## Accepted design\n\n${ACCEPTED_DESIGN_INSTRUCTIONS}`);
-      sections.push(`## Design proposal\n\n${parent.finalMessage.trim()}`);
+      sections.push(`## Design proposal\n\n${parentMessage}`);
     } else if (parent.role === 'implement' && input.role === 'review') {
       sections.push(
-        `## The implementation run's own summary\n\nTreat this as a claim to verify, not as evidence.\n\n${parent.finalMessage.trim()}`,
+        `## The implementation run's own summary\n\nTreat this as a claim to verify, not as evidence.\n\n${parentMessage}`,
       );
     } else {
-      sections.push(`## Previous ${parent.role} run\n\n${parent.finalMessage.trim()}`);
+      sections.push(`## Previous ${parent.role} run\n\n${parentMessage}`);
     }
   }
   if (input.instructions !== undefined && input.instructions.trim().length > 0) {
     sections.push(`## Operator instructions\n\n${input.instructions.trim()}`);
+  }
+  if (input.reviewReportRetry) {
+    sections.push(
+      [
+        '## Correct the rejected review report',
+        `The preceding report was rejected: ${input.reviewReportRetry.issues.join(' ')}`,
+        'Read its complete final message and reconcile all its findings, including new findings and dispositions not yet accepted by the controller. Return a corrected, concise report using the current findings-continuity rules; do not append prior evidence or repeat unchanged closed findings. Retain the required Open questions section and matching final VERDICT line.',
+        input.reviewReportRetry.reuseVerification
+          ? 'The daemon confirmed that the preceding successful, untruncated review recorded the same candidate and destination commits. Recheck those commits and worktree cleanliness. Where its findings and verification evidence are complete and applicable, reuse them with explicit references; do not rerun the whole suite solely to repair report formatting. Perform any additional investigation needed to resolve substantive uncertainty. If either commit or relevant verification conditions changed, perform a fresh review and rerun affected checks.'
+          : 'The prior review is incomplete or its candidate/destination snapshot cannot be reused. Perform a fresh review and run the required verification; do not carry its approval forward.',
+        'This recovery instruction applies only to this attempt. Later polish and independent review steps follow their normal verification requirements.',
+      ].join('\n\n'),
+    );
   }
   return `${sections.join('\n\n')}\n`;
 }

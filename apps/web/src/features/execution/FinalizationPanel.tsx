@@ -151,8 +151,8 @@ export function FinalizationPanel({
     }
   };
   const command = (view: FinalizationView, action: ControlFinalizationRequest['action']) =>
-    perform(() =>
-      controlFinalization(
+    perform(async () => {
+      await controlFinalization(
         workspaceId,
         view.finalization.id,
         {
@@ -164,8 +164,10 @@ export function FinalizationPanel({
             : {}),
         },
         csrfToken,
-      ),
-    );
+      );
+      if (action === 'resume')
+        setGuidance((current) => ({ ...current, [view.finalization.id]: '' }));
+    });
   const live = views.some((v) => ['preparing', 'active'].includes(v.finalization.status));
   return (
     <section className="panel" aria-label="Finalize integration">

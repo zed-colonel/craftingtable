@@ -49,6 +49,7 @@ import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { mergeGateFor } from './services/execution-service.js';
+import { recordedFindings, requiredFindingIds } from './services/run-handoff.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
 /* -------------------------------------------------------------------------- */
@@ -1578,7 +1579,7 @@ it('validates a later review against the source snapshot delivered to its implem
     { resultText: reviewText([structuredFinding]) },
     {
       resultText: reviewText([
-        structuredFinding,
+        { ...structuredFinding, status: 'resolved', disposition: 'Later verification closes it.' },
         { ...structuredFinding, id: 'F-002', title: 'Later finding' },
       ]),
     },
@@ -1612,6 +1613,12 @@ it('validates a later review against the source snapshot delivered to its implem
     status: 'complete',
     report: { findings: [expect.anything(), expect.objectContaining({ id: 'F-002' })] },
   });
+  const delivered = recordedFindings(
+    state.context.storage.execution,
+    present(state.context.storage.execution.runs.find(state.workspaceId, implement)),
+  );
+  expect([...delivered.keys()]).toEqual(['F-001']);
+  expect(delivered.get('F-001')?.finding.status).toBe('open');
   state.backend.repliesForNextRun = [
     {
       resultText: reviewText([
@@ -4756,4 +4763,155 @@ it('cleans an interrupted reserved scratch worktree before retrying an uncommitt
   await roadmapControl(state, 'resume');
   await waitFor(() => storedRoadmap(state).status === 'completed', 'recovered scratch merge', 8000);
   expect(git(['worktree', 'list', '--porcelain'], root)).not.toContain(operation.id);
+});
+
+it('compacts finalization findings while preserving closure history and requiring reopened findings', {
+  timeout: 20000,
+}, async () => {
+  const fixture = await finalizationFixture();
+  const { state, backend } = fixture;
+  const history = Array.from({ length: 112 }, (_, index) => ({
+    ...structuredFinding,
+    id: `ITEM-${index}.F-001`,
+    status: index === 0 ? 'withdrawn' : 'resolved',
+    disposition: 'Verified during the integrated work item.',
+  }));
+  const closed = { ...structuredFinding, status: 'resolved', disposition: 'Verified the fix.' };
+  const reports = [
+    [...history, structuredFinding],
+    [closed],
+    [structuredFinding], // Independent final review reopens the concern.
+    [], // An open finding still cannot disappear.
+  ];
+  let review = 0;
+  backend.replyForRequest = (request) => ({
+    resultText: request.model?.includes('polish')
+      ? 'Fixed and verified.\n\n## Open questions\nnone'
+      : `## Open questions\nnone\n\n## Review report\n${reviewText(reports[review++] ?? [closed])}`,
+  });
+  const value = await beginFinalization(fixture);
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'needs-attention',
+    'missing reopened finding',
+    12000,
+  );
+  const cycle = finalizationCycle(state, value);
+  expect(cycle.reason).toContain('F-001');
+  expect((await runDetail(state, cycle.currentRunId)).run.verdict).toBeUndefined();
+  expect(backend.launches).toHaveLength(6);
+  const current = present(
+    state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
+  );
+  expect([...requiredFindingIds(state.context.storage.execution, current)]).toEqual(['F-001']);
+  expect(recordedFindings(state.context.storage.execution, current).size).toBe(113);
+  const finalLaunch = present(backend.launches.find((r) => r.model === 'final-review-model'));
+  const handoff = join(present(finalLaunch.additionalDirectories?.[0]), 'handoff');
+  const snapshot = JSON.parse(readFileSync(join(handoff, 'findings.json'), 'utf8'));
+  expect(snapshot.requiredFindingIds).toEqual([]);
+  expect(snapshot.closedFindingIds).toHaveLength(113);
+  const archive = JSON.parse(readFileSync(join(handoff, snapshot.closedHistory), 'utf8'));
+  expect(
+    archive.findings.find((r: { finding: { id: string } }) => r.finding.id === 'F-001'),
+  ).toMatchObject({ finding: closed, runId: expect.any(String), sequence: expect.any(Number) });
+  const initial = state.context.storage.execution.runs
+    .listForWorktree(state.workspaceId, value.worktreeId)
+    .at(-1);
+  expect(recordedFindings(state.context.storage.execution, present(initial)).size).toBe(113);
+  expect(finalLaunch.prompt).not.toContain('Verified during the integrated work item.');
+  const resumed = await finalizationCommand(state, value, 'resume');
+  expect(resumed.statusCode, resumed.body).toBe(200);
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'awaiting-merge',
+    'closed reopened finding',
+  );
+  expect(
+    (await runDetail(state, finalizationCycle(state, value).currentRunId)).reviewReport,
+  ).toMatchObject({ status: 'complete', report: { findings: [closed] } });
+});
+
+it.each(['unchanged', 'candidate-changed', 'destination-changed', 'truncated'] as const)(
+  'guides a rejected finalization report retry with %s evidence and expires attempt guidance',
+  { timeout: 20000 },
+  async (scenario) => {
+    const fixture = await finalizationFixture();
+    const { state, backend, root } = fixture;
+    const report = {
+      version: 1,
+      complete: true,
+      verdict: 'mergeable',
+      exitGate: { met: true, evidence: 'Current and historical verification. '.repeat(800) },
+      findings: [],
+    };
+    backend.replyForRequest = () => ({
+      resultText: `## Open questions\nnone\n\n## Review report\n\`\`\`craftingtable-review\n${JSON.stringify(report)}\n\`\`\`\nVERDICT: mergeable`,
+      ...(scenario === 'truncated' ? { truncated: true } : {}),
+    });
+    const value = await beginFinalization(fixture);
+    await waitFor(
+      () => finalizationCycle(state, value).status === 'needs-attention',
+      'oversized review',
+    );
+    const failed = finalizationCycle(state, value);
+    if (scenario !== 'truncated') expect(failed.reason).toContain('exitGate.evidence');
+    expect((await runDetail(state, failed.currentRunId)).run.verdict).toBeUndefined();
+    if (scenario === 'candidate-changed') {
+      const tree = present(
+        state.context.storage.execution.worktrees.find(state.workspaceId, value.worktreeId),
+      );
+      commitFile(tree.path, 'changed.txt', 'changed since the review\n');
+    }
+    if (scenario === 'destination-changed') commitFile(root, 'destination.txt', 'changed main\n');
+    backend.replyForRequest = (request) => ({
+      resultText: request.model?.includes('polish')
+        ? 'Polish verified.\n\n## Open questions\nnone'
+        : `## Open questions\nnone\n\n## Review report\n${reviewText([])}`,
+    });
+    const resumed = await finalizationCommand(state, value, 'resume', {
+      instructions: 'Answer for this attempt only.',
+    });
+    expect(resumed.statusCode, resumed.body).toBe(200);
+    await waitFor(
+      () => finalizationCycle(state, value).status === 'awaiting-merge',
+      'corrected finalization',
+      12000,
+    );
+    const retry = present(backend.launches[1]);
+    expect(retry.prompt).toContain('## Correct the rejected review report');
+    expect(retry.prompt).toContain('Answer for this attempt only.');
+    if (scenario === 'unchanged') {
+      expect(retry.prompt).toContain('same candidate and destination commits');
+      expect(retry.prompt).toContain('exitGate.evidence');
+    } else {
+      expect(retry.prompt).toContain('Perform a fresh review and run the required verification');
+      expect(retry.prompt).not.toContain('The daemon confirmed');
+    }
+    for (const launch of backend.launches.slice(2)) {
+      expect(launch.prompt).not.toContain('Answer for this attempt only.');
+      expect(launch.prompt).not.toContain('## Correct the rejected review report');
+    }
+    const retryRoot = present(retry.additionalDirectories?.[0]);
+    const fullOutcome = readFileSync(join(retryRoot, 'handoff/0000-final.md'), 'utf8');
+    expect(fullOutcome).toContain(report.exitGate.evidence);
+    expect(retry.prompt.length).toBeLessThan(fullOutcome.length);
+    expect(finalizationCycle(state, value).instructions).toBe('');
+  },
+);
+
+it('still requires closed findings in ordinary work-item review reports', async () => {
+  const state = await ready();
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  state.backend.repliesForNextRun = [
+    {
+      resultText: reviewText([
+        { ...structuredFinding, status: 'resolved', disposition: 'Verified the regression.' },
+      ]),
+    },
+  ];
+  const parent = await runToFinish(state, worktree.id, { role: 'review' });
+  state.backend.repliesForNextRun = [{ resultText: reviewText([]) }];
+  const child = await runToFinish(state, worktree.id, { role: 'review', parentRunId: parent });
+  expect((await runDetail(state, child)).reviewReport).toMatchObject({
+    status: 'invalid',
+    issues: [expect.stringContaining('F-001')],
+  });
 });

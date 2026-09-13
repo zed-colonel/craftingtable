@@ -37,6 +37,7 @@ export default defineConfig({
       testMatch: [
         '**/mobile.spec.ts',
         '**/notifications.spec.ts',
+        '**/storage.spec.ts',
         '**/roadmaps.spec.ts',
         '**/finalization.spec.ts',
       ],

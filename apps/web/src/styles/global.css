@@ -1759,3 +1759,27 @@ button:disabled {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.storage-volumes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: 1rem;
+  margin-block: 1rem;
+}
+.storage-volume {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.storage-path {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.storage-panel details {
+  margin-block: 1rem;
+}
+.storage-panel summary {
+  cursor: pointer;
+  padding-block: 0.5rem;
+}

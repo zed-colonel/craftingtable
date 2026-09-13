@@ -1,3 +1,4 @@
+import { StoragePanel } from './features/workspace/StoragePanel.js';
 import type {
   AgentRunDetailResponse,
   AuditRecordSummary,
@@ -1201,6 +1202,14 @@ export function App() {
             busy={workspaceBusy}
             {...(workspaceError === undefined ? {} : { error: workspaceError })}
             {...(workspaceNotice === undefined ? {} : { notice: workspaceNotice })}
+            storage={
+              activeWorkspace.role === 'owner' ? (
+                <StoragePanel
+                  workspaceId={activeWorkspace.id}
+                  csrfToken={authenticated.csrfToken}
+                />
+              ) : undefined
+            }
             notifications={
               activeWorkspace.role === 'owner' ? (
                 <NotificationPanel

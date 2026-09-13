@@ -205,7 +205,7 @@ export function composeBrief(input: BriefInput): string {
     sections.push(
       [
         '## Temporary files',
-        `TMPDIR, TMP, and TEMP point to ${input.temporaryDirectory}. Use this controller-owned directory for test temporary files and scratch output. It is outside the Git worktree and available to this run. Do not redirect temporary files to the worktree root. Do not commit test artifacts. Preserve verification results in your final message. Source edits remain restricted to the worktree; this directory is for temporary data only.`,
+        `TMPDIR, TMP, and TEMP point to ${input.temporaryDirectory}. Use this controller-owned directory for test temporary files and scratch output. It is outside the Git worktree and available to this run. Do not redirect temporary files to the worktree root. Do not commit test artifacts. Preserve verification results in your final message. Reuse the project’s normal build cache across runs (for example, the existing Cargo target directory). Avoid creating a fresh full build cache per run unless verification requires isolation. Scratch is disposable: recognized build caches may be removed after merge and worktree removal, and other scratch may expire under the storage policy. Source edits remain restricted to the worktree; this directory is for temporary data only.`,
       ].join('\n\n'),
     );
   }

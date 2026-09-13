@@ -32,6 +32,7 @@ export class NotificationService {
     private readonly transport: NotificationTransport,
     private readonly publicOrigin: string,
     private readonly now: () => Date = () => new Date(),
+    private readonly storageAttention?: () => readonly { key: string; message: string }[],
   ) {}
 
   get(context: AuthContext, workspaceId: WorkspaceId): NotificationStatus {
@@ -199,6 +200,19 @@ export class NotificationService {
     const workspaceId = settings.workspaceId;
     const cycles = tx.execution.cycles.list(workspaceId);
     const result: Attention[] = [];
+    if (
+      settings.preferences.needsAttention &&
+      tx.maintenance.ownsInstallation(settings.ownerUserId)
+    ) {
+      for (const alert of this.storageAttention?.() ?? [])
+        result.push({
+          sourceKey: alert.key,
+          kind: 'attention',
+          title: 'CraftingTable · Storage needs attention',
+          message: notificationText(alert.message, 1024),
+          path: `/workspaces/${encodeURIComponent(workspaceId)}/settings`,
+        });
+    }
     for (const tree of tx.execution.worktrees.listActive(workspaceId)) {
       const item = tree.workItemId
         ? tx.planning.workItems.find(workspaceId, tree.workItemId)

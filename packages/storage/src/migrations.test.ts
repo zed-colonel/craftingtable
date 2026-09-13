@@ -32,8 +32,8 @@ describe('ordered SQL migrations', () => {
     const database = openDatabase(path);
     const migrations = discoverMigrations();
     expect(runMigrations(database, migrations)).toEqual({
-      currentVersion: 14,
-      supportedVersion: 14,
+      currentVersion: 15,
+      supportedVersion: 15,
       pendingVersions: [],
     });
     const rows = database
@@ -54,6 +54,7 @@ describe('ordered SQL migrations', () => {
       { version: 12, name: 'roadmaps', checksum: migrations[11]?.checksum },
       { version: 13, name: 'delegated-merges', checksum: migrations[12]?.checksum },
       { version: 14, name: 'plan-finalizations', checksum: migrations[13]?.checksum },
+      { version: 15, name: 'storage-management', checksum: migrations[14]?.checksum },
     ]);
     database.close();
   });
@@ -68,7 +69,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(14);
+    ).toBe(15);
     second.close();
   });
 
@@ -90,7 +91,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(14);
+    ).toBe(15);
     database.close();
   });
 
@@ -101,7 +102,7 @@ describe('ordered SQL migrations', () => {
     database
       .prepare(
         `INSERT INTO schema_migrations (version, name, checksum, applied_at)
-         VALUES (15, 'future', ?, ?)`,
+         VALUES (16, 'future', ?, ?)`,
       )
       .run('f'.repeat(64), new Date().toISOString());
     expect(() => migrationStatus(database)).toThrow(/newer than or unknown/);
@@ -150,8 +151,8 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 14,
-      pendingVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      supportedVersion: 15,
+      pendingVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     });
 
     const inspection = new Database(path, { readonly: true, fileMustExist: true });
@@ -166,8 +167,8 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 14,
-      pendingVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      supportedVersion: 15,
+      pendingVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     });
     expect(existsSync(path)).toBe(false);
   });

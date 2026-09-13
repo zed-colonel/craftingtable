@@ -184,3 +184,22 @@ operator command carrying the exact reviewed source and destination commits. Que
 missing reports and exhausted budgets do not relax that gate. Durable reservations permit
 reconciliation of an already-approved commit after restart, without authorizing a new merge.
 Cleanup does not force-remove dirty checkouts or unexpected later commits. See ADR-033.
+
+
+## Storage maintenance
+
+Installation-wide storage routes require an authenticated owner of every active workspace;
+mutations also require the existing CSRF and origin checks. A workspace owner cannot gain
+host-wide storage authority by creating a new workspace. Paths are validated/canonicalized
+before directories are created, must not overlap database/source/run/backup roles, and retain
+device identities. Location changes apply to future work and never move or delete existing
+checkouts. Browser cleanup supplies only an opaque daemon preview ID, never deletion paths.
+
+Only terminal runs attached to merged, removed worktrees with no live siblings are eligible.
+Recognized Cargo caches use exact structural markers under registered scratch directories;
+30-day scratch expiry also requires old contents. Cleanup rejects changed canonical parents,
+symlinks at authority roots, and nested filesystems; recursive inventory does not follow links.
+These checks prevent accidental deletion and stale-controller paths, not malicious concurrent
+host filesystem mutation. Coding agents and the OS account retain their existing trust boundary.
+Audit records identify authorized cleanup paths and backups. SQLite snapshots contain accounts,
+sessions and notification credentials: private modes protect them like the live database.

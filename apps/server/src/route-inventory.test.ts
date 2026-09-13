@@ -7,6 +7,11 @@ import { createTestContext } from './test-support.js';
  */
 
 const EXPECTED_ROUTES = [
+  'GET /api/workspaces/:workspaceId/storage',
+  'POST /api/workspaces/:workspaceId/storage',
+  'POST /api/workspaces/:workspaceId/storage/scan',
+  'POST /api/workspaces/:workspaceId/storage/clean',
+  'POST /api/workspaces/:workspaceId/storage/backup',
   'GET /api/workspaces/:workspaceId/plans/:planVersionId/finalizations',
   'POST /api/workspaces/:workspaceId/plans/:planVersionId/finalizations',
   'POST /api/workspaces/:workspaceId/finalizations/:finalizationId/control',

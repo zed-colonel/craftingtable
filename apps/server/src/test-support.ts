@@ -77,6 +77,7 @@ export async function createTestContext(
   });
   const app = buildServer(
     {
+      storageService: services.storageService,
       authService: services.authService,
       workspaceService: services.workspaceService,
       planImportService: services.planImportService,

@@ -1,3 +1,5 @@
+import { chmodSync } from 'node:fs';
+import { SqliteStorageMaintenanceRepository } from './repositories/maintenance.js';
 import { SqliteRoadmapRepository } from './repositories/roadmaps.js';
 import type Database from 'better-sqlite3';
 import { SqliteNotificationRepository } from './repositories/notifications.js';
@@ -15,6 +17,7 @@ import type { CraftingTableStorage, MigrationStatus, StorageRepositories } from 
 
 function repositories(database: Database.Database): StorageRepositories {
   return {
+    maintenance: new SqliteStorageMaintenanceRepository(database),
     roadmaps: new SqliteRoadmapRepository(database),
     notifications: new SqliteNotificationRepository(database),
     users: new SqliteUserRepository(database),
@@ -29,6 +32,7 @@ function repositories(database: Database.Database): StorageRepositories {
 }
 
 class SqliteCraftingTableStorage implements CraftingTableStorage {
+  readonly maintenance;
   readonly roadmaps;
   readonly notifications;
   readonly users;
@@ -48,6 +52,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     readonly migrationStatus: MigrationStatus,
   ) {
     const repos = repositories(database);
+    this.maintenance = repos.maintenance;
     this.roadmaps = repos.roadmaps;
     this.notifications = repos.notifications;
     this.users = repos.users;
@@ -66,6 +71,11 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
 
   readTransaction<T>(operation: (tx: StorageRepositories) => T): T {
     return this.database.transaction(() => operation(repositories(this.database))).deferred();
+  }
+
+  async backup(destination: string): Promise<void> {
+    await this.database.backup(destination);
+    chmodSync(destination, 0o600);
   }
 
   close(): void {

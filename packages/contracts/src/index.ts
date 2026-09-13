@@ -14,3 +14,5 @@ export * from './notification.js';
 export * from './roadmap.js';
 
 export * from './finalization.js';
+
+export * from './storage-policy.js';

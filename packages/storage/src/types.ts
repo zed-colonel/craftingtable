@@ -213,6 +213,7 @@ export interface WorkspaceEventRepository {
 import type { RoadmapRepository } from './repositories/roadmaps.js';
 
 export interface StorageRepositories {
+  readonly maintenance: import('./maintenance-types.js').StorageMaintenanceRepository;
   readonly roadmaps: RoadmapRepository;
   readonly notifications: NotificationRepository;
   readonly users: UserRepository;
@@ -239,5 +240,8 @@ export interface CraftingTableStorage extends StorageRepositories {
   readonly migrationStatus: MigrationStatus;
   transaction<T>(operation: (tx: StorageRepositories) => T): T;
   readTransaction<T>(operation: (tx: StorageRepositories) => T): T;
+  backup(destination: string): Promise<void>;
   close(): void;
 }
+
+export * from './maintenance-types.js';

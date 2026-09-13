@@ -1,3 +1,5 @@
+import type { StorageService } from './services/storage-service.js';
+import { registerStorageRoutes } from './routes/storage.js';
 import type { FinalizationService } from './services/finalization-service.js';
 import { registerFinalizationRoutes } from './routes/finalizations.js';
 import type { RoadmapService } from './services/roadmap-service.js';
@@ -37,6 +39,7 @@ import type { WorkspaceEventStreamService } from './services/workspace-event-str
 import type { WorkspaceService } from './services/workspace-service.js';
 
 export interface ServerDependencies {
+  readonly storageService: StorageService;
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
@@ -98,12 +101,15 @@ export function buildServer(
     deps.roadmapService.startWorker();
     deps.workCycleService.startWorker();
     deps.notificationService.startWorker();
+    deps.storageService.startWorker();
   });
   app.addHook('preClose', async () => {
+    await deps.storageService.shutdown();
     await deps.roadmapService.shutdown();
     await deps.notificationService.shutdown();
     await deps.workCycleService.shutdown();
   });
+  registerStorageRoutes(app, deps.authService, deps.storageService, config);
   registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);
   registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);
   registerNotificationRoutes(app, deps.authService, deps.notificationService, config);

@@ -1,3 +1,4 @@
+import type { StorageService } from './storage-service.js';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -114,6 +115,7 @@ export class AgentRunService {
     private readonly now: () => Date = () => new Date(),
     private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
     private readonly branches?: BranchService,
+    private readonly storageService?: StorageService,
   ) {}
 
   hasBackend(kind: AgentBackendKind): boolean {
@@ -486,6 +488,7 @@ export class AgentRunService {
           this.pendingCycleLaunches.delete(cycle.currentRunId);
       }
       const runId = cycle?.currentRunId ?? asAgentRunId(randomUUID());
+      this.storageService?.requireSpace('runsRoot', prepared.worktree.path);
       const runDirectory = join(this.config.runsRoot, runId);
       const temporaryDirectory = join(runDirectory, 'scratch');
       mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
@@ -627,6 +630,7 @@ export class AgentRunService {
       });
       this.notifier.notify();
 
+      this.storageService?.registerRun(run.id, runDirectory);
       const launch: AgentLaunchRequest = {
         cwd: prepared.worktree.path,
         temporaryDirectory,

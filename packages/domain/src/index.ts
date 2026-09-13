@@ -14,3 +14,5 @@ export * from './roadmap.js';
 export * from './merge-operation.js';
 
 export * from './finalization.js';
+
+export * from './storage-policy.js';

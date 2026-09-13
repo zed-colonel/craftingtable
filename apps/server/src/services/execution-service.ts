@@ -882,7 +882,10 @@ export class ExecutionService {
             repositoryPath: repository.rootPath,
             branchName: worktree.branchName,
             targetBranch: operation.targetBranch,
-            scratchPath: join(this.config.worktreeRoot, '.merge', operation.id),
+            scratchPath: join(
+              this.config.mergeRoot ?? join(this.config.worktreeRoot, '.merge'),
+              operation.id,
+            ),
             message: `CraftingTable integration merge ${operation.id}\n\nMerge ${worktree.branchName}: ${item.sourceId} ${item.title}\nReviewed by ${operation.reviewRunId}.`,
           });
           if (!merged.ok) {
@@ -1007,7 +1010,10 @@ export class ExecutionService {
     operation: import('@craftingtable/domain').MergeOperation,
   ): Promise<void> {
     const git = this.requireGit();
-    const path = join(this.config.worktreeRoot, '.merge', operation.id);
+    const path = join(
+      this.config.mergeRoot ?? join(this.config.worktreeRoot, '.merge'),
+      operation.id,
+    );
     const identity = await git.inspectRepository(path);
     if (identity.ok) {
       if (
@@ -1049,7 +1055,10 @@ export class ExecutionService {
     const git = this.requireGit();
     const scratch = await git.removeWorktree({
       repositoryPath: repository.rootPath,
-      worktreePath: join(this.config.worktreeRoot, '.merge', operation.id),
+      worktreePath: join(
+        this.config.mergeRoot ?? join(this.config.worktreeRoot, '.merge'),
+        operation.id,
+      ),
       force: false,
     });
     // A recovered merge never authorizes removing later edits or commits.

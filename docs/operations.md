@@ -6,13 +6,100 @@ By default the daemon keeps everything under `~/.local/share/craftingtable`
 (`$XDG_DATA_HOME/craftingtable` when set; `CRAFTINGTABLE_DATA_DIR` overrides it):
 
 ```text
-state/craftingtable.sqlite   the database (WAL mode; back up the -wal and -shm files with it)
+state/craftingtable.sqlite   the database (WAL mode; use a consistent SQLite backup)
 worktrees/<repo>/<item>-<id> linked Git worktrees created for runs
-runs/<runId>/brief.md        the brief handed to the agent, plus plan/ documents
+runs/<runId>/brief.md        the brief handed to the agent, plus plan/ and handoff/ documents
+runs/<runId>/scratch/        disposable build output and temporary test files
+backups/database/           private, consistent SQLite snapshots
 ```
 
 `pnpm db:status` reports the schema version; `pnpm db:migrate` applies pending
 migrations. Migrations run automatically when the daemon starts.
+
+## Storage maintenance
+
+Open **Settings → Storage**. This controls the entire installation; viewing or changing it
+requires ownership of every active workspace. Locations are workstation paths, not browser
+paths. Worktree and run root environment variables initialize settings once; afterward the
+saved policy is authoritative. Changes affect future allocations. Each run's directory is
+recorded durably; existing checkouts and interrupted runs keep their paths. Integration merge
+scratch keeps its original location for recovery. Recover unfinished finalization preparation
+before changing the future worktree root.
+
+Roots must be separate normalized absolute paths, outside source repositories and database
+state. The daemon can create one leaf below an existing directory, but never recursively
+recreate a missing mount. Canonical paths and device identities are pinned. If a volume is
+missing or changed, restore it before continuing; the daemon does not fall back to the OS disk.
+
+**Scan storage** inventories known run directories and active checkouts without following
+symlinks or nested mounts. **Clean eligible files** consumes a server-held preview, then
+rechecks eligibility and identity before removal. Previews expire on restart, settings changes,
+or cleanup. Reported allocated blocks can differ from physical usage on compressed filesystems
+or when hardlinks/reflinks share data. Partially unreadable trees produce warnings.
+
+Defaults:
+
+- Remove recognized Cargo build caches after the worktree is both merged and removed. Only
+  direct children of a registered run's scratch directory with Cargo's cache signature,
+  compiler marker and fingerprint directory qualify. Unknown build systems and caches outside
+  scratch are not inferred safe. Git worktree removal owns checkout build-output cleanup.
+- Expire the remaining scratch directory after 30 days from the later of run completion and
+  worktree removal, provided no contained file has changed more recently. Setting retention to
+  **Keep until manually removed** disables expiry. Active, interrupted and unmerged work is
+  excluded. This policy deliberately preserves removed-but-unmerged work as well.
+- Keep run briefs, plan/handoff documents, messages, findings and all SQLite history. Scratch
+  file logs can expire; agents must record verification evidence in their final messages.
+- Keep a 5 GiB reserve on database, checkout and run volumes before launches, and on the future
+  checkout volume before creating a worktree. This cannot limit an already-running build;
+  increase the reserve for large builds and reduce roadmap parallelism when necessary.
+- Create a consistent SQLite snapshot every 24 hours and retain seven snapshots on the current
+  backup root. Maintenance checks once per minute while the daemon is running; it retries errors
+  and recomputes cleanup eligibility after restart. Storage pressure/maintenance errors use the
+  existing attention-notification preference and reminder schedule.
+
+Use **Back up database now** before upgrades or storage moves. Snapshots are made through
+SQLite's online backup API, published after completion, and stored in a mode-0700 directory as
+mode-0600 files. They contain credentials. Do not copy a live SQLite main file by itself or copy
+its WAL and SHM companions independently and assume the result is consistent. Retention removes
+only backups registered by this feature in the current backup directory; older backup roots,
+manual backups and migration rollback copies are left alone. A crash during publication can
+leave an unregistered snapshot or `.partial` file, which is retained for manual inspection.
+
+A database snapshot covers plans, imported artifacts, accounts, settings, notification state,
+and run/event history. It does **not** cover source repositories, Git commits, unmerged working
+files, external agent sessions or materialized run directories. Keep repository backups (or
+pushed commits) separately. To protect uncommitted work and host configuration, take a filesystem
+backup while the daemon and agents are stopped. Build caches can be excluded from that backup.
+A backup on the same drive protects against some software mistakes, not drive failure: prefer
+a separate physical disk for database snapshots and source backups.
+
+To restore, stop the daemon and agents, retain the current data directory as a rollback copy,
+and restore the snapshot as `state/craftingtable.sqlite` in a fresh private state directory
+without old WAL/SHM files. Restore the corresponding repositories/worktrees and run directories
+at their recorded paths (or compatible links), then run database integrity/foreign-key checks
+and inspect interrupted cycles before explicitly resuming them. A database-only restore cannot
+reconstruct unmerged working files.
+
+### Moving application data to another disk
+
+Whole-application moves are deliberately offline; the browser does not relocate an open SQLite
+handle. Stop the daemon and verify no agent processes are writing. Make a consistent snapshot,
+then copy the data directory with metadata and symlinks preserved to a private directory on the
+mounted destination. Checksum-verify the copy, check SQLite integrity and foreign keys, and
+verify each active worktree's HEAD and working status.
+
+Preserve the original logical data path with a symlink to the new physical directory. This
+keeps old Git worktree registrations, run briefs and agent-session references valid. After
+schema 15 has registered canonical root/device identities and run directories, a move also
+requires updating those controller records to the verified new canonical paths/device; a
+symlink alone is insufficient. Keep historical messages immutable. This version provides
+future-allocation settings, not an unattended migration command.
+
+Add `ConditionPathIsMountPoint=/mnt/<volume>` to the user service's `[Unit]` section (or a
+private drop-in) so an absent data volume cannot lead to a fresh database on the OS disk.
+Reload the service definition, start the daemon, and verify the Storage panel and active work.
+Keep the original copy until the move is accepted. Interrupted runs remain interrupted until
+explicitly resumed.
 
 ## Running the daemon
 

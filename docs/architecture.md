@@ -246,3 +246,19 @@ artifacts and a complete item inventory supply context; item completion remains 
 Finalization holds further integration merges and ends with a separate review. Only an
 authenticated finalization command approving the exact candidate/destination pair can
 promote it. Preparation reservations survive restart and require explicit resume. See ADR-033.
+
+
+## Installation storage management
+
+Schema 15 records one installation storage policy, canonical root/device identities, per-run
+materialization directories and registered database snapshots. `StorageService` owns filesystem
+inventory and maintenance; SQL and the online backup API stay in `storage`. Execution receives
+current future-allocation roots through an explicit config view. Existing worktree paths and
+integration merge scratch remain stable, and run directories are registered before backend
+launch. Worktree preparation recovery blocks incompatible root changes.
+
+Cleanup previews are daemon-held capabilities. Execution records must show a terminal run and
+a merged, removed worktree with no live siblings before its scratch can be reclaimed. The daemon
+rechecks that state and filesystem identity before deletion. Retention and backup workers restart
+from durable records, never from browser-supplied paths. The browser displays measured capacity,
+previewed usage, backup coverage and errors. See ADR-034.

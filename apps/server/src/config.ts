@@ -24,6 +24,8 @@ export type RepositoryFeatureConfig =
 
 /** Worktree, run, Git, and agent-backend settings for the execution loop. */
 export interface ExecutionConfig {
+  /** Stable integration scratch location, independent of future checkout placement. */
+  readonly mergeRoot?: string;
   /** Explicit Git executable; when absent the daemon searches PATH at startup. */
   readonly gitExecutable?: string;
   /** Explicit Claude Code executable; when absent the daemon searches PATH and ~/.local/bin. */

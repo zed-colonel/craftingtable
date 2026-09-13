@@ -170,11 +170,30 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 14 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 15 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,
 browser end-to-end tests with a scripted agent, and the forbidden-scope check).
+
+## Storage and disk space
+
+**Settings → Storage** shows the actual database, worktree, run-file and backup locations
+with filesystem capacity. Scan for categorized usage and preview cleanup. An owner of every
+active workspace can change future worktree/run placement and backup location without moving
+existing work. The installation-wide settings persist in SQLite; environment worktree/run roots
+seed the settings on first startup. Whole-data relocation is an offline operation.
+
+Recognized Cargo caches are cleaned after merge and worktree removal. Other scratch expires
+after 30 days by default, with an option to retain it. Unmerged, active and interrupted work stays
+protected. Run messages, findings, plan files and database history remain. Daily consistent
+SQLite backups retain seven snapshots by default; put them on another disk for drive-failure
+protection. They do not back up source repositories or unmerged worktrees.
+
+New runs and worktrees require the configured free-space reserve (5 GiB by default). Existing
+notification preferences cover disk-pressure and maintenance alerts. This is a launch guard,
+not a quota on a running agent. See [storage operations](docs/operations.md#storage-maintenance)
+for cleanup limits, backup coverage, restore and migration.
 
 ## Using it from the couch
 

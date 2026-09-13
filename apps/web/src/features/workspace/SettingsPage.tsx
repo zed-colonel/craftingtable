@@ -25,6 +25,7 @@ export function SettingsPage({
   notice,
   onRename,
   notifications,
+  storage,
   backends,
   profiles,
   profilesBusy,
@@ -33,6 +34,7 @@ export function SettingsPage({
   onSaveProfiles,
 }: {
   notifications?: ReactNode;
+  storage?: ReactNode;
   workspace: WorkspaceOverview;
   canEdit: boolean;
   busy: boolean;
@@ -111,6 +113,7 @@ export function SettingsPage({
         )}
       </section>
 
+      {storage}
       {notifications}
 
       {profiles !== undefined && onSaveProfiles !== undefined && (

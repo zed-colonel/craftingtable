@@ -1,3 +1,4 @@
+import { StorageService } from './services/storage-service.js';
 import { FinalizationService } from './services/finalization-service.js';
 import { RoadmapService } from './services/roadmap-service.js';
 import { NotificationService } from './services/notification-service.js';
@@ -49,6 +50,7 @@ import { WorkspaceService } from './services/workspace-service.js';
 import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
 
 export interface ServiceSet {
+  readonly storageService: StorageService;
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
@@ -156,13 +158,14 @@ export async function createServices(
       );
     }
   }
+  const storageService = new StorageService(storage, config, workspaceService, now);
   const worktreeMutations = new WorktreeMutationGuard();
   const executionService = new ExecutionService(
     storage,
     workspaceService,
     notifier,
     gitOperations,
-    config.execution,
+    storageService.executionConfig,
     workItemService,
     now,
     worktreeMutations,
@@ -172,11 +175,12 @@ export async function createServices(
     workspaceService,
     notifier,
     backends,
-    config.execution,
+    storageService.executionConfig,
     overrides.runLog,
     now,
     worktreeMutations,
     executionService.branches,
+    storageService,
   );
   agentRunService.recoverInterrupted();
   const workCycleService = new WorkCycleService(
@@ -217,6 +221,7 @@ export async function createServices(
     }),
   });
   return {
+    storageService,
     finalizationService: new FinalizationService(
       storage,
       workspaceService,
@@ -234,6 +239,7 @@ export async function createServices(
       overrides.notificationTransport ?? new PushoverTransport(fetch, now),
       config.publicOrigin,
       now,
+      () => storageService.alerts(),
     ),
     bootstrapService: new BootstrapService(storage, passwordHasher, notifier, now),
     authService,
@@ -280,6 +286,7 @@ export async function createRuntime(
     const services = await createServices(storage, config, options.overrides);
     const app = buildServer(
       {
+        storageService: services.storageService,
         authService: services.authService,
         workspaceService: services.workspaceService,
         planImportService: services.planImportService,

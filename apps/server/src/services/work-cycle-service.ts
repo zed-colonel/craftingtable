@@ -11,6 +11,7 @@ import {
   type CycleStep,
   designHasNoOpenQuestions,
   evaluateCompletion,
+  remediationAllowance,
   isTerminalAgentRunStatus,
   type WorkCycle,
   type WorkItemId,
@@ -213,6 +214,82 @@ export class WorkCycleService {
         'End the current session before resuming with guidance.',
       );
     return this.next(cycle, cycle.step, runs[0], context, { instructions });
+  }
+
+  /** Read-only eligibility for the recovery control; command checks repeat after Git inspection. */
+  finalizationRemediationBlocker(cycle: WorkCycle): string | undefined {
+    if (
+      !cycle.finalizationId ||
+      !['paused', 'needs-attention'].includes(cycle.status) ||
+      cycle.step !== 'review'
+    )
+      return 'Additional remediation requires a paused finalization review.';
+    if (
+      cycle.integrationResolution &&
+      !['completed', 'abandoned'].includes(cycle.integrationResolution.status)
+    )
+      return 'Resolve the pending integration conflict before authorizing remediation.';
+    if (
+      this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
+      'reserved'
+    )
+      return 'Recover the pending promotion before authorizing remediation.';
+    if (cycle.remediationRounds < remediationAllowance(cycle))
+      return 'The remediation allowance is not exhausted; use Resume finalization.';
+    const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
+    const run = runs[0];
+    if (
+      runs.some((r) => !isTerminalAgentRunStatus(r.status)) ||
+      run?.id !== cycle.currentRunId ||
+      run.role !== 'review' ||
+      run.status !== 'finished'
+    )
+      return 'The current finalization review must finish before authorizing remediation.';
+    const turn = this.storage.execution.runEvents.latestOfKind(
+      cycle.workspaceId,
+      run.id,
+      'turn-completed',
+    );
+    if (
+      turn?.kind !== 'turn-completed' ||
+      turn.payload.outcome !== 'success' ||
+      turn.payload.truncated ||
+      !finalizationHasNoQuestions(turn.payload.resultText)
+    )
+      return 'Resolve the finalization questions or incomplete outcome before authorizing remediation.';
+    const assessment = latestReviewReport(this.storage.execution, run);
+    if (
+      assessment?.status !== 'complete' ||
+      evaluateCompletion(cycle.policy, assessment).action !== 'remediate'
+    )
+      return 'A valid review requiring remediation is needed before extending the allowance.';
+    return undefined;
+  }
+
+  async authorizeFinalizationRemediation(
+    context: CommandContext,
+    cycle: WorkCycle,
+    additionalRounds: number,
+    instructions: string,
+  ): Promise<WorkCycle> {
+    this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+    finalizationForCycle(this.storage, cycle);
+    if (
+      !Number.isInteger(additionalRounds) ||
+      additionalRounds < 1 ||
+      additionalRounds > 20 ||
+      (cycle.additionalRemediationRounds ?? 0) + additionalRounds > Number.MAX_SAFE_INTEGER - 20
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Authorize between 1 and 20 additional remediation attempts.',
+      );
+    this.mutations.requireAvailable(cycle.worktreeId);
+    const blocker = this.finalizationRemediationBlocker(cycle);
+    if (blocker) throw new ExecutionRequestError('conflict', blocker);
+    const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+    if (!run) throw new NotFoundError();
+    return this.reviewRemediation(cycle, run, context, { additionalRounds, instructions });
   }
 
   async control(
@@ -632,6 +709,7 @@ export class WorkCycleService {
     cycle: WorkCycle,
     run: AgentRun,
     context?: CommandContext,
+    grant?: { additionalRounds: number; instructions: string },
   ): Promise<WorkCycle> {
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (!tree || !this.git) throw new NotFoundError();
@@ -641,9 +719,25 @@ export class WorkCycleService {
         'conflict',
         'Remediation requires the managed branch without unresolved Git operations.',
       );
+    if (grant) {
+      if (!context)
+        throw new ExecutionRequestError('conflict', 'Operator authorization is required.');
+      this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+      finalizationForCycle(this.storage, cycle);
+      this.mutations.requireAvailable(cycle.worktreeId);
+      if (
+        this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !== cycle.version
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Finalization changed; refresh before authorizing more remediation.',
+        );
+      const blocker = this.finalizationRemediationBlocker(cycle);
+      if (blocker) throw new ExecutionRequestError('conflict', blocker);
+    }
     const assessment = latestReviewReport(this.storage.execution, run);
     const decision = evaluateCompletion(cycle.policy, assessment);
-    if (cycle.remediationRounds >= cycle.policy.maxRemediationRounds) {
+    if (cycle.remediationRounds >= remediationAllowance(cycle) + (grant?.additionalRounds ?? 0)) {
       this.attention(cycle, `Remediation limit reached. ${decision.reason}`);
       return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
     }
@@ -660,8 +754,12 @@ export class WorkCycleService {
         }),
       )
       .digest('hex');
-    const stalledReviews =
-      fingerprint === cycle.previousFindingFingerprint ? cycle.stalledReviews + 1 : 0;
+    // Explicit authorization opens a new bounded progress window, not an automatic reset.
+    const stalledReviews = grant
+      ? 0
+      : fingerprint === cycle.previousFindingFingerprint
+        ? cycle.stalledReviews + 1
+        : 0;
     if (stalledReviews >= 2) {
       this.attention(
         cycle,
@@ -669,16 +767,31 @@ export class WorkCycleService {
       );
       return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
     }
-    return this.next(cycle, 'remediate', run, context, {
-      housekeepingInstructions: this.housekeepingGuidance(),
-      remediationRounds: cycle.remediationRounds + 1,
-      previousFindingFingerprint: fingerprint,
-      stalledReviews,
-    });
+    return this.next(
+      cycle,
+      'remediate',
+      run,
+      context,
+      {
+        housekeepingInstructions: this.housekeepingGuidance(),
+        remediationRounds: cycle.remediationRounds + 1,
+        previousFindingFingerprint: fingerprint,
+        stalledReviews,
+        ...(grant
+          ? {
+              additionalRemediationRounds:
+                (cycle.additionalRemediationRounds ?? 0) + grant.additionalRounds,
+              instructions: grant.instructions,
+              reason: `Authorized ${grant.additionalRounds} additional remediation attempt(s); starting remediation.`,
+            }
+          : {}),
+      },
+      grant ? 'authorize-remediation' : undefined,
+    );
   }
 
   private async housekeeping(cycle: WorkCycle, run: AgentRun, reason: string): Promise<void> {
-    if (cycle.remediationRounds >= cycle.policy.maxRemediationRounds) {
+    if (cycle.remediationRounds >= remediationAllowance(cycle)) {
       this.attention(cycle, `Remediation limit reached. ${reason}`);
       return;
     }
@@ -1375,6 +1488,7 @@ export class WorkCycleService {
     parent?: AgentRun,
     context?: CommandContext,
     changes: Partial<WorkCycle> = {},
+    action = context === undefined ? 'advance' : 'resume',
   ): Promise<WorkCycle> {
     const reviewHeadSha = step === 'review' ? await this.cleanHead(cycle) : undefined;
     if (
@@ -1395,9 +1509,9 @@ export class WorkCycleService {
         ...(parent === undefined ? {} : { parentRunId: parent.id }),
         ...(reviewHeadSha === undefined ? {} : { reviewHeadSha }),
         runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
-        reason: `Starting ${step}.`,
+        reason: changes.reason ?? `Starting ${step}.`,
       },
-      context === undefined ? 'advance' : 'resume',
+      action,
       context,
     );
   }
@@ -1486,6 +1600,14 @@ export class WorkCycleService {
         step: cycle.step,
         reason: cycle.reason,
         runId: cycle.currentRunId,
+        ...(action === 'authorize-remediation'
+          ? {
+              initialRemediationAllowance: cycle.policy.maxRemediationRounds,
+              additionalRemediationRounds: cycle.additionalRemediationRounds ?? 0,
+              remediationAllowance: remediationAllowance(cycle),
+              remediationRounds: cycle.remediationRounds,
+            }
+          : {}),
         ...(cycle.integrationResolution
           ? {
               integrationResolution: {

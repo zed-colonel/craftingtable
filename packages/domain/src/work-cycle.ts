@@ -78,6 +78,8 @@ export interface WorkCycle {
   readonly parentRunId?: AgentRunId;
   readonly runDeadlineAt: string;
   readonly remediationRounds: number;
+  /** Extra attempts explicitly authorized after a finalization exhausts its initial allowance. */
+  readonly additionalRemediationRounds?: number;
   readonly stalledReviews: number;
   readonly previousFindingFingerprint?: string;
   readonly reviewHeadSha?: string;
@@ -94,6 +96,12 @@ export interface WorkCycle {
   readonly integrationRefreshes?: number;
   readonly reason: string;
 }
+export function remediationAllowance(
+  cycle: Pick<WorkCycle, 'policy' | 'additionalRemediationRounds'>,
+): number {
+  return cycle.policy.maxRemediationRounds + (cycle.additionalRemediationRounds ?? 0);
+}
+
 export interface CompletionDecision {
   readonly action: 'awaiting-merge' | 'remediate' | 'needs-attention';
   readonly reason: string;

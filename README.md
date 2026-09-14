@@ -115,6 +115,12 @@ it is mergeable.
   each report. Evidence summarizes current checks and references detailed records; it does
   not accumulate earlier reports. A rejected report's retry receives its validation errors
   and may reuse complete verification only against unchanged candidate/destination commits.
+  When a valid review exhausts the remediation allowance, **Authorize more remediation**
+  adds 1–20 attempts (default 1) and starts remediation followed by review. Review the
+  remaining findings, allowance and optional guidance in that form. Used counts and
+  original settings remain; the extra allowance survives restart and spans the whole
+  finalization. Resume alone does not extend it. Questions and invalid reports must be
+  resolved through their existing controls before additional remediation can be authorized.
   Pausing retains the integration hold; stopping
   releases it and retains the candidate for inspection or removal.
   Finalization works on a dedicated candidate branch from a pinned integration snapshot.

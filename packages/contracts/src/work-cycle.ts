@@ -87,6 +87,12 @@ export const workCycleSchema = z
     parentRunId: agentRunIdSchema.optional(),
     runDeadlineAt: z.iso.datetime(),
     remediationRounds: z.number().int().nonnegative(),
+    additionalRemediationRounds: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(Number.MAX_SAFE_INTEGER - 20)
+      .optional(),
     stalledReviews: z.number().int().nonnegative(),
     previousFindingFingerprint: z.string().max(128).optional(),
     reviewHeadSha: z
@@ -114,7 +120,9 @@ export const workCycleSchema = z
   .refine(
     (cycle) =>
       cycle.workItemId !== undefined
-        ? cycle.planVersionId === undefined && cycle.finalizationId === undefined
+        ? cycle.planVersionId === undefined &&
+          cycle.finalizationId === undefined &&
+          cycle.additionalRemediationRounds === undefined
         : cycle.planVersionId !== undefined && cycle.finalizationId !== undefined,
     { message: 'A cycle requires a work item or an explicit plan finalization subject' },
   );

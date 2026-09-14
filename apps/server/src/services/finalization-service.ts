@@ -196,6 +196,17 @@ export class FinalizationService {
         conflict('Recover the approved promotion before resuming or stopping finalization.');
       if (['stopped', 'completed'].includes(value.status))
         conflict('This finalization has ended. Start a new one for further work.');
+      if (input.action === 'authorize-remediation') {
+        if (value.status !== 'active' || !cycle || input.additionalRounds === undefined)
+          conflict('An active finalization and an explicit additional allowance are required.');
+        await this.cycles.authorizeFinalizationRemediation(
+          context,
+          cycle,
+          input.additionalRounds,
+          input.instructions ?? '',
+        );
+        return this.view(value);
+      }
       if (input.action === 'stop' && value.status === 'preparing')
         await this.execution.createFinalizationWorktree(
           context,
@@ -278,9 +289,12 @@ export class FinalizationService {
     }
   }
   private view(value: Finalization) {
+    const cycle = this.storage.execution.cycles.find(value.workspaceId, value.cycleId);
     return {
       finalization: value,
-      cycle: this.storage.execution.cycles.find(value.workspaceId, value.cycleId),
+      cycle,
+      canAuthorizeRemediation:
+        value.status === 'active' && !!cycle && !this.cycles.finalizationRemediationBlocker(cycle),
       worktree: (() => {
         const tree = this.storage.execution.worktrees.find(value.workspaceId, value.worktreeId);
         return tree

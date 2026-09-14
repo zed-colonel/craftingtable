@@ -1,4 +1,4 @@
-import { openDatabase } from '@craftingtable/storage';
+import { openDatabase, openCraftingTableStorage } from '@craftingtable/storage';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -4915,3 +4915,257 @@ it('still requires closed findings in ordinary work-item review reports', async 
     issues: [expect.stringContaining('F-001')],
   });
 });
+
+it('authorizes bounded extra finalization remediation, preserves counts and rounds, and rejects replay', {
+  timeout: 20000,
+}, async () => {
+  const fixture = await finalizationFixture();
+  const { state, backend, root } = fixture;
+  const initialMain = git(['rev-parse', 'main'], root);
+  const result = (findings: readonly unknown[]) =>
+    `## Open questions\nnone\n\n## Review report\n${reviewText(findings)}`;
+  let fixed = false;
+  backend.replyForRequest = (request) => ({
+    resultText: request.model?.includes('polish')
+      ? 'Checked the fix.\n\n## Open questions\nnone'
+      : result([
+          {
+            ...structuredFinding,
+            ...(fixed ? { status: 'resolved', disposition: 'Fix independently verified.' } : {}),
+          },
+        ]),
+  });
+  const value = await beginFinalization(fixture, {
+    ...fixture.input,
+    rounds: [present(fixture.input.rounds[0]), present(fixture.input.rounds[0])],
+    policy: { ...fixture.input.policy, maxRemediationRounds: 1 },
+  });
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'needs-attention',
+    'initial remediation limit',
+    10000,
+  );
+  const before = finalizationCycle(state, value);
+  expect(before).toMatchObject({ remediationRounds: 1, polishRound: 0, polishPhase: 'verify' });
+  const count = backend.launches.length;
+  const unchanged = await finalizationCommand(state, value, 'resume');
+  expect(unchanged.statusCode).toBe(200);
+  expect(backend.launches).toHaveLength(count);
+  const versions = finalizationCycle(state, value);
+  const requests = await Promise.all([
+    finalizationCommand(state, value, 'authorize-remediation', {
+      additionalRounds: 1,
+      instructions: 'Focus on the remaining regression.',
+    }),
+    finalizationCommand(state, value, 'authorize-remediation', {
+      additionalRounds: 1,
+      instructions: 'Focus on the remaining regression.',
+    }),
+  ]);
+  expect(requests.map((r) => r.statusCode).sort()).toEqual([200, 409]);
+  const granted = present(requests.find((r) => r.statusCode === 200)).json();
+  expect(granted.cycle).toMatchObject({
+    step: 'remediate',
+    remediationRounds: 2,
+    additionalRemediationRounds: 1,
+    parentRunId: versions.currentRunId,
+  });
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'needs-attention',
+    'extended remediation limit',
+  );
+  expect(backend.launches[count]?.model).toBe('polish-model');
+  expect(backend.launches[count]?.prompt).toContain('Focus on the remaining regression.');
+  expect(backend.launches[count + 1]?.prompt).not.toContain('Focus on the remaining regression.');
+  expect(finalizationCycle(state, value)).toMatchObject({
+    remediationRounds: 2,
+    additionalRemediationRounds: 1,
+    policy: { maxRemediationRounds: 1 },
+  });
+  const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+  try {
+    expect(reopened.execution.cycles.find(state.workspaceId, value.cycleId)).toMatchObject({
+      remediationRounds: 2,
+      additionalRemediationRounds: 1,
+    });
+  } finally {
+    reopened.close();
+  }
+  fixed = true;
+  expect(
+    (await finalizationCommand(state, value, 'authorize-remediation', { additionalRounds: 2 }))
+      .statusCode,
+  ).toBe(200);
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'awaiting-merge',
+    'remaining rounds and independent review',
+    10000,
+  );
+  expect(finalizationCycle(state, value)).toMatchObject({
+    worktreeId: before.worktreeId,
+    remediationRounds: 3,
+    additionalRemediationRounds: 3,
+    polishPhase: 'final-review',
+    polishRound: 2,
+    policy: { maxRemediationRounds: 1, maxNits: 0 },
+  });
+  expect(backend.launches.at(-1)?.model).toBe('final-review-model');
+  expect(git(['rev-parse', 'main'], root)).toBe(initialMain);
+  expect((await merge(state, value.worktreeId)).statusCode).toBe(409);
+  const audit = state.context.storage.audit
+    .listWorkspace({ workspaceId: state.workspaceId, limit: 1000 })
+    .filter((event) => event.metadata?.action === 'authorize-remediation');
+  expect(audit).toHaveLength(2);
+  expect(audit.map((event) => event.metadata?.additionalRemediationRounds).sort()).toEqual([1, 3]);
+  expect(
+    audit.every((event) => event.actorKind === 'user' && event.actorUserId === state.userId),
+  ).toBe(true);
+});
+
+it.each(['questions', 'invalid', 'conflict'] as const)(
+  'does not authorize extra remediation across a %s checkpoint',
+  {
+    timeout: 15000,
+  },
+  async (checkpoint) => {
+    const fixture = await finalizationFixture();
+    const { state, backend } = fixture;
+    backend.replyForRequest = () => ({
+      resultText: `## Open questions\n${checkpoint === 'questions' ? 'May I change the public API?' : 'none'}\n\n## Review report\n${checkpoint === 'invalid' ? 'Invalid review' : reviewText([structuredFinding])}`,
+    });
+    const value = await beginFinalization(fixture, {
+      ...fixture.input,
+      rounds: [],
+      policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
+    });
+    await waitFor(() => finalizationCycle(state, value).status === 'needs-attention', 'checkpoint');
+    const current = finalizationCycle(state, value);
+    if (checkpoint === 'conflict')
+      state.context.storage.transaction((tx) =>
+        tx.execution.cycles.replace(
+          {
+            ...current,
+            version: current.version + 1,
+            integrationResolution: {
+              id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              status: 'detected',
+              headSha: '1'.repeat(40),
+              targetSha: '2'.repeat(40),
+              targetBranch: 'main',
+              paths: ['README.md'],
+              diagnostics: 'Conflict',
+              attempts: 0,
+              createdAt: current.updatedAt,
+            },
+          },
+          current.version,
+        ),
+      );
+    const response = await finalizationCommand(state, value, 'authorize-remediation', {
+      additionalRounds: 1,
+    });
+    expect(response.statusCode, response.body).toBe(409);
+    expect(finalizationCycle(state, value).additionalRemediationRounds).toBeUndefined();
+    expect(backend.launches).toHaveLength(1);
+  },
+);
+
+it('requires CSRF and editor authority before authorizing finalization remediation', {
+  timeout: 10000,
+}, async () => {
+  const fixture = await finalizationFixture();
+  const { state, backend } = fixture;
+  backend.replyForRequest = () => ({
+    resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([structuredFinding])}`,
+  });
+  const value = await beginFinalization(fixture, {
+    ...fixture.input,
+    rounds: [],
+    policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
+  });
+  await waitFor(() => finalizationCycle(state, value).status === 'needs-attention', 'budget');
+  const noCsrf = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/finalizations/${value.id}/control`,
+    headers: { cookie: state.cookie },
+    payload: {
+      action: 'authorize-remediation',
+      additionalRounds: 1,
+      expectedVersion: value.version,
+      expectedCycleVersion: finalizationCycle(state, value).version,
+    },
+  });
+  expect(noCsrf.statusCode).toBe(403);
+  const db = openDatabase(state.context.storage.databasePath);
+  try {
+    db.prepare(
+      "UPDATE workspace_memberships SET role = 'viewer' WHERE workspace_id = ? AND user_id = ?",
+    ).run(state.workspaceId, state.userId);
+  } finally {
+    db.close();
+  }
+  expect(
+    (await finalizationCommand(state, value, 'authorize-remediation', { additionalRounds: 1 }))
+      .statusCode,
+  ).toBe(403);
+  expect(finalizationCycle(state, value).additionalRemediationRounds).toBeUndefined();
+  expect(backend.launches).toHaveLength(1);
+});
+
+it.each(['pause', 'revoke'] as const)(
+  'rechecks finalization authorization after Git inspection when the operator chooses %s',
+  { timeout: 15000 },
+  async (change) => {
+    const realGit = createGitOperations({ gitExecutable: 'git' });
+    let duringInspection: (() => Promise<void>) | undefined;
+    const fixture = await finalizationFixture({
+      gitOperations: {
+        ...realGit,
+        inspectWorktreeChanges: async (path) => {
+          const result = await realGit.inspectWorktreeChanges(path);
+          const operation = duringInspection;
+          duringInspection = undefined;
+          await operation?.();
+          return result;
+        },
+      },
+    });
+    const { state, backend } = fixture;
+    backend.replyForRequest = () => ({
+      resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([structuredFinding])}`,
+    });
+    const value = await beginFinalization(fixture, {
+      ...fixture.input,
+      rounds: [],
+      policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
+    });
+    await waitFor(() => finalizationCycle(state, value).status === 'needs-attention', 'budget');
+    duringInspection = async () => {
+      if (change === 'pause') {
+        const paused = await state.context.app.inject({
+          method: 'POST',
+          url: `/api/workspaces/${state.workspaceId}/cycles/${value.cycleId}/control`,
+          headers: mutationHeaders(state),
+          payload: { action: 'pause', expectedVersion: finalizationCycle(state, value).version },
+        });
+        expect(paused.statusCode).toBe(200);
+      } else {
+        const db = openDatabase(state.context.storage.databasePath);
+        try {
+          db.prepare(
+            "UPDATE workspace_memberships SET role = 'viewer' WHERE workspace_id = ? AND user_id = ?",
+          ).run(state.workspaceId, state.userId);
+        } finally {
+          db.close();
+        }
+      }
+    };
+    const response = await finalizationCommand(state, value, 'authorize-remediation', {
+      additionalRounds: 1,
+    });
+    expect(response.statusCode, response.body).toBe(change === 'pause' ? 409 : 403);
+    expect(finalizationCycle(state, value).additionalRemediationRounds).toBeUndefined();
+    expect(finalizationCycle(state, value).remediationRounds).toBe(0);
+    expect(backend.launches).toHaveLength(1);
+  },
+);

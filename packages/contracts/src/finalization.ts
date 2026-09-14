@@ -53,18 +53,37 @@ export const finalizationViewSchema = z.strictObject({
   worktree: worktreeSummarySchema.optional(),
   runs: z.array(agentRunSummarySchema),
   mergeRecoveryPending: z.boolean(),
+  canAuthorizeRemediation: z.boolean().default(false),
 });
 export const finalizationsResponseSchema = z.strictObject({
   finalizations: z.array(finalizationViewSchema),
 });
-export const controlFinalizationRequestSchema = z.strictObject({
-  expectedVersion: z.number().int().positive(),
-  expectedCycleVersion: z.number().int().positive().optional(),
-  action: z.enum(['resume', 'pause', 'stop', 'merge', 'remove-worktree', 'retry-cleanup']),
-  instructions: z.string().max(16000).optional(),
-  expectedHeadSha: gitShaSchema.optional(),
-  expectedTargetSha: gitShaSchema.optional(),
-});
+export const controlFinalizationRequestSchema = z
+  .strictObject({
+    expectedVersion: z.number().int().positive(),
+    expectedCycleVersion: z.number().int().positive().optional(),
+    action: z.enum([
+      'resume',
+      'pause',
+      'stop',
+      'merge',
+      'remove-worktree',
+      'retry-cleanup',
+      'authorize-remediation',
+    ]),
+    additionalRounds: z.number().int().min(1).max(20).optional(),
+    instructions: z.string().max(16000).optional(),
+    expectedHeadSha: gitShaSchema.optional(),
+    expectedTargetSha: gitShaSchema.optional(),
+  })
+  .refine(
+    (request) =>
+      (request.action === 'authorize-remediation') === (request.additionalRounds !== undefined),
+    {
+      message: 'Only remediation authorization requires an additionalRounds allowance',
+      path: ['additionalRounds'],
+    },
+  );
 export type StartFinalizationRequest = z.infer<typeof startFinalizationRequestSchema>;
 export type ControlFinalizationRequest = z.infer<typeof controlFinalizationRequestSchema>;
 export type FinalizationView = z.infer<typeof finalizationViewSchema>;

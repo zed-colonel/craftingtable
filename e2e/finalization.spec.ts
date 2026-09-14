@@ -114,22 +114,67 @@ test('automates integration and performs plan finalization with explicit final a
     const finalization = page.getByRole('region', { name: 'Finalize integration', exact: true });
     await finalization.getByRole('button', { name: 'Set up finalization' }).click();
     await finalization.getByLabel('Improvement rounds').fill('1');
+    await finalization.getByLabel('Additional remediation rounds', { exact: true }).fill('0');
     await finalization
       .getByLabel('Round focus')
       .fill('Conformance and simplification, preserve the public behavior.');
     await finalization
       .getByLabel('Conformance and polish instructions')
-      .fill('Review the complete plan and improve clarity.');
+      .fill('Review the complete plan and improve clarity. FINALIZATION-REMEDIATION-LIMIT');
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
       .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
     await page.screenshot({ path: info.outputPath('finalization-setup.png'), fullPage: true });
     await finalization.getByRole('button', { name: 'Start finalization', exact: true }).click();
+    const recovery = finalization.getByRole('form', { name: 'Authorize more remediation' });
+    await expect(recovery).toBeVisible({ timeout: 30000 });
+    await finalization.getByText('Review findings', { exact: true }).click();
+    await expect(
+      finalization.getByRole('heading', { name: /Clarify the finalization example/ }),
+    ).toBeVisible();
+    await expect(
+      finalization.getByRole('button', { name: 'Resume finalization', exact: true }),
+    ).toHaveCount(0);
+    await page.reload();
+    await expect(recovery).toBeVisible();
+    await expect(
+      recovery.getByLabel('Additional remediation attempts', { exact: true }),
+    ).toHaveValue('1');
+    await recovery
+      .getByLabel('Guidance for the next remediation (optional)')
+      .fill('Clarify the example. E2E-EXTRA-REMEDIATION');
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+      .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+    await recovery.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: info.outputPath('finalization-remediation-authorization.png'),
+      fullPage: true,
+    });
+    const request = page.waitForRequest(
+      (r) =>
+        r.method() === 'POST' &&
+        r.url().endsWith('/control') &&
+        r.postDataJSON()?.action === 'authorize-remediation',
+    );
+    await recovery.getByRole('button', { name: 'Authorize more remediation', exact: true }).click();
+    expect((await request).postDataJSON()).toMatchObject({
+      action: 'authorize-remediation',
+      additionalRounds: 1,
+      instructions: 'Clarify the example. E2E-EXTRA-REMEDIATION',
+    });
+
     await expect(
       finalization.getByRole('button', { name: 'Review final merge approval' }),
     ).toBeVisible({ timeout: 30000 });
     await expect(finalization.getByText('final-review', { exact: false }).first()).toBeVisible();
     expect(git(['rev-parse', 'main'], repository)).toBe(main);
+    await expect(
+      finalization.getByText(
+        '1 of 1 additional remediation attempts used across this finalization.',
+        { exact: true },
+      ),
+    ).toBeVisible();
     expect(git(['rev-parse', 'revision'], repository)).toBe(integration);
     await page.reload();
     await expect(

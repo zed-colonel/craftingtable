@@ -9,6 +9,7 @@ import type {
 } from '@craftingtable/contracts';
 import {
   DEFAULT_COMPLETION_POLICY,
+  remediationAllowance,
   type AgentRunId,
   type PlanVersionId,
   type WorkspaceId,
@@ -64,6 +65,7 @@ export function FinalizationPanel({
     cycleVersion: number;
   }>();
   const [guidance, setGuidance] = useState<Record<string, string>>({});
+  const [additionalRounds, setAdditionalRounds] = useState<Record<string, number>>({});
   const [diff, setDiff] = useState<WorktreeDiffResponse>();
   // biome-ignore lint/correctness/useExhaustiveDependencies: A completed command requests an immediate server refresh.
   useEffect(() => {
@@ -159,14 +161,20 @@ export function FinalizationPanel({
           action,
           expectedVersion: view.finalization.version,
           expectedCycleVersion: view.cycle?.version,
-          ...(action === 'resume' && guidance[view.finalization.id]?.trim()
+          ...(action === 'authorize-remediation'
+            ? { additionalRounds: additionalRounds[view.finalization.id] ?? 1 }
+            : {}),
+          ...(['resume', 'authorize-remediation'].includes(action) &&
+          guidance[view.finalization.id]?.trim()
             ? { instructions: guidance[view.finalization.id] }
             : {}),
         },
         csrfToken,
       );
-      if (action === 'resume')
+      if (['resume', 'authorize-remediation'].includes(action))
         setGuidance((current) => ({ ...current, [view.finalization.id]: '' }));
+      if (action === 'authorize-remediation')
+        setAdditionalRounds((current) => ({ ...current, [view.finalization.id]: 1 }));
     });
   const live = views.some((v) => ['preparing', 'active'].includes(v.finalization.status));
   return (
@@ -388,7 +396,14 @@ export function FinalizationPanel({
               <br />
               Candidate <code>{view.worktree?.branchName ?? 'Preparing'}</code>
             </p>
+            {cycle && (
+              <p>
+                {cycle.remediationRounds} of {remediationAllowance(cycle)} additional remediation
+                attempts used across this finalization.
+              </p>
+            )}
             {canMutate &&
+              !view.canAuthorizeRemediation &&
               cycle &&
               ['paused', 'needs-attention'].includes(cycle.status) &&
               (!cycle.integrationResolution ||
@@ -439,7 +454,8 @@ export function FinalizationPanel({
                       Pause finalization
                     </button>
                   )}
-                  {(!cycle || ['paused', 'needs-attention'].includes(cycle.status)) &&
+                  {!view.canAuthorizeRemediation &&
+                    (!cycle || ['paused', 'needs-attention'].includes(cycle.status)) &&
                     cycle?.integrationResolution?.status !== 'detected' && (
                       <button
                         type="button"
@@ -574,11 +590,68 @@ export function FinalizationPanel({
                 version={latest.version}
               />
             )}
+            {canMutate && view.canAuthorizeRemediation && cycle && (
+              <form
+                className="stack-form"
+                aria-label="Authorize more remediation"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void command(view, 'authorize-remediation');
+                }}
+              >
+                <h4>Remediation allowance exhausted</h4>
+                <p>
+                  Review the remaining findings above. Authorize additional attempts on this
+                  candidate, starting with remediation followed by review. The completion policy and
+                  your final merge approval still apply.
+                </p>
+                <label className="field">
+                  Additional remediation attempts
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    required
+                    disabled={busy}
+                    value={additionalRounds[f.id] ?? 1}
+                    onChange={(event) =>
+                      setAdditionalRounds((current) => ({
+                        ...current,
+                        [f.id]: Number(event.target.value),
+                      }))
+                    }
+                  />
+                </label>
+                <p>
+                  Used: {cycle.remediationRounds}. Current allowance: {remediationAllowance(cycle)}.
+                  New allowance: {remediationAllowance(cycle) + (additionalRounds[f.id] ?? 1)}.
+                </p>
+                <label className="field">
+                  Guidance for the next remediation (optional)
+                  <textarea
+                    maxLength={16000}
+                    disabled={busy}
+                    value={guidance[f.id] ?? ''}
+                    onChange={(event) =>
+                      setGuidance((current) => ({ ...current, [f.id]: event.target.value }))
+                    }
+                  />
+                </label>
+                <button type="submit" className="primary-button" disabled={busy}>
+                  Authorize more remediation
+                </button>
+              </form>
+            )}
             <details>
               <summary>Pass settings and run history</summary>
               <p>
                 Zero blocking, major or minor findings; up to {f.policy.maxNits} nits. Additional
-                remediation budget: {f.policy.maxRemediationRounds}.
+                remediation allowance:{' '}
+                {cycle ? remediationAllowance(cycle) : f.policy.maxRemediationRounds}
+                {cycle?.additionalRemediationRounds
+                  ? ` (${f.policy.maxRemediationRounds} initial + ${cycle.additionalRemediationRounds} authorized)`
+                  : ''}
+                .
               </p>
               <pre className="roadmap-instructions">
                 {JSON.stringify(

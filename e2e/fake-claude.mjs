@@ -8,7 +8,7 @@
  * It exits when stdin closes. No network, no model, deterministic output.
  */
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -105,23 +105,38 @@ lines.on('line', (line) => {
   }
   if (reviewing) {
     const verdict = text.includes('VERDICT-CHANGES') ? 'changes-requested' : 'mergeable';
-    const findings = text.includes('MOBILE-FINDINGS')
-      ? [
-          {
-            id: 'F-001',
-            severity: 'nit',
-            status: 'open',
-            title: 'Clarify the example in the integration guide',
-            location: {
-              path: `docs/${'long-directory-name/'.repeat(8)}integration-guide.md`,
-              line: 12,
+    const findings =
+      finalizing && text.includes('FINALIZATION-REMEDIATION-LIMIT')
+        ? [
+            {
+              id: 'F-001',
+              severity: 'nit',
+              status: existsSync(join(cwd, 'REMEDIATED.md')) ? 'resolved' : 'open',
+              title: 'Clarify the finalization example',
+              explanation: 'The example needs a short explanation.',
+              recommendation: 'Clarify the example.',
+              ...(existsSync(join(cwd, 'REMEDIATED.md'))
+                ? { disposition: 'Verified the explanation.' }
+                : {}),
             },
-            explanation:
-              'The behavior is correct, but the example could explain the integration target more clearly.',
-            recommendation: 'Add a short explanation alongside the example.',
-          },
-        ]
-      : [];
+          ]
+        : text.includes('MOBILE-FINDINGS')
+          ? [
+              {
+                id: 'F-001',
+                severity: 'nit',
+                status: 'open',
+                title: 'Clarify the example in the integration guide',
+                location: {
+                  path: `docs/${'long-directory-name/'.repeat(8)}integration-guide.md`,
+                  line: 12,
+                },
+                explanation:
+                  'The behavior is correct, but the example could explain the integration target more clearly.',
+                recommendation: 'Add a short explanation alongside the example.',
+              },
+            ]
+          : [];
     const reviewResult =
       (finalizing
         ? 'Whole-plan conformance and fixture checks passed.\n\n## Open questions\nnone\n\n## Review report\n'
@@ -161,6 +176,8 @@ lines.on('line', (line) => {
     if (item === 'AQ-02' || item === 'AQ-03')
       writeFileSync(join(cwd, 'README.md'), `${item} behavior.\n`);
   }
+  if (finalizing && text.includes('E2E-EXTRA-REMEDIATION'))
+    writeFileSync(join(cwd, 'REMEDIATED.md'), 'The finalization example is now explained.\n');
   // Commit the file the way the implement brief asks for, so a later merge is clean.
   git(['add', '--all']);
   git(['commit', '--allow-empty', '--no-gpg-sign', '-q', '-m', `fake agent turn ${turns}`]);

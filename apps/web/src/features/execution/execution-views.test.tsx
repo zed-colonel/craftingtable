@@ -336,6 +336,45 @@ describe('RunPage', () => {
     expect(document.querySelector('script')).toBeNull();
   });
 
+  it('shows incomplete background completion above the outcome without relying on stderr events', () => {
+    render(
+      <RunPage
+        detail={{
+          ...detail,
+          run: run({ status: 'failed' }),
+          completionIssue: {
+            reason: 'background-work-incomplete',
+            message: 'Background processes finished, but the agent did not collect their results.',
+          },
+          latestOutcome: {
+            sequence: 99,
+            occurredAt: '2026-09-14T12:00:00Z',
+            text: 'Waiting for the matrix.',
+            outcome: 'success',
+            truncated: false,
+          },
+        }}
+        events={[]}
+        connection="open"
+        canMutate={false}
+        busy={false}
+        onSend={vi.fn()}
+        onEnd={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenWorkItem={vi.fn()}
+        onLoadDiff={vi.fn()}
+        onCloseDiff={vi.fn()}
+      />,
+    );
+    const issue = screen.getByRole('region', { name: 'Run completion issue' });
+    expect(issue.textContent).toContain('did not collect their results');
+    expect(
+      issue.compareDocumentPosition(screen.getByRole('region', { name: 'Run outcome' })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Final outcome' })).toBeNull();
+  });
+
   it('renders the status, events, and a message box for a live run', () => {
     const onSend = vi.fn();
     render(

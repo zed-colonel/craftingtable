@@ -30,6 +30,7 @@ import {
 } from '@craftingtable/contracts';
 import {
   type AgentBackendKind,
+  type AgentExitReason,
   type AgentRunId,
   asPlanBundleId,
   asPlanVersionId,
@@ -122,6 +123,7 @@ class ScriptedBackend implements AgentBackend {
 }
 
 interface ScriptedReply {
+  readonly exitReason?: AgentExitReason;
   readonly messages?: readonly string[];
   readonly resultText: string;
   readonly truncated?: boolean;
@@ -129,12 +131,14 @@ interface ScriptedReply {
 
 class ScriptedSession implements AgentSession {
   readonly pid = 4242;
+  backgroundWorkPending = false;
   readonly sent: string[] = [];
   private readonly queue: AgentSessionItem[] = [];
   private waiter: ((item: IteratorResult<AgentSessionItem>) => void) | undefined;
   private closed = false;
   private turns = 0;
   private delayed = false;
+  private exitReason: AgentExitReason | undefined;
 
   constructor(
     request: AgentLaunchRequest,
@@ -186,6 +190,7 @@ class ScriptedSession implements AgentSession {
   private respondNow(text: string): void {
     this.turns += 1;
     const reply = this.replies.shift();
+    this.exitReason = reply?.exitReason;
     this.push({
       type: 'event',
       event: {
@@ -288,7 +293,12 @@ class ScriptedSession implements AgentSession {
 
   private exit(exitCode: number | null, signal: string | null): void {
     if (this.closed) return;
-    this.push({ type: 'exited', exitCode, signal });
+    this.push({
+      type: 'exited',
+      exitCode,
+      signal,
+      ...(this.exitReason ? { reason: this.exitReason } : {}),
+    });
     this.closed = true;
     if (this.waiter !== undefined) {
       const resolve = this.waiter;
@@ -5169,3 +5179,261 @@ it.each(['pause', 'revoke'] as const)(
     expect(backend.launches).toHaveLength(1);
   },
 );
+
+describe('background-work completion recovery', () => {
+  const incomplete: ScriptedReply = {
+    resultText: 'Waiting for verification.',
+    exitReason: 'background-work-incomplete',
+  };
+
+  it('continues the same implementation with its handoff and original deadline, then requires review', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      incomplete,
+      implementationDone,
+      { resultText: reviewText([]) },
+    ]);
+    const cycle = await startCycle(state, worktree.id, { instructions: 'Keep the agreed scope.' });
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'awaiting-merge',
+      'completion recovery',
+    );
+    expect(backend.launches.map((r) => r.model)).toEqual([
+      'design-model',
+      'implement-model',
+      'implement-model',
+      'review-model',
+    ]);
+    expect(backend.launches[2]?.deadlineAt).toBe(backend.launches[1]?.deadlineAt);
+    expect(backend.launches[2]?.prompt).toContain('completion recovery attempt 1 of 2');
+    expect(backend.launches[2]?.prompt).toContain('Keep the agreed scope.');
+    expect(currentCycle(state, cycle)).toMatchObject({
+      resultContinuations: 0,
+      remediationRounds: 0,
+    });
+    const runs = [
+      ...state.context.storage.execution.runs.listForWorktree(state.workspaceId, worktree.id),
+    ].reverse();
+    expect(runs.map((r) => r.status)).toEqual(['finished', 'failed', 'finished', 'finished']);
+    expect(runs[2]?.parentRunId).toBe(runs[1]?.id);
+    const detail = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/runs/${runs[1]?.id}`,
+      headers: { cookie: state.cookie },
+    });
+    const parsed = agentRunDetailResponseSchema.parse(detail.json());
+    expect(parsed.completionIssue).toMatchObject({ reason: 'background-work-incomplete' });
+    expect(parsed.latestOutcome?.text).toBe('Waiting for verification.');
+  });
+
+  it('stops after two continuations and retains the budget in durable state', async () => {
+    const { state, backend, worktree } = await cycleFixture([incomplete, incomplete, incomplete]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'continuation allowance',
+    );
+    expect(backend.launches).toHaveLength(3);
+    expect(new Set(backend.launches.map((r) => r.deadlineAt)).size).toBe(1);
+    expect(currentCycle(state, cycle)).toMatchObject({
+      resultContinuations: 2,
+      remediationRounds: 0,
+    });
+    expect(currentCycle(state, cycle).reason).toContain('exhausted its two continuation');
+    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    try {
+      expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)).toMatchObject({
+        resultContinuations: 2,
+        runDeadlineAt: cycle.runDeadlineAt,
+      });
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it.each([
+    {
+      resultText: 'Decision required.\n\n## Open questions\nShould cancellation change history?',
+      exitReason: 'background-work-incomplete' as const,
+    },
+    {
+      resultText: 'Background tests exceeded their deadline.',
+      exitReason: 'background-work-timeout' as const,
+    },
+    {
+      resultText: 'Waiting for verification.',
+      exitReason: 'background-work-incomplete' as const,
+      truncated: true,
+    },
+    { resultText: 'Missing checkpoint without a lifecycle failure.' },
+  ])(
+    'does not repair questions, timeouts, truncation, or ordinary missing checkpoints: $resultText',
+    async (reply) => {
+      const { state, backend, worktree } = await cycleFixture([reply]);
+      const cycle = await startCycle(state, worktree.id);
+      await waitFor(
+        () => currentCycle(state, cycle).status === 'needs-attention',
+        'operator attention',
+      );
+      expect(backend.launches).toHaveLength(1);
+      expect(currentCycle(state, cycle).resultContinuations ?? 0).toBe(0);
+    },
+  );
+
+  it('does not extend the original time limit to finish a continuation', async () => {
+    let now = new Date('2026-09-14T12:00:00Z');
+    const { state, backend, worktree } = await cycleFixture([incomplete, incomplete], () => now);
+    backend.onLaunch = () => {
+      if (backend.launches.length === 1) now = new Date(now.getTime() + 121 * 60_000);
+    };
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'original time limit',
+    );
+    expect(backend.launches).toHaveLength(2);
+    expect(currentCycle(state, cycle).reason).toContain('Step time limit');
+    expect(currentCycle(state, cycle).resultContinuations).toBe(1);
+  });
+
+  it('retains the finalization phase and independent review, with no automatic promotion', {
+    timeout: 15000,
+  }, async () => {
+    const fixture = await finalizationFixture();
+    const { state, backend, root } = fixture;
+    const normalReply = backend.replyForRequest;
+    let interrupted = false;
+    backend.replyForRequest = (request) => {
+      if (request.model === 'polish-model' && !interrupted) {
+        interrupted = true;
+        return incomplete;
+      }
+      return present(normalReply)(request);
+    };
+    const main = git(['rev-parse', 'main'], root);
+    const value = await beginFinalization(fixture);
+    await waitFor(
+      () => finalizationCycle(state, value).status === 'awaiting-merge',
+      'final independent review',
+    );
+    expect(backend.launches.map((r) => r.model)).toEqual([
+      'assessment-model',
+      'polish-model',
+      'polish-model',
+      'assessment-model',
+      'final-review-model',
+    ]);
+    expect(backend.launches[2]?.deadlineAt).toBe(backend.launches[1]?.deadlineAt);
+    expect(backend.launches[2]?.prompt).toContain('Phase: polish; improvement round 1 of 1');
+    expect(finalizationCycle(state, value)).toMatchObject({
+      remediationRounds: 0,
+      polishPhase: 'final-review',
+    });
+    expect(git(['rev-parse', 'main'], root)).toBe(main);
+  });
+});
+
+it('an incomplete finalization review retains concerns and cannot close findings or supply a verdict', {
+  timeout: 15000,
+}, async () => {
+  const fixture = await finalizationFixture();
+  const { state, backend } = fixture;
+  let review = 0;
+  backend.replyForRequest = (request) => {
+    if (request.model?.includes('polish'))
+      return { resultText: 'Polish complete.\n\n## Open questions\nnone' };
+    review++;
+    const findings =
+      review === 1
+        ? [structuredFinding]
+        : review === 2
+          ? [
+              {
+                ...structuredFinding,
+                status: 'resolved',
+                disposition: 'Claimed fixed before background checks completed.',
+              },
+              { ...structuredFinding, id: 'F-002', title: 'A newly discovered concern' },
+            ]
+          : [];
+    return {
+      resultText: `## Open questions\nnone\n\n## Review report\n${reviewText(findings)}`,
+      ...(review === 2 ? { exitReason: 'background-work-incomplete' as const } : {}),
+    };
+  };
+  const value = await beginFinalization(fixture);
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'needs-attention',
+    'missing unclosed findings',
+  );
+  const cycle = finalizationCycle(state, value);
+  expect(cycle.reason).toContain('F-001');
+  expect(cycle.reason).toContain('F-002');
+  const runs = state.context.storage.execution.runs.listForWorktree(
+    state.workspaceId,
+    cycle.worktreeId,
+  );
+  const failed = present(runs.find((r) => r.status === 'failed'));
+  const detail = await runDetail(state, failed.id);
+  expect(detail.run.verdict).toBeUndefined();
+  expect(detail.reviewReport?.status).toBe('invalid');
+  expect(detail.completionIssue?.reason).toBe('background-work-incomplete');
+  const next = present(runs.find((r) => r.id === cycle.currentRunId));
+  expect([...requiredFindingIds(state.context.storage.execution, next)].sort()).toEqual([
+    'F-001',
+    'F-002',
+  ]);
+  expect(backend.launches).toHaveLength(4);
+  expect(backend.launches[3]?.prompt).toContain('Reuse recorded passing checks only when');
+  expect(backend.launches[3]?.prompt).not.toContain(
+    'The prior review is incomplete or its candidate/destination snapshot cannot be reused',
+  );
+});
+
+it('blocks a manual handoff while background work is reserved, while allowing cancellation', async () => {
+  const state = await ready();
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  const url = `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`;
+  const started = await state.context.app.inject({
+    method: 'POST',
+    url,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id, role: 'implement' },
+  });
+  const source = startAgentRunResponseSchema.parse(started.json()).run;
+  await waitFor(
+    () =>
+      state.context.storage.execution.runs.find(state.workspaceId, source.id)?.status === 'waiting',
+    'completed turn',
+  );
+  present(state.backend.sessions[0]).backgroundWorkPending = true;
+  const blocked = await state.context.app.inject({
+    method: 'POST',
+    url,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id, role: 'review', parentRunId: source.id },
+  });
+  expect(blocked.statusCode).toBe(409);
+  expect(blocked.body).toContain('background work');
+  expect(state.backend.launches).toHaveLength(1);
+  const cancelled = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/runs/${source.id}/cancel`,
+    headers: mutationHeaders(state),
+    payload: {},
+  });
+  expect(cancelled.statusCode).toBe(200);
+  await waitFor(
+    () =>
+      state.context.storage.execution.runs.find(state.workspaceId, source.id)?.status ===
+      'cancelled',
+    'background cancellation',
+  );
+  const allowed = await state.context.app.inject({
+    method: 'POST',
+    url,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id, role: 'review', parentRunId: source.id },
+  });
+  expect(allowed.statusCode, allowed.body).toBe(200);
+});

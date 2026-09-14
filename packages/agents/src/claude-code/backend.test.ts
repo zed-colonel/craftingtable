@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -169,5 +169,169 @@ describe('resolveClaudeExecutable', () => {
     expect(resolveClaudeExecutable(undefined, { PATH: '/nonexistent-dir' })).toBe(
       resolveClaudeExecutable(undefined, { PATH: '' }),
     );
+  });
+});
+
+function backgroundFixture({ persistent = false, inheritPipes = false } = {}) {
+  const fake = fakeClaude();
+  // The worker deliberately survives the leader, as a nohup command would.
+  const worker = `const fs = require('node:fs');
+    process.on('SIGTERM', () => {});
+    fs.writeFileSync('worker.pid', String(process.pid));
+    ${persistent ? 'setInterval(() => {}, 1000);' : "setTimeout(() => { fs.writeFileSync('verified', 'passed'); process.exit(0); }, 350);"}`;
+  writeFileSync(
+    fake.executable,
+    `#!${process.execPath}
+    const fs = require('node:fs');
+    const cp = require('node:child_process');
+    process.stdin.once('data', () => {
+      cp.spawn(process.execPath, ['-e', ${JSON.stringify(worker)}], { stdio: ${JSON.stringify(inheritPipes ? 'inherit' : 'ignore')} });
+      const ready = setInterval(() => {
+        if (!fs.existsSync('worker.pid')) return;
+        clearInterval(ready);
+        process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', result: 'Waiting for verification.', num_turns: 1, duration_ms: 1 }) + '\\n', () => process.exit(0));
+      }, 5);
+    });
+  `,
+  );
+  return fake;
+}
+function workerRunning(cwd: string): boolean {
+  try {
+    const pid = readFileSync(join(cwd, 'worker.pid'), 'utf8');
+    if (process.platform !== 'linux') {
+      process.kill(Number(pid), 0);
+      return true;
+    }
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return !['Z', 'X'].includes(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] ?? '');
+  } catch {
+    return false;
+  }
+}
+
+describe('Claude background lifecycle', () => {
+  it('recognizes a split background-wait timeout diagnostic despite exit code zero', async () => {
+    const fake = fakeClaude();
+    writeFileSync(
+      fake.executable,
+      `#!${process.execPath}
+      process.stdin.once('data', () => {
+        process.stderr.write('Background tasks still run');
+        setTimeout(() => process.stderr.write('ning after 600s; terminating.\\n', () => process.exit(0)), 10);
+      });`,
+    );
+    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+      cwd: fake.cwd,
+      prompt: 'go',
+      permissionMode: 'auto',
+    });
+    const items = await collect(session.items);
+    expect(items.at(-1)).toMatchObject({
+      type: 'exited',
+      exitCode: 0,
+      reason: 'background-work-incomplete',
+    });
+  });
+
+  it.each([true, false])(
+    'detects a stopped task after the result without stderr (collected afterward: %s)',
+    async (collected) => {
+      const fake = fakeClaude();
+      const events = [
+        { type: 'system', subtype: 'task_started', task_id: 'matrix', task_type: 'local_bash' },
+        { type: 'result', subtype: 'success', result: 'Waiting for the matrix.' },
+        { type: 'system', subtype: 'task_notification', task_id: 'matrix', status: 'stopped' },
+        ...(collected
+          ? [
+              {
+                type: 'result',
+                subtype: 'success',
+                result: 'Collected results; reported the incomplete checks.',
+              },
+            ]
+          : []),
+      ];
+      writeFileSync(
+        fake.executable,
+        `#!${process.execPath}
+      process.stdin.once('data', () => process.stdout.write(${JSON.stringify(events.map((e) => JSON.stringify(e)).join('\n') + '\n')}, () => process.exit(0)));`,
+      );
+      const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+        cwd: fake.cwd,
+        prompt: 'go',
+        permissionMode: 'auto',
+      });
+      const items = await collect(session.items);
+      const exit = items.at(-1);
+      expect(exit).toMatchObject({ type: 'exited', exitCode: 0 });
+      expect(exit?.type === 'exited' ? exit.reason : undefined).toBe(
+        collected ? undefined : 'background-work-incomplete',
+      );
+    },
+  );
+
+  it('keeps detached background work reserved until it completes, then reports the incomplete outcome', async () => {
+    const fake = backgroundFixture();
+    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+      cwd: fake.cwd,
+      prompt: 'go',
+      permissionMode: 'auto',
+      deadlineAt: new Date(Date.now() + 5000).toISOString(),
+    });
+    let sawWaiting = false;
+    const items: AgentSessionItem[] = [];
+    for await (const item of session.items) {
+      items.push(item);
+      if (item.type === 'event' && item.event.kind === 'notice') {
+        sawWaiting = true;
+        expect(workerRunning(fake.cwd)).toBe(true);
+        expect(existsSync(join(fake.cwd, 'verified'))).toBe(false);
+      }
+    }
+    expect(sawWaiting).toBe(true);
+    expect(readFileSync(join(fake.cwd, 'verified'), 'utf8')).toBe('passed');
+    expect(workerRunning(fake.cwd)).toBe(false);
+    expect(items.at(-1)).toMatchObject({
+      type: 'exited',
+      exitCode: 0,
+      reason: 'background-work-incomplete',
+    });
+  });
+
+  it.each([false, true])(
+    'enforces the drain deadline and kills a SIGTERM-resistant worker (inherited pipes: %s)',
+    async (inheritPipes) => {
+      const fake = backgroundFixture({ persistent: true, inheritPipes });
+      const session = await new ClaudeCodeBackend({
+        executable: fake.executable,
+        terminationGraceMs: 50,
+      }).launch({
+        cwd: fake.cwd,
+        prompt: 'go',
+        permissionMode: 'auto',
+        deadlineAt: new Date(Date.now() + 250).toISOString(),
+      });
+      const items = await collect(session.items);
+      expect(items.at(-1)).toMatchObject({ type: 'exited', reason: 'background-work-timeout' });
+      expect(workerRunning(fake.cwd)).toBe(false);
+    },
+  );
+
+  it('cancels background work after the leader has already exited', async () => {
+    const fake = backgroundFixture({ persistent: true });
+    const session = await new ClaudeCodeBackend({
+      executable: fake.executable,
+      terminationGraceMs: 50,
+    }).launch({ cwd: fake.cwd, prompt: 'go', permissionMode: 'auto' });
+    let cancelled = false;
+    for await (const item of session.items) {
+      if (item.type === 'event' && item.event.kind === 'notice') {
+        cancelled = true;
+        session.kill();
+      }
+    }
+    expect(cancelled).toBe(true);
+    expect(workerRunning(fake.cwd)).toBe(false);
   });
 });

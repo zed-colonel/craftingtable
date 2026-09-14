@@ -77,6 +77,8 @@ export interface WorkCycle {
   readonly currentRunId: AgentRunId;
   readonly parentRunId?: AgentRunId;
   readonly runDeadlineAt: string;
+  /** Automatic recovery attempts within the current step, independent of remediation. */
+  readonly resultContinuations?: number;
   readonly remediationRounds: number;
   /** Extra attempts explicitly authorized after a finalization exhausts its initial allowance. */
   readonly additionalRemediationRounds?: number;

@@ -13,6 +13,7 @@ import {
   AGENT_BACKENDS,
   AGENT_RUN_ROLES,
   type AgentBackendKind,
+  type AgentExitReason,
   type AgentBillingSource,
   type AgentPermissionMode,
   type AgentRun,
@@ -295,6 +296,10 @@ export class AgentRunService {
                 resolution.instructions ?? '',
               ]
             : []),
+          (cycle.resultContinuations ?? 0) > 0
+            ? `This is completion recovery attempt ${cycle.resultContinuations} of 2 for the SAME step. The previous agent exited while awaiting background work; its result is incomplete. CraftingTable waited for its owned process group to finish before this launch. Read the previous run handoff and its scratch verification records; do not assume any check passed. Reuse recorded passing checks only when their source commit, destination commit where relevant, inputs, and complete logs still match. Inspect and address failures; finish missing verification and reporting without restarting the whole polish pass or adding unrelated improvements. Keep every unresolved finding and operator question. If a decision is needed, report it in ## Open questions and stop rather than deciding for the operator. Do not detach commands with nohup, disown, or a new session. Await background work and produce the final outcome before ending; the original step time limit still applies.`
+            : '',
+          'Keep verification commands owned by the agent session. Do not use nohup, disown, or setsid to detach work. Wait for background commands to finish, collect their results, and stop any monitors you started before emitting the final outcome.',
           'This run is one step of an operator-authorized automated cycle. Do not merge. Complete this step and provide a final message; the controller handles the next step.',
           cycle.step === 'design'
             ? 'End with exactly one section headed ## Open questions. Its entire body must be none when there are no unresolved questions. Otherwise list the questions for the operator.'
@@ -328,11 +333,32 @@ export class AgentRunService {
     } else live.session.end();
   }
 
+  private requireNoBackgroundWork(
+    workspaceId: WorkspaceId,
+    worktreeId: WorktreeId,
+    exceptRunId?: AgentRunId,
+  ): void {
+    for (const live of this.live.values()) {
+      if (
+        live.workspaceId !== workspaceId ||
+        live.runId === exceptRunId ||
+        !live.session.backgroundWorkPending
+      )
+        continue;
+      if (this.storage.execution.runs.find(workspaceId, live.runId)?.worktreeId === worktreeId)
+        throw new ExecutionRequestError(
+          'conflict',
+          'This worktree still has background work awaiting completion. Wait for its outcome or cancel the owning run before starting another run.',
+        );
+    }
+  }
+
   private requireManualControl(
     workspaceId: WorkspaceId,
     worktreeId: WorktreeId,
     existingRunId?: AgentRunId,
   ): void {
+    this.requireNoBackgroundWork(workspaceId, worktreeId, existingRunId);
     const cycle = this.storage.execution.cycles.activeForWorktree(workspaceId, worktreeId);
     if (ownsIntegrationResolution(cycle) && existingRunId !== cycle?.currentRunId)
       throw new ExecutionRequestError(
@@ -478,6 +504,7 @@ export class AgentRunService {
             'conflict',
             'Cycle launch cancelled during Git preflight',
           );
+        this.requireNoBackgroundWork(workspaceId, input.worktreeId);
         if (cycle !== undefined) this.requireCycleLaunchAuthority(cycle);
         else this.requireManualControl(workspaceId, input.worktreeId);
       } finally {
@@ -537,6 +564,7 @@ export class AgentRunService {
       const brief = composeBrief({
         ...(prepared.worktree.planVersionId &&
         input.role === 'review' &&
+        !(cycle && (cycle.resultContinuations ?? 0) > 0) &&
         parentAssessment?.status === 'invalid'
           ? {
               reviewReportRetry: {
@@ -665,6 +693,7 @@ export class AgentRunService {
       const launch: AgentLaunchRequest = {
         cwd: prepared.worktree.path,
         temporaryDirectory,
+        ...(cycle ? { deadlineAt: cycle.runDeadlineAt } : {}),
         prompt: brief,
         permissionMode: input.permissionMode,
         ...(input.model === undefined ? {} : { model: input.model }),
@@ -859,6 +888,7 @@ export class AgentRunService {
     readonly run: AgentRun;
     readonly worktree: Worktree;
     readonly eventCount: number;
+    readonly completionIssue?: { reason: AgentExitReason; message: string };
     readonly latestOutcome?: {
       sequence: number;
       occurredAt: string;
@@ -880,7 +910,16 @@ export class AgentRunService {
       }
       const reviewReport = latestReviewReport(tx.execution, run);
       const lastTurn = tx.execution.runEvents.latestOfKind(workspaceId, runId, 'turn-completed');
+      const ended = tx.execution.runEvents.latestOfKind(workspaceId, runId, 'run-finished');
       return {
+        ...(ended?.kind === 'run-finished' && ended.payload.reason
+          ? {
+              completionIssue: {
+                reason: ended.payload.reason,
+                message: ended.payload.message ?? 'Run ended before reporting completion.',
+              },
+            }
+          : {}),
         ...(lastTurn?.kind === 'turn-completed'
           ? {
               latestOutcome: {
@@ -964,12 +1003,21 @@ export class AgentRunService {
       if (item.type === 'exited') {
         const status: AgentRunStatus = liveRun.cancelRequested
           ? 'cancelled'
-          : item.exitCode === 0
+          : item.exitCode === 0 && !item.reason
             ? 'finished'
             : 'failed';
         this.finalize(workspaceId, runId, status, {
           ...(item.exitCode === null ? {} : { exitCode: item.exitCode }),
           ...(item.signal === null ? {} : { signal: item.signal }),
+          ...(item.reason
+            ? {
+                reason: item.reason,
+                message:
+                  item.reason === 'background-work-incomplete'
+                    ? 'The agent exited before collecting background work and reporting completion. Its process group has finished; the last message is an incomplete outcome.'
+                    : 'Background work exceeded the step time limit and was terminated. Inspect partial verification results before resuming.',
+              }
+            : {}),
         });
         return;
       }
@@ -1103,7 +1151,12 @@ export class AgentRunService {
     workspaceId: WorkspaceId,
     runId: AgentRunId,
     status: Extract<AgentRunStatus, 'finished' | 'failed' | 'cancelled' | 'interrupted'>,
-    detail: { readonly exitCode?: number; readonly signal?: string; readonly message?: string },
+    detail: {
+      readonly exitCode?: number;
+      readonly signal?: string;
+      readonly message?: string;
+      readonly reason?: AgentExitReason;
+    },
   ): void {
     this.live.delete(runId);
     const occurredAt = this.now().toISOString();
@@ -1120,6 +1173,7 @@ export class AgentRunService {
         occurredAt,
         finishedAt: occurredAt,
         ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
+        ...(detail.reason ? { verdict: null } : {}),
         ...(detail.message === undefined || before.outcomeSummary !== undefined
           ? {}
           : { outcomeSummary: summarise(detail.message) }),
@@ -1137,6 +1191,7 @@ export class AgentRunService {
           status,
           ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
           ...(detail.signal === undefined ? {} : { signal: detail.signal }),
+          ...(detail.reason === undefined ? {} : { reason: detail.reason }),
           ...(detail.message === undefined ? {} : { message: detail.message }),
         },
       });

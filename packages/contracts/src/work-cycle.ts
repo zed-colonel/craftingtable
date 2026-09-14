@@ -86,6 +86,7 @@ export const workCycleSchema = z
     currentRunId: agentRunIdSchema,
     parentRunId: agentRunIdSchema.optional(),
     runDeadlineAt: z.iso.datetime(),
+    resultContinuations: z.number().int().min(0).max(2).optional(),
     remediationRounds: z.number().int().nonnegative(),
     additionalRemediationRounds: z
       .number()

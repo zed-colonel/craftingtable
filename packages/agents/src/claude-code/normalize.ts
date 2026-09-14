@@ -105,6 +105,17 @@ export interface ClaudeNormalizerOptions {
  */
 export class ClaudeStreamNormalizer {
   private sessionStarted = false;
+  private readonly backgroundTasks = new Set<string>();
+  private backgroundAfterResult = false;
+  private untrackedBackgroundTasks = false;
+
+  /** A result emitted before pending task notifications is not the collected outcome. */
+  get hasUncollectedBackgroundWork(): boolean {
+    return (
+      this.backgroundTasks.size > 0 || this.backgroundAfterResult || this.untrackedBackgroundTasks
+    );
+  }
+
   private sessionId: string | undefined;
 
   constructor(private readonly options: ClaudeNormalizerOptions) {}
@@ -200,7 +211,12 @@ export class ClaudeStreamNormalizer {
       case 'task_updated':
       case 'background_tasks_changed':
         return [];
-      case 'task_started':
+      case 'task_started': {
+        const id = stringOf(message.task_id);
+        if (!id || id.length > 256 || this.backgroundTasks.size >= 1024)
+          this.untrackedBackgroundTasks = true;
+        else this.backgroundTasks.add(id);
+        this.backgroundAfterResult = true;
         return [
           {
             kind: 'notice',
@@ -211,7 +227,11 @@ export class ClaudeStreamNormalizer {
             raw,
           },
         ];
+      }
       case 'task_notification':
+        if (['completed', 'failed', 'stopped'].includes(stringOf(message.status)))
+          this.backgroundTasks.delete(stringOf(message.task_id));
+        this.backgroundAfterResult = true;
         return [
           {
             kind: 'notice',
@@ -322,6 +342,7 @@ export class ClaudeStreamNormalizer {
     message: Record<string, unknown>,
     raw: string,
   ): readonly NormalizedAgentEvent[] {
+    this.backgroundAfterResult = false;
     const isError = message.is_error === true || message.subtype !== 'success';
     const cost = typeof message.total_cost_usd === 'number' ? message.total_cost_usd : undefined;
     const turns =

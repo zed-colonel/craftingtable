@@ -99,6 +99,18 @@ function sourceRuns(
   ];
 }
 
+/** Later lifecycle events cannot rewrite an already-delivered source snapshot. */
+function incompleteRun(
+  execution: Execution,
+  run: AgentRun,
+  throughSequence = Number.MAX_SAFE_INTEGER,
+) {
+  const ended = execution.runEvents.latestOfKind(run.workspaceId, run.id, 'run-finished');
+  return (
+    ended?.kind === 'run-finished' && ended.sequence <= throughSequence && ended.payload.reason
+  );
+}
+
 /** Latest valid reviewer disposition, replayed only from the delivered source snapshots. */
 export function recordedFindings(execution: Execution, run: AgentRun) {
   const findings = new Map<
@@ -107,10 +119,14 @@ export function recordedFindings(execution: Execution, run: AgentRun) {
   >();
   for (const { run: source, throughSequence } of sourceRuns(execution, run).toReversed()) {
     if (source.role !== 'review') continue;
+    const incomplete = incompleteRun(execution, source, throughSequence);
     for (const event of runEvents(execution, source, throughSequence)) {
       if (event.kind === 'turn-completed' && event.payload.reviewReport?.status === 'complete') {
-        for (const finding of event.payload.reviewReport.report.findings)
-          findings.set(finding.id, { finding, runId: source.id, sequence: event.sequence });
+        for (const finding of event.payload.reviewReport.report.findings) {
+          // Preserve concerns, but an incomplete run cannot supply closure evidence.
+          if (!incomplete || finding.status === 'open')
+            findings.set(finding.id, { finding, runId: source.id, sequence: event.sequence });
+        }
       }
     }
   }
@@ -131,6 +147,13 @@ export function latestReviewReport(
   throughSequence?: number,
 ): ReviewReportAssessment | undefined {
   if (run.role !== 'review') return undefined;
+  if (incompleteRun(execution, run, throughSequence))
+    return {
+      status: 'invalid',
+      issues: [
+        'The review exited before background verification and reporting completed. Its provisional report cannot close findings or authorize a merge.',
+      ],
+    };
   let event: AgentRunEvent | undefined;
   if (throughSequence === undefined)
     event = execution.runEvents.latestOfKind(run.workspaceId, run.id, 'turn-completed');
@@ -227,6 +250,10 @@ export function writeRunHandoff(
     if (truncatedMessages > 0)
       warnings.push(
         `${run.id}: ${truncatedMessages} recorded message(s) were already truncated upstream. Their missing text cannot be recovered from this journal.`,
+      );
+    if (incompleteRun(execution, run, throughSequence))
+      warnings.push(
+        `${run.id}: the agent exited before collecting background work and reporting completion; inspect its preserved verification records before continuing.`,
       );
     const review = latestReviewReport(execution, run, throughSequence);
     const report = review === undefined ? undefined : `${prefix}-review.json`;

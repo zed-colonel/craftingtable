@@ -1,5 +1,6 @@
 import type {
   AgentBackendKind,
+  AgentExitReason,
   AgentPermissionMode,
   AgentRunEventKind,
   AgentRunEventPayload,
@@ -20,6 +21,8 @@ export interface AgentLaunchRequest {
   readonly cwd: string;
   /** Controller-owned scratch directory, outside the Git worktree. */
   readonly temporaryDirectory?: string;
+  /** Original automated step deadline, including background drain and continuations. */
+  readonly deadlineAt?: string;
   /** The first user message. */
   readonly prompt: string;
   readonly permissionMode: AgentPermissionMode;
@@ -50,9 +53,12 @@ export type AgentSessionItem =
       readonly type: 'exited';
       readonly exitCode: number | null;
       readonly signal: string | null;
+      readonly reason?: AgentExitReason;
     };
 
 export interface AgentSession {
+  /** Live work reservation, including tasks whose results have not been collected. */
+  readonly backgroundWorkPending?: boolean;
   /** Process identifier, for diagnostics only. */
   readonly pid: number | undefined;
   /** Items until the session ends; the final item is always `exited`. */

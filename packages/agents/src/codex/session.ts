@@ -349,6 +349,7 @@ export class CodexSession implements AgentSession {
         this.output.close();
         return;
       }
+      if (item.type === 'background-work-waiting') continue;
       if (item.type === 'stderr') {
         this.emit({ kind: 'stderr', payload: { text: truncateUtf8(item.text, 8192).text } });
         continue;

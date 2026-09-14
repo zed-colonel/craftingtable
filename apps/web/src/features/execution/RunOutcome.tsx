@@ -76,3 +76,18 @@ export function RunOutcome({
     </section>
   );
 }
+
+/** Kept outside the activity feed so a successful turn cannot hide an incomplete run. */
+export function RunCompletionIssue({
+  issue,
+}: {
+  issue: AgentRunDetailResponse['completionIssue'];
+}) {
+  if (!issue) return null;
+  return (
+    <section className="panel" aria-label="Run completion issue">
+      <h2>Run ended before completion</h2>
+      <p role="status">{issue.message}</p>
+    </section>
+  );
+}

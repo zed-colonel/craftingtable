@@ -576,6 +576,56 @@ export class WorkCycleService {
       run.id,
       'turn-completed',
     );
+    const ended = this.storage.execution.runEvents.latestOfKind(
+      cycle.workspaceId,
+      run.id,
+      'run-finished',
+    );
+    if (ended?.kind === 'run-finished' && ended.payload.reason) {
+      const attempts = cycle.resultContinuations ?? 0;
+      const explicitQuestions =
+        turn?.kind === 'turn-completed' &&
+        /^## Open questions[ \t]*$/m.test(turn.payload.resultText) &&
+        !finalizationHasNoQuestions(turn.payload.resultText);
+      if (
+        run.status !== 'failed' ||
+        ended.payload.reason !== 'background-work-incomplete' ||
+        ended.payload.exitCode !== 0 ||
+        ended.payload.signal ||
+        turn?.kind !== 'turn-completed' ||
+        turn.payload.outcome !== 'success' ||
+        turn.payload.truncated ||
+        explicitQuestions ||
+        ownsIntegrationResolution(cycle) ||
+        attempts >= 2
+      ) {
+        this.attention(
+          cycle,
+          explicitQuestions
+            ? 'The agent exited before completion and reported open questions. Provide guidance before resuming.'
+            : attempts >= 2
+              ? 'Background-work completion recovery exhausted its two continuation attempts. Inspect the latest outcome and resume with guidance.'
+              : (ended.payload.message ??
+                'Background work did not complete safely. Inspect the outcome before resuming.'),
+        );
+        return;
+      }
+      await this.next(
+        cycle,
+        cycle.step,
+        run,
+        undefined,
+        {
+          resultContinuations: attempts + 1,
+          runDeadlineAt: cycle.runDeadlineAt,
+          instructions: cycle.instructions,
+          housekeepingInstructions: cycle.housekeepingInstructions,
+          reason: `Background work finished after the agent exited. Starting completion continuation ${attempts + 1} of 2 within the original step time limit.`,
+        },
+        'continue-incomplete-result',
+      );
+      return;
+    }
     if (
       run.status !== 'finished' ||
       turn?.kind !== 'turn-completed' ||
@@ -1500,6 +1550,7 @@ export class WorkCycleService {
       cycle,
       {
         housekeepingInstructions: '',
+        resultContinuations: 0,
         // Resume guidance belongs to that attempt; its answers remain in the handoff journal.
         ...(cycle.finalizationId && parent?.id === cycle.currentRunId ? { instructions: '' } : {}),
         ...changes,
@@ -1508,7 +1559,7 @@ export class WorkCycleService {
         currentRunId: asAgentRunId(randomUUID()),
         ...(parent === undefined ? {} : { parentRunId: parent.id }),
         ...(reviewHeadSha === undefined ? {} : { reviewHeadSha }),
-        runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+        runDeadlineAt: changes.runDeadlineAt ?? this.deadline(cycle.policy.maxRunMinutes),
         reason: changes.reason ?? `Starting ${step}.`,
       },
       action,

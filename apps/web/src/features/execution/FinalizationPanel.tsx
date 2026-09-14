@@ -30,7 +30,7 @@ import {
 import { resolveIntegration } from '../../lib/work-cycle-api.js';
 import { AgentProfileFields } from './AgentProfileFields.js';
 import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
-import { RunOutcome } from './RunOutcome.js';
+import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
 import { ReviewFindings } from './ReviewFindings.js';
 import { DiffView } from './DiffView.js';
 import { CYCLE_STATUS_LABELS } from './CyclePanel.js';
@@ -708,6 +708,7 @@ function FinalizationOutcome({
   }, [workspaceId, runId, version]);
   return (
     <>
+      <RunCompletionIssue issue={detail?.completionIssue} />
       {detail?.latestOutcome && (
         <RunOutcome
           outcome={detail.latestOutcome}

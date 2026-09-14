@@ -112,6 +112,12 @@ export const AGENT_BACKEND_LABELS: Readonly<Record<AgentBackendKind, string>> = 
 export const AGENT_RUN_ROLES = ['implement', 'review', 'design'] as const;
 export type AgentRunRole = (typeof AGENT_RUN_ROLES)[number];
 
+export const AGENT_EXIT_REASONS = [
+  'background-work-incomplete',
+  'background-work-timeout',
+] as const;
+export type AgentExitReason = (typeof AGENT_EXIT_REASONS)[number];
+
 export const AGENT_RUN_STATUSES = [
   /** Process launch requested; no session yet. */
   'starting',
@@ -303,6 +309,7 @@ export interface AgentRunEventPayloads {
   readonly notice: { readonly category: AgentNoticeCategory; readonly message: string };
   readonly stderr: { readonly text: string };
   readonly 'run-finished': {
+    readonly reason?: AgentExitReason;
     readonly status: Extract<AgentRunStatus, 'finished' | 'failed' | 'cancelled' | 'interrupted'>;
     readonly exitCode?: number;
     readonly signal?: string;

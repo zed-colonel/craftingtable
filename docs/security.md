@@ -203,3 +203,14 @@ These checks prevent accidental deletion and stale-controller paths, not malicio
 host filesystem mutation. Coding agents and the OS account retain their existing trust boundary.
 Audit records identify authorized cleanup paths and backups. SQLite snapshots contain accounts,
 sessions and notification credentials: private modes protect them like the live database.
+
+
+## Background completion recovery
+
+An incomplete background exit keeps the run reserved until its owned process group drains
+or deadline/cancellation terminates it. Recovery uses the existing cycle delegation and
+launch authorization, with two persisted attempts and the original step deadline. An
+incomplete review cannot supply merge authority or close findings. No additional process
+authority or browser shell endpoint is introduced. Process-group supervision does not
+contain commands that deliberately create a new session or external service; the existing
+OS-user and agent permission boundaries still apply. See ADR-037.

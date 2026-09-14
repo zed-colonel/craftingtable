@@ -103,6 +103,9 @@ export class ClaudeCodeBackend implements AgentBackend {
         },
         terminationGraceMs: this.options.terminationGraceMs ?? 5000,
         maxLineBytes: MAX_LINE_BYTES,
+        ...(request.deadlineAt
+          ? { backgroundWorkDeadlineMs: Date.parse(request.deadlineAt) }
+          : { backgroundWorkTimeoutMs: 30 * 60_000 }),
       });
     } catch (error) {
       return Promise.reject(
@@ -114,8 +117,11 @@ export class ClaudeCodeBackend implements AgentBackend {
     }
     child.write(claudeUserMessageLine(request.prompt));
 
+    let drainingBackgroundWork = false;
     const items = (async function* (): AsyncGenerator<AgentSessionItem> {
       let stderrBuffer = '';
+      let diagnosticTail = '';
+      let backgroundWaitExpired = false;
       for await (const item of child.items) {
         switch (item.type) {
           case 'stdout-line':
@@ -135,7 +141,24 @@ export class ClaudeCodeBackend implements AgentBackend {
               },
             };
             break;
+          case 'background-work-waiting':
+            drainingBackgroundWork = true;
+            yield {
+              type: 'event',
+              event: {
+                kind: 'notice',
+                payload: {
+                  category: 'task',
+                  message:
+                    'The agent exited while background processes were still running. CraftingTable is waiting for its process group before releasing this worktree.',
+                },
+              },
+            };
+            break;
           case 'stderr': {
+            diagnosticTail = (diagnosticTail + item.text).slice(-4096);
+            if (/Background tasks still running after \d+s; terminating\./i.test(diagnosticTail))
+              backgroundWaitExpired = true;
             stderrBuffer += item.text;
             if (Buffer.byteLength(stderrBuffer, 'utf8') >= STDERR_EVENT_LIMIT_BYTES) {
               yield { type: 'event', event: { kind: 'stderr', payload: { text: stderrBuffer } } };
@@ -148,13 +171,27 @@ export class ClaudeCodeBackend implements AgentBackend {
               yield { type: 'event', event: { kind: 'stderr', payload: { text: stderrBuffer } } };
               stderrBuffer = '';
             }
-            yield { type: 'exited', exitCode: item.exitCode, signal: item.signal };
+            yield {
+              type: 'exited',
+              exitCode: item.exitCode,
+              signal: item.signal,
+              ...(item.backgroundWorkTimedOut
+                ? { reason: 'background-work-timeout' as const }
+                : backgroundWaitExpired ||
+                    item.backgroundWorkIncomplete ||
+                    normalizer.hasUncollectedBackgroundWork
+                  ? { reason: 'background-work-incomplete' as const }
+                  : {}),
+            };
             break;
         }
       }
     })();
 
     return Promise.resolve({
+      get backgroundWorkPending() {
+        return drainingBackgroundWork || normalizer.hasUncollectedBackgroundWork;
+      },
       pid: child.pid,
       items,
       send: (text: string) => child.write(claudeUserMessageLine(text)),

@@ -1,5 +1,6 @@
 import {
   AGENT_BACKENDS,
+  AGENT_EXIT_REASONS,
   AGENT_BILLING_SOURCES,
   AGENT_NOTICE_CATEGORIES,
   AGENT_PERMISSION_MODES,
@@ -317,6 +318,9 @@ export const runOutcomeSchema = z.strictObject({
   truncated: z.boolean(),
 });
 export const agentRunDetailResponseSchema = z.strictObject({
+  completionIssue: z
+    .strictObject({ reason: z.enum(AGENT_EXIT_REASONS), message: z.string().max(4000) })
+    .optional(),
   latestOutcome: runOutcomeSchema.optional(),
   run: agentRunSummarySchema,
   worktree: worktreeSummarySchema,
@@ -497,6 +501,7 @@ export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
   runEventBaseSchema.extend({
     kind: z.literal('run-finished'),
     payload: z.strictObject({
+      reason: z.enum(AGENT_EXIT_REASONS).optional(),
       status: z.enum(['finished', 'failed', 'cancelled', 'interrupted']),
       exitCode: z.number().int().optional(),
       signal: z.string().max(20).optional(),

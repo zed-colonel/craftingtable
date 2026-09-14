@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 
 /**
  * Process authority shared by every agent backend.
@@ -17,13 +18,24 @@ export interface SupervisedProcessOptions {
   readonly terminationGraceMs: number;
   /** Longest single stdout line accepted before it is dropped with a marker. */
   readonly maxLineBytes: number;
+  /** Keep the session reserved while its process group drains after the agent exits. */
+  readonly backgroundWorkDeadlineMs?: number;
+  /** Standalone drain allowance measured from the agent exit, not launch. */
+  readonly backgroundWorkTimeoutMs?: number;
 }
 
 export type SupervisedProcessItem =
   | { readonly type: 'stdout-line'; readonly line: string }
   | { readonly type: 'stdout-overflow'; readonly bytes: number }
   | { readonly type: 'stderr'; readonly text: string }
-  | { readonly type: 'exited'; readonly exitCode: number | null; readonly signal: string | null };
+  | { readonly type: 'background-work-waiting' }
+  | {
+      readonly type: 'exited';
+      readonly exitCode: number | null;
+      readonly signal: string | null;
+      readonly backgroundWorkIncomplete?: boolean;
+      readonly backgroundWorkTimedOut?: boolean;
+    };
 
 export interface SupervisedProcess {
   readonly pid: number | undefined;
@@ -93,6 +105,33 @@ function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
+/** Linux zombies no longer execute work, but still make kill(-pgid, 0) succeed. */
+function hasGroupWork(pid: number | undefined): boolean {
+  if (pid === undefined) return false;
+  try {
+    process.kill(-pid, 0);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+  if (process.platform !== 'linux') return true;
+  try {
+    for (const entry of readdirSync('/proc')) {
+      if (!/^\d+$/.test(entry) || Number(entry) === pid) continue;
+      try {
+        const stat = readFileSync(`/proc/${entry}/stat`, 'utf8');
+        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+        if (Number(fields[2]) === pid && !['Z', 'X'].includes(fields[0] ?? '')) return true;
+      } catch (error) {
+        // A process may exit between enumeration and read. Other errors fail closed.
+        if (!['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) return true;
+      }
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export function spawnSupervisedProcess(options: SupervisedProcessOptions): SupervisedProcess {
   const queue = new AsyncQueue<SupervisedProcessItem>();
   const child = spawn(options.executable, [...options.args], {
@@ -152,17 +191,67 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
   });
 
   let killTimer: NodeJS.Timeout | undefined;
-  child.on('error', (error) => {
-    queue.push({ type: 'stderr', text: `spawn error: ${error.message}\n` });
-  });
-  child.on('close', (exitCode, signal) => {
+  let drainTimer: NodeJS.Timeout | undefined;
+  let closed: { exitCode: number | null; signal: string | null } | undefined;
+  let leaderExited = false;
+  let terminating = false;
+  let finished = false;
+  let backgroundWorkIncomplete = false;
+  let backgroundWorkTimedOut = false;
+  let drainDeadline = options.backgroundWorkDeadlineMs;
+
+  const terminate = () => {
+    if (finished || terminating) return;
+    terminating = true;
+    killGroup(child, 'SIGTERM');
+    // A leader's exit must not cancel escalation while descendants still run.
+    killTimer = setTimeout(() => killGroup(child, 'SIGKILL'), options.terminationGraceMs);
+    killTimer.unref();
+  };
+  const settle = () => {
+    if (finished || !leaderExited) return;
+    if (drainTimer !== undefined) clearTimeout(drainTimer);
+    if (drainDeadline === undefined && options.backgroundWorkTimeoutMs !== undefined)
+      drainDeadline = Date.now() + options.backgroundWorkTimeoutMs;
+    if ((drainDeadline !== undefined || terminating) && hasGroupWork(child.pid)) {
+      if (!backgroundWorkIncomplete && !terminating) {
+        backgroundWorkIncomplete = true;
+        queue.push({ type: 'background-work-waiting' });
+      }
+      if (!terminating && Date.now() >= (drainDeadline ?? Infinity)) {
+        backgroundWorkTimedOut = true;
+        terminate();
+      }
+      drainTimer = setTimeout(settle, 500);
+      return;
+    }
+    if (!closed) return;
+    finished = true;
     if (killTimer !== undefined) clearTimeout(killTimer);
     if (lineBuffer.length > 0) {
       queue.push({ type: 'stdout-line', line: lineBuffer });
       lineBuffer = '';
     }
-    queue.push({ type: 'exited', exitCode, signal });
+    queue.push({
+      type: 'exited',
+      ...closed,
+      ...(backgroundWorkIncomplete ? { backgroundWorkIncomplete: true } : {}),
+      ...(backgroundWorkTimedOut ? { backgroundWorkTimedOut: true } : {}),
+    });
     queue.close();
+  };
+  child.on('error', (error) => {
+    queue.push({ type: 'stderr', text: `spawn error: ${error.message}\n` });
+  });
+  // exit precedes close; descendants can retain the stdio pipes after the leader exits.
+  child.on('exit', () => {
+    leaderExited = true;
+    settle();
+  });
+  child.on('close', (exitCode, signal) => {
+    leaderExited = true;
+    closed = { exitCode, signal };
+    settle();
   });
 
   return {
@@ -180,10 +269,6 @@ export function spawnSupervisedProcess(options: SupervisedProcessOptions): Super
         child.stdin.end();
       }
     },
-    terminate(): void {
-      killGroup(child, 'SIGTERM');
-      killTimer = setTimeout(() => killGroup(child, 'SIGKILL'), options.terminationGraceMs);
-      killTimer.unref();
-    },
+    terminate,
   };
 }

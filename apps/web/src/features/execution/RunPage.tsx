@@ -37,7 +37,7 @@ import {
   type ProfileEntry,
   previousImplementerHint,
 } from './handoff.js';
-import { RunOutcome } from './RunOutcome.js';
+import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
 import { ReviewFindings } from './ReviewFindings.js';
 
 type EventGroup = 'messages' | 'tools' | 'notices' | 'system';
@@ -198,9 +198,10 @@ export function RunPage({
 }) {
   const { run, worktree } = detail;
   const latestTurn = events.findLast((event) => event.kind === 'turn-completed');
-  const reviewReport =
-    latestTurn?.kind === 'turn-completed' &&
-    latestTurn.sequence >= (detail.latestOutcome?.sequence ?? -1)
+  const reviewReport = detail.completionIssue
+    ? detail.reviewReport
+    : latestTurn?.kind === 'turn-completed' &&
+        latestTurn.sequence >= (detail.latestOutcome?.sequence ?? -1)
       ? (latestTurn.payload.reviewReport ?? detail.reviewReport)
       : detail.reviewReport;
   const streamedOutcome =
@@ -398,6 +399,7 @@ export function RunPage({
         </p>
       )}
 
+      <RunCompletionIssue issue={detail.completionIssue} />
       {outcome && (
         <RunOutcome
           outcome={outcome}

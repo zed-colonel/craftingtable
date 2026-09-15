@@ -24,6 +24,7 @@ export interface BriefPlanDocument {
 }
 
 export interface BriefInput {
+  readonly reviewContinuationArtifacts?: readonly string[];
   readonly resolvingIntegration?: boolean;
   readonly planFinalization?: boolean;
   readonly reviewReportRetry?: {
@@ -116,7 +117,7 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
   review: [
     'You are an independent reviewer for this work item.',
     'Run the repository-required verification checks on this exact branch, including the combined integration changes. Record the commands and results in exitGate.evidence. Do not change or commit code during review; request remediation when changes are needed.',
-    'Do not modify repository files. Verification records belong in the provided temporary directory. Compare the branch in this worktree against its base',
+    'Do not modify repository source files. Verification records belong in the provided temporary directory. Compare the branch in this worktree against its base',
     'revision, read the changed code and its tests, and run the quality checks read-only.',
     'Summarize your conclusion in prose and include every finding in the structured',
     'report below; do not duplicate the full findings in prose. State explicitly',
@@ -314,6 +315,17 @@ export function composeBrief(input: BriefInput): string {
   }
   if (input.instructions !== undefined && input.instructions.trim().length > 0) {
     sections.push(`## Operator instructions\n\n${input.instructions.trim()}`);
+  }
+  if (input.reviewContinuationArtifacts !== undefined) {
+    sections.push(
+      [
+        '## Continue interrupted verification on the pinned review baseline',
+        'The daemon confirmed the original candidate and destination commits, managed branch and worktree version are unchanged, with no tracked edits or pending Git operation. This is completion of the same review, not approval of the previous incomplete outcome.',
+        `Untracked paths present at continuation preflight: ${JSON.stringify(input.reviewContinuationArtifacts)}. These are candidates for inspection, not a declaration that they are disposable.`,
+        'Before rerunning verification, inspect these paths and the previous run logs and test code. For a file you can positively attribute to that interrupted verification, preserve its contents in the provided scratch directory and record its original path and why it was generated, then remove only that confirmed temporary file from the worktree. Do not stage or commit it. Do not alter tracked files or delete unknown files. If provenance is uncertain or a source change is needed, preserve the file, report an open question or finding, and stop for the appropriate remediation.',
+        'Reuse only complete passing check records whose source/destination commits and relevant inputs still match. Resume missing or interrupted checks and investigate failures. Await all background work, restore a clean worktree by removing only your confirmed temporary artifacts, and return the complete consolidated review report and required Open questions checkpoint. Cleanliness, independent findings and exact-commit merge gates still apply.',
+      ].join('\n\n'),
+    );
   }
   if (input.reviewReportRetry) {
     sections.push(

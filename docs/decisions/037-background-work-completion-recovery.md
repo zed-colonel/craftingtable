@@ -10,7 +10,9 @@ normalizes a distinct incomplete exit. Outstanding task notifications, or task u
 after the last result without a subsequent collected outcome, also mark it incomplete. The shared supervisor also detects a surviving
 process group after Claude exits, including commands whose output was redirected.
 Keep the run live and the worktree occupied until that group drains. Manual handoffs
-and competing launches also wait while the session reports uncollected background work. The original cycle
+and competing launches also wait while the session reports uncollected background work.
+The controller keeps input open across waiting turns until the agent collects that work;
+a provisional result must not trigger EOF and stop its tasks. The original cycle
 step deadline bounds this wait; standalone runs allow thirty minutes after the agent exits.
 Timeout or cancellation sends TERM and then KILL, retaining escalation even if the
 leader has exited. Linux zombie processes do not count as executing work.
@@ -27,6 +29,16 @@ next run and attributed audit event atomically. Continuations consume no remedia
 allowance and cannot extend the time limit. Reuse complete passing verification only
 when its recorded inputs and commits still match; collect failures and missing results,
 then emit the required outcome. They do not authorize another whole polish round.
+
+Review continuations require the original recorded candidate and destination commits,
+managed branch and worktree version, with no tracked/index changes or pending Git operation.
+Up to 100 untracked paths may be carried into this narrowly scoped review: the agent must
+inspect their provenance, preserve confirmed verification artifacts and an explanation in
+run scratch before removing them, and leave unknown files for questions or remediation.
+No tracked edits or commits are authorized. Launch rechecks the baseline; ordinary review
+and final approval still require a clean worktree. Explicit plain or guided resume uses
+this same path for an interrupted review, with a fresh operator-authorized step window.
+Automatic recovery retains its original deadline and persisted continuation limit.
 
 Explicit questions, error turns, truncated output, timeouts, exhausted recovery and owned
 integration-conflict resolution require their existing operator controls. Other malformed

@@ -321,16 +321,18 @@ export class AgentRunService {
   }
 
   /** Only the controller can close/terminate its reserved session. No browser authority bypass. */
-  finishCycleTurn(cycle: WorkCycle, cancel = false): void {
+  finishCycleTurn(cycle: WorkCycle, cancel = false): boolean {
     const stored = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-    if (stored?.currentRunId !== cycle.currentRunId) return;
+    if (stored?.currentRunId !== cycle.currentRunId) return false;
     if (cancel) this.pendingCycleLaunches.get(cycle.currentRunId)?.();
     const live = this.liveRun(cycle.workspaceId, cycle.currentRunId);
-    if (live === undefined) return;
+    if (live === undefined) return false;
+    if (!cancel && live.session.backgroundWorkPending) return false;
     if (cancel) {
       live.cancelRequested = true;
       live.session.kill();
     } else live.session.end();
+    return true;
   }
 
   private requireNoBackgroundWork(
@@ -488,6 +490,7 @@ export class AgentRunService {
       };
       if (cycle !== undefined) this.pendingCycleLaunches.set(cycle.currentRunId, cancelPreflight);
       let reviewBranchContext: AgentRun['reviewBranchContext'];
+      let reviewArtifacts: readonly string[] | undefined;
       try {
         if (ownsIntegrationResolution(cycle) && cycle?.integrationResolution)
           await this.branches?.validateResolutionLaunch(
@@ -495,10 +498,37 @@ export class AgentRunService {
             cycle.integrationResolution,
           );
         else if (input.role !== 'review') await this.branches?.validateLaunch(prepared.worktree);
-        reviewBranchContext =
-          input.role === 'review'
-            ? await this.branches?.captureReview(prepared.worktree)
-            : undefined;
+        if (input.role === 'review' && (cycle?.resultContinuations ?? 0) > 0) {
+          const baseline = prepared.parentRun?.reviewBranchContext;
+          const ended =
+            prepared.parentRun &&
+            this.storage.execution.runEvents.latestOfKind(
+              workspaceId,
+              prepared.parentRun.id,
+              'run-finished',
+            );
+          if (
+            !baseline ||
+            prepared.parentRun?.status !== 'failed' ||
+            ended?.kind !== 'run-finished' ||
+            ended.payload.reason !== 'background-work-incomplete' ||
+            !this.branches
+          )
+            throw new ExecutionRequestError(
+              'conflict',
+              'Review continuation requires the interrupted review and its pinned branch context.',
+            );
+          const snapshot = await this.branches.captureReviewContinuation(
+            prepared.worktree,
+            baseline,
+          );
+          reviewBranchContext = snapshot.context;
+          reviewArtifacts = snapshot.artifacts;
+        } else
+          reviewBranchContext =
+            input.role === 'review'
+              ? await this.branches?.captureReview(prepared.worktree)
+              : undefined;
         if (cancelled)
           throw new ExecutionRequestError(
             'conflict',
@@ -584,6 +614,7 @@ export class AgentRunService {
               },
             }
           : {}),
+        ...(reviewArtifacts === undefined ? {} : { reviewContinuationArtifacts: reviewArtifacts }),
         resolvingIntegration: ownsIntegrationResolution(cycle),
         planFinalization: !!prepared.worktree.planVersionId,
         temporaryDirectory,

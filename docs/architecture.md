@@ -148,7 +148,10 @@ exit. The supervisor keeps that run live until the group drains or is terminated
 deadline; cancellation escalation survives the leader's exit. The daemon journals the
 reason, rejects its review authority, and can reserve two same-step continuations with
 the original deadline and handoff. Optional cycle JSON and event fields preserve old
-records without a migration. See ADR-037.
+records without a migration. Waiting turns keep input open while background work remains
+uncollected. Review continuations pin the original branch context at reservation and launch,
+allowing inspection of untracked test artifacts but rejecting tracked/index edits and changed
+commits; ordinary review and final approval remain clean-worktree gates. See ADR-037.
 
 Both adapters use `packages/agents/src/process.ts`; process authority remains three
 modules. The daemon selects from a backend registry, defaulting to the first available

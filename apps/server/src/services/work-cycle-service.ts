@@ -564,10 +564,7 @@ export class WorkCycleService {
     }
     if (run.status === 'starting' || run.status === 'running') return;
     if (run.status === 'waiting') {
-      if (!this.ending.has(run.id)) {
-        this.ending.add(run.id);
-        this.runs.finishCycleTurn(cycle);
-      }
+      if (!this.ending.has(run.id) && this.runs.finishCycleTurn(cycle)) this.ending.add(run.id);
       return;
     }
     this.ending.delete(run.id);
@@ -1540,7 +1537,35 @@ export class WorkCycleService {
     changes: Partial<WorkCycle> = {},
     action = context === undefined ? 'advance' : 'resume',
   ): Promise<WorkCycle> {
-    const reviewHeadSha = step === 'review' ? await this.cleanHead(cycle) : undefined;
+    const ended =
+      parent &&
+      this.storage.execution.runEvents.latestOfKind(cycle.workspaceId, parent.id, 'run-finished');
+    const collectingReview =
+      step === 'review' &&
+      cycle.step === 'review' &&
+      parent !== undefined &&
+      (parent.id === cycle.currentRunId ||
+        ((cycle.resultContinuations ?? 0) > 0 &&
+          parent.id === cycle.parentRunId &&
+          !this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId))) &&
+      parent.role === 'review' &&
+      parent.status === 'failed' &&
+      !ownsIntegrationResolution(cycle) &&
+      ended?.kind === 'run-finished' &&
+      ended.payload.reason === 'background-work-incomplete' &&
+      (!!context || (changes.resultContinuations ?? 0) > 0);
+    let reviewHeadSha: string | undefined;
+    if (collectingReview) {
+      const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+      if (!tree || !parent.reviewBranchContext || !this.branches)
+        throw new ExecutionRequestError(
+          'conflict',
+          'Review continuation requires its original branch checkpoint.',
+        );
+      reviewHeadSha = (
+        await this.branches.captureReviewContinuation(tree, parent.reviewBranchContext)
+      ).context.headSha;
+    } else if (step === 'review') reviewHeadSha = await this.cleanHead(cycle);
     if (
       this.abort.signal.aborted ||
       this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !== cycle.version
@@ -1550,7 +1575,8 @@ export class WorkCycleService {
       cycle,
       {
         housekeepingInstructions: '',
-        resultContinuations: 0,
+        // An explicit resume grants a fresh recovery window; automatic attempts retain their count/deadline.
+        resultContinuations: collectingReview && context ? 1 : 0,
         // Resume guidance belongs to that attempt; its answers remain in the handoff journal.
         ...(cycle.finalizationId && parent?.id === cycle.currentRunId ? { instructions: '' } : {}),
         ...changes,

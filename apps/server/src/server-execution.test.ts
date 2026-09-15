@@ -1,6 +1,13 @@
-import { openDatabase, openCraftingTableStorage } from '@craftingtable/storage';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -32,6 +39,7 @@ import {
   type AgentBackendKind,
   type AgentExitReason,
   type AgentRunId,
+  asAgentRunId,
   asPlanBundleId,
   asPlanVersionId,
   asProjectId,
@@ -47,6 +55,7 @@ import {
   type WorktreeId,
 } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
+import { openCraftingTableStorage, openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { mergeGateFor } from './services/execution-service.js';
@@ -123,6 +132,7 @@ class ScriptedBackend implements AgentBackend {
 }
 
 interface ScriptedReply {
+  readonly backgroundWorkPending?: boolean;
   readonly exitReason?: AgentExitReason;
   readonly messages?: readonly string[];
   readonly resultText: string;
@@ -132,6 +142,7 @@ interface ScriptedReply {
 class ScriptedSession implements AgentSession {
   readonly pid = 4242;
   backgroundWorkPending = false;
+  endCount = 0;
   readonly sent: string[] = [];
   private readonly queue: AgentSessionItem[] = [];
   private waiter: ((item: IteratorResult<AgentSessionItem>) => void) | undefined;
@@ -191,6 +202,7 @@ class ScriptedSession implements AgentSession {
     this.turns += 1;
     const reply = this.replies.shift();
     this.exitReason = reply?.exitReason;
+    this.backgroundWorkPending = reply?.backgroundWorkPending ?? false;
     this.push({
       type: 'event',
       event: {
@@ -283,7 +295,13 @@ class ScriptedSession implements AgentSession {
     return true;
   }
 
+  completeBackground(resultText: string): void {
+    this.replies.unshift({ resultText });
+    this.respondNow('Background completed');
+  }
+
   end(): void {
+    this.endCount++;
     this.exit(0, null);
   }
 
@@ -5436,4 +5454,243 @@ it('blocks a manual handoff while background work is reserved, while allowing ca
     payload: { worktreeId: worktree.id, role: 'review', parentRunId: source.id },
   });
   expect(allowed.statusCode, allowed.body).toBe(200);
+});
+
+describe('collecting background review results', () => {
+  it('keeps stdin open while background work is pending and ends only after the collected outcome', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: 'Waiting for a background check.', backgroundWorkPending: true },
+      implementationDone,
+      { resultText: reviewText([]) },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId)?.status ===
+        'waiting',
+      'background wait',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const session = present(backend.sessions[0]);
+    expect(session.endCount).toBe(0);
+    expect(backend.launches).toHaveLength(1);
+    expect(currentCycle(state, cycle).status).toBe('running');
+    session.completeBackground(designDone.resultText);
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'collected result');
+    expect(session.endCount).toBe(1);
+    expect(backend.launches).toHaveLength(3);
+    expect(currentCycle(state, cycle).resultContinuations ?? 0).toBe(0);
+  });
+
+  it('still cancels pending background work at the original step deadline', async () => {
+    let now = new Date('2026-09-15T03:00:00Z');
+    const { state, backend, worktree } = await cycleFixture(
+      [{ resultText: 'Waiting.', backgroundWorkPending: true }],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => backend.sessions.length === 1, 'pending background work');
+    now = new Date(now.getTime() + 121 * 60_000);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'background time limit',
+    );
+    expect(currentCycle(state, cycle).reason).toContain('Step time limit');
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId)?.status ===
+        'cancelled',
+      'cancel background owner',
+    );
+    expect(backend.launches).toHaveLength(1);
+    expect(backend.sessions[0]?.endCount).toBe(0);
+  });
+
+  it('continues a pinned review with test artifacts, preserves them in scratch, and still requires clean review evidence', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      implementationDone,
+      { resultText: 'Waiting for the matrix.', exitReason: 'background-work-incomplete' },
+      { resultText: reviewText([]) },
+    ]);
+    const artifact = join(worktree.path, 'test-scratch.rs');
+    let preserved: string | undefined;
+    backend.onLaunch = (request) => {
+      if (backend.launches.length === 2) writeFileSync(artifact, 'generated test fixture');
+      if (backend.launches.length === 3) {
+        expect(request.prompt).toContain(
+          'Untracked paths present at continuation preflight: ["test-scratch.rs"]',
+        );
+        expect(request.prompt).toContain('Do not stage or commit it');
+        preserved = join(present(request.temporaryDirectory), 'preserved-test-scratch.rs');
+        renameSync(artifact, preserved);
+      }
+    };
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'awaiting-merge',
+      'artifact recovery',
+    );
+    expect(readFileSync(present(preserved), 'utf8')).toBe('generated test fixture');
+    expect(git(['status', '--porcelain'], worktree.path)).toBe('');
+    expect(backend.launches.map((r) => r.model)).toEqual([
+      'design-model',
+      'implement-model',
+      'review-model',
+      'review-model',
+    ]);
+    expect(backend.launches[3]?.deadlineAt).toBe(backend.launches[2]?.deadlineAt);
+    expect(currentCycle(state, cycle)).toMatchObject({
+      remediationRounds: 0,
+      resultContinuations: 1,
+    });
+    const runs = state.context.storage.execution.runs.listForWorktree(
+      state.workspaceId,
+      worktree.id,
+    );
+    expect(runs[0]?.reviewBranchContext).toEqual(runs[1]?.reviewBranchContext);
+  });
+
+  it('cannot approve a continued review while an unknown untracked file remains', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      implementationDone,
+      { resultText: 'Waiting.', exitReason: 'background-work-incomplete' },
+      { resultText: reviewText([]) },
+    ]);
+    const artifact = join(worktree.path, 'unknown.txt');
+    backend.onLaunch = () => {
+      if (backend.launches.length === 2) writeFileSync(artifact, 'preserve me');
+    };
+    const cycle = await startCycle(state, worktree.id, {
+      policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+    });
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'dirty continuation',
+    );
+    expect(backend.launches).toHaveLength(4);
+    expect(readFileSync(artifact, 'utf8')).toBe('preserve me');
+    expect((await merge(state, worktree.id)).statusCode).toBe(409);
+    expect(currentCycle(state, cycle).remediationRounds).toBe(0);
+  });
+
+  it.each(['tracked', 'staged', 'index-only', 'head', 'target', 'merge'])(
+    'does not continue a review when %s state changed',
+    async (change) => {
+      const { state, backend, worktree, root } = await cycleFixture([
+        designDone,
+        implementationDone,
+        { resultText: 'Waiting.', exitReason: 'background-work-incomplete' },
+      ]);
+      backend.onLaunch = () => {
+        if (backend.launches.length !== 2) return;
+        if (change === 'tracked')
+          writeFileSync(join(worktree.path, 'README.md'), 'unreviewed change');
+        if (change === 'staged') {
+          writeFileSync(join(worktree.path, 'new-source.rs'), 'new source');
+          git(['add', '.'], worktree.path);
+        }
+        if (change === 'index-only') {
+          const original = readFileSync(join(worktree.path, 'README.md'), 'utf8');
+          writeFileSync(join(worktree.path, 'README.md'), 'staged edit');
+          git(['add', 'README.md'], worktree.path);
+          writeFileSync(join(worktree.path, 'README.md'), original);
+          writeFileSync(join(worktree.path, 'test-scratch.rs'), 'temporary');
+        }
+        if (change === 'head') commitFile(worktree.path, 'other.txt', 'new commit');
+        if (change === 'target') commitFile(root, 'upstream.txt', 'integration advanced');
+        if (change === 'merge')
+          writeFileSync(
+            git(['rev-parse', '--git-path', 'MERGE_HEAD'], worktree.path).trim(),
+            git(['rev-parse', 'HEAD'], worktree.path),
+          );
+      };
+      const cycle = await startCycle(state, worktree.id);
+      await waitFor(
+        () => currentCycle(state, cycle).status === 'needs-attention',
+        'changed review baseline',
+      );
+      expect(backend.launches).toHaveLength(3);
+      expect(currentCycle(state, cycle).resultContinuations ?? 0).toBe(0);
+      expect(currentCycle(state, cycle).reason).toMatch(
+        /Review continuation requires|review baseline changed/,
+      );
+    },
+  );
+
+  it.each(['plain', 'guided', 'reserved'])(
+    '%s resume of an interrupted finalization review can classify its artifacts',
+    {
+      timeout: 15000,
+    },
+    async (mode) => {
+      const fixture = await finalizationFixture();
+      const { state, backend } = fixture;
+      const normal = present(backend.replyForRequest);
+      let interrupted = false;
+      let artifact: string | undefined;
+      let preserved: string | undefined;
+      backend.replyForRequest = (request) => {
+        if (!interrupted) {
+          interrupted = true;
+          return {
+            resultText: '## Open questions\nMay I preserve this generated fixture?',
+            exitReason: 'background-work-incomplete',
+          };
+        }
+        return normal(request);
+      };
+      backend.onLaunch = (request) => {
+        if (backend.launches.length === 0) {
+          artifact = join(request.cwd, 'test-scratch.rs');
+          writeFileSync(artifact, 'generated fixture');
+        } else if (backend.launches.length === 1) {
+          expect(request.prompt).toContain(
+            'Continue interrupted verification on the pinned review baseline',
+          );
+          if (mode === 'guided')
+            expect(request.prompt).toContain('Preserve the fixture and finish verification.');
+          preserved = join(present(request.temporaryDirectory), 'preserved-fixture.rs');
+          renameSync(present(artifact), preserved);
+        }
+      };
+      const value = await beginFinalization(fixture);
+      await waitFor(
+        () => finalizationCycle(state, value).status === 'needs-attention',
+        'question before continuation',
+      );
+      if (mode === 'reserved') {
+        // A restart or failed launch can leave the continuation reserved without a run record.
+        const current = finalizationCycle(state, value);
+        state.context.storage.transaction((tx) =>
+          tx.execution.cycles.replace(
+            {
+              ...current,
+              version: current.version + 1,
+              currentRunId: asAgentRunId('bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb'),
+              parentRunId: current.currentRunId,
+              resultContinuations: 1,
+            },
+            current.version,
+          ),
+        );
+      }
+      expect(
+        (
+          await finalizationCommand(state, value, 'resume', {
+            ...(mode === 'guided'
+              ? { instructions: 'Preserve the fixture and finish verification.' }
+              : {}),
+          })
+        ).statusCode,
+      ).toBe(200);
+      await waitFor(
+        () => finalizationCycle(state, value).status === 'awaiting-merge',
+        'guided artifact continuation',
+      );
+      expect(readFileSync(present(preserved), 'utf8')).toBe('generated fixture');
+      expect(finalizationCycle(state, value).remediationRounds).toBe(0);
+    },
+  );
 });

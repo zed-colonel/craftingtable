@@ -68,10 +68,14 @@ it is mergeable.
   findings even when verification leaves artifacts. Dirty positive reviews require cleanup
   and a fresh review. Final merge remains your decision. Scratch files remain under each
   run's directory for inspection (they are not automatically pruned).
-- **Background completion recovery.** If Claude exits while waiting for background work,
+- **Background completion recovery.** The controller keeps Claude connected while background
+  work awaits collection. If Claude exits before collecting it,
   the daemon holds the worktree until its process group finishes, bounded by the original
   step deadline. It then allows up to two same-step continuations to collect verification
   and finish reporting, without consuming remediation attempts or extending the deadline.
+  Interrupted reviews can inspect and preserve leftover test artifacts on their unchanged
+  branch baseline; tracked edits and changed commits block this path. **Resume finalization**
+  also uses this recovery path, with optional guidance.
   Incomplete exits appear above the run outcome and cannot close findings or enable merge.
   Questions, exhausted recovery and restart still require operator action. Existing runs
   retain their recorded outcomes; this applies to newly launched runs.

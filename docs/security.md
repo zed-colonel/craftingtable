@@ -210,7 +210,12 @@ sessions and notification credentials: private modes protect them like the live 
 An incomplete background exit keeps the run reserved until its owned process group drains
 or deadline/cancellation terminates it. Recovery uses the existing cycle delegation and
 launch authorization, with two persisted attempts and the original step deadline. An
-incomplete review cannot supply merge authority or close findings. No additional process
+incomplete review cannot supply merge authority or close findings. Review recovery requires
+the original branch context and no tracked/index changes or pending Git operations. Untracked
+files are inspection candidates, not automatic deletion targets: the reviewer must establish
+verification provenance and preserve artifacts in scratch before cleanup. Unknown files stay
+for guidance or remediation. Merge still requires a clean worktree and current review.
+No additional process
 authority or browser shell endpoint is introduced. Process-group supervision does not
 contain commands that deliberately create a new session or external service; the existing
 OS-user and agent permission boundaries still apply. See ADR-037.

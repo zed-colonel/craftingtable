@@ -356,15 +356,65 @@ export class BranchService {
   }
 
   async captureReview(worktree: Worktree): Promise<ReviewBranchContext> {
+    return (await this.reviewSnapshot(worktree)).context;
+  }
+
+  /** Only resume the same reviewed commit; untracked verification artifacts carry no source authority. */
+  async captureReviewContinuation(worktree: Worktree, baseline: ReviewBranchContext) {
+    return this.reviewSnapshot(worktree, baseline);
+  }
+
+  private async reviewSnapshot(
+    worktree: Worktree,
+    baseline?: ReviewBranchContext,
+  ): Promise<{ context: ReviewBranchContext; artifacts: readonly string[] }> {
     const targetBranch = worktree.integrationBranch;
     if (targetBranch === undefined)
       conflict('Adopt an integration branch for this existing worktree before reviewing');
     const repo = this.repository(worktree.workspaceId, worktree.repositoryId);
     const git = this.requireGit();
-    const state = value(await git.inspectRepository(worktree.path));
-    if (!state.clean || state.branch !== worktree.branchName)
-      conflict('Review requires a clean worktree on its managed branch');
+    const state = baseline
+      ? value(await git.inspectWorktreeChanges(worktree.path))
+      : {
+          ...value(await git.inspectRepository(worktree.path)),
+          trackedClean: true,
+          paths: [],
+          untracked: [],
+          conflicted: false,
+        };
+    if (
+      state.branch !== worktree.branchName ||
+      state.conflicted ||
+      !state.trackedClean ||
+      state.paths.length > 0 ||
+      (!state.clean && (!baseline || state.untracked.length === 0))
+    )
+      conflict(
+        baseline
+          ? 'Review continuation requires the original managed branch without tracked edits, staged source changes, or pending Git operations. Preserve those changes and resolve them before continuing.'
+          : 'Review requires a clean worktree on its managed branch',
+      );
+    if (baseline && state.untracked.length > 100)
+      conflict(
+        'Review continuation found more than 100 untracked paths; inspect and classify them before resuming.',
+      );
     const targetSha = value(await git.resolveBranch(repo.rootPath, targetBranch));
+    const context = {
+      headSha: state.headSha,
+      targetBranch,
+      targetSha,
+      worktreeVersion: worktree.version,
+    };
+    if (
+      baseline &&
+      (baseline.headSha !== context.headSha ||
+        baseline.targetSha !== context.targetSha ||
+        baseline.targetBranch !== context.targetBranch ||
+        baseline.worktreeVersion !== context.worktreeVersion)
+    )
+      conflict(
+        'The interrupted review baseline changed. Refresh and verify the changed branches before starting a fresh review.',
+      );
     if (worktree.workItemId)
       await this.requirePredecessors(
         worktree.workspaceId,
@@ -377,7 +427,7 @@ export class BranchService {
       conflict(
         'Integration branch advanced; update the worktree, verify the combined changes, and review again',
       );
-    return { headSha: state.headSha, targetBranch, targetSha, worktreeVersion: worktree.version };
+    return { context, artifacts: baseline ? state.untracked : [] };
   }
 
   async assertReview(worktree: Worktree, run: AgentRun | undefined): Promise<ReviewBranchContext> {

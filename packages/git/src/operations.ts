@@ -89,6 +89,8 @@ export interface WorktreeDiff {
 
 export interface WorktreeChanges {
   readonly clean: boolean;
+  /** Includes index-only edits hidden by a working copy restored to HEAD. */
+  readonly trackedClean: boolean;
   readonly headSha: string;
   readonly branch: string;
   readonly paths: readonly string[];
@@ -1130,6 +1132,11 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     if (!names.ok) return names;
     const untracked = await runOk(['ls-files', '--others', '--exclude-standard', '-z'], path);
     if (!untracked.ok) return untracked;
+    const trackedStatus = await runOk(
+      ['status', '--porcelain', '-z', '--untracked-files=no'],
+      path,
+    );
+    if (!trackedStatus.ok) return trackedStatus;
     const conflicts = await runOk(['ls-files', '--unmerged', '-z'], path);
     if (!conflicts.ok) return conflicts;
     let pendingOperation = false;
@@ -1144,6 +1151,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         headSha: identity.value.headSha,
         branch: identity.value.branch,
         clean: identity.value.clean,
+        trackedClean: trackedStatus.value.stdout.length === 0,
         paths: splitNul(names.value.stdout),
         untracked: splitNul(untracked.value.stdout),
         fingerprint: createHash('sha256').update(diff.value.stdout).digest('hex'),

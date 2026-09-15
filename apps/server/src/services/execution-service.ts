@@ -731,7 +731,12 @@ export class ExecutionService {
     input: { readonly targetBranch?: string } = {},
     requestId?: string,
     delegation?: { roadmapId: string; definitionRevision: number; check: () => void },
-    finalApproval?: { finalizationId: string; expectedHeadSha: string; expectedTargetSha: string },
+    finalApproval?: {
+      finalizationId: string;
+      expectedHeadSha: string;
+      expectedTargetSha: string;
+      removeIntegrationBranch?: boolean;
+    },
   ): Promise<{
     readonly worktree: Worktree;
     readonly mergeSha: string;
@@ -882,6 +887,7 @@ export class ExecutionService {
             reviewRunId: gate.reviewRunId,
             createdAt: this.now().toISOString(),
             authorizedByUserId: context.user.id,
+            ...(finalApproval?.removeIntegrationBranch ? { removeIntegrationBranch: true } : {}),
             ...(delegation
               ? {
                   roadmapId: delegation.roadmapId,
@@ -942,6 +948,15 @@ export class ExecutionService {
                 status: 'completed',
                 version: finalization.version + 1,
                 reason: `Promoted to ${targetBranch} by explicit operator approval.`,
+                ...(committed.removeIntegrationBranch
+                  ? {
+                      integrationCleanup: {
+                        status: 'pending' as const,
+                        requestedAt: committed.createdAt,
+                        requestedByUserId: committed.authorizedByUserId,
+                      },
+                    }
+                  : {}),
               },
               finalization.version,
             );
@@ -973,6 +988,7 @@ export class ExecutionService {
               mergeSha,
               reviewRunId: committed.reviewRunId,
               operationId: committed.id,
+              removeIntegrationBranch: committed.removeIntegrationBranch ?? false,
               ...(committed.roadmapId
                 ? {
                     roadmapId: committed.roadmapId,

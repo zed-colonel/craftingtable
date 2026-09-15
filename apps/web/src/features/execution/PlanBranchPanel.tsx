@@ -153,6 +153,12 @@ export function PlanBranchPanel({
           documents remain unchanged.
         </p>
       )}
+      {data?.integrationBranchRemoved && (
+        <p className="hint">
+          Integration branch removed after final promotion. These settings remain as plan history;
+          choose an existing branch before starting further work.
+        </p>
+      )}
       {data?.issues.map((issue) => (
         <p className="warning-state" key={issue}>
           {issue}

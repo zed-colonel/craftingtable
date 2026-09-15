@@ -260,6 +260,7 @@ export class PlanningQueryService {
         requiredDependencyCount: version.requiredDependencyCount,
         createdAt: version.createdAt,
         isActive: project?.activePlanVersionId === version.id,
+        completion: tx.planning.queries.versionCompletion(workspaceId, planVersionId),
         sourceProfile: version.sourceProfile,
         digestAlgorithm: version.digestAlgorithm,
         digestFormatVersion: version.digestFormatVersion,

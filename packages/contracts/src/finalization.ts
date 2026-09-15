@@ -49,6 +49,15 @@ export const finalizationSchema = finalizationSettingsSchema.extend({
   worktreeId: worktreeIdSchema,
   cycleId: z.string().uuid(),
   status: z.enum(['preparing', 'active', 'stopped', 'completed']),
+  integrationCleanup: z
+    .strictObject({
+      status: z.enum(['pending', 'blocked', 'removed']),
+      requestedAt: z.iso.datetime(),
+      requestedByUserId: userIdSchema,
+      completedAt: z.iso.datetime().optional(),
+      error: z.string().max(4000).optional(),
+    })
+    .optional(),
   reason: z.string().max(4000),
   version: z.number().int().positive(),
   createdAt: z.iso.datetime(),
@@ -77,6 +86,7 @@ export const controlFinalizationRequestSchema = z
       'merge',
       'remove-worktree',
       'retry-cleanup',
+      'remove-integration-branch',
       'authorize-remediation',
       'defer-nits',
       'remediate-findings',
@@ -91,8 +101,13 @@ export const controlFinalizationRequestSchema = z
     rationale: z.string().trim().min(1).max(4000).optional(),
     additionalRounds: z.number().int().min(1).max(20).optional(),
     instructions: z.string().max(16000).optional(),
+    removeIntegrationBranch: z.boolean().optional(),
     expectedHeadSha: gitShaSchema.optional(),
     expectedTargetSha: gitShaSchema.optional(),
+  })
+  .refine((r) => r.removeIntegrationBranch === undefined || r.action === 'merge', {
+    message: 'Branch retention can only be chosen with final merge approval',
+    path: ['removeIntegrationBranch'],
   })
   .refine(
     (r) =>

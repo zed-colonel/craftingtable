@@ -155,8 +155,15 @@ export class FinalizationService {
       if (value.version !== input.expectedVersion)
         conflict('Finalization changed; refresh before continuing.');
       const cycle = this.storage.execution.cycles.find(workspaceId, value.cycleId);
-      if (cycle && cycle.version !== input.expectedCycleVersion)
+      // Post-promotion cleanup does not depend on the cycle's asynchronous completion tick.
+      if (
+        cycle &&
+        !['remove-integration-branch', 'retry-cleanup'].includes(input.action) &&
+        cycle.version !== input.expectedCycleVersion
+      )
         conflict('Finalization cycle changed; refresh before continuing.');
+      if (input.action === 'remove-integration-branch')
+        return this.view(await this.cleanupIntegration(context, value));
       if (input.action === 'remove-worktree') {
         if (value.status !== 'stopped') conflict('Stop finalization before removing its worktree.');
         await this.execution.removeWorktree(context, workspaceId, value.worktreeId);
@@ -183,11 +190,16 @@ export class FinalizationService {
             finalizationId: value.id,
             expectedHeadSha: input.expectedHeadSha,
             expectedTargetSha: input.expectedTargetSha,
+            removeIntegrationBranch: input.removeIntegrationBranch,
           },
         );
         const promoted = this.storage.execution.finalizations.find(workspaceId, id);
         if (!promoted) throw new NotFoundError();
-        return this.view(promoted);
+        return this.view(
+          promoted.integrationCleanup?.status === 'pending'
+            ? await this.cleanupIntegration(context, promoted)
+            : promoted,
+        );
       }
       if (
         input.action !== 'pause' &&
@@ -274,6 +286,139 @@ export class FinalizationService {
     } finally {
       this.controlling.delete(id);
     }
+  }
+  /** Cleanup is separately reserved: a failed removal never reopens a completed promotion. */
+  private async cleanupIntegration(
+    context: AuthContext,
+    original: Finalization,
+  ): Promise<Finalization> {
+    if (original.status !== 'completed')
+      conflict('Promote the plan before removing its integration branch.');
+    if (original.integrationCleanup?.status === 'removed') return original;
+    const repo = this.storage.execution.sourceRepositories.find(
+      original.workspaceId,
+      original.repositoryId,
+    );
+    const git = this.git;
+    if (!repo || !git) throw new NotFoundError();
+    return this.execution.branches.duringMerge(repo.rootPath, async () => {
+      this.workspaces.requireRole(context, original.workspaceId, ['owner', 'editor']);
+      let value = this.storage.execution.finalizations.find(original.workspaceId, original.id);
+      if (!value || value.version !== original.version || value.status !== 'completed')
+        conflict('Finalization changed; refresh before removing the branch.');
+      const cleanup = {
+        status: 'pending' as const,
+        requestedAt: this.now().toISOString(),
+        requestedByUserId: context.user.id,
+      };
+      value = { ...value, version: value.version + 1, integrationCleanup: cleanup };
+      this.save(value, original.version, context, 'integration-cleanup-requested');
+      let error: string | undefined;
+      try {
+        const sameRepo = (workspaceId: WorkspaceId, repositoryId: Finalization['repositoryId']) =>
+          this.storage.execution.sourceRepositories.find(workspaceId, repositoryId)?.rootPath ===
+          repo.rootPath;
+        const check = () => {
+          this.workspaces.requireRole(context, value.workspaceId, ['owner', 'editor']);
+          this.execution.branches.requireAutomaticMergeTarget(
+            value.workspaceId,
+            value.repositoryId,
+            value.integrationBranch,
+            'remove',
+          );
+          this.execution.branches.requireIntegrationAvailable(
+            repo.rootPath,
+            value.integrationBranch,
+          );
+          if (
+            this.storage.execution.branchSettings
+              .list()
+              .some(
+                (settings) =>
+                  sameRepo(settings.workspaceId, settings.repositoryId) &&
+                  settings.integrationBranch === value.integrationBranch &&
+                  (settings.workspaceId !== value.workspaceId ||
+                    settings.planVersionId !== value.planVersionId),
+              )
+          )
+            conflict('Another plan uses this integration branch; it was retained.');
+          if (
+            this.storage.execution.worktrees
+              .listActive()
+              .some(
+                (tree) =>
+                  sameRepo(tree.workspaceId, tree.repositoryId) &&
+                  (tree.branchName === value.integrationBranch ||
+                    tree.integrationBranch === value.integrationBranch),
+              )
+          )
+            conflict('An active worktree uses this integration branch; it was retained.');
+          if (
+            this.storage.execution.merges.pending().some((op) => {
+              const tree = this.storage.execution.worktrees.find(op.workspaceId, op.worktreeId);
+              return (
+                op.status === 'reserved' &&
+                op.targetBranch === value.integrationBranch &&
+                tree &&
+                sameRepo(tree.workspaceId, tree.repositoryId)
+              );
+            })
+          )
+            conflict('A pending merge uses this integration branch; it was retained.');
+        };
+        check();
+        const tree = this.storage.execution.worktrees.find(value.workspaceId, value.worktreeId);
+        const operation = this.storage.execution.merges.latest(value.workspaceId, value.worktreeId);
+        if (
+          !tree?.mergedAt ||
+          !tree.mergeSha ||
+          operation?.mergeSha !== tree.mergeSha ||
+          !['merged', 'cleaned'].includes(operation.status) ||
+          operation.targetBranch !== value.targetBranch
+        )
+          conflict(
+            'Recorded promotion evidence is unavailable; the integration branch was retained.',
+          );
+        const included = await git.isAncestor(repo.rootPath, value.integrationSha, tree.mergeSha);
+        const target = await git.resolveBranch(repo.rootPath, value.targetBranch);
+        const promoted = target.ok
+          ? await git.isAncestor(repo.rootPath, tree.mergeSha, target.value)
+          : undefined;
+        if (!included.ok || !included.value || !promoted?.ok || !promoted.value)
+          conflict(
+            'The final destination no longer contains the recorded promotion; the branch was retained.',
+          );
+        check();
+        const removed = await git.deleteBranch({
+          repositoryPath: repo.rootPath,
+          branchName: value.integrationBranch,
+          mergedInto: value.targetBranch,
+          expectedHeadSha: value.integrationSha,
+        });
+        if (!removed.ok) conflict(removed.failure.message);
+      } catch (cause) {
+        error =
+          cause instanceof Error
+            ? cause.message.slice(0, 4000)
+            : 'Integration branch cleanup failed.';
+      }
+      const result: Finalization = {
+        ...value,
+        version: value.version + 1,
+        integrationCleanup: {
+          ...cleanup,
+          status: error ? 'blocked' : 'removed',
+          ...(error ? { error } : { completedAt: this.now().toISOString() }),
+        },
+      };
+      this.save(
+        result,
+        value.version,
+        context,
+        error ? 'integration-cleanup-blocked' : 'integration-cleanup-completed',
+      );
+      return result;
+    });
   }
   private async prepare(context: AuthContext, value: Finalization) {
     const check = () => {
@@ -363,6 +508,8 @@ export class FinalizationService {
           action,
           status: value.status,
           integrationSha: value.integrationSha,
+          integrationBranch: value.integrationBranch,
+          ...(value.integrationCleanup ? { integrationCleanup: value.integrationCleanup } : {}),
           targetBranch: value.targetBranch,
         },
       });

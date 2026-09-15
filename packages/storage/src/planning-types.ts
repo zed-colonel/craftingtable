@@ -210,6 +210,7 @@ export interface PlanningStatusCounts {
 }
 
 export interface ProjectSummaryRow extends PlanningStatusCounts {
+  readonly completion?: import('@craftingtable/domain').PlanCompletion;
   readonly id: ProjectId;
   readonly name: string;
   readonly slug: string;
@@ -227,6 +228,7 @@ export interface WorkspacePlanningSummary extends PlanningStatusCounts {
 }
 
 export interface PlanVersionSummaryRow {
+  readonly completion?: import('@craftingtable/domain').PlanCompletion;
   readonly id: PlanVersionId;
   readonly versionNumber: number;
   readonly contentDigest: string;
@@ -344,6 +346,10 @@ export interface PlanningQueryRepository {
     workspaceId: WorkspaceId,
     projectId: ProjectId,
   ): readonly PlanVersionSummaryRow[];
+  versionCompletion(
+    workspaceId: WorkspaceId,
+    planVersionId: PlanVersionId,
+  ): import('@craftingtable/domain').PlanCompletion | undefined;
   versionStatusCounts(workspaceId: WorkspaceId, planVersionId: PlanVersionId): PlanningStatusCounts;
 }
 

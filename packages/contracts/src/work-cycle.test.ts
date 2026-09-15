@@ -83,3 +83,32 @@ it('limits finalization agent overrides to recovery and keeps permissions out of
       }).success,
     ).toBe(false);
 });
+
+it('limits integration branch removal choices to explicit final promotion commands', () => {
+  const input = { expectedVersion: 1, expectedCycleVersion: 2 };
+  expect(
+    controlFinalizationRequestSchema.safeParse({
+      ...input,
+      action: 'merge',
+      removeIntegrationBranch: true,
+    }).success,
+  ).toBe(true);
+  expect(
+    controlFinalizationRequestSchema.safeParse({ ...input, action: 'remove-integration-branch' })
+      .success,
+  ).toBe(true);
+  expect(
+    controlFinalizationRequestSchema.safeParse({
+      ...input,
+      action: 'resume',
+      removeIntegrationBranch: true,
+    }).success,
+  ).toBe(false);
+  expect(
+    controlFinalizationRequestSchema.safeParse({
+      ...input,
+      action: 'remove-integration-branch',
+      branch: 'arbitrary',
+    }).success,
+  ).toBe(false);
+});

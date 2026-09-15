@@ -3,6 +3,7 @@ import type { PlanArtifactId, PlanVersionId, WorkItemId } from '@craftingtable/d
 import type { ReactNode } from 'react';
 import { formatBytes, RISK_LABELS, shortDigest } from '../../lib/planning-labels.js';
 import { DiagnosticList } from './DiagnosticList.js';
+import { PlanCompletion } from './PlanCompletion.js';
 import { WorkItemTable } from './WorkItemTable.js';
 
 export function ProjectPage({
@@ -30,6 +31,7 @@ export function ProjectPage({
           </p>
         </div>
       </header>
+      <PlanCompletion completion={detail.project.completion} />
       {branchSettings}
 
       <section className="status-cards" aria-label="Plan summary">
@@ -83,6 +85,7 @@ export function ProjectPage({
                 <th scope="col">Items</th>
                 <th scope="col">Required edges</th>
                 <th scope="col">Active</th>
+                <th scope="col">Finalization</th>
               </tr>
             </thead>
             <tbody>
@@ -104,6 +107,11 @@ export function ProjectPage({
                   <td>{version.itemCount}</td>
                   <td>{version.requiredDependencyCount}</td>
                   <td>{version.isActive ? 'Active' : 'Preserved'}</td>
+                  <td>
+                    {version.completion
+                      ? `Completed · ${version.completion.targetBranch}`
+                      : 'Not finalized'}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -770,6 +770,23 @@ function toStatusCounts(row: StatusCountRow | undefined): PlanningStatusCounts {
   };
 }
 
+// Join the completed attempt to its durable merge evidence; this also covers older records.
+const PLAN_COMPLETION_SELECT = `(SELECT json_object(
+  'finalizationId', f.id,
+  'targetBranch', json_extract(f.state_json, '$.targetBranch'),
+  'mergeSha', wt.merge_sha,
+  'completedAt', wt.merged_at)
+  FROM finalizations f JOIN worktrees wt
+    ON wt.id = json_extract(f.state_json, '$.worktreeId') AND wt.workspace_id = f.workspace_id
+  WHERE f.workspace_id = v.workspace_id AND f.plan_version_id = v.id
+    AND f.status = 'completed' AND wt.merged_at IS NOT NULL AND wt.merge_sha IS NOT NULL
+  ORDER BY wt.merged_at DESC, f.rowid DESC LIMIT 1)`;
+function completionFields(json: string | null) {
+  return json
+    ? { completion: JSON.parse(json) as import('@craftingtable/domain').PlanCompletion }
+    : {};
+}
+
 /**
  * Summaries count only the work items of each project's *active* plan version.
  * Counting every version would inflate the dashboard as soon as a second import
@@ -809,6 +826,7 @@ class SqlitePlanningQueryRepository implements PlanningQueryRepository {
       .prepare(
         `SELECT pr.id, pr.name, pr.slug, pr.active_plan_version_id, pr.created_at,
                 v.document AS document,
+                ${PLAN_COMPLETION_SELECT} AS completion_json,
                 (SELECT COUNT(*) FROM plan_versions pv WHERE pv.project_id = pr.id)
                   AS version_count,
                 (SELECT COALESCE(SUM(a.warning_count), 0) FROM plan_import_attempts a
@@ -831,6 +849,7 @@ class SqlitePlanningQueryRepository implements PlanningQueryRepository {
       document: string | null;
       version_count: number;
       warning_count: number;
+      completion_json: string | null;
     })[];
     return rows.map((row) => ({
       id: row.id as ProjectId,
@@ -844,6 +863,7 @@ class SqlitePlanningQueryRepository implements PlanningQueryRepository {
       warningCount: row.warning_count,
       createdAt: row.created_at,
       ...toStatusCounts(row),
+      ...completionFields(row.completion_json),
     }));
   }
 
@@ -856,6 +876,7 @@ class SqlitePlanningQueryRepository implements PlanningQueryRepository {
         .prepare(
           `SELECT v.id, v.version_number, v.content_digest, v.document, v.item_count,
                   v.required_dependency_count, v.created_at,
+                  ${PLAN_COMPLETION_SELECT} AS completion_json,
                   CASE WHEN pr.active_plan_version_id = v.id THEN 1 ELSE 0 END AS is_active
            FROM plan_versions v
            JOIN projects pr ON pr.id = v.project_id
@@ -871,6 +892,7 @@ class SqlitePlanningQueryRepository implements PlanningQueryRepository {
         required_dependency_count: number;
         created_at: string;
         is_active: number;
+        completion_json: string | null;
       }[]
     ).map((row) => ({
       id: row.id as PlanVersionId,
@@ -881,7 +903,17 @@ class SqlitePlanningQueryRepository implements PlanningQueryRepository {
       requiredDependencyCount: row.required_dependency_count,
       createdAt: row.created_at,
       isActive: row.is_active === 1,
+      ...completionFields(row.completion_json),
     }));
+  }
+
+  versionCompletion(workspaceId: WorkspaceId, planVersionId: PlanVersionId) {
+    const row = this.database
+      .prepare(
+        `SELECT ${PLAN_COMPLETION_SELECT} AS completion_json FROM plan_versions v WHERE v.workspace_id = ? AND v.id = ?`,
+      )
+      .get(workspaceId, planVersionId) as { completion_json: string | null } | undefined;
+    return completionFields(row?.completion_json ?? null).completion;
   }
 
   versionStatusCounts(workspaceId: WorkspaceId, planVersionId: PlanVersionId) {

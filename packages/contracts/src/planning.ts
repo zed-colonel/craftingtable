@@ -115,11 +115,19 @@ export const planningStatusCountsSchema = z.strictObject({
   riskCounts: riskCountsSchema,
 });
 
+export const planCompletionSchema = z.strictObject({
+  finalizationId: z.string().uuid(),
+  targetBranch: z.string().min(1).max(255),
+  mergeSha: z.string().regex(/^[0-9a-f]{40,64}$/),
+  completedAt: z.iso.datetime(),
+});
+
 export const projectSummarySchema = planningStatusCountsSchema.extend({
   id: projectIdSchema,
   name: z.string().min(1).max(120),
   slug: z.string().min(1).max(120),
   activePlanVersionId: planVersionIdSchema.optional(),
+  completion: planCompletionSchema.optional(),
   document: z.string().max(300).optional(),
   versionCount: z.number().int().nonnegative().safe(),
   warningCount: z.number().int().nonnegative().safe(),
@@ -131,6 +139,7 @@ export const projectListResponseSchema = z.strictObject({
 });
 
 export const planVersionSummarySchema = z.strictObject({
+  completion: planCompletionSchema.optional(),
   id: planVersionIdSchema,
   versionNumber: z.number().int().positive().safe(),
   contentDigest: z.string().length(64),

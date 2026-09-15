@@ -65,6 +65,7 @@ export function FinalizationPanel({
     target: string;
     version: number;
     cycleVersion: number;
+    removeIntegrationBranch: boolean;
   }>();
   const [diff, setDiff] = useState<WorktreeDiffResponse>();
   // biome-ignore lint/correctness/useExhaustiveDependencies: A completed command requests an immediate server refresh.
@@ -386,7 +387,7 @@ export function FinalizationPanel({
                 </>
               )}
             </p>
-            <p role="status">{cycle?.reason ?? f.reason}</p>
+            <p role="status">{f.status === 'completed' ? f.reason : (cycle?.reason ?? f.reason)}</p>
             <p style={{ overflowWrap: 'anywhere' }}>
               Integration snapshot <code>{f.integrationSha}</code>
               <br />
@@ -463,6 +464,7 @@ export function FinalizationPanel({
                             target: reviewed.targetSha,
                             version: f.version,
                             cycleVersion: cycle.version,
+                            removeIntegrationBranch: false,
                           })
                         }
                       >
@@ -484,6 +486,47 @@ export function FinalizationPanel({
                 </button>
               )}
             </div>
+            {f.status === 'completed' && (
+              <fieldset className="stack-form">
+                <legend>Integration branch cleanup</legend>
+                {f.integrationCleanup?.status === 'removed' ? (
+                  <p>
+                    Local integration branch <code>{f.integrationBranch}</code> removed. Merged
+                    commits and plan history are retained.
+                  </p>
+                ) : (
+                  <>
+                    <p style={{ overflowWrap: 'anywhere' }}>
+                      Remove local branch <code>{f.integrationBranch}</code> at the recorded
+                      snapshot <code>{f.integrationSha}</code>. Its commits remain in{' '}
+                      <code>{f.targetBranch}</code>. Remote branches are unaffected.
+                    </p>
+                    {f.integrationCleanup?.status === 'pending' && (
+                      <p role="status">
+                        Promotion completed. Branch cleanup was requested and needs to be retried.
+                      </p>
+                    )}
+                    {f.integrationCleanup?.error && (
+                      <p role="status" className="error-state">
+                        Promotion completed. Branch retained: {f.integrationCleanup.error}
+                      </p>
+                    )}
+                    {canMutate && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={busy}
+                        onClick={() => void command(view, 'remove-integration-branch')}
+                      >
+                        {f.integrationCleanup
+                          ? 'Retry integration branch cleanup'
+                          : `Remove integration branch ${f.integrationBranch}`}
+                      </button>
+                    )}
+                  </>
+                )}
+              </fieldset>
+            )}
             {view.worktree?.mergeCleanupError && (
               <div className="error-state" role="status">
                 <p>
@@ -509,6 +552,23 @@ export function FinalizationPanel({
                   <code>{confirm.target}</code>. This requires your explicit approval and renewed
                   review if either commit changes.
                 </p>
+                {!view.mergeRecoveryPending && (
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={confirm.removeIntegrationBranch}
+                      disabled={busy}
+                      onChange={(e) =>
+                        setConfirm({ ...confirm, removeIntegrationBranch: e.target.checked })
+                      }
+                    />
+                    Remove local integration branch {f.integrationBranch} after successful promotion
+                  </label>
+                )}
+                <p className="hint">
+                  Branch removal preserves the merged commits and plan history. If the branch has
+                  changed or is still in use, promotion stays completed and cleanup can be retried.
+                </p>
                 <div className="inline-actions">
                   <button
                     type="button"
@@ -525,6 +585,7 @@ export function FinalizationPanel({
                             expectedCycleVersion: confirm.cycleVersion,
                             expectedHeadSha: confirm.head,
                             expectedTargetSha: confirm.target,
+                            removeIntegrationBranch: confirm.removeIntegrationBranch,
                           },
                           csrfToken,
                         ),

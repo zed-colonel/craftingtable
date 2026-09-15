@@ -16,4 +16,5 @@ export interface MergeOperation {
   readonly definitionRevision?: number;
   readonly mergeSha?: string;
   readonly cleanupError?: string;
+  readonly removeIntegrationBranch?: boolean;
 }

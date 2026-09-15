@@ -153,7 +153,13 @@ it is mergeable.
   Further daemon merges into that integration branch wait until finalization ends. Review
   the full candidate diff and run outcomes, then explicitly approve the exact candidate and
   destination commits. The polished candidate merges directly into the final destination;
-  the source integration branch remains at its snapshot. External integration drift requires
+  the source integration branch remains at its snapshot unless you select **Remove local
+  integration branch after successful promotion** in the final approval. Completed attempts
+  also offer **Remove integration branch** and retry cleanup, including older promotions.
+  Removal is local only, refuses changed, protected, checked-out or shared branches, and never
+  reopens a successful promotion. Plan/project headers, project cards and version history show
+  **Plan completed** with the destination and recorded merge. Completion belongs to that plan
+  version; new versions do not inherit it. External integration drift requires
   a new finalization. No round count or roadmap policy can approve final promotion.
 - **Merge recovery.** Merge reservations survive interruptions between Git and database
   completion. Recovery checks the recorded commit and parents before recording completion,

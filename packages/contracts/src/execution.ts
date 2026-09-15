@@ -1,7 +1,7 @@
 import {
   AGENT_BACKENDS,
-  AGENT_EXIT_REASONS,
   AGENT_BILLING_SOURCES,
+  AGENT_EXIT_REASONS,
   AGENT_NOTICE_CATEGORIES,
   AGENT_PERMISSION_MODES,
   AGENT_RUN_ROLES,
@@ -560,6 +560,7 @@ export const planBranchSettingsSchema = z.strictObject({
   version: positiveSafeInteger,
 });
 export const planBranchSettingsResponseSchema = z.strictObject({
+  integrationBranchRemoved: z.boolean().optional(),
   missingEvidence: z
     .array(z.strictObject({ workItemId: workItemIdSchema, sourceId: z.string() }))
     .max(1000)

@@ -261,6 +261,11 @@ for (const decision of ['remediate', 'defer'] as const) {
         finalization.getByRole('group', { name: 'Approve final promotion' }),
       ).toBeVisible();
       expect(git(['rev-parse', 'main'], repository)).toBe(main);
+      const removeIntegration = finalization.getByRole('checkbox', {
+        name: 'Remove local integration branch revision after successful promotion',
+      });
+      await expect(removeIntegration).not.toBeChecked();
+      if (decision === 'defer') await removeIntegration.check();
       await page.screenshot({ path: info.outputPath('finalization-approval.png'), fullPage: true });
       await finalization
         .getByRole('button', { name: 'Approve merge into main', exact: true })
@@ -268,8 +273,30 @@ for (const decision of ['remediate', 'defer'] as const) {
       await expect(finalization.getByText('Promoted by operator', { exact: true })).toBeVisible({
         timeout: 15000,
       });
-      expect(git(['rev-parse', 'main'], repository)).not.toBe(main);
-      expect(git(['rev-parse', 'revision'], repository)).toBe(integration);
+      const promoted = git(['rev-parse', 'main'], repository);
+      expect(promoted).not.toBe(main);
+      await expect(page.getByText('Plan completed', { exact: true }).first()).toBeVisible();
+      const cleanup = finalization.getByRole('group', { name: 'Integration branch cleanup' });
+      if (decision === 'remediate') {
+        expect(git(['rev-parse', 'revision'], repository)).toBe(integration);
+        await cleanup.screenshot({ path: info.outputPath('completed-plan-retained-branch.png') });
+        await cleanup
+          .getByRole('button', { name: 'Remove integration branch revision', exact: true })
+          .click();
+      }
+      await expect(
+        cleanup.getByText('removed. Merged commits and plan history are retained.', {
+          exact: false,
+        }),
+      ).toBeVisible();
+      expect(git(['branch', '--list', 'revision'], repository).trim()).toBe('');
+      expect(git(['rev-parse', 'main'], repository)).toBe(promoted);
+      await page.reload();
+      await expect(page.getByText('Plan completed', { exact: true }).first()).toBeVisible();
+      await expect(
+        page.getByText('Integration branch removed after final promotion.', { exact: false }),
+      ).toBeVisible();
+      await page.screenshot({ path: info.outputPath('completed-plan.png'), fullPage: true });
       expect(readFileSync(join(repository, 'POLISH-1.md'), 'utf8')).toContain('Plan finalization');
     } finally {
       rmSync(repository, { recursive: true, force: true });

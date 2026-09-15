@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, realpath, stat } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 
@@ -210,6 +210,7 @@ export interface GitOperations {
     readonly repositoryPath: string;
     readonly branchName: string;
     readonly mergedInto: string;
+    readonly expectedHeadSha?: string;
   }): Promise<GitResult<undefined>>;
 }
 
@@ -1003,6 +1004,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     readonly repositoryPath: string;
     readonly branchName: string;
     readonly mergedInto: string;
+    readonly expectedHeadSha?: string;
   }): Promise<GitResult<undefined>> {
     const repository = await canonicalDirectory(input.repositoryPath);
     if (!repository.ok) return repository;
@@ -1014,8 +1016,33 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     if (!exists.value) {
       return { ok: true, value: undefined };
     }
+    if (input.branchName === input.mergedInto)
+      return fail('git-failed', 'The destination branch cannot be removed');
+    if (input.expectedHeadSha !== undefined) {
+      if (!/^[0-9a-f]{40,64}$/.test(input.expectedHeadSha))
+        return fail('invalid-path', 'Expected branch commit must be a full object ID');
+      const head = await resolveBranch(repository.value, input.branchName);
+      if (!head.ok) return head;
+      if (head.value !== input.expectedHeadSha)
+        return fail(
+          'git-failed',
+          `Branch ${input.branchName} changed after finalization; it was retained`,
+        );
+    }
+    const worktrees = await listWorktrees(repository.value);
+    if (!worktrees.ok) return worktrees;
+    if (worktrees.value.some((tree) => tree.branch === input.branchName))
+      return fail(
+        'git-failed',
+        `Branch ${input.branchName} is checked out in a worktree; it was retained`,
+      );
     const ancestor = await run(
-      ['merge-base', '--is-ancestor', input.branchName, input.mergedInto],
+      [
+        'merge-base',
+        '--is-ancestor',
+        `refs/heads/${input.branchName}`,
+        `refs/heads/${input.mergedInto}`,
+      ],
       repository.value,
     );
     if (!ancestor.ok) return ancestor;
@@ -1025,7 +1052,19 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         `Branch ${input.branchName} is not merged into ${input.mergedInto}`,
       );
     }
-    const deleted = await runOk(['branch', '-D', '--', input.branchName], repository.value);
+    // Compare-and-delete prevents an external ref update between inspection and deletion.
+    const deleted = await runOk(
+      input.expectedHeadSha
+        ? [
+            'update-ref',
+            '--no-deref',
+            '-d',
+            `refs/heads/${input.branchName}`,
+            input.expectedHeadSha,
+          ]
+        : ['branch', '-D', '--', input.branchName],
+      repository.value,
+    );
     if (!deleted.ok) return deleted;
     return { ok: true, value: undefined };
   }

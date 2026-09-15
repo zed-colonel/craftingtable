@@ -237,3 +237,12 @@ They require an idle checkpoint and an available backend, cannot change permissi
 and persist with the next run reservation and attributed audit record. A backend switch
 receives the existing durable handoff in a new run; it grants no finding waiver, allowance
 reset, or final promotion authority. Pending conflicts use their separate recovery controls.
+
+Integration branch removal is an explicit authenticated owner/editor finalization command,
+or an opt-in recorded with the exact merge reservation. It only targets the completed attempt's
+local integration branch at its pinned snapshot. The controller requires retained promotion
+ancestry in the destination and rejects protected branches, active worktree/merge use, active
+finalization holds and other plan bindings. Git checks all linked checkouts and uses a
+compare-and-delete ref operation, preserving a concurrently advanced branch. Remote refs and
+source checkout contents are untouched. Cleanup failure leaves the plan completed with an
+independent retry; these daemon checks do not lock out external Git processes.

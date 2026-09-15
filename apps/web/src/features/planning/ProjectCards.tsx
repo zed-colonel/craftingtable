@@ -1,5 +1,6 @@
 import type { ProjectSummary } from '@craftingtable/contracts';
 import type { ProjectId } from '@craftingtable/domain';
+import { PlanCompletion } from './PlanCompletion.js';
 
 /** Project cards on the workspace dashboard. */
 export function ProjectCards({
@@ -36,6 +37,7 @@ export function ProjectCards({
               </button>
               <span className="hint">{project.document ?? 'no active plan'}</span>
             </div>
+            <PlanCompletion completion={project.completion} compact />
             <dl className="card-counts">
               <div>
                 <dt>In agenda</dt>

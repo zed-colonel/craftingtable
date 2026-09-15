@@ -1,4 +1,3 @@
-import { ownsIntegrationResolution, type IntegrationResolution } from '@craftingtable/domain';
 import { randomUUID } from 'node:crypto';
 import type {
   PlanBranchSettingsResponse,
@@ -9,7 +8,9 @@ import {
   type AgentRun,
   asAuditEventId,
   asEventId,
+  type IntegrationResolution,
   isTerminalAgentRunStatus,
+  ownsIntegrationResolution,
   type PlanVersionId,
   type ProjectId,
   type ReviewBranchContext,
@@ -117,6 +118,21 @@ export class BranchService {
     const issues: string[] = [];
     const missingEvidence: { workItemId: WorkItemId; sourceId: string }[] = [];
     try {
+      const removed = this.storage.execution.finalizations
+        .list(workspaceId)
+        .some(
+          (f) =>
+            f.planVersionId === planVersionId &&
+            f.repositoryId === settings.repositoryId &&
+            f.integrationBranch === settings.integrationBranch &&
+            f.integrationCleanup?.status === 'removed',
+        );
+      if (removed) {
+        const repo = this.repository(workspaceId, settings.repositoryId);
+        const branches = await this.requireGit().listBranches(repo.rootPath);
+        if (branches.ok && !branches.value.branches.includes(settings.integrationBranch))
+          return { settings, issues: [], missingEvidence: [], integrationBranchRemoved: true };
+      }
       const repo = this.repository(workspaceId, settings.repositoryId);
       const headSha = value(
         await this.requireGit().resolveBranch(repo.rootPath, settings.integrationBranch),
@@ -534,6 +550,7 @@ export class BranchService {
     workspaceId: WorkspaceId,
     repositoryId: SourceRepositoryId,
     branch: string,
+    action: 'merge' | 'remove' = 'merge',
   ): void {
     const repository = this.storage.execution.sourceRepositories.find(workspaceId, repositoryId);
     if (repository?.status !== 'active') conflict('Repository unavailable');
@@ -557,7 +574,11 @@ export class BranchService {
       )
         protectedBranches.add(finalization.targetBranch);
     if (protectedBranches.has(branch))
-      conflict(`${branch} always requires explicit operator merge approval.`);
+      conflict(
+        action === 'remove'
+          ? `Protected branch ${branch} cannot be removed.`
+          : `${branch} always requires explicit operator merge approval.`,
+      );
   }
 
   async changeWorktree(

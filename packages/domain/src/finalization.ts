@@ -13,6 +13,13 @@ export interface FinalizationRound {
   readonly polish: Omit<AgentRunProfile, 'role'>;
   readonly instructions: string;
 }
+/** Recorded promotion of one immutable plan version, independent of branch retention. */
+export interface PlanCompletion {
+  readonly finalizationId: string;
+  readonly targetBranch: string;
+  readonly mergeSha: string;
+  readonly completedAt: string;
+}
 export interface Finalization {
   readonly id: string;
   readonly workspaceId: WorkspaceId;
@@ -30,6 +37,13 @@ export interface Finalization {
   readonly policy: CompletionPolicy;
   readonly instructions: string;
   readonly status: 'preparing' | 'active' | 'stopped' | 'completed';
+  readonly integrationCleanup?: {
+    readonly status: 'pending' | 'blocked' | 'removed';
+    readonly requestedAt: string;
+    readonly requestedByUserId: UserId;
+    readonly completedAt?: string;
+    readonly error?: string;
+  };
   readonly reason: string;
   readonly version: number;
   readonly createdAt: string;

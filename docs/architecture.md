@@ -300,3 +300,9 @@ Finalization recovery can atomically record a backend/model override with its ne
 reservation and any authorized remediation grant. Launch-time profile resolution applies it
 through subsequent phases while retaining each original step's permissions. Omitted input
 preserves the current override; null restores the original profiles. See ADR-040.
+
+Plan completion is projected from a completed finalization and its worktree's durable merge
+record, including promotions recorded before the completion UI existed. Project summaries use
+only the active plan version. Optional integration cleanup is reserved with final approval,
+then reconciled separately after promotion. Its pending/blocked/removed state survives restart;
+explicit cleanup and retries also support older completed finalizations. See ADR-041.

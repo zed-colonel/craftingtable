@@ -3,6 +3,7 @@ import type { PlanArtifactId, WorkItemId } from '@craftingtable/domain';
 import type { ReactNode } from 'react';
 import { formatBytes, shortDigest } from '../../lib/planning-labels.js';
 import { DiagnosticList } from './DiagnosticList.js';
+import { PlanCompletion } from './PlanCompletion.js';
 import { WorkItemTable } from './WorkItemTable.js';
 
 /** An immutable, content-addressed plan version. */
@@ -28,6 +29,7 @@ export function PlanVersionPage({
           </p>
         </div>
       </header>
+      <PlanCompletion completion={detail.version.completion} />
       {branchSettings}
 
       <section className="panel" aria-label="Version identity">

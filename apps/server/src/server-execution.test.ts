@@ -5997,3 +5997,234 @@ describe('finalization recovery agent selection', () => {
     expect(finalizationCycle(state, value)).toEqual(before);
   });
 });
+
+describe('completed plan and integration branch cleanup', () => {
+  async function reviewForPromotion(options: Parameters<typeof finalizationFixture>[0] = {}) {
+    const fixture = await finalizationFixture(options);
+    const value = await beginFinalization(fixture, { ...fixture.input, rounds: [] });
+    await waitFor(
+      () => finalizationCycle(fixture.state, value).status === 'awaiting-merge',
+      'final review',
+    );
+    const cycle = finalizationCycle(fixture.state, value);
+    const reviewed = present(
+      present(
+        fixture.state.context.storage.execution.runs.find(
+          fixture.state.workspaceId,
+          cycle.currentRunId,
+        ),
+      ).reviewBranchContext,
+    );
+    return {
+      ...fixture,
+      value,
+      approval: { expectedHeadSha: reviewed.headSha, expectedTargetSha: reviewed.targetSha },
+    };
+  }
+
+  it('projects historical completion everywhere, scoped to the promoted plan version, and allows later cleanup', async () => {
+    const { state, value, root, approval } = await reviewForPromotion();
+    expect((await finalizationCommand(state, value, 'remove-integration-branch')).statusCode).toBe(
+      409,
+    );
+    expect((await finalizationCommand(state, value, 'merge', approval)).statusCode).toBe(200);
+    const main = git(['rev-parse', 'main'], root).trim();
+    expect(git(['rev-parse', 'revision'], root).trim()).toBe(value.integrationSha);
+    state.context.storage.planning.projects.setActivePlanVersionIfUnset({
+      workspaceId: state.workspaceId,
+      projectId: value.projectId,
+      planVersionId: value.planVersionId,
+    });
+    const completion = {
+      finalizationId: value.id,
+      targetBranch: 'main',
+      mergeSha: main,
+      completedAt: expect.any(String),
+    };
+    for (const [url, pick] of [
+      [`projects`, (body: { projects: { completion?: unknown }[] }) => present(body.projects[0])],
+      [
+        `projects/${value.projectId}`,
+        (body: { project: { completion?: unknown } }) => body.project,
+      ],
+      [
+        `projects/${value.projectId}/plan-versions/${value.planVersionId}`,
+        (body: { version: { completion?: unknown } }) => body.version,
+      ],
+      ['snapshot', (body: { projects: { completion?: unknown }[] }) => present(body.projects[0])],
+    ] as const) {
+      const response = await state.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${state.workspaceId}/${url}`,
+        headers: { cookie: state.cookie },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(pick(response.json()).completion).toEqual(completion);
+    }
+    // A later import is preserved independently and never inherits completion.
+    const plan = present(
+      state.context.storage.planning.versions.find(state.workspaceId, value.planVersionId),
+    );
+    const next = state.context.storage.planning.versions.insert({
+      ...plan,
+      id: asPlanVersionId('version-2'),
+      versionNumber: 2,
+      contentDigest: 'a'.repeat(64),
+    });
+    expect(
+      state.context.storage.planning.queries.versionSummaries(state.workspaceId, value.projectId),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: value.planVersionId, completion }),
+        expect.objectContaining({ id: next.id }),
+      ]),
+    );
+    expect(
+      state.context.storage.planning.queries.versionCompletion(state.workspaceId, next.id),
+    ).toBeUndefined();
+    const cleaned = await finalizationCommand(state, value, 'remove-integration-branch', {
+      expectedCycleVersion: 1,
+    });
+    expect(cleaned.statusCode, cleaned.body).toBe(200);
+    expect(cleaned.json().finalization).toMatchObject({
+      status: 'completed',
+      integrationCleanup: { status: 'removed', requestedByUserId: state.userId },
+    });
+    expect(git(['branch', '--list', 'revision'], root).trim()).toBe('');
+    expect(git(['rev-parse', 'main'], root).trim()).toBe(main);
+    const settings = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/plan-versions/${value.planVersionId}/branch-settings`,
+      headers: { cookie: state.cookie },
+    });
+    expect(settings.statusCode, settings.body).toBe(200);
+    expect(settings.json()).toMatchObject({ integrationBranchRemoved: true, issues: [] });
+    // A retry of an already completed removal must never delete a recreated branch.
+    git(['branch', 'revision', 'main'], root);
+    expect((await finalizationCommand(state, value, 'remove-integration-branch')).statusCode).toBe(
+      200,
+    );
+    expect(git(['rev-parse', 'revision'], root).trim()).toBe(main);
+  });
+
+  it('retains opt-in through merge interruption and reconciles cleanup without merging twice', async () => {
+    const real = createGitOperations({ gitExecutable: 'git' });
+    let merges = 0;
+    const { state, value, root, approval } = await reviewForPromotion({
+      gitOperations: {
+        ...real,
+        mergeBranch: async (input) => {
+          merges++;
+          await real.mergeBranch(input);
+          throw new Error('Simulated interruption after Git commit');
+        },
+      },
+    });
+    expect(
+      (
+        await finalizationCommand(state, value, 'merge', {
+          ...approval,
+          removeIntegrationBranch: true,
+        })
+      ).statusCode,
+    ).toBe(500);
+    const main = git(['rev-parse', 'main'], root);
+    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    try {
+      expect(reopened.execution.merges.latest(state.workspaceId, value.worktreeId)).toMatchObject({
+        status: 'reserved',
+        removeIntegrationBranch: true,
+      });
+    } finally {
+      reopened.close();
+    }
+    const retry = await finalizationCommand(state, value, 'merge', approval);
+    expect(retry.statusCode, retry.body).toBe(200);
+    expect(retry.json().finalization.integrationCleanup.status).toBe('removed');
+    expect(git(['branch', '--list', 'revision'], root).trim()).toBe('');
+    expect(git(['rev-parse', 'main'], root)).toBe(main);
+    expect(merges).toBe(1);
+  });
+
+  it('retries cleanup after deletion but before its acknowledgement without redoing promotion', async () => {
+    const real = createGitOperations({ gitExecutable: 'git' });
+    let interrupted = false;
+    const { state, value, root, approval } = await reviewForPromotion({
+      gitOperations: {
+        ...real,
+        deleteBranch: async (input) => {
+          const result = await real.deleteBranch(input);
+          if (input.branchName === 'revision' && !interrupted) {
+            interrupted = true;
+            throw new Error('Simulated lost cleanup acknowledgement');
+          }
+          return result;
+        },
+      },
+    });
+    const response = await finalizationCommand(state, value, 'merge', {
+      ...approval,
+      removeIntegrationBranch: true,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().finalization).toMatchObject({
+      status: 'completed',
+      integrationCleanup: { status: 'blocked' },
+    });
+    const main = git(['rev-parse', 'main'], root);
+    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    try {
+      expect(
+        reopened.execution.finalizations.find(state.workspaceId, value.id)?.integrationCleanup
+          ?.status,
+      ).toBe('blocked');
+    } finally {
+      reopened.close();
+    }
+    const retry = await finalizationCommand(state, value, 'remove-integration-branch');
+    expect(retry.json().finalization.integrationCleanup.status).toBe('removed');
+    expect(git(['rev-parse', 'main'], root)).toBe(main);
+  });
+
+  it.each(['advanced', 'checked-out', 'protected', 'shared', 'destination-rewound'] as const)(
+    'retains a %s branch while leaving the plan completed',
+    async (reason) => {
+      const { state, value, root, approval } = await reviewForPromotion();
+      expect((await finalizationCommand(state, value, 'merge', approval)).statusCode).toBe(200);
+      const settings = present(
+        state.context.storage.execution.branchSettings.find(state.workspaceId, value.planVersionId),
+      );
+      if (reason === 'advanced') git(['branch', '-f', 'revision', 'main'], root);
+      if (reason === 'checked-out') git(['checkout', 'revision'], root);
+      if (reason === 'protected')
+        state.context.storage.execution.branchSettings.save(
+          { ...settings, manualMergeBranches: ['revision'], version: settings.version + 1 },
+          settings.version,
+        );
+      if (reason === 'shared') {
+        const plan = present(
+          state.context.storage.planning.versions.find(state.workspaceId, value.planVersionId),
+        );
+        const next = state.context.storage.planning.versions.insert({
+          ...plan,
+          id: asPlanVersionId('version-2'),
+          versionNumber: 2,
+          contentDigest: 'b'.repeat(64),
+        });
+        state.context.storage.execution.branchSettings.save(
+          { ...settings, planVersionId: next.id, version: 1 },
+          0,
+        );
+      }
+      if (reason === 'destination-rewound') git(['reset', '--hard', value.targetSha], root);
+      const before = git(['rev-parse', 'revision'], root);
+      const response = await finalizationCommand(state, value, 'remove-integration-branch');
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().finalization).toMatchObject({
+        status: 'completed',
+        integrationCleanup: { status: 'blocked', error: expect.any(String) },
+      });
+      expect(git(['rev-parse', 'revision'], root)).toBe(before);
+    },
+  );
+});

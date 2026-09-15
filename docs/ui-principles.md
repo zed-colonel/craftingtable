@@ -129,3 +129,10 @@ additional remediation and resumption guidance. Selection, required rationale, e
 and the resulting allowance belong together; a disabled action explains the missing input.
 Do not show a separate remediation form that silently ignores the selected batch. Setup names
 the independent initial remediation budget and distinguishes it from scheduled polish passes.
+
+Completed plan headers and project cards name the final destination; detail views retain the
+merge commit and completion date. Work-item completion and final plan promotion remain distinct.
+Final approval offers an unchecked local integration-branch removal option. Completed attempts
+retain a separate removal/retry action with the exact branch and snapshot. Cleanup errors say
+that promotion completed and the branch was retained; historical branch settings explain an
+intentional removal instead of showing a missing-branch error.

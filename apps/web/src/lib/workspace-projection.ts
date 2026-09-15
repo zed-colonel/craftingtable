@@ -175,16 +175,19 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
           ? unique([...current.workItemIds, event.workItemId])
           : current.workItemIds,
       };
+    case 'worktree-merged':
     case 'branches-changed':
       return {
         ...current,
         workspaceSummary: true,
+        workItemIds: event.workItemId
+          ? unique([...current.workItemIds, event.workItemId])
+          : current.workItemIds,
         projectIds: unique([...current.projectIds, event.projectId]),
       };
     case 'worktree-created':
     case 'worktree-removed':
     case 'work-cycle-changed':
-    case 'worktree-merged':
     case 'agent-run-started':
     case 'agent-run-status-changed':
       return {

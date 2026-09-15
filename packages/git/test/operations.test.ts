@@ -625,3 +625,69 @@ it('aborts only the pinned merge, restores tracked content and preserves unknown
   expect(git(['show', 'HEAD:README.md'])).toBe('item behavior');
   expect(existsSync(join(repo.repository, 'keep.txt'))).toBe(true);
 });
+
+it('deletes only the exact merged branch snapshot and refuses checked-out branches', async () => {
+  const repo = fixture();
+  const run = (args: string[]) => runFixtureGit(args, { cwd: repo.repository }).toString().trim();
+  const sha = run(['rev-parse', 'main']);
+  run(['branch', 'revision']);
+  const input = {
+    repositoryPath: repo.repository,
+    branchName: 'revision',
+    mergedInto: 'main',
+    expectedHeadSha: sha,
+  };
+  const linked = join(repo.root, 'linked');
+  run(['worktree', 'add', linked, 'revision']);
+  const busy = await operations.deleteBranch(input);
+  expect(!busy.ok && busy.failure.message).toContain('checked out');
+  run(['worktree', 'remove', linked]);
+  const stale = await operations.deleteBranch({ ...input, expectedHeadSha: '0'.repeat(40) });
+  expect(!stale.ok && stale.failure.message).toContain('changed');
+  expect(run(['rev-parse', 'revision'])).toBe(sha);
+  expect((await operations.deleteBranch(input)).ok).toBe(true);
+  expect((await operations.deleteBranch(input)).ok).toBe(true);
+  expect(run(['branch', '--list', 'revision'])).toBe('');
+  expect(run(['rev-parse', 'main'])).toBe(sha);
+});
+
+it('does not delete a branch advanced between cleanup inspection and ref deletion', async () => {
+  const repo = fixture();
+  const run = (args: string[]) => runFixtureGit(args, { cwd: repo.repository }).toString().trim();
+  const old = run(['rev-parse', 'main']);
+  run(['branch', 'revision']);
+  run([
+    '-c',
+    'user.name=T',
+    '-c',
+    'user.email=t@example.invalid',
+    'commit',
+    '--allow-empty',
+    '-m',
+    'later',
+  ]);
+  const advanced = run(['rev-parse', 'main']);
+  const proxy = makeExecutableProxy(
+    repo.root,
+    'racing-git',
+    `
+import { spawnSync } from 'node:child_process';
+const args = process.argv.slice(2);
+if (args.includes('update-ref') && args.includes('-d')) {
+  const changed = spawnSync(${JSON.stringify(GIT_EXECUTABLE)}, ['update-ref', 'refs/heads/revision', ${JSON.stringify(advanced)}], { stdio: 'inherit' });
+  if (changed.status !== 0) process.exit(90);
+}
+const result = spawnSync(${JSON.stringify(GIT_EXECUTABLE)}, args, { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+`,
+  );
+  const racing = createGitOperations({ gitExecutable: proxy });
+  const result = await racing.deleteBranch({
+    repositoryPath: repo.repository,
+    branchName: 'revision',
+    mergedInto: 'main',
+    expectedHeadSha: old,
+  });
+  expect(result.ok).toBe(false);
+  expect(run(['rev-parse', 'revision'])).toBe(advanced);
+});

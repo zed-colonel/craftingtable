@@ -55,7 +55,9 @@ export class FinalizationService {
       this.storage.execution.sourceRepositories.find(workspaceId, settings.repositoryId);
     const git = this.git;
     if (!plan || !settings || !repo || !git) throw new NotFoundError();
-    for (const profile of [input.finalReview, ...input.rounds.flatMap((r) => [r.review, r.polish])])
+    for (const profile of input.stages
+      ? input.stages.flatMap((s) => [s.review, s.implement])
+      : [input.finalReview, ...input.rounds.flatMap((r) => [r.review, r.polish])])
       this.cycles.validateSettings({
         profiles: { design: profile, implement: profile, review: profile, remediate: profile },
       });
@@ -101,6 +103,9 @@ export class FinalizationService {
       if (!integration.ok || !target.ok)
         conflict('Integration and final destination branches must already exist.');
       const items = this.storage.planning.workItems.listForVersion(workspaceId, planVersionId);
+      for (const stage of input.stages ?? [])
+        if (stage.workItemSourceIds.some((id) => !items.some((item) => item.sourceId === id)))
+          conflict('A stage slice references an unknown work item.');
       for (const item of items) {
         if (item.status !== 'completed')
           conflict(`${item.sourceId} is incomplete. Finalization covers the entire plan.`);
@@ -126,6 +131,7 @@ export class FinalizationService {
         worktreeId: asWorktreeId(randomUUID()),
         cycleId: randomUUID(),
         rounds: input.rounds,
+        ...(input.stages ? { stages: input.stages } : {}),
         finalReview: input.finalReview,
         policy: input.policy,
         instructions: input.instructions,
@@ -210,6 +216,11 @@ export class FinalizationService {
         conflict('This finalization has ended. Start a new one for further work.');
       if (input.agentOverride !== undefined && (!cycle || value.status !== 'active'))
         conflict('Agent selection requires an existing active finalization cycle.');
+      if (input.action === 'select-stage-findings' || input.action === 'approve-plan-change') {
+        if (!cycle) conflict('An active staged finalization cycle is required.');
+        await this.cycles.decideFinalizationStage(context, cycle, input);
+        return this.view(value);
+      }
       if (input.action === 'defer-nits' || input.action === 'remediate-findings') {
         if (!cycle || !input.findingIds || !input.rationale)
           conflict('Select findings and record your decision.');

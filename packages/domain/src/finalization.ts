@@ -33,6 +33,7 @@ export interface Finalization {
   readonly worktreeId: WorktreeId;
   readonly cycleId: string;
   readonly rounds: readonly FinalizationRound[];
+  readonly stages?: readonly import('./finalization-stages.js').FinalizationStage[];
   readonly finalReview: Omit<AgentRunProfile, 'role'>;
   readonly policy: CompletionPolicy;
   readonly instructions: string;
@@ -53,15 +54,24 @@ export interface Finalization {
 /** Recovery changes the agent/model while retaining each configured step's permissions. */
 export type FinalizationAgentSelection = Pick<AgentRunProfile, 'backend' | 'model'>;
 export function finalizationProfile(
-  value: Pick<Finalization, 'rounds' | 'finalReview'>,
+  value: Pick<Finalization, 'rounds' | 'finalReview' | 'stages'>,
   cycle: Pick<
     WorkCycle,
-    'step' | 'profiles' | 'polishPhase' | 'polishRound' | 'finalizationAgentOverride'
+    | 'step'
+    | 'profiles'
+    | 'polishPhase'
+    | 'polishRound'
+    | 'finalizationAgentOverride'
+    | 'finalizationProgress'
   >,
 ): Omit<AgentRunProfile, 'role'> {
   const round = value.rounds[cycle.polishRound ?? 0];
-  const configured =
-    cycle.step === 'review'
+  const stage = value.stages?.[cycle.finalizationProgress?.stageIndex ?? 0];
+  const configured = stage
+    ? cycle.step === 'review'
+      ? stage.review
+      : stage.implement
+    : cycle.step === 'review'
       ? cycle.polishPhase === 'final-review'
         ? value.finalReview
         : (round?.review ?? value.finalReview)

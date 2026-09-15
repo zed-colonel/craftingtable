@@ -1,5 +1,10 @@
 import type { AgentRunProfile } from './execution.js';
 import type { FinalizationAgentSelection } from './finalization.js';
+import {
+  currentFinalizationStage,
+  optionalFinding,
+  stagedFollowUpIds,
+} from './finalization-stages.js';
 import type { AgentRunId, ProjectId, UserId, WorkItemId, WorkspaceId, WorktreeId } from './ids.js';
 import type { FindingSeverity, ReviewFinding, ReviewReportAssessment } from './review.js';
 
@@ -58,6 +63,7 @@ export interface WorkCycle {
   readonly workspaceId: WorkspaceId;
   readonly workItemId?: WorkItemId;
   readonly finalizationId?: string;
+  readonly finalizationProgress?: import('./finalization-stages.js').FinalizationProgress;
   readonly planVersionId?: import('./ids.js').PlanVersionId;
   readonly polishRound?: number;
   readonly polishPhase?: 'assess' | 'polish' | 'verify' | 'final-review';
@@ -111,9 +117,20 @@ export interface WorkCycle {
   readonly reason: string;
 }
 export function remediationAllowance(
-  cycle: Pick<WorkCycle, 'policy' | 'additionalRemediationRounds'>,
+  cycle: Pick<WorkCycle, 'policy' | 'additionalRemediationRounds' | 'finalizationProgress'>,
 ): number {
-  return cycle.policy.maxRemediationRounds + (cycle.additionalRemediationRounds ?? 0);
+  return (
+    cycle.policy.maxRemediationRounds +
+    (currentFinalizationStage(cycle)?.additionalRemediationRounds ??
+      cycle.additionalRemediationRounds ??
+      0)
+  );
+}
+
+export function remediationUsed(
+  cycle: Pick<WorkCycle, 'remediationRounds' | 'finalizationProgress'>,
+): number {
+  return currentFinalizationStage(cycle)?.remediationRounds ?? cycle.remediationRounds;
 }
 
 export interface CompletionDecision {
@@ -194,6 +211,7 @@ export function deferredFindingIds(
     JSON.stringify([
       f.id,
       f.severity,
+      f.category,
       f.title,
       f.location?.path,
       f.location?.line,
@@ -221,7 +239,27 @@ export function evaluateCycleCompletion(
   context?: { headSha: string; targetSha: string },
 ): CompletionDecision {
   if (assessment?.status !== 'complete') return evaluateCompletion(cycle.policy, assessment);
-  const deferred = new Set(deferredFindingIds(cycle, assessment.report.findings, context));
+  const parked = stagedFollowUpIds(cycle);
+  const followUps = new Set(
+    assessment.report.findings
+      .filter((f) => parked.has(f.id) && optionalFinding(f))
+      .map((f) => f.id),
+  );
+  // Required categories and selected batches cannot be waived by severity thresholds.
+  if (
+    cycle.finalizationProgress &&
+    assessment.report.findings.some((f) => f.status === 'open' && !followUps.has(f.id))
+  )
+    return {
+      ...evaluateCompletion({ ...cycle.policy, maxNits: 0 }, assessment),
+      action: 'remediate',
+      reason: 'Required findings or selected batch findings remain open.',
+    };
+  const deferred = new Set(
+    cycle.finalizationProgress
+      ? followUps
+      : deferredFindingIds(cycle, assessment.report.findings, context),
+  );
   const decision = evaluateCompletion(cycle.policy, {
     ...assessment,
     report: {
@@ -229,6 +267,11 @@ export function evaluateCycleCompletion(
       findings: assessment.report.findings.filter((f) => !deferred.has(f.id)),
     },
   });
+  if (cycle.finalizationProgress && followUps.size)
+    return {
+      ...decision,
+      reason: `${decision.reason} ${followUps.size} optional suggestion(s) remain open as follow-up work.`,
+    };
   return deferred.size
     ? {
         ...decision,

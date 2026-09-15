@@ -40,6 +40,24 @@ export function ReviewFindings({ assessment }: { assessment: ReviewReportAssessm
           Counts include open findings. Resolved and withdrawn findings remain below with the
           reviewer’s disposition.
         </p>
+        {report.finalization && (
+          <details>
+            <summary>Stage verification checks ({report.finalization.checks.length})</summary>
+            <p>
+              {report.finalization.fullChecks
+                ? 'Full repository checks reported.'
+                : 'Stage-scoped verification reported.'}
+            </p>
+            {report.finalization.checks.map((check) => (
+              <article key={check.name} className="review-finding">
+                <strong>
+                  {check.name} · {check.status}
+                </strong>
+                <p>{check.evidence}</p>
+              </article>
+            ))}
+          </details>
+        )}
         {report.findings.length === 0 ? (
           <p>No findings reported.</p>
         ) : (
@@ -60,6 +78,7 @@ export function ReviewFindings({ assessment }: { assessment: ReviewReportAssessm
                   <article key={finding.id} className="review-finding">
                     <h3>
                       <span className="mono">{finding.id}</span> · {finding.severity} ·{' '}
+                      {finding.category && `${finding.category} · `}
                       {finding.status} · {finding.title}
                     </h3>
                     {finding.location !== undefined && (

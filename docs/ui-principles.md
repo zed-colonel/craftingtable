@@ -136,3 +136,13 @@ Final approval offers an unchecked local integration-branch removal option. Comp
 retain a separate removal/retry action with the exact branch and snapshot. Cleanup errors say
 that promotion completed and the branch was retained; historical branch settings explain an
 intentional removal instead of showing a missing-branch error.
+
+
+New finalization setup defaults to focused stages. Keep per-stage settings in disclosures and
+show each stopping rule beside its scope, profiles and budget. Correctness/conformance slices
+must retain a final whole-plan check. During execution, show the current stage, selected batch,
+independent allowances, optional follow-up work and obligation evidence with stale-commit labels.
+The single next-step form switches between stage selection, explicit plan-adjustment approval and
+recovery. Empty optional selections are valid and keep suggestions open. Stage verification does
+not restart discovery; required findings and genuine questions still need action. Exact final
+promotion approval remains separate. Legacy round setup and existing attempts stay usable.

@@ -306,3 +306,19 @@ record, including promotions recorded before the completion UI existed. Project 
 only the active plan version. Optional integration cleanup is reserved with final approval,
 then reconciled separately after promotion. Its pending/blocked/removed state survives restart;
 explicit cleanup and retries also support older completed finalizations. See ADR-041.
+
+
+Staged finalization (ADR-042) adds optional stage definitions and progress inside the existing
+versioned finalization/cycle records; absence selects the legacy controller. Each stage owns
+its profiles, scope, required check names and policy. Stage usage and lifetime totals update
+atomically with run reservations. Optional discovery stops for attributed batch selection;
+verification retains that batch even across narrower recovery. New required concerns reopen the
+relevant whole-plan stage without resetting its allowance, and invalidate final review completion.
+
+`finalization-stage-policy.ts` validates reports independently of their success and guards final
+promotion. A separate materialized JSON ledger supplies adopted obligations, evidence provenance,
+selected batches and optional follow-ups. Reports can update known obligations by ID; source and
+requirement changes require an explicit version-checked operator decision. Conformance checks
+require every in-scope obligation, and final review requires all obligations and full checks on
+the current candidate. Completed-stage evidence may be reused only at matching commits and inputs
+outside final review. Agent journal records retain original reports and audit preserves decisions.

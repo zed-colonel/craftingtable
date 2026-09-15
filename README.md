@@ -114,39 +114,39 @@ it is mergeable.
   defaults, finalization destinations, and additional protected branches always require approval.
   Choose additional protections in the plan's **Repository & branches** settings.
 - **Plan finalization.** Open **Projects → project → plan version → Finalize integration** after
-  all plan items are integrated. Select the final destination, 0–10 improvement rounds,
-  each round's assessment/verification and polish profiles, a separate final-review profile,
-  completion limits, and focus instructions. Each round assesses whole-plan conformance,
-  performs justified polish, then verifies it; a final independent review follows. Open
-  questions, invalid results, and exhausted remediation budgets require attention. Answers
-  can be supplied with **Resume finalization** and apply to that attempt; their recorded
-  answers remain in the handoff. Finalization reports include every previously open finding
-  with its current disposition, plus new or reopened findings. Unchanged closed findings
-  stay in recorded history and a separate handoff archive, rather than being repeated in
-  each report. Evidence summarizes current checks and references detailed records; it does
-  not accumulate earlier reports. A rejected report's retry receives its validation errors
-  and may reuse complete verification only against unchanged candidate/destination commits.
-  Setup exposes **Initial remediation budget** (0–20, default 3). It is independent of
-  work-item/roadmap settings, spans the whole finalization, and excludes scheduled polish
-  passes. Later grants retain the original settings and used counts.
-  **Next finalization step** unifies recovery, findings decisions and answers/guidance.
-  With a valid review, select findings and enter a required rationale, then **Authorize
-  focused remediation** adds 1–20 attempts (default 1) and starts the selected batch followed
-  by review, even when the allowance is exhausted. The form shows the resulting allowance
-  and explains missing inputs beside its button. **Select all findings** makes a broader
-  batch explicit. A review requiring remediation without selectable findings offers
-  **Authorize more remediation** in this same form. **Resume with guidance** handles
-  questions, incomplete reports and other resumable checkpoints without adding attempts.
-  The same form's **Recovery agent → Agent settings** can switch backend/model for the
-  current recovery and all remaining assessment, polish, remediation and review runs, or restore
-  the original per-step settings. The choice survives restart; permissions and historical
-  profiles remain intact. Switching with Resume retries the current step using the existing
-  handoff, without adding remediation allowance. Conflict-resolution agents use their own controls.
-  **Defer selected nits and review** preserves open findings and starts independent review;
-  only unchanged nits on the authorized commits are exempt from the nit count. Required checks,
-  plan obligations, genuine unanswered questions and final approval remain gates. Decisions
-  and used allowances survive restart. See [the staged-finalization roadmap](docs/finalization-roadmap.md)
-  for the next evolution, to complete before WorldInterface and Exoskeleton.
+  all plan items are integrated. New finalizations default to five **Focused stages**:
+  correctness, conformance, simplification, polish, and final independent review. Configure
+  each stage's review/implementation agents, instructions, required check names, initial
+  remediation budget (0–20, default 3), and run timeout. Correctness and conformance can have
+  work-item slices before their mandatory whole-plan cross-boundary check. Repository-required
+  checks always apply; the final independent review runs the full checks.
+  Correctness/conformance findings and all blocking/major findings require remediation at every
+  severity. Simplification and polish discover optional minor/nit improvements once, then pause
+  for your selection. Select any or none, record a rationale, and add attempts if needed. Only the
+  selected batch is implemented and verified; new optional ideas stay open as visible follow-up
+  work. A narrower recovery batch never drops other originally selected findings. Later required
+  issues can reopen correctness or conformance, retaining its spent budget and requiring a new
+  final independent review. Stage allowances are separate from work-item and roadmap settings.
+  The stage view shows current scope, selected IDs, progress, allowances, follow-ups, decisions,
+  and a durable obligation-to-evidence ledger seeded from imported work-item exit gates. Reviewers
+  add individually cited obligations from plan prose. Existing obligation updates use ID, status
+  and concise evidence instead of repeating requirement text. Explicit proposed plan adjustments
+  require your approval and rationale, then fresh verification; they never waive required checks.
+  Prior evidence is reusable outside the final review only from a completed stage at matching
+  candidate/destination commits with unchanged requirements and evidence. Final review revalidates
+  every obligation. Closed findings and unchanged retained follow-ups remain in the handoff ledger
+  without being repeated in each final message. Invalid reports cannot authorize promotion.
+  **Next finalization step** unifies batch selection, plan-adjustment decisions, recovery and
+  answers/guidance. **Authorize focused remediation** adds 1–20 attempts and starts the selected
+  recovery batch even when the current stage is exhausted. A required review without selectable
+  findings offers **Authorize more remediation**. **Resume with guidance** retries the current step
+  without granting attempts, approving plan changes or selecting optional work. Open questions
+  always require answers. **Recovery agent → Agent settings** switches backend/model for this
+  recovery and remaining runs, or restores each stage's original profiles; permissions are retained.
+  Decisions, evidence, stage progress, selected batches, usage and model overrides survive restart.
+  **Legacy improvement rounds** remains available for new and existing manual workflows. Its
+  shared finalization budget, scheduled polish passes and exact-commit nit deferrals retain their
+  prior behavior. See [the finalization roadmap](docs/finalization-roadmap.md) and ADR-042.
   Pausing retains the integration hold; stopping
   releases it and retains the candidate for inspection or removal.
   Finalization works on a dedicated candidate branch from a pinned integration snapshot.
@@ -160,7 +160,7 @@ it is mergeable.
   reopens a successful promotion. Plan/project headers, project cards and version history show
   **Plan completed** with the destination and recorded merge. Completion belongs to that plan
   version; new versions do not inherit it. External integration drift requires
-  a new finalization. No round count or roadmap policy can approve final promotion.
+  a new finalization. No stage, round count or roadmap policy can approve final promotion.
 - **Merge recovery.** Merge reservations survive interruptions between Git and database
   completion. Recovery checks the recorded commit and parents before recording completion,
   without repeating a completed merge. Cleanup follows completion; failed cleanup remains

@@ -70,11 +70,11 @@ export interface BriefParentRun {
 const REMEDIATION_INSTRUCTIONS = [
   'This run remediates a review. The review findings are supplied in the handoff as the',
   'reviewer wrote them. Read the handoff files and reconcile earlier messages with later',
-  'corrections and withdrawals. Preserve finding IDs. Work through every open finding: fix it, or if you disagree explain',
+  'corrections and withdrawals. Preserve finding IDs. Work through the required findings and any explicitly selected batch: fix each, or if you disagree explain',
   'precisely why in your final message. Run the quality checks, commit on this branch,',
   'and finish with a disposition for each finding (fixed, disagreed, or deferred with a',
   'reason) followed by your usual summary. Your disposition is a claim for the next',
-  'reviewer to verify; it does not itself close the finding.',
+  'reviewer to verify; it does not itself close the finding. When the supplied scope retains optional ideas as follow-up, do not implement those unselected ideas.',
 ].join(' ');
 
 const ACCEPTED_DESIGN_INSTRUCTIONS = [
@@ -141,7 +141,7 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
 
 const FINALIZATION_FINDINGS_INSTRUCTIONS = [
   'Finalization reports cover active findings and changes in reviewer disposition.',
-  'Report every previously OPEN finding with its current status, plus every new or reopened finding. Verify a fix before reporting its resolution, with a concise disposition.',
+  'Report every previously OPEN finding required by the handoff manifest with its current status, plus every new or reopened finding. In staged finalization, unchanged optional follow-ups retained in the controller ledger may be omitted. Verify a fix before reporting its resolution, with a concise disposition.',
   'Unchanged resolved or withdrawn findings may be omitted from later reports. They remain in the journal and closed-findings history; omission does not reopen, erase or re-resolve them. Never recycle their IDs.',
   'Do not import closed work-item findings into the finalization report merely to recount history. Assess the combined implementation against the plan; reopen a historical concern only if current evidence warrants it.',
   'Reconcile findings and operator corrections from this run and the handoff, including observations in invalid reports. An invalid report cannot establish closure or approval.',

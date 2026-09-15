@@ -20,7 +20,7 @@ function git(args: string[], cwd: string) {
     },
   }).trim();
 }
-for (const decision of ['remediate', 'defer'] as const) {
+for (const decision of ['remediate', 'defer', 'staged'] as const) {
   test(`automates integration and performs plan finalization with explicit final approval (${decision})`, async ({
     page,
   }, info) => {
@@ -115,23 +115,70 @@ for (const decision of ['remediate', 'defer'] as const) {
       await page.getByRole('button', { name: 'v1', exact: true }).click();
       const finalization = page.getByRole('region', { name: 'Finalize integration', exact: true });
       await finalization.getByRole('button', { name: 'Set up finalization' }).click();
-      await finalization.getByLabel('Improvement rounds').fill('1');
-      await expect(
-        finalization.getByLabel('Initial remediation budget', { exact: true }),
-      ).toHaveValue('3');
-      await finalization.getByLabel('Initial remediation budget', { exact: true }).fill('0');
-      await finalization
-        .getByLabel('Round focus')
-        .fill('Conformance and simplification, preserve the public behavior.');
-      await finalization
-        .getByLabel('Conformance and polish instructions')
-        .fill('Review the complete plan and improve clarity. FINALIZATION-REMEDIATION-LIMIT');
+      if (decision === 'staged') {
+        await expect(finalization.getByLabel('Finalization workflow')).toHaveValue('staged');
+        await finalization.getByText('1. Correctness · whole plan', { exact: true }).click();
+        await finalization
+          .getByRole('button', { name: 'Add correctness slice before whole-plan check' })
+          .click();
+        const slice = finalization
+          .locator('details')
+          .filter({ has: page.locator('summary', { hasText: 'Correctness subsystem slice' }) });
+        await slice.locator('summary').click();
+        await slice.getByLabel('Work-item source IDs', { exact: false }).fill('AQ-01');
+        await slice
+          .getByLabel('Stage instructions')
+          .fill('Verify the first contract before the whole-plan check.');
+        await slice.locator('summary').click();
+        const simplification = finalization
+          .locator('details')
+          .filter({ has: page.locator('summary', { hasText: '4. Simplification' }) });
+        await simplification.locator('summary').click();
+        await simplification.getByLabel('Stage remediation budget').fill('0');
+        await simplification.locator('summary').click();
+        await finalization
+          .getByLabel('Common finalization instructions')
+          .fill('Verify the complete candidate with focused stage selection.');
+      } else {
+        await finalization.getByLabel('Finalization workflow').selectOption('legacy');
+        await finalization.getByLabel('Improvement rounds', { exact: true }).fill('1');
+        await expect(
+          finalization.getByLabel('Initial remediation budget', { exact: true }),
+        ).toHaveValue('3');
+        await finalization.getByLabel('Initial remediation budget', { exact: true }).fill('0');
+        await finalization
+          .getByLabel('Round focus')
+          .fill('Conformance and simplification, preserve the public behavior.');
+        await finalization
+          .getByLabel('Common finalization instructions')
+          .fill('Review the complete plan and improve clarity. FINALIZATION-REMEDIATION-LIMIT');
+      }
       await expect
         .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
         .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
       await page.screenshot({ path: info.outputPath('finalization-setup.png'), fullPage: true });
       await finalization.getByRole('button', { name: 'Start finalization', exact: true }).click();
-      if (decision === 'defer') {
+      if (decision === 'staged') {
+        const selection = finalization.getByRole('form', { name: 'Finalization next step' });
+        await expect(selection).toBeVisible({ timeout: 30000 });
+        await expect(
+          finalization.getByRole('heading', { name: 'Stage 4 of 6: Simplification', exact: true }),
+        ).toBeVisible();
+        await selection.getByRole('checkbox', { name: /S-1/ }).check();
+        await selection
+          .getByLabel('Decision rationale (required)')
+          .fill('Select the first improvement and keep the rest as follow-up.');
+        await selection.getByLabel('Additional stage attempts').fill('2');
+        await expect
+          .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+          .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+        await selection.scrollIntoViewIfNeeded();
+        await page.screenshot({
+          path: info.outputPath('staged-finalization-selection.png'),
+          fullPage: true,
+        });
+        await selection.getByRole('button', { name: 'Authorize selected stage batch' }).click();
+      } else if (decision === 'defer') {
         const checkpoint = finalization.getByRole('form', { name: 'Finalization next step' });
         await expect(checkpoint).toBeVisible({ timeout: 30000 });
         await checkpoint.getByRole('checkbox', { name: /F-001/ }).check();
@@ -231,7 +278,10 @@ for (const decision of ['remediate', 'defer'] as const) {
       await expect(
         finalization.getByRole('button', { name: 'Review final merge approval' }),
       ).toBeVisible({ timeout: 30000 });
-      await expect(finalization.getByText('final-review', { exact: false }).first()).toBeVisible();
+      if (decision !== 'staged')
+        await expect(
+          finalization.getByText('final-review', { exact: false }).first(),
+        ).toBeVisible();
       expect(git(['rev-parse', 'main'], repository)).toBe(main);
       if (decision === 'remediate') {
         await expect(
@@ -244,8 +294,27 @@ for (const decision of ['remediate', 'defer'] as const) {
             exact: true,
           }),
         ).toBeVisible();
-      } else
+      } else if (decision === 'defer')
         await expect(finalization.getByText('Deferred nits (1)', { exact: true })).toBeVisible();
+      else {
+        await expect(
+          finalization.getByRole('heading', {
+            name: 'Stage 6 of 6: Final independent review',
+            exact: true,
+          }),
+        ).toBeVisible();
+        await finalization.getByText('Optional follow-up work (2)', { exact: true }).click();
+        await expect(
+          finalization.getByRole('heading', { name: /S-3.*A new optional suggestion/ }),
+        ).toBeVisible();
+        await finalization
+          .getByText('Plan obligations and evidence (2 of 2 current)', { exact: true })
+          .click();
+        await page.screenshot({
+          path: info.outputPath('staged-finalization-evidence.png'),
+          fullPage: true,
+        });
+      }
       expect(git(['rev-parse', 'revision'], repository)).toBe(integration);
       await page.reload();
       await expect(
@@ -277,7 +346,7 @@ for (const decision of ['remediate', 'defer'] as const) {
       expect(promoted).not.toBe(main);
       await expect(page.getByText('Plan completed', { exact: true }).first()).toBeVisible();
       const cleanup = finalization.getByRole('group', { name: 'Integration branch cleanup' });
-      if (decision === 'remediate') {
+      if (decision !== 'defer') {
         expect(git(['rev-parse', 'revision'], repository)).toBe(integration);
         await cleanup.screenshot({ path: info.outputPath('completed-plan-retained-branch.png') });
         await cleanup

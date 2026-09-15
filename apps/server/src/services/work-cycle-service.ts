@@ -1,19 +1,27 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { IntegrationResolutionRequest, StartWorkCycleRequest } from '@craftingtable/contracts';
+import type {
+  ControlFinalizationRequest,
+  IntegrationResolutionRequest,
+  StartWorkCycleRequest,
+} from '@craftingtable/contracts';
 import {
   type AgentRun,
   asAgentRunId,
   asAuditEventId,
   asEventId,
   type CycleStep,
+  currentFinalizationStage,
   DEFAULT_ROADMAP_AUTOMATION,
   DEFAULT_ROADMAP_SCHEDULING,
   designHasNoOpenQuestions,
   evaluateCycleCompletion,
+  type FinalizationProgress,
   finalizationProfile,
   isTerminalAgentRunStatus,
+  optionalFinding,
   ownsIntegrationResolution,
   remediationAllowance,
+  remediationUsed,
   type WorkCycle,
   type WorkItemId,
   type WorkspaceId,
@@ -29,6 +37,7 @@ import {
 } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { finalizationForCycle, finalizationHasNoQuestions } from './finalization-policy.js';
+import { assessStageReport, recordStageEvidence } from './finalization-stage-policy.js';
 import { latestReviewReport, runLineage } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -139,13 +148,14 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, value.workspaceId, ['owner', 'editor']);
     const existing = this.storage.execution.cycles.find(value.workspaceId, value.cycleId);
     if (existing) return existing;
+    const stage = value.stages?.[0];
     const round = value.rounds[0];
-    const profile = round?.polish ?? value.finalReview;
+    const profile = stage?.implement ?? round?.polish ?? value.finalReview;
     const profiles = {
       design: profile,
       implement: profile,
       remediate: profile,
-      review: round?.review ?? value.finalReview,
+      review: stage?.review ?? round?.review ?? value.finalReview,
     };
     this.validateSettings({ profiles });
     const cycle: WorkCycle = {
@@ -163,15 +173,41 @@ export class WorkCycleService {
       version: 1,
       status: 'running',
       step: 'review',
-      policy: value.policy,
+      policy: stage?.policy ?? value.policy,
       profiles,
       instructions: '',
       currentRunId: asAgentRunId(randomUUID()),
-      runDeadlineAt: this.deadline(value.policy.maxRunMinutes),
+      runDeadlineAt: this.deadline((stage?.policy ?? value.policy).maxRunMinutes),
       remediationRounds: 0,
       stalledReviews: 0,
       polishRound: 0,
-      polishPhase: round ? 'assess' : 'final-review',
+      polishPhase: stage ? 'verify' : round ? 'assess' : 'final-review',
+      ...(value.stages
+        ? {
+            finalizationProgress: {
+              stageIndex: 0,
+              stages: value.stages.map((s, i) => ({
+                id: s.id,
+                status: i === 0 ? ('reviewing' as const) : ('pending' as const),
+                remediationRounds: 0,
+                additionalRemediationRounds: 0,
+                selectedFindingIds: [],
+              })),
+              obligations: this.storage.planning.workItems
+                .listForVersion(value.workspaceId, value.planVersionId)
+                .map((item, index) => ({
+                  id: `gate-${index + 1}`,
+                  workItemSourceId: item.sourceId,
+                  source: `Work item ${item.sourceId}: exit gate`,
+                  requirement: item.exitGate,
+                  status: 'unverified' as const,
+                  evidence: 'Not yet assessed in staged finalization.',
+                })),
+              followUps: [],
+              decisions: [],
+            },
+          }
+        : {}),
       reason: 'Starting plan-wide conformance review.',
     };
     const head = await this.cleanHead(cycle);
@@ -256,7 +292,15 @@ export class WorkCycleService {
       report?.status !== 'complete'
     )
       return [];
-    return report.report.findings.filter((f) => f.status === 'open');
+    return report.report.findings.filter(
+      (f) =>
+        f.status === 'open' &&
+        (!cycle.finalizationProgress ||
+          currentFinalizationStage(cycle)?.status === 'selecting' ||
+          !optionalFinding(f) ||
+          cycle.findingFocus?.includes(f.id) ||
+          currentFinalizationStage(cycle)?.selectedFindingIds.includes(f.id)),
+    );
   }
 
   async decideFinalizationFindings(
@@ -282,12 +326,18 @@ export class WorkCycleService {
           'conflict',
           'Finalization changed; refresh before deciding findings.',
         );
+      if (currentFinalizationStage(cycle)?.status === 'selecting')
+        throw new ExecutionRequestError(
+          'conflict',
+          'Use the stage batch decision to select improvements and record the remaining follow-ups.',
+        );
       const findings = this.finalizationCheckpointFindings(cycle);
       const selected = findings.filter((f) => input.findingIds.includes(f.id));
       if (
         !selected.length ||
         selected.length !== input.findingIds.length ||
-        (input.action === 'defer-nits' && selected.some((f) => f.severity !== 'nit'))
+        (input.action === 'defer-nits' &&
+          (cycle.finalizationProgress || selected.some((f) => f.severity !== 'nit')))
       )
         throw new ExecutionRequestError(
           'conflict',
@@ -417,7 +467,11 @@ export class WorkCycleService {
       'reserved'
     )
       return 'Recover the pending promotion before authorizing remediation.';
-    if (cycle.remediationRounds < remediationAllowance(cycle))
+    if (currentFinalizationStage(cycle)?.status === 'selecting')
+      return 'Select this stage’s improvement batch before authorizing remediation.';
+    if (cycle.finalizationProgress?.obligations.some((o) => o.status === 'change-requested'))
+      return 'Decide the proposed plan change or resume with guidance before authorizing remediation.';
+    if (remediationUsed(cycle) < remediationAllowance(cycle))
       return 'The remediation allowance is not exhausted; use Resume finalization.';
     const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
     const run = runs[0];
@@ -609,6 +663,7 @@ export class WorkCycleService {
     if (cycle.step === 'review' && run.status === 'finished') {
       const assessment = latestReviewReport(this.storage.execution, run);
       if (
+        !cycle.finalizationProgress &&
         assessment?.status === 'complete' &&
         evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
       )
@@ -837,7 +892,11 @@ export class WorkCycleService {
       return;
     }
     const finalization = finalizationForCycle(this.storage, cycle);
-    if (finalization && !finalizationHasNoQuestions(turn.payload.resultText)) {
+    if (
+      finalization &&
+      !(finalization.stages && cycle.step === 'review') &&
+      !finalizationHasNoQuestions(turn.payload.resultText)
+    ) {
       this.attention(
         cycle,
         'Finalization needs your input or a complete Open questions checkpoint. Inspect the outcome and provide guidance before resuming.',
@@ -874,6 +933,14 @@ export class WorkCycleService {
       this.attention(
         cycle,
         `Review report rejected: ${assessment.issues.join(' ').slice(0, 3500)}`,
+      );
+      return;
+    }
+    if (finalization?.stages) {
+      await this.advanceFinalizationStage(
+        cycle,
+        run,
+        finalizationHasNoQuestions(turn.payload.resultText),
       );
       return;
     }
@@ -937,6 +1004,464 @@ export class WorkCycleService {
     });
   }
 
+  private async advanceFinalizationStage(
+    cycle: WorkCycle,
+    run: AgentRun,
+    noQuestions: boolean,
+  ): Promise<void> {
+    const value = finalizationForCycle(this.storage, cycle);
+    const progress = cycle.finalizationProgress;
+    const stage = value?.stages?.[progress?.stageIndex ?? 0];
+    const baseline = run.reviewBranchContext;
+    const raw = latestReviewReport(this.storage.execution, run);
+    if (!value || !progress || !stage || !raw || !baseline) {
+      this.attention(cycle, 'A complete staged review and recorded branch baseline are required.');
+      return;
+    }
+    const assessment = assessStageReport(value, cycle, raw, baseline);
+    if (assessment.status !== 'complete' || !assessment.report.finalization) {
+      this.attention(
+        cycle,
+        `Staged report rejected: ${assessment.issues.join(' ').slice(0, 3500)}`,
+      );
+      return;
+    }
+    const report = assessment.report;
+    const evidence = report.finalization;
+    if (!evidence) return;
+    let updated = recordStageEvidence(cycle, assessment, baseline);
+    const state = currentFinalizationStage(cycle);
+    const discovery =
+      (stage.kind === 'simplification' || stage.kind === 'polish') && state?.status !== 'verifying';
+    const followUps = new Map(updated.followUps.map((f) => [f.id, f]));
+    for (const f of report.findings) {
+      if (
+        f.status === 'open' &&
+        optionalFinding(f) &&
+        !(cycle.findingFocus ?? []).includes(f.id) &&
+        !updated.stages.some((s) => s.selectedFindingIds.includes(f.id)) &&
+        (!discovery || f.category !== stage.kind)
+      )
+        followUps.set(f.id, f);
+    }
+    updated = { ...updated, followUps: [...followUps.values()] };
+    if (updated.obligations.length > 2000 || updated.followUps.length > 500) {
+      this.attention(
+        cycle,
+        'The finalization ledger reached its bounded size. Consolidate individually actionable obligations or follow-ups before continuing.',
+      );
+      return;
+    }
+    cycle = this.change(cycle, { finalizationProgress: updated }, 'stage-evidence');
+    if (!noQuestions) {
+      this.attention(
+        cycle,
+        'Finalization has open questions. Provide answers before continuing; plan-change proposals require an explicit obligation decision.',
+      );
+      return;
+    }
+    if (evidence.obligations.some((o) => o.status === 'change-requested')) {
+      this.attention(
+        cycle,
+        'A plan change needs your decision. Approve the exact proposed obligation change, or resume with guidance to preserve the adopted plan.',
+      );
+      return;
+    }
+    const required = report.findings.filter((f) => f.status === 'open' && !optionalFinding(f));
+    const checksFail = evidence.checks.some((c) => c.status !== 'passed');
+    const gaps = evidence.obligations.some((o) => o.status !== 'met');
+    // Later passes can reopen the whole-plan correctness/conformance stage. Already selected
+    // optional batches retain their selection; returning to them never restarts discovery.
+    // A failed check without a categorized finding is remediated in this stage. Sending it
+    // to a differently scoped reviewer could omit the failure and create a review-only loop.
+    const reopenKind = required.some((f) => f.category !== 'conformance')
+      ? 'correctness'
+      : gaps || required.length
+        ? 'conformance'
+        : undefined;
+    const reopenIndex = value.stages?.findLastIndex((s) => s.kind === reopenKind) ?? -1;
+    if (reopenIndex >= 0 && reopenIndex < updated.stageIndex) {
+      const stages = updated.stages.map((s, i) =>
+        i === reopenIndex
+          ? { ...s, status: 'reviewing' as const }
+          : value.stages?.[i]?.kind === 'final-review'
+            ? { ...s, status: 'pending' as const }
+            : s,
+      );
+      await this.enterFinalizationStage(
+        cycle,
+        run,
+        { ...updated, stages, stageIndex: reopenIndex },
+        `New ${reopenKind} issues reopened ${value.stages?.[reopenIndex]?.name}. Its used budget is retained.`,
+      );
+      return;
+    }
+    if (!checksFail && !gaps && !required.length && report.exitGate.met && discovery) {
+      if (!(await this.stageReviewIsCurrent(cycle, run))) return;
+      const choices = report.findings.filter(
+        (f) => f.status === 'open' && optionalFinding(f) && f.category === stage.kind,
+      );
+      if (choices.length) {
+        this.change(
+          cycle,
+          {
+            status: 'needs-attention',
+            finalizationProgress: {
+              ...updated,
+              stages: updated.stages.map((s, i) =>
+                i === updated.stageIndex ? { ...s, status: 'selecting' } : s,
+              ),
+            },
+            reason: `${stage.name}: select the improvements worth addressing, or keep them as follow-up work and continue.`,
+          },
+          'stage-selection-required',
+        );
+      } else await this.completeFinalizationStage(cycle, run);
+      return;
+    }
+    const selectedOpen = report.findings.some(
+      (f) =>
+        f.status === 'open' &&
+        ((cycle.findingFocus ?? []).includes(f.id) || state?.selectedFindingIds.includes(f.id)),
+    );
+    if (required.length || checksFail || gaps || selectedOpen || !report.exitGate.met) {
+      await this.reviewRemediation(cycle, run);
+      return;
+    }
+    if (report.verdict !== 'mergeable') {
+      this.attention(
+        cycle,
+        'The reviewer still requests changes. Resolve its technical concern or obtain a corrected report; optional follow-ups alone do not require another implementation pass.',
+      );
+      return;
+    }
+    if (!(await this.stageReviewIsCurrent(cycle, run))) return;
+    await this.completeFinalizationStage(cycle, run);
+  }
+
+  private async stageReviewIsCurrent(cycle: WorkCycle, run: AgentRun): Promise<boolean> {
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    const changes = tree && (await this.git?.inspectWorktreeChanges(tree.path));
+    if (
+      !tree ||
+      !changes?.ok ||
+      changes.value.conflicted ||
+      changes.value.branch !== tree.branchName
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Stage completion requires the managed branch without a pending Git operation.',
+      );
+    if (!changes.value.clean || changes.value.headSha !== run.reviewBranchContext?.headSha) {
+      await this.housekeeping(
+        cycle,
+        run,
+        'Review changed the worktree. Reconcile artifacts, commit intended edits and obtain a fresh stage review.',
+      );
+      return false;
+    }
+    if (await this.refreshIntegration(cycle, run)) return false;
+    await this.branches?.assertReview(tree, run);
+    return true;
+  }
+
+  private async enterFinalizationStage(
+    cycle: WorkCycle,
+    run: AgentRun,
+    progress: FinalizationProgress,
+    reason: string,
+    context?: CommandContext,
+  ) {
+    const value = finalizationForCycle(this.storage, cycle);
+    const stage = value?.stages?.[progress.stageIndex];
+    if (!stage) throw new ExecutionRequestError('conflict', 'Unknown finalization stage.');
+    const state = progress.stages[progress.stageIndex];
+    return this.next(
+      cycle,
+      'review',
+      run,
+      context,
+      {
+        finalizationProgress: {
+          ...progress,
+          stages: progress.stages.map((s, i) =>
+            i === progress.stageIndex && s.status === 'pending' ? { ...s, status: 'reviewing' } : s,
+          ),
+        },
+        policy: stage.policy,
+        polishPhase: stage.kind === 'final-review' ? 'final-review' : 'verify',
+        findingFocus: state?.selectedFindingIds ?? [],
+        stalledReviews: 0,
+        previousFindingFingerprint: undefined,
+        reason,
+      },
+      'enter-finalization-stage',
+    );
+  }
+
+  private async completeFinalizationStage(cycle: WorkCycle, run: AgentRun) {
+    const progress = cycle.finalizationProgress;
+    if (!progress || !run.reviewBranchContext)
+      throw new ExecutionRequestError('conflict', 'Stage state is unavailable.');
+    const stages = progress.stages.map((s, i) =>
+      i === progress.stageIndex
+        ? {
+            ...s,
+            status: 'completed' as const,
+            completedRunId: run.id,
+            headSha: run.reviewBranchContext?.headSha,
+            targetSha: run.reviewBranchContext?.targetSha,
+          }
+        : s,
+    );
+    const next = stages.findIndex((s) => s.status !== 'completed');
+    if (next < 0)
+      return this.change(
+        cycle,
+        {
+          finalizationProgress: { ...progress, stages },
+          status: 'awaiting-merge',
+          reason:
+            'All stages and the final independent review are complete on the current candidate. Review the evidence and follow-up work, then explicitly approve promotion.',
+        },
+        'final-stages-completed',
+      );
+    return this.enterFinalizationStage(
+      cycle,
+      run,
+      { ...progress, stages, stageIndex: next },
+      'Starting the next finalization stage.',
+    );
+  }
+
+  async decideFinalizationStage(
+    context: CommandContext,
+    cycle: WorkCycle,
+    input: ControlFinalizationRequest,
+  ) {
+    const check = () => {
+      this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+      const value = finalizationForCycle(this.storage, cycle);
+      this.mutations.requireAvailable(cycle.worktreeId);
+      if (
+        !value?.stages ||
+        !cycle.finalizationProgress ||
+        !['paused', 'needs-attention'].includes(cycle.status) ||
+        cycle.step !== 'review' ||
+        this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !==
+          cycle.version ||
+        this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
+          'reserved' ||
+        (cycle.integrationResolution &&
+          !['completed', 'abandoned'].includes(cycle.integrationResolution.status))
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Use a current, idle staged review checkpoint for this decision.',
+        );
+      const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
+      if (
+        runs[0]?.id !== cycle.currentRunId ||
+        runs.some((r) => !isTerminalAgentRunStatus(r.status))
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'End the current session and refresh before deciding.',
+        );
+      const run = runs[0];
+      const report = latestReviewReport(this.storage.execution, run);
+      const turn = this.storage.execution.runEvents.latestOfKind(
+        cycle.workspaceId,
+        run.id,
+        'turn-completed',
+      );
+      if (
+        run.status !== 'finished' ||
+        report?.status !== 'complete' ||
+        assessStageReport(value, cycle, report, run.reviewBranchContext).status !== 'complete' ||
+        turn?.kind !== 'turn-completed' ||
+        turn.payload.outcome !== 'success' ||
+        turn.payload.truncated
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'A complete successful staged review is required.',
+        );
+      return {
+        value,
+        run,
+        report,
+        noQuestions: finalizationHasNoQuestions(turn.payload.resultText),
+        progress: cycle.finalizationProgress,
+      };
+    };
+    let checked = check();
+    // Decisions never adopt unreviewed changes; a new review is needed after drift.
+    if (!(await this.stageReviewIsCurrent(cycle, checked.run))) return;
+    checked = check();
+    const { run, report, progress, value } = checked;
+    const stage = value.stages?.[progress.stageIndex];
+    if (!stage || !input.rationale?.trim())
+      throw new ExecutionRequestError('invalid-request', 'A decision rationale is required.');
+    const instructions = `Operator decision: ${input.rationale}. ${input.instructions ?? ''}\nReassess every unanswered question before editing. Do not infer authorization for unrelated changes.`;
+    if (instructions.length > 16000)
+      throw new ExecutionRequestError(
+        'invalid-request',
+        'Decision and guidance together exceed 16,000 characters. Shorten them before retrying.',
+      );
+    const agent =
+      input.agentOverride === undefined ? {} : { finalizationAgentOverride: input.agentOverride };
+    if (input.action === 'approve-plan-change') {
+      const obligation = progress.obligations.find((o) => o.id === input.obligationId);
+      if (
+        obligation?.status !== 'change-requested' ||
+        !obligation.proposedRequirement ||
+        obligation.runId !== run.id
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Choose a current, explicit proposed obligation change.',
+        );
+      const updated = {
+        ...progress,
+        obligations: progress.obligations.map((o) =>
+          o.id !== obligation.id
+            ? o
+            : {
+                ...o,
+                requirement: obligation.proposedRequirement as string,
+                status: 'unverified' as const,
+                proposedRequirement: undefined,
+                reusedFromRunId: undefined,
+                headSha: undefined,
+                targetSha: undefined,
+                approvedChange: {
+                  previousRequirement: obligation.requirement,
+                  rationale: input.rationale as string,
+                  userId: context.user.id,
+                  createdAt: this.now().toISOString(),
+                },
+              },
+        ),
+      };
+      return this.next(
+        cycle,
+        'review',
+        run,
+        context,
+        {
+          ...agent,
+          finalizationProgress: updated,
+          instructions,
+          reason: 'Plan adjustment recorded; reassessing conformance before further changes.',
+        },
+        'approve-plan-change',
+      );
+    }
+    if (
+      input.action !== 'select-stage-findings' ||
+      currentFinalizationStage(cycle)?.status !== 'selecting' ||
+      !checked.noQuestions
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Resolve open questions before selecting this stage’s improvement batch.',
+      );
+    if (
+      !report.report.exitGate.met ||
+      report.report.finalization?.checks.some((c) => c.status !== 'passed') ||
+      report.report.finalization?.obligations.some((o) => o.status !== 'met') ||
+      report.report.findings.some((f) => f.status === 'open' && !optionalFinding(f))
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Resolve required findings, checks and conformance gaps before selecting optional improvements.',
+      );
+    const choices = report.report.findings.filter(
+      (f) => f.status === 'open' && optionalFinding(f) && f.category === stage.kind,
+    );
+    const selected = input.selectedFindingIds ?? [];
+    if (
+      new Set(selected).size !== selected.length ||
+      selected.some((id) => !choices.some((f) => f.id === id))
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Select current optional findings from this discovery review.',
+      );
+    if (progress.decisions.length >= 500)
+      throw new ExecutionRequestError(
+        'conflict',
+        'The stage decision history has reached its limit.',
+      );
+    const followUps = new Map(progress.followUps.map((f) => [f.id, f]));
+    for (const f of choices) {
+      if (selected.includes(f.id)) followUps.delete(f.id);
+      else followUps.set(f.id, f);
+    }
+    if (followUps.size > 500)
+      throw new ExecutionRequestError(
+        'conflict',
+        'The optional follow-up ledger has reached its limit.',
+      );
+    const updated: FinalizationProgress = {
+      ...progress,
+      followUps: [...followUps.values()],
+      stages: progress.stages.map((s, i) =>
+        i === progress.stageIndex ? { ...s, status: 'verifying', selectedFindingIds: selected } : s,
+      ),
+      decisions: [
+        ...progress.decisions,
+        {
+          stageId: stage.id,
+          runId: run.id,
+          selectedIds: selected,
+          rationale: input.rationale,
+          userId: context.user.id,
+          createdAt: this.now().toISOString(),
+        },
+      ],
+    };
+    const extra = input.additionalRounds ?? 0;
+    if (
+      extra < 0 ||
+      extra > 20 ||
+      !Number.isInteger(extra) ||
+      (cycle.additionalRemediationRounds ?? 0) + extra > Number.MAX_SAFE_INTEGER - 20
+    )
+      throw new ExecutionRequestError(
+        'invalid-request',
+        'Authorize at most 20 additional stage attempts.',
+      );
+    if (selected.length && remediationUsed(cycle) >= remediationAllowance(cycle) + extra)
+      throw new ExecutionRequestError(
+        'conflict',
+        'This stage has no remaining remediation attempts. Authorize focused remediation to add attempts for the selected findings.',
+      );
+    // Persist selection and reservation atomically. Empty selection runs a bounded verification
+    // that records the follow-ups and advances, rather than reopening discovery on resume.
+    return this.next(
+      cycle,
+      selected.length ? 'remediate' : 'review',
+      run,
+      context,
+      {
+        ...agent,
+        finalizationProgress: updated,
+        findingFocus: selected,
+        ...(selected.length ? { remediationRounds: cycle.remediationRounds + 1 } : {}),
+        ...(extra
+          ? { additionalRemediationRounds: (cycle.additionalRemediationRounds ?? 0) + extra }
+          : {}),
+        instructions,
+        reason: selected.length
+          ? 'Implementing the selected stage batch, followed by focused verification.'
+          : 'Recording optional follow-ups and verifying the stage without new improvement discovery.',
+      },
+      'select-stage-findings',
+    );
+  }
+
   private housekeepingGuidance(): string {
     return 'Before addressing the review findings, inspect git status including untracked files and reconcile any verification artifacts using the source run journal. Never blindly commit untracked files. Remove only confirmed generated test artifacts; preserve intended new source by staging it. Use the provided TMPDIR for tests. Complete the substantive findings in this same run, run checks, commit intended changes, and finish with a clean worktree.';
   }
@@ -977,7 +1502,7 @@ export class WorkCycleService {
     }
     const assessment = latestReviewReport(this.storage.execution, run);
     const decision = evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext);
-    if (cycle.remediationRounds >= remediationAllowance(cycle) + (grant?.additionalRounds ?? 0)) {
+    if (remediationUsed(cycle) >= remediationAllowance(cycle) + (grant?.additionalRounds ?? 0)) {
       this.attention(cycle, `Remediation limit reached. ${decision.reason}`);
       return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
     }
@@ -1034,7 +1559,7 @@ export class WorkCycleService {
   }
 
   private async housekeeping(cycle: WorkCycle, run: AgentRun, reason: string): Promise<void> {
-    if (cycle.remediationRounds >= remediationAllowance(cycle)) {
+    if (remediationUsed(cycle) >= remediationAllowance(cycle)) {
       this.attention(cycle, `Remediation limit reached. ${reason}`);
       return;
     }
@@ -1799,7 +2324,8 @@ export class WorkCycleService {
         currentRunId: asAgentRunId(randomUUID()),
         ...(parent === undefined ? {} : { parentRunId: parent.id }),
         ...(reviewHeadSha === undefined ? {} : { reviewHeadSha }),
-        runDeadlineAt: changes.runDeadlineAt ?? this.deadline(cycle.policy.maxRunMinutes),
+        runDeadlineAt:
+          changes.runDeadlineAt ?? this.deadline((changes.policy ?? cycle.policy).maxRunMinutes),
         reason: changes.reason ?? `Starting ${step}.`,
       },
       action,
@@ -1849,6 +2375,35 @@ export class WorkCycleService {
     action = 'advance',
     context?: CommandContext,
   ): WorkCycle {
+    // Keep lifetime totals and independent stage allowance/usage together in the same transaction.
+    if (
+      cycle.finalizationProgress &&
+      (changes.remediationRounds !== undefined || changes.additionalRemediationRounds !== undefined)
+    ) {
+      changes = {
+        ...changes,
+        finalizationProgress: {
+          ...(changes.finalizationProgress ?? cycle.finalizationProgress),
+          stages: (changes.finalizationProgress ?? cycle.finalizationProgress).stages.map((s, i) =>
+            i !== cycle.finalizationProgress?.stageIndex
+              ? s
+              : {
+                  ...s,
+                  remediationRounds:
+                    s.remediationRounds +
+                    ((changes.remediationRounds ?? cycle.remediationRounds) -
+                      cycle.remediationRounds),
+                  additionalRemediationRounds:
+                    s.additionalRemediationRounds +
+                    ((changes.additionalRemediationRounds ??
+                      cycle.additionalRemediationRounds ??
+                      0) -
+                      (cycle.additionalRemediationRounds ?? 0)),
+                },
+          ),
+        },
+      };
+    }
     const updated = {
       ...cycle,
       ...changes,
@@ -1891,6 +2446,28 @@ export class WorkCycleService {
         step: cycle.step,
         reason: cycle.reason,
         runId: cycle.currentRunId,
+        ...(action === 'approve-plan-change' && cycle.finalizationProgress
+          ? {
+              approvedObligations: cycle.finalizationProgress.obligations
+                .filter((o) => o.approvedChange)
+                .map((o) => ({
+                  id: o.id,
+                  source: o.source,
+                  requirement: o.requirement,
+                  approvedChange: { ...o.approvedChange },
+                })),
+            }
+          : {}),
+        ...(cycle.finalizationProgress
+          ? {
+              stageIndex: cycle.finalizationProgress.stageIndex,
+              stageState: { ...currentFinalizationStage(cycle) },
+              stageDecisions: cycle.finalizationProgress.decisions.map((d) => ({
+                ...d,
+                selectedIds: [...d.selectedIds],
+              })),
+            }
+          : {}),
         ...(cycle.finalizationId
           ? {
               finalizationAgentOverride: cycle.finalizationAgentOverride

@@ -7,6 +7,7 @@ import type {
   ReviewReportAssessment,
   RunHandoffSource,
 } from '@craftingtable/domain';
+import { stagedFollowUpIds } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { ExecutionRequestError } from './errors.js';
 import { assessReviewReport } from './review-report.js';
@@ -134,9 +135,14 @@ export function recordedFindings(execution: Execution, run: AgentRun) {
 }
 
 export function requiredFindingIds(execution: Execution, run: AgentRun): ReadonlySet<string> {
+  const cycle = execution.cycles.activeForWorktree(run.workspaceId, run.worktreeId);
+  const followUps = cycle ? stagedFollowUpIds(cycle) : new Set<string>();
   return new Set(
     [...recordedFindings(execution, run).values()]
-      .filter(({ finding }) => !run.planVersionId || finding.status === 'open')
+      .filter(
+        ({ finding }) =>
+          !run.planVersionId || (finding.status === 'open' && !followUps.has(finding.id)),
+      )
       .map(({ finding }) => finding.id),
   );
 }
@@ -287,12 +293,12 @@ export function writeRunHandoff(
         {
           version: 1,
           scope: 'finalization',
-          requiredFindingIds: open.map(({ finding }) => finding.id),
+          requiredFindingIds: [...requiredFindingIds(execution, parent)],
           openFindings: open,
           closedFindingIds: closed.map(({ finding }) => finding.id),
           closedHistory: 'closed-findings.json',
           instructions:
-            'Report every previously open finding with its current status, plus new or reopened findings. Unchanged closed findings may be omitted; their reviewer dispositions remain in the recorded history. Invalid reports do not update this snapshot; reconcile their observations from the source files.',
+            'Report every ID in requiredFindingIds with its current status, plus new or reopened findings. Controller-retained optional follow-ups are listed in the staged ledger and may be omitted while unchanged. Unchanged closed findings may be omitted; their reviewer dispositions remain in the recorded history. Invalid reports do not update this snapshot; reconcile their observations from the source files.',
         },
         null,
         2,

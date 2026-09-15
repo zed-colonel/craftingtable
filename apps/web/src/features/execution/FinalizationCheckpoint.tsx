@@ -7,6 +7,7 @@ import {
   type FinalizationAgentSelection,
   finalizationProfile,
   remediationAllowance,
+  remediationUsed,
 } from '@craftingtable/domain';
 import { useId, useState } from 'react';
 
@@ -32,7 +33,7 @@ export function FinalizationCheckpoint({
   const [selected, setSelected] = useState<string[]>([]);
   const [action, setAction] = useState<CheckpointAction>(() =>
     findings.length
-      ? findings.some((f) => f.severity !== 'nit')
+      ? view.cycle?.finalizationProgress || findings.some((f) => f.severity !== 'nit')
         ? 'remediate-findings'
         : 'defer-nits'
       : view.canAuthorizeRemediation
@@ -60,7 +61,7 @@ export function FinalizationCheckpoint({
   const allowance = view.cycle
     ? remediationAllowance(view.cycle)
     : view.finalization.policy.maxRemediationRounds;
-  const used = view.cycle?.remediationRounds ?? 0;
+  const used = view.cycle ? remediationUsed(view.cycle) : 0;
   const validRounds = Number.isInteger(rounds) && rounds >= 1 && rounds <= 20;
   const blocker =
     findingDecision && !selected.length
@@ -114,7 +115,9 @@ export function FinalizationCheckpoint({
         >
           {!!findings.length && (
             <>
-              <option value="defer-nits">Defer selected nits and review</option>
+              {!view.cycle?.finalizationProgress && (
+                <option value="defer-nits">Defer selected nits and review</option>
+              )}
               <option value="remediate-findings">Address selected findings</option>
             </>
           )}
@@ -152,7 +155,8 @@ export function FinalizationCheckpoint({
                   }
                 />
                 <span>
-                  {f.id} · {f.severity} · {f.title}
+                  {f.id} · {f.category ? `${f.category} · ` : ''}
+                  {f.severity} · {f.title}
                 </span>
               </label>
             ))}

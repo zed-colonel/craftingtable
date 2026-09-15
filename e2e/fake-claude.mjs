@@ -8,7 +8,7 @@
  * It exits when stdin closes. No network, no model, deterministic output.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -137,12 +137,50 @@ lines.on('line', (line) => {
               },
             ]
           : [];
+    const ledgerPath = /`([^`]+\/craftingtable-finalization-state\.json)`/.exec(text)?.[1];
+    let staged;
+    let stagedFindings = findings;
+    if (ledgerPath) {
+      const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'));
+      const stage = ledger.stages[ledger.progress.stageIndex];
+      const idea = {
+        id: 'S-1',
+        category: 'simplification',
+        severity: 'minor',
+        status: 'open',
+        title: 'Simplify the fixture example',
+        explanation: 'A smaller example is easier to follow.',
+        recommendation: 'Simplify the example.',
+      };
+      const implemented = existsSync(join(cwd, 'POLISH-1.md'));
+      stagedFindings =
+        stage.kind === 'simplification'
+          ? implemented
+            ? [
+                { ...idea, status: 'resolved', disposition: 'Verified POLISH-1.md.' },
+                { ...idea, id: 'S-3', title: 'A new optional suggestion' },
+              ]
+            : [idea, { ...idea, id: 'S-2', title: 'Another optional simplification' }]
+          : [];
+      staged = {
+        stageId: stage.id,
+        fullChecks: stage.kind === 'final-review',
+        checks: (stage.requiredChecks.length ? stage.requiredChecks : ['Fixture checks']).map(
+          (name) => ({ name, status: 'passed', evidence: 'Fixture verification passed.' }),
+        ),
+        obligations: ledger.progress.obligations.map((o) => ({
+          id: o.id,
+          status: 'met',
+          evidence: 'Fixture implementation and verification.',
+        })),
+      };
+    }
     const reviewResult =
       (finalizing
         ? 'Whole-plan conformance and fixture checks passed.\n\n## Open questions\nnone\n\n## Review report\n'
         : '') +
       (automated || findings.length > 0
-        ? `\`\`\`craftingtable-review\n${JSON.stringify({ version: 1, complete: true, verdict, exitGate: { met: verdict === 'mergeable', evidence: 'Fixture checks passed.' }, findings })}\n\`\`\`\nVERDICT: ${verdict}`
+        ? `\`\`\`craftingtable-review\n${JSON.stringify({ version: 1, complete: true, verdict, exitGate: { met: verdict === 'mergeable', evidence: 'Fixture checks passed.' }, findings: stagedFindings, ...(staged ? { finalization: staged } : {}) })}\n\`\`\`\nVERDICT: ${verdict}`
         : `fake review turn ${turns}\n\nVERDICT: ${verdict}`);
     emit({
       type: 'assistant',

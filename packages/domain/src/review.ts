@@ -9,6 +9,10 @@ export type FindingStatus = (typeof FINDING_STATUSES)[number];
 export interface ReviewFinding {
   readonly id: string;
   readonly severity: FindingSeverity;
+  readonly category?: Exclude<
+    import('./finalization-stages.js').FinalizationStageKind,
+    'final-review'
+  >;
   readonly status: FindingStatus;
   readonly title: string;
   readonly location?: { readonly path: string; readonly line?: number };
@@ -25,6 +29,7 @@ export interface ReviewReport {
   readonly verdict: AgentRunVerdict;
   readonly exitGate: { readonly met: boolean; readonly evidence: string };
   readonly findings: readonly ReviewFinding[];
+  readonly finalization?: import('./finalization-stages.js').StageReviewReport;
 }
 
 /** Structural validity never implies that a reviewer found every possible defect. */

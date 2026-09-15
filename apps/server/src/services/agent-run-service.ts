@@ -46,6 +46,7 @@ import type { BranchService } from './branch-service.js';
 import { composeBrief } from './brief.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { finalizationForCycle, finalizationInstructions } from './finalization-policy.js';
+import { assessStageReport } from './finalization-stage-policy.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
 import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-handoff.js';
 import type { StorageService } from './storage-service.js';
@@ -306,7 +307,9 @@ export class AgentRunService {
             ? 'The integration branch has been refreshed during this cycle. Review the combined changes and rerun the relevant repository checks; a prior review or a clean Git merge is not verification of this state.'
             : '',
           !resolution && cycle.step === 'remediate'
-            ? `Address all open blocking, major, and minor findings, and reduce open nits to at most ${cycle.policy.maxNits}. Preserve finding IDs and give the reviewer evidence of each resolution.`
+            ? cycle.finalizationProgress
+              ? 'Address required correctness/conformance findings and all blocking/major findings. For optional improvements, implement the selected stage batch (or the explicit focused recovery subset) only; preserve every other selected finding for later verification. Do not implement retained optional follow-ups or restart discovery. Preserve finding IDs and provide evidence of each resolution.'
+              : `Address all open blocking, major, and minor findings, and reduce open nits to at most ${cycle.policy.maxNits}. Preserve finding IDs and give the reviewer evidence of each resolution.`
             : '',
         ]
           .filter(Boolean)
@@ -583,6 +586,29 @@ export class AgentRunService {
           path: inventoryPath,
         });
       }
+      if (cycle?.finalizationProgress && cycle.finalizationId) {
+        const staged = this.storage.execution.finalizations.find(workspaceId, cycle.finalizationId);
+        const path = join(planDirectory, 'craftingtable-finalization-state.json');
+        writeFileSync(
+          path,
+          JSON.stringify(
+            {
+              planVersionId: prepared.planVersionId,
+              stages: staged?.stages,
+              progress: cycle.finalizationProgress,
+              reviewBaseline: reviewBranchContext,
+            },
+            null,
+            2,
+          ),
+          { mode: 0o600 },
+        );
+        planDocuments.push({
+          filename: 'craftingtable-finalization-state.json',
+          role: 'work-breakdown',
+          path,
+        });
+      }
       const handoff =
         prepared.parentRun === undefined
           ? undefined
@@ -610,6 +636,7 @@ export class AgentRunService {
               reviewReportRetry: {
                 issues: parentAssessment.issues,
                 reuseVerification: !!(
+                  !cycle?.finalizationProgress &&
                   parentContext &&
                   reviewBranchContext &&
                   parentContext.headSha === reviewBranchContext.headSha &&
@@ -1066,7 +1093,7 @@ export class AgentRunService {
       if (event.kind === 'turn-completed') {
         const run = this.storage.execution.runs.find(workspaceId, runId);
         if (run?.role === 'review') {
-          const reviewReport =
+          let reviewReport =
             event.payload.outcome === 'error'
               ? {
                   status: 'invalid' as const,
@@ -1077,6 +1104,20 @@ export class AgentRunService {
                   event.payload.truncated,
                   requiredFindingIds(this.storage.execution, run),
                 );
+          const stagedCycle = this.storage.execution.cycles.activeForWorktree(
+            run.workspaceId,
+            run.worktreeId,
+          );
+          const staged = stagedCycle?.finalizationId
+            ? this.storage.execution.finalizations.find(run.workspaceId, stagedCycle.finalizationId)
+            : undefined;
+          if (staged?.stages && stagedCycle?.currentRunId === run.id)
+            reviewReport = assessStageReport(
+              staged,
+              stagedCycle,
+              reviewReport,
+              run.reviewBranchContext,
+            );
           event = { ...event, payload: { ...event.payload, reviewReport } };
         }
       }

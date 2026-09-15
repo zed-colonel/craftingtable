@@ -246,3 +246,14 @@ finalization holds and other plan bindings. Git checks all linked checkouts and 
 compare-and-delete ref operation, preserving a concurrently advanced branch. Remote refs and
 source checkout contents are untouched. Cleanup failure leaves the plan completed with an
 independent retry; these daemon checks do not lock out external Git processes.
+
+
+Staged finalization uses the same authenticated, role-checked, CSRF/origin-protected and
+optimistically versioned controls. The server validates stage order, mandatory whole-plan gates,
+slice membership, selected finding IDs and current review commits. Browser selections cannot
+edit findings or verification verdicts. Plan adjustments approve a specific reviewer-proposed
+requirement replacement, record the actor and rationale, and trigger revalidation. Required
+checks, genuine questions, correctness/conformance findings and blocking/major findings cannot
+be waived by an optional-batch decision or a nit allowance. Evidence reuse requires completed
+matching-commit provenance; final promotion rechecks all stage completion and current full-review
+evidence before the existing exact-commit merge authority check. No stage grants merge authority.

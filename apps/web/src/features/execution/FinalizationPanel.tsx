@@ -13,6 +13,7 @@ import {
   DEFAULT_COMPLETION_POLICY,
   type PlanVersionId,
   remediationAllowance,
+  remediationUsed,
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
@@ -32,7 +33,9 @@ import { resolveIntegration } from '../../lib/work-cycle-api.js';
 import { AgentProfileFields } from './AgentProfileFields.js';
 import { CYCLE_STATUS_LABELS } from './CyclePanel.js';
 import { DiffView } from './DiffView.js';
-import { FinalizationCheckpoint } from './FinalizationCheckpoint.js';
+import { FinalizationStageDecision } from './FinalizationStageDecision.js';
+import { FinalizationStageProgress } from './FinalizationStageProgress.js';
+import { defaultFinalizationStages, FinalizationStageSetup } from './FinalizationStageSetup.js';
 import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
 import { ReviewFindings } from './ReviewFindings.js';
 import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
@@ -127,6 +130,7 @@ export function FinalizationPanel({
             polish: polishProfile,
             instructions: '',
           })),
+          stages: defaultFinalizationStages(reviewProfile, polishProfile),
           finalReview: reviewProfile,
           policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 0 },
           instructions: '',
@@ -202,7 +206,21 @@ export function FinalizationPanel({
                 await startFinalization(
                   workspaceId,
                   planVersionId,
-                  { ...draft, expectedBranchVersion: branchVersion },
+                  {
+                    ...draft,
+                    expectedBranchVersion: branchVersion,
+                    ...(draft.stages
+                      ? {
+                          rounds: [],
+                          stages: draft.stages.map((s) => ({
+                            ...s,
+                            requiredChecks: [
+                              ...new Set(s.requiredChecks.map((c) => c.trim()).filter(Boolean)),
+                            ],
+                          })),
+                        }
+                      : {}),
+                  },
                   csrfToken,
                 );
                 setEditing(false);
@@ -224,119 +242,158 @@ export function FinalizationPanel({
             />
           </label>
           <label className="field">
-            Improvement rounds
-            <input
-              type="number"
-              required
-              min={0}
-              max={10}
-              value={draft.rounds.length}
+            Finalization workflow
+            <select
+              value={draft.stages ? 'staged' : 'legacy'}
               disabled={busy}
               onChange={(e) => {
-                const count = Math.min(10, Math.max(0, Number(e.target.value)));
-                setDraft({
-                  ...draft,
-                  rounds: Array.from(
-                    { length: count },
-                    (_, i) =>
-                      draft.rounds[i] ?? {
-                        review: draft.finalReview,
-                        polish: draft.rounds[0]?.polish ?? draft.finalReview,
-                        instructions: '',
-                      },
-                  ),
-                });
+                const { stages: _stages, ...legacy } = draft;
+                setDraft(
+                  e.target.value === 'staged'
+                    ? {
+                        ...draft,
+                        stages: defaultFinalizationStages(
+                          draft.finalReview,
+                          draft.rounds[0]?.polish ?? draft.finalReview,
+                        ),
+                      }
+                    : legacy,
+                );
               }}
-            />
+            >
+              <option value="staged">Focused stages</option>
+              <option value="legacy">Legacy improvement rounds</option>
+            </select>
           </label>
-          <p className="hint">
-            Each round includes assessment, a polish pass, and independent verification. A final
-            independent review always follows. Zero rounds runs only that final review. Budgets
-            never waive findings or unanswered questions.
-          </p>
-          {draft.rounds.map((round, index) => (
-            <details key={roundKeys[index]} open>
-              <summary>Round {index + 1}</summary>
-              <AgentProfileFields
-                label="Reviewer and verifier"
-                value={round.review}
-                onChange={(review) =>
-                  setDraft({
-                    ...draft,
-                    rounds: draft.rounds.map((r, i) => (i === index ? { ...r, review } : r)),
-                  })
-                }
-                backends={backends}
-                disabled={busy}
-              />
-              <AgentProfileFields
-                label="Polish agent"
-                value={round.polish}
-                onChange={(polish) =>
-                  setDraft({
-                    ...draft,
-                    rounds: draft.rounds.map((r, i) => (i === index ? { ...r, polish } : r)),
-                  })
-                }
-                backends={backends}
-                disabled={busy}
-              />
+          {draft.stages ? (
+            <FinalizationStageSetup
+              stages={draft.stages}
+              onChange={(stages) => setDraft({ ...draft, stages })}
+              backends={backends}
+              disabled={busy}
+            />
+          ) : (
+            <>
               <label className="field">
-                Round focus
-                <textarea
-                  value={round.instructions}
-                  maxLength={16000}
+                Improvement rounds
+                <input
+                  type="number"
+                  required
+                  min={0}
+                  max={10}
+                  value={draft.rounds.length}
                   disabled={busy}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const count = Math.min(10, Math.max(0, Number(e.target.value)));
                     setDraft({
                       ...draft,
-                      rounds: draft.rounds.map((r, i) =>
-                        i === index ? { ...r, instructions: e.target.value } : r,
+                      rounds: Array.from(
+                        { length: count },
+                        (_, i) =>
+                          draft.rounds[i] ?? {
+                            review: draft.finalReview,
+                            polish: draft.rounds[0]?.polish ?? draft.finalReview,
+                            instructions: '',
+                          },
                       ),
-                    })
-                  }
+                    });
+                  }}
                 />
               </label>
-            </details>
-          ))}
-          <AgentProfileFields
-            label="Final independent reviewer"
-            value={draft.finalReview}
-            onChange={(finalReview) => setDraft({ ...draft, finalReview })}
-            backends={backends}
-            disabled={busy}
-          />
-          {(
-            [
-              ['maxNits', 'Allowed final nits', 0, 100],
-              ['maxRemediationRounds', 'Initial remediation budget', 0, 20],
-              ['maxRunMinutes', 'Minutes per step', 1, 1440],
-            ] as const
-          ).map(([key, label, min, max]) => (
-            <label key={key} className="field">
-              {label}
-              <input
-                type="number"
-                required
-                min={min}
-                max={max}
-                value={draft.policy[key]}
+              <p className="hint">
+                Each round includes assessment, a polish pass, and independent verification. A final
+                independent review always follows. Zero rounds runs only that final review. Budgets
+                never waive findings or unanswered questions.
+              </p>
+              {draft.rounds.map((round, index) => (
+                <details key={roundKeys[index]} open>
+                  <summary>Round {index + 1}</summary>
+                  <AgentProfileFields
+                    label="Reviewer and verifier"
+                    value={round.review}
+                    onChange={(review) =>
+                      setDraft({
+                        ...draft,
+                        rounds: draft.rounds.map((r, i) => (i === index ? { ...r, review } : r)),
+                      })
+                    }
+                    backends={backends}
+                    disabled={busy}
+                  />
+                  <AgentProfileFields
+                    label="Polish agent"
+                    value={round.polish}
+                    onChange={(polish) =>
+                      setDraft({
+                        ...draft,
+                        rounds: draft.rounds.map((r, i) => (i === index ? { ...r, polish } : r)),
+                      })
+                    }
+                    backends={backends}
+                    disabled={busy}
+                  />
+                  <label className="field">
+                    Round focus
+                    <textarea
+                      value={round.instructions}
+                      maxLength={16000}
+                      disabled={busy}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          rounds: draft.rounds.map((r, i) =>
+                            i === index ? { ...r, instructions: e.target.value } : r,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                </details>
+              ))}
+              <AgentProfileFields
+                label="Final independent reviewer"
+                value={draft.finalReview}
+                onChange={(finalReview) => setDraft({ ...draft, finalReview })}
+                backends={backends}
                 disabled={busy}
-                onChange={(e) =>
-                  setDraft({ ...draft, policy: { ...draft.policy, [key]: Number(e.target.value) } })
-                }
               />
-            </label>
-          ))}
-          <p className="hint">
-            The initial remediation budget defaults to{' '}
-            {DEFAULT_COMPLETION_POLICY.maxRemediationRounds} attempts and can be set from 0 to 20
-            before starting. It belongs to this finalization, spans all improvement rounds and the
-            final independent review, and is separate from scheduled polish passes. It is not copied
-            from a work item or roadmap. You can authorize more attempts at a checkpoint.
-          </p>
+              {(
+                [
+                  ['maxNits', 'Allowed final nits', 0, 100],
+                  ['maxRemediationRounds', 'Initial remediation budget', 0, 20],
+                  ['maxRunMinutes', 'Minutes per step', 1, 1440],
+                ] as const
+              ).map(([key, label, min, max]) => (
+                <label key={key} className="field">
+                  {label}
+                  <input
+                    type="number"
+                    required
+                    min={min}
+                    max={max}
+                    value={draft.policy[key]}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        policy: { ...draft.policy, [key]: Number(e.target.value) },
+                      })
+                    }
+                  />
+                </label>
+              ))}
+              <p className="hint">
+                The initial remediation budget defaults to{' '}
+                {DEFAULT_COMPLETION_POLICY.maxRemediationRounds} attempts and can be set from 0 to
+                20 before starting. It belongs to this finalization, spans all improvement rounds
+                and the final independent review, and is separate from scheduled polish passes. It
+                is not copied from a work item or roadmap. You can authorize more attempts at a
+                checkpoint.
+              </p>
+            </>
+          )}
           <label className="field">
-            Conformance and polish instructions
+            Common finalization instructions
             <textarea
               maxLength={16000}
               value={draft.instructions}
@@ -379,7 +436,7 @@ export function FinalizationPanel({
                       ? CYCLE_STATUS_LABELS[cycle.status]
                       : 'Preparation needs completion'}
               </strong>
-              {cycle && (
+              {cycle && !f.stages && (
                 <>
                   {' '}
                   · {cycle.polishPhase} · {Math.min((cycle.polishRound ?? 0) + 1, f.rounds.length)}{' '}
@@ -395,10 +452,12 @@ export function FinalizationPanel({
             </p>
             {cycle && (
               <p>
-                {cycle.remediationRounds} of {remediationAllowance(cycle)} remediation attempts used
-                across this finalization.
+                {remediationUsed(cycle)} of {remediationAllowance(cycle)} remediation attempts used{' '}
+                {f.stages ? 'in this stage' : 'across this finalization'}.
+                {f.stages && ` Lifetime total: ${cycle.remediationRounds}.`}
               </p>
             )}
+            <FinalizationStageProgress view={view} />
             {cycle?.finalizationAgentOverride && (
               <p>
                 Remaining finalization runs:{' '}
@@ -653,7 +712,7 @@ export function FinalizationPanel({
               (!cycle || ['paused', 'needs-attention'].includes(cycle.status)) &&
               (!cycle?.integrationResolution ||
                 ['completed', 'abandoned'].includes(cycle.integrationResolution.status)) && (
-                <FinalizationCheckpoint
+                <FinalizationStageDecision
                   key={`${f.id}:${cycle?.version}`}
                   view={view}
                   busy={busy}
@@ -665,17 +724,20 @@ export function FinalizationPanel({
               )}
             <details>
               <summary>Pass settings and run history</summary>
-              <p>
-                Zero blocking, major or minor findings; up to {f.policy.maxNits} nits. Remediation
-                allowance: {cycle ? remediationAllowance(cycle) : f.policy.maxRemediationRounds}
-                {cycle?.additionalRemediationRounds
-                  ? ` (${f.policy.maxRemediationRounds} initial + ${cycle.additionalRemediationRounds} authorized)`
-                  : ''}
-                .
-              </p>
+              {!f.stages && (
+                <p>
+                  Zero blocking, major or minor findings; up to {f.policy.maxNits} nits. Remediation
+                  allowance: {cycle ? remediationAllowance(cycle) : f.policy.maxRemediationRounds}
+                  {cycle?.additionalRemediationRounds
+                    ? ` (${f.policy.maxRemediationRounds} initial + ${cycle.additionalRemediationRounds} authorized)`
+                    : ''}
+                  .
+                </p>
+              )}
               <pre className="roadmap-instructions">
                 {JSON.stringify(
                   {
+                    stages: f.stages,
                     rounds: f.rounds,
                     finalReview: f.finalReview,
                     instructions: f.instructions,

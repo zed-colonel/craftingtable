@@ -1,8 +1,8 @@
 # Finalization stages — next before WorldInterface and Exoskeleton
 
-Status: agreed direction, not implemented. Complete this evolution before starting the
-WorldInterface or Exoskeleton redesign workflows. The current AQ completion work adds
-explicit finding decisions; it does not introduce the stages below.
+Status: implemented. New finalizations default to focused stages; existing finalizations and
+an explicit legacy setup option preserve the earlier flow. Ready for WorldInterface and
+Exoskeleton finalization. See [ADR-042](decisions/042-staged-plan-finalization.md).
 
 AQ's seven remediation rounds demonstrated that an unrestricted whole-plan improvement
 review can keep discovering optional work after the release requirements are satisfied.
@@ -34,7 +34,13 @@ verification with matching commits and relevant inputs. Final independent review
 whole resulting candidate with the required full checks. Required checks and genuine operator
 questions cannot be waived by a stage budget or a nit allowance.
 
-Deliver incrementally: stage definitions and focused briefs; stage-specific progression and
-budgets; then optional subsystem slices and evidence reuse. Keep the current import and
+The implementation includes focused briefs and per-stage profiles, progression, budgets,
+optional correctness/conformance work-item slices followed by whole-plan checks, and conservative
+obligation-evidence reuse. The ledger starts with imported exit gates; reviewers add cited plan
+obligations. Existing obligation reports carry compact ID/status/evidence updates. Proposed
+requirement replacements need an explicit operator decision and subsequent verification.
+Evidence reuse requires a completed stage at the same candidate/destination commits with
+unchanged source, requirement and evidence; final review always revalidates every obligation.
+No selective reuse across changed commits is attempted. Keep the current import and
 manual workflows usable. Present the current stage, selected batch, remaining findings and
 next decision clearly on mobile. No stage or roadmap setting authorizes promotion to main.

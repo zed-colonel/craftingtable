@@ -23,6 +23,7 @@ import type { ExecutionConfig } from '../config.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { BranchService } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { stagedPromotionIssue } from './finalization-stage-policy.js';
 import { latestReviewReport } from './run-handoff.js';
 import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -813,6 +814,14 @@ export class ExecutionService {
                 'conflict',
                 'Final independent review is not ready for promotion',
               );
+            const finalRun = this.storage.execution.runs.find(workspaceId, cycle.currentRunId);
+            const stageIssue = stagedPromotionIssue(
+              finalization,
+              cycle,
+              finalRun && latestReviewReport(this.storage.execution, finalRun),
+              finalRun?.reviewBranchContext,
+            );
+            if (stageIssue) throw new ExecutionRequestError('conflict', stageIssue);
             const integration = await git.resolveBranch(
               repository.rootPath,
               finalization.integrationBranch,

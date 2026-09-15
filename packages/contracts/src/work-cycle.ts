@@ -5,6 +5,7 @@ import {
   CYCLE_STEPS,
 } from '@craftingtable/domain';
 import { z } from 'zod';
+import { finalizationProgressSchema } from './finalization-progress.js';
 import {
   agentRunIdSchema,
   planVersionIdSchema,
@@ -72,6 +73,7 @@ export const workCycleSchema = z
     workspaceId: workspaceIdSchema,
     workItemId: workItemIdSchema.optional(),
     finalizationId: z.string().uuid().optional(),
+    finalizationProgress: finalizationProgressSchema.optional(),
     planVersionId: planVersionIdSchema.optional(),
     polishRound: z.number().int().min(0).max(10).optional(),
     polishPhase: z.enum(['assess', 'polish', 'verify', 'final-review']).optional(),
@@ -147,7 +149,8 @@ export const workCycleSchema = z
           cycle.additionalRemediationRounds === undefined &&
           cycle.deferredNits === undefined &&
           cycle.findingFocus === undefined &&
-          cycle.finalizationAgentOverride === undefined
+          cycle.finalizationAgentOverride === undefined &&
+          cycle.finalizationProgress === undefined
         : cycle.planVersionId !== undefined && cycle.finalizationId !== undefined,
     { message: 'A cycle requires a work item or an explicit plan finalization subject' },
   );

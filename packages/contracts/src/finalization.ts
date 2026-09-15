@@ -1,19 +1,21 @@
 import { z } from 'zod';
 import {
-  planVersionIdSchema,
-  projectIdSchema,
-  sourceRepositoryIdSchema,
-  workspaceIdSchema,
-  worktreeIdSchema,
-  userIdSchema,
-} from './ids.js';
-import { cycleProfilesSchema, completionPolicySchema, workCycleSchema } from './work-cycle.js';
-import {
   agentRunSummarySchema,
   gitBranchNameSchema,
   gitShaSchema,
   worktreeSummarySchema,
 } from './execution.js';
+import {
+  planVersionIdSchema,
+  projectIdSchema,
+  sourceRepositoryIdSchema,
+  userIdSchema,
+  workspaceIdSchema,
+  worktreeIdSchema,
+} from './ids.js';
+import { reviewFindingSchema } from './review.js';
+import { completionPolicySchema, cycleProfilesSchema, workCycleSchema } from './work-cycle.js';
+
 const profile = cycleProfilesSchema.shape.review;
 export const finalizationSettingsSchema = z.strictObject({
   rounds: z
@@ -53,6 +55,7 @@ export const finalizationViewSchema = z.strictObject({
   worktree: worktreeSummarySchema.optional(),
   runs: z.array(agentRunSummarySchema),
   mergeRecoveryPending: z.boolean(),
+  checkpointFindings: z.array(reviewFindingSchema).default([]),
   canAuthorizeRemediation: z.boolean().default(false),
 });
 export const finalizationsResponseSchema = z.strictObject({
@@ -70,7 +73,16 @@ export const controlFinalizationRequestSchema = z
       'remove-worktree',
       'retry-cleanup',
       'authorize-remediation',
+      'defer-nits',
+      'remediate-findings',
     ]),
+    findingIds: z
+      .array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/))
+      .min(1)
+      .max(100)
+      .refine((ids) => new Set(ids).size === ids.length)
+      .optional(),
+    rationale: z.string().trim().min(1).max(4000).optional(),
     additionalRounds: z.number().int().min(1).max(20).optional(),
     instructions: z.string().max(16000).optional(),
     expectedHeadSha: gitShaSchema.optional(),
@@ -78,11 +90,19 @@ export const controlFinalizationRequestSchema = z
   })
   .refine(
     (request) =>
-      (request.action === 'authorize-remediation') === (request.additionalRounds !== undefined),
+      ['authorize-remediation', 'remediate-findings'].includes(request.action) ===
+      (request.additionalRounds !== undefined),
     {
       message: 'Only remediation authorization requires an additionalRounds allowance',
       path: ['additionalRounds'],
     },
+  )
+  .refine(
+    (r) =>
+      ['defer-nits', 'remediate-findings'].includes(r.action)
+        ? r.findingIds !== undefined && r.rationale !== undefined
+        : r.findingIds === undefined && r.rationale === undefined,
+    { message: 'Only finding decisions require selected IDs and a rationale' },
   );
 export type StartFinalizationRequest = z.infer<typeof startFinalizationRequestSchema>;
 export type ControlFinalizationRequest = z.infer<typeof controlFinalizationRequestSchema>;

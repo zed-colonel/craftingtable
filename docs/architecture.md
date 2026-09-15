@@ -280,3 +280,18 @@ a merged, removed worktree with no live siblings before its scratch can be recla
 rechecks that state and filesystem identity before deletion. Retention and backup workers restart
 from durable records, never from browser-supplied paths. The browser displays measured capacity,
 previewed usage, backup coverage and errors. See ADR-034.
+
+
+Finalization finding decisions are optional durable cycle fields, with attributed audit records.
+The controller compares operator-deferred nit snapshots with the current review and exact branch
+context before excluding them from the nit count; the raw review report remains unchanged.
+Focused remediation carries a selected batch and cumulative allowance. Browser controls submit
+IDs and rationale, not edited findings or approval verdicts. See ADR-038 and the
+[staged-finalization roadmap](finalization-roadmap.md).
+
+Post-run maintenance derives cache eligibility from durable run status and live siblings.
+Agent completion queues cleanup; automation waits only for that worktree's pending cleanup.
+The shared mutation guard prevents deletion racing a launch, and the periodic worker retries
+and catches up after restart. Backend-provided CARGO_TARGET_DIR keeps future build outputs
+inside the registered run scratch. Verification evidence remains outside disposable caches.
+See ADR-039.

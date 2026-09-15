@@ -1,6 +1,6 @@
 import type { AgentRunProfile } from './execution.js';
 import type { AgentRunId, ProjectId, UserId, WorkItemId, WorkspaceId, WorktreeId } from './ids.js';
-import type { FindingSeverity, ReviewReportAssessment } from './review.js';
+import type { FindingSeverity, ReviewFinding, ReviewReportAssessment } from './review.js';
 
 export const CYCLE_STEPS = ['design', 'implement', 'review', 'remediate'] as const;
 export type CycleStep = (typeof CYCLE_STEPS)[number];
@@ -82,6 +82,16 @@ export interface WorkCycle {
   readonly remediationRounds: number;
   /** Extra attempts explicitly authorized after a finalization exhausts its initial allowance. */
   readonly additionalRemediationRounds?: number;
+  readonly deferredNits?: readonly {
+    readonly finding: ReviewFinding;
+    readonly sourceRunId: AgentRunId;
+    readonly headSha: string;
+    readonly targetSha: string;
+    readonly reason: string;
+    readonly createdAt: string;
+    readonly createdByUserId: UserId;
+  }[];
+  readonly findingFocus?: readonly string[];
   readonly stalledReviews: number;
   readonly previousFindingFingerprint?: string;
   readonly reviewHeadSha?: string;
@@ -170,4 +180,57 @@ export function designHasNoOpenQuestions(text: string, truncated = false): boole
       .trim()
       .toLowerCase() === 'none'
   );
+}
+
+/** Deferral is an operator disposition; the reviewer's finding stays open. */
+export function deferredFindingIds(
+  cycle: WorkCycle,
+  findings: readonly ReviewFinding[],
+  context?: { headSha: string; targetSha: string },
+): readonly string[] {
+  const identity = (f: ReviewFinding) =>
+    JSON.stringify([
+      f.id,
+      f.severity,
+      f.title,
+      f.location?.path,
+      f.location?.line,
+      f.explanation,
+      f.recommendation,
+    ]);
+  return findings
+    .filter(
+      (f) =>
+        f.status === 'open' &&
+        f.severity === 'nit' &&
+        cycle.finalizationId &&
+        cycle.deferredNits?.some(
+          (d) =>
+            d.headSha === context?.headSha &&
+            d.targetSha === context?.targetSha &&
+            identity(d.finding) === identity(f),
+        ),
+    )
+    .map((f) => f.id);
+}
+export function evaluateCycleCompletion(
+  cycle: WorkCycle,
+  assessment?: ReviewReportAssessment,
+  context?: { headSha: string; targetSha: string },
+): CompletionDecision {
+  if (assessment?.status !== 'complete') return evaluateCompletion(cycle.policy, assessment);
+  const deferred = new Set(deferredFindingIds(cycle, assessment.report.findings, context));
+  const decision = evaluateCompletion(cycle.policy, {
+    ...assessment,
+    report: {
+      ...assessment.report,
+      findings: assessment.report.findings.filter((f) => !deferred.has(f.id)),
+    },
+  });
+  return deferred.size
+    ? {
+        ...decision,
+        reason: `${decision.reason.replace('open nits', 'non-deferred nits').replace(' nits (allowance', ' non-deferred nits (allowance')} ${deferred.size} open nit(s) are deferred by the operator for these commits.`,
+      }
+    : decision;
 }

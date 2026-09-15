@@ -1,18 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { IntegrationResolutionRequest, StartWorkCycleRequest } from '@craftingtable/contracts';
 import {
-  DEFAULT_ROADMAP_SCHEDULING,
-  DEFAULT_ROADMAP_AUTOMATION,
-  ownsIntegrationResolution,
   type AgentRun,
   asAgentRunId,
   asAuditEventId,
   asEventId,
   type CycleStep,
+  DEFAULT_ROADMAP_AUTOMATION,
+  DEFAULT_ROADMAP_SCHEDULING,
   designHasNoOpenQuestions,
-  evaluateCompletion,
-  remediationAllowance,
+  evaluateCycleCompletion,
   isTerminalAgentRunStatus,
+  ownsIntegrationResolution,
+  remediationAllowance,
   type WorkCycle,
   type WorkItemId,
   type WorkspaceId,
@@ -22,16 +22,16 @@ import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/s
 import type { AgentRunService } from './agent-run-service.js';
 import type { CommandContext } from './auth-service.js';
 import {
+  type BranchService,
   IntegrationUpdateConflict,
   RepositoryMutationBusyError,
-  type BranchService,
 } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { finalizationForCycle, finalizationHasNoQuestions } from './finalization-policy.js';
 import { latestReviewReport, runLineage } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
-import { WorktreeMutationGuard, WorktreeMutationBusyError } from './worktree-mutation-guard.js';
+import { WorktreeMutationBusyError, WorktreeMutationGuard } from './worktree-mutation-guard.js';
 
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
 export class WorkCycleService {
@@ -216,6 +216,176 @@ export class WorkCycleService {
     return this.next(cycle, cycle.step, runs[0], context, { instructions });
   }
 
+  finalizationCheckpointFindings(cycle: WorkCycle) {
+    if (
+      !cycle.finalizationId ||
+      !['paused', 'needs-attention'].includes(cycle.status) ||
+      cycle.step !== 'review' ||
+      (cycle.integrationResolution &&
+        !['completed', 'abandoned'].includes(cycle.integrationResolution.status)) ||
+      this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
+        'reserved'
+    )
+      return [];
+    const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
+    const run = runs[0];
+    if (
+      !run ||
+      run.id !== cycle.currentRunId ||
+      run.status !== 'finished' ||
+      run.role !== 'review' ||
+      runs.some((r) => !isTerminalAgentRunStatus(r.status))
+    )
+      return [];
+    const turn = this.storage.execution.runEvents.latestOfKind(
+      cycle.workspaceId,
+      run.id,
+      'turn-completed',
+    );
+    const report = latestReviewReport(this.storage.execution, run);
+    if (
+      turn?.kind !== 'turn-completed' ||
+      turn.payload.outcome !== 'success' ||
+      turn.payload.truncated ||
+      report?.status !== 'complete'
+    )
+      return [];
+    return report.report.findings.filter((f) => f.status === 'open');
+  }
+
+  async decideFinalizationFindings(
+    context: CommandContext,
+    cycle: WorkCycle,
+    input: {
+      action: 'defer-nits' | 'remediate-findings';
+      findingIds: readonly string[];
+      rationale: string;
+      instructions?: string;
+      additionalRounds?: number;
+    },
+  ): Promise<WorkCycle> {
+    const check = () => {
+      this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+      finalizationForCycle(this.storage, cycle);
+      this.mutations.requireAvailable(cycle.worktreeId);
+      if (
+        this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !== cycle.version
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Finalization changed; refresh before deciding findings.',
+        );
+      const findings = this.finalizationCheckpointFindings(cycle);
+      const selected = findings.filter((f) => input.findingIds.includes(f.id));
+      if (
+        !selected.length ||
+        selected.length !== input.findingIds.length ||
+        (input.action === 'defer-nits' && selected.some((f) => f.severity !== 'nit'))
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Select current open findings; only nits may be deferred.',
+        );
+      return selected;
+    };
+    check();
+    const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    if (!tree || !run?.reviewBranchContext || !this.branches)
+      throw new ExecutionRequestError(
+        'conflict',
+        'The current review needs a recorded branch checkpoint.',
+      );
+    const baseline = await this.branches.captureReview(tree);
+    const selected = check();
+    if (
+      baseline.headSha !== run.reviewBranchContext.headSha ||
+      baseline.targetSha !== run.reviewBranchContext.targetSha ||
+      baseline.targetBranch !== run.reviewBranchContext.targetBranch ||
+      baseline.worktreeVersion !== run.reviewBranchContext.worktreeVersion
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'The reviewed branches changed; obtain a fresh review before deciding findings.',
+      );
+    const instructions = `Operator decision for ${input.findingIds.join(', ')}: ${input.rationale}\n${input.instructions ?? ''}\nBefore editing, reassess every open question using this guidance. If any question remains unanswered, stop and ask; do not infer authorization for unrelated changes.`;
+    if (instructions.length > 16000)
+      throw new ExecutionRequestError(
+        'invalid-request',
+        'Decision and guidance together exceed 16,000 characters. Shorten them before retrying.',
+      );
+    if (input.action === 'remediate-findings') {
+      const extra = input.additionalRounds ?? 0;
+      if (
+        !Number.isInteger(extra) ||
+        extra < 1 ||
+        extra > 20 ||
+        (cycle.additionalRemediationRounds ?? 0) + extra > Number.MAX_SAFE_INTEGER - 20
+      )
+        throw new ExecutionRequestError(
+          'invalid-request',
+          'Authorize 1–20 additional remediation attempts.',
+        );
+      return this.next(
+        cycle,
+        'remediate',
+        run,
+        context,
+        {
+          additionalRemediationRounds: (cycle.additionalRemediationRounds ?? 0) + extra,
+          remediationRounds: cycle.remediationRounds + 1,
+          stalledReviews: 0,
+          findingFocus: input.findingIds,
+          instructions,
+          housekeepingInstructions: this.housekeepingGuidance(),
+          reason: `Authorized focused remediation for ${input.findingIds.join(', ')}.`,
+        },
+        'remediate-findings',
+      );
+    }
+    const retained = (cycle.deferredNits ?? []).filter(
+      (d) => !input.findingIds.includes(d.finding.id),
+    );
+    const deferredNits = [
+      ...retained,
+      ...selected.map((finding) => ({
+        finding,
+        sourceRunId: run.id,
+        headSha: baseline.headSha,
+        targetSha: baseline.targetSha,
+        reason: input.rationale,
+        createdAt: this.now().toISOString(),
+        createdByUserId: context.user.id,
+      })),
+    ];
+    if (deferredNits.length > 100)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Finalization supports at most 100 deferred nits.',
+      );
+    const finalization = finalizationForCycle(this.storage, cycle);
+    const finalReview =
+      cycle.polishPhase === 'verify' &&
+      (cycle.polishRound ?? 0) + 1 === finalization?.rounds.length;
+    return this.next(
+      cycle,
+      'review',
+      run,
+      context,
+      {
+        deferredNits,
+        instructions,
+        findingFocus: [],
+        ...(finalReview
+          ? { polishPhase: 'final-review' as const, polishRound: finalization.rounds.length }
+          : {}),
+        reason:
+          'Nits deferred by operator; starting independent review. Final promotion still requires approval.',
+      },
+      'defer-nits',
+    );
+  }
+
   /** Read-only eligibility for the recovery control; command checks repeat after Git inspection. */
   finalizationRemediationBlocker(cycle: WorkCycle): string | undefined {
     if (
@@ -260,7 +430,7 @@ export class WorkCycleService {
     const assessment = latestReviewReport(this.storage.execution, run);
     if (
       assessment?.status !== 'complete' ||
-      evaluateCompletion(cycle.policy, assessment).action !== 'remediate'
+      evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action !== 'remediate'
     )
       return 'A valid review requiring remediation is needed before extending the allowance.';
     return undefined;
@@ -422,7 +592,7 @@ export class WorkCycleService {
       const assessment = latestReviewReport(this.storage.execution, run);
       if (
         assessment?.status === 'complete' &&
-        evaluateCompletion(cycle.policy, assessment).action === 'remediate'
+        evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
       )
         return this.reviewRemediation(cycle, run, context);
       return this.next(cycle, 'review', run, context);
@@ -496,6 +666,7 @@ export class WorkCycleService {
   }
 
   private async reconcile(cycle: WorkCycle): Promise<void> {
+    if (this.runs.isCleaningRun(cycle.worktreeId)) return;
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (worktree?.mergedAt !== undefined) {
       this.change(cycle, {
@@ -680,7 +851,7 @@ export class WorkCycleService {
       return;
     }
     const assessment = latestReviewReport(this.storage.execution, run);
-    const decision = evaluateCompletion(cycle.policy, assessment);
+    const decision = evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext);
     if (finalization && assessment?.status === 'invalid') {
       this.attention(
         cycle,
@@ -783,7 +954,7 @@ export class WorkCycleService {
       if (blocker) throw new ExecutionRequestError('conflict', blocker);
     }
     const assessment = latestReviewReport(this.storage.execution, run);
-    const decision = evaluateCompletion(cycle.policy, assessment);
+    const decision = evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext);
     if (cycle.remediationRounds >= remediationAllowance(cycle) + (grant?.additionalRounds ?? 0)) {
       this.attention(cycle, `Remediation limit reached. ${decision.reason}`);
       return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
@@ -1571,6 +1742,8 @@ export class WorkCycleService {
       this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !== cycle.version
     )
       return cycle;
+    if (context) this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+    if (cycle.finalizationId) finalizationForCycle(this.storage, cycle);
     return this.change(
       cycle,
       {
@@ -1677,12 +1850,25 @@ export class WorkCycleService {
         step: cycle.step,
         reason: cycle.reason,
         runId: cycle.currentRunId,
-        ...(action === 'authorize-remediation'
+        ...(action === 'authorize-remediation' || action === 'remediate-findings'
           ? {
               initialRemediationAllowance: cycle.policy.maxRemediationRounds,
               additionalRemediationRounds: cycle.additionalRemediationRounds ?? 0,
               remediationAllowance: remediationAllowance(cycle),
               remediationRounds: cycle.remediationRounds,
+            }
+          : {}),
+        ...(['defer-nits', 'remediate-findings'].includes(action)
+          ? {
+              deferredNits: (cycle.deferredNits ?? []).map((d) => ({
+                ...d,
+                finding: {
+                  ...d.finding,
+                  ...(d.finding.location ? { location: { ...d.finding.location } } : {}),
+                },
+              })),
+              findingFocus: cycle.findingFocus ?? [],
+              instructions: cycle.instructions,
             }
           : {}),
         ...(cycle.integrationResolution

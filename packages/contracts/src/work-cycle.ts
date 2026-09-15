@@ -14,6 +14,7 @@ import {
   workspaceIdSchema,
   worktreeIdSchema,
 } from './ids.js';
+import { reviewFindingSchema } from './review.js';
 
 export const completionPolicySchema = z.strictObject({
   maxNits: z.number().int().min(0).max(100),
@@ -94,6 +95,21 @@ export const workCycleSchema = z
       .nonnegative()
       .max(Number.MAX_SAFE_INTEGER - 20)
       .optional(),
+    deferredNits: z
+      .array(
+        z.strictObject({
+          finding: reviewFindingSchema,
+          sourceRunId: agentRunIdSchema,
+          headSha: commitShaSchema,
+          targetSha: commitShaSchema,
+          reason: z.string().trim().min(1).max(4000),
+          createdAt: z.iso.datetime(),
+          createdByUserId: userIdSchema,
+        }),
+      )
+      .max(100)
+      .optional(),
+    findingFocus: z.array(z.string().min(1).max(64)).max(100).optional(),
     stalledReviews: z.number().int().nonnegative(),
     previousFindingFingerprint: z.string().max(128).optional(),
     reviewHeadSha: z
@@ -123,7 +139,9 @@ export const workCycleSchema = z
       cycle.workItemId !== undefined
         ? cycle.planVersionId === undefined &&
           cycle.finalizationId === undefined &&
-          cycle.additionalRemediationRounds === undefined
+          cycle.additionalRemediationRounds === undefined &&
+          cycle.deferredNits === undefined &&
+          cycle.findingFocus === undefined
         : cycle.planVersionId !== undefined && cycle.finalizationId !== undefined,
     { message: 'A cycle requires a work item or an explicit plan finalization subject' },
   );

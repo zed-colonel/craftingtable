@@ -23,7 +23,7 @@ const rl = readline.createInterface({ input: process.stdin });
 let turns = 0;
 rl.on('line', (line) => {
   const message = JSON.parse(line);
-  const text = message.message.content[0].text === 'ENV' ? JSON.stringify([process.env.TMPDIR, process.env.TMP, process.env.TEMP]) : message.message.content[0].text;
+  const text = message.message.content[0].text === 'ENV' ? JSON.stringify([process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CARGO_TARGET_DIR]) : message.message.content[0].text;
   turns += 1;
   process.stdout.write(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'echo: ' + text }] } }) + '\\n');
   process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'echo: ' + text, num_turns: turns, duration_ms: 5, total_cost_usd: 0.01, session_id: 'fake-session' }) + '\\n');
@@ -141,7 +141,7 @@ describe('ClaudeCodeBackend', () => {
           item.type === 'event' &&
           item.event.kind === 'turn-completed' &&
           item.event.payload.resultText ===
-            `echo: ${JSON.stringify([fake.cwd, fake.cwd, fake.cwd])}`,
+            `echo: ${JSON.stringify([fake.cwd, fake.cwd, fake.cwd, `${fake.cwd}/target`])}`,
       ),
     ).toBe(true);
   });

@@ -195,7 +195,10 @@ before directories are created, must not overlap database/source/run/backup role
 device identities. Location changes apply to future work and never move or delete existing
 checkouts. Browser cleanup supplies only an opaque daemon preview ID, never deletion paths.
 
-Only terminal runs attached to merged, removed worktrees with no live siblings are eligible.
+Recognized Cargo caches become eligible after finished, failed or cancelled runs with no live
+siblings, independently of merge. Runs interrupted on restart remain protected. Full scratch
+expiry still requires merged, removed worktrees. Cleanup is serialized with launches and Git
+mutations; eligibility and filesystem identity are checked again under the worktree guard.
 Recognized Cargo caches use exact structural markers under registered scratch directories;
 30-day scratch expiry also requires old contents. Cleanup rejects changed canonical parents,
 symlinks at authority roots, and nested filesystems; recursive inventory does not follow links.
@@ -219,3 +222,12 @@ No additional process
 authority or browser shell endpoint is introduced. Process-group supervision does not
 contain commands that deliberately create a new session or external service; the existing
 OS-user and agent permission boundaries still apply. See ADR-037.
+
+
+Operator nit deferrals preserve reviewer-owned findings as open. Exemptions match the recorded
+source/destination commits and exact finding details; changed severity, details or commits
+invalidate them. Only current, complete successful reviews can supply selected findings.
+Authenticated editor commands record rationale and guidance, recheck authority and Git state,
+and atomically reserve independent review or bounded focused remediation. Neither action
+supplies merge authority or excuses technical failures and genuine unanswered questions.
+Final promotion rechecks the current review and effective completion policy. See ADR-038.

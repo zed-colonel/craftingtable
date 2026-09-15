@@ -8,6 +8,7 @@ import {
   asEventId,
   asSourceRepositoryId,
   asWorktreeId,
+  evaluateCycleCompletion,
   isTerminalAgentRunStatus,
   type SourceRepository,
   type SourceRepositoryId,
@@ -22,6 +23,7 @@ import type { ExecutionConfig } from '../config.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { BranchService } from './branch-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { latestReviewReport } from './run-handoff.js';
 import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -841,6 +843,19 @@ export class ExecutionService {
             );
           const review = this.storage.execution.runs.find(workspaceId, gate.reviewRunId);
           const reviewed = await this.branches.assertReview(worktree, review);
+          if (
+            finalApproval &&
+            cycle &&
+            evaluateCycleCompletion(
+              cycle,
+              review ? latestReviewReport(this.storage.execution, review) : undefined,
+              reviewed,
+            ).action !== 'awaiting-merge'
+          )
+            throw new ExecutionRequestError(
+              'conflict',
+              'The current final review does not meet the completion policy.',
+            );
           if (input.targetBranch !== undefined && input.targetBranch !== reviewed.targetBranch)
             throw new ExecutionRequestError(
               'conflict',

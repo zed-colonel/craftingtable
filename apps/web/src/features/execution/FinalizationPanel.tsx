@@ -8,32 +8,33 @@ import type {
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
 import {
-  DEFAULT_COMPLETION_POLICY,
-  remediationAllowance,
   type AgentRunId,
+  DEFAULT_COMPLETION_POLICY,
   type PlanVersionId,
+  remediationAllowance,
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
+import { loadPlanBranchSettings } from '../../lib/branch-api.js';
+import {
+  loadExecutionStatus,
+  loadRun,
+  loadRunProfiles,
+  loadWorktreeDiff,
+} from '../../lib/execution-api.js';
 import {
   controlFinalization,
   loadFinalizations,
   startFinalization,
 } from '../../lib/finalization-api.js';
-import { loadPlanBranchSettings } from '../../lib/branch-api.js';
-import {
-  loadExecutionStatus,
-  loadRunProfiles,
-  loadRun,
-  loadWorktreeDiff,
-} from '../../lib/execution-api.js';
 import { resolveIntegration } from '../../lib/work-cycle-api.js';
 import { AgentProfileFields } from './AgentProfileFields.js';
-import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
-import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
-import { ReviewFindings } from './ReviewFindings.js';
-import { DiffView } from './DiffView.js';
 import { CYCLE_STATUS_LABELS } from './CyclePanel.js';
+import { DiffView } from './DiffView.js';
+import { FinalizationFindingCheckpoint } from './FinalizationFindingCheckpoint.js';
+import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
+import { ReviewFindings } from './ReviewFindings.js';
+import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
 
 export function FinalizationPanel({
   workspaceId,
@@ -588,6 +589,37 @@ export function FinalizationPanel({
                 workspaceId={workspaceId}
                 runId={latest.id}
                 version={latest.version}
+              />
+            )}
+            {!!cycle?.deferredNits?.length && (
+              <details>
+                <summary>Deferred nits ({cycle.deferredNits.length})</summary>
+                <p>
+                  Operator decisions for the recorded commits. Findings remain open follow-up work;
+                  changed commits or finding details invalidate an exemption.
+                </p>
+                {cycle.deferredNits.map((d) => (
+                  <article key={d.finding.id}>
+                    <strong>
+                      {d.finding.id} · {d.finding.title}
+                    </strong>
+                    <p>{d.reason}</p>
+                    <small>
+                      Candidate {d.headSha.slice(0, 8)} · destination {d.targetSha.slice(0, 8)} ·{' '}
+                      {d.createdAt}
+                    </small>
+                  </article>
+                ))}
+              </details>
+            )}
+            {canMutate && !!view.checkpointFindings.length && (
+              <FinalizationFindingCheckpoint
+                key={`${f.id}:${cycle?.version}`}
+                view={view}
+                busy={busy}
+                onDecide={(input) =>
+                  void perform(() => controlFinalization(workspaceId, f.id, input, csrfToken))
+                }
               />
             )}
             {canMutate && view.canAuthorizeRemediation && cycle && (

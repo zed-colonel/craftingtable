@@ -132,6 +132,13 @@ it is mergeable.
   original settings remain; the extra allowance survives restart and spans the whole
   finalization. Resume alone does not extend it. Questions and invalid reports must be
   resolved through their existing controls before additional remediation can be authorized.
+  **Decide remaining findings** also works at a valid review's questions checkpoint. Select
+  findings and supply rationale/answers, then either authorize a focused remediation batch or
+  defer selected nits. Deferral preserves open findings and starts independent review; only
+  unchanged nits on the authorized commits are exempt from the nit count. Required checks,
+  plan obligations, genuine unanswered questions and final approval remain gates. Decisions
+  and used allowances survive restart. See [the staged-finalization roadmap](docs/finalization-roadmap.md)
+  for the next evolution, to complete before WorldInterface and Exoskeleton.
   Pausing retains the integration hold; stopping
   releases it and retains the candidate for inspection or removal.
   Finalization works on a dedicated candidate branch from a pinned integration snapshot.
@@ -208,9 +215,12 @@ active workspace can change future worktree/run placement and backup location wi
 existing work. The installation-wide settings persist in SQLite; environment worktree/run roots
 seed the settings on first startup. Whole-data relocation is an offline operation.
 
-Recognized Cargo caches are cleaned after merge and worktree removal. Other scratch expires
-after 30 days by default, with an option to retain it. Unmerged, active and interrupted work stays
-protected. Run messages, findings, plan files and database history remain. Daily consistent
+Recognized Cargo caches are cleaned after each finished, failed or cancelled run, once its
+worktree has no live sessions. Both backends give each run its own Cargo target directory;
+subsequent builds may take longer because they rebuild those caches. Automation waits for
+post-run cleanup before advancing that worktree. Other scratch still expires after 30 days
+following merge and worktree removal, with an option to retain it. Active sessions and runs
+interrupted by daemon restart stay protected. Run messages, findings, plan files and database history remain. Daily consistent
 SQLite backups retain seven snapshots by default; put them on another disk for drive-failure
 protection. They do not back up source repositories or unmerged worktrees.
 

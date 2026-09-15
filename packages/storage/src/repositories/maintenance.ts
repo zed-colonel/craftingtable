@@ -42,12 +42,22 @@ export class SqliteStorageMaintenanceRepository implements StorageMaintenanceRep
   }
   directories(): readonly RunDirectory[] {
     const rows = this.database
-      .prepare(`SELECT d.run_id AS runId, r.workspace_id AS workspaceId, d.path, d.device, MAX(COALESCE(r.finished_at, r.created_at), COALESCE(w.removed_at, w.created_at)) AS retainedSince,
+      .prepare(`SELECT d.run_id AS runId, r.workspace_id AS workspaceId, w.id AS worktreeId, d.path, d.device, MAX(COALESCE(r.finished_at, r.created_at), COALESCE(w.removed_at, w.created_at)) AS retainedSince,
       (r.status IN ('finished','failed','cancelled','interrupted') AND w.status = 'removed' AND w.merged_at IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM agent_runs live WHERE live.worktree_id = w.id AND live.status NOT IN ('finished','failed','cancelled','interrupted'))) AS eligible
+       AND NOT EXISTS (SELECT 1 FROM agent_runs live WHERE live.worktree_id = w.id AND live.status NOT IN ('finished','failed','cancelled','interrupted'))) AS eligible,
+      (r.status IN ('finished','failed','cancelled')
+       AND EXISTS (SELECT 1 FROM agent_run_events ended WHERE ended.run_id=r.id AND ended.kind='run-finished' AND (json_type(ended.payload_json, '$.exitCode')='integer' OR json_type(ended.payload_json, '$.signal')='text'))
+       AND NOT EXISTS (SELECT 1 FROM agent_runs live WHERE live.worktree_id = w.id AND live.status NOT IN ('finished','failed','cancelled','interrupted'))) AS buildEligible
       FROM run_directories d JOIN agent_runs r ON r.id = d.run_id JOIN worktrees w ON w.id = r.worktree_id`)
-      .all() as (Omit<RunDirectory, 'eligible'> & { eligible: number })[];
-    return rows.map((row) => ({ ...row, eligible: row.eligible === 1 }));
+      .all() as (Omit<RunDirectory, 'eligible' | 'buildEligible'> & {
+      eligible: number;
+      buildEligible: number;
+    })[];
+    return rows.map((row) => ({
+      ...row,
+      eligible: row.eligible === 1,
+      buildEligible: row.buildEligible === 1,
+    }));
   }
   protectedPaths(): readonly string[] {
     return (

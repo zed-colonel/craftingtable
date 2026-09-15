@@ -336,11 +336,17 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     ).not.toContain('fake agent');
 
     await page.getByRole('button', { name: 'Merge…' }).click();
+    const completedMerge = page.waitForResponse(
+      (response) => response.request().method() === 'POST' && response.url().endsWith('/merge'),
+      { timeout: 15000 },
+    );
     await page
       .getByRole('form', { name: 'Merge target' })
       .getByRole('button', { name: 'Merge', exact: true })
       .click();
-    await expect(cyclePanel.getByText(/Previous cycle: Completed/)).toBeVisible();
+    const mergeResponse = await completedMerge;
+    expect(mergeResponse.status(), await mergeResponse.text()).toBe(200);
+    await expect(cyclePanel.getByText(/Previous cycle: Completed/)).toBeVisible({ timeout: 15000 });
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }

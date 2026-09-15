@@ -17,8 +17,8 @@ import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { ExecutionService } from './execution-service.js';
 import type { WorkCycleService } from './work-cycle-service.js';
-import type { WorkspaceService } from './workspace-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
+import type { WorkspaceService } from './workspace-service.js';
 
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
@@ -196,6 +196,17 @@ export class FinalizationService {
         conflict('Recover the approved promotion before resuming or stopping finalization.');
       if (['stopped', 'completed'].includes(value.status))
         conflict('This finalization has ended. Start a new one for further work.');
+      if (input.action === 'defer-nits' || input.action === 'remediate-findings') {
+        if (!cycle || !input.findingIds || !input.rationale)
+          conflict('Select findings and record your decision.');
+        await this.cycles.decideFinalizationFindings(context, cycle, {
+          ...input,
+          action: input.action,
+          findingIds: input.findingIds,
+          rationale: input.rationale,
+        });
+        return this.view(value);
+      }
       if (input.action === 'authorize-remediation') {
         if (value.status !== 'active' || !cycle || input.additionalRounds === undefined)
           conflict('An active finalization and an explicit additional allowance are required.');
@@ -293,6 +304,7 @@ export class FinalizationService {
     return {
       finalization: value,
       cycle,
+      checkpointFindings: cycle ? this.cycles.finalizationCheckpointFindings(cycle) : [],
       canAuthorizeRemediation:
         value.status === 'active' && !!cycle && !this.cycles.finalizationRemediationBlocker(cycle),
       worktree: (() => {

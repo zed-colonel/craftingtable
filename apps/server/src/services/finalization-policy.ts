@@ -1,6 +1,6 @@
 import {
-  ownsIntegrationResolution,
   type Finalization,
+  ownsIntegrationResolution,
   type WorkCycle,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
@@ -51,6 +51,17 @@ export function finalizationInstructions(value: Finalization, cycle: WorkCycle):
     ownsIntegrationResolution(cycle)
       ? 'For this reserved conflict resolution, stage and verify intended changes without committing. Follow the pinned merge instructions. Never push or advance the final destination.'
       : 'Implementation/polish runs must commit intended changes and verify them. Review runs remain independent and read-only. Never merge into the integration branch or final destination, and never push. The operator alone approves the final promotion.',
+    ...(cycle.deferredNits?.length
+      ? [
+          `Operator-deferred nits: ${JSON.stringify(cycle.deferredNits.map((d) => ({ id: d.finding.id, title: d.finding.title, headSha: d.headSha, targetSha: d.targetSha, reason: d.reason })))}`,
+          'These findings remain OPEN, never resolved or withdrawn merely because they were deferred. Repeat their existing wording unless the facts changed. The daemon excludes only unchanged nit findings on the exact authorized candidate/destination commits from its nit count. Changed findings, higher severity, new IDs or changed commits need a new operator decision. Deferral cannot excuse failing checks or unmet plan obligations. Judge exitGate and verdict on technical readiness; a valid operator nit deferral alone is not a failed technical gate. Ask any genuine unanswered questions.',
+        ]
+      : []),
+    ...(cycle.findingFocus?.length
+      ? [
+          `Focused remediation batch: ${cycle.findingFocus.join(', ')}. Implement and verify this selected batch, with no unrelated discretionary polish. Preserve other findings; unselected findings remain subject to the completion policy. Report new correctness/conformance problems and regressions immediately. Record optional new improvement ideas separately as follow-up suggestions.`,
+        ]
+      : []),
     value.instructions,
     cycle.polishPhase === 'final-review'
       ? 'Perform the final independent conformance and regression review. Prior passes are claims to verify. Do not approve merely because the round budget is exhausted.'

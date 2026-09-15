@@ -5,39 +5,40 @@ import {
   lstatSync,
   mkdirSync,
   realpathSync,
-  statSync,
   statfsSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { rename, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
-  storagePolicySchema,
   type SaveStorageRequest,
   type StorageStatus,
+  storagePolicySchema,
 } from '@craftingtable/contracts';
-import type { AgentRunId, StoragePolicy, WorkspaceId } from '@craftingtable/domain';
+import type { AgentRunId, StoragePolicy, WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import type {
   CraftingTableStorage,
-  StoredStorageSettings,
   StorageRootIdentity,
+  StoredStorageSettings,
 } from '@craftingtable/storage';
 import type { ExecutionConfig, ServerConfig } from '../config.js';
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError, ForbiddenError } from './errors.js';
 import {
-  cleanupCandidates,
+  type BuildCache,
   checkRoot,
+  cleanupCandidates,
   directoryBytes,
   GiB,
   overlaps,
   prepareRoot,
-  resolveRoot,
   requireFree,
+  resolveRoot,
   within,
-  type BuildCache,
 } from './storage-files.js';
 import type { WorkspaceService } from './workspace-service.js';
+import { WorktreeMutationBusyError, WorktreeMutationGuard } from './worktree-mutation-guard.js';
 
 /** Host-owned placement and maintenance. Cleanup accepts controller previews, never browser paths. */
 export class StorageService {
@@ -48,6 +49,8 @@ export class StorageService {
   private lastCleanup: StorageStatus['lastCleanup'] = null;
   private lastError: string | null = null;
   private operation: Promise<unknown> | undefined;
+  private readonly runCleanups = new Map<WorktreeId, Promise<void>>();
+  private stopping = false;
   private timer: ReturnType<typeof setInterval> | undefined;
   readonly executionConfig: ExecutionConfig;
 
@@ -56,6 +59,7 @@ export class StorageService {
     private readonly config: ServerConfig,
     private readonly workspaces: WorkspaceService,
     private readonly now: () => Date = () => new Date(),
+    private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
   ) {
     this.dataIdentity = {
       path: realpathSync(dirname(storage.databasePath)),
@@ -403,11 +407,11 @@ export class StorageService {
         if (!existsSync(run.path)) continue;
         checkRoot({ path: run.path, device: run.device });
         runBytes += await directoryBytes(run.path, run.device);
-        if (run.eligible)
+        if (run.eligible || run.buildEligible)
           caches.push(
             ...(await cleanupCandidates(
               run,
-              this.settings.policy.scratchRetentionDays,
+              run.eligible ? this.settings.policy.scratchRetentionDays : 0,
               this.now(),
             )),
           );
@@ -431,7 +435,7 @@ export class StorageService {
       reclaimableBytes: caches.reduce((sum, cache) => sum + cache.bytes, 0),
       cacheCount: caches.filter((cache) => cache.kind === 'build').length,
       expiredScratchCount: caches.filter((cache) => cache.kind === 'scratch').length,
-      protectedRuns: directories.filter((run) => !run.eligible).length,
+      protectedRuns: directories.filter((run) => !run.eligible && !run.buildEligible).length,
       warnings,
     };
   }
@@ -455,67 +459,86 @@ export class StorageService {
     for (const candidate of candidates) {
       const run = this.storage.maintenance
         .directories()
-        .find((value) => value.runId === candidate.runId && value.eligible);
+        .find(
+          (value) =>
+            value.runId === candidate.runId &&
+            (candidate.kind === 'build' ? value.buildEligible : value.eligible),
+        );
       if (!run) continue;
-      const fresh = (
-        await cleanupCandidates(run, this.settings.policy.scratchRetentionDays, this.now())
-      ).find(
-        (cache) =>
-          cache.path === candidate.path &&
-          cache.inode === candidate.inode &&
-          cache.device === candidate.device,
-      );
-      if (!fresh) continue;
-      const current = this.storage.maintenance
-        .directories()
-        .find((value) => value.runId === run.runId);
-      if (!current?.eligible || current.path !== run.path || current.device !== run.device)
-        continue;
-      checkRoot({ path: run.path, device: run.device });
-      const identity = lstatSync(fresh.path);
-      if (
-        realpathSync(fresh.path) !== fresh.path ||
-        identity.ino !== fresh.inode ||
-        identity.dev !== fresh.device
-      )
-        continue;
-      // Intent is durable before deletion. Only the controller's eligible scratch list grants authority.
-      this.storage.audit.append({
-        id: randomUUID(),
-        occurredAt: this.now().toISOString(),
-        actorKind: context ? 'user' : 'system',
-        ...(context ? { actorUserId: context.user.id, sessionId: context.session.id } : {}),
-        workspaceId: workspaceId ?? run.workspaceId,
-        action: 'storage.cleaned',
-        outcome: 'succeeded',
-        metadata: { phase: 'authorized', runId: run.runId, path: fresh.path, bytes: fresh.bytes },
-      });
-      try {
-        await rm(fresh.path, { recursive: true });
-      } catch (error) {
+      const remove = async () => {
+        const fresh = (
+          await cleanupCandidates(
+            run,
+            run.eligible ? this.settings.policy.scratchRetentionDays : 0,
+            this.now(),
+          )
+        ).find(
+          (cache) =>
+            cache.path === candidate.path &&
+            cache.inode === candidate.inode &&
+            cache.device === candidate.device,
+        );
+        if (!fresh) return;
+        const current = this.storage.maintenance
+          .directories()
+          .find((value) => value.runId === run.runId);
+        if (
+          !(candidate.kind === 'build' ? current?.buildEligible : current?.eligible) ||
+          current?.path !== run.path ||
+          current.device !== run.device
+        )
+          return;
+        checkRoot({ path: run.path, device: run.device });
+        const identity = lstatSync(fresh.path);
+        if (
+          realpathSync(fresh.path) !== fresh.path ||
+          identity.ino !== fresh.inode ||
+          identity.dev !== fresh.device
+        )
+          return;
+        // Intent is durable before deletion. Only the controller's eligible scratch list grants authority.
+        this.storage.audit.append({
+          id: randomUUID(),
+          occurredAt: this.now().toISOString(),
+          actorKind: context ? 'user' : 'system',
+          ...(context ? { actorUserId: context.user.id, sessionId: context.session.id } : {}),
+          workspaceId: workspaceId ?? run.workspaceId,
+          action: 'storage.cleaned',
+          outcome: 'succeeded',
+          metadata: { phase: 'authorized', runId: run.runId, path: fresh.path, bytes: fresh.bytes },
+        });
+        try {
+          await rm(fresh.path, { recursive: true });
+        } catch (error) {
+          this.storage.audit.append({
+            id: randomUUID(),
+            occurredAt: this.now().toISOString(),
+            actorKind: 'system',
+            workspaceId: run.workspaceId,
+            action: 'storage.cleaned',
+            outcome: 'failed',
+            metadata: { phase: 'removal', runId: run.runId, path: fresh.path },
+          });
+          throw error;
+        }
         this.storage.audit.append({
           id: randomUUID(),
           occurredAt: this.now().toISOString(),
           actorKind: 'system',
           workspaceId: run.workspaceId,
           action: 'storage.cleaned',
-          outcome: 'failed',
-          metadata: { phase: 'removal', runId: run.runId, path: fresh.path },
+          outcome: 'succeeded',
+          metadata: { phase: 'removed', runId: run.runId, path: fresh.path, bytes: fresh.bytes },
         });
-        throw error;
+        count++;
+        bytes += fresh.bytes;
+        this.lastCleanup = { completedAt: this.now().toISOString(), cachesRemoved: count, bytes };
+      };
+      try {
+        await this.mutations.during(run.worktreeId, remove);
+      } catch (error) {
+        if (!(error instanceof WorktreeMutationBusyError)) throw error;
       }
-      this.storage.audit.append({
-        id: randomUUID(),
-        occurredAt: this.now().toISOString(),
-        actorKind: 'system',
-        workspaceId: run.workspaceId,
-        action: 'storage.cleaned',
-        outcome: 'succeeded',
-        metadata: { phase: 'removed', runId: run.runId, path: fresh.path, bytes: fresh.bytes },
-      });
-      count++;
-      bytes += fresh.bytes;
-      this.lastCleanup = { completedAt: this.now().toISOString(), cachesRemoved: count, bytes };
     }
     this.lastCleanup = { completedAt: this.now().toISOString(), cachesRemoved: count, bytes };
   }
@@ -579,7 +602,42 @@ export class StorageService {
       this.storage.maintenance.forgetBackup(expired.path);
     }
   }
+  isCleaningRun(worktreeId: WorktreeId): boolean {
+    return this.runCleanups.has(worktreeId);
+  }
+  async waitForRunCleanup(worktreeId: WorktreeId): Promise<void> {
+    await this.runCleanups.get(worktreeId);
+  }
+  /** Runs after process-group exit; automation waits before reserving the next step. */
+  cleanupAfterRun(worktreeId: WorktreeId): Promise<void> {
+    const existing = this.runCleanups.get(worktreeId);
+    if (existing) return existing;
+    if (this.stopping || !this.settings.policy.autoCleanBuildCaches) return Promise.resolve();
+    const pending = (async () => {
+      while (this.operation) await this.operation.catch(() => undefined);
+      if (this.stopping || !this.settings.policy.autoCleanBuildCaches) return;
+      await this.exclusively(async () => {
+        const candidates: BuildCache[] = [];
+        for (const run of this.storage.maintenance
+          .directories()
+          .filter((r) => r.worktreeId === worktreeId && r.buildEligible))
+          candidates.push(...(await cleanupCandidates(run, 0, this.now())));
+        if (!candidates.length) return;
+        this.candidates = candidates;
+        await this.cleanCaches();
+      });
+    })()
+      .catch(() => {
+        // Periodic maintenance retries failures; the recorded outcome remains authoritative.
+      })
+      .finally(() => {
+        this.runCleanups.delete(worktreeId);
+      });
+    this.runCleanups.set(worktreeId, pending);
+    return pending;
+  }
   startWorker(): void {
+    this.stopping = false;
     if (this.timer) return;
     // Stagger maintenance away from recovery and initial requests; retry failures on the next tick.
     this.timer = setInterval(() => {
@@ -599,12 +657,12 @@ export class StorageService {
           const candidates: BuildCache[] = [];
           for (const run of this.storage.maintenance
             .directories()
-            .filter((value) => value.eligible)) {
+            .filter((value) => value.eligible || value.buildEligible)) {
             try {
               candidates.push(
                 ...(await cleanupCandidates(
                   run,
-                  this.settings.policy.scratchRetentionDays,
+                  run.eligible ? this.settings.policy.scratchRetentionDays : 0,
                   this.now(),
                 )),
               );
@@ -641,8 +699,10 @@ export class StorageService {
     });
   }
   async shutdown(): Promise<void> {
+    this.stopping = true;
     clearInterval(this.timer);
     this.timer = undefined;
     await this.operation?.catch(() => undefined);
+    await Promise.allSettled(this.runCleanups.values());
   }
 }

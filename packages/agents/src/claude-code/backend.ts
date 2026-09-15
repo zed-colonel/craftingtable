@@ -10,10 +10,10 @@ import {
   type AgentSession,
   type AgentSessionItem,
 } from '../index.js';
+import { spawnSupervisedProcess } from '../process.js';
 import { claudeCodeArguments, claudeUserMessageLine } from './arguments.js';
 import { CLAUDE_CODE_MODELS } from './models.js';
 import { ClaudeStreamNormalizer, RAW_LINE_LIMIT_BYTES } from './normalize.js';
-import { spawnSupervisedProcess } from '../process.js';
 
 export interface ClaudeCodeBackendOptions {
   /** Absolute path to the `claude` executable. */
@@ -95,6 +95,7 @@ export class ClaudeCodeBackend implements AgentBackend {
           ...(this.options.env ?? process.env),
           ...(request.temporaryDirectory
             ? {
+                CARGO_TARGET_DIR: `${request.temporaryDirectory}/target`,
                 TMPDIR: request.temporaryDirectory,
                 TMP: request.temporaryDirectory,
                 TEMP: request.temporaryDirectory,

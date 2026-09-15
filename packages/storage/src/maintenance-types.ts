@@ -1,4 +1,10 @@
-import type { AgentRunId, StoragePolicy, UserId, WorkspaceId } from '@craftingtable/domain';
+import type {
+  AgentRunId,
+  StoragePolicy,
+  UserId,
+  WorkspaceId,
+  WorktreeId,
+} from '@craftingtable/domain';
 export interface StorageRootIdentity {
   readonly path: string;
   readonly device: number;
@@ -15,6 +21,8 @@ export interface RunDirectory {
   readonly path: string;
   readonly device: number;
   readonly eligible: boolean;
+  readonly buildEligible: boolean;
+  readonly worktreeId: WorktreeId;
   readonly retainedSince: string;
 }
 export interface StorageBackup {

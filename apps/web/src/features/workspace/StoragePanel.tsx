@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
 import type { StorageStatus } from '@craftingtable/contracts';
 import type { StoragePolicy, WorkspaceId } from '@craftingtable/domain';
+import { useEffect, useState } from 'react';
 import { loadStorage, saveStorage, storageCommand } from '../../lib/storage-api.js';
+
 const size = (bytes: number | null) =>
   bytes === null
     ? 'Unavailable'
@@ -154,7 +155,7 @@ export function StoragePanel({
                     setDraft({ ...draft, autoCleanBuildCaches: event.target.checked })
                   }
                 />{' '}
-                Automatically clean recognized Cargo build caches after merge and worktree removal
+                Automatically clean recognized Cargo build caches after each run ends
               </label>
               <label className="field">
                 Other scratch files
@@ -173,10 +174,10 @@ export function StoragePanel({
                 </select>
               </label>
               <p className="hint">
-                Expiry starts after merge and worktree removal, and recent file changes extend it.
-                Active and interrupted work stays protected. Run messages, findings, and
-                verification recorded in history are retained; scratch files themselves are
-                disposable.
+                Other scratch expiry starts after merge and worktree removal, and recent file
+                changes extend it. Active and interrupted work stays protected. Run messages,
+                findings, and verification recorded in history are retained; scratch files
+                themselves are disposable.
               </p>
               <label className="field">
                 Minimum free space (GiB)

@@ -39,10 +39,13 @@ or when hardlinks/reflinks share data. Partially unreadable trees produce warnin
 
 Defaults:
 
-- Remove recognized Cargo build caches after the worktree is both merged and removed. Only
-  direct children of a registered run's scratch directory with Cargo's cache signature,
-  compiler marker and fingerprint directory qualify. Unknown build systems and caches outside
-  scratch are not inferred safe. Git worktree removal owns checkout build-output cleanup.
+- Remove recognized Cargo build caches after finished, failed or cancelled runs, with no live
+  siblings in the worktree. Search up to four levels under registered scratch for Cargo's cache
+  signature, compiler marker and debug/release fingerprint directory. Both backends set
+  CARGO_TARGET_DIR to the current run's scratch/target. Preserve verification reports elsewhere
+  in scratch. Cleanup queues behind maintenance and holds that worktree's next automation step;
+  deletion shares the launch/mutation guard. Unknown build systems and caches outside scratch
+  are not inferred safe. Git worktree removal owns existing checkout build-output cleanup.
 - Expire the remaining scratch directory after 30 days from the later of run completion and
   worktree removal, provided no contained file has changed more recently. Setting retention to
   **Keep until manually removed** disables expiry. Active, interrupted and unmerged work is

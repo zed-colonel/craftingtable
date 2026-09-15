@@ -1,4 +1,3 @@
-import type { StorageService } from './storage-service.js';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,8 +12,8 @@ import {
   AGENT_BACKENDS,
   AGENT_RUN_ROLES,
   type AgentBackendKind,
-  type AgentExitReason,
   type AgentBillingSource,
+  type AgentExitReason,
   type AgentPermissionMode,
   type AgentRun,
   type AgentRunEvent,
@@ -44,10 +43,11 @@ import type { AuthContext } from './auth-service.js';
 import { truncateUtf8Bytes } from './bounded-text.js';
 import type { BranchService } from './branch-service.js';
 import { composeBrief } from './brief.js';
-import { finalizationForCycle, finalizationInstructions } from './finalization-policy.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { finalizationForCycle, finalizationInstructions } from './finalization-policy.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
 import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-handoff.js';
+import type { StorageService } from './storage-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -257,6 +257,10 @@ export class AgentRunService {
       throw new ExecutionRequestError('conflict', 'Step time limit reached during Git preflight');
   }
 
+  isCleaningRun(worktreeId: WorktreeId): boolean {
+    return this.storageService?.isCleaningRun(worktreeId) ?? false;
+  }
+
   async startForCycle(cycle: WorkCycle): Promise<AgentRun> {
     this.requireCycleLaunchAuthority(cycle);
     const existing = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
@@ -383,6 +387,7 @@ export class AgentRunService {
     requestId?: string,
     cycle?: WorkCycle,
   ): Promise<AgentRun> {
+    await this.storageService?.waitForRunCleanup(input.worktreeId);
     if (this.storage.execution.merges.latest(workspaceId, input.worktreeId)?.status === 'reserved')
       throw new ExecutionRequestError(
         'conflict',
@@ -535,6 +540,17 @@ export class AgentRunService {
             'Cycle launch cancelled during Git preflight',
           );
         this.requireNoBackgroundWork(workspaceId, input.worktreeId);
+        const launchUser = this.storage.users.findById(actor.userId);
+        const launchAccess = this.storage.workspaces.findAuthorized(actor.userId, workspaceId);
+        if (
+          launchUser?.status !== 'active' ||
+          !launchAccess ||
+          !['owner', 'editor'].includes(launchAccess.membership.role)
+        )
+          throw new ExecutionRequestError(
+            'conflict',
+            'Run launch permission changed during preparation.',
+          );
         if (cycle !== undefined) this.requireCycleLaunchAuthority(cycle);
         else this.requireManualControl(workspaceId, input.worktreeId);
       } finally {
@@ -1249,6 +1265,11 @@ export class AgentRunService {
       return true;
     });
     if (changed) {
+      const run = this.storage.execution.runs.find(workspaceId, runId);
+      if (run && status !== 'interrupted' && this.storageService)
+        void this.storageService
+          .cleanupAfterRun(run.worktreeId)
+          .finally(() => this.notifier.notify());
       this.notifier.notify();
     }
   }

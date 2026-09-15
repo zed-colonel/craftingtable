@@ -5,8 +5,8 @@ import {
   lstatSync,
   mkdirSync,
   realpathSync,
-  statSync,
   statfsSync,
+  statSync,
 } from 'node:fs';
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
@@ -105,29 +105,38 @@ export async function cargoCaches(run: {
   if (!existsSync(scratch)) return [];
   if (lstatSync(scratch).isSymbolicLink() || realpathSync(scratch) !== scratch) return [];
   const caches: BuildCache[] = [];
-  for (const name of await readdir(scratch)) {
-    const path = join(scratch, name);
+  let visited = 0;
+  const visit = async (path: string, depth: number): Promise<void> => {
+    if (++visited > 10000) throw new Error('Scratch cache inventory limit reached; retained.');
     const entry = await lstat(path);
-    if (!entry.isDirectory() || entry.isSymbolicLink() || entry.dev !== run.device) continue;
+    if (!entry.isDirectory() || entry.isSymbolicLink() || entry.dev !== run.device) return;
+    const tag = join(path, 'CACHEDIR.TAG');
+    if (!existsSync(tag)) {
+      if (depth > 0)
+        for (const child of await readdir(path, { withFileTypes: true }))
+          if (child.isDirectory() && !child.isSymbolicLink())
+            await visit(join(path, child.name), depth - 1);
+      return;
+    }
     try {
-      const tag = join(path, 'CACHEDIR.TAG');
       const compiler = join(path, '.rustc_info.json');
-      const fingerprint = join(path, 'debug', '.fingerprint');
       if (
         (await lstat(tag)).isSymbolicLink() ||
         !(await lstat(tag)).isFile() ||
         (await lstat(tag)).size > 4096
       )
-        continue;
-      if (!(await lstat(compiler)).isFile() || (await lstat(compiler)).isSymbolicLink()) continue;
-      if (realpathSync(fingerprint) !== fingerprint || !(await lstat(fingerprint)).isDirectory())
-        continue;
+        return;
+      if (!(await lstat(compiler)).isFile() || (await lstat(compiler)).isSymbolicLink()) return;
+      const fingerprint = ['debug', 'release']
+        .map((profile) => join(path, profile, '.fingerprint'))
+        .find((p) => existsSync(p) && realpathSync(p) === p && lstatSync(p).isDirectory());
+      if (!fingerprint) return;
       const text = await readFile(tag, 'utf8');
       if (
         !text.startsWith('Signature: 8a477f597d28d172789f06886806bc55\n') ||
         !text.includes('cache directory tag created by cargo')
       )
-        continue;
+        return;
       caches.push({
         kind: 'build',
         path,
@@ -139,7 +148,8 @@ export async function cargoCaches(run: {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
-  }
+  };
+  await visit(scratch, 4);
   return caches;
 }
 

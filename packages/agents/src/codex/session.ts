@@ -52,6 +52,7 @@ export class CodexSession implements AgentSession {
         ...(options.env ?? process.env),
         ...(request.temporaryDirectory
           ? {
+              CARGO_TARGET_DIR: `${request.temporaryDirectory}/target`,
               TMPDIR: request.temporaryDirectory,
               TMP: request.temporaryDirectory,
               TEMP: request.temporaryDirectory,

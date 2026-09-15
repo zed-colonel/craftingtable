@@ -1,11 +1,3 @@
-import { StorageService } from './services/storage-service.js';
-import { FinalizationService } from './services/finalization-service.js';
-import { RoadmapService } from './services/roadmap-service.js';
-import { NotificationService } from './services/notification-service.js';
-import {
-  PushoverTransport,
-  type NotificationTransport,
-} from './services/notification-transport.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -29,6 +21,12 @@ import { AuthService } from './services/auth-service.js';
 import { BootstrapService } from './services/bootstrap-service.js';
 import { resolveExecutable } from './services/executables.js';
 import { ExecutionService, type ExecutionStatus } from './services/execution-service.js';
+import { FinalizationService } from './services/finalization-service.js';
+import { NotificationService } from './services/notification-service.js';
+import {
+  type NotificationTransport,
+  PushoverTransport,
+} from './services/notification-transport.js';
 import { PlanImportService } from './services/plan-import-service.js';
 import { PlanningQueryService } from './services/planning-query-service.js';
 import {
@@ -38,7 +36,9 @@ import {
   type RepositoryObservationPortFactory,
 } from './services/repository-inspector-provider.js';
 import { createRepositoryObservationPort } from './services/repository-observation-adapter.js';
+import { RoadmapService } from './services/roadmap-service.js';
 import { RunEventStreamService } from './services/run-event-stream-service.js';
+import { StorageService } from './services/storage-service.js';
 import { WorkCycleService } from './services/work-cycle-service.js';
 import { WorkItemService } from './services/work-item-service.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
@@ -158,8 +158,14 @@ export async function createServices(
       );
     }
   }
-  const storageService = new StorageService(storage, config, workspaceService, now);
   const worktreeMutations = new WorktreeMutationGuard();
+  const storageService = new StorageService(
+    storage,
+    config,
+    workspaceService,
+    now,
+    worktreeMutations,
+  );
   const executionService = new ExecutionService(
     storage,
     workspaceService,

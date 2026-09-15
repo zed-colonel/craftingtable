@@ -5694,3 +5694,154 @@ describe('collecting background review results', () => {
     },
   );
 });
+
+async function findingCheckpointFixture(severity: 'nit' | 'minor' = 'nit') {
+  const fixture = await finalizationFixture();
+  const nit = { ...structuredFinding, severity };
+  fixture.backend.replyForRequest = () => ({
+    resultText: `## Open questions\nFix or defer this nit?\n\n## Review report\n${reviewText([nit])}`,
+  });
+  const value = await beginFinalization(fixture, {
+    ...fixture.input,
+    rounds: [],
+    policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
+  });
+  await waitFor(
+    () => finalizationCycle(fixture.state, value).status === 'needs-attention',
+    'finding decision',
+  );
+  return { ...fixture, value, nit };
+}
+
+describe('finalization finding decisions', () => {
+  it('defers an open nit with provenance, requires fresh independent review, and retains explicit promotion', async () => {
+    const { state, backend, value, nit, root } = await findingCheckpointFixture();
+    const main = git(['rev-parse', 'main'], root).trim();
+    backend.replyForRequest = (request) => {
+      expect(request.prompt).toContain('Operator-deferred nits');
+      expect(request.prompt).toContain('These findings remain OPEN');
+      return { resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([nit])}` };
+    };
+    const response = await finalizationCommand(state, value, 'defer-nits', {
+      findingIds: [nit.id],
+      rationale: 'Optional cleanup deferred to follow-up.',
+      instructions: 'Defer this nit; no source changes are authorized.',
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    await waitFor(
+      () => finalizationCycle(state, value).status === 'awaiting-merge',
+      'independent review',
+    );
+    expect(backend.launches).toHaveLength(2);
+    expect(backend.launches[1]?.model).toBe('final-review-model');
+    const cycle = finalizationCycle(state, value);
+    expect(cycle.remediationRounds).toBe(0);
+    expect(cycle.reason).toContain('Final independent review meets the completion policy');
+    expect(cycle.deferredNits?.[0]).toMatchObject({
+      finding: { id: nit.id, status: 'open' },
+      createdByUserId: state.userId,
+    });
+    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    try {
+      expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)?.deferredNits).toEqual(
+        cycle.deferredNits,
+      );
+    } finally {
+      reopened.close();
+    }
+    expect(git(['rev-parse', 'main'], root).trim()).toBe(main);
+    expect((await merge(state, value.worktreeId)).statusCode).toBe(409);
+    const tree = present(
+      state.context.storage.execution.worktrees.find(state.workspaceId, value.worktreeId),
+    );
+    const approval = await finalizationCommand(state, value, 'merge', {
+      expectedHeadSha: git(['rev-parse', 'HEAD'], tree.path).trim(),
+      expectedTargetSha: main,
+    });
+    expect(approval.statusCode, approval.body).toBe(200);
+  });
+
+  it.each(['higher severity', 'changed details', 'technical gate', 'question'])(
+    'does not let deferral bypass a subsequent %s',
+    async (change) => {
+      const { state, backend, value, nit } = await findingCheckpointFixture();
+      backend.replyForRequest = () => ({
+        resultText: `## Open questions\n${change === 'question' ? 'May I change the API?' : 'none'}\n\n## Review report\n${reviewText(
+          [
+            change === 'higher severity'
+              ? { ...nit, severity: 'minor' }
+              : change === 'changed details'
+                ? { ...nit, explanation: 'Different concern' }
+                : nit,
+          ],
+        ).replaceAll(
+          change === 'technical gate' ? 'mergeable' : '__unchanged__',
+          'changes-requested',
+        )}`,
+      });
+      expect(
+        (
+          await finalizationCommand(state, value, 'defer-nits', {
+            findingIds: [nit.id],
+            rationale: 'Optional cleanup.',
+          })
+        ).statusCode,
+      ).toBe(200);
+      await waitFor(
+        () => finalizationCycle(state, value).status === 'needs-attention',
+        'new blocker',
+      );
+      expect(backend.launches).toHaveLength(2);
+      expect((await merge(state, value.worktreeId)).statusCode).toBe(409);
+    },
+  );
+
+  it.each(['head', 'target', 'minor', 'unknown'])(
+    'rejects a finding decision after %s changes',
+    async (change) => {
+      const { state, value, nit, root } = await findingCheckpointFixture(
+        change === 'minor' ? 'minor' : 'nit',
+      );
+      const tree = present(
+        state.context.storage.execution.worktrees.find(state.workspaceId, value.worktreeId),
+      );
+      if (change === 'head') commitFile(tree.path, 'changed.txt', 'changed');
+      if (change === 'target') commitFile(root, 'changed.txt', 'changed');
+      const response = await finalizationCommand(state, value, 'defer-nits', {
+        findingIds: [change === 'unknown' ? 'F-missing' : nit.id],
+        rationale: 'Optional cleanup.',
+      });
+      expect(response.statusCode, response.body).toBe(409);
+      expect(finalizationCycle(state, value).deferredNits).toBeUndefined();
+    },
+  );
+
+  it('authorizes one focused attempt with answers at the questions checkpoint, then verifies', async () => {
+    const { state, backend, value, nit } = await findingCheckpointFixture();
+    backend.replyForRequest = (request) => {
+      expect(request.prompt).toContain('Focused remediation batch:');
+      if (request.model?.includes('polish') || request.model === 'review-model')
+        return { resultText: 'Completed selected cleanup.\n\n## Open questions\nnone' };
+      return {
+        resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([{ ...nit, status: 'resolved', disposition: 'Selected cleanup verified.' }])}`,
+      };
+    };
+    const response = await finalizationCommand(state, value, 'remediate-findings', {
+      findingIds: [nit.id],
+      rationale: 'Address this exact cleanup.',
+      instructions: 'Fix the selected nit; preserve behavior.',
+      additionalRounds: 1,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    await waitFor(
+      () => finalizationCycle(state, value).status === 'awaiting-merge',
+      'focused verification',
+    );
+    expect(finalizationCycle(state, value)).toMatchObject({
+      remediationRounds: 1,
+      additionalRemediationRounds: 1,
+      findingFocus: [nit.id],
+    });
+    expect(backend.launches).toHaveLength(3);
+  });
+});

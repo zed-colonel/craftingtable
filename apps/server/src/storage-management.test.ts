@@ -14,23 +14,25 @@ import { join } from 'node:path';
 import { storageStatusSchema } from '@craftingtable/contracts';
 import {
   asAgentRunId,
+  asAgentRunEventId,
   asPlanBundleId,
   asPlanVersionId,
   asProjectId,
   asSourceRepositoryId,
   asUserId,
+  asWorkItemId,
   asWorkspaceId,
   asWorkspaceMembershipId,
-  asWorkItemId,
   asWorktreeId,
   DEFAULT_NOTIFICATION_PREFERENCES,
 } from '@craftingtable/domain';
 import { openDatabase } from '@craftingtable/storage';
-import { afterEach, expect, it } from 'vitest';
-import { StorageService } from './services/storage-service.js';
+import { afterEach, expect, it, vi } from 'vitest';
 import { NotificationService } from './services/notification-service.js';
 import { cargoCaches, cleanupCandidates, requireFree } from './services/storage-files.js';
+import { StorageService } from './services/storage-service.js';
 import { createTestContext, type TestContext } from './test-support.js';
+
 const contexts: TestContext[] = [];
 afterEach(async () => {
   for (const context of contexts.splice(0)) await context.cleanup();
@@ -54,6 +56,7 @@ async function fixture() {
   };
   const url = `/api/workspaces/${workspaceId}/storage`;
   const service = context.services.storageService;
+  service.startWorker();
   return { context, auth, workspaceId, headers, url, service };
 }
 async function runFixture() {
@@ -161,6 +164,14 @@ async function runFixture() {
       toStatus: 'finished',
       occurredAt: now,
       finishedAt: now,
+    });
+    tx.execution.runEvents.append({
+      id: asAgentRunEventId(randomUUID()),
+      workspaceId,
+      runId,
+      occurredAt: now,
+      kind: 'run-finished',
+      payload: { status: 'finished', exitCode: 0 },
     });
   });
   const runPath = join(service.executionConfig.runsRoot, runId);
@@ -283,12 +294,9 @@ it('changes future placement durably while old run paths and merge scratch stay 
   ).toThrow(/must not contain/);
   expect(existsSync(invalid.backupRoot)).toBe(false);
 });
-it('cleans only merged and removed worktree caches, retaining run history and unknown scratch', async () => {
+it('cleans ended-run caches before merge, retaining run history and unknown scratch', async () => {
   const s = await runFixture();
-  let scan = await s.service.scan(s.auth, s.workspaceId);
-  expect(scan.scan?.cacheCount).toBe(0);
-  s.merge();
-  scan = await s.service.scan(s.auth, s.workspaceId);
+  const scan = await s.service.scan(s.auth, s.workspaceId);
   expect(scan.scan?.cacheCount).toBe(1);
   expect(scan.scan?.reclaimableBytes).toBeGreaterThan(4096);
   await s.service.clean(s.auth, s.workspaceId, scan.scan?.id ?? '');
@@ -315,7 +323,7 @@ it('revalidates eligibility and directory identity after preview; cannot follow 
   renameSync(`${scratch}-preserved`, scratch);
   const next = await s.service.scan(s.auth, s.workspaceId);
   const db = openDatabase(s.context.config.databasePath);
-  db.prepare("UPDATE worktrees SET status='active', removed_at=NULL WHERE id=?").run(s.worktreeId);
+  db.prepare("UPDATE agent_runs SET status='running', finished_at=NULL WHERE id=?").run(s.runId);
   db.close();
   await s.service.clean(s.auth, s.workspaceId, next.scan?.id ?? '');
   expect(existsSync(s.cache)).toBe(true);
@@ -460,4 +468,106 @@ it('keeps reclaiming caches when backup storage is unavailable and retries backu
   await s.service.tick();
   expect(s.context.storage.maintenance.backups()).toHaveLength(1);
   expect(s.service.get(s.auth, s.workspaceId).lastError).toBeNull();
+});
+
+it.each(['finished', 'failed', 'cancelled'] as const)(
+  'cleans caches after a %s run without waiting for merge',
+  async (status) => {
+    const s = await runFixture();
+    const db = openDatabase(s.context.config.databasePath);
+    db.prepare('UPDATE agent_runs SET status=? WHERE id=?').run(status, s.runId);
+    db.close();
+    const nested = makeCargo(join(s.runPath, 'scratch', 'repro', 'target'));
+    renameSync(join(nested, 'debug'), join(nested, 'release'));
+    await s.service.cleanupAfterRun(s.worktreeId);
+    expect(existsSync(s.cache)).toBe(false);
+    expect(existsSync(nested)).toBe(false);
+    expect(existsSync(join(s.runPath, 'scratch', 'verification.log'))).toBe(true);
+    expect(
+      s.context.storage.execution.worktrees.find(s.workspaceId, s.worktreeId)?.mergedAt,
+    ).toBeUndefined();
+  },
+);
+it.each(['running', 'waiting', 'interrupted'] as const)(
+  'retains build caches for a %s run',
+  async (status) => {
+    const s = await runFixture();
+    const db = openDatabase(s.context.config.databasePath);
+    db.prepare('UPDATE agent_runs SET status=?, finished_at=? WHERE id=?').run(
+      status,
+      status === 'interrupted' ? new Date().toISOString() : null,
+      s.runId,
+    );
+    db.close();
+    await s.service.cleanupAfterRun(s.worktreeId);
+    expect(existsSync(s.cache)).toBe(true);
+  },
+);
+it('honors disabled automatic cache cleanup while manual preview remains available', async () => {
+  const s = await runFixture();
+  const status = s.service.get(s.auth, s.workspaceId);
+  s.service.save(s.auth, s.workspaceId, {
+    expectedVersion: status.version,
+    policy: { ...status.policy, autoCleanBuildCaches: false },
+  });
+  await s.service.cleanupAfterRun(s.worktreeId);
+  expect(existsSync(s.cache)).toBe(true);
+  expect((await s.service.scan(s.auth, s.workspaceId)).scan?.cacheCount).toBe(1);
+});
+
+it('queues end-of-run cleanup behind existing maintenance without losing the request', async () => {
+  const s = await runFixture();
+  let release = () => {};
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = s.context.storage.backup.bind(s.context.storage);
+  const spy = vi.spyOn(s.context.storage, 'backup').mockImplementation(async (path) => {
+    await barrier;
+    await original(path);
+  });
+  const backup = s.service.backup(s.auth, s.workspaceId);
+  const cleanup = s.service.cleanupAfterRun(s.worktreeId);
+  expect(s.service.isCleaningRun(s.worktreeId)).toBe(true);
+  expect(existsSync(s.cache)).toBe(true);
+  release();
+  await Promise.all([backup, cleanup]);
+  spy.mockRestore();
+  expect(existsSync(s.cache)).toBe(false);
+  expect(s.service.isCleaningRun(s.worktreeId)).toBe(false);
+});
+it('protects prior run caches while another run in that worktree is live', async () => {
+  const s = await runFixture();
+  const source = s.context.storage.execution.runs.find(s.workspaceId, s.runId);
+  if (!source) throw new Error('Missing run');
+  s.context.storage.execution.runs.insert({
+    ...source,
+    id: asAgentRunId(randomUUID()),
+    createdAt: new Date().toISOString(),
+  });
+  await s.service.cleanupAfterRun(s.worktreeId);
+  expect(existsSync(s.cache)).toBe(true);
+});
+
+it('retains cache data when supervision failed without an observed process exit', async () => {
+  const s = await runFixture();
+  const source = s.context.storage.execution.runs.find(s.workspaceId, s.runId);
+  if (!source) throw new Error('Missing run');
+  const run = s.context.storage.execution.runs.insert({
+    ...source,
+    id: asAgentRunId(randomUUID()),
+  });
+  s.context.storage.execution.runs.transition({
+    workspaceId: s.workspaceId,
+    runId: run.id,
+    expectedStatuses: ['starting'],
+    toStatus: 'failed',
+    occurredAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+  });
+  const directory = join(s.service.executionConfig.runsRoot, run.id);
+  const cache = makeCargo(join(directory, 'scratch', 'target'));
+  s.service.registerRun(run.id, directory);
+  await s.service.cleanupAfterRun(s.worktreeId);
+  expect(existsSync(cache)).toBe(true);
 });

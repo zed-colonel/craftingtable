@@ -1,5 +1,4 @@
 import type { AgentRunProfile } from './execution.js';
-import type { CompletionPolicy } from './work-cycle.js';
 import type {
   PlanVersionId,
   ProjectId,
@@ -8,6 +7,7 @@ import type {
   WorkspaceId,
   WorktreeId,
 } from './ids.js';
+import type { CompletionPolicy, WorkCycle } from './work-cycle.js';
 export interface FinalizationRound {
   readonly review: Omit<AgentRunProfile, 'role'>;
   readonly polish: Omit<AgentRunProfile, 'role'>;
@@ -34,4 +34,25 @@ export interface Finalization {
   readonly version: number;
   readonly createdAt: string;
   readonly createdByUserId: UserId;
+}
+
+/** Recovery changes the agent/model while retaining each configured step's permissions. */
+export type FinalizationAgentSelection = Pick<AgentRunProfile, 'backend' | 'model'>;
+export function finalizationProfile(
+  value: Pick<Finalization, 'rounds' | 'finalReview'>,
+  cycle: Pick<
+    WorkCycle,
+    'step' | 'profiles' | 'polishPhase' | 'polishRound' | 'finalizationAgentOverride'
+  >,
+): Omit<AgentRunProfile, 'role'> {
+  const round = value.rounds[cycle.polishRound ?? 0];
+  const configured =
+    cycle.step === 'review'
+      ? cycle.polishPhase === 'final-review'
+        ? value.finalReview
+        : (round?.review ?? value.finalReview)
+      : (round?.polish ?? cycle.profiles.remediate);
+  return cycle.finalizationAgentOverride
+    ? { permissionMode: configured.permissionMode, ...cycle.finalizationAgentOverride }
+    : configured;
 }

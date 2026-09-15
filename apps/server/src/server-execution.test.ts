@@ -1726,8 +1726,11 @@ it('rejects oversized conversation handoffs before launching instead of dropping
 class CycleBackend extends ScriptedBackend {
   onLaunch: ((request: AgentLaunchRequest) => void) | undefined;
   replyForRequest: ((request: AgentLaunchRequest) => ScriptedReply) | undefined;
-  constructor(private readonly outputs: readonly ScriptedReply[]) {
-    super();
+  constructor(
+    private readonly outputs: readonly ScriptedReply[],
+    kind: AgentBackendKind = 'claude-code',
+  ) {
+    super(kind);
   }
   override launch(request: AgentLaunchRequest): Promise<AgentSession> {
     this.onLaunch?.(request);
@@ -2650,11 +2653,23 @@ async function roadmapFixture(
     implementationDone,
     { resultText: reviewText([]) },
   ],
-  options: { gitOperations?: GitOperations; keepWorktree?: boolean } = {},
+  options: {
+    gitOperations?: GitOperations;
+    keepWorktree?: boolean;
+    alternateBackend?: AgentBackend;
+  } = {},
 ) {
   const backend = new CycleBackend(outputs);
   const state = await ready({
     backend,
+    ...(options.alternateBackend
+      ? {
+          backends: new Map([
+            [backend.kind, backend],
+            [options.alternateBackend.kind, options.alternateBackend],
+          ]),
+        }
+      : {}),
     ...(options.gitOperations ? { gitOperations: options.gitOperations } : {}),
   });
   const root = fixtureRepository();
@@ -4277,7 +4292,9 @@ it('automatically resolves parallel integration conflicts and freshly reviews be
   ).toBe('review');
 });
 
-async function finalizationFixture(options: { gitOperations?: GitOperations } = {}) {
+async function finalizationFixture(
+  options: { gitOperations?: GitOperations; alternateBackend?: AgentBackend } = {},
+) {
   const fixture = await roadmapFixture(undefined, options);
   const { state, backend, root, second } = fixture;
   await useIntegration(fixture);
@@ -5847,4 +5864,136 @@ describe('finalization finding decisions', () => {
       expect(backend.launches).toHaveLength(3);
     },
   );
+});
+
+describe('finalization recovery agent selection', () => {
+  it.each(['remediate-findings', 'authorize-remediation', 'defer-nits', 'resume'])(
+    'switches backend for %s and all later reviews, retaining history and permissions',
+    async (action) => {
+      const codex = new CycleBackend([], 'codex');
+      const fixture = await finalizationFixture({ alternateBackend: codex });
+      const { state, backend } = fixture;
+      const finding = {
+        ...structuredFinding,
+        severity: action === 'defer-nits' ? ('nit' as const) : ('minor' as const),
+      };
+      backend.replyForRequest = () =>
+        action === 'resume'
+          ? {
+              resultText:
+                'Interrupted review.\n\n## Open questions\nChoose a backend to finish verification.',
+              exitReason: 'background-work-incomplete',
+            }
+          : { resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([finding])}` };
+      const value = await beginFinalization(fixture, {
+        ...fixture.input,
+        rounds: [],
+        finalReview: { ...fixture.input.finalReview, permissionMode: 'edit-only' },
+        policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
+      });
+      await waitFor(
+        () => finalizationCycle(state, value).status === 'needs-attention',
+        'recovery checkpoint',
+      );
+      const originalCycle = finalizationCycle(state, value);
+      const parent = originalCycle.currentRunId;
+      const findings =
+        action === 'resume'
+          ? []
+          : action === 'defer-nits'
+            ? [finding]
+            : [{ ...finding, status: 'resolved' as const, disposition: 'Verified selected fix.' }];
+      codex.replyForRequest = (request) => ({
+        resultText: /^Role: review$/m.test(request.prompt)
+          ? `## Open questions\nnone\n\n## Review report\n${reviewText(findings)}`
+          : 'Fix completed.\n\n## Open questions\nnone',
+      });
+      const agentOverride = { backend: 'codex', model: 'astra-fixture' };
+      const response = await finalizationCommand(state, value, action, {
+        agentOverride,
+        ...(['remediate-findings', 'authorize-remediation'].includes(action)
+          ? { additionalRounds: 1 }
+          : {}),
+        ...(['remediate-findings', 'defer-nits'].includes(action)
+          ? { findingIds: [finding.id], rationale: 'Explicit finding decision.' }
+          : {}),
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      await waitFor(
+        () => finalizationCycle(state, value).status === 'awaiting-merge',
+        'Codex final review',
+      );
+      expect(backend.launches).toHaveLength(1);
+      expect(codex.launches.length).toBe(
+        ['remediate-findings', 'authorize-remediation'].includes(action) ? 2 : 1,
+      );
+      expect(codex.launches.every((r) => r.model === 'astra-fixture')).toBe(true);
+      expect(codex.launches.at(-1)?.permissionMode).toBe('edit-only');
+      expect(
+        state.context.storage.execution.runs
+          .listForWorktree(state.workspaceId, value.worktreeId)
+          .some((r) => r.backend === 'codex' && r.parentRunId === parent),
+      ).toBe(true);
+      const cycle = finalizationCycle(state, value);
+      const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+      try {
+        expect(
+          reopened.execution.cycles.find(state.workspaceId, cycle.id)?.finalizationAgentOverride,
+        ).toEqual(agentOverride);
+      } finally {
+        reopened.close();
+      }
+      expect(
+        state.context.storage.execution.finalizations.find(state.workspaceId, value.id)
+          ?.finalReview,
+      ).toEqual(value.finalReview);
+      expect(
+        state.context.storage.audit
+          .listWorkspace({ workspaceId: state.workspaceId, limit: 100 })
+          .some(
+            (e) =>
+              e.metadata?.finalizationAgentOverride &&
+              JSON.stringify(e.metadata.finalizationAgentOverride) ===
+                JSON.stringify(agentOverride),
+          ),
+      ).toBe(true);
+      expect(
+        (
+          await finalizationCommand(state, value, 'resume', {
+            agentOverride: null,
+            expectedCycleVersion: originalCycle.version,
+          })
+        ).statusCode,
+      ).toBe(409);
+      expect(finalizationCycle(state, value)).toEqual(cycle);
+      if (action === 'remediate-findings') {
+        await finalizationCommand(state, value, 'pause');
+        backend.replyForRequest = () => ({
+          resultText: `## Open questions\nnone\n\n## Review report\n${reviewText(findings)}`,
+        });
+        expect(
+          (await finalizationCommand(state, value, 'resume', { agentOverride: null })).statusCode,
+        ).toBe(200);
+        await waitFor(
+          () => finalizationCycle(state, value).status === 'awaiting-merge',
+          'restored review',
+        );
+        expect(backend.launches.at(-1)?.model).toBe('final-review-model');
+        expect(finalizationCycle(state, value).finalizationAgentOverride).toBeNull();
+        expect(finalizationCycle(state, value).remediationRounds).toBe(cycle.remediationRounds);
+      }
+    },
+  );
+  it('rejects unavailable recovery backends without consuming allowance or replacing the reservation', async () => {
+    const { state, value, nit } = await findingCheckpointFixture();
+    const before = finalizationCycle(state, value);
+    const response = await finalizationCommand(state, value, 'remediate-findings', {
+      findingIds: [nit.id],
+      rationale: 'Address this finding.',
+      additionalRounds: 2,
+      agentOverride: { backend: 'codex' },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(finalizationCycle(state, value)).toEqual(before);
+  });
 });

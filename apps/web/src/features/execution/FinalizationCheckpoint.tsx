@@ -1,6 +1,16 @@
-import type { ControlFinalizationRequest, FinalizationView } from '@craftingtable/contracts';
-import { remediationAllowance } from '@craftingtable/domain';
+import type {
+  ControlFinalizationRequest,
+  ExecutionStatusResponse,
+  FinalizationView,
+} from '@craftingtable/contracts';
+import {
+  type FinalizationAgentSelection,
+  finalizationProfile,
+  remediationAllowance,
+} from '@craftingtable/domain';
 import { useId, useState } from 'react';
+
+import { FinalizationRecoveryAgent } from './FinalizationRecoveryAgent.js';
 
 type CheckpointAction = Extract<
   ControlFinalizationRequest['action'],
@@ -10,10 +20,12 @@ type CheckpointAction = Extract<
 export function FinalizationCheckpoint({
   view,
   busy,
+  backends = [],
   onDecide,
 }: {
   view: FinalizationView;
   busy: boolean;
+  backends?: ExecutionStatusResponse['backends'];
   onDecide: (input: ControlFinalizationRequest) => void;
 }) {
   const findings = view.checkpointFindings;
@@ -31,6 +43,17 @@ export function FinalizationCheckpoint({
   const [instructions, setInstructions] = useState('');
   const [rounds, setRounds] = useState(1);
   const hintId = useId();
+  const [agentMode, setAgentMode] = useState<'keep' | 'switch' | 'restore'>('keep');
+  const [agent, setAgent] = useState<FinalizationAgentSelection>(() => {
+    const profile =
+      view.cycle && view.finalization.finalReview
+        ? finalizationProfile(view.finalization, view.cycle)
+        : undefined;
+    return {
+      backend: profile?.backend ?? 'claude-code',
+      ...(profile?.model ? { model: profile.model } : {}),
+    };
+  });
   const focused = action === 'remediate-findings';
   const findingDecision = focused || action === 'defer-nits';
   const grantsAttempts = focused || action === 'authorize-remediation';
@@ -49,7 +72,10 @@ export function FinalizationCheckpoint({
           ? 'Enter a decision rationale to continue.'
           : grantsAttempts && !validRounds
             ? 'Choose between 1 and 20 additional attempts.'
-            : undefined;
+            : agentMode === 'switch' &&
+                !backends.some((b) => b.kind === agent.backend && b.available)
+              ? 'Choose an available backend for recovery.'
+              : undefined;
   const buttonLabel = {
     'defer-nits': 'Defer selected nits and review',
     'remediate-findings': 'Authorize focused remediation',
@@ -68,6 +94,11 @@ export function FinalizationCheckpoint({
           ...(findingDecision ? { findingIds: selected, rationale } : {}),
           ...(grantsAttempts ? { additionalRounds: rounds } : {}),
           instructions,
+          ...(agentMode === 'switch'
+            ? { agentOverride: agent }
+            : agentMode === 'restore'
+              ? { agentOverride: null }
+              : {}),
           expectedVersion: view.finalization.version,
           expectedCycleVersion: view.cycle?.version,
         });
@@ -200,6 +231,17 @@ export function FinalizationCheckpoint({
           Resume continues the current step with this guidance and the existing allowance. It does
           not grant additional remediation attempts or select a findings batch.
         </p>
+      )}
+      {!!backends.length && view.cycle && (
+        <FinalizationRecoveryAgent
+          mode={agentMode}
+          onMode={setAgentMode}
+          value={agent}
+          onChange={setAgent}
+          current={view.cycle.finalizationAgentOverride}
+          backends={backends}
+          disabled={busy}
+        />
       )}
       <p id={hintId} role="status">
         {blocker ?? (busy ? 'Submitting decision…' : `${buttonLabel} is ready.`)}

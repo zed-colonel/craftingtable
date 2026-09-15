@@ -26,6 +26,10 @@ const cycleProfileSchema = z.strictObject({
   permissionMode: z.enum(AGENT_PERMISSION_MODES),
   model: z.string().trim().min(1).max(100).optional(),
 });
+export const finalizationAgentSelectionSchema = cycleProfileSchema.pick({
+  backend: true,
+  model: true,
+});
 export const cycleProfilesSchema = z.strictObject({
   design: cycleProfileSchema,
   implement: cycleProfileSchema,
@@ -109,6 +113,7 @@ export const workCycleSchema = z
       )
       .max(100)
       .optional(),
+    finalizationAgentOverride: finalizationAgentSelectionSchema.nullable().optional(),
     findingFocus: z.array(z.string().min(1).max(64)).max(100).optional(),
     stalledReviews: z.number().int().nonnegative(),
     previousFindingFingerprint: z.string().max(128).optional(),
@@ -141,7 +146,8 @@ export const workCycleSchema = z
           cycle.finalizationId === undefined &&
           cycle.additionalRemediationRounds === undefined &&
           cycle.deferredNits === undefined &&
-          cycle.findingFocus === undefined
+          cycle.findingFocus === undefined &&
+          cycle.finalizationAgentOverride === undefined
         : cycle.planVersionId !== undefined && cycle.finalizationId !== undefined,
     { message: 'A cycle requires a work item or an explicit plan finalization subject' },
   );

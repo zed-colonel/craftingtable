@@ -14,7 +14,12 @@ import {
   worktreeIdSchema,
 } from './ids.js';
 import { reviewFindingSchema } from './review.js';
-import { completionPolicySchema, cycleProfilesSchema, workCycleSchema } from './work-cycle.js';
+import {
+  completionPolicySchema,
+  cycleProfilesSchema,
+  finalizationAgentSelectionSchema,
+  workCycleSchema,
+} from './work-cycle.js';
 
 const profile = cycleProfilesSchema.shape.review;
 export const finalizationSettingsSchema = z.strictObject({
@@ -82,12 +87,22 @@ export const controlFinalizationRequestSchema = z
       .max(100)
       .refine((ids) => new Set(ids).size === ids.length)
       .optional(),
+    agentOverride: finalizationAgentSelectionSchema.nullable().optional(),
     rationale: z.string().trim().min(1).max(4000).optional(),
     additionalRounds: z.number().int().min(1).max(20).optional(),
     instructions: z.string().max(16000).optional(),
     expectedHeadSha: gitShaSchema.optional(),
     expectedTargetSha: gitShaSchema.optional(),
   })
+  .refine(
+    (r) =>
+      r.agentOverride === undefined ||
+      ['resume', 'authorize-remediation', 'remediate-findings', 'defer-nits'].includes(r.action),
+    {
+      message: 'Agent selection is only available with finalization recovery',
+      path: ['agentOverride'],
+    },
+  )
   .refine(
     (request) =>
       ['authorize-remediation', 'remediate-findings'].includes(request.action) ===

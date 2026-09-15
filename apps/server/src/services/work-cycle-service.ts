@@ -10,6 +10,7 @@ import {
   DEFAULT_ROADMAP_SCHEDULING,
   designHasNoOpenQuestions,
   evaluateCycleCompletion,
+  finalizationProfile,
   isTerminalAgentRunStatus,
   ownsIntegrationResolution,
   remediationAllowance,
@@ -187,6 +188,7 @@ export class WorkCycleService {
     context: CommandContext,
     cycle: WorkCycle,
     instructions: string,
+    agentOverride?: WorkCycle['finalizationAgentOverride'],
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
     finalizationForCycle(this.storage, cycle);
@@ -201,7 +203,8 @@ export class WorkCycleService {
     if (
       !cycle.finalizationId ||
       !['paused', 'needs-attention'].includes(cycle.status) ||
-      ownsIntegrationResolution(cycle)
+      (cycle.integrationResolution &&
+        !['completed', 'abandoned'].includes(cycle.integrationResolution.status))
     )
       throw new ExecutionRequestError(
         'conflict',
@@ -213,7 +216,10 @@ export class WorkCycleService {
         'conflict',
         'End the current session before resuming with guidance.',
       );
-    return this.next(cycle, cycle.step, runs[0], context, { instructions });
+    return this.next(cycle, cycle.step, runs[0], context, {
+      instructions,
+      ...(agentOverride === undefined ? {} : { finalizationAgentOverride: agentOverride }),
+    });
   }
 
   finalizationCheckpointFindings(cycle: WorkCycle) {
@@ -262,6 +268,7 @@ export class WorkCycleService {
       rationale: string;
       instructions?: string;
       additionalRounds?: number;
+      agentOverride?: WorkCycle['finalizationAgentOverride'];
     },
   ): Promise<WorkCycle> {
     const check = () => {
@@ -332,6 +339,9 @@ export class WorkCycleService {
         run,
         context,
         {
+          ...(input.agentOverride === undefined
+            ? {}
+            : { finalizationAgentOverride: input.agentOverride }),
           additionalRemediationRounds: (cycle.additionalRemediationRounds ?? 0) + extra,
           remediationRounds: cycle.remediationRounds + 1,
           stalledReviews: 0,
@@ -374,6 +384,9 @@ export class WorkCycleService {
       context,
       {
         deferredNits,
+        ...(input.agentOverride === undefined
+          ? {}
+          : { finalizationAgentOverride: input.agentOverride }),
         instructions,
         findingFocus: [],
         ...(finalReview
@@ -441,6 +454,7 @@ export class WorkCycleService {
     cycle: WorkCycle,
     additionalRounds: number,
     instructions: string,
+    agentOverride?: WorkCycle['finalizationAgentOverride'],
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
     finalizationForCycle(this.storage, cycle);
@@ -459,7 +473,11 @@ export class WorkCycleService {
     if (blocker) throw new ExecutionRequestError('conflict', blocker);
     const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
     if (!run) throw new NotFoundError();
-    return this.reviewRemediation(cycle, run, context, { additionalRounds, instructions });
+    return this.reviewRemediation(cycle, run, context, {
+      additionalRounds,
+      instructions,
+      agentOverride,
+    });
   }
 
   async control(
@@ -927,7 +945,11 @@ export class WorkCycleService {
     cycle: WorkCycle,
     run: AgentRun,
     context?: CommandContext,
-    grant?: { additionalRounds: number; instructions: string },
+    grant?: {
+      additionalRounds: number;
+      instructions: string;
+      agentOverride?: WorkCycle['finalizationAgentOverride'];
+    },
   ): Promise<WorkCycle> {
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (!tree || !this.git) throw new NotFoundError();
@@ -999,6 +1021,9 @@ export class WorkCycleService {
           ? {
               additionalRemediationRounds:
                 (cycle.additionalRemediationRounds ?? 0) + grant.additionalRounds,
+              ...(grant.agentOverride === undefined
+                ? {}
+                : { finalizationAgentOverride: grant.agentOverride }),
               instructions: grant.instructions,
               reason: `Authorized ${grant.additionalRounds} additional remediation attempt(s); starting remediation.`,
             }
@@ -1744,6 +1769,22 @@ export class WorkCycleService {
       return cycle;
     if (context) this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
     if (cycle.finalizationId) finalizationForCycle(this.storage, cycle);
+    if (changes.finalizationAgentOverride !== undefined) {
+      if (!context || !cycle.finalizationId)
+        throw new ExecutionRequestError(
+          'conflict',
+          'Agent changes require an operator finalization recovery command.',
+        );
+      const value = finalizationForCycle(this.storage, cycle);
+      if (
+        !value ||
+        !this.runs.hasBackend(finalizationProfile(value, { ...cycle, ...changes, step }).backend)
+      )
+        throw new ExecutionRequestError(
+          'unavailable',
+          'The selected finalization backend is unavailable.',
+        );
+    }
     return this.change(
       cycle,
       {
@@ -1850,6 +1891,13 @@ export class WorkCycleService {
         step: cycle.step,
         reason: cycle.reason,
         runId: cycle.currentRunId,
+        ...(cycle.finalizationId
+          ? {
+              finalizationAgentOverride: cycle.finalizationAgentOverride
+                ? { ...cycle.finalizationAgentOverride }
+                : null,
+            }
+          : {}),
         ...(action === 'authorize-remediation' || action === 'remediate-findings'
           ? {
               initialRemediationAllowance: cycle.policy.maxRemediationRounds,

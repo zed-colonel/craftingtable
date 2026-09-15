@@ -231,3 +231,9 @@ Authenticated editor commands record rationale and guidance, recheck authority a
 and atomically reserve independent review or bounded focused remediation. Neither action
 supplies merge authority or excuses technical failures and genuine unanswered questions.
 Final promotion rechecks the current review and effective completion policy. See ADR-038.
+
+Finalization agent changes use the existing authenticated, version-checked recovery commands.
+They require an idle checkpoint and an available backend, cannot change permission posture,
+and persist with the next run reservation and attributed audit record. A backend switch
+receives the existing durable handoff in a new run; it grants no finding waiver, allowance
+reset, or final promotion authority. Pending conflicts use their separate recovery controls.

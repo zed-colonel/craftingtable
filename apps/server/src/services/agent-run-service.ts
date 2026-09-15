@@ -26,6 +26,7 @@ import {
   asAgentRunId,
   asAuditEventId,
   asEventId,
+  finalizationProfile,
   isTerminalAgentRunStatus,
   ownsIntegrationResolution,
   type ReviewReportAssessment,
@@ -267,16 +268,9 @@ export class AgentRunService {
     if (existing !== undefined) return existing;
     const resolution = ownsIntegrationResolution(cycle) ? cycle.integrationResolution : undefined;
     const finalization = finalizationForCycle(this.storage, cycle);
-    const round = finalization?.rounds[cycle.polishRound ?? 0];
     const profile =
       resolution?.profile ??
-      (finalization
-        ? cycle.step === 'review'
-          ? cycle.polishPhase === 'final-review'
-            ? finalization.finalReview
-            : (round?.review ?? finalization.finalReview)
-          : (round?.polish ?? cycle.profiles.remediate)
-        : cycle.profiles[cycle.step]);
+      (finalization ? finalizationProfile(finalization, cycle) : cycle.profiles[cycle.step]);
     return this.launchAuthorized(
       cycle.workspaceId,
       cycle.workItemId,

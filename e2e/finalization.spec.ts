@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
+
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 function git(args: string[], cwd: string) {
   return execFileSync('git', args, {
@@ -193,6 +194,17 @@ for (const decision of ['remediate', 'defer'] as const) {
         await expect
           .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+        await recovery.getByLabel('Agent settings').selectOption('switch');
+        await recovery
+          .getByRole('combobox', { name: 'Backend', exact: true })
+          .selectOption('codex');
+        await recovery
+          .getByRole('combobox', { name: 'Model', exact: true })
+          .selectOption('__custom__');
+        await recovery.getByLabel('Model id', { exact: true }).fill('astra-fixture');
+        await expect
+          .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+          .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
         await recovery.scrollIntoViewIfNeeded();
         await page.screenshot({
           path: info.outputPath('finalization-remediation-authorization.png'),
@@ -209,6 +221,7 @@ for (const decision of ['remediate', 'defer'] as const) {
           .click();
         expect((await request).postDataJSON()).toMatchObject({
           action: 'remediate-findings',
+          agentOverride: { backend: 'codex', model: 'astra-fixture' },
           findingIds: ['F-001'],
           rationale: 'Address the selected documentation issue.',
           additionalRounds: 2,
@@ -221,6 +234,11 @@ for (const decision of ['remediate', 'defer'] as const) {
       await expect(finalization.getByText('final-review', { exact: false }).first()).toBeVisible();
       expect(git(['rev-parse', 'main'], repository)).toBe(main);
       if (decision === 'remediate') {
+        await expect(
+          finalization.getByText('Remaining finalization runs: Codex · astra-fixture.', {
+            exact: true,
+          }),
+        ).toBeVisible();
         await expect(
           finalization.getByText('1 of 2 remediation attempts used across this finalization.', {
             exact: true,

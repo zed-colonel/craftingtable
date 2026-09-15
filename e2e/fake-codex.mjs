@@ -2,7 +2,7 @@
 /** Deterministic app-server peer; one thread and process across follow-up turns. */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -64,6 +64,30 @@ function runTurn(prompt) {
     git(['commit', '--no-gpg-sign', '--allow-empty', '-q', '-m', `fake Codex turn ${state.turns}`]);
     notify('item/completed', { item: { ...change, status: 'completed' } });
     text = `fake Codex finished turn ${state.turns}`;
+  }
+  if (prompt.includes('This is a plan-wide finalization')) {
+    if (state.reviewing) {
+      const fixed = existsSync(resolve(cwd, 'REMEDIATED.md'));
+      const findings = prompt.includes('FINALIZATION-REMEDIATION-LIMIT')
+        ? [
+            {
+              id: 'F-001',
+              severity: 'nit',
+              status: fixed ? 'resolved' : 'open',
+              title: 'Clarify the finalization example',
+              explanation: 'The example needs a short explanation.',
+              recommendation: 'Clarify the example.',
+              ...(fixed ? { disposition: 'Verified the explanation.' } : {}),
+            },
+          ]
+        : [];
+      text = `Whole-plan conformance and checks passed.\n\n## Open questions\nnone\n\n## Review report\n\`\`\`craftingtable-review\n${JSON.stringify({ version: 1, complete: true, verdict: 'mergeable', exitGate: { met: true, evidence: 'Fixture verification passed.' }, findings })}\n\`\`\`\nVERDICT: mergeable`;
+    } else {
+      writeFileSync(resolve(cwd, 'REMEDIATED.md'), 'Selected explanation completed by Codex.\n');
+      git(['add', '--', 'REMEDIATED.md']);
+      git(['commit', '--no-gpg-sign', '-q', '-m', 'Codex focused remediation']);
+      text += '\n\n## Open questions\nnone';
+    }
   }
   notify('item/completed', { item: { id: 'item_2', type: 'agentMessage', text } });
   notify('thread/tokenUsage/updated', {

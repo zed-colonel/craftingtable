@@ -137,6 +137,11 @@ it is mergeable.
   batch explicit. A review requiring remediation without selectable findings offers
   **Authorize more remediation** in this same form. **Resume with guidance** handles
   questions, incomplete reports and other resumable checkpoints without adding attempts.
+  The same form's **Recovery agent → Agent settings** can switch backend/model for the
+  current recovery and all remaining assessment, polish, remediation and review runs, or restore
+  the original per-step settings. The choice survives restart; permissions and historical
+  profiles remain intact. Switching with Resume retries the current step using the existing
+  handoff, without adding remediation allowance. Conflict-resolution agents use their own controls.
   **Defer selected nits and review** preserves open findings and starts independent review;
   only unchanged nits on the authorized commits are exempt from the nit count. Required checks,
   plan obligations, genuine unanswered questions and final approval remain gates. Decisions

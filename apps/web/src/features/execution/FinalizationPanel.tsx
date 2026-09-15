@@ -8,6 +8,7 @@ import type {
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
 import {
+  AGENT_BACKEND_LABELS,
   type AgentRunId,
   DEFAULT_COMPLETION_POLICY,
   type PlanVersionId,
@@ -397,6 +398,13 @@ export function FinalizationPanel({
                 across this finalization.
               </p>
             )}
+            {cycle?.finalizationAgentOverride && (
+              <p>
+                Remaining finalization runs:{' '}
+                {AGENT_BACKEND_LABELS[cycle.finalizationAgentOverride.backend]} ·{' '}
+                {cycle.finalizationAgentOverride.model ?? 'Backend default'}.
+              </p>
+            )}
             <div className="inline-actions">
               {latest && (
                 <button
@@ -588,6 +596,7 @@ export function FinalizationPanel({
                   key={`${f.id}:${cycle?.version}`}
                   view={view}
                   busy={busy}
+                  backends={backends}
                   onDecide={(input) =>
                     void perform(() => controlFinalization(workspaceId, f.id, input, csrfToken))
                   }
@@ -605,7 +614,12 @@ export function FinalizationPanel({
               </p>
               <pre className="roadmap-instructions">
                 {JSON.stringify(
-                  { rounds: f.rounds, finalReview: f.finalReview, instructions: f.instructions },
+                  {
+                    rounds: f.rounds,
+                    finalReview: f.finalReview,
+                    instructions: f.instructions,
+                    agentOverride: cycle?.finalizationAgentOverride ?? null,
+                  },
                   null,
                   2,
                 )}

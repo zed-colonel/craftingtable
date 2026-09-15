@@ -295,3 +295,8 @@ The shared mutation guard prevents deletion racing a launch, and the periodic wo
 and catches up after restart. Backend-provided CARGO_TARGET_DIR keeps future build outputs
 inside the registered run scratch. Verification evidence remains outside disposable caches.
 See ADR-039.
+
+Finalization recovery can atomically record a backend/model override with its next-run
+reservation and any authorized remediation grant. Launch-time profile resolution applies it
+through subsequent phases while retaining each original step's permissions. Omitted input
+preserves the current override; null restores the original profiles. See ADR-040.

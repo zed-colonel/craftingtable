@@ -1,4 +1,5 @@
 import type { AgentRunProfile } from './execution.js';
+import type { FinalizationAgentSelection } from './finalization.js';
 import type { AgentRunId, ProjectId, UserId, WorkItemId, WorkspaceId, WorktreeId } from './ids.js';
 import type { FindingSeverity, ReviewFinding, ReviewReportAssessment } from './review.js';
 
@@ -82,6 +83,7 @@ export interface WorkCycle {
   readonly remediationRounds: number;
   /** Extra attempts explicitly authorized after a finalization exhausts its initial allowance. */
   readonly additionalRemediationRounds?: number;
+  readonly finalizationAgentOverride?: FinalizationAgentSelection | null;
   readonly deferredNits?: readonly {
     readonly finding: ReviewFinding;
     readonly sourceRunId: AgentRunId;

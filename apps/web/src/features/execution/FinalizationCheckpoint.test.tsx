@@ -131,3 +131,98 @@ it('resumes incomplete runs with guidance without granting allowance or finding 
     expectedCycleVersion: 38,
   });
 });
+
+const backends = [
+  {
+    kind: 'claude-code' as const,
+    label: 'Claude Code',
+    available: true,
+    models: [{ id: 'fable-fixture', label: 'Fable fixture' }],
+  },
+  {
+    kind: 'codex' as const,
+    label: 'Codex',
+    available: true,
+    models: [{ id: 'astra-fixture', label: 'Astra fixture' }],
+  },
+];
+const agentCycle = view.cycle;
+if (!agentCycle) throw new Error('Missing fixture cycle');
+const agentView = {
+  ...view,
+  finalization: {
+    ...view.finalization,
+    rounds: [],
+    finalReview: {
+      backend: 'claude-code' as const,
+      model: 'fable-fixture',
+      permissionMode: 'edit-only' as const,
+    },
+  },
+  cycle: { ...agentCycle, step: 'review' as const, polishPhase: 'final-review' as const },
+};
+
+it('switches the recovery backend/model without carrying the old model or changing permissions', () => {
+  const onDecide = vi.fn();
+  render(
+    <FinalizationCheckpoint
+      view={agentView}
+      backends={backends}
+      busy={false}
+      onDecide={onDecide}
+    />,
+  );
+  fireEvent.click(screen.getByRole('checkbox', { name: /F-051/ }));
+  fireEvent.change(screen.getByLabelText('Decision rationale (required)'), {
+    target: { value: 'Fix the required defect.' },
+  });
+  fireEvent.change(screen.getByLabelText('Agent settings'), { target: { value: 'switch' } });
+  fireEvent.change(screen.getByLabelText('Backend'), { target: { value: 'codex' } });
+  expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe('');
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'astra-fixture' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Authorize focused remediation' }));
+  expect(onDecide.mock.calls[0]?.[0].agentOverride).toEqual({
+    backend: 'codex',
+    model: 'astra-fixture',
+  });
+});
+
+it('restores the original agent profiles explicitly on a later recovery', () => {
+  const onDecide = vi.fn();
+  render(
+    <FinalizationCheckpoint
+      view={{
+        ...agentView,
+        checkpointFindings: [],
+        canAuthorizeRemediation: false,
+        cycle: {
+          ...agentView.cycle,
+          finalizationAgentOverride: { backend: 'codex', model: 'astra-fixture' },
+        },
+      }}
+      backends={backends}
+      busy={false}
+      onDecide={onDecide}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Agent settings'), { target: { value: 'restore' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Resume finalization' }));
+  expect(onDecide.mock.calls[0]?.[0].agentOverride).toBeNull();
+});
+
+it('prefills the current profile even when the backend catalog arrives after the checkpoint', () => {
+  const onDecide = vi.fn();
+  const { rerender } = render(
+    <FinalizationCheckpoint view={agentView} backends={[]} busy={false} onDecide={onDecide} />,
+  );
+  rerender(
+    <FinalizationCheckpoint
+      view={agentView}
+      backends={backends}
+      busy={false}
+      onDecide={onDecide}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Agent settings'), { target: { value: 'switch' } });
+  expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe('fable-fixture');
+});

@@ -196,6 +196,8 @@ export class FinalizationService {
         conflict('Recover the approved promotion before resuming or stopping finalization.');
       if (['stopped', 'completed'].includes(value.status))
         conflict('This finalization has ended. Start a new one for further work.');
+      if (input.agentOverride !== undefined && (!cycle || value.status !== 'active'))
+        conflict('Agent selection requires an existing active finalization cycle.');
       if (input.action === 'defer-nits' || input.action === 'remediate-findings') {
         if (!cycle || !input.findingIds || !input.rationale)
           conflict('Select findings and record your decision.');
@@ -215,6 +217,7 @@ export class FinalizationService {
           cycle,
           input.additionalRounds,
           input.instructions ?? '',
+          input.agentOverride,
         );
         return this.view(value);
       }
@@ -236,8 +239,16 @@ export class FinalizationService {
         return this.view(value);
       }
       if (cycle && !['stopped', 'completed'].includes(cycle.status)) {
-        if (input.action === 'resume' && input.instructions?.trim())
-          await this.cycles.guideFinalization(context, cycle, input.instructions);
+        if (
+          input.action === 'resume' &&
+          (input.instructions?.trim() || input.agentOverride !== undefined)
+        )
+          await this.cycles.guideFinalization(
+            context,
+            cycle,
+            input.instructions ?? '',
+            input.agentOverride,
+          );
         else await this.cycles.control(context, workspaceId, cycle.id, input.action, cycle.version);
         const after = this.storage.execution.cycles.find(workspaceId, cycle.id);
         if (input.action === 'stop' && after?.status !== 'stopped') return this.view(value); // Owned resolution remains reserved until explicitly abandoned.

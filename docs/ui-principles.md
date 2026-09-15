@@ -123,3 +123,9 @@ Pause retains the integration hold; Stop explains retained work. Final approval 
 exact candidate and destination commits and is always a separate operator action.
 Successful merges with cleanup failures display a retry action without implying the merge
 failed or holding dependent items back. All controls remain usable on phone layouts.
+
+Finalization uses one **Next finalization step** form for selected finding decisions,
+additional remediation and resumption guidance. Selection, required rationale, extra attempts
+and the resulting allowance belong together; a disabled action explains the missing input.
+Do not show a separate remediation form that silently ignores the selected batch. Setup names
+the independent initial remediation budget and distinguishes it from scheduled polish passes.

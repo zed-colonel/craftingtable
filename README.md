@@ -126,16 +126,19 @@ it is mergeable.
   each report. Evidence summarizes current checks and references detailed records; it does
   not accumulate earlier reports. A rejected report's retry receives its validation errors
   and may reuse complete verification only against unchanged candidate/destination commits.
-  When a valid review exhausts the remediation allowance, **Authorize more remediation**
-  adds 1–20 attempts (default 1) and starts remediation followed by review. Review the
-  remaining findings, allowance and optional guidance in that form. Used counts and
-  original settings remain; the extra allowance survives restart and spans the whole
-  finalization. Resume alone does not extend it. Questions and invalid reports must be
-  resolved through their existing controls before additional remediation can be authorized.
-  **Decide remaining findings** also works at a valid review's questions checkpoint. Select
-  findings and supply rationale/answers, then either authorize a focused remediation batch or
-  defer selected nits. Deferral preserves open findings and starts independent review; only
-  unchanged nits on the authorized commits are exempt from the nit count. Required checks,
+  Setup exposes **Initial remediation budget** (0–20, default 3). It is independent of
+  work-item/roadmap settings, spans the whole finalization, and excludes scheduled polish
+  passes. Later grants retain the original settings and used counts.
+  **Next finalization step** unifies recovery, findings decisions and answers/guidance.
+  With a valid review, select findings and enter a required rationale, then **Authorize
+  focused remediation** adds 1–20 attempts (default 1) and starts the selected batch followed
+  by review, even when the allowance is exhausted. The form shows the resulting allowance
+  and explains missing inputs beside its button. **Select all findings** makes a broader
+  batch explicit. A review requiring remediation without selectable findings offers
+  **Authorize more remediation** in this same form. **Resume with guidance** handles
+  questions, incomplete reports and other resumable checkpoints without adding attempts.
+  **Defer selected nits and review** preserves open findings and starts independent review;
+  only unchanged nits on the authorized commits are exempt from the nit count. Required checks,
   plan obligations, genuine unanswered questions and final approval remain gates. Decisions
   and used allowances survive restart. See [the staged-finalization roadmap](docs/finalization-roadmap.md)
   for the next evolution, to complete before WorldInterface and Exoskeleton.

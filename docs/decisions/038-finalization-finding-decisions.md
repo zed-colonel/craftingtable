@@ -24,4 +24,12 @@ optional polish. Recheck current editor authority, versions, review lineage, idl
 cleanliness and exact branch context after asynchronous inspection. Store the decision and
 next-run reservation atomically; restart retains both without replaying an agent launch.
 
+The browser consolidates finding decisions, additional remediation and resumption guidance in
+one checkpoint form. Focused authorization includes the selected IDs and budget grant in one
+command, even when the existing allowance is exhausted. A valid remediation review without
+selectable findings retains the general authorization action in the same form. Required inputs
+and the resulting allowance are explicit; the old separate form is no longer shown alongside
+finding selection. Setup exposes the independent initial finalization budget (default three),
+which does not inherit a work item's or roadmap's saved policy.
+
 The staged evolution is recorded in ../finalization-roadmap.md and remains future work.

@@ -115,7 +115,10 @@ for (const decision of ['remediate', 'defer'] as const) {
       const finalization = page.getByRole('region', { name: 'Finalize integration', exact: true });
       await finalization.getByRole('button', { name: 'Set up finalization' }).click();
       await finalization.getByLabel('Improvement rounds').fill('1');
-      await finalization.getByLabel('Additional remediation rounds', { exact: true }).fill('0');
+      await expect(
+        finalization.getByLabel('Initial remediation budget', { exact: true }),
+      ).toHaveValue('3');
+      await finalization.getByLabel('Initial remediation budget', { exact: true }).fill('0');
       await finalization
         .getByLabel('Round focus')
         .fill('Conformance and simplification, preserve the public behavior.');
@@ -128,14 +131,14 @@ for (const decision of ['remediate', 'defer'] as const) {
       await page.screenshot({ path: info.outputPath('finalization-setup.png'), fullPage: true });
       await finalization.getByRole('button', { name: 'Start finalization', exact: true }).click();
       if (decision === 'defer') {
-        const checkpoint = finalization.getByRole('form', { name: 'Decide remaining findings' });
+        const checkpoint = finalization.getByRole('form', { name: 'Finalization next step' });
         await expect(checkpoint).toBeVisible({ timeout: 30000 });
         await checkpoint.getByRole('checkbox', { name: /F-001/ }).check();
         await checkpoint
-          .getByLabel('Decision rationale')
+          .getByLabel('Decision rationale (required)')
           .fill('Accept this optional documentation nit as follow-up.');
         await checkpoint
-          .getByLabel('Answers and guidance')
+          .getByLabel('Answers and guidance (optional)')
           .fill('Keep source unchanged and complete the final independent review.');
         await checkpoint.scrollIntoViewIfNeeded();
         await expect
@@ -149,7 +152,7 @@ for (const decision of ['remediate', 'defer'] as const) {
           .getByRole('button', { name: 'Defer selected nits and review', exact: true })
           .click();
       } else {
-        const recovery = finalization.getByRole('form', { name: 'Authorize more remediation' });
+        const recovery = finalization.getByRole('form', { name: 'Finalization next step' });
         await expect(recovery).toBeVisible({ timeout: 30000 });
         await finalization.getByText('Review findings', { exact: true }).click();
         await expect(
@@ -160,11 +163,32 @@ for (const decision of ['remediate', 'defer'] as const) {
         ).toHaveCount(0);
         await page.reload();
         await expect(recovery).toBeVisible();
+        await expect(finalization.getByRole('form')).toHaveCount(1);
         await expect(
-          recovery.getByLabel('Additional remediation attempts', { exact: true }),
-        ).toHaveValue('1');
+          finalization.getByRole('button', { name: 'Authorize more remediation', exact: true }),
+        ).toHaveCount(0);
+        await recovery.getByLabel('Next action').selectOption('remediate-findings');
+        await expect(recovery.getByText('Select at least one finding to continue.')).toBeVisible();
+        await recovery.getByRole('checkbox', { name: /F-001/ }).check();
+        await expect(
+          recovery.getByRole('button', { name: 'Authorize focused remediation' }),
+        ).toBeDisabled();
+        await expect(recovery.getByText('Enter a decision rationale to continue.')).toBeVisible();
         await recovery
-          .getByLabel('Guidance for the next remediation (optional)')
+          .getByLabel('Decision rationale (required)')
+          .fill('Address the selected documentation issue.');
+        await expect(
+          recovery.getByLabel('Additional focused attempts', { exact: true }),
+        ).toHaveValue('1');
+        await recovery.getByLabel('Additional focused attempts', { exact: true }).fill('2');
+        await expect(
+          recovery.getByText(
+            'Used: 0. Current allowance: 0. New allowance: 2; 2 attempts available.',
+            { exact: true },
+          ),
+        ).toBeVisible();
+        await recovery
+          .getByLabel('Answers and guidance (optional)')
           .fill('Clarify the example. E2E-EXTRA-REMEDIATION');
         await expect
           .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
@@ -178,14 +202,16 @@ for (const decision of ['remediate', 'defer'] as const) {
           (r) =>
             r.method() === 'POST' &&
             r.url().endsWith('/control') &&
-            r.postDataJSON()?.action === 'authorize-remediation',
+            r.postDataJSON()?.action === 'remediate-findings',
         );
         await recovery
-          .getByRole('button', { name: 'Authorize more remediation', exact: true })
+          .getByRole('button', { name: 'Authorize focused remediation', exact: true })
           .click();
         expect((await request).postDataJSON()).toMatchObject({
-          action: 'authorize-remediation',
-          additionalRounds: 1,
+          action: 'remediate-findings',
+          findingIds: ['F-001'],
+          rationale: 'Address the selected documentation issue.',
+          additionalRounds: 2,
           instructions: 'Clarify the example. E2E-EXTRA-REMEDIATION',
         });
       }
@@ -196,10 +222,9 @@ for (const decision of ['remediate', 'defer'] as const) {
       expect(git(['rev-parse', 'main'], repository)).toBe(main);
       if (decision === 'remediate') {
         await expect(
-          finalization.getByText(
-            '1 of 1 additional remediation attempts used across this finalization.',
-            { exact: true },
-          ),
+          finalization.getByText('1 of 2 remediation attempts used across this finalization.', {
+            exact: true,
+          }),
         ).toBeVisible();
       } else
         await expect(finalization.getByText('Deferred nits (1)', { exact: true })).toBeVisible();

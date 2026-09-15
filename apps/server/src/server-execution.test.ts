@@ -5695,11 +5695,11 @@ describe('collecting background review results', () => {
   );
 });
 
-async function findingCheckpointFixture(severity: 'nit' | 'minor' = 'nit') {
+async function findingCheckpointFixture(severity: 'nit' | 'minor' = 'nit', questions = true) {
   const fixture = await finalizationFixture();
   const nit = { ...structuredFinding, severity };
   fixture.backend.replyForRequest = () => ({
-    resultText: `## Open questions\nFix or defer this nit?\n\n## Review report\n${reviewText([nit])}`,
+    resultText: `## Open questions\n${questions ? 'Fix or defer this finding?' : 'none'}\n\n## Review report\n${reviewText([nit])}`,
   });
   const value = await beginFinalization(fixture, {
     ...fixture.input,
@@ -5816,32 +5816,35 @@ describe('finalization finding decisions', () => {
     },
   );
 
-  it('authorizes one focused attempt with answers at the questions checkpoint, then verifies', async () => {
-    const { state, backend, value, nit } = await findingCheckpointFixture();
-    backend.replyForRequest = (request) => {
-      expect(request.prompt).toContain('Focused remediation batch:');
-      if (request.model?.includes('polish') || request.model === 'review-model')
-        return { resultText: 'Completed selected cleanup.\n\n## Open questions\nnone' };
-      return {
-        resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([{ ...nit, status: 'resolved', disposition: 'Selected cleanup verified.' }])}`,
+  it.each([true, false])(
+    'grants focused attempts at an exhausted final review, with open questions: %s',
+    async (questions) => {
+      const { state, backend, value, nit } = await findingCheckpointFixture('minor', questions);
+      backend.replyForRequest = (request) => {
+        expect(request.prompt).toContain('Focused remediation batch:');
+        if (request.model?.includes('polish') || request.model === 'review-model')
+          return { resultText: 'Completed selected cleanup.\n\n## Open questions\nnone' };
+        return {
+          resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([{ ...nit, status: 'resolved', disposition: 'Selected cleanup verified.' }])}`,
+        };
       };
-    };
-    const response = await finalizationCommand(state, value, 'remediate-findings', {
-      findingIds: [nit.id],
-      rationale: 'Address this exact cleanup.',
-      instructions: 'Fix the selected nit; preserve behavior.',
-      additionalRounds: 1,
-    });
-    expect(response.statusCode, response.body).toBe(200);
-    await waitFor(
-      () => finalizationCycle(state, value).status === 'awaiting-merge',
-      'focused verification',
-    );
-    expect(finalizationCycle(state, value)).toMatchObject({
-      remediationRounds: 1,
-      additionalRemediationRounds: 1,
-      findingFocus: [nit.id],
-    });
-    expect(backend.launches).toHaveLength(3);
-  });
+      const response = await finalizationCommand(state, value, 'remediate-findings', {
+        findingIds: [nit.id],
+        rationale: 'Address this exact cleanup.',
+        instructions: 'Fix the selected nit; preserve behavior.',
+        additionalRounds: 1,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      await waitFor(
+        () => finalizationCycle(state, value).status === 'awaiting-merge',
+        'focused verification',
+      );
+      expect(finalizationCycle(state, value)).toMatchObject({
+        remediationRounds: 1,
+        additionalRemediationRounds: 1,
+        findingFocus: [nit.id],
+      });
+      expect(backend.launches).toHaveLength(3);
+    },
+  );
 });

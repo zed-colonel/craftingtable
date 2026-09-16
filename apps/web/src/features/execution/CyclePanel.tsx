@@ -17,6 +17,10 @@ import {
   type WorktreeId,
 } from '@craftingtable/domain';
 import { useState } from 'react';
+import { About } from '../../components/About.js';
+import { ActionBar } from '../../components/ActionBar.js';
+import { Section } from '../../components/Section.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import { CYCLE_STATUS_LABELS, PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
 import type { ProfileEntry } from './handoff.js';
 
@@ -96,8 +100,22 @@ export function CyclePanel({
   const liveRun = runs.some(
     (run) => run.worktreeId === selected && ['starting', 'running', 'waiting'].includes(run.status),
   );
+  const previous = cycles.filter((cycle) => ['stopped', 'completed'].includes(cycle.status));
+  const attention =
+    active !== undefined && ['needs-attention', 'awaiting-merge'].includes(active.status);
   return (
-    <section className="panel cycle-panel" aria-label="Automated cycle">
+    <Section
+      id="automation"
+      title="Automated cycle"
+      summary={
+        active
+          ? `${CYCLE_STATUS_LABELS[active.status]} · ${active.step} step`
+          : previous.length > 0
+            ? 'No cycle running.'
+            : 'Design → Implement → Review → Remediate as needed → your merge approval.'
+      }
+      {...(attention ? { tone: 'attention' as const } : {})}
+    >
       {activeWorktrees.length > 1 && (
         <label className="field">
           Cycle worktree
@@ -110,19 +128,27 @@ export function CyclePanel({
           </select>
         </label>
       )}
-      <h2>Automated cycle</h2>
       {active ? (
         <>
-          <p>
-            <strong>{CYCLE_STATUS_LABELS[active.status]}</strong> · {active.step} · Remediation{' '}
-            {active.remediationRounds} of {active.policy.maxRemediationRounds}
-          </p>
           <p role="status">{active.reason}</p>
-          <p className="hint">
-            Zero open blocking, major, or minor findings; at most {active.policy.maxNits} nits. Each
-            step has {active.policy.maxRunMinutes} minutes.
-          </p>
-          <div className="inline-actions">
+          <StatusStrip
+            label="Cycle status"
+            facts={[
+              {
+                label: 'Status',
+                value: CYCLE_STATUS_LABELS[active.status],
+                accent: attention ? 'var(--color-attention)' : 'var(--color-active)',
+              },
+              { label: 'Step', value: active.step },
+              {
+                label: 'Remediation',
+                value: `${active.remediationRounds} of ${active.policy.maxRemediationRounds}`,
+              },
+              { label: 'Allowed nits', value: active.policy.maxNits },
+              { label: 'Minutes per step', value: active.policy.maxRunMinutes },
+            ]}
+          />
+          <ActionBar label="Cycle controls">
             {runs.some((run) => run.id === active.currentRunId) && (
               <button
                 type="button"
@@ -161,7 +187,7 @@ export function CyclePanel({
             >
               Stop automation
             </button>
-          </div>
+          </ActionBar>
           {onResolution && (
             <IntegrationResolutionPanel
               cycle={active}
@@ -186,21 +212,25 @@ export function CyclePanel({
             </ul>
             {active.instructions && <pre>{active.instructions}</pre>}
           </details>
-          <p className="hint">
-            Pause leaves the agent session available for manual work. Stop cancels its current
-            process and ends the cycle. Resume adopts a manual run handed off from this cycle.
-            Settings stay fixed for this cycle.
-          </p>
+          <About label="About cycle controls">
+            <p>
+              The cycle completes when zero blocking, major, or minor findings remain and at most
+              the allowed nits. Pause leaves the agent session available for manual work. Stop
+              cancels its current process and ends the cycle. Resume adopts a manual run handed off
+              from this cycle. Settings stay fixed for this cycle.
+            </p>
+          </About>
         </>
       ) : (
         <details>
           <summary>Set up a cycle</summary>
-          <p>Design → Implement → Review → Remediate as needed → Your merge approval.</p>
-          <p className="hint">
-            Design advances only when its final Open questions section says none. Incomplete
-            reports, failed steps, time limits, or two unchanged remediation rounds pause for
-            attention.
-          </p>
+          <About label="About automated cycles">
+            <p>
+              Design advances only when its final Open questions section says none. Incomplete
+              reports, failed steps, time limits, or two unchanged remediation rounds pause for
+              attention. The cycle ends at your merge approval.
+            </p>
+          </About>
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -257,14 +287,11 @@ export function CyclePanel({
           </form>
         </details>
       )}
-      {cycles
-        .filter((cycle) => ['stopped', 'completed'].includes(cycle.status))
-        .slice(0, 3)
-        .map((cycle) => (
-          <p className="hint" key={cycle.id}>
-            Previous cycle: {CYCLE_STATUS_LABELS[cycle.status]} — {cycle.reason}
-          </p>
-        ))}
-    </section>
+      {previous.slice(0, 3).map((cycle) => (
+        <p className="hint" key={cycle.id}>
+          Previous cycle: {CYCLE_STATUS_LABELS[cycle.status]} — {cycle.reason}
+        </p>
+      ))}
+    </Section>
   );
 }

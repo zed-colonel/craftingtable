@@ -6,6 +6,9 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
+import { About } from '../../components/About.js';
+import { Reasons } from '../../components/Reasons.js';
+import { Section } from '../../components/Section.js';
 import { createWorktree } from '../../lib/execution-api.js';
 import {
   authorizeScopeScheduling,
@@ -63,12 +66,27 @@ export function ExecutionScopesPanel({
   };
   if (!choices.length && !error) return null;
   return (
-    <section className="panel" aria-label="Execution slices and parent acceptance">
-      <h2>Execution slices and parent acceptance</h2>
-      <p>
-        Slice merges leave this work item incomplete. Verification and an independent parent
-        acceptance review must cover every required slice and the original exit gate.
-      </p>
+    <Section
+      id="slices"
+      title="Execution slices and parent acceptance"
+      count={choices.length}
+      summary={
+        choices.length === 0
+          ? undefined
+          : `${choices.filter((c) => c.status === 'verified' || c.status === 'accepted').length} of ${choices.length} scopes verified or accepted.`
+      }
+    >
+      <About label="About slices and parent acceptance">
+        <p>
+          Slice merges leave this work item incomplete. Verification and an independent parent
+          acceptance review must cover every required slice and the original exit gate.
+        </p>
+        <p>
+          Development and verification use separate admission slots. A reservation coordinates
+          daemon work; it is not evidence of isolation or a test pass. Selecting a slice does not
+          approve map decisions or external effects.
+        </p>
+      </About>
       {error && (
         <p role="alert" className="error-state">
           {error}
@@ -119,19 +137,10 @@ export function ExecutionScopesPanel({
                     }[p.phase]
                   }
                 </h4>
-                {p.blockers.length ? (
-                  <ul>
-                    {p.blockers.map((b) => (
-                      <li key={b.message}>
-                        <strong>{b.kind}</strong>: {b.message}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="hint">
-                    Phase requirements satisfied; current review and branch checks still apply.
-                  </p>
-                )}
+                <Reasons
+                  reasons={p.blockers.map((b) => ({ kind: b.kind, text: b.message }))}
+                  satisfied="Phase requirements satisfied; current review and branch checks still apply."
+                />
                 {p.resources.map((r) => (
                   <p key={r.key} className="hint">
                     <code>{r.key}</code>: {r.capacity} admission slot(s).
@@ -147,10 +156,6 @@ export function ExecutionScopesPanel({
                   ))}
               </div>
             ))}
-            <p className="hint">
-              Development and verification use separate admission slots. A reservation coordinates
-              daemon work; it is not evidence of isolation or a test pass.
-            </p>
           </details>
           {choice.earlyDevelopment && (
             <p className="hint">
@@ -172,10 +177,7 @@ export function ExecutionScopesPanel({
               Authorize this slice’s early-development rule
             </button>
           )}
-          <p className="hint">
-            Map binding revision {choice.scope.bindingRevision}. This selection does not approve
-            decisions or external effects.
-          </p>
+          <p className="hint">Map binding revision {choice.scope.bindingRevision}.</p>
           <button
             type="button"
             disabled={
@@ -274,6 +276,6 @@ export function ExecutionScopesPanel({
           )}
         </article>
       ))}
-    </section>
+    </Section>
   );
 }

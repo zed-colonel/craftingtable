@@ -18,6 +18,9 @@ import {
   type WorktreeId,
 } from '@craftingtable/domain';
 import { type CSSProperties, type FormEvent, Fragment, type ReactNode, useState } from 'react';
+import { About } from '../../components/About.js';
+import { Section } from '../../components/Section.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import {
   formatCost,
   isLiveStatus,
@@ -75,6 +78,7 @@ function OutcomeCell({ text }: { text: string | undefined }) {
  */
 export function DelegationPanel({
   hideCreateWorktree,
+  automationActive = false,
   renderBranchControls,
   repositories,
   worktrees,
@@ -96,6 +100,8 @@ export function DelegationPanel({
   profiles,
 }: {
   hideCreateWorktree?: boolean;
+  /** An automated cycle owns the worktree; the manual launch form starts closed. */
+  automationActive?: boolean;
   renderBranchControls?: (worktree: WorktreeSummary) => ReactNode;
   repositories: readonly SourceRepositorySummary[];
   worktrees: readonly WorktreeSummary[];
@@ -145,6 +151,8 @@ export function DelegationPanel({
   const [mergeOpen, setMergeOpen] = useState<string>();
   /** The run whose handoff form is open, if any. */
   const [handoffOpen, setHandoffOpen] = useState<AgentRunId>();
+  /** Operator override of the launch form's visibility; unset follows the item's state. */
+  const [launchOpen, setLaunchOpen] = useState<boolean>();
 
   /** Changing the role applies that role's profile; the operator can still edit after. */
   const applyRole = (next: AgentRunRole): void => {
@@ -207,18 +215,28 @@ export function DelegationPanel({
     onLoadBranches(worktree.repositoryId);
   };
 
+  const launchVisible = activeWorktrees.length > 0 && (launchOpen ?? !automationActive);
+  const firstGate =
+    activeWorktrees[0] === undefined ? undefined : mergeGates[activeWorktrees[0].id];
+  const summary =
+    activeWorktrees.length === 0
+      ? mergedWorktrees.length > 0
+        ? 'Merged. No active worktree.'
+        : 'No worktree yet.'
+      : liveRuns.length > 0
+        ? `${liveRuns.length} live run${liveRuns.length === 1 ? '' : 's'}.`
+        : firstGate === undefined
+          ? `${activeWorktrees.length} active worktree${activeWorktrees.length === 1 ? '' : 's'}.`
+          : `${MERGE_GATE_LABELS[firstGate.reason]}.`;
   return (
-    <section className="panel" aria-label="Delegation">
-      <div className="panel-header">
-        <div>
-          <h3>Delegation</h3>
-          <p className="hint">
-            Create a worktree on a fresh branch, launch an implement run, then a review run. A
-            mergeable review opens the Merge action, which lands the branch in its integration
-            target and completes the item.
-          </p>
-        </div>
-      </div>
+    <Section id="delegation" title="Delegation" summary={summary}>
+      <About label="About delegation">
+        <p>
+          Create a worktree on a fresh branch, launch an implement run, then a review run. A
+          mergeable review opens the Merge action, which lands the branch in its integration target
+          and completes the item.
+        </p>
+      </About>
       {error !== undefined && (
         <p className="error-state" role="alert">
           {error}
@@ -252,7 +270,9 @@ export function DelegationPanel({
             ? `No active worktree. Merged: ${mergedWorktrees
                 .map((worktree) => `${worktree.branchName} → ${shortSha(worktree.mergeSha ?? '')}`)
                 .join(', ')}.`
-            : 'No worktree yet.'}
+            : hideCreateWorktree
+              ? 'No worktree yet. Create one under Repository & branches.'
+              : 'No worktree yet.'}
         </p>
       ) : (
         <ul className="worktree-list">
@@ -265,18 +285,26 @@ export function DelegationPanel({
             return (
               <li key={worktree.id} className="worktree-item">
                 <div>
-                  <span className="mono">{worktree.branchName}</span>
-                  {worktree.executionScope && (
-                    <p className="hint">
-                      {worktree.executionScope.sourceId} ·{' '}
-                      {worktree.executionScope.kind.replaceAll('-', ' ')}
-                    </p>
-                  )}
-                  <span className="hint">
-                    {' '}
-                    from {worktree.baseBranch} @ {shortSha(worktree.baseSha)}
-                  </span>
-                  <div className="hint mono">{worktree.path}</div>
+                  <span className="mono worktree-branch">{worktree.branchName}</span>
+                  <StatusStrip
+                    compact
+                    facts={[
+                      ...(worktree.executionScope
+                        ? [
+                            {
+                              label: 'Scope',
+                              value: `${worktree.executionScope.sourceId} · ${worktree.executionScope.kind.replaceAll('-', ' ')}`,
+                            },
+                          ]
+                        : []),
+                      {
+                        label: 'From',
+                        value: `${worktree.baseBranch} @ ${shortSha(worktree.baseSha)}`,
+                        mono: true,
+                      },
+                      { label: 'Path', value: worktree.path, mono: true },
+                    ]}
+                  />
                   {renderBranchControls?.(worktree)}
                   {gate !== undefined && (
                     <div className="worktree-gate">
@@ -438,7 +466,24 @@ export function DelegationPanel({
           </form>
         )}
 
-      {canMutate && !itemCompleted && (
+      {canMutate && !itemCompleted && !launchVisible && activeWorktrees.length > 0 && (
+        <div className="inline-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy || activeWorktrees.length === 0}
+            onClick={() => setLaunchOpen(true)}
+          >
+            Launch a run…
+          </button>
+          {automationActive && (
+            <span className="hint">
+              An automated cycle owns this worktree; pause it before launching by hand.
+            </span>
+          )}
+        </div>
+      )}
+      {canMutate && !itemCompleted && launchVisible && (
         <form className="stack-form" onSubmit={launch} aria-label="Launch an agent">
           <h4>Launch an agent</h4>
           {availableBackends.length === 0 && (
@@ -549,6 +594,16 @@ export function DelegationPanel({
             >
               {busy ? 'Working…' : `Launch ${RUN_ROLE_LABELS[effectiveRole].toLowerCase()} run`}
             </button>
+            {launchOpen === true && (
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={busy}
+                onClick={() => setLaunchOpen(false)}
+              >
+                Close
+              </button>
+            )}
           </div>
         </form>
       )}
@@ -700,6 +755,6 @@ export function DelegationPanel({
           </table>
         </div>
       )}
-    </section>
+    </Section>
   );
 }

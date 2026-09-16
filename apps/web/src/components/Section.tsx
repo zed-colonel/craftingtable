@@ -40,30 +40,34 @@ export function Section({
   children?: ReactNode;
 }) {
   const name = label ?? (typeof title === 'string' ? title : undefined);
-  const head = (
+  const head = (withActions: boolean) => (
     <>
       <div className="section-title">
         <h2>{title}</h2>
         {count !== undefined && <span className="section-count">{count}</span>}
       </div>
       {summary !== undefined && <p className="section-summary">{summary}</p>}
-      {actions !== undefined && <div className="section-actions">{actions}</div>}
+      {withActions && actions !== undefined && <div className="section-actions">{actions}</div>}
     </>
   );
   const className = `panel section${tone === undefined ? '' : ` section-${tone}`}`;
   if (collapsible) {
+    // A button inside <summary> would also toggle the body, so actions sit in the body.
     return (
       <section id={id} className={className} aria-label={name}>
         <details open={defaultOpen} className="section-details">
-          <summary className="section-head">{head}</summary>
-          <div className="section-body">{children}</div>
+          <summary className="section-head">{head(false)}</summary>
+          <div className="section-body">
+            {actions !== undefined && <div className="section-actions">{actions}</div>}
+            {children}
+          </div>
         </details>
       </section>
     );
   }
   return (
     <section id={id} className={className} aria-label={name}>
-      <div className="section-head">{head}</div>
+      <div className="section-head">{head(true)}</div>
       {children !== undefined && <div className="section-body">{children}</div>}
     </section>
   );

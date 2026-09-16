@@ -1,6 +1,9 @@
 import type { PlanBranchSettingsResponse, SourceRepositorySummary } from '@craftingtable/contracts';
 import type { PlanVersionId, SourceRepositoryId, WorkspaceId } from '@craftingtable/domain';
 import { useEffect, useId, useState } from 'react';
+import { About } from '../../components/About.js';
+import { Section } from '../../components/Section.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import {
   loadPlanBranchSettings,
   recordIntegrationEvidence,
@@ -19,6 +22,8 @@ export function PlanBranchPanel({
   onOpenSettings,
   onCreateWorktree,
   creating,
+  collapsible = false,
+  defaultOpen = true,
 }: {
   workspaceId: WorkspaceId;
   planVersionId: PlanVersionId;
@@ -29,6 +34,9 @@ export function PlanBranchPanel({
   onOpenSettings?: () => void;
   onCreateWorktree?: (repositoryId: SourceRepositoryId) => void;
   creating?: boolean;
+  /** Reference placement (an item page): the body starts closed once a worktree exists. */
+  collapsible?: boolean;
+  defaultOpen?: boolean;
 }) {
   const integrationInputId = useId();
   const [editingVersion, setEditingVersion] = useState(0);
@@ -93,11 +101,22 @@ export function PlanBranchPanel({
     setEditing(true);
   };
   const settings = data?.settings;
+  const repositoryName = settings
+    ? (repositories.find((r) => r.id === settings.repositoryId)?.displayName ?? 'Repository')
+    : undefined;
   return (
-    <section className="panel branch-panel" aria-label="Repository & branches">
-      <div className="panel-header">
-        <h3>Repository &amp; branches</h3>
-        <div className="inline-actions">
+    <Section
+      id="branches"
+      title="Repository & branches"
+      collapsible={collapsible}
+      defaultOpen={defaultOpen}
+      summary={
+        settings
+          ? `${repositoryName} → ${settings.integrationBranch}`
+          : 'No repository or integration branch chosen yet.'
+      }
+      actions={
+        <>
           <button
             type="button"
             className="text-button"
@@ -121,38 +140,38 @@ export function PlanBranchPanel({
               Plan branch settings
             </button>
           )}
-        </div>
-      </div>
+        </>
+      }
+    >
       {error && (
         <p role="alert" className="error-state">
           {error}
         </p>
       )}
       {settings ? (
-        <p>
-          <strong>
-            {repositories.find((r) => r.id === settings.repositoryId)?.displayName ?? 'Repository'}
-          </strong>
-          {' · Integration: '}
-          <code>{settings.integrationBranch}</code>
-          {data?.headSha && (
-            <>
-              {' '}
-              @ <code>{shortSha(data.headSha)}</code>
-            </>
-          )}
-          <br />
-          <span className="hint">
-            New worktrees start from this branch’s latest commit and merge back under their selected
-            approval policy. Existing worktrees keep their targets.
-          </span>
-        </p>
+        <StatusStrip
+          label="Branch settings"
+          facts={[
+            { label: 'Repository', value: repositoryName },
+            { label: 'Integration branch', value: settings.integrationBranch, mono: true },
+            ...(data?.headSha
+              ? [{ label: 'Head', value: shortSha(data.headSha), mono: true }]
+              : []),
+          ]}
+        />
       ) : (
         <p className="hint">
           Choose a repository and integration branch before creating worktrees. Imported plan
           documents remain unchanged.
         </p>
       )}
+      <About label="About branch settings">
+        <p>
+          New worktrees start from the integration branch’s latest commit and merge back under their
+          selected approval policy. Existing worktrees keep their targets. These settings belong to
+          this plan version.
+        </p>
+      </About>
       {data?.integrationBranchRemoved && (
         <p className="hint">
           Integration branch removed after final promotion. These settings remain as plan history;
@@ -365,8 +384,8 @@ export function PlanBranchPanel({
             protections apply to automatic merges into this repository across plans.
           </p>
           <p className="hint">
-            These settings belong to this plan version. Changing them affects future worktrees.
-            Creating a branch does not switch the primary checkout.
+            Changing these settings affects future worktrees. Creating a branch does not switch the
+            primary checkout.
           </p>
           <div className="inline-actions">
             <button
@@ -387,6 +406,6 @@ export function PlanBranchPanel({
           </div>
         </form>
       )}
-    </section>
+    </Section>
   );
 }

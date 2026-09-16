@@ -1,5 +1,10 @@
 import type { WorkItemDetailResponse } from '@craftingtable/contracts';
 import type { CSSProperties } from 'react';
+import { ActionBar } from '../../components/ActionBar.js';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
+import { type SectionNavItem, SectionNav } from '../../components/SectionNav.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import {
   blockerSummary,
   READINESS_ACCENTS,
@@ -9,9 +14,16 @@ import {
   STATUS_LABELS,
 } from '../../lib/planning-labels.js';
 
+/**
+ * The head of a work item page: identity, state, the lifecycle actions, and
+ * the overview section. The delegation, automation, slice, branch, and diff
+ * sections follow it, composed by the app, and `sections` names them for the
+ * on-page navigation.
+ */
 export function WorkItemPage({
   detail,
   inProgress,
+  sections = [],
   onAdmit,
   onRemoveFromAgenda,
   onComplete,
@@ -23,6 +35,7 @@ export function WorkItemPage({
   detail: WorkItemDetailResponse;
   /** Derived by the app from live worktrees and runs. */
   inProgress: boolean;
+  sections?: readonly SectionNavItem[];
   onAdmit: () => void;
   onRemoveFromAgenda?: () => void;
   onComplete: () => void;
@@ -39,67 +52,71 @@ export function WorkItemPage({
     item.status === 'admitted' && inProgress
       ? 'var(--color-active)'
       : READINESS_ACCENTS[item.readiness];
+  const lifecycleActions =
+    item.status === 'proposed' ? (
+      <button
+        type="button"
+        className="primary-button"
+        onClick={onAdmit}
+        disabled={busy || !canMutate}
+      >
+        {busy ? 'Admitting…' : 'Admit into agenda'}
+      </button>
+    ) : item.status === 'admitted' ? (
+      <>
+        {detail.agendaRemoval && onRemoveFromAgenda && (
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={onRemoveFromAgenda}
+            disabled={busy || !canMutate || !detail.agendaRemoval.allowed}
+            title={
+              detail.agendaRemoval.reason ??
+              'Return this unstarted item to Proposed; admission history is preserved.'
+            }
+          >
+            Remove from agenda
+          </button>
+        )}
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={onComplete}
+          disabled={busy || !canMutate}
+          title="Mark complete without merging a worktree"
+        >
+          Mark complete
+        </button>
+      </>
+    ) : undefined;
   return (
     <>
-      <header className="page-header">
-        <div>
-          <div className="crumbs">
-            <button type="button" className="link-button" onClick={onOpenProject}>
-              {detail.projectName}
-            </button>
-          </div>
-          <h1>
-            <span className="mono" style={{ fontSize: 'var(--text-lg)' }}>
-              {item.sourceId}
-            </span>{' '}
-            · {item.title}
-          </h1>
-          <p className="subtitle">{READINESS_DESCRIPTIONS[item.readiness]}</p>
-        </div>
-        <div className="page-header-actions">
+      <PageHeader
+        crumbs={
+          <button type="button" className="link-button" onClick={onOpenProject}>
+            {detail.projectName}
+          </button>
+        }
+        title={
+          <>
+            <span className="mono">{item.sourceId}</span> · {item.title}
+          </>
+        }
+        subtitle={READINESS_DESCRIPTIONS[item.readiness]}
+        status={
           <span
             className="status-badge large"
             style={{ '--badge-accent': stateAccent } as CSSProperties}
           >
             {stateLabel}
           </span>
-          {item.status === 'proposed' && (
-            <button
-              type="button"
-              className="primary-button"
-              onClick={onAdmit}
-              disabled={busy || !canMutate}
-            >
-              {busy ? 'Admitting…' : 'Admit into agenda'}
-            </button>
-          )}
-          {item.status === 'admitted' && detail.agendaRemoval && onRemoveFromAgenda && (
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={onRemoveFromAgenda}
-              disabled={busy || !canMutate || !detail.agendaRemoval.allowed}
-              title={
-                detail.agendaRemoval.reason ??
-                'Return this unstarted item to Proposed; admission history is preserved.'
-              }
-            >
-              Remove from agenda
-            </button>
-          )}
-          {item.status === 'admitted' && (
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={onComplete}
-              disabled={busy || !canMutate}
-              title="Mark complete without merging a worktree"
-            >
-              Mark complete
-            </button>
-          )}
-        </div>
-      </header>
+        }
+        actions={
+          lifecycleActions === undefined ? undefined : (
+            <ActionBar label="Work item lifecycle">{lifecycleActions}</ActionBar>
+          )
+        }
+      />
 
       {item.status === 'admitted' && detail.agendaRemoval?.reason && (
         <p className="hint">{detail.agendaRemoval.reason}</p>
@@ -120,70 +137,73 @@ export function WorkItemPage({
         <p className="hint">Your workspace role does not permit changing work items.</p>
       )}
 
-      <div className="two-column">
-        <section className="panel" aria-label="Work item details">
-          <dl className="definition-grid">
-            <dt>Status</dt>
-            <dd>{STATUS_LABELS[item.status]}</dd>
-            <dt>Risk</dt>
-            <dd className={`risk risk-${item.risk}`}>{RISK_LABELS[item.risk]}</dd>
-            <dt>Primary areas</dt>
-            <dd>{item.primaryAreas.join(', ') || '—'}</dd>
-            <dt>Exit gate</dt>
-            <dd>{item.exitGate}</dd>
-            <dt>Blockers</dt>
-            <dd>{blockerSummary(item)}</dd>
-            {item.admittedAt !== undefined && (
-              <>
-                <dt>Admitted</dt>
-                <dd>{new Date(item.admittedAt).toLocaleString()}</dd>
-              </>
-            )}
-            {item.completedAt !== undefined && (
-              <>
-                <dt>Completed</dt>
-                <dd>
-                  {new Date(item.completedAt).toLocaleString()}
-                  {item.mergeSha === undefined ? '' : ` · merged as ${item.mergeSha.slice(0, 10)}`}
-                </dd>
-              </>
-            )}
-          </dl>
-        </section>
+      <SectionNav items={sections} />
 
-        <section className="panel" aria-label="Dependencies">
-          <h3>Dependencies</h3>
-          <h4>Required predecessors ({detail.requiredPredecessors.length})</h4>
-          {detail.requiredPredecessors.length === 0 ? (
-            <p className="hint">None.</p>
-          ) : (
-            <ul className="dependency-list">
-              {detail.requiredPredecessors.map((entry) => (
-                <li key={entry.workItemId}>
-                  <strong className="mono">{entry.sourceId}</strong> {entry.title}{' '}
-                  <span className="hint">({STATUS_LABELS[entry.status]})</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <h4>Recommended ({detail.recommendedPredecessors.length})</h4>
-          {detail.recommendedPredecessors.length === 0 ? (
-            <p className="hint">None. Recommendations never block admission.</p>
-          ) : (
-            <ul className="dependency-list">
-              {detail.recommendedPredecessors.map((entry) => (
-                <li key={entry.workItemId}>
-                  <strong className="mono">{entry.sourceId}</strong> {entry.title}
-                </li>
-              ))}
-            </ul>
-          )}
-          <h4>Dependents ({detail.dependents.length})</h4>
-          <p className="hint">
-            {detail.dependents.map((entry) => entry.sourceId).join(', ') || 'None'}
-          </p>
-        </section>
-      </div>
+      <Section id="overview" title="Overview" summary={blockerSummary(item)}>
+        <StatusStrip
+          label="Work item facts"
+          facts={[
+            { label: 'Status', value: STATUS_LABELS[item.status] },
+            {
+              label: 'Risk',
+              value: <span className={`risk risk-${item.risk}`}>{RISK_LABELS[item.risk]}</span>,
+            },
+            { label: 'Areas', value: item.primaryAreas.join(', ') || '—' },
+            ...(item.admittedAt === undefined
+              ? []
+              : [{ label: 'Admitted', value: new Date(item.admittedAt).toLocaleString() }]),
+            ...(item.completedAt === undefined
+              ? []
+              : [
+                  {
+                    label: 'Completed',
+                    value: `${new Date(item.completedAt).toLocaleString()}${
+                      item.mergeSha === undefined
+                        ? ''
+                        : ` · merged as ${item.mergeSha.slice(0, 10)}`
+                    }`,
+                  },
+                ]),
+          ]}
+        />
+        <div className="two-column">
+          <div className="stack">
+            <h4>Exit gate</h4>
+            <p>{item.exitGate}</p>
+          </div>
+          <div className="stack" aria-label="Dependencies">
+            <h4>Required predecessors ({detail.requiredPredecessors.length})</h4>
+            {detail.requiredPredecessors.length === 0 ? (
+              <p className="hint">None.</p>
+            ) : (
+              <ul className="dependency-list">
+                {detail.requiredPredecessors.map((entry) => (
+                  <li key={entry.workItemId}>
+                    <strong className="mono">{entry.sourceId}</strong> {entry.title}{' '}
+                    <span className="hint">({STATUS_LABELS[entry.status]})</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <h4>Recommended ({detail.recommendedPredecessors.length})</h4>
+            {detail.recommendedPredecessors.length === 0 ? (
+              <p className="hint">None. Recommendations never block admission.</p>
+            ) : (
+              <ul className="dependency-list">
+                {detail.recommendedPredecessors.map((entry) => (
+                  <li key={entry.workItemId}>
+                    <strong className="mono">{entry.sourceId}</strong> {entry.title}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <h4>Dependents ({detail.dependents.length})</h4>
+            <p className="hint">
+              {detail.dependents.map((entry) => entry.sourceId).join(', ') || 'None'}
+            </p>
+          </div>
+        </div>
+      </Section>
     </>
   );
 }

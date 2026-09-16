@@ -1038,6 +1038,11 @@ export function App() {
   const canMutate = activeWorkspace?.role !== 'viewer';
   const workspaceRoute = routeWorkspaceId(route) !== undefined;
   const liveRuns = (runsOverview?.runs ?? []).filter((entry) => isLiveStatus(entry.status));
+  const itemInProgress =
+    route.name === 'work-item' &&
+    workItemExecution?.workItemId === route.workItemId &&
+    (workItemExecution.worktrees.some((worktree) => worktree.status === 'active') ||
+      workItemExecution.runs.some((entry) => isLiveStatus(entry.status)));
   /** A cycle belongs to a work item or, for finalization, to a plan version. */
   const openCycle = (cycle: WorkCycle): void => {
     if (workspaceId === undefined) return;
@@ -1315,11 +1320,25 @@ export function App() {
           <div className="page">
             <WorkItemPage
               detail={workItem}
-              inProgress={
-                workItemExecution?.workItemId === route.workItemId &&
-                (workItemExecution.worktrees.some((worktree) => worktree.status === 'active') ||
-                  workItemExecution.runs.some((entry) => isLiveStatus(entry.status)))
-              }
+              inProgress={itemInProgress}
+              sections={[
+                { id: 'overview', label: 'Overview' },
+                { id: 'branches', label: 'Branches' },
+                ...(workItemExecution?.workItemId === route.workItemId
+                  ? [
+                      { id: 'automation', label: 'Automation' },
+                      {
+                        id: 'delegation',
+                        label: 'Delegation',
+                        count: workItemExecution.runs.length,
+                      },
+                    ]
+                  : []),
+                ...(diff !== undefined &&
+                workItemExecution?.worktrees.some((worktree) => worktree.id === diff.worktree.id)
+                  ? [{ id: 'diff', label: 'Diff' }]
+                  : []),
+              ]}
               onAdmit={() => handleAdmit(workItem.workItem.id)}
               onRemoveFromAgenda={() => {
                 const version = workItem.agendaRemoval?.expectedVersion;
@@ -1344,6 +1363,8 @@ export function App() {
               editable={false}
               refreshToken={refreshToken}
               onChanged={() => setRefreshToken((v) => v + 1)}
+              collapsible
+              defaultOpen={!itemInProgress && workItem.workItem.status !== 'completed'}
               {...(canMutate &&
               workItem.workItem.status !== 'completed' &&
               !workItemExecution?.worktrees.some((t) => t.executionScope)
@@ -1361,21 +1382,6 @@ export function App() {
                   planVersionId: workItem.workItem.planVersionId,
                 })
               }
-            />
-            <ExecutionScopesPanel
-              key={`scopes-${workspaceId}-${route.workItemId}`}
-              workspaceId={workspaceId}
-              workItemId={workItem.workItem.id}
-              worktrees={
-                workItemExecution?.workItemId === route.workItemId
-                  ? workItemExecution.worktrees
-                  : []
-              }
-              csrfToken={authenticated.csrfToken}
-              canMutate={canMutate}
-              admitted={workItem.workItem.status === 'admitted'}
-              refreshToken={refreshToken}
-              onChanged={() => setRefreshToken((v) => v + 1)}
             />
             {workItemExecution?.workItemId === route.workItemId &&
               cycleState?.workspaceId === workspaceId && (
@@ -1411,6 +1417,11 @@ export function App() {
               <DelegationPanel
                 repositories={repositories}
                 hideCreateWorktree
+                automationActive={cycles.some(
+                  (cycle) =>
+                    cycle.workItemId === route.workItemId &&
+                    !['stopped', 'completed'].includes(cycle.status),
+                )}
                 renderBranchControls={(worktree) => (
                   <WorktreeBranchPanel
                     key={worktree.id}
@@ -1443,9 +1454,26 @@ export function App() {
                 onOpenDiff={handleLoadDiff}
               />
             )}
+            <ExecutionScopesPanel
+              key={`scopes-${workspaceId}-${route.workItemId}`}
+              workspaceId={workspaceId}
+              workItemId={workItem.workItem.id}
+              worktrees={
+                workItemExecution?.workItemId === route.workItemId
+                  ? workItemExecution.worktrees
+                  : []
+              }
+              csrfToken={authenticated.csrfToken}
+              canMutate={canMutate}
+              admitted={workItem.workItem.status === 'admitted'}
+              refreshToken={refreshToken}
+              onChanged={() => setRefreshToken((v) => v + 1)}
+            />
             {diff !== undefined &&
               workItemExecution?.worktrees.some((worktree) => worktree.id === diff.worktree.id) && (
-                <DiffView diff={diff} onClose={() => setDiff(undefined)} />
+                <div id="diff">
+                  <DiffView diff={diff} onClose={() => setDiff(undefined)} />
+                </div>
               )}
           </div>
         )}

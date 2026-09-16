@@ -11,6 +11,7 @@ export * from './repository.js';
 export * from './review.js';
 export * from './roadmap.js';
 export * from './cross-project.js';
+export * from './map-amendment.js';
 export * from './snapshot.js';
 export * from './storage-policy.js';
 export * from './work-cycle.js';

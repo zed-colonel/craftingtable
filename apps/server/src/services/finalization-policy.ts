@@ -1,3 +1,4 @@
+import { assertFinalizationMap } from './map-finalization-policy.js';
 import {
   type Finalization,
   ownsIntegrationResolution,
@@ -18,6 +19,7 @@ export function finalizationForCycle(
     value.worktreeId !== cycle.worktreeId
   )
     throw new ExecutionRequestError('conflict', 'Finalization delegation is no longer active');
+  assertFinalizationMap(storage, value);
   return value;
 }
 

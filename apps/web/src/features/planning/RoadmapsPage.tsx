@@ -1,3 +1,4 @@
+import { MapAmendmentPanel } from './MapAmendmentPanel.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import type { ExecutionScopeChoice } from '@craftingtable/contracts';
@@ -719,6 +720,13 @@ export function RoadmapsPage({
           </div>
           {roadmap.definition.crossProject && (
             <>
+              <MapAmendmentPanel
+                key={`${roadmap.id}:${roadmap.definition.revision}`}
+                workspaceId={workspaceId}
+                roadmap={roadmap}
+                csrfToken={csrfToken}
+                canMutate={canMutate}
+              />
               <CrossProjectPanel
                 workspaceId={workspaceId}
                 definitionId={roadmap.definition.crossProject.definitionId}

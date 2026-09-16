@@ -457,6 +457,13 @@ export function FinalizationPanel({
                 {f.stages && ` Lifetime total: ${cycle.remediationRounds}.`}
               </p>
             )}
+            {f.mapContext && (
+              <p>
+                Frozen cross-project context: binding {f.mapContext.bindingRevision} · runtime{' '}
+                <code>{f.mapContext.runtimeId}</code>. Changed pins require reconciliation and a new
+                finalization.
+              </p>
+            )}
             <FinalizationStageProgress view={view} />
             {cycle?.finalizationAgentOverride && (
               <p>

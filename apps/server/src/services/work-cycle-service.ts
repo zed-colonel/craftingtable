@@ -553,6 +553,32 @@ export class WorkCycleService {
     });
   }
 
+  /** An approved amendment retires idle automation without deleting its branch or history. */
+  retireForAmendment(context: CommandContext, cycle: WorkCycle, amendmentId: string): void {
+    this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
+    this.mutations.requireAvailable(cycle.worktreeId);
+    if (
+      this.storage.execution.runs
+        .listForWorktree(cycle.workspaceId, cycle.worktreeId)
+        .some((r) => !['finished', 'failed', 'cancelled', 'interrupted'].includes(r.status)) ||
+      ownsIntegrationResolution(cycle) ||
+      this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
+        'reserved'
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Wait for active sessions and Git operations before applying the amendment.',
+      );
+    this.change(
+      cycle,
+      {
+        status: 'stopped',
+        reason: `Retired by reviewed planning amendment ${amendmentId}. Worktree and original run context retained.`,
+      },
+      'amendment-retired',
+      context,
+    );
+  }
   async control(
     context: CommandContext,
     workspaceId: WorkspaceId,
@@ -614,6 +640,11 @@ export class WorkCycleService {
         context,
       );
     }
+    if (this.storage.amendments.retired(workspaceId, cycle.worktreeId))
+      throw new ExecutionRequestError(
+        'conflict',
+        'This attempt was retired by a planning amendment.',
+      );
     if (!['paused', 'needs-attention'].includes(cycle.status))
       throw new ExecutionRequestError('conflict', 'Only a paused cycle can resume');
     if (cycle.integrationResolution?.status === 'detected')
@@ -2483,7 +2514,7 @@ export class WorkCycleService {
             : 'start',
       );
     const item = this.storage.planning.workItems.find(workspaceId, workItemId);
-    if (item?.status !== 'admitted')
+    if (item?.status !== 'admitted' && !(scope && item?.status === 'completed'))
       throw new ExecutionRequestError(
         'conflict',
         'Automation requires an admitted, incomplete work item',

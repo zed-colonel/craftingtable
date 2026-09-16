@@ -1,3 +1,4 @@
+import { integratedSlice, amendmentHoldingScope } from './scope-lineage.js';
 import { adoptedDecisions, mapAdopted, scopeReviewerRoles } from './map-adoption-policy.js';
 import {
   sameExecutionScope,
@@ -16,6 +17,7 @@ import {
   runtimeScopeBlockers,
   activeRuntime,
   currentScopeReceipt,
+  parentAccepted,
 } from './runtime-evidence-policy.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { PhaseGateError, resourceBlockers, phaseResources } from './phase-resources.js';
@@ -106,15 +108,39 @@ export function scopePhaseBlockers(
     tx.execution.sourceRepositories.find(workspaceId, r.binding.repositoryId)?.status !== 'active'
   )
     add('authorization', 'The bound repository is unavailable.');
-  if (r.item.status === 'completed')
-    add('authorization', 'The parent work item is already complete.');
+  if (tx.amendments.superseded(workspaceId, scope.definitionId, scope.bindingRevision))
+    add(
+      'authorization',
+      'This map binding was retired by a reviewed amendment. Use its adopted replacement.',
+    );
+  if (amendmentHoldingScope(tx, workspaceId, scope))
+    add(
+      'authorization',
+      'A planning amendment is awaiting review. Execution is held until it is applied or rejected.',
+    );
   const early = scopeAllowsEarlyDevelopment(tx, workspaceId, workItemId, scope);
-  for (const d of tx.planning.dependencies.listPredecessors(workspaceId, workItemId))
-    if (d.kind === 'required' && d.status !== 'completed' && (phase === 'accept' || !early))
+  for (const d of tx.planning.dependencies.listPredecessors(workspaceId, workItemId)) {
+    const mapped = r.definition.source.work_items.find(
+      (p) => p.source_item_id === d.sourceId && p.repository === r.parent.repository,
+    );
+    if (
+      d.kind === 'required' &&
+      (d.status !== 'completed' ||
+        (mapped &&
+          !parentAccepted(
+            tx,
+            workspaceId,
+            scope.definitionId,
+            scope.bindingRevision,
+            mapped.id,
+          ))) &&
+      (phase === 'accept' || !early)
+    )
       add(
         'dependency',
         `Parent predecessor ${d.sourceId} must be accepted.${r.slice?.early_start_exception ? ' An explicitly authorized early-development rule can replace this barrier for this slice only.' : ''}`,
       );
+  }
   if (
     phase === 'merge' &&
     !tx.execution.worktrees
@@ -168,7 +194,7 @@ export function scopePhaseBlockers(
         .find((w) => w.sourceId === requirement.id);
       if (
         !bound ||
-        tx.planning.workItems.find(workspaceId, bound.workItemId)?.status !== 'completed'
+        !parentAccepted(tx, workspaceId, scope.definitionId, scope.bindingRevision, requirement.id)
       )
         add('dependency', `Parent ${requirement.id} must be accepted.`);
     } else {
@@ -185,13 +211,15 @@ export function scopePhaseBlockers(
             .filter((t) => sameExecutionScope(t.executionScope, target))
         : [];
       const receipts = bound ? tx.scopeReceipts.list(workspaceId, bound.workItemId) : [];
+      const integrated = bound && integratedSlice(tx, workspaceId, bound.workItemId, target);
       const satisfied =
         requirement.state === 'started'
-          ? trees.some((t) =>
+          ? !!integrated ||
+            trees.some((t) =>
               tx.execution.runs.listForWorktree(workspaceId, t.id).some((run) => !!run.startedAt),
             )
           : requirement.state === 'merged'
-            ? trees.some((t) => t.mergedAt)
+            ? !!integrated?.mergeSha
             : !!acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
                 kind: 'slice',
                 sourceId: requirement.id,
@@ -244,7 +272,14 @@ export function scopePhaseBlockers(
       )
         add('evidence', `Required slice ${sliceId} has not been verified.`);
     }
-    if (trees.some((t) => t.status === 'active' && t.executionScope?.kind === 'slice'))
+    if (
+      trees.some(
+        (t) =>
+          t.status === 'active' &&
+          !tx.amendments.retired(workspaceId, t.id) &&
+          t.executionScope?.kind === 'slice',
+      )
+    )
       add('dependency', 'Finish all active slice attempts before reviewing parent acceptance.');
   }
   if (
@@ -315,7 +350,7 @@ export function requireScopeOwnership(
 ) {
   const trees = tx.execution.worktrees.listForWorkItem(workspaceId, workItemId);
   for (const tree of trees) {
-    if (tree.id === ownWorktreeId) continue;
+    if (tree.id === ownWorktreeId || tx.amendments.retired(workspaceId, tree.id)) continue;
     if (tree.executionScope) {
       if (!scope)
         conflict(
@@ -342,6 +377,10 @@ export function requireTreeScope(
   tree: Worktree,
   phase: 'start' | 'merge',
 ) {
+  if (tx.amendments.retired(tree.workspaceId, tree.id))
+    conflict(
+      'This worktree was retired by a reviewed amendment; its edits and history are retained. Use the replacement scope.',
+    );
   if (!tree.workItemId) return;
   requireScopeOwnership(tx, tree.workspaceId, tree.workItemId, tree.executionScope, tree.id);
   if (!tree.executionScope) return;
@@ -389,8 +428,9 @@ export function scopeChoices(
   const receipts = tx.scopeReceipts.list(workspaceId, workItemId);
   for (const d of tx.imports.definitions(workspaceId)) {
     const revisions = tx.imports.bindings(workspaceId, d.id);
-    const ownedRevision = trees.find((t) => t.executionScope?.definitionId === d.id)?.executionScope
-      ?.bindingRevision;
+    const ownedRevision = trees.find(
+      (t) => !tx.amendments.retired(workspaceId, t.id) && t.executionScope?.definitionId === d.id,
+    )?.executionScope?.bindingRevision;
     const b = revisions.find((b) => b.revision === ownedRevision) ?? revisions[0];
     const source = b?.bindings.flatMap((b) => b.workItems).find((w) => w.workItemId === workItemId);
     if (!source || !b) continue;
@@ -535,15 +575,7 @@ export function latestSliceMerge(
   workItemId: WorkItemId,
   scope: ExecutionScope,
 ) {
-  return tx.execution.worktrees
-    .listForWorkItem(workspaceId, workItemId)
-    .filter(
-      (t) =>
-        sameExecutionScope(t.executionScope, { ...scope, kind: 'slice' }) &&
-        t.mergedAt &&
-        t.mergeSha,
-    )
-    .sort((a, b) => (b.mergedAt ?? '').localeCompare(a.mergedAt ?? ''))[0];
+  return integratedSlice(tx, workspaceId, workItemId, scope);
 }
 /** Capabilities required anywhere in this scope's lifecycle, independently of dynamic gates. */
 export function unsupportedScopeCapabilities(r: ResolvedScope, tx?: StorageRepositories): string[] {

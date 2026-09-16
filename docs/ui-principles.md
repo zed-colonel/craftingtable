@@ -185,3 +185,12 @@ and separate target, selected-scope, parent-acceptance, finalization and publica
 adoption has its own proposal review and rationale; it never presents imported checkpoints as passed.
 Defaults and project/activity/individual settings overrides belong in disclosures. Frozen attempts show
 the settings they actually used; queued settings can be edited while paused.
+
+
+Keep amendments in the existing roadmap: choose an exact candidate, preview changed requirements,
+queued work, attempt dispositions and evidence, then record a proposal that holds execution. Apply and
+reject need a rationale; reuse is opt-in and described as code provenance, not verification approval.
+Show immutable decision history and links to preserved attempts. Applying does not Resume. Project
+finalization readiness counts all original parents and links to the established staged controls; partial
+target progress, promotion and publication stay separate. Keep these controls usable as a wrapping phone
+form with disclosure panels for detailed impact.

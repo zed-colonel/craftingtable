@@ -1,3 +1,5 @@
+import { registerMapAmendmentRoutes } from './routes/map-amendments.js';
+import { MapAmendmentService } from './services/map-amendment-service.js';
 import { registerCrossProjectRoutes } from './routes/cross-project.js';
 import type { CrossProjectService } from './services/cross-project-service.js';
 import { readFileSync } from 'node:fs';
@@ -46,6 +48,7 @@ import type { WorkspaceService } from './services/workspace-service.js';
 
 export interface ServerDependencies {
   readonly crossProjectService: CrossProjectService;
+  readonly mapAmendmentService: MapAmendmentService;
   readonly runtimeEvidenceService: RuntimeEvidenceService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
@@ -120,6 +123,7 @@ export function buildServer(
   });
   registerPackageImportRoutes(app, deps.authService, deps.packageImportService, config);
   registerCrossProjectRoutes(app, deps.authService, deps.crossProjectService, config);
+  registerMapAmendmentRoutes(app, deps.authService, deps.mapAmendmentService, config);
   registerRuntimeEvidenceRoutes(app, deps.authService, deps.runtimeEvidenceService, config);
   registerStorageRoutes(app, deps.authService, deps.storageService, config);
   registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);

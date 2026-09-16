@@ -189,7 +189,7 @@ export function composeBrief(input: BriefInput): string {
   if (input.executionScope) {
     const s = input.executionScope;
     sections.push(
-      `## Controller-owned execution scope\n\nThis run covers only ${s.identity.sourceId}. The parent exit gate remains: ${input.workItem.exitGate}. Do not implement excluded work or mark the parent complete.\nScope: ${s.scope}\nExclusions:\n${s.excludes.map((e) => `- ${e}`).join('\n') || '- none'}\n${s.context}\nEvidence obligations:\n${s.requirements.map((e) => `- ${e}`).join('\n')}\nAssigned cases: ${s.cases.join(', ') || 'none'}`,
+      `## Controller-owned execution scope\n\nThis run covers only ${s.identity.sourceId}. The parent exit gate remains: ${input.workItem.exitGate}. Do not implement excluded work or mark the parent complete. If new requirements or dependencies are needed, report them as open questions and propose a planning amendment with its rationale and affected scopes. Do not silently change the plan, map, acceptance criteria or scheduling authority during remediation.\nScope: ${s.scope}\nExclusions:\n${s.excludes.map((e) => `- ${e}`).join('\n') || '- none'}\n${s.context}\nEvidence obligations:\n${s.requirements.map((e) => `- ${e}`).join('\n')}\nAssigned cases: ${s.cases.join(', ') || 'none'}`,
     );
     if (input.role === 'review')
       sections.push(

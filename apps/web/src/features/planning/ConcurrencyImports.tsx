@@ -136,8 +136,9 @@ export function ConcurrencyImports({
     <section className="panel concurrency-imports" aria-label="Cross-project roadmap imports">
       <h2>Cross-project roadmaps</h2>
       <p>
-        Import a concurrency map to inspect its slices, gates and exact plan bindings. This release
-        saves drafts for review; execution and adoption will follow in later increments.
+        Import a concurrency map to inspect its slices, gates and exact plan bindings. Choose a
+        target, review and adopt its scheduling proposals, then create a roadmap and explicitly
+        Start. Importing alone never launches work.
       </p>
       {canMutate && (
         <details>

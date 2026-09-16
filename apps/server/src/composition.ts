@@ -1,3 +1,4 @@
+import { MapAmendmentService } from './services/map-amendment-service.js';
 import { CrossProjectService } from './services/cross-project-service.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -54,6 +55,7 @@ import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
 
 export interface ServiceSet {
   readonly crossProjectService: CrossProjectService;
+  readonly mapAmendmentService: MapAmendmentService;
   readonly runtimeEvidenceService: RuntimeEvidenceService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
@@ -257,6 +259,14 @@ export async function createServices(
   });
   return {
     crossProjectService,
+    mapAmendmentService: new MapAmendmentService(
+      storage,
+      workspaceService,
+      crossProjectService,
+      workCycleService,
+      gitOperations,
+      notifier,
+    ),
     runtimeEvidenceService,
     storageService,
     finalizationService: new FinalizationService(
@@ -331,6 +341,7 @@ export async function createRuntime(
     const app = buildServer(
       {
         crossProjectService: services.crossProjectService,
+        mapAmendmentService: services.mapAmendmentService,
         runtimeEvidenceService: services.runtimeEvidenceService,
         packageImportService: services.packageImportService,
         storageService: services.storageService,

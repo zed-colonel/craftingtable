@@ -1,3 +1,4 @@
+import { integratedSlice } from './scope-lineage.js';
 import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
 import type {
   ConcurrencyDefinition,
@@ -144,17 +145,12 @@ export function expectedSubjectCommit(
       .flatMap((b) => b.workItems)
       .find((w) => w.sourceId === info.slice?.work_item)?.workItemId;
     return id
-      ? tx.execution.worktrees
-          .listForWorkItem(ws, id)
-          .filter(
-            (t) =>
-              t.executionScope?.definitionId === d.id &&
-              t.executionScope.bindingRevision === bindingRevision &&
-              t.executionScope.sourceId === subject.sourceId &&
-              t.executionScope.kind === 'slice' &&
-              t.mergeSha,
-          )
-          .sort((a, b) => (b.mergedAt ?? '').localeCompare(a.mergedAt ?? ''))[0]?.mergeSha
+      ? integratedSlice(tx, ws, id, {
+          kind: 'slice',
+          definitionId: d.id,
+          bindingRevision,
+          sourceId: subject.sourceId,
+        })?.mergeSha
       : undefined;
   }
   return undefined;
@@ -387,7 +383,7 @@ export function prerequisiteIssues(
         .flatMap((b) => b.workItems)
         .find((w) => w.sourceId === parent)?.workItemId;
       if (r.kind === 'work_item') {
-        if (!id || tx.planning.workItems.find(d.workspaceId, id)?.status !== 'completed')
+        if (!parentAccepted(tx, d.workspaceId, d.id, bindingRevision, r.id))
           issues.push(`Parent ${r.id} must be accepted.`);
       } else {
         const trees = id
@@ -401,13 +397,22 @@ export function prerequisiteIssues(
                   t.executionScope.kind === 'slice',
               )
           : [];
+        const integrated =
+          id &&
+          integratedSlice(tx, d.workspaceId, id, {
+            kind: 'slice',
+            definitionId: d.id,
+            bindingRevision,
+            sourceId: r.id,
+          });
         const satisfied =
           r.state === 'started'
-            ? trees.some((t) =>
+            ? !!integrated ||
+              trees.some((t) =>
                 tx.execution.runs.listForWorktree(d.workspaceId, t.id).some((r) => r.startedAt),
               )
             : r.state === 'merged'
-              ? trees.some((t) => t.mergeSha)
+              ? !!integrated?.mergeSha
               : !!acceptedEvidence(
                   tx,
                   d.workspaceId,
@@ -425,7 +430,7 @@ export function prerequisiteIssues(
                         p.scope.definitionId === d.id &&
                         p.scope.bindingRevision === bindingRevision &&
                         p.scope.sourceId === r.id &&
-                        trees.some((t) => t.mergeSha === p.integrationSha),
+                        integrated?.mergeSha === p.integrationSha,
                     ));
         if (!satisfied) issues.push(`Slice ${r.id} must be ${r.state}.`);
       }
@@ -439,7 +444,41 @@ export function currentScopeReceipt(
   ws: WorkspaceId,
   p: import('@craftingtable/domain').ScopeReceipt,
 ): boolean {
+  if (
+    tx.amendments.superseded(ws, p.scope.definitionId, p.scope.bindingRevision) ||
+    tx.imports.bindings(ws, p.scope.definitionId)[0]?.revision !== p.scope.bindingRevision
+  )
+    return false;
   const runtime = activeRuntime(tx, ws, p.scope.definitionId, p.scope.bindingRevision);
   if (!runtime) return true;
   return tx.runtimeEvidence.run(ws, p.reviewRunId)?.runtimeId === runtime.id;
+}
+
+/** Completion in another adopted scope is history, not acceptance of these requirements. */
+export function parentAccepted(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  definitionId: string,
+  bindingRevision: number,
+  sourceId: string,
+): boolean {
+  const id = tx.imports
+    .bindings(ws, definitionId)
+    .find((b) => b.revision === bindingRevision)
+    ?.bindings.flatMap((b) => b.workItems)
+    .find((w) => w.sourceId === sourceId)?.workItemId;
+  return (
+    !!id &&
+    tx.planning.workItems.find(ws, id)?.status === 'completed' &&
+    tx.scopeReceipts
+      .list(ws, id)
+      .some(
+        (p) =>
+          p.scope.kind === 'parent-acceptance' &&
+          p.scope.definitionId === definitionId &&
+          p.scope.bindingRevision === bindingRevision &&
+          p.scope.sourceId === sourceId &&
+          currentScopeReceipt(tx, ws, p),
+      )
+  );
 }

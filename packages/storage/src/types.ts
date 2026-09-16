@@ -213,6 +213,7 @@ export interface WorkspaceEventRepository {
 import type { RoadmapRepository } from './repositories/roadmaps.js';
 
 export interface StorageRepositories {
+  readonly amendments: import('./repositories/map-amendments.js').MapAmendmentRepository;
   readonly runtimeEvidence: import('./repositories/runtime-evidence.js').RuntimeEvidenceRepository;
   readonly phaseScheduling: import('./repositories/phase-reservations.js').PhaseSchedulingRepository;
   readonly scopeReceipts: import('./repositories/scope-receipts.js').ScopeReceiptRepository;

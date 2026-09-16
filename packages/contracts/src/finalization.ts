@@ -79,6 +79,14 @@ export const startFinalizationRequestSchema = finalizationSettingsSchema.extend(
   targetBranch: gitBranchNameSchema,
 });
 export const finalizationSchema = finalizationSettingsSchema.extend({
+  mapContext: z
+    .strictObject({
+      definitionId: z.uuid(),
+      bindingRevision: z.number().int().positive(),
+      runtimeId: z.uuid(),
+      alias: z.string(),
+    })
+    .optional(),
   id: z.string().uuid(),
   workspaceId: workspaceIdSchema,
   planVersionId: planVersionIdSchema,

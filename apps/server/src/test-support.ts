@@ -78,6 +78,7 @@ export async function createTestContext(
   const app = buildServer(
     {
       crossProjectService: services.crossProjectService,
+      mapAmendmentService: services.mapAmendmentService,
       runtimeEvidenceService: services.runtimeEvidenceService,
       packageImportService: services.packageImportService,
       storageService: services.storageService,

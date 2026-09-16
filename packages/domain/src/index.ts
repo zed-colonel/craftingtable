@@ -13,6 +13,8 @@ export * from './repository.js';
 export * from './review.js';
 export * from './roadmap.js';
 export * from './cross-project.js';
+export * from './map-amendment.js';
+export * from './concurrency-amendment.js';
 export * from './storage-policy.js';
 export * from './work-cycle.js';
 export * from './workspace.js';

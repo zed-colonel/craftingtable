@@ -1,9 +1,8 @@
 # Cross-project concurrency roadmap
 
-Status: increments 1–4 delivered; increments 5–6 pending.
-The next deliverable is **pinned dependency environments and durable evidence**. Recording this plan
-neither imports packages nor adopts their proposed decisions, starts execution, changes
-project state, or approves a merge.
+Status: **increments 1–6 delivered**. Import, exact binding, execution slices, phase scheduling,
+pinned environments/evidence, supervision, amendments and finalization coordination are available.
+Delivery does not adopt production map decisions, start work or approve any merge.
 
 This document preserves the operator-approved direction and package-specific details for
 work across sessions. Update delivery status and record material deviations here as work
@@ -286,7 +285,7 @@ external. Superseded map bindings and invalidated completed verification require
 reviewed amendment/reconciliation is increment 6. See [ADR-048](decisions/048-cross-project-supervision.md).
 No production map was adopted and no WI/EXO work was started during delivery.
 
-### 6. Amendments, finalization and Planning Studio seam — pending
+### 6. Amendments, finalization and Planning Studio seam — delivered 2026-09-16
 
 New maps/plans create reviewed revisions with an impact preview: changed requirements,
 queued work, in-flight attempts and evidence applicability. Never silently rebind to latest.
@@ -309,6 +308,17 @@ Acceptance: replacing a plan/map shows affected work and stale evidence without 
 completed history. Intermediate target completion cannot finalize an incomplete plan. No map,
 agent, checkpoint or automation setting approves protected-branch promotion.
 
+Delivered: immutable proposals and decisions with current impact digests, queued-work/requirement/
+evidence previews, exact replacement binding and explicit plan activation. Pending proposals hold
+workspace delegation; live sessions retain their context. Reviewed revisions preserve old attempts,
+branches and completion history, with optional ancestry-checked integration code reuse and fresh
+verification/acceptance. Same-binding reconciliation replaces stale reviews after runtime changes.
+The UI links full original parent acceptance to staged finalization; map/runtime/integration snapshots
+remain frozen and final promotion remains an exact-commit operator command. Provider promotion
+requires explicit downstream repinning and reassessment, not implicit publication approval.
+The shared bounded normalized-definition validator is the future Studio authoring seam; agent scope
+changes surface as questions and can be recorded as attributed proposals. See [ADR-049](decisions/049-reviewed-map-amendments-and-finalization.md).
+
 ## Delivery and resumption notes
 
 Implement the increments in the sequence above, designing their shared identities and
@@ -330,12 +340,14 @@ points are `packages/domain/src/roadmap.ts`, `apps/server/src/services/roadmap-s
 `packages/planning/src/limits.ts`, `apps/server/src/services/execution-service.ts`, and
 `apps/web/src/features/planning/ImportPlanPage.tsx`.
 
-Delivery status: **increments 1–5 delivered; increment 6 pending**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
+Delivery status: **increments 1–6 delivered**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
 Reference-fixture checks reconstruct 335 milestones and 1,221 edges. WI and EXO ZIPs
 retain 27 and 28 current planning documents respectively. Desktop/phone tests cover
 upload, exact binding and reload; daemon tests cover source mismatch, stale binding
 revisions, conflicting imports, durable records, preserved versions and activation guards.
 Production plan imports and exact bindings remain intact. AQ remains a registered upstream
 awaiting explicit pin configuration and reviewed evidence in the new runtime controls.
-Next task: increment 6, reviewed amendments, finalization coordination and the Planning Studio seam.
+The six-increment implementation sequence is complete. Planning Studio authoring and enforcing remote
+qualification adapters remain future capabilities. Production adoption, configuration and Start remain
+explicit operator actions.
 No production work, map decisions or baseline/publication gates were authorized by increment 4.

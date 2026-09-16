@@ -7,6 +7,11 @@ import { createTestContext } from './test-support.js';
  */
 
 const EXPECTED_ROUTES = [
+  'GET /api/workspaces/:workspaceId/roadmaps/:roadmapId/amendments',
+  'GET /api/workspaces/:workspaceId/roadmaps/:roadmapId/finalization-readiness',
+  'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/amendments/preview',
+  'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/amendments',
+  'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/amendments/decision',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/preview',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/adopt',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/roadmap',

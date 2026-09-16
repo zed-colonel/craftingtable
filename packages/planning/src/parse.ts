@@ -249,6 +249,11 @@ export function parseYamlDocument(
     };
   }
 
+  return normalizeJsonDocument(raw, artifactName);
+}
+
+/** Shared depth/node/scalar bounds for parsed documents and structured authoring input. */
+export function normalizeJsonDocument(raw: unknown, artifactName: string): YamlParseResult {
   const diagnostics: PlanDiagnostic[] = [];
   const value = toJsonValue(raw, '', artifactName, { nodes: 0 }, 0, diagnostics);
   if (value === undefined) {

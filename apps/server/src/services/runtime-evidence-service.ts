@@ -1,3 +1,4 @@
+import { assertFinalizationMap, providerBranch } from './map-finalization-policy.js';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -283,10 +284,10 @@ export class RuntimeEvidenceService {
         issues.push(`Pinned repository ${pin.alias} is unavailable.`);
         continue;
       }
-      if (b.integrationBranch || pin.ref) {
+      if (providerBranch(this.storage, ws, b) || pin.ref) {
         const head = await this.requireGit().resolveCommit(
           repo.rootPath,
-          b.integrationBranch ?? pin.ref,
+          providerBranch(this.storage, ws, b) ?? pin.ref,
         );
         if (!head.ok || head.value.commitSha !== pin.commitSha)
           issues.push(
@@ -309,8 +310,11 @@ export class RuntimeEvidenceService {
         b?.repositoryId &&
         this.storage.execution.sourceRepositories.find(d.workspaceId, b.repositoryId);
       const head =
-        repo && repo.status === 'active' && b?.integrationBranch
-          ? await this.requireGit().resolveBranch(repo.rootPath, b.integrationBranch)
+        repo && repo.status === 'active' && b && providerBranch(this.storage, d.workspaceId, b)
+          ? await this.requireGit().resolveBranch(
+              repo.rootPath,
+              providerBranch(this.storage, d.workspaceId, b)!,
+            )
           : undefined;
       if (!head?.ok || head.value !== code.commitSha)
         issues.push(
@@ -544,8 +548,15 @@ export class RuntimeEvidenceService {
         alias: r.id,
         role: r.role,
         configured: !!binding?.bindings.find((b) => b.alias === r.id)?.repositoryId,
-        ...(binding?.bindings.find((b) => b.alias === r.id)?.integrationBranch
-          ? { integrationBranch: binding.bindings.find((b) => b.alias === r.id)!.integrationBranch }
+        ...(binding?.bindings.find((b) => b.alias === r.id) &&
+        providerBranch(this.storage, ws, binding.bindings.find((b) => b.alias === r.id)!)
+          ? {
+              integrationBranch: providerBranch(
+                this.storage,
+                ws,
+                binding.bindings.find((b) => b.alias === r.id)!,
+              ),
+            }
           : {}),
       })),
       subjects: subjects.map((subject) => {
@@ -589,8 +600,20 @@ export class RuntimeEvidenceService {
     if (!record || !generations.some((g) => g.id === record.runtimeId)) throw new NotFoundError();
     return record;
   }
+  private treeContext(tree: Worktree) {
+    const finalization = tree.planVersionId
+      ? this.storage.execution.finalizations
+          .list(tree.workspaceId)
+          .find((f) => f.worktreeId === tree.id)
+      : undefined;
+    if (finalization?.mapContext) {
+      assertFinalizationMap(this.storage, finalization);
+      return { ...finalization.mapContext, finalization: true as const };
+    }
+    return tree.executionScope;
+  }
   async prepare(tree: Worktree, runId: string, runDirectory: string) {
-    const scope = tree.executionScope;
+    const scope = this.treeContext(tree);
     if (!scope) return;
     const runtime = activeRuntime(
       this.storage,
@@ -669,11 +692,26 @@ export class RuntimeEvidenceService {
       configDigest: hash(config),
       receiptPath: join(directory, 'build-receipts.jsonl'),
     };
+    await this.assertFreshTree(tree);
     const launch = prepareCargoLauncher(directory, manifest);
-    return { ...launch, runtimeId: runtime.id };
+    return {
+      ...launch,
+      runtimeId: runtime.id,
+      definitionId: scope.definitionId,
+      bindingRevision: scope.bindingRevision,
+    };
+  }
+  assertPrepared(tree: Worktree, runtimeId: string) {
+    const scope = this.treeContext(tree);
+    if (
+      !scope ||
+      activeRuntime(this.storage, tree.workspaceId, scope.definitionId, scope.bindingRevision)
+        ?.id !== runtimeId
+    )
+      conflict('Dependency generation changed during run preparation.');
   }
   assertRun(tree: Worktree, runId: string) {
-    const scope = tree.executionScope;
+    const scope = this.treeContext(tree);
     if (!scope) return;
     const runtime = activeRuntime(
       this.storage,
@@ -775,7 +813,7 @@ export class RuntimeEvidenceService {
     }
   }
   async assertFreshTree(tree: Worktree, transition?: 'start' | 'merge' | 'verify' | 'accept') {
-    const scope = tree.executionScope;
+    const scope = this.treeContext(tree);
     if (!scope) return;
     const runtime = activeRuntime(
       this.storage,
@@ -788,6 +826,11 @@ export class RuntimeEvidenceService {
       binding = this.binding(tree.workspaceId, d.id, scope.bindingRevision);
     const alias = binding.bindings.find((b) => b.repositoryId === tree.repositoryId)?.alias;
     const issues = await this.freshness(tree.workspaceId, runtime, alias);
+    if ('finalization' in scope) {
+      if (issues.length) conflict(issues.join('\n'));
+      this.treeContext(tree);
+      return;
+    }
     const phase =
       transition ??
       (scope.kind === 'slice-verification'
@@ -836,6 +879,7 @@ export class RuntimeEvidenceService {
       },
       true,
     );
+    this.treeContext(tree);
     if (issues.length) conflict([...new Set(issues)].join('\n'));
   }
   private changed(

@@ -1,6 +1,7 @@
 import type { ConcurrencyRequirement, ConcurrencySource, JsonValue } from '@craftingtable/domain';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import {
+  ARCHIVE_LIMITS,
   type ArchiveEntry,
   ArchiveError,
   decodeUtf8,
@@ -9,7 +10,7 @@ import {
 } from './archive.js';
 import { concurrencySourceSchema } from './concurrency-schema.js';
 import { sha256Hex } from './digest.js';
-import { parseYamlDocument } from './parse.js';
+import { parseYamlDocument, normalizeJsonDocument } from './parse.js';
 
 export interface ImportDiagnostic {
   readonly severity: 'error' | 'warning' | 'info';
@@ -87,7 +88,42 @@ export function analyzeConcurrencyArchive(bytes: Uint8Array): ConcurrencyAnalysi
     return failed(error);
   }
   if (!parsed.ok) return { diagnostics: parsed.diagnostics, graphNodeCount: 0, graphEdgeCount: 0 };
-  if (!validate(parsed.value))
+  const result = analyzeConcurrencyDefinition(parsed.value, entries, root);
+  return result.source ? { ...result, digest: sha256Hex(entry.bytes) } : result;
+}
+/** Shared import/Planning Studio validation seam. No persistence or execution authority. */
+export function analyzeConcurrencyDefinition(
+  value: unknown,
+  entries: readonly ArchiveEntry[],
+  root = '',
+): ConcurrencyAnalysis {
+  try {
+    if (
+      (root && (!root.endsWith('/') || !safeArchivePath(root.slice(0, -1)))) ||
+      entries.length > ARCHIVE_LIMITS.maxEntries ||
+      new Set(entries.map((e) => e.path)).size !== entries.length ||
+      entries.some(
+        (e) =>
+          !safeArchivePath(e.path) ||
+          e.bytes.byteLength > ARCHIVE_LIMITS.maxEntryBytes ||
+          sha256Hex(e.bytes) !== e.sha256,
+      ) ||
+      entries.reduce((n, e) => n + e.bytes.byteLength, 0) > ARCHIVE_LIMITS.maxExpandedBytes
+    )
+      throw new ArchiveError(
+        'invalid-snapshots',
+        'Invalid, duplicate, oversized or incorrectly hashed source snapshots.',
+      );
+    const parsed = normalizeJsonDocument(value, 'normalized-map.json');
+    if (!parsed.ok)
+      return { diagnostics: parsed.diagnostics, graphNodeCount: 0, graphEdgeCount: 0 };
+    value = parsed.value;
+    if (Buffer.byteLength(JSON.stringify(value)) > ARCHIVE_LIMITS.maxEntryBytes)
+      throw new ArchiveError('map-size', 'Normalized map exceeds document limits.');
+  } catch (error) {
+    return failed(error);
+  }
+  if (!validate(value))
     return {
       diagnostics: (validate.errors ?? []).slice(0, 20).map((e) => ({
         severity: 'error',
@@ -102,7 +138,7 @@ export function analyzeConcurrencyArchive(bytes: Uint8Array): ConcurrencyAnalysi
       graphNodeCount: 0,
       graphEdgeCount: 0,
     };
-  const source = parsed.value;
+  const source = value;
   const diagnostics: ImportDiagnostic[] = [];
   const require = (ok: boolean, code: string, message: string) => {
     if (!ok && diagnostics.length < 100)
@@ -502,7 +538,9 @@ export function analyzeConcurrencyArchive(bytes: Uint8Array): ConcurrencyAnalysi
     .map(([id]) => id)
     .join(', ')}`);
   return {
-    ...(diagnostics.length ? {} : { source, digest: sha256Hex(entry.bytes) }),
+    ...(diagnostics.length
+      ? {}
+      : { source, digest: sourceRecordDigest(source as unknown as JsonValue) }),
     diagnostics,
     graphNodeCount: graph.size,
     graphEdgeCount: [...graph.values()].reduce((n, edges) => n + edges.size, 0),

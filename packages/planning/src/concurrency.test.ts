@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { readArchive } from './archive.js';
 import { zipFixture } from './archive-test-support.js';
-import { analyzeConcurrencyArchive } from './concurrency.js';
+import { analyzeConcurrencyArchive, analyzeConcurrencyDefinition } from './concurrency.js';
 
 const bytes = readFileSync(
   new URL(
@@ -91,4 +91,51 @@ describe('source-bound concurrency definition', () => {
     const alias = zipFixture([{ path: mapEntry.path, bytes: Buffer.from('x: &x value\ny: *x\n') }]);
     expect(analyzeConcurrencyArchive(alias).diagnostics[0]?.code).toBe('invalid-yaml');
   });
+});
+
+it('validates normalized Studio definitions through the same source-bound semantic gates', () => {
+  const original = analyzeConcurrencyArchive(bytes),
+    root = mapEntry.path.slice(0, mapEntry.path.lastIndexOf('/') + 1);
+  const normalized = analyzeConcurrencyDefinition(original.source, entries, root);
+  expect(normalized.source).toEqual(original.source);
+  expect(normalized.diagnostics).toEqual([]);
+  expect(normalized.graphEdgeCount).toBe(original.graphEdgeCount);
+  const changed = structuredClone(original.source!);
+  (changed.slices[0]!.start_requires as unknown[]).push({
+    kind: 'checkpoint',
+    id: 'MISSING',
+    state: 'passed',
+  });
+  expect(analyzeConcurrencyDefinition(changed, entries, root).source).toBeUndefined();
+  expect(
+    analyzeConcurrencyDefinition(
+      original.source,
+      [...entries, { ...entries[0]!, path: '../escape' }],
+      root,
+    ).source,
+  ).toBeUndefined();
+  expect(
+    analyzeConcurrencyDefinition(
+      original.source,
+      entries.map((e, i) => (i ? e : { ...e, sha256: '0'.repeat(64) })),
+      root,
+    ).source,
+  ).toBeUndefined();
+});
+it('compares scope obligations and embedded sources when reviewing replacement definitions', async () => {
+  const { compareConcurrencyDefinitions, scopeDefinitionFingerprint } = await import(
+    '@craftingtable/domain'
+  );
+  const original = analyzeConcurrencyArchive(bytes).source!,
+    changed = structuredClone(original);
+  const id = changed.slices[0]!.id;
+  (changed.slices[0] as { scope: string }).scope += ' Added obligation';
+  const diff = compareConcurrencyDefinitions(original, changed);
+  expect(
+    diff.filter((d) => d.key.startsWith(`slice:${id}:`)).every((d) => d.change === 'changed'),
+  ).toBe(true);
+  expect(diff.some((d) => d.change === 'unchanged')).toBe(true);
+  expect(scopeDefinitionFingerprint(original, 'slice', id)).not.toBe(
+    scopeDefinitionFingerprint(changed, 'slice', id),
+  );
 });

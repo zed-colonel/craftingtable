@@ -405,3 +405,12 @@ agent model, not authentication of a human maintainer or a sandbox qualification
 review run must match the assigned backend/model/permission profile and report all scope evidence.
 Assignments do not bypass resource authorization, native/Kata execution boundaries or checkpoint
 attestations; qualified external reviews remain available.
+
+
+Schema 22 adds immutable map amendment proposals/decisions, retired execution identities and explicit
+integration reuse provenance. MapAmendmentService previews exact revisions and coordinates reviewed
+plan activation and RoadmapService revision adoption in one transaction. Running sessions retain their
+original context; stale reviews are replaced while compatible development remains intact. Full-plan
+finalization records an exact map/runtime context and uses RuntimeEvidenceService for dependency
+preparation and promotion checks. The ZIP adapter and future Studio share bounded normalized map
+validation; authoring remains separate from binding, adoption and execution. See ADR-049.

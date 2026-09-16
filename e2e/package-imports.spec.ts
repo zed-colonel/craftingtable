@@ -47,7 +47,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   page,
   upstreamRepository,
 }, info) => {
-  test.setTimeout(90000);
+  test.setTimeout(120000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto('/');
@@ -172,7 +172,11 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .getByText('Configure pinned dependencies and environments', { exact: true })
     .click();
   await runtime.getByLabel('aq · branch or commit', { exact: true }).fill('main');
+  const inspected = page.waitForResponse(
+    (r) => r.url().endsWith('/runtime/inspect') && r.request().method() === 'POST',
+  );
   await runtime.getByRole('button', { name: 'Inspect aq', exact: true }).click();
+  expect((await inspected).status()).toBe(200);
   await expect(runtime.getByText(/Supplied crates: aq_e2e_pin/)).toBeVisible();
   await runtime.getByLabel('Conformance revision', { exact: true }).fill('16');
   // Consumer plans have not bound repositories yet; this saves baseline configuration only.
@@ -311,5 +315,87 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await scopePicker.selectOption(scopeOption!);
   await editor.getByRole('button', { name: 'Add to sequence', exact: true }).click();
   await expect(editor.getByRole('heading', { name: /wi\/WI-01/ }).first()).toBeVisible();
+  // Save a real imported roadmap, then reconcile its explicit target from the browser.
+  for (const [project, branch] of [
+    ['WorldInterface', 'wi-revision'],
+    ['Exoskeleton', 'exo-revision'],
+  ]) {
+    await navigate('Projects');
+    await page.getByRole('button', { name: project, exact: true }).click();
+    await page.getByRole('button', { name: 'Configure branches', exact: true }).click();
+    const branches = page.getByRole('region', { name: 'Repository & branches', exact: true });
+    await branches
+      .getByRole('combobox', { name: 'Branch action', exact: true })
+      .selectOption('create');
+    await branches.getByLabel('Integration branch', { exact: true }).fill(branch);
+    await branches
+      .getByRole('combobox', { name: 'Create from branch', exact: true })
+      .selectOption('main');
+    const branchSaved = page.waitForResponse(
+      (r) => r.url().endsWith('/branch-settings') && r.request().method() === 'POST',
+    );
+    await branches.getByRole('button', { name: 'Save branch settings', exact: true }).click();
+    const branchResult = await branchSaved;
+    expect(branchResult.status(), await branchResult.text()).toBe(200);
+    await expect(branches.getByText(branch, { exact: true })).toBeVisible();
+  }
+  await navigate('Roadmaps');
+  await page
+    .getByLabel('Imported roadmap draft')
+    .selectOption({ label: 'EXO-STACK-CONCURRENCY-DRAFT-1 · 0.3.0 · 33 parents / 69 slices' });
+  await maps.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
+  await expect(maps.getByText('Recorded binding revision: 2.', { exact: false })).toBeVisible();
+  await supervisor
+    .getByRole('combobox', { name: 'Planning target', exact: true })
+    .selectOption('WI-EMBEDDED-WORKER-PROOF-1');
+  await supervisor
+    .getByRole('combobox', { name: 'Selection mode', exact: true })
+    .selectOption('prioritize-full');
+  await supervisor.getByText('Roadmap agent and automation settings', { exact: true }).click();
+  await supervisor
+    .getByRole('textbox', { name: 'Roadmap name', exact: true })
+    .fill('Amendable stack roadmap');
+  const created = page.waitForResponse(
+    (r) => r.url().endsWith('/supervision/roadmap') && r.request().method() === 'POST',
+  );
+  await supervisor
+    .getByRole('button', { name: 'Create cross-project roadmap', exact: true })
+    .click();
+  const creation = await created;
+  expect(creation.status(), await creation.text()).toBe(200);
+  const saved = page.getByRole('region', { name: 'Amendable stack roadmap', exact: true });
+  await expect(saved).toBeVisible();
+  const amendments = saved.getByRole('region', {
+    name: 'Planning amendments and finalization',
+    exact: true,
+  });
+  await amendments
+    .getByLabel('Amended target', { exact: true })
+    .selectOption('EXO-EMBEDDED-VIABILITY-1');
+  await amendments
+    .getByLabel('Planning proposal', { exact: true })
+    .fill('Prioritize EXO viability while retaining all obligations.');
+  await amendments.getByRole('button', { name: 'Preview amendment impact', exact: true }).click();
+  await expect(
+    amendments.getByRole('heading', { name: 'Impact preview', exact: true }),
+  ).toBeVisible();
+  await amendments.getByRole('button', { name: 'Propose and hold roadmap', exact: true }).click();
+  await expect(amendments.getByText('Execution held:', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(amendments.getByText('Execution held:', { exact: true })).toBeVisible();
+  await amendments
+    .getByLabel('Decision rationale', { exact: true })
+    .fill('Reviewed queued work and unchanged plan bindings.');
+  await amendments.getByRole('button', { name: 'Apply reviewed amendment', exact: true }).click();
+  await expect(amendments.getByText('Execution held:', { exact: true })).toHaveCount(0);
+  await expect(amendments.getByText(/Amendment history/)).toBeVisible();
+  await expect(
+    amendments.getByRole('heading', { name: 'Project finalization readiness', exact: true }),
+  ).toBeVisible();
+  await expect(amendments.getByText('wi — blocked', { exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+  await amendments.screenshot({ path: info.outputPath('map-amendments.png') });
   expect(errors).toEqual([]);
 });

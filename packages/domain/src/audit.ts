@@ -67,6 +67,7 @@ export const AUDIT_ACTIONS = [
   'scope.evidence-recorded',
   'scope.scheduling-authorized',
   'concurrency.adopted',
+  'roadmap.amendment',
   'runtime.configured',
   'evidence.submitted',
   'evidence.decided',
@@ -122,6 +123,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'scope.evidence-recorded': 18,
   'scope.scheduling-authorized': 19,
   'concurrency.adopted': 21,
+  'roadmap.amendment': 22,
   'runtime.configured': 20,
   'evidence.submitted': 20,
   'evidence.decided': 20,
@@ -129,7 +131,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
 } as const satisfies Readonly<
   Record<
     AuditAction,
-    1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21
+    1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22
   >
 >;
 

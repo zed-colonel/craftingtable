@@ -545,6 +545,11 @@ export class ExecutionService {
       const tree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
       if (!tree?.workItemId || !tree.executionScope) throw new NotFoundError();
       delegation?.check();
+      if (this.storage.amendments.retired(workspaceId, worktreeId))
+        throw new ExecutionRequestError(
+          'conflict',
+          'This review worktree was retired by a reviewed amendment.',
+        );
       const workItemId = tree.workItemId,
         scope = tree.executionScope;
       const repo = this.storage.execution.sourceRepositories.find(workspaceId, tree.repositoryId);
@@ -659,17 +664,7 @@ export class ExecutionService {
                 'Acceptance and verification reviews must inspect the unchanged current integration snapshot.',
               );
             if (!parent) {
-              const merged = this.storage.execution.worktrees
-                .listForWorkItem(workspaceId, workItemId)
-                .filter(
-                  (t) =>
-                    t.executionScope?.kind === 'slice' &&
-                    t.executionScope.sourceId === scope.sourceId &&
-                    t.executionScope.definitionId === scope.definitionId &&
-                    t.executionScope.bindingRevision === scope.bindingRevision &&
-                    t.mergeSha,
-                )
-                .sort((a, b) => (b.mergedAt ?? '').localeCompare(a.mergedAt ?? ''))[0];
+              const merged = latestSliceMerge(this.storage, workspaceId, workItemId, scope);
               if (!merged?.mergeSha)
                 throw new ExecutionRequestError('conflict', 'The slice has not merged.');
               const ancestor = await git.isAncestor(repo.rootPath, merged.mergeSha, head.value);
@@ -815,7 +810,7 @@ export class ExecutionService {
         );
         if (issues.length) throw new PhaseGateError(issues);
       }
-      if (scoped && scoped.item.status !== 'admitted')
+      if (scoped && !['admitted', 'completed'].includes(scoped.item.status))
         throw new ExecutionRequestError(
           'conflict',
           'Admit the parent before starting scoped execution.',

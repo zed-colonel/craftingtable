@@ -1,3 +1,4 @@
+import { finalizationMapContext, assertFinalizationMap } from './map-finalization-policy.js';
 import { randomUUID } from 'node:crypto';
 import type {
   ControlFinalizationRequest,
@@ -98,6 +99,7 @@ export class FinalizationService {
         })
       )
         conflict('Recover pending repository merges before starting finalization.');
+      const mapContext = finalizationMapContext(this.storage, workspaceId, planVersionId);
       const integration = await git.resolveBranch(repo.rootPath, settings.integrationBranch);
       const target = await git.resolveBranch(repo.rootPath, input.targetBranch);
       if (!integration.ok || !target.ok)
@@ -120,6 +122,7 @@ export class FinalizationService {
       }
       const finalization: Finalization = {
         id: randomUUID(),
+        ...(mapContext ? { mapContext } : {}),
         workspaceId,
         planVersionId,
         projectId: plan.projectId,
@@ -141,6 +144,7 @@ export class FinalizationService {
         createdAt: this.now().toISOString(),
         createdByUserId: context.user.id,
       };
+      assertFinalizationMap(this.storage, finalization);
       this.save(finalization, 0, context, 'start');
       return finalization;
     });
@@ -435,6 +439,7 @@ export class FinalizationService {
     const check = () => {
       this.workspaces.requireRole(context, value.workspaceId, ['owner', 'editor']);
       const current = this.storage.execution.finalizations.find(value.workspaceId, value.id);
+      assertFinalizationMap(this.storage, value);
       if (current?.version !== value.version || current.status !== 'preparing')
         conflict('Finalization preparation was superseded.');
     };

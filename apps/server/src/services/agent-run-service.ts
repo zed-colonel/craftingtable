@@ -831,14 +831,15 @@ Use the controller Cargo launcher ${pinned.binDirectory}/cargo for builds and te
           pinned &&
           tx.runtimeEvidence.generations(
             workspaceId,
-            prepared.worktree.executionScope!.definitionId,
-            prepared.worktree.executionScope!.bindingRevision,
+            pinned.definitionId,
+            pinned.bindingRevision,
           )[0]?.id !== pinned.runtimeId
         )
           throw new ExecutionRequestError(
             'conflict',
             'Dependency generation changed during run preparation.',
           );
+        if (pinned) this.runtimeEvidence?.assertPrepared(prepared.worktree, pinned.runtimeId);
         if (pinned)
           tx.runtimeEvidence.addRun({
             runId,

@@ -21,6 +21,12 @@ export interface PlanCompletion {
   readonly completedAt: string;
 }
 export interface Finalization {
+  readonly mapContext?: {
+    readonly definitionId: string;
+    readonly bindingRevision: number;
+    readonly runtimeId: string;
+    readonly alias: string;
+  };
   readonly id: string;
   readonly workspaceId: WorkspaceId;
   readonly planVersionId: PlanVersionId;

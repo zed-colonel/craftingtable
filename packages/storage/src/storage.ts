@@ -1,3 +1,4 @@
+import { SqliteMapAmendmentRepository } from './repositories/map-amendments.js';
 import { SqliteRuntimeEvidenceRepository } from './repositories/runtime-evidence.js';
 import { SqlitePhaseSchedulingRepository } from './repositories/phase-reservations.js';
 import { SqliteScopeReceiptRepository } from './repositories/scope-receipts.js';
@@ -21,6 +22,7 @@ import type { CraftingTableStorage, MigrationStatus, StorageRepositories } from 
 
 function repositories(database: Database.Database): StorageRepositories {
   return {
+    amendments: new SqliteMapAmendmentRepository(database),
     runtimeEvidence: new SqliteRuntimeEvidenceRepository(database),
     phaseScheduling: new SqlitePhaseSchedulingRepository(database),
     scopeReceipts: new SqliteScopeReceiptRepository(database),
@@ -40,6 +42,7 @@ function repositories(database: Database.Database): StorageRepositories {
 }
 
 class SqliteCraftingTableStorage implements CraftingTableStorage {
+  readonly amendments;
   readonly runtimeEvidence;
   readonly phaseScheduling;
   readonly scopeReceipts;
@@ -64,6 +67,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     readonly migrationStatus: MigrationStatus,
   ) {
     const repos = repositories(database);
+    this.amendments = repos.amendments;
     this.runtimeEvidence = repos.runtimeEvidence;
     this.phaseScheduling = repos.phaseScheduling;
     this.scopeReceipts = repos.scopeReceipts;

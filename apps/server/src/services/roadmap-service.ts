@@ -1,3 +1,4 @@
+import { mapReadSnapshot } from './map-read-snapshot.js';
 import { crossProjectState, bindingIssues, milestoneSatisfied } from './cross-project-service.js';
 import { PhaseGateError } from './phase-resources.js';
 import { scopePhaseBlockers, scopeAllowsEarlyDevelopment } from './execution-scope.js';
@@ -72,10 +73,13 @@ export class RoadmapService {
     id: string,
     input: SaveRoadmapRequest,
     crossProject?: import('@craftingtable/domain').CrossProjectConfiguration,
+    amendment?: { readonly retainAttemptIds: readonly string[] },
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     if (this.controlling.has(id)) conflict('A roadmap command is in progress.');
     const old = this.storage.roadmaps.find(workspaceId, id);
+    if (old && this.storage.amendments.pending(workspaceId, id) && !amendment)
+      conflict('Decide the pending planning amendment before editing settings.');
     if (old?.definition.crossProject && !crossProject)
       conflict('Use the imported map supervisor to edit this roadmap.');
     if ((old?.version ?? 0) !== input.expectedVersion)
@@ -85,8 +89,11 @@ export class RoadmapService {
         'Pause the roadmap before editing queued entries. Ended roadmaps retain their history.',
       );
     const lastStarted =
-      old?.definition.entries.findLastIndex((e) => old.attempts.some((a) => a.entryId === e.id)) ??
-      -1;
+      old?.definition.entries.findLastIndex((e) =>
+        old.attempts.some(
+          (a) => a.entryId === e.id && (!amendment || amendment.retainAttemptIds.includes(a.id)),
+        ),
+      ) ?? -1;
     const scheduling = input.scheduling ?? old?.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
     const parallel = scheduling.mode === 'parallel';
     if (
@@ -98,7 +105,12 @@ export class RoadmapService {
       );
     const started =
       (parallel
-        ? old?.definition.entries.filter((e) => old.attempts.some((a) => a.entryId === e.id))
+        ? old?.definition.entries.filter((e) =>
+            old.attempts.some(
+              (a) =>
+                a.entryId === e.id && (!amendment || amendment.retainAttemptIds.includes(a.id)),
+            ),
+          )
         : old?.definition.entries.slice(0, lastStarted + 1)) ?? [];
     const entries: RoadmapEntry[] = input.entries.map((entry, index) => {
       if (entry.reviewerRoles && !crossProject)
@@ -185,7 +197,21 @@ export class RoadmapService {
       createdByUserId: context.user.id,
     };
     const roadmap: Roadmap = old
-      ? { ...old, definition, version: old.version + 1, updatedAt: at }
+      ? {
+          ...old,
+          definition,
+          version: old.version + 1,
+          updatedAt: at,
+          ...(amendment
+            ? {
+                attempts: old.attempts.filter((a) => amendment.retainAttemptIds.includes(a.id)),
+                entryHolds: {},
+                status: 'paused' as const,
+                reason:
+                  'Reviewed amendment applied. Configure/adopt its exact binding and explicitly resume.',
+              }
+            : {}),
+        }
       : {
           id,
           workspaceId,
@@ -236,6 +262,11 @@ export class RoadmapService {
     if (ended(roadmap)) conflict('This roadmap has ended.');
     if (action === 'pause' && roadmap.status === 'draft')
       conflict('Start the roadmap before pausing it.');
+    if (
+      (action === 'start' || action === 'resume') &&
+      this.storage.amendments.list(workspaceId).some((a) => !a.decision)
+    )
+      conflict('Apply or reject the pending planning amendment before resuming.');
     if (action === 'start' || action === 'resume') {
       if (
         action === 'start'
@@ -359,7 +390,7 @@ export class RoadmapService {
       } else {
         if (cycle && ['stopped', 'completed'].includes(cycle.status))
           conflict(
-            'This cycle has ended. Stop the roadmap and reconcile the remaining work before starting a new roadmap.',
+            'This cycle has ended. For imported maps, use Planning amendments and reconciliation to review a replacement attempt.',
           );
         if (cycle && ['paused', 'needs-attention'].includes(cycle.status))
           await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
@@ -443,6 +474,7 @@ export class RoadmapService {
   }
   private async advance(roadmap: Roadmap): Promise<void> {
     this.authority(roadmap);
+    if (this.storage.amendments.pending(roadmap.workspaceId, roadmap.id)) return;
     if (roadmap.definition.crossProject) {
       const c = roadmap.definition.crossProject,
         issues = bindingIssues(
@@ -795,7 +827,7 @@ export class RoadmapService {
     check();
     if (worktree.status !== 'active')
       conflict(
-        'Reserved worktree was removed. Stop the roadmap and create a new roadmap for the remaining work.',
+        'Reserved worktree was removed. For imported maps, use Planning amendments and reconciliation to review a replacement attempt.',
       );
     if (
       worktree.integrationBranch !== entry.integrationBranch ||
@@ -826,21 +858,24 @@ export class RoadmapService {
       });
     });
   }
-  private complete(roadmap: Roadmap, entry: RoadmapEntry): boolean {
-    if (entry.executionScope && entry.executionScope.kind !== 'slice') {
+  private complete(
+    roadmap: Roadmap,
+    entry: RoadmapEntry,
+    tx: StorageRepositories = this.storage,
+  ): boolean {
+    if (entry.executionScope) {
       const scope = entry.executionScope;
-      if (scope.kind === 'parent-acceptance')
-        return (
-          this.storage.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status ===
-          'completed'
-        );
-      const d = this.storage.imports.definition(roadmap.workspaceId, scope.definitionId);
+      const d = tx.imports.definition(roadmap.workspaceId, scope.definitionId);
       return (
         !!d &&
-        milestoneSatisfied(this.storage, roadmap.workspaceId, d, scope.bindingRevision, {
-          kind: 'slice',
+        milestoneSatisfied(tx, roadmap.workspaceId, d, scope.bindingRevision, {
+          ...(scope.kind === 'parent-acceptance'
+            ? { kind: 'work_item' as const, state: 'accepted' as const }
+            : {
+                kind: 'slice' as const,
+                state: scope.kind === 'slice' ? ('merged' as const) : ('verified' as const),
+              }),
           id: scope.sourceId,
-          state: 'verified',
         })
       );
     }
@@ -848,11 +883,10 @@ export class RoadmapService {
     return attempt
       ? attempt.status === 'completed'
       : entry.executionScope
-        ? this.storage.execution.worktrees
+        ? tx.execution.worktrees
             .listForWorkItem(roadmap.workspaceId, entry.workItemId)
             .some((t) => sameExecutionScope(t.executionScope, entry.executionScope) && !!t.mergedAt)
-        : this.storage.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status ===
-          'completed';
+        : tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status === 'completed';
   }
   private blocker(
     roadmap: Roadmap,
@@ -873,7 +907,7 @@ export class RoadmapService {
     const item = this.storage.planning.workItems.find(roadmap.workspaceId, entry.workItemId);
     if (!item || item.planVersionId !== entry.planVersionId)
       return blocked(`${entry.sourceId}: Bound plan item is unavailable.`);
-    if (item.status === 'completed' && attempt)
+    if (item.status === 'completed' && attempt && !entry.executionScope)
       return blocked(
         `${entry.sourceId}: Marked complete without merging the roadmap worktree. Inspect the item; the queue will not advance.`,
       );
@@ -970,7 +1004,11 @@ export class RoadmapService {
       );
     const trees = this.storage.execution.worktrees
       .listActive()
-      .filter((t) => !t.executionScope || t.executionScope.kind === 'slice');
+      .filter(
+        (t) =>
+          !this.storage.amendments.retired(t.workspaceId, t.id) &&
+          (!t.executionScope || t.executionScope.kind === 'slice'),
+      );
     if (
       trees.some(
         (tree) =>
@@ -1038,17 +1076,18 @@ export class RoadmapService {
     return undefined;
   }
   private view(roadmap: Roadmap): RoadmapView {
+    const snapshot = mapReadSnapshot(this.storage);
     return {
       roadmap,
       progress: roadmap.definition.entries
         .map((entry): import('@craftingtable/domain').RoadmapEntryProgress => {
-          if (this.complete(roadmap, entry))
+          if (this.complete(roadmap, entry, snapshot))
             return { entryId: entry.id, status: 'completed', reason: 'Completed.' };
           const hold = roadmap.entryHolds?.[entry.id];
           if (hold) return { entryId: entry.id, status: hold.status, reason: hold.reason };
           const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
           const cycle =
-            attempt && this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+            attempt && snapshot.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
           if (
             entry.executionScope &&
             (!cycle || ['running', 'awaiting-merge'].includes(cycle.status))
@@ -1062,7 +1101,7 @@ export class RoadmapService {
                     ? 'merge'
                     : 'start';
             const blockers = scopePhaseBlockers(
-              this.storage,
+              snapshot,
               roadmap.workspaceId,
               entry.workItemId,
               entry.executionScope,
@@ -1103,7 +1142,7 @@ export class RoadmapService {
         .map((progress) => {
           const attempt = roadmap.attempts.find((a) => a.entryId === progress.entryId);
           const definition = attempt
-            ? this.storage.roadmaps
+            ? snapshot.roadmaps
                 .history(roadmap.workspaceId, roadmap.id)
                 .find((d) => d.revision === attempt.definitionRevision)
             : roadmap.definition;

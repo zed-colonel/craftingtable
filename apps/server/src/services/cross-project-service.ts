@@ -1,3 +1,5 @@
+import { mapReadSnapshot } from './map-read-snapshot.js';
+import { integratedSlice } from './scope-lineage.js';
 import { randomUUID } from 'node:crypto';
 import {
   asAuditEventId,
@@ -24,7 +26,12 @@ import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { RoadmapService } from './roadmap-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
-import { acceptedEvidence, activeRuntime, currentScopeReceipt } from './runtime-evidence-policy.js';
+import {
+  acceptedEvidence,
+  activeRuntime,
+  currentScopeReceipt,
+  parentAccepted,
+} from './runtime-evidence-policy.js';
 import { scopePhaseBlockers } from './execution-scope.js';
 function conflict(m: string): never {
   throw new ExecutionRequestError('conflict', m);
@@ -43,6 +50,8 @@ export function bindingIssues(
     b = tx.imports.bindings(ws, id)[0];
   if (!d || !b || b.revision !== revision) return ['Select the current exact map binding.'];
   const issues: string[] = [];
+  if (tx.amendments.superseded(ws, id, revision))
+    issues.push('This map binding was retired by a reviewed amendment. Select its replacement.');
   for (const repo of d.source.repositories) {
     const bound = b.bindings.find((b) => b.alias === repo.id);
     if (
@@ -83,7 +92,7 @@ export function milestoneSatisfied(
     r.kind === 'work_item' ? r.id : d.source.slices.find((s) => s.id === r.id)?.work_item;
   const id = b?.bindings.flatMap((b) => b.workItems).find((w) => w.sourceId === parent)?.workItemId;
   if (!id) return false;
-  if (r.kind === 'work_item') return tx.planning.workItems.find(ws, id)?.status === 'completed';
+  if (r.kind === 'work_item') return parentAccepted(tx, ws, d.id, revision, r.id);
   const scope = {
     kind: 'slice' as const,
     definitionId: d.id,
@@ -93,9 +102,13 @@ export function milestoneSatisfied(
   const trees = tx.execution.worktrees
     .listForWorkItem(ws, id)
     .filter((t) => sameExecutionScope(t.executionScope, scope));
+  const integrated = integratedSlice(tx, ws, id, scope);
   if (r.state === 'started')
-    return trees.some((t) => tx.execution.runs.listForWorktree(ws, t.id).some((r) => r.startedAt));
-  if (r.state === 'merged') return trees.some((t) => t.mergeSha);
+    return (
+      !!integrated ||
+      trees.some((t) => tx.execution.runs.listForWorktree(ws, t.id).some((r) => r.startedAt))
+    );
+  if (r.state === 'merged') return !!integrated?.mergeSha;
   return (
     !!acceptedEvidence(tx, ws, d.id, revision, { kind: 'slice', sourceId: r.id }) ||
     tx.scopeReceipts
@@ -104,7 +117,7 @@ export function milestoneSatisfied(
         (p) =>
           sameExecutionScope(p.scope, scope) &&
           currentScopeReceipt(tx, ws, p) &&
-          trees.some((t) => t.mergeSha === p.integrationSha),
+          integrated?.mergeSha === p.integrationSha,
       )
   );
 }
@@ -115,28 +128,7 @@ export function crossProjectState(
 ): CrossProjectView {
   const d = tx.imports.definition(ws, config.definitionId);
   if (!d) throw new NotFoundError();
-  // A preview is synchronous. Reuse its immutable source and current binding reads
-  // without retaining any mutable evidence across requests or execution commands.
-  const source = tx,
-    bindings = source.imports.bindings(ws, d.id),
-    adoptions = source.imports.adoptions(ws, d.id);
-  tx = {
-    ...source,
-    imports: new Proxy(source.imports, {
-      get(repo, key, receiver) {
-        if (key === 'definition')
-          return (requestedWs: WorkspaceId, id: string) =>
-            requestedWs === ws && id === d.id ? d : repo.definition(requestedWs, id);
-        if (key === 'bindings')
-          return (requestedWs: WorkspaceId, id: string) =>
-            requestedWs === ws && id === d.id ? bindings : repo.bindings(requestedWs, id);
-        if (key === 'adoptions')
-          return (requestedWs: WorkspaceId, id: string) =>
-            requestedWs === ws && id === d.id ? adoptions : repo.adoptions(requestedWs, id);
-        return Reflect.get(repo, key, receiver);
-      },
-    }),
-  };
+  tx = mapReadSnapshot(tx);
   const revision = config.bindingRevision;
   if (!d.source.planning_targets.some((t) => t.id === config.targetId))
     conflict('Select a declared planning target.');
@@ -403,7 +395,12 @@ export class CrossProjectService {
     this.notifier.notify();
     return { adopted: true };
   }
-  save(context: AuthContext, ws: WorkspaceId, input: SaveCrossProjectRequest) {
+  save(
+    context: AuthContext,
+    ws: WorkspaceId,
+    input: SaveCrossProjectRequest,
+    amendment?: { readonly retainAttemptIds: readonly string[] },
+  ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const c = input.configuration,
       d = this.storage.imports.definition(ws, c.definitionId);
@@ -422,6 +419,7 @@ export class CrossProjectService {
         .find((b) => b.revision === c.bindingRevision)!;
     const old = this.storage.roadmaps.find(ws, input.roadmapId);
     if (
+      !amendment &&
       old?.definition.crossProject &&
       JSON.stringify({
         ...old.definition.crossProject,
@@ -437,7 +435,7 @@ export class CrossProjectService {
         })
     )
       conflict(
-        'Retain the saved target and exact bindings. Stop this roadmap and create a new selection to change scope.',
+        'Retain the saved target and exact bindings. Use Planning amendments and reconciliation to review a scope change.',
       );
     const entries: import('@craftingtable/contracts').SaveRoadmapRequest['entries'] = [];
     for (const n of closure.nodes) {
@@ -468,7 +466,12 @@ export class CrossProjectService {
       const prior = old?.definition.entries.find((e) =>
         sameExecutionScope(e.executionScope, scope),
       );
-      const started = prior && old?.attempts.some((a) => a.entryId === prior.id);
+      const started =
+        prior &&
+        old?.attempts.some(
+          (a) =>
+            a.entryId === prior.id && (!amendment || amendment.retainAttemptIds.includes(a.id)),
+        );
       const settings = started ? prior : effectiveMapSettings(c, n.repository, activity, r.id);
       entries.push({
         ...(settings.reviewerRoles ? { reviewerRoles: [...settings.reviewerRoles] } : {}),
@@ -519,6 +522,7 @@ export class CrossProjectService {
         automation: c.defaults.automation,
       },
       c,
+      amendment,
     );
   }
 }

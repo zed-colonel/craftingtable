@@ -1,3 +1,4 @@
+import { amendmentHoldingScope } from './scope-lineage.js';
 import { scopeAllowsEarlyDevelopment } from './execution-scope.js';
 import { randomUUID } from 'node:crypto';
 import type {
@@ -600,6 +601,12 @@ export class BranchService {
   ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const initial = this.worktree(workspaceId, worktreeId);
+    if (
+      this.storage.amendments.retired(workspaceId, worktreeId) ||
+      (initial.executionScope &&
+        amendmentHoldingScope(this.storage, workspaceId, initial.executionScope))
+    )
+      conflict('This worktree is held or retired by a planning amendment.');
     const repository = this.repository(workspaceId, initial.repositoryId);
     return this.duringMerge(repository.rootPath, () =>
       this.mutations.during(worktreeId, async () => {

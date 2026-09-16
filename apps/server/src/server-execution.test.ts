@@ -6992,9 +6992,13 @@ async function slicedFixture(
         integrationBranch: settings.integrationBranch,
         branchSettingsVersion: settings.version,
         sourceArtifacts: [],
-        workItems: [
-          { sourceId: 'AQ-01', workItemId: state.workItemId, sourceRecordDigest: 'a'.repeat(64) },
-        ],
+        workItems: state.context.storage.imports
+          .definition(state.workspaceId, id)!
+          .source.work_items.map((p) => ({
+            sourceId: p.id,
+            workItemId: p.id === 'AQ-02' ? fixture.second : state.workItemId,
+            sourceRecordDigest: 'a'.repeat(64),
+          })),
       },
     ],
   });
@@ -7302,7 +7306,7 @@ describe('execution slices and parent acceptance', () => {
       state.workItemId,
     ).choices;
     expect(choices[0]?.scope.bindingRevision).toBe(1);
-    expect(choices[0]?.status).toBe('verified');
+    expect(choices[0]?.status).toBe('merged'); // Historical receipt remains visible but cannot approve a superseded binding.
     const settings = state.context.storage.execution.branchSettings.find(
       state.workspaceId,
       asPlanVersionId('version-1'),
@@ -8179,6 +8183,7 @@ it('binds consumer evidence independently of checkpoint ownership and derives cr
 async function supervisedMapFixture(
   partial = false,
   parentAcceptance: 'manual' | 'automatic' = 'automatic',
+  wholePlan = false,
 ) {
   const f = await slicedFixture(
     (s) => ({
@@ -8192,11 +8197,23 @@ async function supervisedMapFixture(
           'independent-security-reviewer-if-required-by-source',
         ],
       })),
-      work_items: s.work_items.map((p) => ({
-        ...p,
-        repository: 'local',
-        source_profile_case_ids: [],
-      })),
+      work_items: s.work_items.flatMap((p) => [
+        { ...p, repository: 'local', source_profile_case_ids: [] },
+        ...(wholePlan
+          ? [
+              {
+                ...p,
+                id: 'AQ-02',
+                source_item_id: 'AQ-02',
+                source_exit_gate: 'Done',
+                repository: 'local',
+                source_profile_case_ids: [],
+                required_slices: [],
+                depends_on: ['AQ-01'],
+              },
+            ]
+          : []),
+      ]),
       slices: s.slices.map((s) => ({ ...s, decision_refs: ['CS-D01'] })),
       checkpoints: [
         {
@@ -8275,12 +8292,12 @@ async function supervisedMapFixture(
     if (request.model === 'design-model') return designDone;
     if (request.model === 'review-model') {
       const tree = f.state.context.storage.execution.worktrees
-        .listForWorkItem(ws, f.state.workItemId)
+        .listActive(ws)
         .find((t) => t.path === request.cwd)!;
       return {
         resultText:
           '## Open questions\nnone\n## Review report\n' +
-          scopeReport(f.state, tree.executionScope!),
+          scopeReport({ ...f.state, workItemId: tree.workItemId! }, tree.executionScope!),
       };
     }
     commitFile(
@@ -8610,5 +8627,562 @@ it('pauses a verification question without authorizing implementation in the rev
           .some((t) => t.path === r.cwd && t.executionScope?.kind === 'slice-verification'),
       )
       .every((r) => r.model === 'review-model'),
+  ).toBe(true);
+});
+
+const amendmentCommand = (
+  f: Awaited<ReturnType<typeof supervisedMapFixture>>,
+  action: string,
+  payload: unknown,
+  headers = mutationHeaders(f.state),
+) =>
+  f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${f.state.workspaceId}/roadmaps/${roadmapId}/amendments${action ? `/${action}` : ''}`,
+    headers,
+    payload: payload as Record<string, unknown>,
+  });
+it('holds a roadmap for reviewed amendments, checks stale previews and preserves immutable decisions across recovery', async () => {
+  const f = await supervisedMapFixture(true),
+    ws = f.state.workspaceId,
+    service = f.state.context.services.mapAmendmentService;
+  await adoptSupervisedMap(f);
+  const saved = f.service.save(f.auth, ws, f.input);
+  const candidate = { ...f.input.configuration, selection: 'prioritize-full' as const };
+  const selection = {
+    definitionId: candidate.definitionId,
+    bindingRevision: 1,
+    targetId: candidate.targetId,
+    selection: candidate.selection,
+  };
+  expect(
+    (await amendmentCommand(f, 'preview', selection, { cookie: f.state.cookie })).statusCode,
+  ).toBe(403);
+  expect((await amendmentCommand(f, 'preview', selection)).statusCode).toBe(200);
+  const proposed = await amendmentCommand(f, '', {
+    expectedVersion: saved.roadmap.version,
+    candidate: selection,
+    summary: 'Include retained work after the initial proof.',
+  });
+  expect(proposed.statusCode, proposed.body).toBe(200);
+  const view = proposed.json(),
+    pending = view.history[0];
+  expect(f.state.context.storage.roadmaps.find(ws, roadmapId)?.status).toBe('paused');
+  await expect(
+    f.state.context.services.roadmapService.control(
+      f.auth,
+      ws,
+      roadmapId,
+      'resume',
+      saved.roadmap.version + 1,
+    ),
+  ).rejects.toThrow(/amendment/);
+  const decision = {
+    amendmentId: pending.id,
+    outcome: 'apply',
+    impactDigest: '0'.repeat(64),
+    rationale: 'Reviewed complete retained obligations.',
+    reuseIntegrationIds: [],
+  };
+  expect((await amendmentCommand(f, 'decision', decision)).statusCode).toBe(409);
+  const applied = await amendmentCommand(f, 'decision', {
+    ...decision,
+    impactDigest: view.pendingImpact.digest,
+  });
+  expect(applied.statusCode, applied.body).toBe(200);
+  expect(applied.json().history[0].decision.previous.definition.crossProject.selection).toBe(
+    'target-only',
+  );
+  expect(
+    f.state.context.storage.roadmaps.find(ws, roadmapId)?.definition.crossProject?.selection,
+  ).toBe('prioritize-full');
+  expect(f.state.context.storage.roadmaps.find(ws, roadmapId)?.status).toBe('paused');
+  f.state.context.services.roadmapService.recoverInterrupted();
+  await f.state.context.services.roadmapService.tick();
+  expect(f.state.context.storage.execution.worktrees.listActive(ws)).toHaveLength(0);
+  expect(
+    (
+      await amendmentCommand(f, 'decision', {
+        ...decision,
+        impactDigest: view.pendingImpact.digest,
+      })
+    ).statusCode,
+  ).toBe(409);
+  const ready = service.finalization(f.auth, ws, roadmapId).projects[0]!;
+  expect(ready.status).toBe('blocked');
+  expect(ready.blockers.join(' ')).toContain('partial target');
+});
+it('rebinds a reviewed replacement without carrying adoption or evidence and retains old roadmap revisions', async () => {
+  const f = await supervisedMapFixture(),
+    ws = f.state.workspaceId,
+    storage = f.state.context.storage,
+    service = f.state.context.services.mapAmendmentService;
+  await adoptSupervisedMap(f);
+  const saved = f.service.save(f.auth, ws, f.input);
+  const old = storage.imports.definition(ws, f.parentScope.definitionId)!,
+    binding = storage.imports.bindings(ws, old.id)[0]!;
+  const id = randomUUID();
+  storage.transaction((tx) => {
+    tx.imports.addDefinition({
+      ...old,
+      id,
+      revision: 'amended',
+      source: { ...old.source, revision: 'amended' },
+    });
+    tx.imports.addBindings({ ...binding, definitionId: id });
+  });
+  const candidate = {
+    definitionId: id,
+    bindingRevision: 1,
+    targetId: 'LOCAL',
+    selection: 'target-only' as const,
+  };
+  const v = await service.propose(f.auth, ws, roadmapId, {
+    expectedVersion: saved.roadmap.version,
+    candidate,
+    summary: 'Adopt revised scope.',
+  });
+  const impact = v.pendingImpact!;
+  expect(impact.blockers).toEqual([]);
+  await service.decide(f.auth, ws, roadmapId, {
+    amendmentId: v.history[0]!.id,
+    outcome: 'apply',
+    impactDigest: impact.digest,
+    rationale: 'Reviewed replacement; require new approvals.',
+    reuseIntegrationIds: [],
+  });
+  expect(storage.amendments.superseded(ws, old.id, 1)).toBe(true);
+  expect(
+    storage.roadmaps.history(ws, roadmapId).some((d) => d.crossProject?.definitionId === old.id),
+  ).toBe(true);
+  expect(f.service.view(f.auth, ws, candidate).blockers.join(' ')).toMatch(/adopt/i);
+  expect(storage.imports.adoptions(ws, id)).toHaveLength(0);
+  expect(storage.runtimeEvidence.generations(ws, id, 1)).toHaveLength(0);
+});
+
+it('keeps live runs in their original context and retires idle attempts only after explicit amendment approval', {
+  timeout: 15000,
+}, async () => {
+  const f = await supervisedMapFixture(true),
+    { state } = f,
+    ws = state.workspaceId,
+    storage = state.context.storage,
+    service = state.context.services.mapAmendmentService;
+  f.service.save(f.auth, ws, {
+    ...f.input,
+    configuration: {
+      ...f.input.configuration,
+      defaults: { ...f.input.configuration.defaults, instructions: 'DEFER-TURNS' },
+    },
+  });
+  await adoptSupervisedMap(f);
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () =>
+      storage.execution.cycles
+        .list(ws)
+        .some((c) => storage.execution.runs.find(ws, c.currentRunId)?.status === 'running'),
+    'live cycle',
+  );
+  const cycle = storage.execution.cycles.list(ws)[0]!,
+    run = storage.execution.runs.find(ws, cycle.currentRunId)!;
+  const original = storage.imports.definition(ws, f.parentScope.definitionId)!,
+    binding = storage.imports.bindings(ws, original.id)[0]!,
+    id = randomUUID();
+  storage.imports.addDefinition({
+    ...original,
+    id,
+    revision: 'replacement-live',
+    source: { ...original.source, revision: 'replacement-live' },
+  });
+  storage.imports.addBindings({ ...binding, definitionId: id });
+  const proposed = await service.propose(f.auth, ws, roadmapId, {
+    expectedVersion: storedRoadmap(state).version,
+    candidate: {
+      definitionId: id,
+      bindingRevision: 1,
+      targetId: 'LOCAL',
+      selection: 'target-only',
+    },
+    summary: 'Explicit scope replacement after the current session.',
+  });
+  expect(proposed.pendingImpact!.blockers.join(' ')).toContain(run.id);
+  expect(storage.execution.runs.find(ws, run.id)?.brief).toBe(run.brief);
+  expect(storage.execution.cycles.find(ws, cycle.id)?.status).toBe('paused');
+  const request = {
+    amendmentId: proposed.history[0]!.id,
+    outcome: 'apply' as const,
+    impactDigest: proposed.pendingImpact!.digest,
+    rationale: 'Retain original context as history.',
+    reuseIntegrationIds: [],
+  };
+  await expect(service.decide(f.auth, ws, roadmapId, request)).rejects.toThrow(/Wait for/);
+  const cancel = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/runs/${run.id}/cancel`,
+    headers: mutationHeaders(state),
+    payload: {},
+  });
+  expect(cancel.statusCode, cancel.body).toBe(200);
+  await waitFor(
+    () => storage.execution.runs.find(ws, run.id)?.status === 'cancelled',
+    'cancel complete',
+  );
+  const current = service.view(f.auth, ws, roadmapId);
+  expect(current.pendingImpact!.blockers).toEqual([]);
+  await service.decide(f.auth, ws, roadmapId, {
+    ...request,
+    impactDigest: current.pendingImpact!.digest,
+  });
+  expect(storage.execution.worktrees.find(ws, cycle.worktreeId)?.status).toBe('active');
+  expect(storage.amendments.retired(ws, cycle.worktreeId)).toBe(true);
+  expect(storage.execution.cycles.find(ws, cycle.id)?.status).toBe('stopped');
+  expect(storedRoadmap(state).attempts).toHaveLength(0);
+  expect(
+    service.view(f.auth, ws, roadmapId).history[0]?.decision?.previous.attempts[0]?.cycleId,
+  ).toBe(cycle.id);
+  await expect(
+    state.context.services.workCycleService.control(
+      f.auth,
+      ws,
+      cycle.id,
+      'resume',
+      storage.execution.cycles.find(ws, cycle.id)!.version,
+    ),
+  ).rejects.toThrow();
+  const reopened = openCraftingTableStorage(state.context.config.databasePath);
+  try {
+    expect(reopened.amendments.retired(ws, cycle.worktreeId)).toBe(true);
+    expect(reopened.amendments.list(ws)[0]?.decision?.outcome).toBe('applied');
+  } finally {
+    reopened.close();
+  }
+});
+it('reconciles stale reviews on the same binding while retaining integrated code and requiring independent acceptance again', {
+  timeout: 25000,
+}, async () => {
+  const f = await supervisedMapFixture(),
+    { state } = f,
+    ws = state.workspaceId,
+    storage = state.context.storage;
+  f.service.save(f.auth, ws, f.input);
+  await adoptSupervisedMap(f);
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () => storage.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
+    'original acceptance',
+    15000,
+  );
+  await roadmapControl(state, 'pause');
+  const old = storedRoadmap(state),
+    runtime = f.runtime.current!;
+  await state.context.services.runtimeEvidenceService.configure(
+    f.auth,
+    ws,
+    f.parentScope.definitionId,
+    {
+      bindingRevision: 1,
+      expectedGeneration: runtime.generation,
+      pins: [],
+      consumers: runtime.consumers.map((c) => ({ ...c, upstreams: [...c.upstreams] })),
+      environments: [...runtime.environments],
+    },
+  );
+  expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(false);
+  const service = state.context.services.mapAmendmentService,
+    proposed = await service.propose(f.auth, ws, roadmapId, {
+      expectedVersion: storedRoadmap(state).version,
+      candidate: {
+        definitionId: f.parentScope.definitionId,
+        bindingRevision: 1,
+        targetId: 'LOCAL',
+        selection: 'target-only',
+      },
+      summary: 'Fresh acceptance under revised dependency environment.',
+    });
+  expect(proposed.pendingImpact!.attempts.filter((a) => a.disposition === 'retain')).toHaveLength(
+    2,
+  );
+  expect(proposed.pendingImpact!.attempts.filter((a) => a.disposition === 'retire')).toHaveLength(
+    3,
+  );
+  await service.decide(f.auth, ws, roadmapId, {
+    amendmentId: proposed.history[0]!.id,
+    outcome: 'apply',
+    impactDigest: proposed.pendingImpact!.digest,
+    rationale: 'Require fresh independent verification; retain integration.',
+    reuseIntegrationIds: [],
+  });
+  await roadmapControl(state, 'resume');
+  await waitFor(
+    () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
+    'fresh parent acceptance',
+    15000,
+  );
+  expect(
+    storage.scopeReceipts
+      .list(ws, state.workItemId)
+      .filter((r) => r.scope.kind === 'parent-acceptance'),
+  ).toHaveLength(2);
+  expect(
+    storedRoadmap(state).attempts.filter((a) => old.attempts.some((prior) => prior.id === a.id)),
+  ).toHaveLength(2);
+});
+
+it('coordinates full-plan finalization with frozen map and runtime context and retains exact operator promotion', {
+  timeout: 25000,
+}, async () => {
+  const f = await supervisedMapFixture(false, 'automatic', true),
+    { state } = f,
+    ws = state.workspaceId,
+    storage = state.context.storage,
+    service = state.context.services.mapAmendmentService;
+  const input = {
+    ...f.input,
+    configuration: { ...f.input.configuration, selection: 'prioritize-full' as const },
+  };
+  f.service.save(f.auth, ws, input);
+  await adoptSupervisedMap(f);
+  const settings = storage.execution.branchSettings.find(ws, asPlanVersionId('version-1'))!;
+  const finalInput = {
+    expectedBranchVersion: settings.version,
+    targetBranch: 'main',
+    rounds: [],
+    finalReview: cycleProfiles.review,
+    policy: DEFAULT_COMPLETION_POLICY,
+    instructions: 'Final independent plan conformance.',
+  };
+  await expect(
+    state.context.services.finalizationService.start(
+      f.auth,
+      ws,
+      asPlanVersionId('version-1'),
+      finalInput,
+    ),
+  ).rejects.toThrow(/original plan work item/);
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () => storage.planning.workItems.find(ws, f.second)?.status === 'completed',
+    'complete original plan',
+    15000,
+  );
+  await roadmapControl(state, 'pause');
+  expect(service.finalization(f.auth, ws, roadmapId).projects[0]?.status).toBe('ready');
+  f.backend.onLaunch = undefined;
+  f.backend.replyForRequest = () => ({
+    resultText: `## Open questions
+none
+## Review report
+${reviewText([])}`,
+  });
+  const before = git(['rev-parse', 'main'], f.root),
+    started = await state.context.services.finalizationService.start(
+      f.auth,
+      ws,
+      asPlanVersionId('version-1'),
+      finalInput,
+    ),
+    value = started.finalization;
+  expect(value.mapContext?.runtimeId).toBe(f.runtime.current!.id);
+  await waitFor(
+    () => {
+      const c = finalizationCycle(state, value);
+      if (c.status === 'needs-attention') throw new Error(c.reason);
+      return c.status === 'awaiting-merge';
+    },
+    'pinned final review',
+    8000,
+  );
+  const cycle = finalizationCycle(state, value),
+    run = storage.execution.runs.find(ws, cycle.currentRunId)!;
+  expect(storage.runtimeEvidence.run(ws, run.id)?.runtimeId).toBe(f.runtime.current!.id);
+  expect(git(['rev-parse', 'main'], f.root)).toBe(before);
+  expect((await merge(state, value.worktreeId)).statusCode).toBe(409);
+  const proposed = await service.propose(f.auth, ws, roadmapId, {
+    expectedVersion: storedRoadmap(state).version,
+    candidate: {
+      definitionId: f.parentScope.definitionId,
+      bindingRevision: 1,
+      targetId: 'LOCAL',
+      selection: 'prioritize-full',
+    },
+    summary: 'Scope changes must wait for finalization.',
+  });
+  expect(proposed.pendingImpact?.blockers.join(' ')).toContain('finalization');
+  expect(
+    (
+      await finalizationCommand(state, value, 'merge', {
+        expectedHeadSha: run.reviewBranchContext!.headSha,
+        expectedTargetSha: run.reviewBranchContext!.targetSha,
+      })
+    ).statusCode,
+  ).toBe(409);
+  const current = service.view(f.auth, ws, roadmapId);
+  await service.decide(f.auth, ws, roadmapId, {
+    amendmentId: current.history[0]!.id,
+    outcome: 'reject',
+    impactDigest: current.pendingImpact!.digest,
+    rationale: 'Keep current finalization context.',
+    reuseIntegrationIds: [],
+  });
+  const promoted = await finalizationCommand(state, value, 'merge', {
+    expectedHeadSha: run.reviewBranchContext!.headSha,
+    expectedTargetSha: run.reviewBranchContext!.targetSha,
+  });
+  expect(promoted.statusCode, promoted.body).toBe(200);
+  expect(service.finalization(f.auth, ws, roadmapId).projects[0]?.status).toBe('promoted');
+  const { providerBranch } = await import('./services/map-finalization-policy.js');
+  expect(
+    providerBranch(storage, ws, {
+      planVersionId: value.planVersionId,
+      integrationBranch: 'revision',
+    }),
+  ).toBe('main');
+  expect(f.service.view(f.auth, ws, input.configuration).published).toBe(false);
+});
+it('explicitly reuses unchanged integration code across definitions without transferring verification', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(true),
+    { state } = f,
+    ws = state.workspaceId,
+    storage = state.context.storage,
+    service = state.context.services.mapAmendmentService;
+  f.service.save(f.auth, ws, f.input);
+  await adoptSupervisedMap(f);
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () =>
+      storage.scopeReceipts.list(ws, state.workItemId).some((r) => r.scope.sourceId === 'AQ-01.A'),
+    'slice independently verified',
+    10000,
+  );
+  await roadmapControl(state, 'pause');
+  const old = storage.imports.definition(ws, f.parentScope.definitionId)!,
+    binding = storage.imports.bindings(ws, old.id)[0]!,
+    id = randomUUID();
+  storage.imports.addDefinition({
+    ...old,
+    id,
+    revision: 'reuse',
+    source: { ...old.source, revision: 'reuse' },
+  });
+  storage.imports.addBindings({ ...binding, definitionId: id });
+  const candidate = {
+    definitionId: id,
+    bindingRevision: 1,
+    targetId: 'LOCAL',
+    selection: 'target-only' as const,
+  };
+  const proposed = await service.propose(f.auth, ws, roadmapId, {
+    expectedVersion: storedRoadmap(state).version,
+    candidate,
+    summary: 'Reuse reviewed unchanged code; review evidence again.',
+  });
+  const impact = proposed.pendingImpact!;
+  expect(impact.integrations).toHaveLength(1);
+  expect(impact.integrations[0]?.eligible).toBe(true);
+  await service.decide(f.auth, ws, roadmapId, {
+    amendmentId: proposed.history[0]!.id,
+    outcome: 'apply',
+    impactDigest: impact.digest,
+    rationale: 'Ancestry checked; no approval migration.',
+    reuseIntegrationIds: ['AQ-01.A'],
+  });
+  const view = f.service.view(f.auth, ws, candidate);
+  expect(view.nodes.find((n) => n.sourceId === 'AQ-01.A' && n.state === 'merged')?.satisfied).toBe(
+    true,
+  );
+  expect(
+    view.nodes.find((n) => n.sourceId === 'AQ-01.A' && n.state === 'verified')?.satisfied,
+  ).toBe(false);
+  expect(
+    storage.scopeReceipts.list(ws, state.workItemId).every((r) => r.scope.definitionId !== id),
+  ).toBe(true);
+  await state.context.services.runtimeEvidenceService.configure(f.auth, ws, id, {
+    bindingRevision: 1,
+    expectedGeneration: 0,
+    pins: [],
+    consumers: f.runtime.current!.consumers.map((c) => ({ ...c, upstreams: [...c.upstreams] })),
+    environments: [...f.runtime.current!.environments],
+  });
+  state.context.services.crossProjectService.adopt(f.auth, ws, id, {
+    bindingRevision: 1,
+    decisionIds: ['CS-D01'],
+    rationale: 'Explicit replacement adoption.',
+  });
+  const verification = await scopeTree(f, {
+    ...f.scopes[0]!,
+    definitionId: id,
+    kind: 'slice-verification',
+  });
+  expect(verification.executionScope?.definitionId).toBe(id);
+});
+
+it('activates only the reviewed replacement plan while preserving admitted history in the old version', async () => {
+  const f = await supervisedMapFixture(true),
+    { state } = f,
+    ws = state.workspaceId,
+    storage = state.context.storage,
+    service = state.context.services.mapAmendmentService;
+  const saved = f.service.save(f.auth, ws, f.input),
+    old = storage.imports.definition(ws, f.parentScope.definitionId)!,
+    binding = storage.imports.bindings(ws, old.id)[0]!,
+    original = storage.planning.versions.find(ws, asPlanVersionId('version-1'))!,
+    item = storage.planning.workItems.find(ws, state.workItemId)!;
+  const revised = storage.planning.versions.insert({
+      ...original,
+      id: asPlanVersionId('version-2'),
+      versionNumber: 2,
+      contentDigest: '9'.repeat(64),
+    }),
+    nextItem = asWorkItemId('revised-item');
+  storage.planning.workItems.insertMany([{ ...item, id: nextItem, planVersionId: revised.id }]);
+  const settings = storage.execution.branchSettings.find(ws, original.id)!;
+  storage.execution.branchSettings.save({ ...settings, planVersionId: revised.id, version: 1 }, 0);
+  const id = randomUUID();
+  storage.imports.addDefinition({
+    ...old,
+    id,
+    revision: 'revised-plan',
+    source: { ...old.source, revision: 'revised-plan' },
+  });
+  storage.imports.addBindings({
+    ...binding,
+    definitionId: id,
+    bindings: binding.bindings.map((b) => ({
+      ...b,
+      planVersionId: revised.id,
+      branchSettingsVersion: 1,
+      workItems: b.workItems.map((w) => ({ ...w, workItemId: nextItem })),
+    })),
+  });
+  const proposed = await service.propose(f.auth, ws, roadmapId, {
+    expectedVersion: saved.roadmap.version,
+    candidate: {
+      definitionId: id,
+      bindingRevision: 1,
+      targetId: 'LOCAL',
+      selection: 'target-only',
+    },
+    summary: 'Review revised plan before activation.',
+  });
+  expect(proposed.pendingImpact!.bindings[0]?.activate).toBe(true);
+  expect(proposed.pendingImpact!.blockers).toEqual([]);
+  expect(storage.planning.projects.find(ws, item.projectId)?.activePlanVersionId).toBe(original.id);
+  await service.decide(f.auth, ws, roadmapId, {
+    amendmentId: proposed.history[0]!.id,
+    outcome: 'apply',
+    impactDigest: proposed.pendingImpact!.digest,
+    rationale: 'Activate this exact revised plan and preserve history.',
+    reuseIntegrationIds: [],
+  });
+  expect(storage.planning.projects.find(ws, item.projectId)?.activePlanVersionId).toBe(revised.id);
+  expect(storage.planning.workItems.find(ws, item.id)?.status).toBe('admitted');
+  expect(storage.planning.workItems.find(ws, nextItem)?.status).toBe('proposed');
+  expect(
+    storedRoadmap(state).definition.entries.every(
+      (e) => e.planVersionId === revised.id && e.workItemId === nextItem,
+    ),
   ).toBe(true);
 });

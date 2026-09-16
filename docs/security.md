@@ -298,7 +298,7 @@ Map adoption requires an authenticated owner/editor, exact current bindings, eve
 and a rationale; immutable records preserve attribution. It only authorizes source-declared scheduling
 exceptions. Plan/architecture checkpoints still require independently reviewed evidence, and adoption
 confers no environment or final-merge authority. Cross-project roadmap creation computes scope on the
-daemon. Start rechecks adoption/bindings; changing target scope requires a separate draft. Review-only
+daemon. Start rechecks adoption/bindings; changing target scope requires a reviewed amendment. Review-only
 cycles cannot transition to implementation; they use current-generation build provenance, exact review
 commits and normal workspace authorization before evidence recording. Delegated parent acceptance is
 separate from protected promotion and is bound to the attempt's saved revision. Ordinary scope review
@@ -310,3 +310,13 @@ agent model, not authentication of a human maintainer or a sandbox qualification
 review run must match the assigned backend/model/permission profile and report all scope evidence.
 Assignments do not bypass resource authorization, native/Kata execution boundaries or checkpoint
 attestations; qualified external reviews remain available.
+
+
+Planning amendments require owner/editor authority, CSRF, a current roadmap version, an exact impact
+digest and an attributed rationale. Pending proposals hold workspace delegation; apply waits for affected
+sessions and phase/Git reservations. Retired identities cannot launch, merge or approve receipts. Code
+reuse verifies unchanged source-bound obligations, matching repository/branch and Git ancestry; no
+approval transfers. Exact revised plan activation is part of the reviewed transaction. Finalization freezes
+map/runtime context, uses enforcing pinned builds and rechecks authority before operator-only promotion.
+Shared normalized-definition validation bounds and hashes snapshots for future authoring transports.
+Publication and remote qualification remain separate evidence authorities. See ADR-049.

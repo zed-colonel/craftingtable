@@ -71,8 +71,16 @@ it is mergeable.
   Trace blocked EXO work to its supplying WI slice/checkpoint and open the relevant work item or evidence
   controls. Eligible checkpoint evidence gets durable Pushover reminders; ordinary dependency waits do not.
   Target reached, selected scope complete, all parents accepted, finalized and published are distinct.
-  Rebinding or changing selection requires a new roadmap until reviewed amendments ship. No target or
-  roadmap policy approves final promotion. Native/Kata qualification execution remains external.
+  **Planning amendments and reconciliation** previews an exact replacement binding or a new target
+  in the same roadmap. Import revised plans inactive, configure their branches and bind the new map;
+  then propose the change, inspect its impact and apply/reject with a rationale. The roadmap pauses
+  and waits for affected sessions; applying preserves retired attempts, branches and completed history.
+  Explicit reuse carries eligible integrated code only. New definitions need new adoption and evidence;
+  current-binding reconciliation reruns stale verification and parent acceptance. Resume explicitly.
+  **Project finalization readiness** links each complete original plan to staged finalization. It freezes
+  the map, integration snapshot and runtime; changed pins require a new finalization. No target or
+  roadmap policy approves final promotion. After promotion consumers explicitly repin to the recorded
+  destination and reassess evidence. Publication remains separate. Native/Kata execution remains external.
 - **Repositories.** Register any local Git checkout by path.
 - **Plan branches.** Open **Projects → a plan → Repository & branches** to select a
   registered repository and an existing integration branch, or explicitly create one
@@ -243,11 +251,11 @@ it is mergeable.
 - **Durability.** Runs, events, worktrees, and repositories live in SQLite. A daemon
   restart marks runs that were live as interrupted; nothing is lost.
 
-Not yet: reviewed cross-project amendments, remote qualification execution,
+Not yet: a Planning Studio editor, remote qualification execution,
 email/SMS notifications, additional backends, or interactive permission prompts.
 
 The agreed [cross-project concurrency roadmap](docs/cross-project-roadmap.md) records the
-remaining implementation sequence, next adding reviewed amendments and the Planning Studio seam.
+six delivered increments, including reviewed amendments and the shared Planning Studio validation seam.
 
 Pushover notifications are configured per workspace in **Settings**. Owners can save
 write-only credentials, choose merge/attention alerts, send a test, and inspect delivery
@@ -277,7 +285,7 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 21 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 22 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

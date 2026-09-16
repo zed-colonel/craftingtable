@@ -12,23 +12,15 @@ import {
   type AgentRunId,
   CYCLE_STEPS,
   type CycleProfiles,
-  type CycleStatus,
   DEFAULT_COMPLETION_POLICY,
   type WorkCycle,
   type WorktreeId,
 } from '@craftingtable/domain';
 import { useState } from 'react';
-import { PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
+import { CYCLE_STATUS_LABELS, PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
 import type { ProfileEntry } from './handoff.js';
 
-export const CYCLE_STATUS_LABELS: Record<CycleStatus, string> = {
-  running: 'Running',
-  paused: 'Paused',
-  'needs-attention': 'Needs attention',
-  'awaiting-merge': 'Awaiting merge approval',
-  stopped: 'Stopped',
-  completed: 'Completed',
-};
+export { CYCLE_STATUS_LABELS } from '../../lib/execution-labels.js';
 export function CyclePanel({
   cycles,
   worktrees,

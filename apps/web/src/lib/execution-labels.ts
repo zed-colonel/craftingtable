@@ -5,6 +5,7 @@ import type {
   AgentRunRole,
   AgentRunStatus,
   AgentRunVerdict,
+  CycleStatus,
 } from '@craftingtable/domain';
 
 /**
@@ -59,6 +60,15 @@ export const VERDICT_LABELS: Readonly<Record<AgentRunVerdict, string>> = {
 export const VERDICT_ACCENTS: Readonly<Record<AgentRunVerdict, string>> = {
   mergeable: 'var(--color-ready)',
   'changes-requested': 'var(--color-attention)',
+};
+
+export const CYCLE_STATUS_LABELS: Readonly<Record<CycleStatus, string>> = {
+  running: 'Running',
+  paused: 'Paused',
+  'needs-attention': 'Needs attention',
+  'awaiting-merge': 'Awaiting merge approval',
+  stopped: 'Stopped',
+  completed: 'Completed',
 };
 
 export const BILLING_LABELS: Readonly<Record<AgentBillingSource, string>> = {

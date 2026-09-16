@@ -23,6 +23,7 @@ export function WorkspaceShell({
   username,
   workspaces,
   selectedWorkspaceId,
+  attentionCount = 0,
   connection,
   route,
   theme,
@@ -35,6 +36,8 @@ export function WorkspaceShell({
   username: string;
   workspaces: readonly WorkspaceOverview[];
   selectedWorkspaceId?: WorkspaceId;
+  /** Cycles waiting on the operator; shown on the Dashboard link. */
+  attentionCount?: number;
   connection: ConnectionState;
   route: Route;
   theme: Theme;
@@ -65,7 +68,11 @@ export function WorkspaceShell({
     selected === undefined
       ? []
       : [
-          { route: { name: 'dashboard', workspaceId: selected.id }, label: 'Dashboard' },
+          {
+            route: { name: 'dashboard', workspaceId: selected.id },
+            label: 'Dashboard',
+            ...(attentionCount > 0 ? { count: attentionCount } : {}),
+          },
           {
             route: { name: 'runs', workspaceId: selected.id },
             label: 'Runs',

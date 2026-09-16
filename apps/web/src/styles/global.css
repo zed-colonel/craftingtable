@@ -2289,3 +2289,51 @@ button:disabled {
     padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
   }
 }
+
+.attention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.attention-row {
+  display: flex;
+  gap: var(--space-2) var(--space-3);
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+}
+
+.attention-row .text-button {
+  font-weight: 600;
+}
+
+.attention-reason {
+  color: var(--color-text-secondary);
+  flex-basis: 100%;
+}
+
+.attention-list.compact {
+  gap: var(--space-1);
+}
+
+.attention-list.compact .attention-row {
+  font-size: var(--text-xs);
+}
+
+.attention-list.compact .attention-reason {
+  flex-basis: auto;
+  color: var(--color-text-muted);
+}
+
+/* Card titles wrap between words, with the plan name dropping below when tight. */
+.card-title {
+  flex-wrap: wrap;
+}
+
+.card-title .link-button {
+  overflow-wrap: normal;
+  min-width: 0;
+}

@@ -33,12 +33,15 @@ import type {
 } from '@craftingtable/domain';
 import { type ReactElement, useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ActivityPanel } from './components/ActivityPanel.js';
+import { AttentionStrip, attentionCycles } from './components/AttentionStrip.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
+import { PageHeader } from './components/PageHeader.js';
+import { Section } from './components/Section.js';
 import { StatusCards } from './components/StatusCards.js';
 import { WorkspaceShell } from './components/WorkspaceShell.js';
 import { AccountPage } from './features/account/AccountPage.js';
-import { CYCLE_STATUS_LABELS, CyclePanel } from './features/execution/CyclePanel.js';
+import { CyclePanel } from './features/execution/CyclePanel.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
 import { DiffView } from './features/execution/DiffView.js';
 import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
@@ -1034,6 +1037,21 @@ export function App() {
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const canMutate = activeWorkspace?.role !== 'viewer';
   const workspaceRoute = routeWorkspaceId(route) !== undefined;
+  const liveRuns = (runsOverview?.runs ?? []).filter((entry) => isLiveStatus(entry.status));
+  /** A cycle belongs to a work item or, for finalization, to a plan version. */
+  const openCycle = (cycle: WorkCycle): void => {
+    if (workspaceId === undefined) return;
+    if (cycle.workItemId) {
+      go({ name: 'work-item', workspaceId, workItemId: cycle.workItemId });
+    } else if (cycle.planVersionId) {
+      go({
+        name: 'plan-version',
+        workspaceId,
+        projectId: cycle.projectId,
+        planVersionId: cycle.planVersionId,
+      });
+    }
+  };
 
   const workspaceContent = (): ReactElement | undefined => {
     if (workspaces.length === 0) {
@@ -1070,18 +1088,23 @@ export function App() {
           </p>
         )}
 
+        {cycleLoadError === workspaceId && (
+          <p className="warning-state" role="alert">
+            Cycle status could not be loaded. Refresh before controlling automation.
+          </p>
+        )}
+        {route.name !== 'dashboard' && (
+          <AttentionStrip cycles={cycles} variant="strip" onOpen={openCycle} />
+        )}
+
         {route.name === 'dashboard' && (
-          <>
-            <header className="page-header">
-              <div>
-                <h1>{shown.name}</h1>
-                <p className="subtitle">
-                  {projection.planningSummary.projectCount} project
-                  {projection.planningSummary.projectCount === 1 ? '' : 's'} · signed in as{' '}
-                  {authenticated.user.username}
-                </p>
-              </div>
-              <div className="page-header-actions">
+          <div className="page">
+            <PageHeader
+              title={shown.name}
+              subtitle={`${projection.planningSummary.projectCount} project${
+                projection.planningSummary.projectCount === 1 ? '' : 's'
+              }`}
+              actions={
                 <button
                   type="button"
                   className="secondary-button"
@@ -1089,8 +1112,9 @@ export function App() {
                 >
                   Import plan
                 </button>
-              </div>
-            </header>
+              }
+            />
+            <AttentionStrip cycles={cycles} variant="section" onOpen={openCycle} />
             <StatusCards
               summary={projection.statusSummary}
               onOpen={(target) => {
@@ -1099,9 +1123,15 @@ export function App() {
                 else go({ name: 'agenda', workspaceId, filter: target.filter });
               }}
             />
-            <section className="panel" aria-label="Live runs">
-              <div className="panel-header">
-                <h3>Live runs</h3>
+            <Section
+              title="Live runs"
+              count={liveRuns.length}
+              summary={
+                liveRuns.length === 0
+                  ? 'No agent is working right now.'
+                  : `${liveRuns.filter((entry) => entry.status === 'waiting').length} waiting for you.`
+              }
+              actions={
                 <button
                   type="button"
                   className="text-button"
@@ -1109,14 +1139,15 @@ export function App() {
                 >
                   All runs
                 </button>
-              </div>
+              }
+            >
               <RunList
-                runs={(runsOverview?.runs ?? []).filter((entry) => isLiveStatus(entry.status))}
+                runs={liveRuns}
                 now={now}
                 onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
                 onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
               />
-            </section>
+            </Section>
             <ProjectCards
               projects={projection.projects}
               onOpen={(projectId) => go({ name: 'project', workspaceId, projectId })}
@@ -1128,42 +1159,7 @@ export function App() {
               foreignWorkspaceEventCount={projection.foreignWorkspaceEventCount}
             />
             <AuditPanel records={audit} />
-          </>
-        )}
-
-        {cycleLoadError === workspaceId && (
-          <p role="alert">
-            Cycle status could not be loaded. Refresh before controlling automation.
-          </p>
-        )}
-        {cycles.some((cycle) => ['needs-attention', 'awaiting-merge'].includes(cycle.status)) && (
-          <section className="panel cycle-notices" aria-label="Cycles needing attention">
-            <h2>Cycles needing your attention</h2>
-            {cycles
-              .filter((cycle) => ['needs-attention', 'awaiting-merge'].includes(cycle.status))
-              .map((cycle) => (
-                <div key={cycle.id}>
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() =>
-                      cycle.workItemId
-                        ? go({ name: 'work-item', workspaceId, workItemId: cycle.workItemId })
-                        : cycle.planVersionId &&
-                          go({
-                            name: 'plan-version',
-                            workspaceId,
-                            projectId: cycle.projectId,
-                            planVersionId: cycle.planVersionId,
-                          })
-                    }
-                  >
-                    {cycle.workItemSourceId}: {CYCLE_STATUS_LABELS[cycle.status]}
-                  </button>
-                  <p>{cycle.reason}</p>
-                </div>
-              ))}
-          </section>
+          </div>
         )}
 
         {route.name === 'runs' && (
@@ -1521,6 +1517,7 @@ export function App() {
       username={authenticated.user.username}
       workspaces={workspaces}
       {...(activeWorkspaceId === undefined ? {} : { selectedWorkspaceId: activeWorkspaceId })}
+      attentionCount={attentionCycles(cycles).length}
       connection={projection.connection}
       route={route}
       theme={theme}

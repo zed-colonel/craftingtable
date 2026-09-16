@@ -11,6 +11,8 @@ import {
   projectDetailResponseSchema,
   projectIdSchema,
   projectListResponseSchema,
+  removeFromAgendaRequestSchema,
+  removeFromAgendaResponseSchema,
   workItemDetailResponseSchema,
   workItemIdSchema,
   workspaceIdSchema,
@@ -289,6 +291,34 @@ export function registerPlanningRoutes(
           workItemId: result.workItem.id,
           status: 'completed',
           completed: result.completed,
+        }),
+      );
+    },
+  );
+
+  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+    '/api/workspaces/:workspaceId/work-items/:workItemId/remove-from-agenda',
+    async (request, reply) => {
+      const context = authorizeMutation(request, authService, config);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const workItemId = workItemIdSchema.safeParse(request.params.workItemId);
+      if (!workspaceId.success || !workItemId.success)
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      const input = removeFromAgendaRequestSchema.safeParse(request.body);
+      if (!input.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid agenda removal request');
+      const result = workItemService.removeFromAgenda(
+        context,
+        workspaceId.data,
+        workItemId.data,
+        input.data.expectedVersion,
+        request.id,
+      );
+      return noStore(reply).send(
+        removeFromAgendaResponseSchema.parse({
+          workItemId: result.workItem.id,
+          status: 'proposed',
+          removed: result.removed,
         }),
       );
     },

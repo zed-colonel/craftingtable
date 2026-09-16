@@ -381,6 +381,7 @@ describe('migration 0002 journal preservation', () => {
       'plan-finalizations',
       'storage-management',
       'package-imports',
+      'agenda-removal',
     ]);
     // The recorded checksum of 0001 is what every already-migrated installation
     // validates against; changing that file would lock operators out.

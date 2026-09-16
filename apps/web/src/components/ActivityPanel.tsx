@@ -18,6 +18,8 @@ export function describeEvent(event: WorkspaceEventEnvelope): string {
       return `Project created: ${event.payload.name}`;
     case 'plan-version-imported':
       return `Plan version ${event.payload.versionNumber} imported: ${event.payload.document} (${event.payload.itemCount} work items, ${event.payload.requiredDependencyCount} required dependencies)`;
+    case 'work-item-removed-from-agenda':
+      return `${event.payload.sourceWorkItemId} removed from agenda`;
     case 'work-item-admitted':
       return `Work item admitted: ${event.payload.sourceWorkItemId}`;
     case 'work-item-completed':

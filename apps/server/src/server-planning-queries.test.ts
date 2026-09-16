@@ -11,10 +11,15 @@ import {
   workspaceWorkItemListResponseSchema,
 } from '@craftingtable/contracts';
 import {
+  asAgentRunId,
   asSessionId,
+  asSourceRepositoryId,
   asUserId,
   asWorkspaceId,
   asWorkspaceMembershipId,
+  asWorktreeId,
+  DEFAULT_COMPLETION_POLICY,
+  type Roadmap,
   type WorkspaceId,
   type WorkspaceRole,
 } from '@craftingtable/domain';
@@ -482,6 +487,214 @@ describe('work-item admission over HTTP', () => {
     expect(events.filter((event) => event.kind === 'work-item-admitted')).toHaveLength(1);
   });
 
+  async function removalFixture() {
+    const r = await importedWorkspace();
+    const { workItemId } = await admitAq01(r);
+    const context = r.context.services.authService.authenticate(r.session.cookie.split('=')[1]);
+    const headers = {
+      cookie: r.session.cookie,
+      origin: r.context.config.publicOrigin,
+      [CSRF_HEADER_NAME]: r.session.csrfToken,
+    };
+    const url = `/api/workspaces/${r.workspaceId}/work-items/${workItemId}/remove-from-agenda`;
+    const remove = (expectedVersion = 2) =>
+      r.context.app.inject({ method: 'POST', url, headers, payload: { expectedVersion } });
+    return { ...r, workItemId, actor: context, remove, url, headers };
+  }
+  it('returns unstarted work to Proposed with distinct history, no completion, and safe re-admission', async () => {
+    const r = await removalFixture();
+    const detail = await r.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${r.workspaceId}/work-items/${r.workItemId}`,
+      headers: r.headers,
+    });
+    expect(detail.json().agendaRemoval).toEqual({ allowed: true, expectedVersion: 2 });
+    const first = await r.remove();
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json()).toMatchObject({ status: 'proposed', removed: true });
+    expect((await r.remove()).json().removed).toBe(false);
+    const item = r.context.storage.planning.workItems.find(r.workspaceId, r.workItemId);
+    expect(item).toMatchObject({ status: 'proposed', version: 3 });
+    expect(item?.admittedAt).toBeUndefined();
+    expect(item?.completedAt).toBeUndefined();
+    const events = r.context.storage.workspaceEvents.listAfter({
+      workspaceId: r.workspaceId,
+      after: 0,
+      limit: 50,
+    });
+    expect(events.filter((e) => e.kind === 'work-item-admitted')).toHaveLength(1);
+    expect(events.filter((e) => e.kind === 'work-item-removed-from-agenda')).toHaveLength(1);
+    expect(events.filter((e) => e.kind === 'work-item-completed')).toHaveLength(0);
+    const audit = r.context.storage.audit.listWorkspace({ workspaceId: r.workspaceId, limit: 50 });
+    expect(audit.filter((e) => e.action === 'work-item.removed-from-agenda')).toHaveLength(1);
+    const dependent = r.context.storage.planning.workItems
+      .listForVersion(r.workspaceId, r.imported.planVersionId)
+      .find((i) => i.sourceId === 'AQ-02');
+    expect(dependent?.blockerSourceIds).toContain('AQ-01');
+    await admitAq01(r);
+    expect((await r.remove()).statusCode).toBe(409);
+    expect((await r.remove(4)).statusCode).toBe(200);
+  });
+  it('blocks removal while a worktree is being prepared and releases the guard afterward', async () => {
+    const r = await removalFixture();
+    await r.context.services.workItemService.duringWorktreeCreation(r.workItemId, async () => {
+      expect((await r.remove()).statusCode).toBe(409);
+      await expect(
+        r.context.services.workItemService.duringWorktreeCreation(r.workItemId, async () => {}),
+      ).rejects.toThrow(/already being prepared/);
+    });
+    expect((await r.remove()).statusCode).toBe(200);
+  });
+  it.each([false, true])(
+    'blocks active worktrees and preserves prior run history (run=%s)',
+    async (hasRun) => {
+      const r = await removalFixture();
+      const now = new Date().toISOString();
+      const repositoryId = asSourceRepositoryId(randomUUID()),
+        worktreeId = asWorktreeId(randomUUID());
+      r.context.storage.execution.sourceRepositories.insert({
+        id: repositoryId,
+        workspaceId: r.workspaceId,
+        displayName: 'Fixture',
+        rootPath: r.context.directory,
+        defaultBranch: 'main',
+        registeredHeadSha: 'a'.repeat(40),
+        registeredAt: now,
+        registeredByUserId: r.actor.user.id,
+      });
+      r.context.storage.execution.worktrees.insert({
+        id: worktreeId,
+        workspaceId: r.workspaceId,
+        repositoryId,
+        projectId: r.imported.projectId,
+        workItemId: r.workItemId,
+        branchName: 'ct/fixture',
+        baseSha: 'a'.repeat(40),
+        baseBranch: 'main',
+        path: `${r.context.directory}/tree`,
+        createdAt: now,
+        createdByUserId: r.actor.user.id,
+      });
+      expect((await r.remove()).statusCode).toBe(409);
+      if (hasRun) {
+        const run = r.context.storage.execution.runs.insert({
+          id: asAgentRunId(randomUUID()),
+          workspaceId: r.workspaceId,
+          worktreeId,
+          repositoryId,
+          projectId: r.imported.projectId,
+          workItemId: r.workItemId,
+          backend: 'codex',
+          role: 'implement',
+          permissionMode: 'auto',
+          brief: 'Fixture',
+          createdAt: now,
+          createdByUserId: r.actor.user.id,
+        });
+        r.context.storage.execution.runs.transition({
+          workspaceId: r.workspaceId,
+          runId: run.id,
+          expectedStatuses: ['starting'],
+          toStatus: 'failed',
+          occurredAt: now,
+        });
+      }
+      r.context.storage.execution.worktrees.markRemoved({
+        workspaceId: r.workspaceId,
+        worktreeId,
+        occurredAt: now,
+      });
+      expect((await r.remove()).statusCode).toBe(hasRun ? 409 : 200);
+      if (hasRun)
+        expect(() =>
+          r.context.storage.planning.workItems.removeFromAgenda(r.workspaceId, r.workItemId, 2),
+        ).toThrow(/guarded return/);
+    },
+  );
+  it('requires delegated roadmaps to stop before withdrawing their queued item', async () => {
+    const r = await removalFixture();
+    const now = new Date().toISOString(),
+      id = randomUUID();
+    const profile = { backend: 'codex' as const, permissionMode: 'auto' as const };
+    const roadmap: Roadmap = {
+      id,
+      workspaceId: r.workspaceId,
+      version: 1,
+      status: 'paused',
+      reason: 'Paused before dispatch',
+      createdAt: now,
+      updatedAt: now,
+      createdByUserId: r.actor.user.id,
+      attempts: [],
+      definition: {
+        roadmapId: id,
+        revision: 1,
+        name: 'Queued work',
+        createdAt: now,
+        createdByUserId: r.actor.user.id,
+        entries: [
+          {
+            id: randomUUID(),
+            workItemId: r.workItemId,
+            projectId: r.imported.projectId,
+            planVersionId: r.imported.planVersionId,
+            sourceId: 'AQ-01',
+            title: 'Queued work',
+            repositoryId: asSourceRepositoryId(randomUUID()),
+            integrationBranch: 'revision',
+            profiles: { design: profile, implement: profile, review: profile, remediate: profile },
+            policy: DEFAULT_COMPLETION_POLICY,
+            instructions: '',
+          },
+        ],
+      },
+    };
+    r.context.storage.roadmaps.save(roadmap, 0);
+    expect((await r.remove()).statusCode).toBe(409);
+    expect(() =>
+      r.context.storage.planning.workItems.removeFromAgenda(r.workspaceId, r.workItemId, 2),
+    ).toThrow(/guarded return/);
+    r.context.storage.roadmaps.save({ ...roadmap, status: 'stopped', version: 2 }, 1);
+    expect((await r.remove()).statusCode).toBe(200);
+  });
+  it('rejects completion history, viewer access, missing CSRF, and foreign-workspace removal', async () => {
+    const r = await removalFixture();
+    const viewer = addMember(r.context, r.workspaceId, 'viewer');
+    expect(() =>
+      r.context.services.workItemService.removeFromAgenda(
+        viewer.context,
+        r.workspaceId,
+        r.workItemId,
+        2,
+      ),
+    ).toThrow();
+    expect(
+      (
+        await r.context.app.inject({
+          method: 'POST',
+          url: r.url,
+          headers: { cookie: r.session.cookie, origin: r.context.config.publicOrigin },
+          payload: { expectedVersion: 2 },
+        })
+      ).statusCode,
+    ).toBe(403);
+    const other = foreignWorkspace(r.context);
+    expect(
+      (
+        await r.context.app.inject({
+          method: 'POST',
+          url: r.url.replace(r.workspaceId, other.workspaceId),
+          headers: r.headers,
+          payload: { expectedVersion: 2 },
+        })
+      ).statusCode,
+    ).toBe(404);
+    r.context.services.workItemService.complete(r.actor, r.workspaceId, r.workItemId);
+    expect((await r.remove()).statusCode).toBe(409);
+    expect(() =>
+      r.context.storage.planning.workItems.removeFromAgenda(r.workspaceId, r.workItemId, 2),
+    ).toThrow(/guarded return/);
+  });
   it('completes an admitted item, unblocks its dependents, and lists it under completed', async () => {
     const ready = await importedWorkspace();
     const { workItemId } = await admitAq01(ready);

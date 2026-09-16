@@ -54,8 +54,8 @@ proposed ──admit──▶ admitted ──merge or mark complete──▶ com
 ```
 
 "In progress" is derived (an active worktree or a live run), not stored. Completion is
-a separate `work_item_completions` row joined on read, so the CT-03 admission-only
-trigger on `work_items` stays in force; a completed predecessor unblocks its dependents.
+a separate `work_item_completions` row joined on read, while schema 17 permits a guarded
+return from admitted to proposed; a completed predecessor unblocks its dependents.
 
 A worktree's merge gate is computed from its runs (`mergeGateFor` in the execution
 service): mergeable when the most recent run is a successfully finished review with a `mergeable` verdict and
@@ -332,3 +332,9 @@ It has no Git or agent authority. Importing a map creates no executable roadmap 
 its UI lives under Roadmaps as an inactive draft. Exact plans/work items/source artifacts
 and configured branch versions are recorded explicitly. Live configuration changes produce
 binding diagnostics, never implicit rebinding. See ADR-043 and the cross-project roadmap.
+
+Agenda removal is a version-checked, audited command for unstarted items. The shared
+work-item eligibility projection checks run/cycle history, active worktrees and delegated
+roadmaps; an in-memory preparation guard covers Git worktree creation before its database
+row exists. Schema 17 retains imported-field immutability and rejects reversing completed
+or started work. Admission/removal events remain durable; no completion evidence is created.

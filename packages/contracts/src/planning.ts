@@ -206,6 +206,13 @@ export const projectDetailResponseSchema = z.strictObject({
 });
 
 export const workItemDetailResponseSchema = z.strictObject({
+  agendaRemoval: z
+    .strictObject({
+      allowed: z.boolean(),
+      expectedVersion: z.number().int().positive().safe(),
+      reason: z.string().max(500).optional(),
+    })
+    .optional(),
   workItem: workItemSummarySchema.extend({
     projectId: projectIdSchema,
     planVersionId: planVersionIdSchema,
@@ -221,6 +228,15 @@ export const workItemDetailResponseSchema = z.strictObject({
   requiredPredecessors: z.array(workItemDependencySummarySchema).max(64),
   recommendedPredecessors: z.array(workItemDependencySummarySchema).max(64),
   dependents: z.array(workItemDependencySummarySchema).max(2000),
+});
+
+export const removeFromAgendaRequestSchema = z.strictObject({
+  expectedVersion: z.number().int().positive().safe(),
+});
+export const removeFromAgendaResponseSchema = z.strictObject({
+  workItemId: workItemIdSchema,
+  status: z.literal('proposed'),
+  removed: z.boolean(),
 });
 
 export const admitWorkItemRequestSchema = z.strictObject({});

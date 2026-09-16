@@ -555,6 +555,14 @@ class SqliteWorkItemRepository implements WorkItemRepository {
     return result.changes === 0 ? undefined : this.find(input.workspaceId, input.workItemId);
   }
 
+  removeFromAgenda(workspaceId: WorkspaceId, workItemId: WorkItemId, expectedVersion: number) {
+    const result = this.database
+      .prepare(`UPDATE work_items SET status = 'proposed', admitted_at = NULL,
+      admitted_by_user_id = NULL, version = version + 1 WHERE workspace_id = ? AND id = ? AND status = 'admitted' AND version = ?`)
+      .run(workspaceId, workItemId, expectedVersion);
+    return result.changes === 0 ? undefined : this.find(workspaceId, workItemId);
+  }
+
   complete(input: CompleteWorkItemInput) {
     // The primary key is the concurrency control: a second completion of the
     // same item inserts nothing rather than overwriting the first.

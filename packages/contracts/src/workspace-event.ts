@@ -104,6 +104,11 @@ export const workItemAdmittedEventSchema = workspaceEventBaseSchema.extend({
   }),
 });
 
+export const workItemRemovedFromAgendaEventSchema = workItemAdmittedEventSchema.extend({
+  kind: z.literal('work-item-removed-from-agenda'),
+  payload: workItemAdmittedEventSchema.shape.payload.omit({ workContractDraftId: true }),
+});
+
 export const repositoryRegisteredEventSchema = workspaceEventBaseSchema
   .extend({
     kind: z.literal('repository-registered'),
@@ -595,6 +600,7 @@ export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
   projectCreatedEventSchema,
   planVersionImportedEventSchema,
   workItemAdmittedEventSchema,
+  workItemRemovedFromAgendaEventSchema,
   repositoryRegisteredEventSchema,
   repositoryStatusChangedEventSchema,
   repositoryEvidenceChangedEventSchema,

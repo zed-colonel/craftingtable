@@ -107,8 +107,8 @@ export async function createServices(
   );
   const workspaceService = new WorkspaceService(storage, now, notifier);
   const planImportService = new PlanImportService(storage, workspaceService, notifier, now);
-  const planningQueryService = new PlanningQueryService(storage, workspaceService);
   const workItemService = new WorkItemService(storage, workspaceService, notifier, now);
+  const planningQueryService = new PlanningQueryService(storage, workspaceService, workItemService);
   const repositoryFeature = config.repositoryFeature;
   const repositoryInspectorProvider =
     overrides.repositoryInspectorProvider ??

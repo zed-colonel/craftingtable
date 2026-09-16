@@ -15,6 +15,7 @@ import type {
 } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
 import { NotFoundError } from './errors.js';
+import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceService } from './workspace-service.js';
 
 /**
@@ -62,6 +63,7 @@ export class PlanningQueryService {
   constructor(
     private readonly storage: CraftingTableStorage,
     private readonly workspaceService: WorkspaceService,
+    private readonly workItemService: WorkItemService,
   ) {}
 
   listProjects(context: AuthContext, workspaceId: WorkspaceId, requestId?: string) {
@@ -154,6 +156,7 @@ export class PlanningQueryService {
             : { completionWorktreeId: item.completionWorktreeId }),
           ...(item.mergeSha === undefined ? {} : { mergeSha: item.mergeSha }),
         },
+        agendaRemoval: this.workItemService.agendaRemoval(tx, item),
         projectName: project?.name ?? 'Unknown project',
         requiredPredecessors: predecessors.filter((entry) => entry.kind === 'required'),
         recommendedPredecessors: predecessors.filter((entry) => entry.kind === 'recommended'),

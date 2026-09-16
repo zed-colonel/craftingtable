@@ -105,6 +105,7 @@ import {
   loadWorkItem,
   loadWorkspaceWorkItems,
   type PlanImportUpload,
+  removeFromAgenda,
 } from './lib/planning-api.js';
 import { type Route, routeWorkspaceId } from './lib/route.js';
 import {
@@ -1323,6 +1324,13 @@ export function App() {
                   workItemExecution.runs.some((entry) => isLiveStatus(entry.status)))
               }
               onAdmit={() => handleAdmit(workItem.workItem.id)}
+              onRemoveFromAgenda={() => {
+                const version = workItem.agendaRemoval?.expectedVersion;
+                if (version !== undefined)
+                  itemCommand(async (csrf, ws) => {
+                    await removeFromAgenda(ws, workItem.workItem.id, version, csrf);
+                  }, 'Agenda removal failed');
+              }}
               onComplete={() => handleComplete(workItem.workItem.id)}
               onOpenProject={() =>
                 go({ name: 'project', workspaceId, projectId: workItem.workItem.projectId })

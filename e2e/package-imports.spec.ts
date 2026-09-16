@@ -50,6 +50,17 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     );
   await page.getByRole('button', { name: 'Import plan bundle' }).click();
   await expect(page.getByRole('heading', { name: 'WorldInterface', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'AQ-01', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Admit into agenda', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Remove from agenda', exact: true })).toBeEnabled();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+  await page.screenshot({ path: info.outputPath('agenda-removal.png') });
+  await page.getByRole('button', { name: 'Remove from agenda', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Admit into agenda', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Admit into agenda', exact: true })).toBeVisible();
   for (const [file, name, count] of [
     ['wi-fabric-2-foundational-package-r5-aq-baseline-alignment.zip', 'WorldInterface', 14],
     ['exo-v3-comprehensive-design-package-r6-aq-baseline-alignment.zip', 'Exoskeleton', 19],

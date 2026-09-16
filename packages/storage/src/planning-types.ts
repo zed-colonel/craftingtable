@@ -316,6 +316,11 @@ export interface WorkItemRepository {
     limit: number,
   ): readonly WorkspaceWorkItemRow[];
   admit(input: AdmitWorkItemInput): WorkItem | undefined;
+  removeFromAgenda(
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
+    expectedVersion: number,
+  ): WorkItem | undefined;
   /** Records completion; `undefined` when the item is unknown or already completed. */
   complete(input: CompleteWorkItemInput): WorkItem | undefined;
   count(): number;

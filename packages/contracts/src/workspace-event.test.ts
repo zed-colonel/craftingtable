@@ -53,6 +53,18 @@ const validEvents = {
       sourceWorkItemId: 'SOURCE-1',
     },
   },
+  'work-item-removed-from-agenda': {
+    ...base,
+    projectId: 'project-1',
+    workItemId: 'work-item-1',
+    kind: 'work-item-removed-from-agenda',
+    payload: {
+      projectId: 'project-1',
+      planVersionId: 'plan-version-1',
+      workItemId: 'work-item-1',
+      sourceWorkItemId: 'SOURCE-1',
+    },
+  },
   'repository-registered': {
     ...base,
     repositoryId: 'repository-1',
@@ -416,6 +428,7 @@ describe('WorkspaceEventEnvelope', () => {
       'project-created': [],
       'plan-version-imported': [],
       'work-item-admitted': [],
+      'work-item-removed-from-agenda': [],
       'repository-registered': ['repositoryId', 'repositoryInspectionId'],
       'repository-status-changed': ['repositoryId', 'repositoryInspectionId'],
       'repository-evidence-changed': ['repositoryId', 'repositoryInspectionId'],

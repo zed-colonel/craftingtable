@@ -13,6 +13,7 @@ import {
   planVersionDetailResponseSchema,
   projectDetailResponseSchema,
   projectListResponseSchema,
+  removeFromAgendaResponseSchema,
   type WorkItemDetailResponse,
   type WorkspaceWorkItemFilter,
   type WorkspaceWorkItemListResponse,
@@ -73,6 +74,23 @@ export function loadImportAttempts(
   return request(
     `/api/workspaces/${encode(workspaceId)}/plan-imports`,
     planImportAttemptListResponseSchema,
+  );
+}
+
+export function removeFromAgenda(
+  workspaceId: WorkspaceId,
+  workItemId: WorkItemId,
+  expectedVersion: number,
+  csrfToken: string,
+) {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/work-items/${encode(workItemId)}/remove-from-agenda`,
+    removeFromAgendaResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'x-craftingtable-csrf': csrfToken },
+      body: JSON.stringify({ expectedVersion }),
+    },
   );
 }
 

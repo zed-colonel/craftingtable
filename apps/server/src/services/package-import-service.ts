@@ -243,7 +243,7 @@ export class PackageImportService {
         )
     )
       conflict(
-        'This project has admitted work or delegated execution. Import with “Make active” unchecked, then finish or stop the existing work before changing its active plan.',
+        'This project has admitted work or delegated execution. Import with “Make active” unchecked, then remove unstarted items from the agenda or finish/stop existing work before changing its active plan.',
       );
   }
   importConcurrency(

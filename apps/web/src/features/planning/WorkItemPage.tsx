@@ -13,6 +13,7 @@ export function WorkItemPage({
   detail,
   inProgress,
   onAdmit,
+  onRemoveFromAgenda,
   onComplete,
   onOpenProject,
   busy,
@@ -23,6 +24,7 @@ export function WorkItemPage({
   /** Derived by the app from live worktrees and runs. */
   inProgress: boolean;
   onAdmit: () => void;
+  onRemoveFromAgenda?: () => void;
   onComplete: () => void;
   onOpenProject: () => void;
   busy: boolean;
@@ -71,6 +73,20 @@ export function WorkItemPage({
               {busy ? 'Admitting…' : 'Admit into agenda'}
             </button>
           )}
+          {item.status === 'admitted' && detail.agendaRemoval && onRemoveFromAgenda && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onRemoveFromAgenda}
+              disabled={busy || !canMutate || !detail.agendaRemoval.allowed}
+              title={
+                detail.agendaRemoval.reason ??
+                'Return this unstarted item to Proposed; admission history is preserved.'
+              }
+            >
+              Remove from agenda
+            </button>
+          )}
           {item.status === 'admitted' && (
             <button
               type="button"
@@ -85,6 +101,9 @@ export function WorkItemPage({
         </div>
       </header>
 
+      {item.status === 'admitted' && detail.agendaRemoval?.reason && (
+        <p className="hint">{detail.agendaRemoval.reason}</p>
+      )}
       {error !== undefined && (
         <p className="error-state" role="alert">
           {error}

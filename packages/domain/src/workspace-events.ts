@@ -33,6 +33,7 @@ export const WORKSPACE_EVENT_KINDS = [
   'project-created',
   'plan-version-imported',
   'work-item-admitted',
+  'work-item-removed-from-agenda',
   /* CT-04A2b1 (schema 4). */
   'repository-registered',
   'repository-status-changed',
@@ -61,6 +62,7 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'project-created': 2,
   'plan-version-imported': 2,
   'work-item-admitted': 2,
+  'work-item-removed-from-agenda': 17,
   'repository-registered': 4,
   'repository-status-changed': 4,
   'repository-evidence-changed': 4,
@@ -78,7 +80,9 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'branches-changed': 10,
   'notifications-changed': 11,
   'roadmap-changed': 12,
-} as const satisfies Readonly<Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11 | 12>>;
+} as const satisfies Readonly<
+  Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11 | 12 | 17>
+>;
 
 export function isWorkspaceEventKind(value: unknown): value is WorkspaceEventKind {
   return (WORKSPACE_EVENT_KINDS as readonly string[]).includes(value as string);
@@ -155,6 +159,10 @@ export interface WorkItemAdmittedEvent extends WorkspaceEventBase {
     readonly workItemId: WorkItemId;
     readonly sourceWorkItemId: string;
   };
+}
+
+export interface WorkItemRemovedFromAgendaEvent extends Omit<WorkItemAdmittedEvent, 'kind'> {
+  readonly kind: 'work-item-removed-from-agenda';
 }
 
 export interface RepositoryRegisteredEvent extends WorkspaceEventBase {
@@ -453,6 +461,7 @@ export type WorkspaceEvent =
   | ProjectCreatedEvent
   | PlanVersionImportedEvent
   | WorkItemAdmittedEvent
+  | WorkItemRemovedFromAgendaEvent
   | RepositoryRegisteredEvent
   | RepositoryStatusChangedEvent
   | RepositoryEvidenceChangedEvent

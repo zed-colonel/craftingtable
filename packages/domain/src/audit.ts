@@ -28,6 +28,7 @@ export const AUDIT_ACTIONS = [
   'plan.import.failed',
   'plan.import.duplicate',
   'work-item.admitted',
+  'work-item.removed-from-agenda',
   'work-contract-draft.created',
   /* CT-04A2a (schema 3). */
   'repository.register',
@@ -80,6 +81,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'plan.import.failed': 2,
   'plan.import.duplicate': 2,
   'work-item.admitted': 2,
+  'work-item.removed-from-agenda': 17,
   'work-contract-draft.created': 2,
   'repository.register': 3,
   'repository.inspect': 3,
@@ -113,7 +115,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'concurrency.bindings': 16,
   'plan.version-activated': 16,
 } as const satisfies Readonly<
-  Record<AuditAction, 1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16>
+  Record<AuditAction, 1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17>
 >;
 
 export function isAuditAction(value: unknown): value is AuditAction {

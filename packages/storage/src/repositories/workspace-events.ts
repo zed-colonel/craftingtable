@@ -145,6 +145,7 @@ function assertStructuralShape(
     case 'workspace-created':
     case 'project-created':
     case 'plan-version-imported':
+    case 'work-item-removed-from-agenda':
     case 'work-item-admitted':
       if (!repositoryCorrelationsNull) invalidStructural(row);
       return;
@@ -258,6 +259,7 @@ function assertPayloadCorrelations(
     case 'workspace-created':
     case 'project-created':
     case 'plan-version-imported':
+    case 'work-item-removed-from-agenda':
     case 'work-item-admitted':
     case 'source-repository-registered':
     case 'roadmap-changed':
@@ -367,6 +369,12 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
         ...legacyFields(base),
         kind,
         payload: mapPayload<'plan-version-imported'>(payload),
+      };
+    case 'work-item-removed-from-agenda':
+      return {
+        ...legacyFields(base),
+        kind,
+        payload: mapPayload<'work-item-removed-from-agenda'>(payload),
       };
     case 'work-item-admitted':
       return {
@@ -528,6 +536,7 @@ function assertAppendAgreement(input: AppendWorkspaceEventInput): void {
     case 'workspace-created':
     case 'project-created':
     case 'plan-version-imported':
+    case 'work-item-removed-from-agenda':
     case 'work-item-admitted':
     case 'source-repository-registered':
     case 'roadmap-changed':

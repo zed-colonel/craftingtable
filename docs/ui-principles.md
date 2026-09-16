@@ -155,3 +155,8 @@ binding diagnostics, and group long source hashes, phase requirements and resour
 in wrapping disclosures. Saving bindings records identity only; adoption and Start are
 separate future actions. Plan ZIP replacement means a new preserved version, with an explicit
 active-version choice and a link to configure that version's branches.
+
+Unstarted items in the agenda offer **Remove from agenda** beside the existing actions.
+It returns the item to Proposed and preserves admission history. Show the daemon's
+reason when work history, an active worktree or roadmap prevents removal; no completion
+is recorded and dependencies stay blocked.

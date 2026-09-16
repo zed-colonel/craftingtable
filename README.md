@@ -15,7 +15,8 @@ it is mergeable.
   bundle; browse projects, plan versions, and work items with their dependencies. Items
   move `Proposed → In agenda → Completed`; completing one unblocks its dependents.
   **Import plan → Import ZIP archive** previews a full package and adds a preserved version
-  to an existing project. Choose **Make active** to use it when prior work is idle, then
+  to an existing project. Use **Remove from agenda** on an unstarted work item to return it
+  to Proposed without recording a completion. Choose **Make active** to use it when prior work is idle, then
   configure that new version's repository/branches. Original ZIPs remain downloadable.
 - **Cross-project map previews.** **Roadmaps → Import concurrency map** accepts v0.3 ZIPs,
   checks source documents and phase dependencies, and saves an inactive draft. Choose exact
@@ -226,7 +227,7 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 16 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 17 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

@@ -138,6 +138,7 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
         workspaceSummary: true,
         projectIds: unique([...current.projectIds, event.payload.projectId]),
       };
+    case 'work-item-removed-from-agenda':
     case 'work-item-admitted':
       return {
         ...current,

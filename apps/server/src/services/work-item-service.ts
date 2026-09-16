@@ -26,13 +26,15 @@ export interface CompletionResult {
 }
 
 /**
- * Work item lifecycle commands: admission into the agenda and completion.
+ * Work item lifecycle commands: admission, removal from the agenda, and completion.
  *
  * Completion is usually a side effect of merging a worktree (see
  * `ExecutionService.mergeWorktree`), which calls `completeWithin` inside its
  * own transaction; the standalone command exists for work finished by hand.
  */
 export class WorkItemService {
+  private readonly preparing = new Set<WorkItemId>();
+
   constructor(
     private readonly storage: CraftingTableStorage,
     private readonly workspaceService: WorkspaceService,
@@ -121,6 +123,130 @@ export class WorkItemService {
       this.notifier.notify();
     }
     return committed;
+  }
+
+  async duringWorktreeCreation<T>(id: WorkItemId, create: () => Promise<T>): Promise<T> {
+    if (this.preparing.has(id))
+      throw new ExecutionRequestError(
+        'conflict',
+        'A worktree is already being prepared for this item.',
+      );
+    this.preparing.add(id);
+    try {
+      return await create();
+    } finally {
+      this.preparing.delete(id);
+    }
+  }
+
+  agendaRemoval(tx: StorageRepositories, item: WorkItem) {
+    const workspaceId = item.workspaceId;
+    let reason: string | undefined;
+    if (item.status !== 'admitted') reason = 'Only items in the agenda can be removed.';
+    else if (this.preparing.has(item.id)) reason = 'A worktree is being prepared for this item.';
+    else if (
+      tx.execution.runs.listForWorkItem(workspaceId, item.id).length ||
+      tx.execution.cycles.list(workspaceId).some((c) => c.workItemId === item.id)
+    )
+      reason = 'This item has run or automation history and has already started.';
+    else if (
+      tx.execution.worktrees
+        .listForWorkItem(workspaceId, item.id)
+        .some((w) => w.status === 'active')
+    )
+      reason = 'Remove the unused worktree before removing this item from the agenda.';
+    else if (
+      tx.roadmaps
+        .list(workspaceId)
+        .some(
+          (r) =>
+            !['draft', 'completed', 'stopped'].includes(r.status) &&
+            r.definition.entries.some((e) => e.workItemId === item.id),
+        )
+    )
+      reason = 'Stop the roadmap that owns this item before removing it from the agenda.';
+    return {
+      allowed: reason === undefined,
+      expectedVersion: item.version,
+      ...(reason ? { reason } : {}),
+    };
+  }
+
+  removeFromAgenda(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
+    expectedVersion: number,
+    requestId?: string,
+  ) {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
+      ...(requestId ? { requestId } : {}),
+    });
+    const result = this.storage.transaction((tx) => {
+      const item = tx.planning.workItems.find(workspaceId, workItemId);
+      if (!item) throw new NotFoundError();
+      if (item.status === 'proposed') return { workItem: item, removed: false };
+      if (item.version !== expectedVersion)
+        throw new ExecutionRequestError(
+          'conflict',
+          'This item changed. Refresh before removing it from the agenda.',
+        );
+      const eligibility = this.agendaRemoval(tx, item);
+      if (!eligibility.allowed)
+        throw new ExecutionRequestError(
+          'conflict',
+          eligibility.reason ?? 'This item cannot be removed from the agenda.',
+        );
+      const updated = tx.planning.workItems.removeFromAgenda(
+        workspaceId,
+        workItemId,
+        expectedVersion,
+      );
+      if (!updated)
+        throw new ExecutionRequestError(
+          'conflict',
+          'This item changed. Refresh before removing it from the agenda.',
+        );
+      const occurredAt = this.now().toISOString();
+      tx.audit.append({
+        id: asAuditEventId(randomUUID()),
+        occurredAt,
+        actorKind: 'user',
+        actorUserId: context.user.id,
+        sessionId: context.session.id,
+        workspaceId,
+        ...(requestId ? { requestId } : {}),
+        action: 'work-item.removed-from-agenda',
+        targetType: 'work-item',
+        targetId: workItemId,
+        outcome: 'succeeded',
+        priorVersion: item.version,
+        resultingVersion: updated.version,
+        metadata: {
+          sourceWorkItemId: item.sourceId,
+          planVersionId: item.planVersionId,
+          admittedAt: item.admittedAt ?? null,
+        },
+      });
+      tx.workspaceEvents.appendEvent({
+        id: asEventId(randomUUID()),
+        occurredAt,
+        workspaceId,
+        actorUserId: context.user.id,
+        projectId: item.projectId,
+        workItemId,
+        kind: 'work-item-removed-from-agenda',
+        payload: {
+          projectId: item.projectId,
+          planVersionId: item.planVersionId,
+          workItemId,
+          sourceWorkItemId: item.sourceId,
+        },
+      });
+      return { workItem: updated, removed: true };
+    });
+    if (result.removed) this.notifier.notify();
+    return result;
   }
 
   /** Marks an admitted work item as completed without a merge. */

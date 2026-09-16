@@ -439,105 +439,107 @@ export class ExecutionService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
-    const git = this.requireGit();
-    const { item, repository } = this.storage.readTransaction((tx) => {
-      const found = tx.planning.workItems.find(workspaceId, workItemId);
-      const repo = tx.execution.sourceRepositories.find(workspaceId, input.repositoryId);
-      if (found === undefined || repo === undefined) {
-        throw new NotFoundError();
+    return this.workItemService.duringWorktreeCreation(workItemId, async () => {
+      const git = this.requireGit();
+      const { item, repository } = this.storage.readTransaction((tx) => {
+        const found = tx.planning.workItems.find(workspaceId, workItemId);
+        const repo = tx.execution.sourceRepositories.find(workspaceId, input.repositoryId);
+        if (found === undefined || repo === undefined) {
+          throw new NotFoundError();
+        }
+        return { item: found, repository: repo };
+      });
+      if (repository.status !== 'active') {
+        throw new ExecutionRequestError('conflict', 'Repository is retired');
       }
-      return { item: found, repository: repo };
-    });
-    if (repository.status !== 'active') {
-      throw new ExecutionRequestError('conflict', 'Repository is retired');
-    }
-    reservation?.check();
-    const shortId = (reservation?.id ?? randomUUID()).slice(0, 8);
-    const branchName = input.branchName ?? `ct/${slug(item.sourceId)}-${shortId}`;
-    if (!isValidBranchName(branchName)) {
-      throw new ExecutionRequestError('invalid-request', 'Branch name is not well formed');
-    }
-    const path = join(
-      this.config.worktreeRoot,
-      slug(repository.displayName, 60),
-      `${slug(item.sourceId)}-${shortId}`,
-    );
-
-    return this.branches.duringMerge(repository.rootPath, async () => {
-      const base = await this.branches.creationBase(workspaceId, workItemId, repository.id);
       reservation?.check();
-      const created = await git.createWorktree({
-        repositoryPath: repository.rootPath,
-        worktreePath: path,
-        branchName,
-        baseRef: base.headSha,
-      });
-      if (!created.ok) {
-        throw new ExecutionRequestError(
-          'invalid-request',
-          `Could not create worktree: ${created.failure.message}${
-            created.failure.stderr
-              ? ` (${created.failure.stderr.trim().split('\n').at(-1) ?? ''})`
-              : ''
-          }`,
-        );
+      const shortId = (reservation?.id ?? randomUUID()).slice(0, 8);
+      const branchName = input.branchName ?? `ct/${slug(item.sourceId)}-${shortId}`;
+      if (!isValidBranchName(branchName)) {
+        throw new ExecutionRequestError('invalid-request', 'Branch name is not well formed');
       }
+      const path = join(
+        this.config.worktreeRoot,
+        slug(repository.displayName, 60),
+        `${slug(item.sourceId)}-${shortId}`,
+      );
 
-      const occurredAt = this.now().toISOString();
-      const worktree = this.storage.transaction((tx) => {
-        const inserted = tx.execution.worktrees.insert({
-          id: reservation?.id ?? asWorktreeId(randomUUID()),
-          workspaceId,
-          repositoryId: repository.id,
-          projectId: item.projectId,
-          workItemId,
+      return this.branches.duringMerge(repository.rootPath, async () => {
+        const base = await this.branches.creationBase(workspaceId, workItemId, repository.id);
+        reservation?.check();
+        const created = await git.createWorktree({
+          repositoryPath: repository.rootPath,
+          worktreePath: path,
           branchName,
-          baseSha: base.headSha,
-          baseBranch: base.branch,
-          integrationBranch: base.branch,
-          path,
-          createdAt: occurredAt,
-          createdByUserId: context.user.id,
+          baseRef: base.headSha,
         });
-        tx.audit.append({
-          id: asAuditEventId(randomUUID()),
-          occurredAt,
-          actorKind: context.session === undefined ? 'system' : 'user',
-          actorUserId: context.user.id,
-          ...(context.session === undefined ? {} : { sessionId: context.session.id }),
-          workspaceId,
-          ...(requestId === undefined ? {} : { requestId }),
-          action: 'worktree.create',
-          targetType: 'worktree',
-          targetId: inserted.id,
-          outcome: 'succeeded',
-          metadata: {
-            workItemId,
+        if (!created.ok) {
+          throw new ExecutionRequestError(
+            'invalid-request',
+            `Could not create worktree: ${created.failure.message}${
+              created.failure.stderr
+                ? ` (${created.failure.stderr.trim().split('\n').at(-1) ?? ''})`
+                : ''
+            }`,
+          );
+        }
+
+        const occurredAt = this.now().toISOString();
+        const worktree = this.storage.transaction((tx) => {
+          const inserted = tx.execution.worktrees.insert({
+            id: reservation?.id ?? asWorktreeId(randomUUID()),
+            workspaceId,
             repositoryId: repository.id,
-            branchName,
-            baseSha: inserted.baseSha,
-          },
-        });
-        tx.workspaceEvents.appendEvent({
-          id: asEventId(randomUUID()),
-          occurredAt,
-          workspaceId,
-          actorUserId: context.user.id,
-          projectId: item.projectId,
-          workItemId,
-          kind: 'worktree-created',
-          payload: {
-            worktreeId: inserted.id,
-            sourceRepositoryId: repository.id,
+            projectId: item.projectId,
             workItemId,
             branchName,
-            baseSha: inserted.baseSha,
-          },
+            baseSha: base.headSha,
+            baseBranch: base.branch,
+            integrationBranch: base.branch,
+            path,
+            createdAt: occurredAt,
+            createdByUserId: context.user.id,
+          });
+          tx.audit.append({
+            id: asAuditEventId(randomUUID()),
+            occurredAt,
+            actorKind: context.session === undefined ? 'system' : 'user',
+            actorUserId: context.user.id,
+            ...(context.session === undefined ? {} : { sessionId: context.session.id }),
+            workspaceId,
+            ...(requestId === undefined ? {} : { requestId }),
+            action: 'worktree.create',
+            targetType: 'worktree',
+            targetId: inserted.id,
+            outcome: 'succeeded',
+            metadata: {
+              workItemId,
+              repositoryId: repository.id,
+              branchName,
+              baseSha: inserted.baseSha,
+            },
+          });
+          tx.workspaceEvents.appendEvent({
+            id: asEventId(randomUUID()),
+            occurredAt,
+            workspaceId,
+            actorUserId: context.user.id,
+            projectId: item.projectId,
+            workItemId,
+            kind: 'worktree-created',
+            payload: {
+              worktreeId: inserted.id,
+              sourceRepositoryId: repository.id,
+              workItemId,
+              branchName,
+              baseSha: inserted.baseSha,
+            },
+          });
+          return inserted;
         });
-        return inserted;
+        this.notifier.notify();
+        return worktree;
       });
-      this.notifier.notify();
-      return worktree;
     });
   }
 

@@ -116,7 +116,7 @@ export function RunsPage({
             : `${liveCount} live run${liveCount === 1 ? '' : 's'}; live runs are listed first.`
         }
       />
-      <Section title="All runs" label="Runs" count={runs.length}>
+      <Section title="Run history" label="Runs" count={runs.length}>
         <RunList runs={runs} now={now} onOpenRun={onOpenRun} onOpenWorkItem={onOpenWorkItem} />
       </Section>
     </div>

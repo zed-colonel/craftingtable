@@ -23,6 +23,7 @@ export function Section({
   collapsible = false,
   defaultOpen = true,
   tone,
+  className: extraClass,
   children,
 }: {
   /** Anchor for `SectionNav`; also used as the DOM id. */
@@ -37,6 +38,8 @@ export function Section({
   defaultOpen?: boolean;
   /** Attention-worthy sections get an accent border. */
   tone?: 'attention' | 'blocked' | 'ready';
+  /** Feature-specific styling hook for the section element. */
+  className?: string;
   children?: ReactNode;
 }) {
   const name = label ?? (typeof title === 'string' ? title : undefined);
@@ -50,7 +53,9 @@ export function Section({
       {withActions && actions !== undefined && <div className="section-actions">{actions}</div>}
     </>
   );
-  const className = `panel section${tone === undefined ? '' : ` section-${tone}`}`;
+  const className = `panel section${tone === undefined ? '' : ` section-${tone}`}${
+    extraClass === undefined ? '' : ` ${extraClass}`
+  }`;
   if (collapsible) {
     // A button inside <summary> would also toggle the body, so actions sit in the body.
     return (

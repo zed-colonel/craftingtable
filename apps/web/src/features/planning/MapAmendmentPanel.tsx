@@ -126,6 +126,7 @@ export function MapAmendmentPanel({
     });
   return (
     <Section
+      className="runtime-evidence"
       title="Planning amendments and reconciliation"
       label="Planning amendments and finalization"
       collapsible

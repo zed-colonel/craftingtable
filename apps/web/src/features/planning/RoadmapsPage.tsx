@@ -643,7 +643,7 @@ export function RoadmapsPage({
             key={roadmap.id}
             title={roadmap.definition.name}
             label={roadmap.definition.name}
-            summary={`${completed} of ${progress.length} completed · revision ${roadmap.definition.revision}`}
+            summary={`${completed}/${progress.length} completed · revision ${roadmap.definition.revision}`}
             {...(attention ? { tone: 'attention' as const } : {})}
           >
             <p role="status">{roadmap.reason}</p>

@@ -64,9 +64,12 @@ desktop and phone; take one before and after structural UI work.
   theme toggle, and Log out. Navigation appears nowhere else.
 - `/` resolves to the last workspace used; `/workspaces` lists every workspace as a
   card with its projects and counts and hosts the new-workspace form.
-- The dashboard is: status cards (live runs, in agenda, ready for admission,
-  dependency-blocked, completed, and needs-attention when non-zero), the live runs
-  list, project cards, then Activity and Audit as collapsed disclosures.
+- The dashboard is: a Needs your attention section (cycles waiting for a merge
+  approval or a decision; absent when empty), status cards (live runs, in agenda,
+  ready for admission, dependency-blocked, completed, and needs-attention when
+  non-zero), the live runs list, project cards, then Activity and Audit as collapsed
+  disclosures. Every other workspace page shows the same waiting cycles as one compact
+  strip above its header, and the Dashboard rail link carries their count.
 
 ## Vocabulary
 

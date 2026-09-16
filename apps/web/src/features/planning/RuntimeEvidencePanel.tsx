@@ -91,6 +91,7 @@ export function RuntimeEvidencePanel({
   const selected = view.subjects.find((s) => `${s.subject.kind}:${s.subject.sourceId}` === subject);
   return (
     <Section
+      className="runtime-evidence"
       title="Dependency environments and evidence"
       summary={
         view.current

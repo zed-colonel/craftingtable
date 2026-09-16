@@ -28,6 +28,34 @@ honest about state.
   and metadata; wrap long paths, branch names, and findings. Tables and patches
   scroll inside their own panels, never by widening the page.
 
+## Page anatomy
+
+Every page reads top to bottom in the same order, so the operator never has to
+hunt for state or for the next step:
+
+1. **Identity.** `PageHeader`: crumbs, one `h1`, one line of context, the page-level
+   state badge, and the actions that apply to the whole page.
+2. **State.** A `StatusStrip` of labelled facts (branch, target, model, cost, turns,
+   revision). Never an unlabelled "a · b · c" line.
+3. **What needs you.** An `ActionBar` with the primary action first. Typed waiting
+   reasons are grouped by who resolves them (`Reasons`): *Needs you*, *Waiting on
+   automation*, *Waiting on other work*.
+4. **Working sections.** `Section`s with a title, count, and one-line summary of their
+   current state, always expanded. Long pages carry a `SectionNav` ("On this page").
+5. **Reference and history.** Collapsible `Section`s that start closed: branch settings
+   on an item page, plan metadata, diagnostics, activity, audit.
+
+Explanatory prose about the model lives in an `About` disclosure inside the section it
+describes, not under its title. A section shows state first and explains itself on
+request. Forms open from a named action ("Set up finalization", "New roadmap", "Launch
+a run") rather than rendering permanently; a page with nothing to do does not read as
+a form.
+
+The shared primitives live in `apps/web/src/components/` and are the only way to build
+these parts. Feature components keep their data props; the anatomy is a composition
+rule, not a data change. `docs/ui-walkthrough/` holds dated captures of every page on
+desktop and phone; take one before and after structural UI work.
+
 ## Shell
 
 - A 220px navigation rail on the left holds the workspace picker, the workspace's

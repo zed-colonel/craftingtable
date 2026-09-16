@@ -1874,3 +1874,418 @@ button:disabled {
   gap: 0.5rem 1.5rem;
   padding-inline-start: 1rem;
 }
+
+/* ------------------------------------------------------------------------ */
+/* Page anatomy: header, status strip, sections, reasons, about, nav, actions */
+/* See docs/ui-principles.md "Page anatomy".                                 */
+/* ------------------------------------------------------------------------ */
+
+.page-header-main {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.page-header h1 {
+  overflow-wrap: anywhere;
+}
+
+.page-header h1 .mono {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+}
+
+/* Labelled facts in a row; each label/value pair wraps as one unit. */
+.status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.status-strip.compact {
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--text-xs);
+}
+
+.status-fact {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.status-fact dt {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.status-fact dd {
+  margin: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.status-fact dd.mono {
+  font-size: var(--text-xs);
+}
+
+.status-strip.compact .status-fact dd.mono {
+  font-size: var(--text-xs);
+}
+
+/* Sections */
+.section {
+  scroll-margin-top: var(--space-4);
+}
+
+.section-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-4);
+  align-items: start;
+}
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.section-title h2 {
+  font-size: var(--text-lg);
+  overflow-wrap: anywhere;
+}
+
+.section-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  padding: 0 var(--space-2);
+  line-height: 1.6;
+}
+
+.section-summary {
+  grid-column: 1;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.section-actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.section-head + .section-body,
+.section-details > .section-body {
+  margin-top: var(--space-3);
+}
+
+.section-body {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.section-body > h4:first-child {
+  margin-top: 0;
+}
+
+.section-details > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.section-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.section-details > summary .section-title::before {
+  content: "▸";
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  margin-right: var(--space-1);
+  transform: translateY(-1px);
+}
+
+.section-details[open] > summary .section-title::before {
+  content: "▾";
+}
+
+.section-attention {
+  border-left: 3px solid var(--color-attention);
+}
+
+.section-blocked {
+  border-left: 3px solid var(--color-blocked);
+}
+
+.section-ready {
+  border-left: 3px solid var(--color-ready);
+}
+
+/* Reasons grouped by who resolves them */
+.reasons {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.reason-group {
+  border-left: 2px solid var(--color-border-strong);
+  padding-left: var(--space-3);
+}
+
+.reason-group-you {
+  border-left-color: var(--color-attention);
+}
+
+.reason-group-automation {
+  border-left-color: var(--color-active);
+}
+
+.reason-group-other-work {
+  border-left-color: var(--color-done);
+}
+
+.reason-group-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.reason-group-you .reason-group-title {
+  color: var(--color-attention);
+}
+
+.reason-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.reason-group li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.reason-kind {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-1);
+  padding: 0 var(--space-1);
+  white-space: nowrap;
+}
+
+.reason-text {
+  overflow-wrap: anywhere;
+}
+
+.reasons-satisfied {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+/* About: explanations on request */
+.about {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.about > summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.about > summary::-webkit-details-marker {
+  display: none;
+}
+
+.about > summary::before {
+  content: "?";
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.about[open] > summary {
+  color: var(--color-text-secondary);
+}
+
+.about-body {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border-left: 2px solid var(--color-border-strong);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.about-body p {
+  margin: 0;
+}
+
+/* On this page */
+.section-nav {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.section-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  padding: 2px var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.section-nav-link:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.section-nav-count {
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+/* Action bars */
+.action-bar {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.action-bar .hint {
+  flex-basis: 100%;
+}
+
+/* Attention strip: one line under the page header, never above it. */
+.attention-strip {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-attention);
+  border-left-width: 3px;
+  border-radius: var(--radius-2);
+  background: var(--color-attention-soft);
+  font-size: var(--text-sm);
+}
+
+.attention-strip-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.attention-strip-row .text-button {
+  font-weight: 600;
+}
+
+.attention-strip-reason {
+  color: var(--color-text-secondary);
+}
+
+/* Field labels read as labels, not headings. */
+.field {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.login-form label {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Table cells that must not wrap mid-word. */
+.data-table .risk,
+.data-table th[scope="row"] .mono,
+.data-table td.nowrap {
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .section-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .section-actions {
+    grid-column: 1;
+    grid-row: auto;
+    justify-content: flex-start;
+  }
+
+  .section-nav {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--color-canvas);
+    padding-block: var(--space-2);
+    margin-inline: calc(-1 * var(--space-3));
+    padding-inline: var(--space-3);
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .section-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .section {
+    scroll-margin-top: 56px;
+  }
+
+  .action-bar-sticky {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    margin-inline: calc(-1 * var(--space-3));
+    padding: var(--space-2) var(--space-3);
+    padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
+  }
+}

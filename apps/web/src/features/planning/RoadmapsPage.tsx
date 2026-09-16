@@ -775,7 +775,9 @@ export function RoadmapsPage({
                         onOpenWorkItem(entry.workItemId);
                       }}
                     >
-                      {entry.sourceId} · {entry.executionScope?.kind} · {entry.title}
+                      {[entry.sourceId, entry.executionScope?.kind, entry.title]
+                        .filter((part) => part !== undefined && part !== '')
+                        .join(' · ')}
                     </a>
                     <p>
                       <strong>

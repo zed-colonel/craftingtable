@@ -1,3 +1,4 @@
+import { crossProjectState } from './cross-project-service.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { NotificationStatus, SaveNotificationsRequest } from '@craftingtable/contracts';
 import {
@@ -248,12 +249,20 @@ export class NotificationService {
           owner &&
           attempt &&
           !owner.entryHolds?.[attempt.entryId] &&
-          ((cycle.status === 'awaiting-merge' && automation?.integrationMerge === 'automatic') ||
+          ((cycle.status === 'awaiting-merge' &&
+            (tree.executionScope?.kind === 'slice-verification' ||
+              (tree.executionScope?.kind === 'parent-acceptance'
+                ? definition?.crossProject?.parentAcceptance === 'automatic'
+                : automation?.integrationMerge === 'automatic'))) ||
             (cycle.integrationResolution?.status === 'detected' &&
               automation?.integrationConflicts === 'automatic'))
         )
           continue;
-        kind = cycle.status === 'awaiting-merge' ? 'merge' : 'attention';
+        kind =
+          cycle.status === 'awaiting-merge' &&
+          (!tree.executionScope || tree.executionScope.kind === 'slice')
+            ? 'merge'
+            : 'attention';
         reason = `${cycle.step}: ${cycle.reason}`;
         sourceKey = `cycle:${cycle.id}:${cycle.version}`;
       } else {
@@ -317,6 +326,29 @@ export class NotificationService {
     if (settings.preferences.needsAttention) {
       for (const roadmap of tx.roadmaps.list(workspaceId)) {
         if (roadmap.status === 'running') {
+          if (roadmap.definition.crossProject) {
+            const view = crossProjectState(tx, workspaceId, roadmap.definition.crossProject);
+            const ready = view.nodes
+              .filter(
+                (n) => n.included && !n.satisfied && n.kind === 'checkpoint' && !n.blockers.length,
+              )
+              .map((n) => n.sourceId)
+              .sort();
+            if (ready.length)
+              result.push({
+                sourceKey: `roadmap:${roadmap.id}:checkpoints:${createHash('sha256').update(JSON.stringify(ready)).digest('hex')}`,
+                kind: 'attention',
+                title: notificationText(
+                  `${roadmap.definition.name} · Checkpoint evidence needed`,
+                  250,
+                ),
+                message: notificationText(
+                  `These checkpoints are eligible for independent evidence review: ${ready.join(', ')}. Expected dependency waits do not need action.`,
+                  1024,
+                ),
+                path: `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`,
+              });
+          }
           for (const [entryId, hold] of Object.entries(roadmap.entryHolds ?? {})) {
             if (hold.status !== 'needs-attention') continue;
             const entry = roadmap.definition.entries.find((e) => e.id === entryId);

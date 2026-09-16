@@ -20,6 +20,7 @@ export interface ScopeReviewEvidence {
 }
 /** Immutable operator acceptance of an independently reviewed execution scope. */
 export interface ScopeReceipt {
+  readonly reviewerRoles?: readonly string[];
   readonly id: string;
   readonly workspaceId: import('./ids.js').WorkspaceId;
   readonly workItemId: import('./ids.js').WorkItemId;

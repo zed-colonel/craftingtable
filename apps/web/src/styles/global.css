@@ -1841,3 +1841,36 @@ button:disabled {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.cross-project-panel {
+  min-width: 0;
+  padding-block: 1rem;
+  border-block: 1px solid var(--color-border);
+}
+.cross-map-lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+.cross-map-lane,
+.cross-map-focus {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  overflow-wrap: anywhere;
+}
+.cross-map-node {
+  padding-block: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+  overflow-wrap: anywhere;
+}
+.cross-project-panel select {
+  max-width: 100%;
+}
+.cross-map-completion {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  padding-inline-start: 1rem;
+}

@@ -8175,3 +8175,440 @@ it('binds consumer evidence independently of checkpoint ownership and derives cr
     { alias: 'local', commitSha: f.submission.subjectCommit },
   ]);
 });
+
+async function supervisedMapFixture(
+  partial = false,
+  parentAcceptance: 'manual' | 'automatic' = 'automatic',
+) {
+  const f = await slicedFixture(
+    (s) => ({
+      ...s,
+      repositories: s.repositories.map((r) => ({ ...r, id: 'local' })),
+      decisions: [s.decisions[0]!],
+      evidence_profiles: s.evidence_profiles.map((p) => ({
+        ...p,
+        reviewer_roles: [
+          'repository-maintainer',
+          'independent-security-reviewer-if-required-by-source',
+        ],
+      })),
+      work_items: s.work_items.map((p) => ({
+        ...p,
+        repository: 'local',
+        source_profile_case_ids: [],
+      })),
+      slices: s.slices.map((s) => ({ ...s, decision_refs: ['CS-D01'] })),
+      checkpoints: [
+        {
+          ...s.checkpoints[0]!,
+          id: 'LOCAL-TARGET',
+          owner: 'local',
+          kind: 'semantic_review',
+          title: 'Local target',
+          requires: [
+            partial
+              ? { kind: 'slice', id: 'AQ-01.A', state: 'verified' }
+              : { kind: 'work_item', id: 'AQ-01', state: 'accepted' },
+          ],
+          decision_refs: [],
+          evidence_profile: 'scope-review',
+          pass_criteria: ['Target inspected'],
+          evidence_owners: [],
+          historical_producer_work_items: [],
+        },
+      ],
+      planning_targets: [
+        {
+          id: 'LOCAL',
+          checkpoint: 'LOCAL-TARGET',
+          scope: 'Selected local proof',
+          is_release: false,
+        },
+      ],
+      terminal_checkpoint: 'LOCAL-TARGET',
+    }),
+    true,
+  );
+  const ws = f.state.workspaceId,
+    definitionId = f.parentScope.definitionId;
+  const runtime = await f.state.context.services.runtimeEvidenceService.configure(
+    f.auth,
+    ws,
+    definitionId,
+    {
+      bindingRevision: 1,
+      expectedGeneration: 0,
+      pins: [],
+      consumers: [{ alias: 'local', upstreams: [] }],
+      environments: [
+        {
+          id: 'local-tests',
+          kind: 'local-development',
+          identityDigest: 'a'.repeat(64),
+          fixtureDigest: 'b'.repeat(64),
+          toolchainDigest: 'c'.repeat(64),
+          authorization: 'Local isolated test fixtures',
+        },
+      ],
+    },
+  );
+  const base = roadmapInput(f.state, [f.state.workItemId]).entries[0]!;
+  const configuration: import('@craftingtable/domain').CrossProjectConfiguration = {
+    definitionId,
+    bindingRevision: 1,
+    targetId: 'LOCAL',
+    selection: 'target-only',
+    parentAcceptance,
+    defaults: {
+      reviewerRoles: [
+        'repository-maintainer',
+        'independent-security-reviewer-if-required-by-source',
+      ],
+      profiles: base.profiles,
+      policy: base.policy,
+      instructions: 'Preserve exact scope.',
+      automation: { integrationMerge: 'automatic', integrationConflicts: 'automatic' },
+    },
+    overrides: [],
+  };
+  f.backend.replyForRequest = (request) => {
+    if (request.model === 'design-model') return designDone;
+    if (request.model === 'review-model') {
+      const tree = f.state.context.storage.execution.worktrees
+        .listForWorkItem(ws, f.state.workItemId)
+        .find((t) => t.path === request.cwd)!;
+      return {
+        resultText:
+          '## Open questions\nnone\n## Review report\n' +
+          scopeReport(f.state, tree.executionScope!),
+      };
+    }
+    commitFile(
+      request.cwd,
+      `slice-${request.cwd.includes('01-a') ? 'a' : 'b'}.txt`,
+      'Implemented bounded slice',
+    );
+    return implementationDone;
+  };
+  const service = f.state.context.services.crossProjectService;
+  const input: import('@craftingtable/contracts').SaveCrossProjectRequest = {
+    roadmapId,
+    expectedVersion: 0,
+    name: 'Cross-project fixture',
+    configuration: { ...configuration, overrides: [] },
+    scheduling: parallelScheduling,
+  };
+  return { ...f, service, input, runtime };
+}
+const mapCommand = (
+  f: Awaited<ReturnType<typeof supervisedMapFixture>>,
+  command: string,
+  payload: unknown,
+  headers = mutationHeaders(f.state),
+) =>
+  f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${f.state.workspaceId}/concurrency-definitions/${f.parentScope.definitionId}/supervision/${command}`,
+    headers,
+    payload: payload as Record<string, unknown>,
+  });
+async function adoptSupervisedMap(f: Awaited<ReturnType<typeof supervisedMapFixture>>) {
+  const result = await mapCommand(f, 'adopt', {
+    bindingRevision: 1,
+    decisionIds: ['CS-D01'],
+    rationale: 'Reviewed exact definition and retained obligations.',
+  });
+  expect(result.statusCode, result.body).toBe(200);
+}
+it('adopts exact map decisions separately, previews exclusions, guards HTTP authority and records inherited settings', async () => {
+  const f = await supervisedMapFixture(true),
+    ws = f.state.workspaceId;
+  const preview = f.service.view(f.auth, ws, f.input.configuration);
+  expect(preview.nodes.some((n) => n.sourceId === 'AQ-01.B' && !n.included)).toBe(true);
+  expect(preview.nodes.some((n) => n.kind === 'work_item' && n.included)).toBe(false);
+  expect(
+    (
+      await mapCommand(
+        f,
+        'adopt',
+        { bindingRevision: 1, decisionIds: ['CS-D01'], rationale: 'Review' },
+        { cookie: f.state.cookie },
+      )
+    ).statusCode,
+  ).toBe(403);
+  expect(
+    (await mapCommand(f, 'adopt', { bindingRevision: 1, decisionIds: [], rationale: 'Review' }))
+      .statusCode,
+  ).toBe(409);
+  const { roadmapEntryInputSchema } = await import('@craftingtable/contracts');
+  const disallowed = await f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/roadmaps/${roadmapId}`,
+    headers: mutationHeaders(f.state),
+    payload: {
+      expectedVersion: 0,
+      name: 'Cannot independently delegate acceptance',
+      entries: [
+        roadmapEntryInputSchema.parse({
+          ...roadmapInput(f.state, [f.state.workItemId]).entries[0],
+          executionScope: f.parentScope,
+        }),
+      ],
+    },
+  });
+  expect(disallowed.statusCode, disallowed.body).toBe(409);
+  expect(disallowed.body).toContain('parent acceptance reviews');
+  const saved = f.service.save(f.auth, ws, {
+    ...f.input,
+    configuration: {
+      ...f.input.configuration,
+      overrides: [
+        {
+          level: 'project',
+          key: 'local',
+          settings: { ...f.input.configuration.defaults, instructions: 'Project defaults' },
+        },
+        {
+          level: 'activity',
+          key: 'verification',
+          settings: { ...f.input.configuration.defaults, instructions: 'Independent verification' },
+        },
+        {
+          level: 'individual',
+          key: 'development:AQ-01.A',
+          settings: { ...f.input.configuration.defaults, instructions: 'Specific slice' },
+        },
+      ],
+    },
+  });
+  expect(saved.roadmap.definition.entries.map((e) => e.instructions)).toEqual([
+    'Specific slice',
+    'Independent verification',
+  ]);
+  expect(
+    (
+      await f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/control`,
+        headers: mutationHeaders(f.state),
+        payload: { action: 'start', expectedVersion: storedRoadmap(f.state).version },
+      })
+    ).statusCode,
+  ).toBe(409);
+  await adoptSupervisedMap(f);
+  const after = f.service.view(f.auth, ws, f.input.configuration);
+  expect(after.decisions.every((d) => d.adopted)).toBe(true);
+  expect(after.targetReached).toBe(false);
+  expect(
+    (
+      await mapCommand(f, 'adopt', {
+        bindingRevision: 2,
+        decisionIds: ['CS-D01'],
+        rationale: 'Old binding',
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(f.backend.launches).toHaveLength(0);
+  expect(f.state.context.storage.scopeReceipts.list(ws, f.state.workItemId)).toHaveLength(0);
+  const reopened = openCraftingTableStorage(f.state.context.config.databasePath);
+  try {
+    expect(reopened.imports.adoptions(ws, f.parentScope.definitionId)).toHaveLength(1);
+  } finally {
+    reopened.close();
+  }
+  expect(
+    (
+      await mapCommand(f, 'preview', {
+        ...f.input.configuration,
+        defaults: undefined,
+        overrides: undefined,
+        parentAcceptance: undefined,
+        targetId: 'invented',
+      })
+    ).statusCode,
+  ).toBe(409);
+});
+it('supervises slices, fresh verification and independent parent acceptance without completing an unproven target', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(),
+    { state } = f,
+    ws = state.workspaceId;
+  f.service.save(f.auth, ws, f.input);
+  await adoptSupervisedMap(f);
+  const notifications = state.context.services.notificationService;
+  const { DEFAULT_NOTIFICATION_PREFERENCES } = await import('@craftingtable/domain');
+  notifications.save(f.auth, ws, {
+    expectedVersion: 0,
+    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, enabled: true },
+    applicationToken: 'a'.repeat(30),
+    userKey: 'u'.repeat(30),
+  });
+  await notifications.tick();
+  expect(
+    state.context.storage.notifications
+      .records(ws)
+      .some((n) => n.sourceKey.includes(':checkpoints:')),
+  ).toBe(false);
+  expect((await roadmapControl(state, 'start')).statusCode).toBe(200);
+  await waitFor(
+    () => {
+      const r = storedRoadmap(state),
+        bad = Object.values(r.entryHolds ?? {}).find((h) => h.status === 'needs-attention');
+      if (bad) throw new Error(bad.reason);
+      const cycle = state.context.storage.execution.cycles
+        .list(ws)
+        .find((c) => c.status === 'needs-attention');
+      if (cycle) throw new Error(cycle.reason);
+      return (
+        state.context.storage.planning.workItems.find(ws, state.workItemId)?.status === 'completed'
+      );
+    },
+    'parent independently accepted',
+    15000,
+  );
+  const scopes = state.context.storage.scopeReceipts.list(ws, state.workItemId);
+  expect(scopes.filter((s) => s.scope.kind === 'slice')).toHaveLength(2);
+  expect(scopes.filter((s) => s.scope.kind === 'parent-acceptance')).toHaveLength(1);
+  expect(scopes.every((s) => s.reviewerRoles?.includes('repository-maintainer'))).toBe(true);
+  expect(storedRoadmap(state).status).toBe('running');
+  expect(f.service.view(f.auth, ws, f.input.configuration).targetReached).toBe(false);
+  expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(true);
+  await notifications.tick();
+  const alert = state.context.storage.notifications
+    .records(ws)
+    .find((n) => n.sourceKey.includes(':checkpoints:'))!;
+  expect(alert.message).toContain('LOCAL-TARGET');
+  const delivered = alert.deliveredCount;
+  await notifications.tick();
+  expect(
+    state.context.storage.notifications.records(ws).find((n) => n.id === alert.id)?.deliveredCount,
+  ).toBe(delivered);
+  await roadmapControl(state, 'pause');
+  const before = storedRoadmap(state);
+  const changed = f.service.save(f.auth, ws, {
+    ...f.input,
+    expectedVersion: before.version,
+    configuration: {
+      ...f.input.configuration,
+      defaults: { ...f.input.configuration.defaults, instructions: 'Future queued guidance' },
+    },
+  });
+  expect(
+    changed.roadmap.definition.entries.every((e) => e.instructions === 'Preserve exact scope.'),
+  ).toBe(true);
+  await roadmapControl(state, 'resume');
+  const evidence = state.context.services.runtimeEvidenceService;
+  const spec = (await evidence.view(f.auth, ws, f.parentScope.definitionId)).subjects.find(
+    (s) => s.subject.sourceId === 'LOCAL-TARGET',
+  )!;
+  const submitted = await evidence.submit(f.auth, ws, f.parentScope.definitionId, {
+    runtimeId: f.runtime.current!.id,
+    subject: spec.subject,
+    subjectCommit: git(['rev-parse', 'revision'], f.root).trim(),
+    environmentId: 'local-tests',
+    executedBy: 'author',
+    executedAt: new Date().toISOString(),
+    reviewers: [
+      { identity: 'independent-reviewer', roles: spec.reviewerRoles, artifact: 'review' },
+    ],
+    requirements: spec.requirements.map((requirement) => ({ requirement, artifact: 'review' })),
+    cases: [],
+    artifacts: [
+      { name: 'review', content: 'Independently inspected the target and all required receipts.' },
+    ],
+  });
+  await evidence.decide(f.auth, ws, f.parentScope.definitionId, {
+    submissionId: submitted.submissions[0]!.submission.id,
+    outcome: 'accepted',
+    rationale: 'Independent target review accepted.',
+  });
+  await waitFor(() => storedRoadmap(state).status === 'completed', 'selected scope completion');
+  const view = f.service.view(f.auth, ws, f.input.configuration);
+  expect(view.selectedScopeComplete).toBe(true);
+  expect(view.finalized).toBe(false);
+  const attempts = storedRoadmap(state).attempts;
+  expect(attempts).toHaveLength(5);
+  for (const a of attempts) {
+    const c = state.context.storage.execution.cycles.find(ws, a.cycleId)!;
+    if (c.executionScope?.kind !== 'slice') expect(c.step).toBe('review');
+  }
+});
+it('keeps parent approval manual and preserves attempts across restart without relaunch', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(false, 'manual'),
+    { state } = f,
+    ws = state.workspaceId;
+  f.service.save(f.auth, ws, f.input);
+  await adoptSupervisedMap(f);
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () =>
+      state.context.storage.execution.cycles
+        .list(ws)
+        .some(
+          (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
+        ),
+    'parent approval',
+    15000,
+  );
+  expect(state.context.storage.planning.workItems.find(ws, state.workItemId)?.status).toBe(
+    'admitted',
+  );
+  const count = f.backend.launches.length;
+  state.context.services.roadmapService.recoverInterrupted();
+  await state.context.services.roadmapService.tick();
+  expect(f.backend.launches).toHaveLength(count);
+  expect(storedRoadmap(state).status).toBe('needs-attention');
+  const tree = state.context.storage.execution.worktrees
+    .listForWorkItem(ws, state.workItemId)
+    .find((t) => t.executionScope?.kind === 'parent-acceptance')!;
+  expect((await recordScope(f, tree)).statusCode).toBe(200);
+  expect(state.context.storage.planning.workItems.find(ws, state.workItemId)?.status).toBe(
+    'completed',
+  );
+});
+it('pauses a verification question without authorizing implementation in the review snapshot', {
+  timeout: 15000,
+}, async () => {
+  const f = await supervisedMapFixture(true),
+    { state } = f,
+    ws = state.workspaceId,
+    normal = f.backend.replyForRequest;
+  f.backend.replyForRequest = (request) => {
+    const tree = state.context.storage.execution.worktrees
+      .listForWorkItem(ws, state.workItemId)
+      .find((t) => t.path === request.cwd);
+    return tree?.executionScope?.kind === 'slice-verification'
+      ? {
+          resultText:
+            '## Open questions\nWhich compatibility choice should apply?\n## Review report\n' +
+            scopeReport(state, tree.executionScope),
+        }
+      : normal!(request);
+  };
+  f.service.save(f.auth, ws, f.input);
+  await adoptSupervisedMap(f);
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () =>
+      state.context.storage.execution.cycles
+        .list(ws)
+        .some(
+          (c) => c.executionScope?.kind === 'slice-verification' && c.status === 'needs-attention',
+        ),
+    'verification question',
+    10000,
+  );
+  expect(state.context.storage.scopeReceipts.list(ws, state.workItemId)).toHaveLength(0);
+  expect(
+    f.backend.launches
+      .filter((r) =>
+        state.context.storage.execution.worktrees
+          .listForWorkItem(ws, state.workItemId)
+          .some((t) => t.path === r.cwd && t.executionScope?.kind === 'slice-verification'),
+      )
+      .every((r) => r.model === 'review-model'),
+  ).toBe(true);
+});

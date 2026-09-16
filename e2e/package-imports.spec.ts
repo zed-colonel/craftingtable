@@ -149,7 +149,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .setInputFiles(fixture('cross-stack-concurrency-draft-v0.3.0-aq-baseline-alignment.zip'));
   await maps.getByRole('button', { name: 'Import map ZIP', exact: true }).click();
   await expect(
-    maps.getByText('Imported draft · execution unavailable', { exact: true }),
+    maps.getByText('Imported definition · explicit delegation required', { exact: true }),
   ).toBeVisible();
   const aq = maps
     .locator('article.import-binding')
@@ -211,6 +211,46 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     }),
   ).toBeVisible();
   await expect(maps.getByRole('button', { name: /start|approve|adopt/i })).toHaveCount(0);
+  const supervisor = maps.getByRole('region', {
+    name: 'Create cross-project roadmap',
+    exact: true,
+  });
+  await expect(
+    supervisor.getByRole('combobox', { name: 'Planning target', exact: true }),
+  ).toHaveValue('');
+  await supervisor
+    .getByRole('combobox', { name: 'Planning target', exact: true })
+    .selectOption('WI-EMBEDDED-WORKER-PROOF-1');
+  await expect(supervisor.getByText(/selected milestones/)).toBeVisible();
+  const lanes = supervisor.locator('.cross-map-lanes');
+  await expect(lanes.getByRole('heading', { name: 'WI', exact: true })).toBeVisible();
+  await expect(lanes.getByRole('heading', { name: 'EXO', exact: true })).toHaveCount(0);
+  await supervisor
+    .getByRole('combobox', { name: 'Selection mode', exact: true })
+    .selectOption('prioritize-full');
+  await expect(lanes.getByRole('heading', { name: 'EXO', exact: true })).toBeVisible();
+  await supervisor
+    .getByRole('combobox', { name: 'Selection mode', exact: true })
+    .selectOption('target-only');
+  await expect(lanes.getByRole('heading', { name: 'EXO', exact: true })).toHaveCount(0);
+  await supervisor
+    .getByRole('combobox', { name: 'Focused dependency view', exact: true })
+    .selectOption('checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed');
+  await expect(
+    supervisor
+      .locator('.cross-map-focus')
+      .getByRole('link', { name: 'Submit or review checkpoint evidence' })
+      .first(),
+  ).toBeVisible();
+  await supervisor.getByText(/Map decision adoption ·/).click();
+  await expect(
+    supervisor.getByRole('button', { name: 'Adopt map decisions', exact: true }),
+  ).toBeDisabled();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+  await supervisor.screenshot({ path: info.outputPath('cross-project-supervision.png') });
+
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);

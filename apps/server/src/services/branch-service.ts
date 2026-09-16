@@ -654,6 +654,7 @@ export class BranchService {
         this.notifier.notify();
         if (update) {
           const result = await git.updateWorktree({
+            fastForwardOnly: !!worktree.executionScope && worktree.executionScope.kind !== 'slice',
             worktreePath: worktree.path,
             branchName: worktree.branchName,
             expectedHeadSha: state.headSha,

@@ -66,6 +66,7 @@ export const AUDIT_ACTIONS = [
   'concurrency.bindings',
   'scope.evidence-recorded',
   'scope.scheduling-authorized',
+  'concurrency.adopted',
   'runtime.configured',
   'evidence.submitted',
   'evidence.decided',
@@ -120,12 +121,16 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'concurrency.bindings': 16,
   'scope.evidence-recorded': 18,
   'scope.scheduling-authorized': 19,
+  'concurrency.adopted': 21,
   'runtime.configured': 20,
   'evidence.submitted': 20,
   'evidence.decided': 20,
   'plan.version-activated': 16,
 } as const satisfies Readonly<
-  Record<AuditAction, 1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18 | 19 | 20>
+  Record<
+    AuditAction,
+    1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21
+  >
 >;
 
 export function isAuditAction(value: unknown): value is AuditAction {

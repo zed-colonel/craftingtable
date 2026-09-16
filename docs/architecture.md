@@ -386,3 +386,22 @@ Git freshness is checked again at launch, integration and acceptance. Qualificat
 does not complete parents, adopt decisions or confer local native/Kata execution authority.
 The browser provides explicit configuration, templates/uploads, artifact review and build-record
 downloads. See ADR-047.
+
+
+Schema 21 adds immutable exact-binding map adoptions. CrossProjectService computes and previews
+milestone closure and resolves layered settings into ordinary roadmap entries; it neither invents
+plans nor launches agents directly. RoadmapService owns the one workspace delegation and schedules
+development, slice-verification and parent-acceptance entries. Read-only entries use WorkCycleService
+review supervision with explicit question checkpoints and no implementation transitions. They consume
+verification slots independently of development capacity. Scope receipts and target completion recheck
+current evidence and delegation; source decisions never substitute for checkpoint evidence. The browser
+projects grouped lanes and dependency links while source maps, generations and attempts retain their
+original identity. NotificationService aggregates eligible checkpoint attention into its existing outbox.
+See ADR-048.
+
+Operator-designated agent reviewer responsibilities are explicit settings, bound to the attempt's
+saved revision and recorded on scope receipts. They are responsibilities under the existing trusted
+agent model, not authentication of a human maintainer or a sandbox qualification. The exact supervised
+review run must match the assigned backend/model/permission profile and report all scope evidence.
+Assignments do not bypass resource authorization, native/Kata execution boundaries or checkpoint
+attestations; qualified external reviews remain available.

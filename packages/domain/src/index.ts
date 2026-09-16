@@ -12,6 +12,7 @@ export * from './planning.js';
 export * from './repository.js';
 export * from './review.js';
 export * from './roadmap.js';
+export * from './cross-project.js';
 export * from './storage-policy.js';
 export * from './work-cycle.js';
 export * from './workspace.js';
@@ -20,3 +21,5 @@ export * from './workspace-events.js';
 export * from './execution-scope.js';
 export * from './phase-scheduling.js';
 export * from './runtime-evidence.js';
+
+export * from './concurrency-graph.js';

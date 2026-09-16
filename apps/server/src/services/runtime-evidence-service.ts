@@ -756,6 +756,24 @@ export class RuntimeEvidenceService {
       ...(error ? { error } : {}),
     });
   }
+  async assertSubjectsCurrent(
+    ws: WorkspaceId,
+    definitionId: string,
+    bindingRevision: number,
+    subjects: readonly EvidenceSubject[],
+  ) {
+    const d = this.definition(ws, definitionId),
+      runtime = this.current(ws, definitionId);
+    if (!runtime || runtime.bindingRevision !== bindingRevision)
+      conflict('The selected scope needs a current pinned environment and checkpoint evidence.');
+    for (const subject of subjects) {
+      const evidence = acceptedEvidence(this.storage, ws, definitionId, bindingRevision, subject);
+      if (!evidence)
+        conflict(`Current independently accepted evidence is required for ${subject.sourceId}.`);
+      const issues = await this.evidenceFreshness(d, runtime, evidence);
+      if (issues.length) conflict(issues.join(' '));
+    }
+  }
   async assertFreshTree(tree: Worktree, transition?: 'start' | 'merge' | 'verify' | 'accept') {
     const scope = tree.executionScope;
     if (!scope) return;

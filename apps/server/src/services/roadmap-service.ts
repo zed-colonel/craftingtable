@@ -1,3 +1,4 @@
+import { crossProjectState, bindingIssues, milestoneSatisfied } from './cross-project-service.js';
 import { PhaseGateError } from './phase-resources.js';
 import { scopePhaseBlockers, scopeAllowsEarlyDevelopment } from './execution-scope.js';
 import { sameExecutionScope } from '@craftingtable/domain';
@@ -53,6 +54,7 @@ export class RoadmapService {
     private readonly cycles: WorkCycleService,
     private readonly notifier: WorkspaceEventNotifier,
     private readonly now: () => Date = () => new Date(),
+    private readonly runtimeEvidence?: import('./runtime-evidence-service.js').RuntimeEvidenceService,
   ) {}
 
   list(context: AuthContext, workspaceId: WorkspaceId): readonly RoadmapView[] {
@@ -69,10 +71,13 @@ export class RoadmapService {
     workspaceId: WorkspaceId,
     id: string,
     input: SaveRoadmapRequest,
+    crossProject?: import('@craftingtable/domain').CrossProjectConfiguration,
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     if (this.controlling.has(id)) conflict('A roadmap command is in progress.');
     const old = this.storage.roadmaps.find(workspaceId, id);
+    if (old?.definition.crossProject && !crossProject)
+      conflict('Use the imported map supervisor to edit this roadmap.');
     if ((old?.version ?? 0) !== input.expectedVersion)
       conflict('Roadmap changed; refresh before saving.');
     if (old && !['draft', 'paused', 'needs-attention'].includes(old.status))
@@ -96,17 +101,20 @@ export class RoadmapService {
         ? old?.definition.entries.filter((e) => old.attempts.some((a) => a.entryId === e.id))
         : old?.definition.entries.slice(0, lastStarted + 1)) ?? [];
     const entries: RoadmapEntry[] = input.entries.map((entry, index) => {
+      if (entry.reviewerRoles && !crossProject)
+        conflict('Reviewer role assignments require the explicit cross-project settings form.');
       const item = this.storage.planning.workItems.find(workspaceId, entry.workItemId);
       if (!item) throw new NotFoundError();
       const scoped = entry.executionScope
         ? resolveScope(this.storage, workspaceId, entry.workItemId, entry.executionScope)
         : undefined;
-      if (entry.executionScope && entry.executionScope.kind !== 'slice')
+      if (!crossProject && entry.executionScope && entry.executionScope.kind !== 'slice')
         conflict('Roadmaps delegate slices, not parent acceptance reviews.');
       const frozen = started.find((e) => e.id === entry.id);
       if (frozen) {
         if (
           JSON.stringify({
+            ...(frozen.reviewerRoles ? { reviewerRoles: frozen.reviewerRoles } : {}),
             ...(frozen.executionScope ? { executionScope: frozen.executionScope } : {}),
             id: frozen.id,
             workItemId: frozen.workItemId,
@@ -169,6 +177,7 @@ export class RoadmapService {
       roadmapId: id,
       revision: (old?.definition.revision ?? 0) + 1,
       name: input.name,
+      ...(crossProject ? { crossProject } : {}),
       scheduling,
       ...(input.automation ? { automation: input.automation } : {}),
       entries,
@@ -240,10 +249,19 @@ export class RoadmapService {
           .some((r) => r.id !== id && r.status !== 'draft' && !ended(r))
       )
         conflict('This workspace already has a delegated roadmap. Stop or finish it first.');
+      if (roadmap.definition.crossProject) {
+        const preview = crossProjectState(
+          this.storage,
+          workspaceId,
+          roadmap.definition.crossProject,
+        );
+        if (preview.blockers.length) conflict(preview.blockers.join(' '));
+      }
       for (const entry of roadmap.definition.entries) {
         if (!entry.executionScope) continue;
         const unsupported = unsupportedScopeCapabilities(
           resolveScope(this.storage, workspaceId, entry.workItemId, entry.executionScope),
+          this.storage,
         );
         if (unsupported.length)
           conflict(`This map scope cannot start yet: ${unsupported.join(' ')}`);
@@ -425,6 +443,16 @@ export class RoadmapService {
   }
   private async advance(roadmap: Roadmap): Promise<void> {
     this.authority(roadmap);
+    if (roadmap.definition.crossProject) {
+      const c = roadmap.definition.crossProject,
+        issues = bindingIssues(
+          this.storage,
+          roadmap.workspaceId,
+          c.definitionId,
+          c.bindingRevision,
+        );
+      if (issues.length) conflict(issues.join(' '));
+    }
     if (roadmap.definition.scheduling?.mode === 'parallel') {
       for (const entry of roadmap.definition.entries) {
         const current = this.find(roadmap.workspaceId, roadmap.id);
@@ -435,7 +463,18 @@ export class RoadmapService {
         )
           return;
         this.authority(current);
-        if (this.complete(current, entry)) continue;
+        if (this.complete(current, entry)) {
+          const attempt = current.attempts.find((a) => a.entryId === entry.id);
+          if (attempt && attempt.status !== 'completed')
+            this.change(current, {
+              attempts: current.attempts.map((a) =>
+                a.id === attempt.id
+                  ? { ...a, status: 'completed' as const, completedAt: this.now().toISOString() }
+                  : a,
+              ),
+            });
+          continue;
+        }
         const heldAttempt = current.attempts.find((a) => a.entryId === entry.id);
         const merged =
           heldAttempt &&
@@ -469,9 +508,40 @@ export class RoadmapService {
       }
       const current = this.find(roadmap.workspaceId, roadmap.id);
       if (current.status !== 'running') return;
-      if (current.definition.entries.every((e) => this.complete(current, e)))
-        this.change(current, { status: 'completed', reason: 'All roadmap entries are completed.' });
-      else
+      if (
+        current.definition.entries.every((e) => this.complete(current, e)) &&
+        (!current.definition.crossProject ||
+          crossProjectState(this.storage, current.workspaceId, current.definition.crossProject)
+            .selectedScopeComplete)
+      ) {
+        if (current.definition.crossProject) {
+          const c = current.definition.crossProject,
+            view = crossProjectState(this.storage, current.workspaceId, c);
+          await this.runtimeEvidence?.assertSubjectsCurrent(
+            current.workspaceId,
+            c.definitionId,
+            c.bindingRevision,
+            view.nodes
+              .filter((n) => n.included && n.kind === 'checkpoint')
+              .map((n) => ({ kind: 'checkpoint' as const, sourceId: n.sourceId })),
+          );
+          const fresh = this.find(current.workspaceId, current.id);
+          if (
+            fresh.version !== current.version ||
+            this.controlling.has(current.id) ||
+            this.abort.signal.aborted
+          )
+            throw new SupersededRoadmapOperation();
+          this.authority(fresh);
+          if (!crossProjectState(this.storage, fresh.workspaceId, c).selectedScopeComplete) return;
+        }
+        this.change(current, {
+          status: 'completed',
+          reason: current.definition.crossProject
+            ? 'Selected roadmap scope complete. Excluded obligations, finalization and publication retain their separate gates.'
+            : 'All roadmap entries are completed.',
+        });
+      } else
         this.reason(
           current,
           'Parallel scheduling enabled. Items progress independently; integration follows each item’s merge policy.',
@@ -503,6 +573,52 @@ export class RoadmapService {
         conflict(
           `${entry.sourceId}: The execution branch binding changed. Stop this roadmap and reconcile the remaining queue with the new target.`,
         );
+      if (entry.executionScope && entry.executionScope.kind !== 'slice' && worktree) {
+        const cycle = this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+        if (cycle) {
+          if (cycle.status === 'completed')
+            conflict(
+              'This review evidence is no longer current. Stop this roadmap and create a new selection for re-verification; prior attempts remain in history.',
+            );
+          if (cycle.status === 'awaiting-merge') {
+            const definition = this.storage.roadmaps
+              .history(roadmap.workspaceId, roadmap.id)
+              .find((d) => d.revision === attempt!.definitionRevision);
+            if (
+              entry.executionScope.kind === 'slice-verification' ||
+              definition?.crossProject?.parentAcceptance === 'automatic'
+            ) {
+              const check = () => {
+                const latest = this.find(roadmap.workspaceId, roadmap.id);
+                if (
+                  latest.status !== 'running' ||
+                  latest.entryHolds?.[entry.id] ||
+                  this.controlling.has(latest.id) ||
+                  this.abort.signal.aborted
+                )
+                  throw new SupersededRoadmapOperation();
+                this.authority(latest);
+              };
+              check();
+              if (
+                await this.cycles.refreshIntegration(
+                  cycle,
+                  this.storage.execution.runs.find(roadmap.workspaceId, cycle.currentRunId),
+                )
+              )
+                return;
+              await this.execution.recordScopeReceipt(
+                context,
+                roadmap.workspaceId,
+                worktree.id,
+                worktree.version,
+                { check },
+              );
+            }
+          }
+          return;
+        }
+      }
       if (worktree?.mergedAt) {
         this.change(roadmap, {
           attempts: roadmap.attempts.map((a) =>
@@ -700,6 +816,7 @@ export class RoadmapService {
           instructions: entry.instructions,
         },
         reserved.cycleId,
+        !!roadmap.definition.crossProject,
       );
       this.change(roadmap, {
         attempts: roadmap.attempts.map((a) =>
@@ -710,6 +827,23 @@ export class RoadmapService {
     });
   }
   private complete(roadmap: Roadmap, entry: RoadmapEntry): boolean {
+    if (entry.executionScope && entry.executionScope.kind !== 'slice') {
+      const scope = entry.executionScope;
+      if (scope.kind === 'parent-acceptance')
+        return (
+          this.storage.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status ===
+          'completed'
+        );
+      const d = this.storage.imports.definition(roadmap.workspaceId, scope.definitionId);
+      return (
+        !!d &&
+        milestoneSatisfied(this.storage, roadmap.workspaceId, d, scope.bindingRevision, {
+          kind: 'slice',
+          id: scope.sourceId,
+          state: 'verified',
+        })
+      );
+    }
     const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
     return attempt
       ? attempt.status === 'completed'
@@ -757,7 +891,11 @@ export class RoadmapService {
           roadmap.workspaceId,
           entry.workItemId,
           entry.executionScope,
-          'start',
+          entry.executionScope.kind === 'slice-verification'
+            ? 'verify'
+            : entry.executionScope.kind === 'parent-acceptance'
+              ? 'accept'
+              : 'start',
         );
         if (issues.length) return blocked(`${entry.sourceId}: ${issues.join(' ')}`, false);
       }
@@ -816,9 +954,15 @@ export class RoadmapService {
     const policy = roadmap.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
     const parallel = policy.mode === 'parallel';
     const activeAttempts = roadmap.attempts.filter(
-      (a) => a.status !== 'completed' && a.id !== attempt?.id,
+      (a) =>
+        a.status !== 'completed' &&
+        a.id !== attempt?.id &&
+        roadmap.definition.entries.some(
+          (e) => e.id === a.entryId && (!e.executionScope || e.executionScope.kind === 'slice'),
+        ),
     );
-    if (parallel && activeAttempts.length >= policy.maxInFlight)
+    const reviewOnly = !!entry.executionScope && entry.executionScope.kind !== 'slice';
+    if (!reviewOnly && parallel && activeAttempts.length >= policy.maxInFlight)
       return blocked(
         `${entry.sourceId}: All ${policy.maxInFlight} in-flight slots are occupied (including items awaiting merge or attention).`,
         false,
@@ -857,7 +1001,7 @@ export class RoadmapService {
         if (reservation.status === 'completed' || reservation.worktreeId === attempt?.worktreeId)
           continue;
         const bound = other.definition.entries.find((e) => e.id === reservation.entryId);
-        if (!bound) continue;
+        if (!bound || (bound.executionScope && bound.executionScope.kind !== 'slice')) continue;
         const tree = trees.find((w) => w.id === reservation.worktreeId);
         const pending = !ended(other) && reservation.status === 'preparing' && !tree;
         if (!tree && !pending) continue;
@@ -885,7 +1029,7 @@ export class RoadmapService {
           );
       }
     }
-    if (occupied.length + reservations >= repositoryLimit)
+    if (!reviewOnly && occupied.length + reservations >= repositoryLimit)
       return blocked(
         `${entry.sourceId}: Repository has ${occupied.length + reservations} unmerged worktree(s) or reservations; capacity is ${repositoryLimit}. Finish or remove existing work before this item starts.`,
         false,
@@ -909,7 +1053,14 @@ export class RoadmapService {
             entry.executionScope &&
             (!cycle || ['running', 'awaiting-merge'].includes(cycle.status))
           ) {
-            const phase = cycle?.status === 'awaiting-merge' ? 'merge' : 'start';
+            const phase =
+              entry.executionScope.kind === 'parent-acceptance'
+                ? 'accept'
+                : entry.executionScope.kind === 'slice-verification'
+                  ? 'verify'
+                  : cycle?.status === 'awaiting-merge'
+                    ? 'merge'
+                    : 'start';
             const blockers = scopePhaseBlockers(
               this.storage,
               roadmap.workspaceId,

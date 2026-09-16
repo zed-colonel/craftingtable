@@ -1,3 +1,4 @@
+import { scopeReviewerRoles } from './map-adoption-policy.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { reservePhase } from './phase-resources.js';
 import {
@@ -291,6 +292,9 @@ export class AgentRunService {
         ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
         instructions: [
           cycle.instructions,
+          cycle.executionScope && cycle.executionScope.kind !== 'slice'
+            ? `Operator-designated independent reviewer responsibilities: ${scopeReviewerRoles(this.storage, cycle.workspaceId, cycle.executionScope).join(', ') || 'standard independent review'}. Supply evidence for every applicable responsibility; if you cannot perform a required review, report an open question rather than claiming it passed.`
+            : '',
           finalization ? finalizationInstructions(finalization, cycle) : '',
           resolution ? '' : (cycle.housekeepingInstructions ?? ''),
           ...(resolution
@@ -311,6 +315,9 @@ export class AgentRunService {
           'This run is one step of an operator-authorized automated cycle. Do not merge. Complete this step and provide a final message; the controller handles the next step.',
           cycle.step === 'design'
             ? 'End with exactly one section headed ## Open questions. Its entire body must be none when there are no unresolved questions. Otherwise list the questions for the operator.'
+            : '',
+          cycle.executionScope && cycle.executionScope.kind !== 'slice'
+            ? 'This is an independent review of the integration snapshot. Do not implement changes or commit. Report findings for recovery in the owning slice. Include exactly one ## Open questions section containing only none if no input is needed, otherwise list questions. Put it BEFORE ## Review report and the structured report; keep the final VERDICT line last.'
             : '',
           cycle.step === 'review' && (cycle.integrationRefreshes ?? 0) > 0
             ? 'The integration branch has been refreshed during this cycle. Review the combined changes and rerun the relevant repository checks; a prior review or a clean Git merge is not verification of this state.'

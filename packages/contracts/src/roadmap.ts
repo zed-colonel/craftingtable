@@ -1,3 +1,4 @@
+import { crossProjectConfigurationSchema } from './cross-project.js';
 import { phaseBlockerSchema } from './execution-scope.js';
 import { executionScopeSchema } from './execution-scope.js';
 import { ROADMAP_STATUSES } from '@craftingtable/domain';
@@ -25,7 +26,8 @@ export const roadmapSchedulingSchema = z.strictObject({
   maxIntegrationRefreshes: z.number().int().min(1).max(20),
 });
 export const roadmapEntryInputSchema = z.strictObject({
-  executionScope: executionScopeSchema.extend({ kind: z.literal('slice') }).optional(),
+  reviewerRoles: z.array(z.string().min(1).max(200)).max(50).optional(),
+  executionScope: executionScopeSchema.optional(),
   id: z.string().uuid(),
   workItemId: workItemIdSchema,
   profiles: cycleProfilesSchema,
@@ -52,7 +54,7 @@ export const saveRoadmapRequestSchema = z
       new Set(
         x.entries.map(
           (e) =>
-            `${e.workItemId}:${e.executionScope?.definitionId ?? ''}:${e.executionScope?.bindingRevision ?? ''}:${e.executionScope?.sourceId ?? ''}`,
+            `${e.workItemId}:${e.executionScope?.definitionId ?? ''}:${e.executionScope?.bindingRevision ?? ''}:${e.executionScope?.kind ?? ''}:${e.executionScope?.sourceId ?? ''}`,
         ),
       ).size === x.entries.length &&
       x.entries.every(
@@ -84,6 +86,7 @@ const entrySchema = roadmapEntryInputSchema.extend({
   integrationBranch: z.string(),
 });
 export const roadmapDefinitionSchema = z.strictObject({
+  crossProject: crossProjectConfigurationSchema.optional(),
   roadmapId: z.string().uuid(),
   revision: z.number().int().positive(),
   name: z.string(),

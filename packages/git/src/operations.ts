@@ -160,6 +160,7 @@ export interface GitOperations {
     descendantSha: string,
   ): Promise<GitResult<boolean>>;
   updateWorktree(input: {
+    readonly fastForwardOnly?: boolean;
     worktreePath: string;
     branchName: string;
     expectedHeadSha: string;
@@ -1138,6 +1139,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
   }
 
   async function updateWorktree(input: {
+    fastForwardOnly?: boolean;
     worktreePath: string;
     branchName: string;
     expectedHeadSha: string;
@@ -1153,6 +1155,30 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       identity.value.headSha !== input.expectedHeadSha
     )
       return fail('git-failed', 'Worktree changed or is not clean; refresh before updating');
+    if (input.fastForwardOnly) {
+      const ancestry = await isAncestor(
+        identity.value.topLevel,
+        input.expectedHeadSha,
+        input.targetSha,
+      );
+      if (!ancestry.ok) return ancestry;
+      if (!ancestry.value)
+        return fail(
+          'git-failed',
+          'Review snapshot has changes outside integration; inspect changed history.',
+        );
+      const merged = await run(
+        ['merge', '--ff-only', '--', input.targetSha],
+        identity.value.topLevel,
+      );
+      if (!merged.ok) return merged;
+      if (merged.value.exitCode !== 0)
+        return fail(
+          'git-failed',
+          'Review snapshot cannot fast-forward to integration; inspect changed history.',
+        );
+      return { ok: true, value: { mergeSha: input.targetSha } };
+    }
     return mergeInto(identity.value.topLevel, {
       branchName: input.branchName,
       sourceCommitSha: input.targetSha,

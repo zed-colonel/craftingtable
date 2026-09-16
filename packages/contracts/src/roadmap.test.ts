@@ -24,7 +24,7 @@ it('bounds parallel capacity and refresh budgets without adding merge authority'
   ).toBe(false);
 });
 
-it('allows distinct sibling slices but rejects duplicate scopes, mixed parents and review-only entries', () => {
+it('allows distinct development and review activities but rejects duplicate scopes and mixed bindings', () => {
   const scope = {
     kind: 'slice',
     definitionId: '00000000-0000-4000-8000-000000000001',
@@ -52,9 +52,38 @@ it('allows distinct sibling slices but rejects duplicate scopes, mixed parents a
     { ...sibling, executionScope: scope },
     { ...sibling, executionScope: undefined },
     { ...sibling, executionScope: { ...sibling.executionScope, bindingRevision: 2 } },
-    { ...sibling, executionScope: { ...sibling.executionScope, kind: 'parent-acceptance' } },
   ])
     expect(
       saveRoadmapRequestSchema.safeParse({ ...request, entries: [entry, second] }).success,
     ).toBe(false);
+});
+
+it('preserves distinct review activities for the same source milestone', () => {
+  const entry = {
+    id: '00000000-0000-4000-8000-000000000002',
+    workItemId: 'item-1',
+    profiles: Object.fromEntries(
+      CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
+    ),
+    policy: DEFAULT_COMPLETION_POLICY,
+    instructions: '',
+    executionScope: {
+      kind: 'slice',
+      definitionId: '00000000-0000-4000-8000-000000000001',
+      bindingRevision: 1,
+      sourceId: 'WI-02/domain',
+    },
+  };
+  const verification = {
+    ...entry,
+    id: '00000000-0000-4000-8000-000000000003',
+    executionScope: { ...entry.executionScope, kind: 'slice-verification' },
+  };
+  expect(
+    saveRoadmapRequestSchema.safeParse({
+      expectedVersion: 0,
+      name: 'Development then verification',
+      entries: [entry, verification],
+    }).success,
+  ).toBe(true);
 });

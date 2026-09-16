@@ -728,3 +728,67 @@ describe('pinned source export', () => {
     if (!exported.ok) expect(exported.failure.message).toContain('links');
   });
 });
+
+it('fast-forwards a clean review snapshot to integration without inventing a merge commit or discarding divergence', async () => {
+  const repo = fixture(),
+    path = join(repo.root, 'review-snapshot');
+  runFixtureGit(['config', 'user.name', 'CraftingTable Test'], { cwd: repo.repository });
+  runFixtureGit(['config', 'user.email', 'test@example.invalid'], { cwd: repo.repository });
+  const base = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+  expect(
+    (
+      await operations.createWorktree({
+        repositoryPath: repo.repository,
+        worktreePath: path,
+        branchName: 'ct/review',
+        baseRef: base,
+      })
+    ).ok,
+  ).toBe(true);
+  writeFileSync(join(repo.repository, 'integrated.txt'), 'New integration');
+  runFixtureGit(['add', '.'], { cwd: repo.repository });
+  runFixtureGit(['commit', '-m', 'Integration advanced'], { cwd: repo.repository });
+  const target = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+  expect(
+    await operations.updateWorktree({
+      worktreePath: path,
+      branchName: 'ct/review',
+      expectedHeadSha: base,
+      targetSha: target,
+      fastForwardOnly: true,
+    }),
+  ).toEqual({ ok: true, value: { mergeSha: target } });
+  expect(runFixtureGit(['rev-parse', 'HEAD'], { cwd: path }).toString().trim()).toBe(target);
+  writeFileSync(join(path, 'reviewer-edit.txt'), 'Must preserve');
+  runFixtureGit(['add', '.'], { cwd: path });
+  runFixtureGit(['commit', '-m', 'Unexpected review edit'], { cwd: path });
+  const changed = runFixtureGit(['rev-parse', 'HEAD'], { cwd: path }).toString().trim();
+  expect(
+    (
+      await operations.updateWorktree({
+        worktreePath: path,
+        branchName: 'ct/review',
+        expectedHeadSha: changed,
+        targetSha: target,
+        fastForwardOnly: true,
+      })
+    ).ok,
+  ).toBe(false);
+  expect(runFixtureGit(['rev-parse', 'HEAD'], { cwd: path }).toString().trim()).toBe(changed);
+  writeFileSync(join(repo.repository, 'next.txt'), 'Next integration');
+  runFixtureGit(['add', '.'], { cwd: repo.repository });
+  runFixtureGit(['commit', '-m', 'Next integration'], { cwd: repo.repository });
+  const next = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+  expect(
+    (
+      await operations.updateWorktree({
+        worktreePath: path,
+        branchName: 'ct/review',
+        expectedHeadSha: changed,
+        targetSha: next,
+        fastForwardOnly: true,
+      })
+    ).ok,
+  ).toBe(false);
+  expect(runFixtureGit(['rev-parse', 'HEAD'], { cwd: path }).toString().trim()).toBe(changed);
+});

@@ -1,3 +1,5 @@
+import { registerCrossProjectRoutes } from './routes/cross-project.js';
+import type { CrossProjectService } from './services/cross-project-service.js';
 import { readFileSync } from 'node:fs';
 import cookie from '@fastify/cookie';
 import { type FastifyInstance, fastify } from 'fastify';
@@ -43,6 +45,7 @@ import type { WorkspaceEventStreamService } from './services/workspace-event-str
 import type { WorkspaceService } from './services/workspace-service.js';
 
 export interface ServerDependencies {
+  readonly crossProjectService: CrossProjectService;
   readonly runtimeEvidenceService: RuntimeEvidenceService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
@@ -116,6 +119,7 @@ export function buildServer(
     await deps.workCycleService.shutdown();
   });
   registerPackageImportRoutes(app, deps.authService, deps.packageImportService, config);
+  registerCrossProjectRoutes(app, deps.authService, deps.crossProjectService, config);
   registerRuntimeEvidenceRoutes(app, deps.authService, deps.runtimeEvidenceService, config);
   registerStorageRoutes(app, deps.authService, deps.storageService, config);
   registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);

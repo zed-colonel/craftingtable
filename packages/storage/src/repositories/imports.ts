@@ -1,4 +1,5 @@
 import type {
+  MapAdoption,
   ArchiveImportAttempt,
   ConcurrencyBindingRevision,
   ConcurrencyDefinition,
@@ -13,6 +14,8 @@ import type Database from 'better-sqlite3';
 const record = <T>(row: unknown): T | undefined =>
   row === undefined ? undefined : (JSON.parse((row as { record_json: string }).record_json) as T);
 export interface ImportRepository {
+  addAdoption(adoption: MapAdoption): void;
+  adoptions(workspaceId: WorkspaceId, definitionId: string): readonly MapAdoption[];
   addArchive(archive: ImportedArchive, bytes: Uint8Array): ImportedArchive;
   archiveInfo(workspaceId: WorkspaceId, id: string): ImportedArchive | undefined;
   archive(
@@ -40,6 +43,21 @@ export interface ImportRepository {
 }
 export class SqliteImportRepository implements ImportRepository {
   constructor(private readonly db: Database.Database) {}
+  addAdoption(a: MapAdoption) {
+    this.db
+      .prepare(
+        'INSERT INTO map_adoptions(id,workspace_id,definition_id,binding_revision,record_json) VALUES(?,?,?,?,?)',
+      )
+      .run(a.id, a.workspaceId, a.definitionId, a.bindingRevision, JSON.stringify(a));
+  }
+  adoptions(ws: WorkspaceId, id: string): readonly MapAdoption[] {
+    return this.db
+      .prepare(
+        'SELECT record_json FROM map_adoptions WHERE workspace_id=? AND definition_id=? ORDER BY rowid DESC',
+      )
+      .all(ws, id)
+      .map((r) => record<MapAdoption>(r)!);
+  }
   addArchive(archive: ImportedArchive, bytes: Uint8Array): ImportedArchive {
     this.db
       .prepare(

@@ -44,6 +44,7 @@ export interface RoadmapEntryHold {
   readonly reason: string;
 }
 export interface RoadmapEntry {
+  readonly reviewerRoles?: readonly string[];
   readonly executionScope?: import('./execution-scope.js').ExecutionScope;
   readonly id: string;
   readonly workItemId: WorkItemId;
@@ -61,6 +62,7 @@ export interface RoadmapEntry {
 }
 /** Immutable adopted definition; draft changes also create new revisions. */
 export interface RoadmapDefinition {
+  readonly crossProject?: import('./cross-project.js').CrossProjectConfiguration;
   readonly roadmapId: string;
   readonly revision: number;
   readonly name: string;

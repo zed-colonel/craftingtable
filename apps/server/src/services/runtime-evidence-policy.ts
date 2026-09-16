@@ -1,3 +1,4 @@
+import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
 import type {
   ConcurrencyDefinition,
   RuntimeGeneration,
@@ -349,12 +350,15 @@ export function prerequisiteIssues(
   const next = new Set(visiting).add(key),
     spec = subjectRequirements(d, subject),
     issues: string[] = [];
-  if (spec.decisionRefs.length)
-    issues.push(
-      `Decision adoption is required: ${spec.decisionRefs.join(', ')}. Decision adoption is the next roadmap increment.`,
-    );
-  if (spec.checkpoint && ['plan_approval', 'architecture_decision'].includes(spec.checkpoint.kind))
-    issues.push('This decision checkpoint requires explicit map adoption in the next increment.');
+  const adopted = adoptedDecisions(tx, d.workspaceId, d.id, bindingRevision);
+  const missing = spec.decisionRefs.filter((id) => !adopted.has(id));
+  if (missing.length) issues.push(`Decision adoption is required: ${missing.join(', ')}.`);
+  if (
+    spec.checkpoint &&
+    ['plan_approval', 'architecture_decision'].includes(spec.checkpoint.kind) &&
+    !mapAdopted(tx, d.workspaceId, d.id, bindingRevision)
+  )
+    issues.push('Adopt the exact bound map before accepting decision checkpoint evidence.');
   const requirements =
     spec.checkpoint?.requires ??
     (spec.slice

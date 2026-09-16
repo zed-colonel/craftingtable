@@ -1,3 +1,4 @@
+import { CrossProjectService } from './services/cross-project-service.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -52,6 +53,7 @@ import { WorkspaceService } from './services/workspace-service.js';
 import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
 
 export interface ServiceSet {
+  readonly crossProjectService: CrossProjectService;
   readonly runtimeEvidenceService: RuntimeEvidenceService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
@@ -228,8 +230,15 @@ export async function createServices(
     workCycleService,
     notifier,
     now,
+    runtimeEvidenceService,
   );
   roadmapService.recoverInterrupted();
+  const crossProjectService = new CrossProjectService(
+    storage,
+    workspaceService,
+    roadmapService,
+    notifier,
+  );
   const executionStatus = (): ExecutionStatus => ({
     git: {
       available: gitOperations !== undefined,
@@ -247,6 +256,7 @@ export async function createServices(
     }),
   });
   return {
+    crossProjectService,
     runtimeEvidenceService,
     storageService,
     finalizationService: new FinalizationService(
@@ -320,6 +330,7 @@ export async function createRuntime(
     const services = await createServices(storage, config, options.overrides);
     const app = buildServer(
       {
+        crossProjectService: services.crossProjectService,
         runtimeEvidenceService: services.runtimeEvidenceService,
         packageImportService: services.packageImportService,
         storageService: services.storageService,

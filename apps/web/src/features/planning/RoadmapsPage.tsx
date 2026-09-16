@@ -1,3 +1,5 @@
+import { CrossProjectPanel } from './CrossProjectPanel.js';
+import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import type { ExecutionScopeChoice } from '@craftingtable/contracts';
 import { executionScopeKey } from '@craftingtable/domain';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
@@ -678,16 +680,17 @@ export function RoadmapsPage({
                     Resume roadmap
                   </button>
                 )}
-                {['draft', 'paused', 'needs-attention'].includes(roadmap.status) && (
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={busy || !!draft}
-                    onClick={() => edit(roadmap)}
-                  >
-                    Edit queued entries
-                  </button>
-                )}
+                {!roadmap.definition.crossProject &&
+                  ['draft', 'paused', 'needs-attention'].includes(roadmap.status) && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={busy || !!draft}
+                      onClick={() => edit(roadmap)}
+                    >
+                      Edit queued entries
+                    </button>
+                  )}
                 {!['completed', 'stopped'].includes(roadmap.status) && (
                   <button
                     type="button"
@@ -714,120 +717,162 @@ export function RoadmapsPage({
               View revisions
             </button>
           </div>
-          <ol className="roadmap-entries">
-            {roadmap.definition.entries.map((entry) => {
-              const state = progress.find((p) => p.entryId === entry.id);
-              const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
-              return (
-                <li key={entry.id}>
-                  <a
-                    href={buildPath({
-                      name: 'work-item',
-                      workspaceId,
-                      workItemId: entry.workItemId,
-                    })}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      onOpenWorkItem(entry.workItemId);
-                    }}
-                  >
-                    {entry.sourceId} · {entry.title}
-                  </a>
-                  <p>
-                    <strong>
-                      {state?.status === 'awaiting-merge'
-                        ? 'Awaiting merge approval'
-                        : state?.status === 'paused'
-                          ? 'Item paused'
-                          : state?.status === 'capacity-blocked'
-                            ? 'Waiting for capacity'
-                            : state?.status === 'exclusion-blocked'
-                              ? 'Waiting for exclusion group'
-                              : state?.status === 'dependency-blocked'
-                                ? 'Waiting on prerequisites'
-                                : state?.status === 'needs-attention'
-                                  ? 'Needs attention'
-                                  : state?.status === 'completed'
-                                    ? 'Completed'
-                                    : state?.status === 'running'
-                                      ? 'Running'
-                                      : 'Queued'}
-                    </strong>{' '}
-                    · <code>{entry.integrationBranch}</code>
-                  </p>
-                  <p className="hint">{state?.reason}</p>
-                  <p className="hint">
-                    Integration merge:{' '}
-                    {(
-                      state?.effectiveAutomation ??
-                      entry.automation ??
-                      roadmap.definition.automation
-                    )?.integrationMerge === 'automatic'
-                      ? 'Automatic when reviewed and ready'
-                      : 'Your approval required'}{' '}
-                    · Conflicts:{' '}
-                    {(
-                      state?.effectiveAutomation ??
-                      entry.automation ??
-                      roadmap.definition.automation
-                    )?.integrationConflicts === 'automatic'
-                      ? 'Automatic delegation'
-                      : 'Ask you'}
-                  </p>
-                  {!!entry.exclusionGroups?.length && (
-                    <p className="hint">Exclusion groups: {entry.exclusionGroups.join(', ')}</p>
-                  )}
-                  {canMutate &&
-                    roadmap.status === 'running' &&
-                    roadmap.definition.scheduling?.mode === 'parallel' &&
-                    state?.status !== 'completed' && (
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        disabled={busy}
-                        onClick={() =>
-                          void command(
-                            roadmap,
-                            ['paused', 'needs-attention'].includes(state?.status ?? '')
-                              ? 'resume'
-                              : 'pause',
-                            entry.id,
-                          )
-                        }
-                      >
-                        {['paused', 'needs-attention'].includes(state?.status ?? '')
-                          ? 'Resume item'
-                          : 'Pause item'}
-                      </button>
-                    )}
-                  <details>
-                    <summary>Bound plan and cycle settings</summary>
-                    <p className="hint">
-                      Plan version: <code>{entry.planVersionId}</code>
-                      {attempt && <> · Execution revision {attempt.definitionRevision}</>}
-                    </p>
-                    <ul>
-                      {CYCLE_STEPS.map((step) => (
-                        <li key={step}>
-                          {step}: {entry.profiles[step].backend} ·{' '}
-                          <code>{entry.profiles[step].model ?? 'Backend default'}</code> ·{' '}
-                          {entry.profiles[step].permissionMode}
-                        </li>
-                      ))}
-                    </ul>
+          {roadmap.definition.crossProject && (
+            <>
+              <CrossProjectPanel
+                workspaceId={workspaceId}
+                definitionId={roadmap.definition.crossProject.definitionId}
+                bindingRevision={roadmap.definition.crossProject.bindingRevision}
+                targets={[
+                  {
+                    id: roadmap.definition.crossProject.targetId,
+                    scope:
+                      roadmap.definition.crossProject.selection === 'target-only'
+                        ? 'Only the selected target prerequisite scope is delegated.'
+                        : 'Full retained roadmap with the selected target prioritized.',
+                  },
+                ]}
+                roadmap={roadmap}
+                csrfToken={csrfToken}
+                canMutate={canMutate}
+              />
+              <div id={`runtime-evidence-${roadmap.definition.crossProject.definitionId}`} />
+              <RuntimeEvidencePanel
+                workspaceId={workspaceId}
+                definitionId={roadmap.definition.crossProject.definitionId}
+                bindingRevision={roadmap.definition.crossProject.bindingRevision}
+                csrfToken={csrfToken}
+                canMutate={canMutate}
+              />
+            </>
+          )}
+          <details open={!roadmap.definition.crossProject}>
+            <summary>
+              Execution attempts and individual controls ({roadmap.definition.entries.length})
+            </summary>
+            <ol className="roadmap-entries">
+              {roadmap.definition.entries.map((entry) => {
+                const state = progress.find((p) => p.entryId === entry.id);
+                const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
+                return (
+                  <li key={entry.id}>
+                    <a
+                      href={buildPath({
+                        name: 'work-item',
+                        workspaceId,
+                        workItemId: entry.workItemId,
+                      })}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        onOpenWorkItem(entry.workItemId);
+                      }}
+                    >
+                      {entry.sourceId} · {entry.executionScope?.kind} · {entry.title}
+                    </a>
                     <p>
-                      Zero blocking, major, or minor findings; at most {entry.policy.maxNits} nits.
-                      Up to {entry.policy.maxRemediationRounds} remediation rounds,{' '}
-                      {entry.policy.maxRunMinutes} minutes per step.
+                      <strong>
+                        {state?.status === 'awaiting-merge'
+                          ? entry.executionScope && entry.executionScope.kind !== 'slice'
+                            ? 'Ready for scope acceptance'
+                            : 'Awaiting merge approval'
+                          : state?.status === 'paused'
+                            ? 'Item paused'
+                            : state?.status === 'capacity-blocked'
+                              ? 'Waiting for capacity'
+                              : state?.status === 'exclusion-blocked'
+                                ? 'Waiting for exclusion group'
+                                : state?.status === 'dependency-blocked'
+                                  ? 'Waiting on prerequisites'
+                                  : state?.status === 'needs-attention'
+                                    ? 'Needs attention'
+                                    : state?.status === 'completed'
+                                      ? 'Completed'
+                                      : state?.status === 'running'
+                                        ? 'Running'
+                                        : 'Queued'}
+                      </strong>{' '}
+                      · <code>{entry.integrationBranch}</code>
                     </p>
-                    {entry.instructions && (
-                      <pre className="roadmap-instructions">{entry.instructions}</pre>
+                    <p className="hint">{state?.reason}</p>
+                    {entry.executionScope && entry.executionScope.kind !== 'slice' ? (
+                      <p className="hint">
+                        Independent review records scope evidence; it does not merge a branch.
+                      </p>
+                    ) : (
+                      <p className="hint">
+                        Integration merge:{' '}
+                        {(
+                          state?.effectiveAutomation ??
+                          entry.automation ??
+                          roadmap.definition.automation
+                        )?.integrationMerge === 'automatic'
+                          ? 'Automatic when reviewed and ready'
+                          : 'Your approval required'}{' '}
+                        · Conflicts:{' '}
+                        {(
+                          state?.effectiveAutomation ??
+                          entry.automation ??
+                          roadmap.definition.automation
+                        )?.integrationConflicts === 'automatic'
+                          ? 'Automatic delegation'
+                          : 'Ask you'}
+                      </p>
                     )}
-                  </details>
-                </li>
-              );
-            })}
-          </ol>
+                    {!!entry.exclusionGroups?.length && (
+                      <p className="hint">Exclusion groups: {entry.exclusionGroups.join(', ')}</p>
+                    )}
+                    {canMutate &&
+                      roadmap.status === 'running' &&
+                      roadmap.definition.scheduling?.mode === 'parallel' &&
+                      state?.status !== 'completed' && (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={busy}
+                          onClick={() =>
+                            void command(
+                              roadmap,
+                              ['paused', 'needs-attention'].includes(state?.status ?? '')
+                                ? 'resume'
+                                : 'pause',
+                              entry.id,
+                            )
+                          }
+                        >
+                          {['paused', 'needs-attention'].includes(state?.status ?? '')
+                            ? 'Resume item'
+                            : 'Pause item'}
+                        </button>
+                      )}
+                    <details>
+                      <summary>Bound plan and cycle settings</summary>
+                      <p className="hint">
+                        Plan version: <code>{entry.planVersionId}</code>
+                        {attempt && <> · Execution revision {attempt.definitionRevision}</>}
+                      </p>
+                      <ul>
+                        {CYCLE_STEPS.map((step) => (
+                          <li key={step}>
+                            {step}: {entry.profiles[step].backend} ·{' '}
+                            <code>{entry.profiles[step].model ?? 'Backend default'}</code> ·{' '}
+                            {entry.profiles[step].permissionMode}
+                          </li>
+                        ))}
+                      </ul>
+                      <p>
+                        Zero blocking, major, or minor findings; at most {entry.policy.maxNits}{' '}
+                        nits. Up to {entry.policy.maxRemediationRounds} remediation rounds,{' '}
+                        {entry.policy.maxRunMinutes} minutes per step.
+                      </p>
+                      {entry.instructions && (
+                        <pre className="roadmap-instructions">{entry.instructions}</pre>
+                      )}
+                    </details>
+                  </li>
+                );
+              })}
+            </ol>
+          </details>
           {history?.id === roadmap.id && (
             <details open>
               <summary>Saved revisions</summary>

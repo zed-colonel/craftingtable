@@ -175,3 +175,13 @@ with dependency, evidence, review, authorization and resource labels. Show local
 capacity and current reservations beside their phase. Early-development authorization names
 the exact bound slice and preserves the parent barrier. Resource waits are progress states;
 qualification-unavailable labels must not imply an approved environment or completed check.
+
+
+Cross-project supervision explicitly selects a target and distinguishes limiting its scope from
+prioritizing it within a full roadmap. Preview included and excluded milestones before creation/Start.
+Use project lanes with expandable parent/slice cards on desktop and a wrapping grouped list on phones.
+A focused requirement opens its provider's work-item or evidence controls. Show independent progress
+and separate target, selected-scope, parent-acceptance, finalization and publication states. Scheduling
+adoption has its own proposal review and rationale; it never presents imported checkpoints as passed.
+Defaults and project/activity/individual settings overrides belong in disclosures. Frozen attempts show
+the settings they actually used; queued settings can be edited while paused.

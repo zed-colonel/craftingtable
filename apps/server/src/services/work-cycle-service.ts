@@ -85,13 +85,15 @@ export class WorkCycleService {
     workItemId: WorkItemId,
     input: StartWorkCycleRequest,
     reservedId?: string,
+    allowScopeReview = false,
   ): WorkCycle {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     this.validateSettings(input);
     const worktree = this.storage.execution.worktrees.find(workspaceId, input.worktreeId);
     if (!worktree || worktree.workItemId !== workItemId) throw new NotFoundError();
     this.mutations.requireAvailable(input.worktreeId);
-    if (worktree.executionScope && worktree.executionScope.kind !== 'slice')
+    const reviewOnly = !!worktree.executionScope && worktree.executionScope.kind !== 'slice';
+    if (reviewOnly && !allowScopeReview)
       throw new ExecutionRequestError(
         'conflict',
         'Parent acceptance uses a review run, not an implementation cycle.',
@@ -136,7 +138,8 @@ export class WorkCycleService {
       updatedAt: occurredAt,
       version: 1,
       status: 'running',
-      step: 'design',
+      step: reviewOnly ? 'review' : 'design',
+      ...(reviewOnly ? { reviewHeadSha: worktree.baseSha } : {}),
       policy: input.policy,
       profiles: input.profiles,
       instructions: input.instructions,
@@ -145,8 +148,9 @@ export class WorkCycleService {
       runDeadlineAt: this.deadline(input.policy.maxRunMinutes),
       remediationRounds: 0,
       stalledReviews: 0,
-      reason:
-        'Starting design. Automation pauses at unresolved design questions or merge approval.',
+      reason: reviewOnly
+        ? 'Starting independent scope review. Findings and questions require operator recovery; approval records evidence only.'
+        : 'Starting design. Automation pauses at unresolved design questions or merge approval.',
     };
     this.storage.transaction((tx) => {
       tx.execution.cycles.insert(cycle);
@@ -679,6 +683,7 @@ export class WorkCycleService {
       const assessment = latestReviewReport(this.storage.execution, run);
       if (
         !cycle.finalizationProgress &&
+        (!cycle.executionScope || cycle.executionScope.kind === 'slice') &&
         assessment?.status === 'complete' &&
         evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
       )
@@ -771,10 +776,19 @@ export class WorkCycleService {
     if (this.refreshing.has(cycle.id)) return;
     if (this.runs.isCleaningRun(cycle.worktreeId)) return;
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    if (worktree?.mergedAt !== undefined) {
+    const reviewOnly = !!cycle.executionScope && cycle.executionScope.kind !== 'slice';
+    const recorded =
+      reviewOnly &&
+      cycle.workItemId &&
+      this.storage.scopeReceipts
+        .list(cycle.workspaceId, cycle.workItemId)
+        .some((r) => r.worktreeId === cycle.worktreeId && r.reviewRunId === cycle.currentRunId);
+    if (worktree?.mergedAt !== undefined || recorded) {
       this.change(cycle, {
         status: 'completed',
-        reason: 'Worktree integrated; cycle complete.',
+        reason: recorded
+          ? 'Independent scope evidence recorded; review cycle complete.'
+          : 'Worktree integrated; cycle complete.',
       });
       return;
     }
@@ -824,7 +838,11 @@ export class WorkCycleService {
         cycle.workspaceId,
         worktree.workItemId,
         worktree.executionScope,
-        'start',
+        worktree.executionScope.kind === 'parent-acceptance'
+          ? 'accept'
+          : worktree.executionScope.kind === 'slice-verification'
+            ? 'verify'
+            : 'start',
       );
       if (blockers.length) throw new PhaseGateError(blockers);
     }
@@ -1016,6 +1034,18 @@ export class WorkCycleService {
       await this.next(cycle, 'remediate', run, undefined, { polishPhase: 'polish' });
       return;
     }
+    if (
+      reviewOnly &&
+      (!finalizationHasNoQuestions(turn.payload.resultText) || decision.action !== 'awaiting-merge')
+    ) {
+      this.attention(
+        cycle,
+        !finalizationHasNoQuestions(turn.payload.resultText)
+          ? 'Scope review has open questions or lacks its Open questions checkpoint. Pause and provide guidance before resuming.'
+          : `Scope review requires recovery: ${decision.reason} Address findings through the owning slice; this review snapshot cannot implement changes.`,
+      );
+      return;
+    }
     // Findings can request more work without granting approval to the reviewed state.
     if (decision.action === 'remediate') {
       await this.reviewRemediation(cycle, run);
@@ -1032,6 +1062,13 @@ export class WorkCycleService {
         'Review approval requires the managed branch without unresolved Git operations.',
       );
     if (!changes.value.clean || changes.value.headSha !== cycle.reviewHeadSha) {
+      if (reviewOnly) {
+        this.attention(
+          cycle,
+          'Scope review changed its snapshot. Restore the reviewed integration state before resuming.',
+        );
+        return;
+      }
       await this.housekeeping(
         cycle,
         run,
@@ -1062,9 +1099,11 @@ export class WorkCycleService {
     }
     this.change(cycle, {
       status: 'awaiting-merge',
-      reason: finalization
-        ? 'Final independent review meets the completion policy. Inspect the conformance assessment, changes and verification; only you can approve promotion.'
-        : decision.reason,
+      reason: reviewOnly
+        ? 'Independent review meets the completion policy. Ready to record scope verification or parent acceptance.'
+        : finalization
+          ? 'Final independent review meets the completion policy. Inspect the conformance assessment, changes and verification; only you can approve promotion.'
+          : decision.reason,
     });
   }
 
@@ -2431,7 +2470,18 @@ export class WorkCycleService {
     workItemId: WorkItemId,
     scope?: import('@craftingtable/domain').ExecutionScope,
   ) {
-    if (scope) requireScope(this.storage, workspaceId, workItemId, scope, 'start');
+    if (scope)
+      requireScope(
+        this.storage,
+        workspaceId,
+        workItemId,
+        scope,
+        scope.kind === 'parent-acceptance'
+          ? 'accept'
+          : scope.kind === 'slice-verification'
+            ? 'verify'
+            : 'start',
+      );
     const item = this.storage.planning.workItems.find(workspaceId, workItemId);
     if (item?.status !== 'admitted')
       throw new ExecutionRequestError(

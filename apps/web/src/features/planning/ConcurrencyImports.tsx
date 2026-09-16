@@ -1,3 +1,4 @@
+import { CrossProjectPanel } from './CrossProjectPanel.js';
 import type { ConcurrencyDetail, ConcurrencyList } from '@craftingtable/contracts';
 import type { PlanVersionId, SourceRepositoryId, WorkspaceId } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
@@ -193,9 +194,9 @@ export function ConcurrencyImports({
         <>
           <h3>{detail.summary.document}</h3>
           <p>
-            <strong>Imported draft · execution unavailable</strong> · {detail.summary.parentCount}{' '}
-            work items · {detail.summary.sliceCount} slices · {detail.summary.checkpointCount}{' '}
-            checkpoints
+            <strong>Imported definition · explicit delegation required</strong> ·{' '}
+            {detail.summary.parentCount} work items · {detail.summary.sliceCount} slices ·{' '}
+            {detail.summary.checkpointCount} checkpoints
           </p>
           <p>
             {detail.summary.graphNodeCount} milestones / {detail.summary.graphEdgeCount} dependency
@@ -217,6 +218,16 @@ export function ConcurrencyImports({
             </a>
           </details>
           <ImportIssues issues={detail.blockers} errorLabel="Before execution" />
+          <CrossProjectPanel
+            workspaceId={workspaceId}
+            definitionId={detail.summary.id}
+            bindingRevision={detail.summary.bindingRevision}
+            targets={detail.targets}
+            csrfToken={csrfToken}
+            canMutate={canMutate}
+            key={`supervision:${detail.summary.id}:${detail.summary.bindingRevision}`}
+          />
+          <div id={`runtime-evidence-${detail.summary.id}`} />
           <RuntimeEvidencePanel
             key={`${detail.summary.id}:${detail.summary.bindingRevision}`}
             workspaceId={workspaceId}
@@ -412,7 +423,7 @@ export function ConcurrencyImports({
           </details>
           <details>
             <summary>Proposed decisions ({detail.decisions.length})</summary>
-            <p>Every decision remains a proposal requiring later adoption.</p>
+            <p>Review and adopt proposals in the target scope supervisor above.</p>
             {detail.decisions.map((d) => (
               <article key={d.id}>
                 <h4>

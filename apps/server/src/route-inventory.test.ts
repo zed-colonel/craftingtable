@@ -7,6 +7,9 @@ import { createTestContext } from './test-support.js';
  */
 
 const EXPECTED_ROUTES = [
+  'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/preview',
+  'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/adopt',
+  'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/roadmap',
   'POST /api/workspaces/:workspaceId/plan-archives/preview',
   'POST /api/workspaces/:workspaceId/plan-archives/import',
   'GET /api/workspaces/:workspaceId/concurrency-imports',

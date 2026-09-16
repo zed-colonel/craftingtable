@@ -1,3 +1,4 @@
+import { adoptedDecisions, mapAdopted, scopeReviewerRoles } from './map-adoption-policy.js';
 import {
   sameExecutionScope,
   executionScopeKey,
@@ -129,11 +130,10 @@ export function scopePhaseBlockers(
     add('dependency', 'Merge this slice before starting fresh verification.');
   // Imported requirements confer no adoption, environment or effect authority.
   issues.push(...runtimeScopeBlockers(tx, workspaceId, scope, r.binding.alias));
+  const adopted = adoptedDecisions(tx, workspaceId, scope.definitionId, scope.bindingRevision);
   for (const decision of r.slice?.decision_refs ?? [])
-    add(
-      'authorization',
-      `Decision ${decision} requires adoption; decision adoption is not available yet.`,
-    );
+    if (!adopted.has(decision))
+      add('authorization', `Decision ${decision} requires explicit map adoption.`);
   const requirements = r.slice
     ? [
         ...r.slice.start_requires,
@@ -207,6 +207,21 @@ export function scopePhaseBlockers(
       if (!satisfied) add('dependency', `Slice ${requirement.id} must be ${requirement.state}.`);
     }
   }
+  if (
+    phase === 'verify' &&
+    r.slice &&
+    r.definition.source.acceptance_coverage.some(
+      (c) => c.requires_kata_host && c.producing_slices.includes(r.slice!.id),
+    ) &&
+    !acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
+      kind: 'slice',
+      sourceId: scope.sourceId,
+    })
+  )
+    add(
+      'evidence',
+      'Actual Kata case evidence requires an independently accepted external qualification; an agent reviewer-role assignment does not supply it.',
+    );
   if (options.resources !== false) issues.push(...resourceBlockers(tx, r, phase, options.ownerId));
   if (!r.slice) {
     const trees = tx.execution.worktrees.listForWorkItem(workspaceId, workItemId);
@@ -238,12 +253,15 @@ export function scopePhaseBlockers(
       kind: r.slice ? 'slice' : 'parent',
       sourceId: scope.sourceId,
     }) &&
+    !r.profile.reviewer_roles.every((role) =>
+      scopeReviewerRoles(tx, workspaceId, scope).includes(role),
+    ) &&
     (r.profile.reviewer_roles.length !== 1 ||
       !['review', 'independent-reviewer'].includes(r.profile.reviewer_roles[0] ?? ''))
   )
     add(
       'review',
-      `Evidence profile ${r.profile.id} requires reviewer qualifications (${r.profile.reviewer_roles.join(', ')}); submit and accept evidence from qualified independent reviewers.`,
+      `Evidence profile ${r.profile.id} requires reviewer qualifications (${r.profile.reviewer_roles.join(', ')}); assign those responsibilities explicitly to the roadmap review agent, or submit independently reviewed external evidence.`,
     );
   return [...new Map(issues.map((i) => [i.message, i])).values()];
 }
@@ -266,12 +284,13 @@ export function scopeAllowsEarlyDevelopment(
   const r = resolveScope(tx, workspaceId, workItemId, scope);
   return (
     !!r.slice?.early_start_exception &&
-    !r.slice.decision_refs.length &&
-    tx.phaseScheduling.authorized(
-      workspaceId,
-      workItemId,
-      executionScopeKey({ ...scope, kind: 'slice' }),
-    )
+    (mapAdopted(tx, workspaceId, scope.definitionId, scope.bindingRevision) ||
+      (!r.slice.decision_refs.length &&
+        tx.phaseScheduling.authorized(
+          workspaceId,
+          workItemId,
+          executionScopeKey({ ...scope, kind: 'slice' }),
+        )))
   );
 }
 export function requireScope(
@@ -527,10 +546,14 @@ export function latestSliceMerge(
     .sort((a, b) => (b.mergedAt ?? '').localeCompare(a.mergedAt ?? ''))[0];
 }
 /** Capabilities required anywhere in this scope's lifecycle, independently of dynamic gates. */
-export function unsupportedScopeCapabilities(r: ResolvedScope): string[] {
+export function unsupportedScopeCapabilities(r: ResolvedScope, tx?: StorageRepositories): string[] {
   const issues: string[] = [];
 
-  if (r.slice?.decision_refs.length) issues.push('Decision adoption is not available yet.');
+  if (
+    r.slice?.decision_refs.length &&
+    (!tx || !mapAdopted(tx, r.item.workspaceId, r.definition.id, r.scope.bindingRevision))
+  )
+    issues.push('Adopt this exact map binding before delegating its decision-dependent scopes.');
   // Qualified hosts are checked at their own phase, so unavailable verification
   // cannot prevent otherwise authorized development or hold a merge lock.
   return issues;

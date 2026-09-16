@@ -709,12 +709,12 @@ export class PackageImportService {
         .map((r) => ({ id: r.id, name: r.displayName })),
       blockers: [
         issue(
-          'execution-not-implemented',
-          'Integrated cross-project Start and target supervision are the next increment. Individual execution scopes use phase gates and configured evidence.',
+          'supervision-setup',
+          'Preview a target scope, adopt map decisions, then save and explicitly start a cross-project roadmap in the supervisor below.',
         ),
         issue(
           'adoption-required',
-          'Map decisions remain proposals. Adoption and Start will be separate commands once required execution capabilities exist.',
+          'Map decisions require explicit adoption for this exact binding. Checkpoint evidence and Start remain separate actions.',
         ),
         issue(
           'environment-configuration-required',

@@ -292,3 +292,21 @@ requires host/VM/image/configuration observations and explicit no-native-fallbac
 Selecting an external environment grants no credentials, host provisioning or local execution
 rights. Native/Kata process dispatch remains closed; reviewed external evidence can satisfy a
 verification milestone. Map decision adoption and protected final promotion remain separate.
+
+
+Map adoption requires an authenticated owner/editor, exact current bindings, every declared proposal ID
+and a rationale; immutable records preserve attribution. It only authorizes source-declared scheduling
+exceptions. Plan/architecture checkpoints still require independently reviewed evidence, and adoption
+confers no environment or final-merge authority. Cross-project roadmap creation computes scope on the
+daemon. Start rechecks adoption/bindings; changing target scope requires a separate draft. Review-only
+cycles cannot transition to implementation; they use current-generation build provenance, exact review
+commits and normal workspace authorization before evidence recording. Delegated parent acceptance is
+separate from protected promotion and is bound to the attempt's saved revision. Ordinary scope review
+findings and questions pause for recovery; restart never silently resumes agents. See ADR-048.
+
+Operator-designated agent reviewer responsibilities are explicit settings, bound to the attempt's
+saved revision and recorded on scope receipts. They are responsibilities under the existing trusted
+agent model, not authentication of a human maintainer or a sandbox qualification. The exact supervised
+review run must match the assigned backend/model/permission profile and report all scope evidence.
+Assignments do not bypass resource authorization, native/Kata execution boundaries or checkpoint
+attestations; qualified external reviews remain available.

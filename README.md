@@ -23,7 +23,7 @@ it is mergeable.
   WI/EXO plan versions and the registered upstream repository, then **Save exact bindings**.
   Saved selections are shown separately from future baseline verification and execution setup.
   The preview shows missing configuration, targets, proposed decisions, resources and gates;
-  adoption and cross-project execution arrive in later increments.
+  adoption and Start are explicit actions in the target supervisor.
 - **Execution slices and parent acceptance.** Bound map slices appear on their work-item
   pages and in the roadmap editor's **Execution scope** selector. Each slice has its own
   branch, worktree and cycle. A slice merge leaves its parent incomplete. Record slice
@@ -31,7 +31,7 @@ it is mergeable.
   verification review. Once all required slices and evidence are verified, create a parent
   acceptance worktree, launch its review, and use **Accept parent after review**. Only that
   acceptance completes the parent and releases its dependents. Reviews retain evidence in a
-  separate run artifact. The reference WI/EXO map remains blocked on the upcoming adoption and integrated-supervision increment; importing or selecting a slice never approves
+  separate run artifact. The reference WI/EXO map retains its adoption, environment and evidence gates; importing or selecting a slice never approves
   those requirements. Existing whole-item workflows remain available.
 - **Transition scheduling and resources.** Execution scopes show separate start, integration,
   verification and parent-acceptance requirements, with typed waiting reasons and reservations.
@@ -54,7 +54,25 @@ it is mergeable.
   hashes and independent reviewer attestations. Inspect its readable artifacts and explicitly
   accept or reject it with a rationale. New pins/environments invalidate older evidence without
   erasing history. Native results cannot satisfy actual-Kata requirements. External host execution
-  is not dispatched by this version; map decision adoption and integrated Start remain next.
+  is not dispatched by this version; checkpoint decisions and final promotion remain separate.
+- **Cross-project supervision.** In **Roadmaps**, open an imported map, explicitly choose a
+  target, then select **Only target prerequisites** or **Full roadmap; prioritize this target**.
+  Inspect the included/excluded milestone preview, project lanes and focused dependency view.
+  Adopt the exact map's scheduling proposals with a rationale; independently reviewed checkpoint
+  evidence remains separate. Set roadmap profiles/policy defaults, optional project/activity/individual
+  overrides, explicit independent reviewer responsibilities, parallel development limits, integration
+  policies and parent-acceptance policy. Unassigned specialized reviewer roles remain evidence gates.
+  **Create cross-project roadmap** saves a draft; **Start roadmap** separately delegates it.
+  Development cycles, independent verification and parent acceptance progress under their phase gates.
+  Parent acceptance defaults to manual; automatic acceptance still requires all original obligations
+  and a fresh independent review. Review snapshots never implement fixes: findings and questions pause
+  for recovery through the owning scope. Current review snapshots fast-forward after integration
+  changes and get a fresh review. Started attempts keep their settings; pause to edit queued settings.
+  Trace blocked EXO work to its supplying WI slice/checkpoint and open the relevant work item or evidence
+  controls. Eligible checkpoint evidence gets durable Pushover reminders; ordinary dependency waits do not.
+  Target reached, selected scope complete, all parents accepted, finalized and published are distinct.
+  Rebinding or changing selection requires a new roadmap until reviewed amendments ship. No target or
+  roadmap policy approves final promotion. Native/Kata qualification execution remains external.
 - **Repositories.** Register any local Git checkout by path.
 - **Plan branches.** Open **Projects → a plan → Repository & branches** to select a
   registered repository and an existing integration branch, or explicitly create one
@@ -225,11 +243,11 @@ it is mergeable.
 - **Durability.** Runs, events, worktrees, and repositories live in SQLite. A daemon
   restart marks runs that were live as interrupted; nothing is lost.
 
-Not yet: integrated cross-project supervision and decision adoption, remote qualification execution,
+Not yet: reviewed cross-project amendments, remote qualification execution,
 email/SMS notifications, additional backends, or interactive permission prompts.
 
 The agreed [cross-project concurrency roadmap](docs/cross-project-roadmap.md) records the
-remaining implementation sequence, next adding cross-project supervision and target selection.
+remaining implementation sequence, next adding reviewed amendments and the Planning Studio seam.
 
 Pushover notifications are configured per workspace in **Settings**. Owners can save
 write-only credentials, choose merge/attention alerts, send a test, and inspect delivery
@@ -259,7 +277,7 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 20 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 21 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

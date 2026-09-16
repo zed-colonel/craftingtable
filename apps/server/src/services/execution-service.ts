@@ -1,3 +1,5 @@
+import { scopeReviewerRoles } from './map-adoption-policy.js';
+import { acceptedEvidence } from './runtime-evidence-policy.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { resourceBlockers, withPhaseReservation, PhaseGateError } from './phase-resources.js';
 import { executionScopeKey } from '@craftingtable/domain';
@@ -532,15 +534,17 @@ export class ExecutionService {
   }
 
   async recordScopeReceipt(
-    context: AuthContext,
+    context: CommandContext,
     workspaceId: WorkspaceId,
     worktreeId: WorktreeId,
     expectedWorktreeVersion: number,
+    delegation?: { check: () => void },
   ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     return this.mutations.during(worktreeId, async () => {
       const tree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
       if (!tree?.workItemId || !tree.executionScope) throw new NotFoundError();
+      delegation?.check();
       const workItemId = tree.workItemId,
         scope = tree.executionScope;
       const repo = this.storage.execution.sourceRepositories.find(workspaceId, tree.repositoryId);
@@ -594,6 +598,25 @@ export class ExecutionService {
             throw new ExecutionRequestError(
               'conflict',
               'A finished, successful independent review with no open blocking, major or minor findings is required.',
+            );
+          const reviewerRoles = scopeReviewerRoles(this.storage, workspaceId, scope, run.id);
+          if (
+            !resolved.profile.reviewer_roles.every((role) => reviewerRoles.includes(role)) &&
+            !(
+              resolved.profile.reviewer_roles.length === 1 &&
+              ['review', 'independent-reviewer'].includes(resolved.profile.reviewer_roles[0] ?? '')
+            ) &&
+            !acceptedEvidence(
+              this.storage,
+              workspaceId,
+              scope.definitionId,
+              scope.bindingRevision,
+              { kind: parent ? 'parent' : 'slice', sourceId: scope.sourceId },
+            )
+          )
+            throw new ExecutionRequestError(
+              'conflict',
+              'This exact review run lacks the explicitly assigned independent reviewer roles.',
             );
           const evidence = report.report.scopeEvidence;
           const issues = scopeEvidenceIssues(resolved, evidence);
@@ -687,6 +710,7 @@ export class ExecutionService {
               'conflict',
               'The execution changed while recording evidence. Refresh and try again.',
             );
+          delegation?.check();
           const at = this.now().toISOString();
           const result = this.storage.transaction((tx) => {
             tx.scopeReceipts.add({
@@ -696,6 +720,7 @@ export class ExecutionService {
               scope: normalized,
               worktreeId,
               reviewRunId: run.id,
+              reviewerRoles,
               headSha: run.reviewBranchContext?.headSha ?? head.value,
               integrationSha: mergeSha,
               evidence,
@@ -716,9 +741,9 @@ export class ExecutionService {
               id: asAuditEventId(randomUUID()),
               workspaceId,
               occurredAt: at,
-              actorKind: 'user',
+              actorKind: delegation ? 'system' : 'user',
               actorUserId: context.user.id,
-              sessionId: context.session.id,
+              ...(context.session ? { sessionId: context.session.id } : {}),
               action: 'scope.evidence-recorded',
               targetType: 'worktree',
               targetId: worktreeId,

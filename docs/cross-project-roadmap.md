@@ -241,7 +241,7 @@ requires reassessment; merge/acceptance rechecks current provenance. Native/Kata
 remains external until an enforcing execution adapter exists. Decision checkpoints and map
 adoption remain closed pending increment 5. See [ADR-047](decisions/047-pinned-builds-and-reviewed-evidence.md).
 
-### 5. Cross-project supervision and target selection — pending
+### 5. Cross-project supervision and target selection — delivered 2026-09-16
 
 Make the roadmap navigable as project lanes/groups with expandable parent/slice cards and
 a focused dependency view. On mobile, retain a usable grouped list and detail navigation.
@@ -270,6 +270,21 @@ selected-roadmap scope complete, full-plan accepted, finalized and published in 
 Acceptance: the operator can trace a blocked EXO slice to its WI requirement and the action
 that advances it without terminal work. Target selection is explicit and preserves all
 requirements. Genuine questions always pause for operator input.
+
+Delivered: target-only closure and full-roadmap prioritization, explicit exact-binding scheduling
+adoption, inherited settings with project/activity/individual overrides, generated slice development,
+independent verification and parent-acceptance activities. Explicit agent reviewer responsibilities
+are bound to attempts and retained on receipts; they confer no external qualification authority. Adoption does not pass checkpoints;
+independent decision/qualification evidence remains required. The supervisor provides grouped
+project/parent lanes, dependency tracing, evidence links and separate completion dimensions.
+Parent acceptance defaults to manual and may be delegated explicitly. Review findings/questions
+pause for scope recovery; read-only review snapshots cannot implement fixes. Integration drift
+fast-forwards clean review snapshots and requires fresh review. Current target evidence is checked
+again before completion. Pushover aggregates eligible checkpoint work through existing retries and
+reminders, without alerting on ordinary dependency/resource waits. Native/Kata execution remains
+external. Superseded map bindings and invalidated completed verification require a new roadmap;
+reviewed amendment/reconciliation is increment 6. See [ADR-048](decisions/048-cross-project-supervision.md).
+No production map was adopted and no WI/EXO work was started during delivery.
 
 ### 6. Amendments, finalization and Planning Studio seam — pending
 
@@ -315,12 +330,12 @@ points are `packages/domain/src/roadmap.ts`, `apps/server/src/services/roadmap-s
 `packages/planning/src/limits.ts`, `apps/server/src/services/execution-service.ts`, and
 `apps/web/src/features/planning/ImportPlanPage.tsx`.
 
-Delivery status: **increments 1–4 delivered; increments 5–6 pending**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
+Delivery status: **increments 1–5 delivered; increment 6 pending**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
 Reference-fixture checks reconstruct 335 milestones and 1,221 edges. WI and EXO ZIPs
 retain 27 and 28 current planning documents respectively. Desktop/phone tests cover
 upload, exact binding and reload; daemon tests cover source mismatch, stale binding
 revisions, conflicting imports, durable records, preserved versions and activation guards.
 Production plan imports and exact bindings remain intact. AQ remains a registered upstream
 awaiting explicit pin configuration and reviewed evidence in the new runtime controls.
-Next task: increment 5, cross-project supervision, decision adoption and target selection.
+Next task: increment 6, reviewed amendments, finalization coordination and the Planning Studio seam.
 No production work, map decisions or baseline/publication gates were authorized by increment 4.

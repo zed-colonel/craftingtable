@@ -1,6 +1,8 @@
 import type { AuthenticatedSessionResponse, SessionSummary } from '@craftingtable/contracts';
 import type { SessionId } from '@craftingtable/domain';
 import { type FormEvent, useState } from 'react';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
 import { SessionPanel } from '../../components/SessionPanel.js';
 
 export function AccountPage({
@@ -40,16 +42,10 @@ export function AccountPage({
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>Account</h1>
-          <p className="subtitle">Signed in as {user.username}</p>
-        </div>
-      </header>
+      <PageHeader title="Account" subtitle={`Signed in as ${user.username}`} />
 
       <div className="two-column">
-        <section className="panel" aria-label="Change password">
-          <h3>Change password</h3>
+        <Section title="Change password">
           <form className="stack-form" onSubmit={submit}>
             <label className="field">
               Current password
@@ -110,7 +106,7 @@ export function AccountPage({
               </button>
             </div>
           </form>
-        </section>
+        </Section>
 
         <SessionPanel sessions={sessions} onRevoke={onRevoke} />
       </div>

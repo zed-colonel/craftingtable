@@ -10,6 +10,10 @@ import {
   type AgentRunProfile,
 } from '@craftingtable/domain';
 import { type FormEvent, type ReactNode, useState } from 'react';
+import { About } from '../../components/About.js';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import {
   PERMISSION_MODE_LABELS,
   RUN_ROLE_DESCRIPTIONS,
@@ -58,28 +62,24 @@ export function SettingsPage({
   };
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>Workspace settings</h1>
-          <p className="subtitle">{workspace.name}</p>
-        </div>
-      </header>
+      <PageHeader
+        title="Workspace settings"
+        subtitle={
+          <StatusStrip
+            compact
+            label="Workspace identity"
+            facts={[
+              { label: 'Workspace', value: workspace.name },
+              { label: 'Slug', value: workspace.slug, mono: true },
+              { label: 'Your role', value: workspace.role },
+              { label: 'Projects', value: workspace.projectCount, mono: true },
+              { label: 'Identifier', value: workspace.id, mono: true },
+            ]}
+          />
+        }
+      />
 
-      <section className="panel" aria-label="Workspace identity">
-        <dl className="definition-grid">
-          <dt>Slug</dt>
-          <dd className="mono">{workspace.slug}</dd>
-          <dt>Identifier</dt>
-          <dd className="mono">{workspace.id}</dd>
-          <dt>Your role</dt>
-          <dd>{workspace.role}</dd>
-          <dt>Projects</dt>
-          <dd>{workspace.projectCount}</dd>
-        </dl>
-      </section>
-
-      <section className="panel" aria-label="Rename workspace">
-        <h3>Name</h3>
+      <Section title="Name" label="Rename workspace">
         <form className="inline-form" onSubmit={submit}>
           <label className="field">
             Workspace name
@@ -111,10 +111,7 @@ export function SettingsPage({
             {error}
           </p>
         )}
-      </section>
-
-      {storage}
-      {notifications}
+      </Section>
 
       {profiles !== undefined && onSaveProfiles !== undefined && (
         <ProfilesSection
@@ -128,6 +125,9 @@ export function SettingsPage({
           onSave={onSaveProfiles}
         />
       )}
+
+      {notifications}
+      {storage}
     </div>
   );
 }
@@ -181,12 +181,16 @@ function ProfilesSection({
     onSave(drafts);
   };
   return (
-    <section className="panel" aria-label="Agent profiles">
-      <h3>Agent profiles</h3>
-      <p className="hint">
-        The agent, model, and permissions each kind of run starts with. The launch form and every
-        handoff pre-fill from these; each launch can still override them.
-      </p>
+    <Section
+      title="Agent profiles"
+      summary="The agent, model, and permissions each kind of run starts with."
+    >
+      <About label="About agent profiles">
+        <p>
+          The launch form and every handoff pre-fill from these; each launch can still override
+          them.
+        </p>
+      </About>
       <form className="stack-form" onSubmit={submit}>
         {drafts.map((draft, index) => {
           const selected = backends.find((backend) => backend.kind === draft.backend);
@@ -264,6 +268,6 @@ function ProfilesSection({
           {error}
         </p>
       )}
-    </section>
+    </Section>
   );
 }

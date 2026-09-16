@@ -1,6 +1,8 @@
 import type { WorkspaceWorkItemListResponse } from '@craftingtable/contracts';
 import type { ProjectId, WorkItemId } from '@craftingtable/domain';
 import type { CSSProperties } from 'react';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
 import {
   blockerSummary,
   READINESS_ACCENTS,
@@ -34,14 +36,10 @@ export function AgendaPage({
   const items = listing?.filter === filter ? listing.items : undefined;
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>Work items</h1>
-          <p className="subtitle">
-            Every project's active plan, filtered by where each item stands.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Work items"
+        subtitle="Every project's active plan, filtered by where each item stands."
+      />
 
       <div className="tabs" role="tablist" aria-label="Work item filters">
         {AGENDA_FILTERS.map((candidate) => (
@@ -58,7 +56,11 @@ export function AgendaPage({
         ))}
       </div>
 
-      <section className="panel" aria-label={`${FILTER_LABELS[filter]} work items`}>
+      <Section
+        title={FILTER_LABELS[filter]}
+        label={`${FILTER_LABELS[filter]} work items`}
+        {...(items === undefined ? {} : { count: items.length })}
+      >
         {items === undefined ? (
           <p className="empty-state">Loading…</p>
         ) : items.length === 0 ? (
@@ -119,7 +121,7 @@ export function AgendaPage({
             </table>
           </div>
         )}
-      </section>
+      </Section>
     </div>
   );
 }

@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { PLAN_BUNDLE_LIMITS } from '../../lib/plan-limits.js';
 import type { PlanImportUpload } from '../../lib/planning-api.js';
 import { IMPORT_OUTCOME_LABELS } from '../../lib/planning-labels.js';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
 import { DiagnosticList } from './DiagnosticList.js';
 import { PlanArchiveForm } from './PlanArchiveForm.js';
 
@@ -91,15 +93,10 @@ export function ImportPlanPage({
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>Import a plan bundle</h1>
-          <p className="subtitle">
-            Import discrete planning files or a complete planning ZIP into a new or existing
-            project.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Import a plan bundle"
+        subtitle="Planning files or a complete planning ZIP, into a new or existing project."
+      />
 
       {workspaceId && csrfToken && (
         <div className="button-row">
@@ -120,7 +117,7 @@ export function ImportPlanPage({
         />
       ) : (
         <>
-          <section className="panel" aria-label="Import form">
+          <Section title="Planning files" label="Import form">
             <label className="field">
               Project name
               <input
@@ -180,7 +177,7 @@ export function ImportPlanPage({
                 {busy ? 'Importing…' : 'Import plan bundle'}
               </button>
             </div>
-          </section>
+          </Section>
 
           {result !== undefined && <ImportOutcome result={result} />}
         </>

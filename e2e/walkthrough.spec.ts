@@ -113,6 +113,7 @@ class Walkthrough {
     const file = this.nextFile(name);
     const url = this.desktop.url();
     if (setup) await setup(this.desktop);
+    await settled(this.desktop);
     await this.desktop.screenshot({ path: join(this.directory, 'desktop', file), fullPage: true });
     await this.phone.goto(url);
     await settled(this.phone);

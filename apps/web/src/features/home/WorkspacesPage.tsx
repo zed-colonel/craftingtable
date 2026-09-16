@@ -1,6 +1,8 @@
 import type { WorkspaceOverview } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { type FormEvent, useState } from 'react';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
 
 /**
  * Every workspace the user belongs to, as a card with the counts that matter
@@ -29,15 +31,10 @@ export function WorkspacesPage({
   };
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>Workspaces</h1>
-          <p className="subtitle">
-            A workspace holds projects, repositories, and runs. One per machine or per line of work
-            is a reasonable split.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Workspaces"
+        subtitle="A workspace holds projects, repositories, and runs."
+      />
 
       {workspaces.length === 0 ? (
         <p className="empty-state">You do not belong to any workspace yet.</p>
@@ -87,8 +84,7 @@ export function WorkspacesPage({
         </ul>
       )}
 
-      <section className="panel" aria-label="New workspace">
-        <h3>New workspace</h3>
+      <Section title="New workspace">
         <form className="inline-form" onSubmit={submit}>
           <label className="field">
             Name
@@ -111,7 +107,7 @@ export function WorkspacesPage({
             {error}
           </p>
         )}
-      </section>
+      </Section>
     </div>
   );
 }

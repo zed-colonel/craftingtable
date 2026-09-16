@@ -1,6 +1,9 @@
 import type { RunOverview } from '@craftingtable/contracts';
 import type { AgentRunId, WorkItemId } from '@craftingtable/domain';
 import type { CSSProperties } from 'react';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import {
   formatCost,
   formatElapsed,
@@ -45,25 +48,36 @@ export function RunList({
                   {RUN_ROLE_LABELS[run.role]} · {run.workItemSourceId} {run.workItemTitle}
                 </button>
               </span>
-              <span className="run-row-meta">
-                {run.projectName} · <span className="mono">{run.branchName}</span> ·{' '}
-                {run.resolvedModel ?? run.model ?? 'default model'} · {run.turnCount} turn
-                {run.turnCount === 1 ? '' : 's'} · {formatCost(run.costUsd, run.billing)} ·{' '}
-                {live
-                  ? `${formatElapsed(run.createdAt, undefined, now)} so far`
-                  : `${formatElapsed(run.createdAt, run.finishedAt, now)}`}
-                {run.verdict !== undefined && (
-                  <>
-                    {' · '}
-                    <span
-                      className="status-badge"
-                      style={{ '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties}
-                    >
-                      {VERDICT_LABELS[run.verdict]}
-                    </span>
-                  </>
-                )}
-              </span>
+              <StatusStrip
+                compact
+                facts={[
+                  { label: 'Project', value: run.projectName },
+                  { label: 'Branch', value: run.branchName, mono: true },
+                  {
+                    label: 'Model',
+                    value: run.resolvedModel ?? run.model ?? 'default',
+                    mono: true,
+                  },
+                  { label: 'Turns', value: run.turnCount, mono: true },
+                  { label: 'Cost', value: formatCost(run.costUsd, run.billing), mono: true },
+                  {
+                    label: live ? 'Running for' : 'Took',
+                    value: live
+                      ? formatElapsed(run.createdAt, undefined, now)
+                      : formatElapsed(run.createdAt, run.finishedAt, now),
+                    mono: true,
+                  },
+                  ...(run.verdict === undefined
+                    ? []
+                    : [
+                        {
+                          label: 'Verdict',
+                          value: VERDICT_LABELS[run.verdict],
+                          accent: VERDICT_ACCENTS[run.verdict],
+                        },
+                      ]),
+                ]}
+              />
             </div>
             <button
               type="button"
@@ -94,19 +108,17 @@ export function RunsPage({
 }) {
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>Runs</h1>
-          <p className="subtitle">
-            {liveCount === 0
-              ? 'No agent is working right now.'
-              : `${liveCount} live run${liveCount === 1 ? '' : 's'}; live runs are listed first.`}
-          </p>
-        </div>
-      </header>
-      <section className="panel" aria-label="Runs">
+      <PageHeader
+        title="Runs"
+        subtitle={
+          liveCount === 0
+            ? 'No agent is working right now.'
+            : `${liveCount} live run${liveCount === 1 ? '' : 's'}; live runs are listed first.`
+        }
+      />
+      <Section title="All runs" label="Runs" count={runs.length}>
         <RunList runs={runs} now={now} onOpenRun={onOpenRun} onOpenWorkItem={onOpenWorkItem} />
-      </section>
+      </Section>
     </div>
   );
 }

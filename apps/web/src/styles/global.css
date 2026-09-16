@@ -2359,3 +2359,36 @@ button:disabled {
 .section-body > form > button {
   justify-self: start;
 }
+
+.page-header .subtitle .status-strip {
+  margin-top: var(--space-1);
+}
+
+@media (max-width: 900px) {
+  /* The composer stays reachable while the feed scrolls, and stays small. */
+  .compose-panel {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    box-shadow: 0 -8px 16px rgba(0, 0, 0, 0.35);
+    padding: var(--space-2) var(--space-3) calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .compose-panel .compose-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .compose-panel .compose textarea {
+    min-height: 44px;
+    max-height: 30svh;
+  }
+
+  .compose-panel .compose .hint {
+    display: none;
+  }
+}

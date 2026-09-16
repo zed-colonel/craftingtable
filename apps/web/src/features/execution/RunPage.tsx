@@ -28,6 +28,10 @@ import {
   VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
 import type { ConnectionState } from '../../lib/workspace-projection.js';
+import { ActionBar } from '../../components/ActionBar.js';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import { DiffView } from './DiffView.js';
 import { HandoffForm } from './HandoffForm.js';
 import {
@@ -290,78 +294,85 @@ export function RunPage({
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <div className="crumbs">
+      <PageHeader
+        crumbs={
+          <>
             <button type="button" className="link-button" onClick={onOpenWorkItem}>
               {detail.run.planVersionId ? 'Plan finalization' : 'Work item'}
             </button>
             <span>/</span>
             <span>{RUN_ROLE_LABELS[run.role]} run</span>
-          </div>
-          <h1>{RUN_ROLE_LABELS[run.role]} run</h1>
-          <div className="run-header-meta">
-            <span className="mono">{worktree.branchName}</span>
-            <span className="hint">
-              {' '}
-              → {worktree.integrationBranch ?? 'Integration target not adopted'}
-            </span>
-            <span>·</span>
-            <span>{model === undefined ? 'default model' : model}</span>
-            <span>·</span>
-            <span>
-              {run.turnCount} turn{run.turnCount === 1 ? '' : 's'}
-            </span>
-            <span>·</span>
-            <span>{formatCost(run.costUsd, run.billing)}</span>
-            {run.verdict !== undefined && (
-              <span
-                className="status-badge"
-                style={{ '--badge-accent': VERDICT_ACCENTS[run.verdict] } as CSSProperties}
-              >
-                {VERDICT_LABELS[run.verdict]}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="page-header-actions">
+          </>
+        }
+        title={`${RUN_ROLE_LABELS[run.role]} run`}
+        subtitle={
+          <StatusStrip
+            compact
+            label="Run facts"
+            facts={[
+              { label: 'Branch', value: worktree.branchName, mono: true },
+              {
+                label: 'Target',
+                value: worktree.integrationBranch ?? 'not adopted',
+                mono: worktree.integrationBranch !== undefined,
+              },
+              { label: 'Model', value: model ?? 'default', mono: true },
+              { label: 'Turns', value: run.turnCount, mono: true },
+              { label: 'Cost', value: formatCost(run.costUsd, run.billing), mono: true },
+              ...(run.verdict === undefined
+                ? []
+                : [
+                    {
+                      label: 'Verdict',
+                      value: VERDICT_LABELS[run.verdict],
+                      accent: VERDICT_ACCENTS[run.verdict],
+                    },
+                  ]),
+            ]}
+          />
+        }
+        status={
           <span
             className={`status-badge large${live && run.status !== 'waiting' ? ' pulse' : ''}`}
             style={{ '--badge-accent': RUN_STATUS_ACCENTS[run.status] } as CSSProperties}
           >
             {RUN_STATUS_LABELS[run.status]}
           </span>
-          <button type="button" className="secondary-button" onClick={onLoadDiff}>
-            {diff === undefined ? 'View diff' : 'Refresh diff'}
-          </button>
-          {onHandoff !== undefined && target !== undefined && (
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => setHandoffOpen(true)}
-              disabled={busy || handoffOpen}
-              title={target.title}
-            >
-              {target.pageButton}
-            </button>
-          )}
-          {live && canMutate && (
-            <>
-              <button type="button" className="secondary-button" onClick={onEnd} disabled={busy}>
-                End session
-              </button>
+        }
+        actions={
+          <ActionBar label="Run controls">
+            {onHandoff !== undefined && target !== undefined && (
               <button
                 type="button"
-                className="secondary-button danger"
-                onClick={onCancel}
-                disabled={busy}
+                className="primary-button"
+                onClick={() => setHandoffOpen(true)}
+                disabled={busy || handoffOpen}
+                title={target.title}
               >
-                Cancel run
+                {target.pageButton}
               </button>
-            </>
-          )}
-        </div>
-      </header>
+            )}
+            <button type="button" className="secondary-button" onClick={onLoadDiff}>
+              {diff === undefined ? 'View diff' : 'Refresh diff'}
+            </button>
+            {live && canMutate && (
+              <>
+                <button type="button" className="secondary-button" onClick={onEnd} disabled={busy}>
+                  End session
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button danger"
+                  onClick={onCancel}
+                  disabled={busy}
+                >
+                  Cancel run
+                </button>
+              </>
+            )}
+          </ActionBar>
+        }
+      />
       {onHandoff !== undefined &&
         target !== undefined &&
         handoffChoice !== undefined &&
@@ -500,10 +511,15 @@ export function RunPage({
 
       {diff !== undefined && <DiffView diff={diff} onClose={onCloseDiff} />}
 
-      <section className="panel" aria-label="Run activity">
+      <Section
+        id="activity"
+        title="Activity"
+        label="Run activity"
+        count={events.length}
+        summary={live ? 'Following new events while you stay at the bottom.' : undefined}
+      >
         <div className="feed-toolbar">
           <div className="chip-row">
-            <h3 style={{ margin: 0 }}>Activity</h3>
             {GROUPS.map((group) => (
               <button
                 key={group}
@@ -561,13 +577,13 @@ export function RunPage({
             </div>
           )}
         </div>
-      </section>
+      </Section>
 
       {live && canMutate && (
-        <section className="panel" aria-label="Send a message">
+        <section className="panel compose-panel" aria-label="Send a message">
           <form className="compose" onSubmit={send}>
             <label className="field">
-              Message to the agent
+              <span className="compose-label">Message to the agent</span>
               <textarea
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}

@@ -171,7 +171,7 @@ export function WorkItemPage({
             <h4>Exit gate</h4>
             <p>{item.exitGate}</p>
           </div>
-          <div className="stack" aria-label="Dependencies">
+          <div className="stack">
             <h4>Required predecessors ({detail.requiredPredecessors.length})</h4>
             {detail.requiredPredecessors.length === 0 ? (
               <p className="hint">None.</p>

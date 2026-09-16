@@ -1819,3 +1819,25 @@ button:disabled {
     min-height: 44px;
   }
 }
+
+.runtime-evidence {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.runtime-evidence fieldset {
+  min-inline-size: 0;
+  max-width: 100%;
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-1);
+  padding: var(--space-3);
+}
+.runtime-evidence textarea,
+.runtime-evidence select {
+  width: 100%;
+}
+.runtime-evidence pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

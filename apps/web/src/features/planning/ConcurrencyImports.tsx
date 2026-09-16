@@ -9,6 +9,7 @@ import {
   saveConcurrencyBindings,
 } from '../../lib/package-import-api.js';
 import { buildPath } from '../../lib/route.js';
+import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { ImportIssues } from './import-issues.js';
 
 export function ConcurrencyImports({
@@ -198,7 +199,7 @@ export function ConcurrencyImports({
           </p>
           <p>
             {detail.summary.graphNodeCount} milestones / {detail.summary.graphEdgeCount} dependency
-            edges. All checkpoint results remain unresolved.
+            edges. Checkpoint evidence and adoption are managed separately below.
           </p>
           <details>
             <summary>Definition identity and original ZIP</summary>
@@ -216,6 +217,14 @@ export function ConcurrencyImports({
             </a>
           </details>
           <ImportIssues issues={detail.blockers} errorLabel="Before execution" />
+          <RuntimeEvidencePanel
+            key={`${detail.summary.id}:${detail.summary.bindingRevision}`}
+            workspaceId={workspaceId}
+            definitionId={detail.summary.id}
+            bindingRevision={detail.summary.bindingRevision}
+            csrfToken={csrfToken}
+            canMutate={canMutate}
+          />
           <h3>Exact project and plan bindings</h3>
           <p>
             Choose the revised plan versions explicitly. Saving records an immutable binding

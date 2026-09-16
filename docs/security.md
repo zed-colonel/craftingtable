@@ -275,3 +275,20 @@ without unresolved decision references, never to parent acceptance, evidence or 
 authority. Atomic phase reservations coordinate this daemon's runs and Git commands; they do not
 sandbox agents, bound host CPU, grant credentials, qualify external hosts or constrain external
 processes. Native/Kata profiles remain closed until their enforcing adapters exist. See ADR-046.
+
+
+Pinned dependency generations accept registered repository aliases and local refs, never a
+browser-supplied command or filesystem path. Git exports reject links, submodules, unsafe names
+and oversized trees. Cargo is an explicit adapter: argument arrays, no shell, same supervised
+process group, controller-supplied patches and source-path verification. It records clean source
+commits and toolchain observations. This detects accidental fallback under the existing trusted
+OS-user model; it cannot sandbox a malicious agent or prevent deliberate absolute-path bypass.
+Reviews without a successful frozen pinned-build record cannot authorize integration.
+
+External qualification identities and independent reviewer roles are operator-reviewed
+attestations, not daemon authentication of remote people/hosts. Evidence is inert bounded text,
+rendered as text and scoped by workspace, definition, binding and runtime generation. Actual Kata
+requires host/VM/image/configuration observations and explicit no-native-fallback evidence.
+Selecting an external environment grants no credentials, host provisioning or local execution
+rights. Native/Kata process dispatch remains closed; reviewed external evidence can satisfy a
+verification milestone. Map decision adoption and protected final promotion remain separate.

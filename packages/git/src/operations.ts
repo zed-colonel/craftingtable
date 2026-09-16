@@ -113,6 +113,14 @@ export interface IntegrationMergeState {
   treeSha?: string;
 }
 export interface GitOperations {
+  resolveCommit(
+    repositoryPath: string,
+    ref: string,
+  ): Promise<GitResult<{ commitSha: string; treeSha: string }>>;
+  exportCommit(
+    repositoryPath: string,
+    commitSha: string,
+  ): Promise<GitResult<readonly { path: string; content: Uint8Array; executable: boolean }[]>>;
   previewIntegration(
     input: IntegrationMergeContext,
   ): Promise<GitResult<{ paths: readonly string[]; diagnostics: string }>>;
@@ -310,7 +318,12 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
   const commandTimeoutMs = options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
   const outputLimitBytes = options.outputLimitBytes ?? DEFAULT_OUTPUT_LIMIT_BYTES;
 
-  function run(args: readonly string[], cwd: string): Promise<CommandResult> {
+  function run(
+    args: readonly string[],
+    cwd: string,
+    input?: string,
+    limit = outputLimitBytes,
+  ): Promise<CommandResult> {
     return new Promise((resolve) => {
       let settled = false;
       let primary: GitFailure | undefined;
@@ -326,7 +339,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
           env: childEnvironment(),
           shell: false,
           detached: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
       } catch (error) {
@@ -334,6 +347,10 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         return;
       }
 
+      if (input !== undefined) {
+        child.stdin?.on('error', () => {});
+        child.stdin?.end(input);
+      }
       const terminate = (reason: GitFailure): void => {
         primary ??= reason;
         if (child.pid !== undefined) {
@@ -360,7 +377,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
 
       child.stdout?.on('data', (chunk: Buffer) => {
         stdoutBytes += chunk.byteLength;
-        if (stdoutBytes > outputLimitBytes) {
+        if (stdoutBytes > limit) {
           terminate(failure('output-overflow', 'git stdout exceeded the output limit'));
           return;
         }
@@ -1543,7 +1560,101 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     return { ok: true, value: result.value.stdout.toString('utf8').trim() };
   }
 
+  async function resolveCommit(
+    repositoryPath: string,
+    ref: string,
+  ): Promise<GitResult<{ commitSha: string; treeSha: string }>> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(ref) || ref.includes('..'))
+      return fail('invalid-path', 'Choose a local branch, tag or complete commit ID.');
+    const repo = await canonicalDirectory(repositoryPath);
+    if (!repo.ok) return repo;
+    const commit = await runOk(
+      ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`],
+      repo.value,
+    );
+    if (!commit.ok) return commit;
+    const sha = commit.value.stdout.toString('utf8').trim();
+    const tree = await runOk(['rev-parse', '--verify', `${sha}^{tree}`], repo.value);
+    if (!tree.ok) return tree;
+    return {
+      ok: true,
+      value: { commitSha: sha, treeSha: tree.value.stdout.toString('utf8').trim() },
+    };
+  }
+  async function exportCommit(
+    repositoryPath: string,
+    commitSha: string,
+  ): Promise<GitResult<readonly { path: string; content: Uint8Array; executable: boolean }[]>> {
+    if (!/^[a-f0-9]{40,64}$/.test(commitSha))
+      return fail('invalid-path', 'Dependency export requires an exact commit.');
+    const repo = await canonicalDirectory(repositoryPath);
+    if (!repo.ok) return repo;
+    const listing = await runOk(['ls-tree', '-rz', '--full-tree', commitSha], repo.value);
+    if (!listing.ok) return listing;
+    const entries = splitNul(listing.value.stdout)
+      .filter(Boolean)
+      .map((line) => {
+        const match = /^(100644|100755) blob ([a-f0-9]{40,64})\t(.+)$/.exec(line);
+        if (
+          !match ||
+          match[3]!
+            .split('/')
+            .some((p) => !p || p === '.' || p === '..' || p.toLowerCase() === '.git') ||
+          [...match[3]!].some((c) => c.charCodeAt(0) < 32 || c === '\\')
+        )
+          return undefined;
+        return { path: match[3]!, sha: match[2]!, executable: match[1] === '100755' };
+      });
+    if (entries.length > 10000 || entries.some((e) => !e))
+      return fail(
+        'invalid-path',
+        'Pinned sources require at most 10,000 regular files; links, submodules and unsafe paths are not supported.',
+      );
+    if (!entries.length) return { ok: true, value: [] };
+    const batch = await run(
+      ['cat-file', '--batch'],
+      repo.value,
+      entries.map((e) => e!.sha).join('\n') + '\n',
+      64 * 1024 * 1024,
+    );
+    if (!batch.ok) return batch;
+    if (batch.value.exitCode !== 0) return fail('git-failed', 'Could not export pinned sources.');
+    let offset = 0;
+    const files: { path: string; content: Uint8Array; executable: boolean }[] = [];
+    for (const e of entries) {
+      if (!e) continue;
+      const end = batch.value.stdout.indexOf(10, offset),
+        header = batch.value.stdout.subarray(offset, end).toString('ascii');
+      const m = /^([a-f0-9]{40,64}) blob ([0-9]+)$/.exec(header),
+        size = Number(m?.[2]);
+      if (
+        !m ||
+        m[1] !== e.sha ||
+        !Number.isSafeInteger(size) ||
+        size > 16 * 1024 * 1024 ||
+        end < offset ||
+        end + 1 + size >= batch.value.stdout.length ||
+        batch.value.stdout[end + 1 + size] !== 10
+      )
+        return fail(
+          'output-overflow',
+          'Pinned source export is incomplete or exceeds file limits.',
+        );
+      files.push({
+        path: e.path,
+        content: batch.value.stdout.subarray(end + 1, end + 1 + size),
+        executable: e.executable,
+      });
+      offset = end + size + 2;
+    }
+    if (offset !== batch.value.stdout.length)
+      return fail('git-failed', 'Unexpected data in source export.');
+    return { ok: true, value: files };
+  }
+
   return {
+    resolveCommit,
+    exportCommit,
     previewIntegration,
     prepareIntegrationResolution,
     inspectIntegrationResolution,

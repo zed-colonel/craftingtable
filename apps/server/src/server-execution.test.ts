@@ -7763,3 +7763,415 @@ it('phase started milestones require a launched run, not a cycle queued for reso
     ),
   ).toEqual([]);
 });
+
+async function evidenceFixture(checkpointOwner = 'local') {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    repositories: source.repositories.map((r) => ({ ...r, id: 'local' })),
+    work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
+    checkpoints: [
+      {
+        ...source.checkpoints[0]!,
+        id: 'LOCAL-QUALIFIED',
+        kind: 'contract',
+        owner: checkpointOwner,
+        requires: [],
+        decision_refs: [],
+        evidence_profile: 'scope-review',
+        pass_criteria: ['Exact source tested'],
+      },
+      {
+        ...source.checkpoints[0]!,
+        id: 'LOCAL-PUBLISHED',
+        kind: 'release',
+        owner: checkpointOwner,
+        requires: [{ kind: 'checkpoint', id: 'LOCAL-QUALIFIED', state: 'passed' }],
+        decision_refs: [],
+        evidence_profile: 'scope-review',
+        pass_criteria: ['Publication retrieved'],
+      },
+    ],
+    acceptance_coverage: [
+      {
+        id: 'CASE-LOCAL',
+        source_id: 'local',
+        source_record_sha256: 'c'.repeat(64),
+        owner_work_item: 'AQ-01',
+        producing_slices: ['AQ-01.A'],
+        checkpoint: 'LOCAL-QUALIFIED',
+        requires_kata_host: true,
+        evidence_status_on_import: 'unresolved',
+      },
+    ],
+  }));
+  const svc = f.state.context.services.runtimeEvidenceService,
+    definitionId = f.parentScope.definitionId;
+  const input = {
+    bindingRevision: 1,
+    expectedGeneration: 0,
+    pins: [],
+    consumers: [{ alias: 'local', upstreams: [] }],
+    environments: [
+      {
+        id: 'native',
+        kind: 'external-native' as const,
+        identityDigest: '1'.repeat(64),
+        fixtureDigest: '2'.repeat(64),
+        toolchainDigest: '3'.repeat(64),
+        authorization: 'Local fixture operator authorizes isolated test fixtures.',
+      },
+      {
+        id: 'kata',
+        kind: 'external-kata' as const,
+        identityDigest: '4'.repeat(64),
+        fixtureDigest: '2'.repeat(64),
+        toolchainDigest: '3'.repeat(64),
+        authorization: 'Operator authorizes this actual Kata host and VM.',
+      },
+    ],
+  };
+  const view = await svc.configure(f.auth, f.state.workspaceId, definitionId, input);
+  const spec = view.subjects.find((s) => s.subject.sourceId === 'LOCAL-QUALIFIED')!;
+  const head = execFileSync('/usr/bin/git', ['rev-parse', 'HEAD'], {
+    cwd: f.root,
+    encoding: 'utf8',
+  }).trim();
+  const submission: import('@craftingtable/contracts').EvidenceSubmissionRequest = {
+    runtimeId: view.current!.id,
+    subject: spec.subject,
+    subjectCommit: head,
+    environmentId: 'kata',
+    executedBy: 'implementation-author',
+    executedAt: new Date().toISOString(),
+    reviewers: [
+      { identity: 'independent-reviewer', roles: spec.reviewerRoles, artifact: 'review' },
+    ],
+    requirements: spec.requirements.map((requirement) => ({ requirement, artifact: 'log' })),
+    cases: spec.cases.map((c) => ({
+      id: c.id,
+      sourceRecordDigest: c.sourceRecordDigest,
+      result: 'passed',
+      artifact: 'log',
+    })),
+    artifacts: [
+      { name: 'log', content: 'actual host/VM observations and passing case output' },
+      {
+        name: 'review',
+        content: 'Independent reviewer examined source and reproduced the required case.',
+      },
+    ],
+    kata: {
+      runtime: 'kata',
+      hostIdentity: 'test-host',
+      vmIdentity: 'test-vm',
+      imageDigest: '5'.repeat(64),
+      configurationDigest: '6'.repeat(64),
+      observationArtifact: 'log',
+      noNativeFallback: true,
+    },
+  };
+  return { ...f, svc, definitionId, input, view, submission };
+}
+it('requires independently reviewed exact case coverage and distinguishes native from actual Kata', async () => {
+  const f = await evidenceFixture(),
+    ws = f.state.workspaceId;
+  const submit = (input: import('@craftingtable/contracts').EvidenceSubmissionRequest) =>
+    f.svc.submit(f.auth, ws, f.definitionId, input);
+  await expect(submit({ ...f.submission, cases: [] })).rejects.toThrow('CASE-LOCAL');
+  await expect(
+    submit({ ...f.submission, cases: [...f.submission.cases, ...f.submission.cases] }),
+  ).rejects.toThrow('Duplicate case');
+  await expect(
+    submit({
+      ...f.submission,
+      cases: f.submission.cases.map((c) => ({ ...c, sourceRecordDigest: 'a'.repeat(64) })),
+    }),
+  ).rejects.toThrow('exact source record');
+  await expect(submit({ ...f.submission, executedBy: 'independent-reviewer' })).rejects.toThrow(
+    'independent review',
+  );
+  const { kata: _kata, ...native } = f.submission;
+  await expect(submit({ ...native, environmentId: 'native' })).rejects.toThrow('Actual Kata');
+  const submitted = await submit(f.submission);
+  const s = submitted.submissions[0]!;
+  expect(s.decision).toBeUndefined();
+  const accepted = await f.svc.decide(f.auth, ws, f.definitionId, {
+    submissionId: s.submission.id,
+    outcome: 'accepted',
+    rationale: 'Examined attached verification and independent review.',
+  });
+  expect(accepted.submissions[0]?.decision?.outcome).toBe('accepted');
+  expect(accepted.subjects.find((s) => s.subject.sourceId === 'LOCAL-PUBLISHED')?.issues).toEqual(
+    [],
+  );
+  // Eligibility is not a publication pass, and a new runtime invalidates the accepted old pass.
+  expect(
+    accepted.submissions.some((s) => s.submission.subject.sourceId === 'LOCAL-PUBLISHED'),
+  ).toBe(false);
+  const revised = await f.svc.configure(f.auth, ws, f.definitionId, {
+    ...f.input,
+    expectedGeneration: 1,
+  });
+  expect(revised.submissions[0]?.decision?.outcome).toBe('accepted');
+  expect(revised.submissions[0]?.issues.join(' ')).toContain('inactive runtime');
+  expect(
+    revised.subjects.find((s) => s.subject.sourceId === 'LOCAL-PUBLISHED')?.issues.join(' '),
+  ).toContain('LOCAL-QUALIFIED');
+  await expect(
+    f.svc.decide(f.auth, ws, f.definitionId, {
+      submissionId: s.submission.id,
+      outcome: 'accepted',
+      rationale: 'Retry stale record.',
+    }),
+  ).rejects.toThrow('inactive runtime');
+});
+it('checks actual Git freshness at evidence review and keeps decisions immutable', async () => {
+  const f = await evidenceFixture(),
+    ws = f.state.workspaceId;
+  const submitted = await f.svc.submit(f.auth, ws, f.definitionId, f.submission);
+  const s = submitted.submissions[0]!.submission;
+  execFileSync(
+    '/usr/bin/git',
+    [
+      '-c',
+      'user.name=T',
+      '-c',
+      'user.email=t@example.invalid',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'integration advanced',
+    ],
+    { cwd: f.root },
+  );
+  await expect(
+    f.svc.decide(f.auth, ws, f.definitionId, {
+      submissionId: s.id,
+      outcome: 'accepted',
+      rationale: 'Old evidence.',
+    }),
+  ).rejects.toThrow('current integration commit');
+  await f.svc.decide(f.auth, ws, f.definitionId, {
+    submissionId: s.id,
+    outcome: 'rejected',
+    rationale: 'Integration advanced; collect fresh results.',
+  });
+  await expect(
+    f.svc.decide(f.auth, ws, f.definitionId, {
+      submissionId: s.id,
+      outcome: 'rejected',
+      rationale: 'Duplicate.',
+    }),
+  ).rejects.toThrow('immutable decision');
+});
+it('protects runtime routes with workspace authorization and mutation CSRF', async () => {
+  const f = await evidenceFixture(),
+    base = `/api/workspaces/${f.state.workspaceId}/concurrency-definitions/${f.definitionId}/runtime`;
+  const anonymous = await f.state.context.app.inject({ method: 'GET', url: base });
+  expect(anonymous.statusCode).toBe(401);
+  const noCsrf = await f.state.context.app.inject({
+    method: 'POST',
+    url: `${base}/configure`,
+    headers: { cookie: f.state.cookie },
+    payload: f.input,
+  });
+  expect(noCsrf.statusCode).toBe(403);
+  const view = await f.state.context.app.inject({
+    method: 'GET',
+    url: base,
+    headers: { cookie: f.state.cookie },
+  });
+  expect(view.statusCode, view.body).toBe(200);
+  const bad = await f.state.context.app.inject({
+    method: 'POST',
+    url: `${base}/submit`,
+    headers: {
+      cookie: f.state.cookie,
+      origin: f.state.context.config.publicOrigin,
+      'x-craftingtable-csrf': f.state.csrfToken,
+    },
+    payload: {},
+  });
+  expect(bad.statusCode, bad.body).toBe(400);
+});
+
+it('supplies isolated pinned sources to real Cargo runs and freezes generation-bound review provenance', async () => {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    checkpoints: [],
+    repositories: [
+      { ...source.repositories[0]!, id: 'local' },
+      { ...source.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
+    ],
+    work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
+  }));
+  const provider = fixtureRepository();
+  writeFileSync(
+    join(provider, 'Cargo.toml'),
+    '[package]\nname="ct_runtime_provider"\nversion="0.2.0"\nedition="2021"\n[lib]\npath="lib.rs"\n',
+  );
+  writeFileSync(join(provider, 'lib.rs'), 'pub fn value()->u32{42}\n');
+  git(['add', '.'], provider);
+  git(['commit', '-m', 'provider'], provider);
+  writeFileSync(
+    join(f.root, 'Cargo.toml'),
+    '[package]\nname="ct_runtime_consumer"\nversion="0.1.0"\nedition="2021"\n[lib]\npath="lib.rs"\n[dependencies]\nct_runtime_provider="0.2"\n',
+  );
+  writeFileSync(
+    join(f.root, 'lib.rs'),
+    '#[test] fn pin(){assert_eq!(ct_runtime_provider::value(),42);}\n',
+  );
+  const cargo = join(process.env.HOME!, '.cargo/bin/cargo');
+  execFileSync(
+    cargo,
+    [
+      'generate-lockfile',
+      '--offline',
+      '--config',
+      `patch.crates-io.ct_runtime_provider.path=${JSON.stringify(provider)}`,
+    ],
+    { cwd: f.root },
+  );
+  git(['add', '.'], f.root);
+  git(['commit', '-m', 'consumer'], f.root);
+  const registered = await f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${f.state.workspaceId}/repositories`,
+    headers: mutationHeaders(f.state),
+    payload: { rootPath: provider, displayName: 'Pinned provider' },
+  });
+  expect(registered.statusCode, registered.body).toBe(200);
+  const repository = registerSourceRepositoryResponseSchema.parse(registered.json()).repository;
+  const ws = f.state.workspaceId,
+    definitionId = f.parentScope.definitionId,
+    svc = f.state.context.services.runtimeEvidenceService,
+    storage = f.state.context.storage;
+  const old = storage.imports.bindings(ws, definitionId)[0]!;
+  storage.imports.addBindings({
+    ...old,
+    revision: 2,
+    bindings: [
+      ...old.bindings,
+      {
+        alias: 'provider',
+        repositoryId: repository.id,
+        integrationBranch: 'main',
+        sourceArtifacts: [],
+        workItems: [],
+      },
+    ],
+  });
+  const observed = await svc.inspect(f.auth, ws, definitionId, {
+    bindingRevision: 2,
+    alias: 'provider',
+    ref: 'main',
+  });
+  expect(observed.packages).toEqual([{ name: 'ct_runtime_provider', path: '', version: '0.2.0' }]);
+  const config = {
+    bindingRevision: 2,
+    expectedGeneration: 0,
+    pins: [
+      {
+        alias: 'provider',
+        ref: 'main',
+        conformanceRevision: 'local-fixture',
+        packages: observed.packages,
+      },
+    ],
+    consumers: [{ alias: 'local', upstreams: ['provider'] }],
+    environments: [
+      {
+        id: 'local',
+        kind: 'local-development' as const,
+        identityDigest: '1'.repeat(64),
+        fixtureDigest: '2'.repeat(64),
+        toolchainDigest: '3'.repeat(64),
+        authorization: 'Isolated fixture builds only.',
+      },
+    ],
+  };
+  await svc.configure(f.auth, ws, definitionId, config);
+  const scope = { ...f.scopes[0]!, bindingRevision: 2 },
+    tree = await scopeTree(f, scope);
+  const withoutBuild = await reviewScope(f, tree);
+  expect(() => svc.assertRun(tree, withoutBuild)).toThrow('frozen pinned build record');
+  f.backend.replyForRequest = (request) => {
+    expect(request.buildEnvironment?.namespace).toBeTruthy();
+    expect(request.prompt).toContain('Pinned dependency environment:');
+    execFileSync(join(request.buildEnvironment!.binDirectory, 'cargo'), ['test', '--offline'], {
+      cwd: request.cwd,
+      env: { ...process.env, CARGO_NET_OFFLINE: 'true' },
+      stdio: 'pipe',
+    });
+    return { resultText: scopeReport(f.state, scope) };
+  };
+  const run = await runToFinish(f.state, tree.id, { role: 'review' });
+  expect(() => svc.assertRun(tree, run)).not.toThrow();
+  const environment = storage.runtimeEvidence.run(ws, run)!;
+  const manifest = JSON.parse(
+    readFileSync(environment.manifestPath, 'utf8'),
+  ) as import('@craftingtable/agents').PinnedCargoManifest;
+  expect(manifest.packages[0]!.path).not.toBe(provider);
+  expect(manifest.packages[0]!.path).toContain('/scratch/dependencies/');
+  const frozen = storage.runtimeEvidence.build(ws, run)!;
+  expect(frozen.error).toBeUndefined();
+  expect(frozen.receipts).toContain('"success":true');
+  rmSync(manifest.receiptPath);
+  expect(() => svc.assertRun(tree, run)).not.toThrow();
+  const db = openDatabase(storage.databasePath);
+  try {
+    expect(() =>
+      db.prepare('UPDATE run_build_records SET record_json=? WHERE run_id=?').run('{}', run),
+    ).toThrow('immutable');
+  } finally {
+    db.close();
+  }
+  await svc.configure(f.auth, ws, definitionId, { ...config, expectedGeneration: 1 });
+  expect(() => svc.assertRun(tree, run)).toThrow('obsolete dependency environment');
+  git(['commit', '--allow-empty', '-m', 'provider advanced'], provider);
+  await expect(
+    svc.configure(f.auth, ws, definitionId, {
+      ...config,
+      expectedGeneration: 2,
+      pins: config.pins.map((p) => ({ ...p, expectedCommitSha: observed.commitSha })),
+    }),
+  ).rejects.toThrow('ref advanced before saving');
+  await expect(
+    svc.prepare(tree, randomUUID(), join(f.state.context.directory, 'new-run')),
+  ).rejects.toThrow('integration changed');
+});
+
+it('binds consumer evidence independently of checkpoint ownership and derives cross-project build providers', async () => {
+  const f = await evidenceFixture('aq');
+  const { testedRepositories, requiredUpstreams } = await import(
+    './services/runtime-evidence-policy.js'
+  );
+  const imported = f.state.context.storage.imports
+    .definitions(f.state.workspaceId)
+    .find((d) => d.id !== f.definitionId)!;
+  expect(testedRepositories(imported, { kind: 'checkpoint', sourceId: 'WI-AQ-G1' })).toEqual([
+    'wi',
+  ]);
+  expect(testedRepositories(imported, { kind: 'checkpoint', sourceId: 'EXO-AQ-G1' })).toEqual([
+    'exo',
+  ]);
+  expect(requiredUpstreams(imported, 'wi')).toEqual(['aq']);
+  expect(requiredUpstreams(imported, 'exo')).toEqual(['aq', 'wi']);
+  await expect(
+    f.svc.submit(f.auth, f.state.workspaceId, f.definitionId, {
+      ...f.submission,
+      subjectCommit: 'f'.repeat(40),
+    }),
+  ).rejects.toThrow('current integration commit');
+  const { subjectCommit: _commit, ...noCode } = f.submission;
+  await expect(f.svc.submit(f.auth, f.state.workspaceId, f.definitionId, noCode)).rejects.toThrow(
+    'exact tested local consumer commit',
+  );
+  const submitted = await f.svc.submit(f.auth, f.state.workspaceId, f.definitionId, {
+    ...noCode,
+    testedCode: [{ alias: 'local', commitSha: f.submission.subjectCommit! }],
+  });
+  expect(submitted.submissions[0]?.submission.testedCode).toEqual([
+    { alias: 'local', commitSha: f.submission.subjectCommit },
+  ]);
+});

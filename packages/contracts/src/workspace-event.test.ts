@@ -234,6 +234,14 @@ const validEvents = {
       reason: 'Starting design.',
     },
   },
+  'runtime-evidence-changed': {
+    ...base,
+    kind: 'runtime-evidence-changed',
+    payload: {
+      definitionId: '12345678-1234-4234-8234-123456789abc',
+      message: 'Environment configured.',
+    },
+  },
   'scope-scheduling-authorized': {
     ...base,
     kind: 'scope-scheduling-authorized',
@@ -463,6 +471,7 @@ describe('WorkspaceEventEnvelope', () => {
       'roadmap-changed': [],
       'scope-evidence-recorded': [],
       'scope-scheduling-authorized': [],
+      'runtime-evidence-changed': [],
     } as const satisfies Readonly<Record<WorkspaceEventKind, readonly string[]>>;
 
     for (const kind of Object.keys(validEvents) as WorkspaceEventKind[]) {

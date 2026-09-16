@@ -1,3 +1,8 @@
+export {
+  prepareCargoLauncher,
+  type PinnedCargoManifest,
+  cargoManifestDigest,
+} from './pinned-cargo.js';
 import type {
   AgentBackendKind,
   AgentExitReason,
@@ -17,6 +22,7 @@ import type {
  */
 
 export interface AgentLaunchRequest {
+  readonly buildEnvironment?: { readonly binDirectory: string; readonly namespace?: string };
   /** Absolute worktree path used as the agent's working directory. */
   readonly cwd: string;
   /** Controller-owned scratch directory, outside the Git worktree. */

@@ -93,6 +93,12 @@ export class ClaudeCodeBackend implements AgentBackend {
         cwd: request.cwd,
         env: {
           ...(this.options.env ?? process.env),
+          ...(request.buildEnvironment
+            ? {
+                CRAFTINGTABLE_RUN_NAMESPACE: request.buildEnvironment.namespace,
+                PATH: `${request.buildEnvironment.binDirectory}:${(this.options.env ?? process.env).PATH ?? process.env.PATH ?? ''}`,
+              }
+            : {}),
           ...(request.temporaryDirectory
             ? {
                 CARGO_TARGET_DIR: `${request.temporaryDirectory}/target`,

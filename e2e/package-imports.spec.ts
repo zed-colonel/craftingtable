@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,12 @@ const test = base.extend<{ upstreamRepository: string }>({
           env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
         });
       git(['init', '--initial-branch=main', '.']);
+      writeFileSync(
+        join(path, 'Cargo.toml'),
+        '[package]\nname="aq_e2e_pin"\nversion="0.2.0"\nedition="2021"\n[lib]\npath="lib.rs"\n',
+      );
+      writeFileSync(join(path, 'lib.rs'), 'pub fn fixture(){}\n');
+      git(['add', '.']);
       git([
         '-c',
         'user.name=Fixture',
@@ -161,10 +167,48 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   }
   await maps.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
   await expect(maps.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
+  const runtime = maps.getByRole('region', { name: 'Dependency environments and evidence' });
+  await runtime
+    .getByText('Configure pinned dependencies and environments', { exact: true })
+    .click();
+  await runtime.getByLabel('aq · branch or commit', { exact: true }).fill('main');
+  await runtime.getByRole('button', { name: 'Inspect aq', exact: true }).click();
+  await expect(runtime.getByText(/Supplied crates: aq_e2e_pin/)).toBeVisible();
+  await runtime.getByLabel('Conformance revision', { exact: true }).fill('16');
+  // Consumer plans have not bound repositories yet; this saves baseline configuration only.
+  await runtime.getByRole('button', { name: 'Add environment', exact: true }).click();
+  await runtime.getByLabel('Environment name', { exact: true }).fill('external-native-fixture');
+  await runtime
+    .getByRole('combobox', { name: 'Kind', exact: true })
+    .selectOption('external-native');
+  await runtime.getByLabel('Environment SHA-256', { exact: true }).fill('1'.repeat(64));
+  await runtime.getByLabel('Fixture SHA-256', { exact: true }).fill('2'.repeat(64));
+  await runtime.getByLabel('Toolchain SHA-256', { exact: true }).fill('3'.repeat(64));
+  await runtime
+    .getByLabel('Authorization and scope', { exact: true })
+    .fill('Isolated test fixture only.');
+  await runtime.getByRole('button', { name: 'Save dependency environment', exact: true }).click();
+  await expect(runtime.getByText('Generation 1 · binding 1', { exact: true })).toBeVisible();
+  await runtime.getByText('Submit qualification or checkpoint evidence', { exact: true }).click();
+  await runtime
+    .getByRole('combobox', { name: 'Evidence subject', exact: true })
+    .selectOption('checkpoint:AQ-BASELINE-ACCEPTED');
+  await runtime.getByRole('button', { name: 'Prepare evidence template', exact: true }).click();
+  await expect(runtime.getByRole('textbox', { name: 'Evidence package', exact: true })).toHaveValue(
+    /AQ-BASELINE-ACCEPTED/,
+  );
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+  await runtime.screenshot({ path: info.outputPath('runtime-evidence.png') });
+
+  await expect(maps.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
   await expect(aq.getByText('Repository selection saved.', { exact: true })).toBeVisible();
   await expect(aq.getByText('Needs resolution', { exact: false })).toHaveCount(0);
   await expect(
-    aq.getByText('No action is required for those steps in this import preview.', { exact: false }),
+    aq.getByText('Saving the repository binding does not pass those checkpoints.', {
+      exact: false,
+    }),
   ).toBeVisible();
   await expect(maps.getByRole('button', { name: /start|approve|adopt/i })).toHaveCount(0);
   await expect
@@ -180,7 +224,9 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect(aq.getByText('Repository selection saved.', { exact: true })).toBeVisible();
   await expect(aq.getByText('Needs resolution', { exact: false })).toHaveCount(0);
   await expect(
-    aq.getByText('No action is required for those steps in this import preview.', { exact: false }),
+    aq.getByText('Saving the repository binding does not pass those checkpoints.', {
+      exact: false,
+    }),
   ).toBeVisible();
   await maps.getByText('Work items, slices and checkpoint requirements', { exact: true }).click();
   await maps.getByLabel('Filter map nodes').fill('WI-02/domain');
@@ -192,13 +238,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await page.getByRole('button', { name: 'WI-01', exact: true }).first().click();
   const scopes = page.getByRole('region', { name: 'Execution slices and parent acceptance' });
   await expect(scopes.getByRole('heading', { name: /wi\/WI-01/ }).first()).toBeVisible();
-  await expect(
-    scopes
-      .getByText(
-        'Pinned upstream environments and baseline evidence are not available yet; this map cannot execute.',
-      )
-      .first(),
-  ).toBeVisible();
+  await expect(scopes.getByText('wi must use an exact aq upstream pin.').first()).toBeVisible();
   for (const button of await scopes.getByRole('button').all()) await expect(button).toBeDisabled();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))

@@ -50,6 +50,12 @@ export class CodexSession implements AgentSession {
       cwd: request.cwd,
       env: {
         ...(options.env ?? process.env),
+        ...(request.buildEnvironment
+          ? {
+              CRAFTINGTABLE_RUN_NAMESPACE: request.buildEnvironment.namespace,
+              PATH: `${request.buildEnvironment.binDirectory}:${(options.env ?? process.env).PATH ?? process.env.PATH ?? ''}`,
+            }
+          : {}),
         ...(request.temporaryDirectory
           ? {
               CARGO_TARGET_DIR: `${request.temporaryDirectory}/target`,

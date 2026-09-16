@@ -56,6 +56,7 @@ export const WORKSPACE_EVENT_KINDS = [
   'roadmap-changed',
   'scope-evidence-recorded',
   'scope-scheduling-authorized',
+  'runtime-evidence-changed',
 ] as const;
 export type WorkspaceEventKind = (typeof WORKSPACE_EVENT_KINDS)[number];
 
@@ -84,8 +85,9 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'roadmap-changed': 12,
   'scope-evidence-recorded': 18,
   'scope-scheduling-authorized': 19,
+  'runtime-evidence-changed': 20,
 } as const satisfies Readonly<
-  Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11 | 12 | 17 | 18 | 19>
+  Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11 | 12 | 17 | 18 | 19 | 20>
 >;
 
 export function isWorkspaceEventKind(value: unknown): value is WorkspaceEventKind {
@@ -476,7 +478,13 @@ export interface ScopeSchedulingAuthorizedEvent
   readonly kind: 'scope-scheduling-authorized';
   readonly payload: { readonly workItemId: WorkItemId; readonly sourceId: string };
 }
+export interface RuntimeEvidenceChangedEvent
+  extends Omit<ScopeEvidenceRecordedEvent, 'kind' | 'payload'> {
+  readonly kind: 'runtime-evidence-changed';
+  readonly payload: { readonly definitionId: string; readonly message: string };
+}
 export type WorkspaceEvent =
+  | RuntimeEvidenceChangedEvent
   | ScopeSchedulingAuthorizedEvent
   | ScopeEvidenceRecordedEvent
   | RoadmapChangedEvent

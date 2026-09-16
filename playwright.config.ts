@@ -17,6 +17,9 @@ const SERVER_HEALTH_URL = `${SERVER_ORIGIN}/api/health`;
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
+  // Browser scenarios share one SQLite daemon and run real Git/agent workflows.
+  // Bound harness load so UI readiness checks measure behavior rather than contention.
+  workers: 2,
   reporter: [['list']],
   use: {
     baseURL: WEB_URL,

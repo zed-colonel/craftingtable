@@ -574,7 +574,7 @@ export class PackageImportService {
         issues.push(
           issue(
             'baseline-unbound',
-            'Branch and commit pinning, baseline verification evidence, acceptance and publication will be configured in a later release. No action is required for those steps in this import preview.',
+            'Configure an exact implementation pin and separately reviewed baseline/publication evidence in Dependency environments and evidence. Saving the repository binding does not pass those checkpoints.',
             'info',
           ),
         );
@@ -710,7 +710,7 @@ export class PackageImportService {
       blockers: [
         issue(
           'execution-not-implemented',
-          'This release imports and binds definitions only. Slice execution, phase scheduling and evidence-backed gates are not available.',
+          'Integrated cross-project Start and target supervision are the next increment. Individual execution scopes use phase gates and configured evidence.',
         ),
         issue(
           'adoption-required',
@@ -718,7 +718,7 @@ export class PackageImportService {
         ),
         issue(
           'environment-configuration-required',
-          'Independent reviewers, pinned upstream builds, resource allocations and execution authorizations remain unconfigured.',
+          'Configure pinned dependencies and qualification evidence below. Resource availability and explicit execution authorization remain phase gates.',
         ),
       ],
       nodes,

@@ -12,6 +12,7 @@ import { AGENT_BACKEND_LABELS, AGENT_BACKENDS, type AgentBackendKind } from '@cr
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { type CraftingTableStorage, openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
+import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import type { ServerConfig } from './config.js';
 import { Argon2PasswordHasher, type PasswordHasher } from './security/password-hasher.js';
 import { SessionTokenService } from './security/session-tokens.js';
@@ -51,6 +52,7 @@ import { WorkspaceService } from './services/workspace-service.js';
 import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
 
 export interface ServiceSet {
+  readonly runtimeEvidenceService: RuntimeEvidenceService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
   readonly roadmapService: RoadmapService;
@@ -168,6 +170,13 @@ export async function createServices(
     now,
     worktreeMutations,
   );
+  const runtimeEvidenceService = new RuntimeEvidenceService(
+    storage,
+    workspaceService,
+    notifier,
+    gitOperations,
+    now,
+  );
   const executionService = new ExecutionService(
     storage,
     workspaceService,
@@ -177,6 +186,7 @@ export async function createServices(
     workItemService,
     now,
     worktreeMutations,
+    runtimeEvidenceService,
   );
   const agentRunService = new AgentRunService(
     storage,
@@ -189,6 +199,7 @@ export async function createServices(
     worktreeMutations,
     executionService.branches,
     storageService,
+    runtimeEvidenceService,
   );
   storage.transaction((tx) => {
     tx.phaseScheduling.setCapacity('local-development', config.execution.developmentCapacity ?? 2);
@@ -236,6 +247,7 @@ export async function createServices(
     }),
   });
   return {
+    runtimeEvidenceService,
     storageService,
     finalizationService: new FinalizationService(
       storage,
@@ -308,6 +320,7 @@ export async function createRuntime(
     const services = await createServices(storage, config, options.overrides);
     const app = buildServer(
       {
+        runtimeEvidenceService: services.runtimeEvidenceService,
         packageImportService: services.packageImportService,
         storageService: services.storageService,
         authService: services.authService,

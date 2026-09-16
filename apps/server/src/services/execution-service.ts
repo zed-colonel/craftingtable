@@ -1,3 +1,4 @@
+import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { resourceBlockers, withPhaseReservation, PhaseGateError } from './phase-resources.js';
 import { executionScopeKey } from '@craftingtable/domain';
 import {
@@ -176,6 +177,7 @@ export class ExecutionService {
     private readonly workItemService: WorkItemService,
     private readonly now: () => Date = () => new Date(),
     private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
+    private readonly runtimeEvidence?: RuntimeEvidenceService,
   ) {
     this.branches = new BranchService(storage, workspaceService, notifier, git, mutations, now);
   }
@@ -407,6 +409,7 @@ export class ExecutionService {
         try {
           requireTreeScope(this.storage, worktree, 'merge');
           const run = result.runs.find((r) => r.id === gate.reviewRunId);
+          if (run) this.runtimeEvidence?.assertRun(worktree, run.id);
           if (
             !run ||
             scopedReviewIssue(
@@ -571,6 +574,8 @@ export class ExecutionService {
               'conflict',
               'The worktree differs from its frozen scope binding.',
             );
+          await this.runtimeEvidence?.assertFreshTree(tree, phase);
+          if (run) this.runtimeEvidence?.assertRun(tree, run.id);
           const report = run && latestReviewReport(this.storage.execution, run);
           const turn =
             run &&
@@ -1142,6 +1147,8 @@ export class ExecutionService {
           const check = () => {
             this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
             delegation?.check();
+            const review = this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0];
+            if (review) this.runtimeEvidence?.assertRun(worktree, review.id);
             requireTreeScope(this.storage, worktree, 'merge');
             this.branches.requireIntegrationAvailable(
               repository.rootPath,
@@ -1154,6 +1161,11 @@ export class ExecutionService {
                 worktree.integrationBranch ?? '',
               );
           };
+          if (!recovering) {
+            await this.runtimeEvidence?.assertFreshTree(worktree, 'merge');
+            const review = this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0];
+            if (review) this.runtimeEvidence?.assertRun(worktree, review.id);
+          }
           let operation = this.storage.execution.merges.latest(workspaceId, worktreeId);
           let mergeSha =
             operation?.status === 'merged' || operation?.status === 'cleaned'

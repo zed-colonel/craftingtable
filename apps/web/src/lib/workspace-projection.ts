@@ -163,6 +163,8 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
       };
     case 'source-repository-registered':
       return { ...current, repositoryList: true };
+    case 'runtime-evidence-changed':
+      return { ...current, workspaceSummary: true };
     case 'scope-scheduling-authorized':
     case 'scope-evidence-recorded':
       return {

@@ -1,3 +1,4 @@
+import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { reservePhase } from './phase-resources.js';
 import {
   requireTreeScope,
@@ -126,6 +127,7 @@ export class AgentRunService {
     private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
     private readonly branches?: BranchService,
     private readonly storageService?: StorageService,
+    private readonly runtimeEvidence?: RuntimeEvidenceService,
   ) {}
 
   hasBackend(kind: AgentBackendKind): boolean {
@@ -580,6 +582,7 @@ export class AgentRunService {
       const runDirectory = join(this.config.runsRoot, runId);
       const temporaryDirectory = join(runDirectory, 'scratch');
       mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
+      const pinned = await this.runtimeEvidence?.prepare(prepared.worktree, runId, runDirectory);
       const planDirectory = join(runDirectory, 'plan');
       mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
       const planDocuments = prepared.artifacts.map((artifact) => {
@@ -665,7 +668,7 @@ export class AgentRunService {
           path,
         });
       }
-      const brief = composeBrief({
+      const composedBrief = composeBrief({
         ...(scope ? { executionScope: scopeBrief(scope) } : {}),
         ...(prepared.worktree.planVersionId &&
         input.role === 'review' &&
@@ -734,6 +737,15 @@ export class AgentRunService {
               },
             }),
       });
+      const brief =
+        composedBrief +
+        (pinned
+          ? `
+
+Pinned dependency environment: ${pinned.manifestPath}
+Use the controller Cargo launcher ${pinned.binDirectory}/cargo for builds and tests (also supplied on PATH). Do not override pins or use a neighboring checkout. Its build receipts are required before merge/acceptance. Align incompatible Cargo version constraints with the supplied crates.
+`
+          : '');
       writeFileSync(join(runDirectory, 'brief.md'), brief, { mode: 0o600 });
 
       const createdAt = this.now().toISOString();
@@ -808,6 +820,26 @@ export class AgentRunService {
             role: input.role,
           },
         });
+        if (
+          pinned &&
+          tx.runtimeEvidence.generations(
+            workspaceId,
+            prepared.worktree.executionScope!.definitionId,
+            prepared.worktree.executionScope!.bindingRevision,
+          )[0]?.id !== pinned.runtimeId
+        )
+          throw new ExecutionRequestError(
+            'conflict',
+            'Dependency generation changed during run preparation.',
+          );
+        if (pinned)
+          tx.runtimeEvidence.addRun({
+            runId,
+            workspaceId,
+            runtimeId: pinned.runtimeId,
+            manifestPath: pinned.manifestPath,
+            manifestDigest: pinned.manifestDigest,
+          });
         return inserted;
       });
       this.notifier.notify();
@@ -819,6 +851,9 @@ export class AgentRunService {
         throw error;
       }
       const launch: AgentLaunchRequest = {
+        ...(pinned
+          ? { buildEnvironment: { binDirectory: pinned.binDirectory, namespace: runId } }
+          : {}),
         cwd: prepared.worktree.path,
         temporaryDirectory,
         ...(cycle ? { deadlineAt: cycle.runDeadlineAt } : {}),
@@ -1314,6 +1349,7 @@ export class AgentRunService {
       if (before === undefined || isTerminalAgentRunStatus(before.status)) {
         return false;
       }
+      this.runtimeEvidence?.freezeRun(tx, workspaceId, runId);
       const after = tx.execution.runs.transition({
         workspaceId,
         runId,

@@ -1,6 +1,6 @@
 # Cross-project concurrency roadmap
 
-Status: increments 1–3 delivered; increments 4–6 pending.
+Status: increments 1–4 delivered; increments 5–6 pending.
 The next deliverable is **pinned dependency environments and durable evidence**. Recording this plan
 neither imports packages nor adopts their proposed decisions, starts execution, changes
 project state, or approves a merge.
@@ -201,7 +201,7 @@ can authorize only a declared rule without unresolved decision references; compl
 adoption remains increment 5. The reference WI/EXO/AQ map still needs increments 4–5 before Start.
 See [ADR-046](decisions/046-transition-gates-and-resource-reservations.md).
 
-### 4. Pinned dependency environments and durable evidence — pending
+### 4. Pinned dependency environments and durable evidence — delivered
 
 Record exact upstream commits/artifacts, conformance versions, tested code, fixture and
 environment identity, required cases, verification runs and reviewer/decision provenance.
@@ -230,6 +230,16 @@ Acceptance: the same code tested against different upstream pins cannot reuse an
 pass. Missing qualification resources block only affected phases. Existing AQ history remains
 intact. `AQ-BASELINE-ACCEPTED` and `AQ-PUBLISHED` remain distinct: the WI AQ release gate does
 not require AQ publication, while the EXO AQ gate does under this map.
+
+Delivered: immutable runtime generations and exact Git/Cargo pins, per-run snapshots and
+source-enforcing Cargo launches, frozen clean-commit build records, external native/Kata
+qualification packages, exact profile/case validation, independent reviewer attestations,
+explicit operator decisions and browser review/download controls. Existing successful AQ
+review history can be explicitly reused only when its source tree matches the current pin;
+AQ baseline acceptance never supplies publication approval. Repinning or changing environments
+requires reassessment; merge/acceptance rechecks current provenance. Native/Kata execution
+remains external until an enforcing execution adapter exists. Decision checkpoints and map
+adoption remain closed pending increment 5. See [ADR-047](decisions/047-pinned-builds-and-reviewed-evidence.md).
 
 ### 5. Cross-project supervision and target selection — pending
 
@@ -305,11 +315,12 @@ points are `packages/domain/src/roadmap.ts`, `apps/server/src/services/roadmap-s
 `packages/planning/src/limits.ts`, `apps/server/src/services/execution-service.ts`, and
 `apps/web/src/features/planning/ImportPlanPage.tsx`.
 
-Delivery status: **increments 1–3 delivered; increments 4–6 pending**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
+Delivery status: **increments 1–4 delivered; increments 5–6 pending**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
 Reference-fixture checks reconstruct 335 milestones and 1,221 edges. WI and EXO ZIPs
 retain 27 and 28 current planning documents respectively. Desktop/phone tests cover
 upload, exact binding and reload; daemon tests cover source mismatch, stale binding
 revisions, conflicting imports, durable records, preserved versions and activation guards.
 Production plan imports and exact bindings remain intact. AQ remains a registered upstream
-with unresolved runtime pins/evidence. Next task: increment 4, pinned dependency environments
-and durable evidence, preserving all later adoption and supervision requirements above.
+awaiting explicit pin configuration and reviewed evidence in the new runtime controls.
+Next task: increment 5, cross-project supervision, decision adoption and target selection.
+No production work, map decisions or baseline/publication gates were authorized by increment 4.

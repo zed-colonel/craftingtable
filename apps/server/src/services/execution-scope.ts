@@ -10,6 +10,12 @@ import {
   type Worktree,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
+import {
+  acceptedEvidence,
+  runtimeScopeBlockers,
+  activeRuntime,
+  currentScopeReceipt,
+} from './runtime-evidence-policy.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { PhaseGateError, resourceBlockers, phaseResources } from './phase-resources.js';
 
@@ -122,11 +128,7 @@ export function scopePhaseBlockers(
   if (phase === 'verify' && !latestSliceMerge(tx, workspaceId, workItemId, scope))
     add('dependency', 'Merge this slice before starting fresh verification.');
   // Imported requirements confer no adoption, environment or effect authority.
-  if (r.definition.source.repositories.some((repo) => repo.role === 'implemented_upstream'))
-    add(
-      'evidence',
-      'Pinned upstream environments and baseline evidence are not available yet; this map cannot execute.',
-    );
+  issues.push(...runtimeScopeBlockers(tx, workspaceId, scope, r.binding.alias));
   for (const decision of r.slice?.decision_refs ?? [])
     add(
       'authorization',
@@ -147,12 +149,18 @@ export function scopePhaseBlockers(
         })),
       ];
   for (const requirement of requirements) {
-    if (requirement.kind === 'checkpoint')
-      add(
-        'evidence',
-        `Checkpoint ${requirement.id} must pass. Checkpoint evidence is not available yet.`,
-      );
-    else if (requirement.kind === 'work_item') {
+    if (requirement.kind === 'checkpoint') {
+      if (
+        !acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
+          kind: 'checkpoint',
+          sourceId: requirement.id,
+        })
+      )
+        add(
+          'evidence',
+          `Checkpoint ${requirement.id} must pass with current independently accepted evidence.`,
+        );
+    } else if (requirement.kind === 'work_item') {
       const bound = tx.imports
         .bindings(workspaceId, scope.definitionId)
         .find((b) => b.revision === scope.bindingRevision)
@@ -184,8 +192,13 @@ export function scopePhaseBlockers(
             )
           : requirement.state === 'merged'
             ? trees.some((t) => t.mergedAt)
-            : receipts.some(
+            : !!acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
+                kind: 'slice',
+                sourceId: requirement.id,
+              }) ||
+              receipts.some(
                 (p) =>
+                  currentScopeReceipt(tx, workspaceId, p) &&
                   sameExecutionScope(p.scope, target) &&
                   bound &&
                   latestSliceMerge(tx, workspaceId, bound.workItemId, target)?.mergeSha ===
@@ -203,8 +216,15 @@ export function scopePhaseBlockers(
       const merged = latestSliceMerge(tx, workspaceId, workItemId, target);
       if (!merged) add('evidence', `Required slice ${sliceId} has not merged.`);
       else if (
+        !acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
+          kind: 'slice',
+          sourceId: sliceId,
+        }) &&
         !receipts.some(
-          (p) => sameExecutionScope(p.scope, target) && p.integrationSha === merged.mergeSha,
+          (p) =>
+            currentScopeReceipt(tx, workspaceId, p) &&
+            sameExecutionScope(p.scope, target) &&
+            p.integrationSha === merged.mergeSha,
         )
       )
         add('evidence', `Required slice ${sliceId} has not been verified.`);
@@ -214,12 +234,16 @@ export function scopePhaseBlockers(
   }
   if (
     (phase === 'verify' || phase === 'accept') &&
+    !acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
+      kind: r.slice ? 'slice' : 'parent',
+      sourceId: scope.sourceId,
+    }) &&
     (r.profile.reviewer_roles.length !== 1 ||
       !['review', 'independent-reviewer'].includes(r.profile.reviewer_roles[0] ?? ''))
   )
     add(
       'review',
-      `Evidence profile ${r.profile.id} requires reviewer qualifications (${r.profile.reviewer_roles.join(', ')}); qualified evidence collection is not available yet.`,
+      `Evidence profile ${r.profile.id} requires reviewer qualifications (${r.profile.reviewer_roles.join(', ')}); submit and accept evidence from qualified independent reviewers.`,
     );
   return [...new Map(issues.map((i) => [i.message, i])).values()];
 }
@@ -365,11 +389,18 @@ export function scopeChoices(
       };
       const owned = trees.filter((t) => sameExecutionScope(t.executionScope, scope));
       const merged = latestSliceMerge(tx, workspaceId, workItemId, scope);
-      const verified = receipts.some(
-        (r) =>
-          sameExecutionScope(r.scope, scope) &&
-          (scope.kind === 'parent-acceptance' || r.integrationSha === merged?.mergeSha),
-      );
+      const verified =
+        (scope.kind === 'slice' &&
+          !!acceptedEvidence(tx, workspaceId, d.id, b.revision, {
+            kind: 'slice',
+            sourceId: scope.sourceId,
+          })) ||
+        receipts.some(
+          (r) =>
+            currentScopeReceipt(tx, workspaceId, r) &&
+            sameExecutionScope(r.scope, scope) &&
+            (scope.kind === 'parent-acceptance' || r.integrationSha === merged?.mergeSha),
+        );
       result.push({
         scope,
         ...(rBindingRepository(b.bindings, workItemId)
@@ -498,8 +529,7 @@ export function latestSliceMerge(
 /** Capabilities required anywhere in this scope's lifecycle, independently of dynamic gates. */
 export function unsupportedScopeCapabilities(r: ResolvedScope): string[] {
   const issues: string[] = [];
-  if (r.definition.source.repositories.some((repo) => repo.role === 'implemented_upstream'))
-    issues.push('Pinned upstream environments and baseline evidence are not available yet.');
+
   if (r.slice?.decision_refs.length) issues.push('Decision adoption is not available yet.');
   // Qualified hosts are checked at their own phase, so unavailable verification
   // cannot prevent otherwise authorized development or hold a merge lock.
@@ -535,6 +565,19 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
     requiredSlices: r.parent.required_slices,
     evidenceProducers: [...producers],
     cases: scopeCases(r),
+    runtime: activeRuntime(tx, r.item.workspaceId, r.definition.id, r.scope.bindingRevision),
+    acceptedExternalEvidence: tx.runtimeEvidence
+      .submissions(r.item.workspaceId, r.definition.id)
+      .filter(
+        (s) =>
+          acceptedEvidence(
+            tx,
+            r.item.workspaceId,
+            r.definition.id,
+            r.scope.bindingRevision,
+            s.subject,
+          )?.id === s.id,
+      ),
     receipts:
       bindings?.bindings
         .flatMap((b) => b.workItems)

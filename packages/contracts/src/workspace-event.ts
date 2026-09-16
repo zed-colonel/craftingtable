@@ -607,6 +607,10 @@ const scopeEvidenceRecordedEventSchema = workspaceEventBaseSchema.extend({
   }),
 });
 export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
+  scopeEvidenceRecordedEventSchema.extend({
+    kind: z.literal('runtime-evidence-changed'),
+    payload: z.strictObject({ definitionId: z.uuid(), message: z.string().min(1).max(500) }),
+  }),
   scopeEvidenceRecordedEventSchema,
   scopeEvidenceRecordedEventSchema.extend({
     kind: z.literal('scope-scheduling-authorized'),

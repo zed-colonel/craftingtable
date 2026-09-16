@@ -19,3 +19,4 @@ export * from './workspace-events.js';
 
 export * from './execution-scope.js';
 export * from './phase-scheduling.js';
+export * from './runtime-evidence.js';

@@ -1,0 +1,220 @@
+import { z } from 'zod';
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const name = z.string().trim().min(1).max(200);
+const text = z.string().trim().min(1).max(16000);
+export const evidenceSubjectSchema = z.strictObject({
+  kind: z.enum(['checkpoint', 'slice', 'parent']),
+  sourceId: name,
+});
+export const qualificationEnvironmentSchema = z.strictObject({
+  id: name,
+  kind: z.enum(['local-development', 'external-native', 'external-kata']),
+  identityDigest: digest,
+  fixtureDigest: digest,
+  toolchainDigest: digest,
+  authorization: text,
+});
+export const cratePinSchema = z.strictObject({
+  version: name.optional(),
+  name: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]+$/)
+    .max(100),
+  path: z
+    .string()
+    .max(300)
+    .regex(/^(?:[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+$|^$/)
+    .refine((p) => !p.split('/').some((x) => x === '.' || x === '..' || x === '.git')),
+});
+export const configureRuntimeSchema = z.strictObject({
+  bindingRevision: z.number().int().positive(),
+  expectedGeneration: z.number().int().nonnegative(),
+  pins: z
+    .array(
+      z.strictObject({
+        alias: name,
+        ref: z.string().min(1).max(200),
+        expectedCommitSha: z
+          .string()
+          .regex(/^[a-f0-9]{40,64}$/)
+          .optional(),
+        conformanceRevision: name,
+        packages: z.array(cratePinSchema).max(150),
+      }),
+    )
+    .max(20),
+  consumers: z.array(z.strictObject({ alias: name, upstreams: z.array(name).max(20) })).max(20),
+  environments: z.array(qualificationEnvironmentSchema).min(1).max(20),
+});
+const runtimePinSchema = z.strictObject({
+  alias: name,
+  ref: name,
+  repositoryId: z.string(),
+  commitSha: name,
+  treeSha: name,
+  conformanceRevision: name,
+  packages: z.array(cratePinSchema),
+});
+export const runtimeGenerationSchema = z.strictObject({
+  id: z.uuid(),
+  workspaceId: z.string(),
+  definitionId: z.uuid(),
+  bindingRevision: z.number(),
+  generation: z.number(),
+  digest,
+  createdAt: z.iso.datetime(),
+  createdByUserId: z.string(),
+  pins: z.array(runtimePinSchema),
+  consumers: z.array(z.strictObject({ alias: name, upstreams: z.array(name) })),
+  environments: z.array(qualificationEnvironmentSchema),
+});
+export const evidenceSubmissionRequestSchema = z
+  .strictObject({
+    runtimeId: z.uuid(),
+    subject: evidenceSubjectSchema,
+    testedCode: z
+      .array(z.strictObject({ alias: name, commitSha: z.string().regex(/^[a-f0-9]{40,64}$/) }))
+      .max(20)
+      .optional(),
+    subjectCommit: z
+      .string()
+      .regex(/^[a-f0-9]{40,64}$/)
+      .optional(),
+    environmentId: name,
+    executedBy: name,
+    executedAt: z.iso.datetime(),
+    reviewers: z
+      .array(
+        z.strictObject({ identity: name, roles: z.array(name).min(1).max(20), artifact: name }),
+      )
+      .min(1)
+      .max(20),
+    requirements: z.array(z.strictObject({ requirement: text, artifact: name })).max(250),
+    cases: z
+      .array(
+        z.strictObject({
+          id: name,
+          sourceRecordDigest: digest,
+          result: z.enum(['passed', 'failed']),
+          artifact: name,
+        }),
+      )
+      .max(1000),
+    artifacts: z
+      .array(
+        z.strictObject({
+          name,
+          content: z
+            .string()
+            .min(1)
+            .max(512 * 1024),
+        }),
+      )
+      .min(1)
+      .max(50),
+    sourceRunId: z.string().min(1).max(100).optional(),
+    kata: z
+      .strictObject({
+        runtime: z.literal('kata'),
+        hostIdentity: name,
+        vmIdentity: name,
+        imageDigest: digest,
+        configurationDigest: digest,
+        observationArtifact: name,
+        noNativeFallback: z.literal(true),
+      })
+      .optional(),
+  })
+  .superRefine((v, c) => {
+    if (
+      v.artifacts.reduce((n, a) => n + new TextEncoder().encode(a.content).length, 0) >
+      4 * 1024 * 1024
+    )
+      c.addIssue({ code: 'custom', message: 'Evidence artifacts exceed 4 MiB.' });
+  });
+export const evidenceDecisionRequestSchema = z.strictObject({
+  submissionId: z.uuid(),
+  outcome: z.enum(['accepted', 'rejected']),
+  rationale: text,
+});
+export const evidenceSubmissionSchema = evidenceSubmissionRequestSchema.safeExtend({
+  id: z.uuid(),
+  workspaceId: z.string(),
+  definitionId: z.uuid(),
+  bindingRevision: z.number(),
+  createdAt: z.iso.datetime(),
+  createdByUserId: z.string(),
+  artifacts: z.array(z.strictObject({ name, content: z.string(), digest })),
+  sourceRunDigest: digest.optional(),
+  sourceRunCommit: name.optional(),
+  sliceMergeSha: name.optional(),
+});
+export const evidenceDecisionSchema = z.strictObject({
+  id: z.uuid(),
+  workspaceId: z.string(),
+  submissionId: z.uuid(),
+  outcome: z.enum(['accepted', 'rejected']),
+  rationale: text,
+  decidedAt: z.iso.datetime(),
+  decidedByUserId: z.string(),
+});
+export const runtimeEvidenceViewSchema = z.strictObject({
+  issues: z.array(z.string()),
+  builds: z.array(
+    z.strictObject({
+      runId: z.string(),
+      runtimeId: z.uuid(),
+      digest,
+      successfulBuilds: z.number().int().nonnegative(),
+      error: z.string().optional(),
+    }),
+  ),
+  bindingRevision: z.number().int().nonnegative(),
+  current: runtimeGenerationSchema.optional(),
+  history: z.array(runtimeGenerationSchema),
+  repositories: z.array(
+    z.strictObject({
+      alias: name,
+      role: z.enum(['implemented_upstream', 'planned_application']),
+      configured: z.boolean(),
+      integrationBranch: z.string().optional(),
+    }),
+  ),
+  subjects: z.array(
+    z.strictObject({
+      subject: evidenceSubjectSchema,
+      title: z.string(),
+      profile: z.string(),
+      requirements: z.array(z.string()),
+      reviewerRoles: z.array(z.string()),
+      testedRepositories: z.array(z.string()),
+      cases: z.array(
+        z.strictObject({ id: name, sourceRecordDigest: digest, requiresKata: z.boolean() }),
+      ),
+      issues: z.array(z.string()),
+    }),
+  ),
+  submissions: z.array(
+    z.strictObject({
+      submission: evidenceSubmissionSchema,
+      decision: evidenceDecisionSchema.optional(),
+      issues: z.array(z.string()),
+    }),
+  ),
+  upstreamHistory: z.array(
+    z.strictObject({ alias: name, runId: z.string(), headSha: z.string(), label: z.string() }),
+  ),
+});
+export const inspectDependencyRequestSchema = z.strictObject({
+  bindingRevision: z.number().int().positive(),
+  alias: name,
+  ref: z.string().min(1).max(200),
+});
+export const inspectDependencyResponseSchema = z.strictObject({
+  commitSha: name,
+  treeSha: name,
+  packages: z.array(cratePinSchema),
+});
+export type ConfigureRuntime = z.infer<typeof configureRuntimeSchema>;
+export type EvidenceSubmissionRequest = z.infer<typeof evidenceSubmissionRequestSchema>;
+export type RuntimeEvidenceView = z.infer<typeof runtimeEvidenceViewSchema>;

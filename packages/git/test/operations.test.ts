@@ -691,3 +691,40 @@ process.exit(result.status ?? 1);
   expect(result.ok).toBe(false);
   expect(run(['rev-parse', 'revision'])).toBe(advanced);
 });
+
+describe('pinned source export', () => {
+  it('exports exact committed bytes without copying dirty checkout changes', async () => {
+    const repo = fixture();
+    writeFileSync(join(repo.repository, 'bytes.bin'), Buffer.from([0, 1, 255, 10]));
+    runFixtureGit(['add', '.'], { cwd: repo.repository });
+    runFixtureGit(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'binary'],
+      { cwd: repo.repository },
+    );
+    const commit = await operations.resolveCommit(repo.repository, 'main');
+    if (!commit.ok) throw new Error(commit.failure.message);
+    writeFileSync(join(repo.repository, 'bytes.bin'), 'dirty');
+    const exported = await operations.exportCommit(repo.repository, commit.value.commitSha);
+    if (!exported.ok) throw new Error(exported.failure.message);
+    expect(Buffer.from(exported.value.find((f) => f.path === 'bytes.bin')!.content)).toEqual(
+      Buffer.from([0, 1, 255, 10]),
+    );
+    expect((await operations.resolveCommit(repo.repository, '--help')).ok).toBe(false);
+    expect((await operations.exportCommit(repo.repository, 'main')).ok).toBe(false);
+  });
+  it('rejects symlinks in a source tree instead of following them', async () => {
+    const repo = fixture();
+    const { symlinkSync } = await import('node:fs');
+    symlinkSync('/etc/passwd', join(repo.repository, 'outside'));
+    runFixtureGit(['add', '.'], { cwd: repo.repository });
+    runFixtureGit(
+      ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'link'],
+      { cwd: repo.repository },
+    );
+    const commit = await operations.resolveCommit(repo.repository, 'main');
+    if (!commit.ok) throw new Error(commit.failure.message);
+    const exported = await operations.exportCommit(repo.repository, commit.value.commitSha);
+    expect(exported.ok).toBe(false);
+    if (!exported.ok) expect(exported.failure.message).toContain('links');
+  });
+});

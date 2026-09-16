@@ -17,3 +17,4 @@ export * from './workspace.js';
 export * from './workspace-event.js';
 
 export * from './execution-scope.js';
+export * from './runtime-evidence.js';

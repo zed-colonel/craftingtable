@@ -31,7 +31,7 @@ it is mergeable.
   verification review. Once all required slices and evidence are verified, create a parent
   acceptance worktree, launch its review, and use **Accept parent after review**. Only that
   acceptance completes the parent and releases its dependents. Reviews retain evidence in a
-  separate run artifact. The reference WI/EXO map remains blocked on the upcoming adoption and upstream-environment increments; importing or selecting a slice never approves
+  separate run artifact. The reference WI/EXO map remains blocked on the upcoming adoption and integrated-supervision increment; importing or selecting a slice never approves
   those requirements. Existing whole-item workflows remain available.
 - **Transition scheduling and resources.** Execution scopes show separate start, integration,
   verification and parent-acceptance requirements, with typed waiting reasons and reservations.
@@ -39,10 +39,22 @@ it is mergeable.
   Resource waits retry automatically. Finished runs release their slots; merged slices and
   review-only worktrees release development capacity. Source-declared early development needs
   explicit authorization for the exact bound slice and does not relax parent acceptance.
-  Native/Kata qualification, upstream pins and unresolved map decisions remain visible gates.
+  Native/Kata qualification, current upstream pins and unresolved map decisions remain visible gates.
   Local scoped development defaults to 2 admission slots; verification/acceptance defaults to 1.
   Set `CRAFTINGTABLE_DEVELOPMENT_CAPACITY` and `CRAFTINGTABLE_VERIFICATION_CAPACITY` (1–32)
   in the daemon environment to tune them. These coordinate daemon work, not host CPU or isolation.
+- **Pinned dependencies and evidence.** Open an imported map in **Roadmaps** and expand
+  **Dependency environments and evidence**. Inspect bound Git refs and their Cargo package mappings,
+  record conformance revisions, and choose the upstreams supplied to each consumer. Configure
+  explicit local/native/Kata environment, fixture and toolchain identities, then save a generation.
+  Each scoped run receives its own source snapshots and Cargo launcher. The launcher rejects
+  dependency fallback and records clean-commit builds; successful review builds are required
+  before merge. Frozen build records survive cleanup and are downloadable from the map.
+  Use the subject-specific JSON template or upload an evidence package with real logs, exact case
+  hashes and independent reviewer attestations. Inspect its readable artifacts and explicitly
+  accept or reject it with a rationale. New pins/environments invalidate older evidence without
+  erasing history. Native results cannot satisfy actual-Kata requirements. External host execution
+  is not dispatched by this version; map decision adoption and integrated Start remain next.
 - **Repositories.** Register any local Git checkout by path.
 - **Plan branches.** Open **Projects → a plan → Repository & branches** to select a
   registered repository and an existing integration branch, or explicitly create one
@@ -213,11 +225,11 @@ it is mergeable.
 - **Durability.** Runs, events, worktrees, and repositories live in SQLite. A daemon
   restart marks runs that were live as interrupted; nothing is lost.
 
-Not yet: cross-project execution, pinned upstream build environments,
+Not yet: integrated cross-project supervision and decision adoption, remote qualification execution,
 email/SMS notifications, additional backends, or interactive permission prompts.
 
 The agreed [cross-project concurrency roadmap](docs/cross-project-roadmap.md) records the
-remaining implementation sequence, next adding pinned dependency environments and durable evidence.
+remaining implementation sequence, next adding cross-project supervision and target selection.
 
 Pushover notifications are configured per workspace in **Settings**. Owners can save
 write-only credentials, choose merge/attention alerts, send a test, and inspect delivery
@@ -247,7 +259,7 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 19 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 20 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

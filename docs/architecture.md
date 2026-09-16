@@ -370,3 +370,19 @@ claims before entering the repository lane and release them on success or failur
 releases interrupted claims, preserving their history and existing explicit-resume requirements.
 Verification/acceptance slots are separate from development; review-only trees do not consume
 roadmap repository development capacity. See ADR-046.
+
+
+Schema 20 separates immutable runtime generations from source maps and bindings. The runtime
+service resolves registered Git refs and validates crate mappings; the Git adapter exports
+bounded regular files directly from exact objects. The pinned Cargo adapter runs inside the
+agent process group, supplies patches at CLI configuration precedence, verifies resolved paths,
+and records the command, toolchain, clean tested commit and manifest digest. Sources live in
+per-run scratch; the manifest and frozen terminal build records survive cache cleanup.
+
+External evidence packages carry exact scope, generation, tested code, fixture/environment
+identity, source-case hashes, logs and reviewer attestations. Authenticated operator decisions
+are separate immutable rows. The shared phase evaluator consumes only current accepted evidence;
+Git freshness is checked again at launch, integration and acceptance. Qualification acceptance
+does not complete parents, adopt decisions or confer local native/Kata execution authority.
+The browser provides explicit configuration, templates/uploads, artifact review and build-record
+downloads. See ADR-047.

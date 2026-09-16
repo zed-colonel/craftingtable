@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import cookie from '@fastify/cookie';
 import { type FastifyInstance, fastify } from 'fastify';
+import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import type { ServerConfig } from './config.js';
 import { registerAgentRunRoutes } from './routes/agent-runs.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -9,6 +10,7 @@ import { registerFinalizationRoutes } from './routes/finalizations.js';
 import { registerHealthRoute } from './routes/health.js';
 import { sendApiError } from './routes/http.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
+import { registerRuntimeEvidenceRoutes } from './routes/runtime-evidence.js';
 import { registerPackageImportRoutes } from './routes/package-imports.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerRoadmapRoutes } from './routes/roadmaps.js';
@@ -41,6 +43,7 @@ import type { WorkspaceEventStreamService } from './services/workspace-event-str
 import type { WorkspaceService } from './services/workspace-service.js';
 
 export interface ServerDependencies {
+  readonly runtimeEvidenceService: RuntimeEvidenceService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
   readonly roadmapService: RoadmapService;
@@ -113,6 +116,7 @@ export function buildServer(
     await deps.workCycleService.shutdown();
   });
   registerPackageImportRoutes(app, deps.authService, deps.packageImportService, config);
+  registerRuntimeEvidenceRoutes(app, deps.authService, deps.runtimeEvidenceService, config);
   registerStorageRoutes(app, deps.authService, deps.storageService, config);
   registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);
   registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);

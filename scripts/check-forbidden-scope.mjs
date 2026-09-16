@@ -48,6 +48,10 @@ export const PROCESS_AUTHORITY = new Map([
   ['packages/git/src/command-runner.ts', 'read-only Git inspection (ADR-016)'],
   ['packages/git/src/operations.ts', 'worktree creation, removal, and diffing'],
   ['packages/agents/src/process.ts', 'Agent backend process supervision'],
+  [
+    'packages/agents/src/pinned-cargo.ts',
+    'Pinned Cargo execution in the agent process group (ADR-047)',
+  ],
 ]);
 
 /** The pure planning boundary (ADR-012). */

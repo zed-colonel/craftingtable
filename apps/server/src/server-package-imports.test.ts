@@ -198,7 +198,7 @@ describe('package import HTTP flow', () => {
       scopes
         .json()
         .choices.every((c: { blockers: string[] }) =>
-          c.blockers.some((b) => b.includes('Pinned upstream environments')),
+          c.blockers.some((b) => b.includes('Configure exact upstream pins')),
         ),
     ).toBe(true);
     const blocked = await r.context.app.inject({
@@ -212,7 +212,7 @@ describe('package import HTTP flow', () => {
       payload: { repositoryId, executionScope: scopes.json().choices[0].scope },
     });
     expect(blocked.statusCode, blocked.body).toBe(409);
-    expect(blocked.body).toContain('Pinned upstream environments');
+    expect(blocked.body).toContain('Configure exact upstream pins');
     expect(
       saved.json().repositories.find((p: { alias: string }) => p.alias === 'wi').boundWorkItems,
     ).toHaveLength(14);

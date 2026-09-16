@@ -1923,6 +1923,7 @@ button:disabled {
 
 .status-fact dd {
   margin: 0;
+  min-width: 0;
   color: var(--color-text);
   overflow-wrap: anywhere;
 }
@@ -1992,6 +1993,7 @@ button:disabled {
 
 .section-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
   min-width: 0;
 }
@@ -2036,6 +2038,7 @@ button:disabled {
 /* Reasons grouped by who resolves them */
 .reasons {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
 }
 
@@ -2340,6 +2343,7 @@ button:disabled {
 
 .stack {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
   min-width: 0;
 }
@@ -2390,5 +2394,12 @@ button:disabled {
 
   .compose-panel .compose .hint {
     display: none;
+  }
+}
+
+/* Tables keep readable columns and scroll inside their panel on narrow screens. */
+@media (max-width: 900px) {
+  .data-table {
+    min-width: 40rem;
   }
 }

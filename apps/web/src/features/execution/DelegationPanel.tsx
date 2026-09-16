@@ -216,18 +216,17 @@ export function DelegationPanel({
   };
 
   const launchVisible = activeWorktrees.length > 0 && (launchOpen ?? !automationActive);
-  const firstGate =
-    activeWorktrees[0] === undefined ? undefined : mergeGates[activeWorktrees[0].id];
+  // Counts only: the merge gate is named once, on the worktree itself.
   const summary =
     activeWorktrees.length === 0
       ? mergedWorktrees.length > 0
         ? 'Merged. No active worktree.'
         : 'No worktree yet.'
-      : liveRuns.length > 0
-        ? `${liveRuns.length} live run${liveRuns.length === 1 ? '' : 's'}.`
-        : firstGate === undefined
-          ? `${activeWorktrees.length} active worktree${activeWorktrees.length === 1 ? '' : 's'}.`
-          : `${MERGE_GATE_LABELS[firstGate.reason]}.`;
+      : `${activeWorktrees.length} active worktree${activeWorktrees.length === 1 ? '' : 's'} · ${
+          runs.length
+        } run${runs.length === 1 ? '' : 's'}${
+          liveRuns.length > 0 ? ` · ${liveRuns.length} live` : ''
+        }.`;
   return (
     <Section id="delegation" title="Delegation" summary={summary}>
       <About label="About delegation">

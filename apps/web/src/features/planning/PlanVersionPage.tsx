@@ -1,6 +1,8 @@
 import type { PlanVersionDetailResponse } from '@craftingtable/contracts';
 import type { PlanArtifactId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import type { ReactNode } from 'react';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
 import { archiveDownloadPath } from '../../lib/package-import-api.js';
 import { formatBytes, shortDigest } from '../../lib/planning-labels.js';
 import { DiagnosticList } from './DiagnosticList.js';
@@ -23,19 +25,66 @@ export function PlanVersionPage({
 }) {
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>Plan version {detail.version.versionNumber}</h1>
-          <p className="subtitle">
-            {detail.version.document} ·{' '}
-            {detail.version.isActive ? 'Active plan version' : 'Preserved, not active'}
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={`Plan version ${detail.version.versionNumber}`}
+        subtitle={`${detail.version.document} · ${
+          detail.version.isActive ? 'Active plan version' : 'Preserved, not active'
+        }`}
+      />
       <PlanCompletion completion={detail.version.completion} />
       {branchSettings}
 
-      <section className="panel" aria-label="Version identity">
+      <Section title={`Work items (${detail.workItems.length})`} label="Work items">
+        <WorkItemTable items={detail.workItems} onOpen={onOpenWorkItem} />
+      </Section>
+
+      <Section title="Source artifacts" count={detail.artifacts.length}>
+        <ul className="artifact-list">
+          {detail.artifacts.map((artifact) => (
+            <li key={artifact.id} className="artifact">
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => onViewArtifact(artifact.id, artifact.logicalFilename)}
+              >
+                {artifact.logicalFilename}
+              </button>
+              <span className="artifact-meta">
+                {artifact.role} · {artifact.mediaType} · {formatBytes(artifact.byteLength)} ·{' '}
+                <code>{shortDigest(artifact.sha256)}</code>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      {workspaceId && !!detail.archives?.length && (
+        <Section
+          title="Original planning archives"
+          count={detail.archives.length}
+          summary="Full uploaded ZIPs with scripts, historical files, and package provenance."
+        >
+          <ul className="artifact-list">
+            {detail.archives.map((archive) => (
+              <li key={archive.id} className="artifact">
+                <a href={archiveDownloadPath(workspaceId, archive.id)}>{archive.filename}</a>
+                <span className="artifact-meta">
+                  {formatBytes(archive.byteLength)} · <code>{archive.digest}</code>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      <Section
+        title="Version identity"
+        collapsible
+        defaultOpen={false}
+        summary={`Digest ${shortDigest(detail.version.contentDigest)} · imported ${new Date(
+          detail.version.createdAt,
+        ).toLocaleDateString()}`}
+      >
         <dl className="definition-grid">
           <dt>Content digest</dt>
           <dd>
@@ -58,57 +107,17 @@ export function PlanVersionPage({
           Plan versions are immutable. A revised bundle becomes a new version and never replaces
           this one.
         </p>
-      </section>
+      </Section>
 
-      {workspaceId && !!detail.archives?.length && (
-        <section className="panel" aria-label="Original planning archives">
-          <h3>Original planning archives</h3>
-          <p>
-            Full uploaded ZIPs retain scripts, historical files and package provenance separately
-            from agent-facing planning documents.
-          </p>
-          <ul className="artifact-list">
-            {detail.archives.map((archive) => (
-              <li key={archive.id} className="artifact">
-                <a href={archiveDownloadPath(workspaceId, archive.id)}>{archive.filename}</a>
-                <span className="artifact-meta">
-                  {formatBytes(archive.byteLength)} · <code>{archive.digest}</code>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      <section className="panel" aria-label="Source artifacts">
-        <h3>Source artifacts</h3>
-        <ul className="artifact-list">
-          {detail.artifacts.map((artifact) => (
-            <li key={artifact.id} className="artifact">
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => onViewArtifact(artifact.id, artifact.logicalFilename)}
-              >
-                {artifact.logicalFilename}
-              </button>
-              <span className="artifact-meta">
-                {artifact.role} · {artifact.mediaType} · {formatBytes(artifact.byteLength)} ·{' '}
-                <code>{shortDigest(artifact.sha256)}</code>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="panel" aria-label="Import diagnostics">
-        <h3>Diagnostics</h3>
+      <Section
+        title="Diagnostics"
+        label="Import diagnostics"
+        count={detail.diagnostics.length}
+        collapsible
+        defaultOpen={detail.diagnostics.length > 0}
+      >
         <DiagnosticList diagnostics={detail.diagnostics} />
-      </section>
-
-      <section className="panel" aria-label="Work items">
-        <h3>Work items ({detail.workItems.length})</h3>
-        <WorkItemTable items={detail.workItems} onOpen={onOpenWorkItem} />
-      </section>
+      </Section>
     </div>
   );
 }

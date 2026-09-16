@@ -1,6 +1,8 @@
 import type { ProjectDetailResponse } from '@craftingtable/contracts';
 import type { PlanArtifactId, PlanVersionId, WorkItemId } from '@craftingtable/domain';
 import type { ReactNode } from 'react';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
 import { formatBytes, RISK_LABELS, shortDigest } from '../../lib/planning-labels.js';
 import { DiagnosticList } from './DiagnosticList.js';
 import { PlanCompletion } from './PlanCompletion.js';
@@ -22,15 +24,12 @@ export function ProjectPage({
   const active = detail.activeVersion;
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>{detail.project.name}</h1>
-          <p className="subtitle">
-            {detail.project.document ?? 'No active plan'} · {detail.project.versionCount} version
-            {detail.project.versionCount === 1 ? '' : 's'}
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={detail.project.name}
+        subtitle={`${detail.project.document ?? 'No active plan'} · ${detail.project.versionCount} version${
+          detail.project.versionCount === 1 ? '' : 's'
+        }`}
+      />
       <PlanCompletion completion={detail.project.completion} />
       {branchSettings}
 
@@ -62,8 +61,13 @@ export function ProjectPage({
         />
       </section>
 
-      <section className="panel" aria-label="Risk distribution">
-        <h3>Risk</h3>
+      {active !== null && (
+        <Section title={`Work items (${active.workItems.length})`} label="Work items">
+          <WorkItemTable items={active.workItems} onOpen={onOpenWorkItem} />
+        </Section>
+      )}
+
+      <Section title="Risk" label="Risk distribution">
         <ul className="risk-list">
           {(['critical', 'high', 'medium', 'low', 'unspecified'] as const).map((risk) => (
             <li key={risk} className={`risk risk-${risk}`}>
@@ -71,10 +75,9 @@ export function ProjectPage({
             </li>
           ))}
         </ul>
-      </section>
+      </Section>
 
-      <section className="panel" aria-label="Plan versions">
-        <h3>Plan versions</h3>
+      <Section title="Plan versions" count={detail.versions.length}>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -117,12 +120,11 @@ export function ProjectPage({
             </tbody>
           </table>
         </div>
-      </section>
+      </Section>
 
       {active !== null && (
         <>
-          <section className="panel" aria-label="Source artifacts">
-            <h3>Source artifacts</h3>
+          <Section title="Source artifacts" count={active.artifacts.length}>
             <ul className="artifact-list">
               {active.artifacts.map((artifact) => (
                 <li key={artifact.id} className="artifact">
@@ -140,20 +142,19 @@ export function ProjectPage({
                 </li>
               ))}
             </ul>
-          </section>
+          </Section>
 
-          <section className="panel" aria-label="Import diagnostics">
-            <h3>Import diagnostics</h3>
+          <Section
+            title="Import diagnostics"
+            count={active.diagnostics.length}
+            collapsible
+            defaultOpen={active.diagnostics.length > 0}
+          >
             <DiagnosticList
               diagnostics={active.diagnostics}
               emptyMessage="This plan version imported without diagnostics."
             />
-          </section>
-
-          <section className="panel" aria-label="Work items">
-            <h3>Work items ({active.workItems.length})</h3>
-            <WorkItemTable items={active.workItems} onOpen={onOpenWorkItem} />
-          </section>
+          </Section>
         </>
       )}
     </div>

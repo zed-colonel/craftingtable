@@ -17,6 +17,8 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
+import { About } from '../../components/About.js';
+import { Section } from '../../components/Section.js';
 import { loadPlanBranchSettings } from '../../lib/branch-api.js';
 import {
   loadExecutionStatus,
@@ -171,29 +173,54 @@ export function FinalizationPanel({
       );
     });
   const live = views.some((v) => ['preparing', 'active'].includes(v.finalization.status));
+  const current =
+    views.find((v) => ['preparing', 'active'].includes(v.finalization.status)) ?? views[0];
+  const attention =
+    current?.cycle !== undefined &&
+    ['needs-attention', 'awaiting-merge'].includes(current.cycle.status);
+  const summary =
+    current === undefined
+      ? settings?.settings
+        ? 'Not started.'
+        : 'Configure Repository & branches before finalizing.'
+      : current.finalization.status === 'completed'
+        ? `Promoted into ${current.finalization.targetBranch}.`
+        : current.finalization.status === 'stopped'
+          ? 'Stopped.'
+          : current.cycle
+            ? `${CYCLE_STATUS_LABELS[current.cycle.status]} · ${current.finalization.integrationBranch} → ${current.finalization.targetBranch}`
+            : 'Preparation needs completion.';
   return (
-    <section className="panel" aria-label="Finalize integration">
-      <h2>Finalize integration</h2>
-      <p>
-        Review conformance against the entire plan, simplify and polish in a dedicated branch, then
-        approve the final merge yourself. All plan items must have integration evidence before
-        starting. Further merges into this integration branch are held until finalization finishes
-        or stops.
-      </p>
+    <Section
+      id="finalization"
+      title="Finalize integration"
+      summary={summary}
+      {...(attention ? { tone: 'attention' as const } : {})}
+      actions={
+        canMutate && !live && !editing ? (
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy || !settings?.settings || !draft}
+            onClick={() => setEditing(true)}
+          >
+            Set up finalization
+          </button>
+        ) : undefined
+      }
+    >
+      <About label="About finalization">
+        <p>
+          Review conformance against the entire plan, simplify and polish in a dedicated branch,
+          then approve the final merge yourself. All plan items must have integration evidence
+          before starting. Further merges into this integration branch are held until finalization
+          finishes or stops.
+        </p>
+      </About>
       {error && (
         <p role="alert" className="error-state">
           {error}
         </p>
-      )}
-      {canMutate && !live && !editing && (
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={busy || !settings?.settings || !draft}
-          onClick={() => setEditing(true)}
-        >
-          Set up finalization
-        </button>
       )}
       {editing && draft && (
         <form
@@ -775,7 +802,7 @@ export function FinalizationPanel({
           </section>
         );
       })}
-    </section>
+    </Section>
   );
 }
 function FinalizationOutcome({

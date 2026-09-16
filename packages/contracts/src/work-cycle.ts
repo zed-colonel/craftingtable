@@ -1,3 +1,4 @@
+import { phaseBlockerSchema } from './execution-scope.js';
 import { executionScopeSchema } from './execution-scope.js';
 import {
   AGENT_BACKENDS,
@@ -95,6 +96,10 @@ export const workCycleSchema = z
     currentRunId: agentRunIdSchema,
     parentRunId: agentRunIdSchema.optional(),
     runDeadlineAt: z.iso.datetime(),
+    phaseWait: z
+      .strictObject({ startedAt: z.iso.datetime(), blockers: z.array(phaseBlockerSchema) })
+      .nullable()
+      .optional(),
     resultContinuations: z.number().int().min(0).max(2).optional(),
     remediationRounds: z.number().int().nonnegative(),
     additionalRemediationRounds: z

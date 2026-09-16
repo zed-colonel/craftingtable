@@ -190,6 +190,13 @@ export async function createServices(
     executionService.branches,
     storageService,
   );
+  storage.transaction((tx) => {
+    tx.phaseScheduling.setCapacity('local-development', config.execution.developmentCapacity ?? 2);
+    tx.phaseScheduling.setCapacity(
+      'local-verification',
+      config.execution.verificationCapacity ?? 1,
+    );
+  });
   agentRunService.recoverInterrupted();
   const workCycleService = new WorkCycleService(
     storage,

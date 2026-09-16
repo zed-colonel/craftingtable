@@ -24,6 +24,8 @@ export type RepositoryFeatureConfig =
 
 /** Worktree, run, Git, and agent-backend settings for the execution loop. */
 export interface ExecutionConfig {
+  readonly developmentCapacity?: number;
+  readonly verificationCapacity?: number;
   /** Stable integration scratch location, independent of future checkout placement. */
   readonly mergeRoot?: string;
   /** Explicit Git executable; when absent the daemon searches PATH at startup. */
@@ -338,6 +340,20 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
     ...(env.CRAFTINGTABLE_CLAUDE_MODELS === undefined
       ? {}
       : { claudeModels: env.CRAFTINGTABLE_CLAUDE_MODELS }),
+    developmentCapacity: boundedInteger(
+      env.CRAFTINGTABLE_DEVELOPMENT_CAPACITY,
+      2,
+      1,
+      32,
+      'CRAFTINGTABLE_DEVELOPMENT_CAPACITY',
+    ),
+    verificationCapacity: boundedInteger(
+      env.CRAFTINGTABLE_VERIFICATION_CAPACITY,
+      1,
+      1,
+      32,
+      'CRAFTINGTABLE_VERIFICATION_CAPACITY',
+    ),
     maxPatchBytes: boundedInteger(
       env.CRAFTINGTABLE_DIFF_LIMIT_BYTES,
       4 * 1024 * 1024,

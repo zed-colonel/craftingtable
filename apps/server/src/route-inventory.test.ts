@@ -77,6 +77,7 @@ const EXPECTED_ROUTES = [
   'POST /api/workspaces/:workspaceId/runs/:runId/messages',
   'GET /api/workspaces/:workspaceId/work-items/:workItemId/execution-scopes',
   'POST /api/workspaces/:workspaceId/worktrees/:worktreeId/scope-evidence',
+  'POST /api/workspaces/:workspaceId/work-items/:workItemId/scope-scheduling',
   'POST /api/workspaces/:workspaceId/work-items/:workItemId/admit',
   'POST /api/workspaces/:workspaceId/work-items/:workItemId/remove-from-agenda',
   'POST /api/workspaces/:workspaceId/work-items/:workItemId/complete',

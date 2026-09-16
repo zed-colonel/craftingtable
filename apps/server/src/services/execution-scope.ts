@@ -1,5 +1,8 @@
 import {
   sameExecutionScope,
+  executionScopeKey,
+  type ExecutionPhase,
+  type PhaseBlocker,
   type ExecutionScope,
   type ScopeReviewEvidence,
   type WorkItemId,
@@ -8,6 +11,7 @@ import {
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { PhaseGateError, resourceBlockers, phaseResources } from './phase-resources.js';
 
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
@@ -64,49 +68,70 @@ export function scopeCases(r: ResolvedScope): readonly string[] {
     ]),
   ];
 }
-export function scopeBlockers(
+export function scopePhaseBlockers(
   tx: StorageRepositories,
   workspaceId: WorkspaceId,
   workItemId: WorkItemId,
   scope: ExecutionScope,
-  phase: 'start' | 'merge' | 'verify' | 'accept',
-): string[] {
+  phase: ExecutionPhase,
+  options: { resources?: boolean; ownerId?: string } = {},
+): PhaseBlocker[] {
   const r = resolveScope(tx, workspaceId, workItemId, scope);
-  const issues: string[] = [];
+  const issues: PhaseBlocker[] = [];
+  const add = (kind: PhaseBlocker['kind'], message: string) => issues.push({ kind, message });
   const settings = tx.execution.branchSettings.find(workspaceId, r.item.planVersionId);
   if (
     settings?.repositoryId !== r.binding.repositoryId ||
     settings?.integrationBranch !== r.binding.integrationBranch ||
     settings?.version !== r.binding.branchSettingsVersion
   )
-    issues.push(
+    add(
+      'authorization',
       'The frozen repository/branch binding changed. Reconcile the map binding before continuing.',
     );
   if (
     tx.planning.projects.find(workspaceId, r.item.projectId)?.activePlanVersionId !==
     r.item.planVersionId
   )
-    issues.push('The bound plan version is no longer active.');
+    add('authorization', 'The bound plan version is no longer active.');
   if (
     !r.binding.repositoryId ||
     tx.execution.sourceRepositories.find(workspaceId, r.binding.repositoryId)?.status !== 'active'
   )
-    issues.push('The bound repository is unavailable.');
-  if (r.item.status === 'completed') issues.push('The parent work item is already complete.');
+    add('authorization', 'The bound repository is unavailable.');
+  if (r.item.status === 'completed')
+    add('authorization', 'The parent work item is already complete.');
+  const early = scopeAllowsEarlyDevelopment(tx, workspaceId, workItemId, scope);
   for (const d of tx.planning.dependencies.listPredecessors(workspaceId, workItemId))
-    if (d.kind === 'required' && d.status !== 'completed')
-      issues.push(
-        `Parent predecessor ${d.sourceId} is not accepted. Early-start exceptions require the later phase scheduler.`,
+    if (d.kind === 'required' && d.status !== 'completed' && (phase === 'accept' || !early))
+      add(
+        'dependency',
+        `Parent predecessor ${d.sourceId} must be accepted.${r.slice?.early_start_exception ? ' An explicitly authorized early-development rule can replace this barrier for this slice only.' : ''}`,
       );
-  if (scope.kind === 'slice-verification' && !latestSliceMerge(tx, workspaceId, workItemId, scope))
-    issues.push('Merge this slice before starting fresh verification.');
+  if (
+    phase === 'merge' &&
+    !tx.execution.worktrees
+      .listForWorkItem(workspaceId, workItemId)
+      .some(
+        (t) =>
+          sameExecutionScope(t.executionScope, { ...scope, kind: 'slice' }) &&
+          tx.execution.runs.listForWorktree(workspaceId, t.id).some((run) => !!run.startedAt),
+      )
+  )
+    add('dependency', 'Start this slice before merging it.');
+  if (phase === 'verify' && !latestSliceMerge(tx, workspaceId, workItemId, scope))
+    add('dependency', 'Merge this slice before starting fresh verification.');
   // Imported requirements confer no adoption, environment or effect authority.
   if (r.definition.source.repositories.some((repo) => repo.role === 'implemented_upstream'))
-    issues.push(
+    add(
+      'evidence',
       'Pinned upstream environments and baseline evidence are not available yet; this map cannot execute.',
     );
   for (const decision of r.slice?.decision_refs ?? [])
-    issues.push(`Decision ${decision} requires adoption; decision adoption is not available yet.`);
+    add(
+      'authorization',
+      `Decision ${decision} requires adoption; decision adoption is not available yet.`,
+    );
   const requirements = r.slice
     ? [
         ...r.slice.start_requires,
@@ -123,7 +148,8 @@ export function scopeBlockers(
       ];
   for (const requirement of requirements) {
     if (requirement.kind === 'checkpoint')
-      issues.push(
+      add(
+        'evidence',
         `Checkpoint ${requirement.id} must pass. Checkpoint evidence is not available yet.`,
       );
     else if (requirement.kind === 'work_item') {
@@ -136,7 +162,7 @@ export function scopeBlockers(
         !bound ||
         tx.planning.workItems.find(workspaceId, bound.workItemId)?.status !== 'completed'
       )
-        issues.push(`Parent ${requirement.id} must be accepted.`);
+        add('dependency', `Parent ${requirement.id} must be accepted.`);
     } else {
       const sourceSlice = r.definition.source.slices.find((s) => s.id === requirement.id);
       const bound = tx.imports
@@ -153,10 +179,8 @@ export function scopeBlockers(
       const receipts = bound ? tx.scopeReceipts.list(workspaceId, bound.workItemId) : [];
       const satisfied =
         requirement.state === 'started'
-          ? trees.some(
-              (t) =>
-                tx.execution.runs.listForWorktree(workspaceId, t.id).length > 0 ||
-                tx.execution.cycles.list(workspaceId).some((c) => c.worktreeId === t.id),
+          ? trees.some((t) =>
+              tx.execution.runs.listForWorktree(workspaceId, t.id).some((run) => !!run.startedAt),
             )
           : requirement.state === 'merged'
             ? trees.some((t) => t.mergedAt)
@@ -167,55 +191,76 @@ export function scopeBlockers(
                   latestSliceMerge(tx, workspaceId, bound.workItemId, target)?.mergeSha ===
                     p.integrationSha,
               );
-      if (!satisfied) issues.push(`Slice ${requirement.id} must be ${requirement.state}.`);
+      if (!satisfied) add('dependency', `Slice ${requirement.id} must be ${requirement.state}.`);
     }
   }
-  if (r.slice) {
-    const resources = [
-      ...r.slice.resources_by_phase.start,
-      ...(phase !== 'start' ? r.slice.resources_by_phase.merge : []),
-      ...(phase === 'verify' ? r.slice.resources_by_phase.verify : []),
-    ];
-    for (const resource of resources)
-      issues.push(
-        `Resource ${resource} requires a phase reservation; resource scheduling is not available yet.`,
-      );
-  } else {
+  if (options.resources !== false) issues.push(...resourceBlockers(tx, r, phase, options.ownerId));
+  if (!r.slice) {
     const trees = tx.execution.worktrees.listForWorkItem(workspaceId, workItemId);
     const receipts = tx.scopeReceipts.list(workspaceId, workItemId);
     for (const sliceId of r.parent.required_slices) {
       const target = { ...scope, kind: 'slice' as const, sourceId: sliceId };
       const merged = latestSliceMerge(tx, workspaceId, workItemId, target);
-      if (!merged) issues.push(`Required slice ${sliceId} has not merged.`);
+      if (!merged) add('evidence', `Required slice ${sliceId} has not merged.`);
       else if (
         !receipts.some(
           (p) => sameExecutionScope(p.scope, target) && p.integrationSha === merged.mergeSha,
         )
       )
-        issues.push(`Required slice ${sliceId} has not been verified.`);
+        add('evidence', `Required slice ${sliceId} has not been verified.`);
     }
     if (trees.some((t) => t.status === 'active' && t.executionScope?.kind === 'slice'))
-      issues.push('Finish all active slice attempts before reviewing parent acceptance.');
+      add('dependency', 'Finish all active slice attempts before reviewing parent acceptance.');
   }
   if (
     (phase === 'verify' || phase === 'accept') &&
     (r.profile.reviewer_roles.length !== 1 ||
       !['review', 'independent-reviewer'].includes(r.profile.reviewer_roles[0] ?? ''))
   )
-    issues.push(
+    add(
+      'review',
       `Evidence profile ${r.profile.id} requires reviewer qualifications (${r.profile.reviewer_roles.join(', ')}); qualified evidence collection is not available yet.`,
     );
-  return [...new Set(issues)];
+  return [...new Map(issues.map((i) => [i.message, i])).values()];
+}
+export function scopeBlockers(
+  tx: StorageRepositories,
+  workspaceId: WorkspaceId,
+  workItemId: WorkItemId,
+  scope: ExecutionScope,
+  phase: ExecutionPhase,
+): string[] {
+  return scopePhaseBlockers(tx, workspaceId, workItemId, scope, phase).map((b) => b.message);
+}
+export function scopeAllowsEarlyDevelopment(
+  tx: StorageRepositories,
+  workspaceId: WorkspaceId,
+  workItemId: WorkItemId,
+  scope?: ExecutionScope,
+): boolean {
+  if (!scope || scope.kind === 'parent-acceptance') return false;
+  const r = resolveScope(tx, workspaceId, workItemId, scope);
+  return (
+    !!r.slice?.early_start_exception &&
+    !r.slice.decision_refs.length &&
+    tx.phaseScheduling.authorized(
+      workspaceId,
+      workItemId,
+      executionScopeKey({ ...scope, kind: 'slice' }),
+    )
+  );
 }
 export function requireScope(
   tx: StorageRepositories,
   workspaceId: WorkspaceId,
   workItemId: WorkItemId,
   scope: ExecutionScope,
-  phase: 'start' | 'merge' | 'verify' | 'accept',
+  phase: ExecutionPhase,
 ) {
-  const issues = scopeBlockers(tx, workspaceId, workItemId, scope, phase);
-  if (issues.length) conflict(issues.join('\n'));
+  const issues = scopePhaseBlockers(tx, workspaceId, workItemId, scope, phase, {
+    resources: false,
+  });
+  if (issues.length) throw new PhaseGateError(issues);
   return resolveScope(tx, workspaceId, workItemId, scope);
 }
 export function requireScopeOwnership(
@@ -330,6 +375,30 @@ export function scopeChoices(
         ...(rBindingRepository(b.bindings, workItemId)
           ? { repositoryId: rBindingRepository(b.bindings, workItemId) }
           : {}),
+        earlyDevelopment: 'early_start_exception' in node && node.early_start_exception,
+        earlyDevelopmentAuthorized: scopeAllowsEarlyDevelopment(tx, workspaceId, workItemId, scope),
+        canAuthorizeEarlyDevelopment:
+          'early_start_exception' in node &&
+          node.early_start_exception &&
+          !node.decision_refs.length,
+        phases: (scope.kind === 'slice'
+          ? (['start', 'merge', 'verify'] as const)
+          : (['accept'] as const)
+        ).map((phase) => ({
+          phase,
+          blockers: scopePhaseBlockers(tx, workspaceId, workItemId, scope, phase),
+          resources: phaseResources(tx, resolveScope(tx, workspaceId, workItemId, scope), phase)
+            .resources,
+          reservations: tx.phaseScheduling
+            .active()
+            .filter(
+              (c) =>
+                c.workspaceId === workspaceId &&
+                trees.some(
+                  (t) => t.id === c.worktreeId && t.executionScope?.sourceId === scope.sourceId,
+                ),
+            ),
+        })),
         title: node.title,
         description: 'scope' in node ? node.scope : parent.source_exit_gate,
         excludes: 'excludes' in node ? [...node.excludes] : [],
@@ -432,13 +501,8 @@ export function unsupportedScopeCapabilities(r: ResolvedScope): string[] {
   if (r.definition.source.repositories.some((repo) => repo.role === 'implemented_upstream'))
     issues.push('Pinned upstream environments and baseline evidence are not available yet.');
   if (r.slice?.decision_refs.length) issues.push('Decision adoption is not available yet.');
-  const requirements = r.slice
-    ? [...r.slice.start_requires, ...r.slice.merge_requires, ...r.slice.verify_requires]
-    : r.parent.acceptance_requires;
-  if (requirements.some((r) => r.kind === 'checkpoint'))
-    issues.push('Checkpoint evidence is not available yet.');
-  if (r.slice && Object.values(r.slice.resources_by_phase).some((resources) => resources.length))
-    issues.push('Phase resource scheduling is not available yet.');
+  // Qualified hosts are checked at their own phase, so unavailable verification
+  // cannot prevent otherwise authorized development or hold a merge lock.
   return issues;
 }
 

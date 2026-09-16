@@ -26,3 +26,20 @@ export function recordScopeEvidence(
     },
   );
 }
+
+export function authorizeScopeScheduling(
+  workspaceId: WorkspaceId,
+  workItemId: WorkItemId,
+  scope: import('@craftingtable/domain').ExecutionScope,
+  csrfToken: string,
+) {
+  return request(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/work-items/${encodeURIComponent(workItemId)}/scope-scheduling`,
+    executionScopeChoicesSchema,
+    {
+      method: 'POST',
+      headers: { 'x-craftingtable-csrf': csrfToken },
+      body: JSON.stringify({ scope }),
+    },
+  );
+}

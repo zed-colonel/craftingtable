@@ -169,3 +169,9 @@ cycles. The roadmap editor may select bound slice identities without silently ad
 decisions. Show unmet capabilities and evidence obligations before execution; never label
 slice integration as parent completion. Parent acceptance is an explicit review/evidence
 command, with separate fresh verification controls when integration has moved.
+
+Execution scopes show distinct start, merge, verification and parent-acceptance requirements,
+with dependency, evidence, review, authorization and resource labels. Show local admission
+capacity and current reservations beside their phase. Early-development authorization names
+the exact bound slice and preserves the parent barrier. Resource waits are progress states;
+qualification-unavailable labels must not imply an approved environment or completed check.

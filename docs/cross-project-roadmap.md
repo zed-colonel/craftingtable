@@ -1,7 +1,7 @@
 # Cross-project concurrency roadmap
 
-Status: increments 1–2 delivered; increments 3–6 pending.
-The next deliverable is **executable slices and parent acceptance**. Recording this plan
+Status: increments 1–3 delivered; increments 4–6 pending.
+The next deliverable is **pinned dependency environments and durable evidence**. Recording this plan
 neither imports packages nor adopts their proposed decisions, starts execution, changes
 project state, or approves a merge.
 
@@ -158,13 +158,13 @@ separate parent acceptance review/command. The work-item UI exposes these scopes
 roadmap editor accepts slice entries. Real-Git tests cover sibling execution, fresh review,
 independent acceptance and prevention of premature parent completion.
 
-The reference map still cannot execute: phase/resource scheduling, checkpoint/qualified
-case evidence, decision adoption and pinned upstream environments remain closed gates.
+The reference map still cannot execute: checkpoint/qualified case evidence, decision adoption
+and pinned upstream environments remain closed gates.
 No production WI/EXO work is started by this increment. Parent acceptance remains a manual
 command after an independent review; later integrated supervision may delegate that command
 under an explicit policy without changing its evidence requirements.
 
-### 3. Transition-specific scheduling and resources — pending
+### 3. Transition-specific scheduling and resources — delivered
 
 Evaluate explicit requirements at start, merge, verification and parent acceptance, including
 implicit phase ordering. Preserve parent barriers while permitting the early development
@@ -184,6 +184,22 @@ Acceptance: after adoption and applicable configuration, `wi/WI-01/implementatio
 `exo/EXO-01/domain` can start concurrently; AQ baseline evaluation can proceed independently.
 One blocked slice does not stop independent siblings. Verification waiting cannot exhaust all
 development slots. Restart preserves reservations/evidence and retains explicit resume behavior.
+
+Delivered: shared typed phase gates, explicit per-slice early-development authorization,
+atomic durable run/operation resource reservations, separate development and verification
+admission pools, and phase/reservation visibility on work-item pages and roadmap progress.
+Resource/dependency waits retry without operator attention; restart releases interrupted claims
+while retaining their history and requiring explicit resume. Merged slices and review-only
+worktrees no longer occupy development slots. Real-Git tests cover contention, cancellation,
+restart, all-or-none claims, early development/parent barriers, qualification waits and a
+later sibling merging first followed by integration refresh and fresh review.
+
+Implementation boundary: local development resources use the existing worktree/scratch adapter;
+installation admission capacities are daemon environment settings. Native/Kata resource names
+remain unavailable rather than pretending to enforce qualification. Early-development approval
+can authorize only a declared rule without unresolved decision references; complete map decision
+adoption remains increment 5. The reference WI/EXO/AQ map still needs increments 4–5 before Start.
+See [ADR-046](decisions/046-transition-gates-and-resource-reservations.md).
 
 ### 4. Pinned dependency environments and durable evidence — pending
 
@@ -289,13 +305,11 @@ points are `packages/domain/src/roadmap.ts`, `apps/server/src/services/roadmap-s
 `packages/planning/src/limits.ts`, `apps/server/src/services/execution-service.ts`, and
 `apps/web/src/features/planning/ImportPlanPage.tsx`.
 
-Delivery status: **increments 1–2 delivered; increments 3–6 pending**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
+Delivery status: **increments 1–3 delivered; increments 4–6 pending**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
 Reference-fixture checks reconstruct 335 milestones and 1,221 edges. WI and EXO ZIPs
 retain 27 and 28 current planning documents respectively. Desktop/phone tests cover
 upload, exact binding and reload; daemon tests cover source mismatch, stale binding
 revisions, conflicting imports, durable records, preserved versions and activation guards.
-No user production plan or map was imported by this implementation. The operator will
-upload the revised plans into existing projects, configure their new plan-version branch
-settings, then import/bind the concurrency map. AQ remains a registered upstream with
-unresolved runtime pins/evidence. Next task: increment 2, preserving all later lifecycle
-and evidence requirements above.
+Production plan imports and exact bindings remain intact. AQ remains a registered upstream
+with unresolved runtime pins/evidence. Next task: increment 4, pinned dependency environments
+and durable evidence, preserving all later adoption and supervision requirements above.

@@ -267,3 +267,11 @@ and failed import diagnostics remain workspace-scoped, with inert authenticated 
 Exact plan binding does not approve proposals, grant environment authority, pass a checkpoint
 or start execution. Activating a revised plan requires an explicit version-checked command
 and idle project; old history is retained and branch settings are not inherited. See ADR-043.
+
+
+Scope scheduling authorization is an authenticated, CSRF/origin-checked owner/editor command
+for an immutable map/binding/slice identity. It applies only to declared early-development rules
+without unresolved decision references, never to parent acceptance, evidence or protected merge
+authority. Atomic phase reservations coordinate this daemon's runs and Git commands; they do not
+sandbox agents, bound host CPU, grant credentials, qualify external hosts or constrain external
+processes. Native/Kata profiles remain closed until their enforcing adapters exist. See ADR-046.

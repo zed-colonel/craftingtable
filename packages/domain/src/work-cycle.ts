@@ -85,6 +85,10 @@ export interface WorkCycle {
   readonly currentRunId: AgentRunId;
   readonly parentRunId?: AgentRunId;
   readonly runDeadlineAt: string;
+  readonly phaseWait?: {
+    readonly startedAt: string;
+    readonly blockers: readonly import('./phase-scheduling.js').PhaseBlocker[];
+  } | null;
   /** Automatic recovery attempts within the current step, independent of remediation. */
   readonly resultContinuations?: number;
   readonly remediationRounds: number;

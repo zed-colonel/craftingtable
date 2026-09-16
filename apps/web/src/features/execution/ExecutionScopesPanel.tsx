@@ -7,7 +7,11 @@ import {
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
 import { createWorktree } from '../../lib/execution-api.js';
-import { loadExecutionScopes, recordScopeEvidence } from '../../lib/execution-scope-api.js';
+import {
+  authorizeScopeScheduling,
+  loadExecutionScopes,
+  recordScopeEvidence,
+} from '../../lib/execution-scope-api.js';
 
 export function ExecutionScopesPanel({
   workspaceId,
@@ -101,15 +105,72 @@ export function ExecutionScopesPanel({
               </ul>
             </details>
           )}
-          {choice.blockers.length > 0 && (
-            <details open>
-              <summary>Requirements before execution ({choice.blockers.length})</summary>
-              <ul>
-                {choice.blockers.map((b) => (
-                  <li key={b}>{b}</li>
+          <details open={choice.phases.some((p) => p.blockers.length > 0)}>
+            <summary>Transition requirements and reservations</summary>
+            {choice.phases.map((p) => (
+              <div key={p.phase}>
+                <h4>
+                  {
+                    {
+                      start: 'Start development',
+                      merge: 'Merge into integration',
+                      verify: 'Verify merged slice',
+                      accept: 'Accept parent',
+                    }[p.phase]
+                  }
+                </h4>
+                {p.blockers.length ? (
+                  <ul>
+                    {p.blockers.map((b) => (
+                      <li key={b.message}>
+                        <strong>{b.kind}</strong>: {b.message}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="hint">
+                    Phase requirements satisfied; current review and branch checks still apply.
+                  </p>
+                )}
+                {p.resources.map((r) => (
+                  <p key={r.key} className="hint">
+                    <code>{r.key}</code>: {r.capacity} admission slot(s).
+                  </p>
                 ))}
-              </ul>
-            </details>
+                {p.reservations
+                  .filter((r) => r.phase === p.phase)
+                  .map((r) => (
+                    <p key={r.id}>
+                      <code>{r.resourceKey}</code> reserved since{' '}
+                      {new Date(r.acquiredAt).toLocaleString()} (capacity {r.capacity}).
+                    </p>
+                  ))}
+              </div>
+            ))}
+            <p className="hint">
+              Development and verification use separate admission slots. A reservation coordinates
+              daemon work; it is not evidence of isolation or a test pass.
+            </p>
+          </details>
+          {choice.earlyDevelopment && (
+            <p className="hint">
+              {choice.earlyDevelopmentAuthorized
+                ? 'Early development authorized for this exact slice binding. Original predecessor acceptance still applies to the parent.'
+                : 'The imported early-development exception has not been authorized.'}
+            </p>
+          )}
+          {choice.canAuthorizeEarlyDevelopment && !choice.earlyDevelopmentAuthorized && (
+            <button
+              type="button"
+              disabled={busy || !canMutate}
+              onClick={() =>
+                void command(() =>
+                  authorizeScopeScheduling(workspaceId, workItemId, choice.scope, csrfToken),
+                )
+              }
+            >
+              Authorize this slice’s early-development rule
+            </button>
           )}
           <p className="hint">
             Map binding revision {choice.scope.bindingRevision}. This selection does not approve
@@ -147,7 +208,11 @@ export function ExecutionScopesPanel({
             <button
               type="button"
               disabled={
-                busy || !canMutate || !admitted || !choice.repositoryId || !!choice.blockers.length
+                busy ||
+                !canMutate ||
+                !admitted ||
+                !choice.repositoryId ||
+                !!choice.phases.find((p) => p.phase === 'verify')?.blockers.length
               }
               onClick={() =>
                 void command(() =>
@@ -179,7 +244,16 @@ export function ExecutionScopesPanel({
                 <code>{tree.branchName}</code>{' '}
                 <button
                   type="button"
-                  disabled={busy || !canMutate || !admitted || !!choice.blockers.length}
+                  disabled={
+                    busy ||
+                    !canMutate ||
+                    !admitted ||
+                    !!choice.phases.find(
+                      (p) =>
+                        p.phase ===
+                        (choice.scope.kind === 'parent-acceptance' ? 'accept' : 'verify'),
+                    )?.blockers.length
+                  }
                   onClick={() =>
                     void command(() =>
                       recordScopeEvidence(workspaceId, tree.id, tree.version, csrfToken),

@@ -360,3 +360,13 @@ retains prior verification references without expanding the brief with full repo
 workspace events invalidate the affected item when evidence is recorded. Imported map
 capabilities not yet supported (checkpoint evidence, phase resources, decision adoption,
 qualified reviewers and pinned environments) remain blockers. See ADR-045.
+
+
+Schema 19 adds durable phase reservations and exact-binding early-development authorizations.
+A shared transition evaluator produces dependency/evidence/review/authorization/resource blockers.
+Run admission reserves all resources with the run row in one immediate transaction; terminal
+supervision releases them in the terminal transaction. Short Git/evidence operations acquire all
+claims before entering the repository lane and release them on success or failure. Startup
+releases interrupted claims, preserving their history and existing explicit-resume requirements.
+Verification/acceptance slots are separate from development; review-only trees do not consume
+roadmap repository development capacity. See ADR-046.

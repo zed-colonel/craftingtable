@@ -17,6 +17,23 @@ export const scopeReviewEvidenceSchema = z.strictObject({
     .max(200),
   caseIds: z.array(z.string().min(1).max(200)).max(1000),
 });
+export const phaseBlockerSchema = z.strictObject({
+  kind: z.enum(['dependency', 'evidence', 'review', 'authorization', 'resource']),
+  message: z.string(),
+});
+export const phaseReservationSchema = z.strictObject({
+  id: z.string(),
+  workspaceId: z.string(),
+  worktreeId: z.string(),
+  ownerId: z.string(),
+  phase: z.enum(['start', 'merge', 'verify', 'accept']),
+  resourceKey: z.string(),
+  capacity: z.number().int().positive(),
+  acquiredAt: z.iso.datetime(),
+});
+export const authorizeScopeSchedulingRequestSchema = z.strictObject({
+  scope: executionScopeSchema,
+});
 export const executionScopeChoiceSchema = z.strictObject({
   scope: executionScopeSchema,
   repositoryId: z.uuid().optional(),
@@ -24,6 +41,19 @@ export const executionScopeChoiceSchema = z.strictObject({
   description: z.string(),
   excludes: z.array(z.string()),
   blockers: z.array(z.string()),
+  earlyDevelopment: z.boolean(),
+  earlyDevelopmentAuthorized: z.boolean(),
+  canAuthorizeEarlyDevelopment: z.boolean(),
+  phases: z.array(
+    z.strictObject({
+      phase: z.enum(['start', 'merge', 'verify', 'accept']),
+      blockers: z.array(phaseBlockerSchema),
+      reservations: z.array(phaseReservationSchema),
+      resources: z.array(
+        z.strictObject({ key: z.string(), capacity: z.number().int().positive() }),
+      ),
+    }),
+  ),
   status: z.enum(['not-started', 'prepared', 'started', 'merged', 'verified', 'accepted']),
   worktreeIds: z.array(z.uuid()),
 });

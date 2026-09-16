@@ -1,3 +1,4 @@
+import { reservePhase } from './phase-resources.js';
 import {
   requireTreeScope,
   resolveScope,
@@ -737,6 +738,22 @@ export class AgentRunService {
 
       const createdAt = this.now().toISOString();
       const run = this.storage.transaction((tx) => {
+        requireTreeScope(tx, prepared.worktree, 'start');
+        if (prepared.worktree.executionScope && prepared.worktree.workItemId) {
+          const scope = prepared.worktree.executionScope;
+          reservePhase(
+            tx,
+            resolveScope(tx, workspaceId, prepared.worktree.workItemId, scope),
+            prepared.worktree,
+            scope.kind === 'slice'
+              ? 'start'
+              : scope.kind === 'slice-verification'
+                ? 'verify'
+                : 'accept',
+            runId,
+            createdAt,
+          );
+        }
         const inserted = tx.execution.runs.insert({
           id: runId,
           workspaceId,
@@ -795,7 +812,12 @@ export class AgentRunService {
       });
       this.notifier.notify();
 
-      this.storageService?.registerRun(run.id, runDirectory);
+      try {
+        this.storageService?.registerRun(run.id, runDirectory);
+      } catch (error) {
+        this.finalize(workspaceId, runId, 'failed', { message: 'Could not register run storage.' });
+        throw error;
+      }
       const launch: AgentLaunchRequest = {
         cwd: prepared.worktree.path,
         temporaryDirectory,
@@ -1067,6 +1089,9 @@ export class AgentRunService {
 
   /** Marks runs that were live when the daemon last stopped; their processes are gone. */
   recoverInterrupted(): number {
+    this.storage.transaction((tx) =>
+      tx.phaseScheduling.releaseOperations(this.now().toISOString()),
+    );
     const stale = this.storage.execution.runs.listLive();
     for (const run of stale) {
       this.finalize(run.workspaceId, run.id, 'interrupted', {
@@ -1284,6 +1309,7 @@ export class AgentRunService {
     this.live.delete(runId);
     const occurredAt = this.now().toISOString();
     const changed = this.storage.transaction((tx) => {
+      tx.phaseScheduling.release(runId, occurredAt, status);
       const before = tx.execution.runs.find(workspaceId, runId);
       if (before === undefined || isTerminalAgentRunStatus(before.status)) {
         return false;

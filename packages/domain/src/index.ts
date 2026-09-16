@@ -18,3 +18,4 @@ export * from './workspace.js';
 export * from './workspace-events.js';
 
 export * from './execution-scope.js';
+export * from './phase-scheduling.js';

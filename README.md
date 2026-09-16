@@ -31,9 +31,18 @@ it is mergeable.
   verification review. Once all required slices and evidence are verified, create a parent
   acceptance worktree, launch its review, and use **Accept parent after review**. Only that
   acceptance completes the parent and releases its dependents. Reviews retain evidence in a
-  separate run artifact. The reference WI/EXO map remains blocked on the upcoming scheduling,
-  adoption and upstream-environment increments; importing or selecting a slice never approves
+  separate run artifact. The reference WI/EXO map remains blocked on the upcoming adoption and upstream-environment increments; importing or selecting a slice never approves
   those requirements. Existing whole-item workflows remain available.
+- **Transition scheduling and resources.** Execution scopes show separate start, integration,
+  verification and parent-acceptance requirements, with typed waiting reasons and reservations.
+  Requirements inherit earlier phases; resource reservations apply only to the current phase.
+  Resource waits retry automatically. Finished runs release their slots; merged slices and
+  review-only worktrees release development capacity. Source-declared early development needs
+  explicit authorization for the exact bound slice and does not relax parent acceptance.
+  Native/Kata qualification, upstream pins and unresolved map decisions remain visible gates.
+  Local scoped development defaults to 2 admission slots; verification/acceptance defaults to 1.
+  Set `CRAFTINGTABLE_DEVELOPMENT_CAPACITY` and `CRAFTINGTABLE_VERIFICATION_CAPACITY` (1–32)
+  in the daemon environment to tune them. These coordinate daemon work, not host CPU or isolation.
 - **Repositories.** Register any local Git checkout by path.
 - **Plan branches.** Open **Projects → a plan → Repository & branches** to select a
   registered repository and an existing integration branch, or explicitly create one
@@ -208,7 +217,7 @@ Not yet: cross-project execution, pinned upstream build environments,
 email/SMS notifications, additional backends, or interactive permission prompts.
 
 The agreed [cross-project concurrency roadmap](docs/cross-project-roadmap.md) records the
-remaining implementation sequence, next extending execution to slices and parent acceptance.
+remaining implementation sequence, next adding pinned dependency environments and durable evidence.
 
 Pushover notifications are configured per workspace in **Settings**. Owners can save
 write-only credentials, choose merge/attention alerts, send a test, and inspect delivery
@@ -238,7 +247,7 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 17 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 19 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

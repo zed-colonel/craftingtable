@@ -65,6 +65,7 @@ export const AUDIT_ACTIONS = [
   'package.import',
   'concurrency.bindings',
   'scope.evidence-recorded',
+  'scope.scheduling-authorized',
   'plan.version-activated',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -115,9 +116,10 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'package.import': 16,
   'concurrency.bindings': 16,
   'scope.evidence-recorded': 18,
+  'scope.scheduling-authorized': 19,
   'plan.version-activated': 16,
 } as const satisfies Readonly<
-  Record<AuditAction, 1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18>
+  Record<AuditAction, 1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18 | 19>
 >;
 
 export function isAuditAction(value: unknown): value is AuditAction {

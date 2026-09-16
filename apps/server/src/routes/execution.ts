@@ -1,5 +1,6 @@
 import {
   executionScopeChoicesSchema,
+  authorizeScopeSchedulingRequestSchema,
   recordScopeReceiptRequestSchema,
   recordScopeReceiptResponseSchema,
 } from '@craftingtable/contracts';
@@ -66,6 +67,24 @@ export function registerExecutionRoutes(
       return noStore(reply).send(
         executionScopeChoicesSchema.parse(
           executionService.executionScopes(context, ws.data, item.data),
+        ),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; workItemId: string } }>(
+    '/api/workspaces/:workspaceId/work-items/:workItemId/scope-scheduling',
+    async (request, reply) => {
+      const context = authorizeMutation(request, authService, config);
+      const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        item = workItemIdSchema.safeParse(request.params.workItemId);
+      if (!ws.success || !item.success)
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      const body = authorizeScopeSchedulingRequestSchema.safeParse(request.body);
+      if (!body.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid scheduling authorization');
+      return noStore(reply).send(
+        executionScopeChoicesSchema.parse(
+          executionService.authorizeEarlyDevelopment(context, ws.data, item.data, body.data.scope),
         ),
       );
     },

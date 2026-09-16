@@ -1,3 +1,4 @@
+import { SqlitePhaseSchedulingRepository } from './repositories/phase-reservations.js';
 import { SqliteScopeReceiptRepository } from './repositories/scope-receipts.js';
 import { chmodSync } from 'node:fs';
 import type Database from 'better-sqlite3';
@@ -19,6 +20,7 @@ import type { CraftingTableStorage, MigrationStatus, StorageRepositories } from 
 
 function repositories(database: Database.Database): StorageRepositories {
   return {
+    phaseScheduling: new SqlitePhaseSchedulingRepository(database),
     scopeReceipts: new SqliteScopeReceiptRepository(database),
     imports: new SqliteImportRepository(database),
     maintenance: new SqliteStorageMaintenanceRepository(database),
@@ -36,6 +38,7 @@ function repositories(database: Database.Database): StorageRepositories {
 }
 
 class SqliteCraftingTableStorage implements CraftingTableStorage {
+  readonly phaseScheduling;
   readonly scopeReceipts;
   readonly imports;
   readonly maintenance;
@@ -58,6 +61,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     readonly migrationStatus: MigrationStatus,
   ) {
     const repos = repositories(database);
+    this.phaseScheduling = repos.phaseScheduling;
     this.scopeReceipts = repos.scopeReceipts;
     this.imports = repos.imports;
     this.maintenance = repos.maintenance;

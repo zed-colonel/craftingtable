@@ -1,3 +1,4 @@
+import { scopeAllowsEarlyDevelopment } from './execution-scope.js';
 import { randomUUID } from 'node:crypto';
 import type {
   PlanBranchSettingsResponse,
@@ -275,6 +276,7 @@ export class BranchService {
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
     repositoryId: SourceRepositoryId,
+    scope?: import('@craftingtable/domain').ExecutionScope,
   ) {
     const item = this.storage.planning.workItems.find(workspaceId, workItemId);
     if (item === undefined) throw new NotFoundError();
@@ -293,6 +295,7 @@ export class BranchService {
       repository.rootPath,
       headSha,
       repository.id,
+      scope,
     );
     return { headSha, branch: settings.integrationBranch };
   }
@@ -303,13 +306,16 @@ export class BranchService {
     repositoryPath: string,
     targetSha: string,
     repositoryId: SourceRepositoryId,
+    scope?: import('@craftingtable/domain').ExecutionScope,
   ) {
+    const early = scopeAllowsEarlyDevelopment(this.storage, workspaceId, workItemId, scope);
     for (const edge of this.storage.planning.dependencies.listPredecessors(
       workspaceId,
       workItemId,
     )) {
       if (edge.kind !== 'required') continue;
       const predecessor = this.storage.planning.workItems.find(workspaceId, edge.workItemId);
+      if (predecessor?.status !== 'completed' && early) continue;
       if (predecessor?.status !== 'completed')
         conflict(`Required predecessor ${edge.sourceId} has not been completed`);
       const commit =
@@ -360,6 +366,7 @@ export class BranchService {
         repo.rootPath,
         target,
         repo.id,
+        worktree.executionScope,
       );
     if (worktree.workItemId)
       await this.requirePredecessors(
@@ -368,6 +375,7 @@ export class BranchService {
         repo.rootPath,
         state.headSha,
         repo.id,
+        worktree.executionScope,
       );
   }
 
@@ -438,6 +446,7 @@ export class BranchService {
         repo.rootPath,
         targetSha,
         repo.id,
+        worktree.executionScope,
       );
     if (!value(await git.isAncestor(repo.rootPath, targetSha, state.headSha)))
       conflict(

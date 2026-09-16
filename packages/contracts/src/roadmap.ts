@@ -1,3 +1,4 @@
+import { phaseBlockerSchema } from './execution-scope.js';
 import { executionScopeSchema } from './execution-scope.js';
 import { ROADMAP_STATUSES } from '@craftingtable/domain';
 import { z } from 'zod';
@@ -129,6 +130,8 @@ export const roadmapViewSchema = z.strictObject({
   roadmap: roadmapSchema,
   progress: z.array(
     z.strictObject({
+      phase: z.enum(['start', 'merge', 'verify', 'accept']).optional(),
+      blockers: z.array(phaseBlockerSchema).optional(),
       entryId: z.string().uuid(),
       effectiveAutomation: roadmapAutomationSchema.optional(),
       status: z.enum([

@@ -213,6 +213,7 @@ export interface WorkspaceEventRepository {
 import type { RoadmapRepository } from './repositories/roadmaps.js';
 
 export interface StorageRepositories {
+  readonly phaseScheduling: import('./repositories/phase-reservations.js').PhaseSchedulingRepository;
   readonly scopeReceipts: import('./repositories/scope-receipts.js').ScopeReceiptRepository;
   readonly imports: import('./repositories/imports.js').ImportRepository;
   readonly maintenance: import('./maintenance-types.js').StorageMaintenanceRepository;

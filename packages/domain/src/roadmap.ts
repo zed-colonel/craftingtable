@@ -96,6 +96,8 @@ export interface Roadmap {
   readonly entryHolds?: Readonly<Record<string, RoadmapEntryHold>>;
 }
 export interface RoadmapEntryProgress {
+  readonly phase?: import('./phase-scheduling.js').ExecutionPhase;
+  readonly blockers?: readonly import('./phase-scheduling.js').PhaseBlocker[];
   readonly effectiveAutomation?: RoadmapAutomation;
   readonly entryId: string;
   readonly status:

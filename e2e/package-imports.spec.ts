@@ -203,6 +203,18 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+  await expect(
+    scopes.getByRole('heading', { name: 'Start development', exact: true }).first(),
+  ).toBeVisible();
+  await expect(
+    scopes.getByRole('heading', { name: 'Merge into integration', exact: true }).first(),
+  ).toBeVisible();
+  await expect(
+    scopes.getByRole('heading', { name: 'Verify merged slice', exact: true }).first(),
+  ).toBeVisible();
+  await expect(
+    scopes.getByText(/controlled-native-test-host needs a qualified environment/).first(),
+  ).toBeVisible();
   await scopes.screenshot({ path: info.outputPath('execution-scopes.png') });
   await navigate('Roadmaps');
   await page.getByRole('button', { name: 'New roadmap', exact: true }).click();

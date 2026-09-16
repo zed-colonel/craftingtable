@@ -1,3 +1,5 @@
+import { PhaseGateError } from './phase-resources.js';
+import { scopePhaseBlockers, scopeAllowsEarlyDevelopment } from './execution-scope.js';
 import { sameExecutionScope } from '@craftingtable/domain';
 import {
   resolveScope,
@@ -391,6 +393,7 @@ export class RoadmapService {
         } catch (error) {
           if (
             error instanceof SupersededRoadmapOperation ||
+            (error instanceof PhaseGateError && error.waiting) ||
             error instanceof RepositoryMutationBusyError ||
             error instanceof WorktreeMutationBusyError ||
             error instanceof IntegrationHeldError
@@ -444,6 +447,7 @@ export class RoadmapService {
         } catch (error) {
           if (error instanceof SupersededRoadmapOperation) throw error;
           if (
+            (error instanceof PhaseGateError && error.waiting) ||
             error instanceof RepositoryMutationBusyError ||
             error instanceof WorktreeMutationBusyError ||
             error instanceof IntegrationHeldError
@@ -578,6 +582,16 @@ export class RoadmapService {
           (cycle.status === 'awaiting-merge' || pending?.status === 'reserved')
         ) {
           check();
+          if (entry.executionScope && pending?.status !== 'reserved') {
+            const blockers = scopePhaseBlockers(
+              this.storage,
+              roadmap.workspaceId,
+              entry.workItemId,
+              entry.executionScope,
+              'merge',
+            );
+            if (blockers.length) throw new PhaseGateError(blockers);
+          }
           if (
             pending?.status !== 'reserved' &&
             (await this.cycles.refreshIntegration(
@@ -764,7 +778,15 @@ export class RoadmapService {
                 ),
             )),
       );
-    if (required.length)
+    if (
+      required.length &&
+      !scopeAllowsEarlyDevelopment(
+        this.storage,
+        roadmap.workspaceId,
+        entry.workItemId,
+        entry.executionScope,
+      )
+    )
       return blocked(
         `${entry.sourceId}: Waiting for required predecessors: ${required.map((e) => `${e.sourceId}${roadmap.definition.entries.some((item) => item.workItemId === e.workItemId) ? '' : ' (outside this roadmap)'}`).join(', ')}.`,
         false,
@@ -802,7 +824,9 @@ export class RoadmapService {
         false,
         'capacity-blocked',
       );
-    const trees = this.storage.execution.worktrees.listActive();
+    const trees = this.storage.execution.worktrees
+      .listActive()
+      .filter((t) => !t.executionScope || t.executionScope.kind === 'slice');
     if (
       trees.some(
         (tree) =>
@@ -881,6 +905,32 @@ export class RoadmapService {
           const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
           const cycle =
             attempt && this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+          if (
+            entry.executionScope &&
+            (!cycle || ['running', 'awaiting-merge'].includes(cycle.status))
+          ) {
+            const phase = cycle?.status === 'awaiting-merge' ? 'merge' : 'start';
+            const blockers = scopePhaseBlockers(
+              this.storage,
+              roadmap.workspaceId,
+              entry.workItemId,
+              entry.executionScope,
+              phase,
+              { ownerId: cycle?.currentRunId },
+            );
+            if (blockers.length)
+              return {
+                entryId: entry.id,
+                status: blockers.some((b) => b.kind === 'authorization' || b.kind === 'review')
+                  ? 'needs-attention'
+                  : blockers.some((b) => b.kind === 'resource')
+                    ? 'capacity-blocked'
+                    : 'dependency-blocked',
+                reason: blockers.map((b) => `${phase} · ${b.kind}: ${b.message}`).join(' '),
+                phase,
+                blockers,
+              };
+          }
           if (cycle)
             return {
               entryId: entry.id,

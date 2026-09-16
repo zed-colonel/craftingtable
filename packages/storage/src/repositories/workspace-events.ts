@@ -150,6 +150,7 @@ function assertStructuralShape(
       if (!repositoryCorrelationsNull) invalidStructural(row);
       return;
     case 'source-repository-registered':
+    case 'scope-scheduling-authorized':
     case 'scope-evidence-recorded':
     case 'roadmap-changed':
     case 'notifications-changed':
@@ -263,6 +264,7 @@ function assertPayloadCorrelations(
     case 'work-item-removed-from-agenda':
     case 'work-item-admitted':
     case 'source-repository-registered':
+    case 'scope-scheduling-authorized':
     case 'scope-evidence-recorded':
     case 'roadmap-changed':
     case 'notifications-changed':
@@ -437,6 +439,12 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
         workItemId: base.workItemId as NonNullable<WorkspaceEventBase['workItemId']>,
         payload: mapPayload<'work-item-completed'>(payload),
       };
+    case 'scope-scheduling-authorized':
+      return {
+        ...commonFields(base),
+        kind,
+        payload: mapPayload<'scope-scheduling-authorized'>(payload),
+      };
     case 'scope-evidence-recorded':
       return {
         ...commonFields(base),
@@ -547,6 +555,7 @@ function assertAppendAgreement(input: AppendWorkspaceEventInput): void {
     case 'work-item-removed-from-agenda':
     case 'work-item-admitted':
     case 'source-repository-registered':
+    case 'scope-scheduling-authorized':
     case 'scope-evidence-recorded':
     case 'roadmap-changed':
     case 'notifications-changed':

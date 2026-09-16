@@ -1,3 +1,5 @@
+import { PhaseGateError } from './phase-resources.js';
+import { scopePhaseBlockers, scopeAllowsEarlyDevelopment } from './execution-scope.js';
 import { sameExecutionScope } from '@craftingtable/domain';
 import { requireScope, requireTreeScope, scopedReviewIssue } from './execution-scope.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -689,6 +691,7 @@ export class WorkCycleService {
         status: 'running',
         runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
         reason: 'Automation resumed by operator.',
+        phaseWait: null,
       },
       action,
       context,
@@ -724,6 +727,19 @@ export class WorkCycleService {
         try {
           await this.reconcile(cycle);
         } catch (error) {
+          if (error instanceof PhaseGateError && error.waiting) {
+            const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+            if (
+              current?.version === cycle.version &&
+              ['running', 'awaiting-merge'].includes(current.status) &&
+              !current.phaseWait
+            )
+              this.change(current, {
+                phaseWait: { startedAt: this.now().toISOString(), blockers: error.blockers },
+                reason: error.message,
+              });
+            continue;
+          }
           if (
             error instanceof RepositoryMutationBusyError ||
             error instanceof WorktreeMutationBusyError
@@ -752,6 +768,7 @@ export class WorkCycleService {
   }
 
   private async reconcile(cycle: WorkCycle): Promise<void> {
+    if (this.refreshing.has(cycle.id)) return;
     if (this.runs.isCleaningRun(cycle.worktreeId)) return;
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (worktree?.mergedAt !== undefined) {
@@ -780,9 +797,16 @@ export class WorkCycleService {
       this.attention(cycle, 'The initiating user no longer has permission to run this cycle.');
       return;
     }
-    if (cycle.workItemId)
-      this.requireReady(cycle.workspaceId, cycle.workItemId, cycle.executionScope);
-    else finalizationForCycle(this.storage, cycle);
+    // A changed admission gate must not prevent supervision, cancellation or deadline
+    // enforcement for a process already launched. Recheck before the next launch/merge.
+    if (cycle.workItemId) {
+      if (
+        !cycle.executionScope ||
+        cycle.status === 'awaiting-merge' ||
+        !this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId)
+      )
+        this.requireReady(cycle.workspaceId, cycle.workItemId, cycle.executionScope);
+    } else finalizationForCycle(this.storage, cycle);
     if (
       this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
       'reserved'
@@ -791,6 +815,26 @@ export class WorkCycleService {
     if (cycle.status === 'awaiting-merge') {
       const review = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
       await this.refreshIntegration(cycle, review);
+      return;
+    }
+    const pendingRun = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+    if (!pendingRun && worktree.executionScope && worktree.workItemId) {
+      const blockers = scopePhaseBlockers(
+        this.storage,
+        cycle.workspaceId,
+        worktree.workItemId,
+        worktree.executionScope,
+        'start',
+      );
+      if (blockers.length) throw new PhaseGateError(blockers);
+    }
+    if (cycle.phaseWait) {
+      const delay = !pendingRun ? this.now().getTime() - Date.parse(cycle.phaseWait.startedAt) : 0;
+      this.change(cycle, {
+        phaseWait: null,
+        runDeadlineAt: new Date(Date.parse(cycle.runDeadlineAt) + Math.max(0, delay)).toISOString(),
+        reason: `Starting ${cycle.step} after phase requirements cleared.`,
+      });
       return;
     }
     if (this.now().getTime() >= Date.parse(cycle.runDeadlineAt)) {
@@ -1795,7 +1839,17 @@ export class WorkCycleService {
     return { settings, context: { user } };
   }
 
+  private readonly refreshing = new Set<string>();
   async refreshIntegration(cycle: WorkCycle, parent?: AgentRun): Promise<boolean> {
+    if (this.refreshing.has(cycle.id)) return true;
+    this.refreshing.add(cycle.id);
+    try {
+      return await this.performIntegrationRefresh(cycle, parent);
+    } finally {
+      this.refreshing.delete(cycle.id);
+    }
+  }
+  private async performIntegrationRefresh(cycle: WorkCycle, parent?: AgentRun): Promise<boolean> {
     const owner = this.refreshOwner(cycle);
     if (!owner || !this.branches) return false;
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
@@ -2387,7 +2441,10 @@ export class WorkCycleService {
     const blocked = this.storage.planning.dependencies
       .listPredecessors(workspaceId, workItemId)
       .filter((dependency) => dependency.kind === 'required' && dependency.status !== 'completed');
-    if (blocked.length > 0)
+    if (
+      blocked.length > 0 &&
+      !scopeAllowsEarlyDevelopment(this.storage, workspaceId, workItemId, scope)
+    )
       throw new ExecutionRequestError(
         'conflict',
         `Required predecessors are incomplete: ${blocked.map((dependency) => dependency.sourceId).join(', ')}`,

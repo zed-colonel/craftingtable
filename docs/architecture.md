@@ -214,7 +214,7 @@ internal. See ADR-027 for delivery and credential semantics.
 ## Roadmaps
 
 `RoadmapService` selects eligible entries in one delegated roadmap per workspace and delegates
-whole-item execution to `WorkCycleService`. Sequential mode preserves strict order; parallel
+whole-item or slice execution to `WorkCycleService`. Sequential mode preserves strict order; parallel
 mode scans in priority order under dependency, in-flight, repository, and exclusion constraints. Schema 12 separates immutable roadmap
 revisions from mutable, versioned control state and independently identified attempts.
 Each attempt reserves its worktree and cycle IDs before Git work; cycle creation and
@@ -338,3 +338,25 @@ work-item eligibility projection checks run/cycle history, active worktrees and 
 roadmaps; an in-memory preparation guard covers Git worktree creation before its database
 row exists. Schema 17 retains imported-field immutability and rejects reversing completed
 or started work. Admission/removal events remain durable; no completion evidence is created.
+
+
+## Execution scopes and parent acceptance
+
+Schema 18 adds immutable scope identity to worktrees and append-only verification/acceptance
+receipts. Cycle and roadmap JSON carry the same frozen definition ID, binding revision,
+source ID and activity kind. Live cycle uniqueness is per scope; worktree and repository
+mutation guards still apply. Missing scope preserves whole-item behavior.
+
+The daemon resolves scope boundaries from the immutable source map and exact binding before
+worktree creation, run launch, merge, verification and acceptance. Slice merges do not call
+whole-item completion. A separate review worktree inspects the current integration snapshot
+for parent acceptance; required slice commits must remain in its ancestry, and all original
+predecessors, slice verification and assigned case obligations must be satisfied. Receipt
+insertion and parent completion are atomic. Both service and database completion guards
+prevent manual completion from bypassing slice acceptance.
+
+Review reports carry scoped evidence; the run's `craftingtable-scope-evidence.json` artifact
+retains prior verification references without expanding the brief with full reports. New
+workspace events invalidate the affected item when evidence is recorded. Imported map
+capabilities not yet supported (checkpoint evidence, phase resources, decision adoption,
+qualified reviewers and pinned environments) remain blockers. See ADR-045.

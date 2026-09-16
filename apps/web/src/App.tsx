@@ -1,3 +1,4 @@
+import { ExecutionScopesPanel } from './features/execution/ExecutionScopesPanel.js';
 import type {
   AgentRunDetailResponse,
   AuditRecordSummary,
@@ -1347,7 +1348,9 @@ export function App() {
               editable={false}
               refreshToken={refreshToken}
               onChanged={() => setRefreshToken((v) => v + 1)}
-              {...(canMutate && workItem.workItem.status !== 'completed'
+              {...(canMutate &&
+              workItem.workItem.status !== 'completed' &&
+              !workItemExecution?.worktrees.some((t) => t.executionScope)
                 ? {
                     onCreateWorktree: (repositoryId: SourceRepositoryId) =>
                       handleCreateWorktree(workItem.workItem.id, repositoryId),
@@ -1362,6 +1365,21 @@ export function App() {
                   planVersionId: workItem.workItem.planVersionId,
                 })
               }
+            />
+            <ExecutionScopesPanel
+              key={`scopes-${workspaceId}-${route.workItemId}`}
+              workspaceId={workspaceId}
+              workItemId={workItem.workItem.id}
+              worktrees={
+                workItemExecution?.workItemId === route.workItemId
+                  ? workItemExecution.worktrees
+                  : []
+              }
+              csrfToken={authenticated.csrfToken}
+              canMutate={canMutate}
+              admitted={workItem.workItem.status === 'admitted'}
+              refreshToken={refreshToken}
+              onChanged={() => setRefreshToken((v) => v + 1)}
             />
             {workItemExecution?.workItemId === route.workItemId &&
               cycleState?.workspaceId === workspaceId && (

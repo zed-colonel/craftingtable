@@ -1,6 +1,6 @@
 # Cross-project concurrency roadmap
 
-Status: increment 1 delivered 2026-09-15; increments 2–6 pending.
+Status: increments 1–2 delivered; increments 3–6 pending.
 The next deliverable is **executable slices and parent acceptance**. Recording this plan
 neither imports packages nor adopts their proposed decisions, starts execution, changes
 project state, or approves a merge.
@@ -130,7 +130,7 @@ no cycles, worktrees, completion flags or checkpoint passes. Unsupported executi
 unavailable rather than being approximated. No duplicate plans are created. Tests cover
 malformed archives/documents, cycles, version mismatch, idempotency and authorization.
 
-### 2. Executable slices and parent acceptance — pending
+### 2. Executable slices and parent acceptance — delivered 2026-09-16
 
 Extend roadmap entries/attempts to identify a whole item or a specific owned slice.
 Independently executing slices get their own branch, worktree and attempt. Reuse the existing
@@ -151,6 +151,18 @@ Acceptance: `wi/WI-02/domain` can land without completing WI-02 or releasing dep
 that require WI-02 acceptance; `wi/WI-02/integration` and retained parent obligations still
 matter. Multiple authorized slices can coexist without bypassing worktree/mutation guards.
 Legacy whole-item behavior and manual controls remain usable.
+
+Delivered: frozen scope identities in worktrees/cycles/roadmaps, independently executable
+sibling slices, compact evidence artifacts, slice merge and verification records, and a
+separate parent acceptance review/command. The work-item UI exposes these scopes and the
+roadmap editor accepts slice entries. Real-Git tests cover sibling execution, fresh review,
+independent acceptance and prevention of premature parent completion.
+
+The reference map still cannot execute: phase/resource scheduling, checkpoint/qualified
+case evidence, decision adoption and pinned upstream environments remain closed gates.
+No production WI/EXO work is started by this increment. Parent acceptance remains a manual
+command after an independent review; later integrated supervision may delegate that command
+under an explicit policy without changing its evidence requirements.
 
 ### 3. Transition-specific scheduling and resources — pending
 
@@ -277,7 +289,7 @@ points are `packages/domain/src/roadmap.ts`, `apps/server/src/services/roadmap-s
 `packages/planning/src/limits.ts`, `apps/server/src/services/execution-service.ts`, and
 `apps/web/src/features/planning/ImportPlanPage.tsx`.
 
-Delivery status: **increment 1 delivered; increments 2–6 pending**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
+Delivery status: **increments 1–2 delivered; increments 3–6 pending**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
 Reference-fixture checks reconstruct 335 milestones and 1,221 edges. WI and EXO ZIPs
 retain 27 and 28 current planning documents respectively. Desktop/phone tests cover
 upload, exact binding and reload; daemon tests cover source mismatch, stale binding

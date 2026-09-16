@@ -1,3 +1,9 @@
+import {
+  requireTreeScope,
+  resolveScope,
+  scopeBrief,
+  scopeEvidenceLedger,
+} from './execution-scope.js';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -414,6 +420,16 @@ export class AgentRunService {
       if (worktree.status !== 'active') {
         throw new ExecutionRequestError('conflict', 'Worktree has been removed');
       }
+      requireTreeScope(tx, worktree, 'start');
+      if (
+        worktree.executionScope &&
+        worktree.executionScope.kind !== 'slice' &&
+        input.role !== 'review'
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Parent acceptance worktrees only permit independent review runs.',
+        );
       const repository = tx.execution.sourceRepositories.find(workspaceId, worktree.repositoryId);
       const planVersionId = item?.planVersionId ?? worktree.planVersionId;
       if (!planVersionId) throw new NotFoundError();
@@ -548,6 +564,7 @@ export class AgentRunService {
             'conflict',
             'Run launch permission changed during preparation.',
           );
+        requireTreeScope(this.storage, prepared.worktree, 'start');
         if (cycle !== undefined) this.requireCycleLaunchAuthority(cycle);
         else this.requireManualControl(workspaceId, input.worktreeId);
       } finally {
@@ -627,7 +644,28 @@ export class AgentRunService {
           'turn-completed',
         );
       const parentContext = prepared.parentRun?.reviewBranchContext;
+      const scope =
+        prepared.worktree.executionScope && prepared.worktree.workItemId
+          ? resolveScope(
+              this.storage,
+              workspaceId,
+              prepared.worktree.workItemId,
+              prepared.worktree.executionScope,
+            )
+          : undefined;
+      if (scope) {
+        const path = join(planDirectory, 'craftingtable-scope-evidence.json');
+        writeFileSync(path, JSON.stringify(scopeEvidenceLedger(this.storage, scope), null, 2), {
+          mode: 0o600,
+        });
+        planDocuments.push({
+          filename: 'craftingtable-scope-evidence.json',
+          role: 'work-breakdown',
+          path,
+        });
+      }
       const brief = composeBrief({
+        ...(scope ? { executionScope: scopeBrief(scope) } : {}),
         ...(prepared.worktree.planVersionId &&
         input.role === 'review' &&
         !(cycle && (cycle.resultContinuations ?? 0) > 0) &&
@@ -870,6 +908,9 @@ export class AgentRunService {
     });
     const run = this.requireRun(workspaceId, runId);
     this.requireManualControl(workspaceId, run.worktreeId, runId);
+    const tree = this.storage.execution.worktrees.find(workspaceId, run.worktreeId);
+    if (!tree) throw new NotFoundError();
+    requireTreeScope(this.storage, tree, 'start');
     const liveRun = this.liveRun(workspaceId, runId);
     if (liveRun === undefined || !liveRun.session.send(text)) {
       return { run, accepted: false };

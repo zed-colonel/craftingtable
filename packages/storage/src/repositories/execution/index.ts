@@ -68,6 +68,7 @@ function mapSourceRepository(row: SourceRepositoryRow): SourceRepository {
 }
 
 interface WorktreeRow {
+  execution_scope_json: string | null;
   id: string;
   workspace_id: string;
   repository_id: string;
@@ -90,6 +91,7 @@ interface WorktreeRow {
 
 function mapWorktree(row: WorktreeRow): Worktree {
   return {
+    ...(row.execution_scope_json ? { executionScope: JSON.parse(row.execution_scope_json) } : {}),
     id: row.id as Worktree['id'],
     workspaceId: row.workspace_id as Worktree['workspaceId'],
     repositoryId: row.repository_id as Worktree['repositoryId'],
@@ -302,8 +304,8 @@ class SqliteWorktreeRepository implements WorktreeRepository {
       .prepare(
         `INSERT INTO worktrees (
           id, workspace_id, repository_id, project_id, work_item_id, plan_version_id, branch_name,
-          base_sha, base_branch, integration_branch, path, status, created_at, created_by_user_id, version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, 1)`,
+          base_sha, base_branch, integration_branch, path, status, created_at, created_by_user_id, execution_scope_json, version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 1)`,
       )
       .run(
         input.id,
@@ -319,6 +321,7 @@ class SqliteWorktreeRepository implements WorktreeRepository {
         input.path,
         input.createdAt,
         input.createdByUserId,
+        input.executionScope ? JSON.stringify(input.executionScope) : null,
       );
     const created = this.find(input.workspaceId, input.id);
     if (created === undefined) {

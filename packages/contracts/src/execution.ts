@@ -1,3 +1,4 @@
+import { executionScopeSchema } from './execution-scope.js';
 import {
   AGENT_BACKENDS,
   AGENT_BILLING_SOURCES,
@@ -147,6 +148,7 @@ function hasExecutionSubject(value: { workItemId?: string; planVersionId?: strin
 
 export const worktreeSummarySchema = z
   .strictObject({
+    executionScope: executionScopeSchema.optional(),
     id: worktreeIdSchema,
     workspaceId: workspaceIdSchema,
     repositoryId: sourceRepositoryIdSchema,
@@ -172,6 +174,7 @@ export const worktreeSummarySchema = z
   });
 
 export const createWorktreeRequestSchema = z.strictObject({
+  executionScope: executionScopeSchema.optional(),
   repositoryId: sourceRepositoryIdSchema,
   /** Optional branch override; the daemon derives one from the work item otherwise. */
   branchName: gitBranchNameSchema.optional(),
@@ -210,6 +213,8 @@ export const mergeGateSchema = z.strictObject({
     'superseded-by-later-run',
     'run-live',
     'worktree-removed',
+    'scope-blocked',
+    'scope-review-only',
     'branch-review-required',
     'merge-recovery-required',
   ]),

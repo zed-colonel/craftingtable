@@ -1,3 +1,6 @@
+import type { ExecutionScopeChoice } from '@craftingtable/contracts';
+import { executionScopeKey } from '@craftingtable/domain';
+import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import type {
   ExecutionStatusResponse,
   SaveRoadmapRequest,
@@ -55,6 +58,32 @@ export function RoadmapsPage({
   const [defaults, setDefaults] = useState<CycleProfiles>();
   const [draft, setDraft] = useState<Draft>();
   const [selected, setSelected] = useState('');
+  const [scopeChoices, setScopeChoices] = useState<ExecutionScopeChoice[]>([]);
+  const [selectedScope, setSelectedScope] = useState('whole-item');
+  useEffect(() => {
+    let alive = true;
+    setScopeChoices([]);
+    setSelectedScope('whole-item');
+    if (selected)
+      void loadExecutionScopes(workspaceId, selected as WorkItemId)
+        .then((r) => {
+          if (alive) setScopeChoices(r.choices.filter((c) => c.scope.kind === 'slice'));
+        })
+        .catch((e) => {
+          if (alive) setError(e instanceof Error ? e.message : 'Could not load scopes.');
+        });
+    return () => {
+      alive = false;
+    };
+  }, [workspaceId, selected]);
+  const scopeToAdd = scopeChoices.find((c) => executionScopeKey(c.scope) === selectedScope);
+  const duplicateScope = draft?.entries.some(
+    (e) =>
+      e.workItemId === selected &&
+      (!e.executionScope ||
+        selectedScope === 'whole-item' ||
+        executionScopeKey(e.executionScope) === selectedScope),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [loaded, setLoaded] = useState(false);
@@ -145,7 +174,19 @@ export function RoadmapsPage({
       scheduling: roadmap.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING,
       ...(roadmap.definition.automation ? { automation: roadmap.definition.automation } : {}),
       entries: roadmap.definition.entries.map(
-        ({ id, workItemId, profiles, policy, instructions, exclusionGroups, automation }) => ({
+        ({
+          id,
+          workItemId,
+          profiles,
+          policy,
+          instructions,
+          exclusionGroups,
+          automation,
+          executionScope,
+        }) => ({
+          ...(executionScope
+            ? { executionScope: { ...executionScope, kind: 'slice' as const } }
+            : {}),
           id,
           workItemId,
           profiles,
@@ -320,7 +361,7 @@ export function RoadmapsPage({
                   .filter(
                     (item) =>
                       item.status !== 'completed' &&
-                      !draft.entries.some((e) => e.workItemId === item.id),
+                      !draft.entries.some((e) => e.workItemId === item.id && !e.executionScope),
                   )
                   .map((item) => (
                     <option key={item.id} value={item.id}>
@@ -329,10 +370,58 @@ export function RoadmapsPage({
                   ))}
               </select>
             </label>
+            {scopeChoices.length > 0 && (
+              <label className="field">
+                Execution scope
+                <select
+                  value={selectedScope}
+                  onChange={(e) => setSelectedScope(e.target.value)}
+                  disabled={busy}
+                >
+                  <option value="whole-item">Whole work item — existing workflow</option>
+                  {scopeChoices.map((c) => (
+                    <option key={executionScopeKey(c.scope)} value={executionScopeKey(c.scope)}>
+                      {c.scope.sourceId} · {c.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {scopeToAdd && (
+              <>
+                <p>{scopeToAdd.description}</p>
+                <p className="hint">
+                  Merging this slice will not complete its parent. This draft does not adopt map
+                  decisions.
+                </p>
+                {scopeToAdd.blockers.length > 0 && (
+                  <details>
+                    <summary>Pending scope requirements ({scopeToAdd.blockers.length})</summary>
+                    <ul>
+                      {scopeToAdd.blockers.map((b) => (
+                        <li key={b}>{b}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </>
+            )}
+            {duplicateScope && (
+              <p className="hint">
+                Choose an unused slice. Whole-item and slice entries cannot be mixed for one parent.
+              </p>
+            )}
             <button
               type="button"
               className="secondary-button"
-              disabled={busy || !selected || !defaults || draft.entries.length >= 100}
+              disabled={
+                busy ||
+                !selected ||
+                !defaults ||
+                draft.entries.length >= 100 ||
+                !!duplicateScope ||
+                (selectedScope !== 'whole-item' && !scopeToAdd)
+              }
               onClick={() => {
                 if (defaults) {
                   setDraft({
@@ -340,6 +429,9 @@ export function RoadmapsPage({
                     entries: [
                       ...draft.entries,
                       {
+                        ...(scopeToAdd
+                          ? { executionScope: { ...scopeToAdd.scope, kind: 'slice' as const } }
+                          : {}),
                         id: crypto.randomUUID(),
                         workItemId: selected as WorkItemId,
                         profiles: defaults,
@@ -365,7 +457,8 @@ export function RoadmapsPage({
                 return (
                   <li key={entry.id} className="panel">
                     <h3>
-                      {item?.sourceId ?? entry.workItemId} · {item?.title}
+                      {entry.executionScope?.sourceId ?? item?.sourceId ?? entry.workItemId} ·{' '}
+                      {item?.title}
                     </h3>
                     <div className="inline-actions">
                       <button

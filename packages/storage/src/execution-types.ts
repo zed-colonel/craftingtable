@@ -38,6 +38,7 @@ export interface CreateSourceRepositoryInput {
 }
 
 export interface CreateWorktreeInput {
+  readonly executionScope?: import('@craftingtable/domain').ExecutionScope;
   readonly id: WorktreeId;
   readonly workspaceId: WorkspaceId;
   readonly repositoryId: SourceRepositoryId;

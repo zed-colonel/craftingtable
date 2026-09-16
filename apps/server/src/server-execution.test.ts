@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { resolveScope, scopeRequirements, scopeCases } from './services/execution-scope.js';
+import type { ExecutionScope } from '@craftingtable/domain';
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
@@ -6877,4 +6880,464 @@ it('keeps all selected stage findings required when recovery temporarily focuses
     6000,
   );
   expect(implementations).toBe(3);
+});
+
+/* Local scope fixtures exercise execution without claiming the full v0.3 map's future authority. */
+async function slicedFixture(
+  alterSource?: (
+    source: import('@craftingtable/domain').ConcurrencySource,
+  ) => import('@craftingtable/domain').ConcurrencySource,
+) {
+  const fixture = await roadmapFixture();
+  const { state, repository } = fixture;
+  const auth = state.context.services.authService.authenticate(state.cookie.split('=')[1]);
+  const imported = state.context.services.packageImportService.importConcurrency(
+    auth,
+    state.workspaceId,
+    'map.zip',
+    readFileSync(
+      new URL(
+        '../../../fixtures/concurrency/cross-stack-concurrency-draft-v0.3.0-aq-baseline-alignment.zip',
+        import.meta.url,
+      ),
+    ),
+  );
+  const original = state.context.storage.imports.definition(
+    state.workspaceId,
+    imported.attempt.definitionId!,
+  )!;
+  const parent = original.source.work_items[0]!;
+  const slice = original.source.slices[0]!;
+  const id = randomUUID();
+  const sources = ['AQ-01.A', 'AQ-01.B'];
+  const source: typeof original.source = {
+    ...original.source,
+    map_id: 'local-scope-fixture',
+    repositories: original.source.repositories
+      .filter((r) => r.role === 'planned_application')
+      .slice(0, 1),
+    acceptance_coverage: [],
+    baseline_acceptance_coverage: [],
+    evidence_profiles: [
+      {
+        id: 'scope-review',
+        required_evidence: ['Tests passed'],
+        reviewer_roles: ['independent-reviewer'],
+        independence_required: true,
+      },
+      {
+        id: 'work-item-exit',
+        required_evidence: ['Original plan conforms'],
+        reviewer_roles: ['independent-reviewer'],
+        independence_required: true,
+      },
+    ],
+    work_items: [
+      {
+        ...parent,
+        id: 'AQ-01',
+        depends_on: [],
+        source_exit_gate: 'Queue accepts and drains one job.',
+        required_slices: sources,
+        acceptance_requires: [],
+        acceptance_evidence_profile: 'work-item-exit',
+        source_profile_case_ids: ['CASE-PARENT'],
+        profile_evidence_slices: [],
+        aq_baseline_case_ids: [],
+      },
+    ],
+    slices: sources.map((sourceId) => ({
+      ...slice,
+      id: sourceId,
+      work_item: 'AQ-01',
+      title: sourceId,
+      scope: `Complete ${sourceId}`,
+      excludes: ['Other slice work'],
+      start_requires: [],
+      merge_requires: [],
+      verify_requires: [],
+      evidence_profile: 'scope-review',
+      decision_refs: [],
+      early_start_exception: false,
+      aq_baseline_case_ids: [],
+      resources_by_phase: { start: [], merge: [], verify: [] },
+    })),
+  };
+  state.context.storage.imports.addDefinition({
+    ...original,
+    id,
+    mapId: source.map_id,
+    source: alterSource ? alterSource(source) : source,
+    digest: 'b'.repeat(64),
+  });
+  const settings = state.context.storage.execution.branchSettings.find(
+    state.workspaceId,
+    asPlanVersionId('version-1'),
+  )!;
+  state.context.storage.imports.addBindings({
+    definitionId: id,
+    workspaceId: state.workspaceId,
+    revision: 1,
+    createdAt: new Date().toISOString(),
+    createdByUserId: state.userId,
+    bindings: [
+      {
+        alias: 'local',
+        projectId: asProjectId('project-1'),
+        planVersionId: asPlanVersionId('version-1'),
+        repositoryId: repository.id,
+        integrationBranch: settings.integrationBranch,
+        branchSettingsVersion: settings.version,
+        sourceArtifacts: [],
+        workItems: [
+          { sourceId: 'AQ-01', workItemId: state.workItemId, sourceRecordDigest: 'a'.repeat(64) },
+        ],
+      },
+    ],
+  });
+  state.context.storage.planning.projects.setActivePlanVersionIfUnset({
+    workspaceId: state.workspaceId,
+    projectId: asProjectId('project-1'),
+    planVersionId: asPlanVersionId('version-1'),
+  });
+  await admit(state);
+  const scopes = sources.map((sourceId) => ({
+    kind: 'slice' as const,
+    definitionId: id,
+    bindingRevision: 1,
+    sourceId,
+  }));
+  const parentScope: ExecutionScope = {
+    kind: 'parent-acceptance',
+    definitionId: id,
+    bindingRevision: 1,
+    sourceId: 'AQ-01',
+  };
+  return { ...fixture, auth, scopes, parentScope };
+}
+async function scopeTree(f: Awaited<ReturnType<typeof slicedFixture>>, scope: ExecutionScope) {
+  return f.state.context.services.executionService.createWorktree(
+    f.auth,
+    f.state.workspaceId,
+    f.state.workItemId,
+    { repositoryId: f.repository.id, executionScope: scope },
+  );
+}
+function scopeReport(
+  state: Ready,
+  scope: ExecutionScope,
+  omitRequirement = false,
+  omitCase = false,
+) {
+  const resolved = resolveScope(state.context.storage, state.workspaceId, state.workItemId, scope);
+  return (
+    '```craftingtable-review\n' +
+    JSON.stringify({
+      version: 1,
+      complete: true,
+      verdict: 'mergeable',
+      exitGate: { met: true, evidence: 'Reviewed' },
+      findings: [],
+      scopeEvidence: {
+        scope,
+        requirements: omitRequirement
+          ? []
+          : scopeRequirements(resolved).map((requirement) => ({
+              requirement,
+              evidence: 'Verified against tests and source.',
+            })),
+        caseIds: omitCase ? [] : scopeCases(resolved),
+      },
+    }) +
+    '\n```\nVERDICT: mergeable'
+  );
+}
+async function reviewScope(
+  f: Awaited<ReturnType<typeof slicedFixture>>,
+  tree: import('@craftingtable/domain').Worktree,
+  omitRequirement = false,
+  omitCase = false,
+) {
+  f.backend.replyForRequest = () => ({
+    resultText: scopeReport(f.state, tree.executionScope!, omitRequirement, omitCase),
+  });
+  return runToFinish(f.state, tree.id, { role: 'review' });
+}
+async function recordScope(
+  f: Awaited<ReturnType<typeof slicedFixture>>,
+  tree: import('@craftingtable/domain').Worktree,
+  headers = mutationHeaders(f.state),
+) {
+  return f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${f.state.workspaceId}/worktrees/${tree.id}/scope-evidence`,
+    headers,
+    payload: {
+      expectedWorktreeVersion: f.state.context.storage.execution.worktrees.find(
+        f.state.workspaceId,
+        tree.id,
+      )!.version,
+    },
+  });
+}
+
+describe('execution slices and parent acceptance', () => {
+  it('keeps sibling merges separate, verifies exact scopes and accepts the independently reviewed parent', async () => {
+    const f = await slicedFixture(),
+      { state, root } = f;
+    const a = await scopeTree(f, f.scopes[0]!),
+      b = await scopeTree(f, f.scopes[1]!);
+    expect(a.branchName).not.toBe(b.branchName);
+    expect(a.path).not.toBe(b.path);
+    await expect(scopeTree(f, f.scopes[0]!)).rejects.toThrow('active worktree');
+    await expect(scopeTree(f, { ...f.scopes[0]!, sourceId: 'foreign-slice' })).rejects.toThrow();
+    await expect(scopeTree(f, f.parentScope)).rejects.toThrow('has not merged');
+    await expect(scopeTree(f, { ...f.scopes[0]!, kind: 'slice-verification' })).rejects.toThrow(
+      'Merge this slice',
+    );
+    await expect(
+      state.context.services.executionService.createWorktree(
+        f.auth,
+        state.workspaceId,
+        state.workItemId,
+        { repositoryId: f.repository.id },
+      ),
+    ).rejects.toThrow('uses execution slices');
+    commitFile(a.path, 'a.txt', 'A');
+    await reviewScope(f, a, true);
+    expect((await merge(state, a.id)).statusCode).toBe(409);
+    await reviewScope(f, a);
+    const landedA = await merge(state, a.id);
+    expect(landedA.statusCode, landedA.body).toBe(200);
+    expect(landedA.json().workItemCompleted).toBe(false);
+    expect(
+      state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.status,
+    ).toBe('admitted');
+    const bypass = await branchCommand(state, `work-items/${state.workItemId}/complete`, {});
+    expect(bypass.statusCode, bypass.body).toBe(409);
+    const evidenceA = await recordScope(f, a);
+    expect(evidenceA.statusCode, evidenceA.body).toBe(200);
+    expect(evidenceA.json()).toEqual({ recorded: true, workItemCompleted: false });
+    // Sibling branch must refresh and receive its own fresh review after integration advances.
+    git(['merge', '--no-edit', 'main'], b.path);
+    commitFile(b.path, 'b.txt', 'B');
+    await reviewScope(f, b);
+    const landedB = await merge(state, b.id);
+    expect(landedB.statusCode, landedB.body).toBe(200);
+    await expect(scopeTree(f, f.parentScope)).rejects.toThrow('has not been verified');
+    expect((await recordScope(f, b)).statusCode).toBe(200);
+    const acceptance = await scopeTree(f, f.parentScope);
+    const disallowed = await branchCommand(state, `work-items/${state.workItemId}/runs`, {
+      worktreeId: acceptance.id,
+      role: 'implement',
+    });
+    expect(disallowed.statusCode, disallowed.body).toBe(409);
+    await reviewScope(f, acceptance, false, true);
+    const missingCase = await recordScope(f, acceptance);
+    expect(missingCase.statusCode, missingCase.body).toBe(409);
+    expect(missingCase.body).toContain('CASE-PARENT');
+    await reviewScope(f, acceptance);
+    expect((await merge(state, acceptance.id)).statusCode).toBe(409);
+    commitFile(root, 'post-review.txt', 'Integration advanced after review');
+    const staleParent = await recordScope(f, acceptance);
+    expect(staleParent.statusCode, staleParent.body).toBe(409);
+    git(['merge', '--no-edit', 'main'], acceptance.path);
+    await reviewScope(f, acceptance);
+    const accepted = await recordScope(f, acceptance);
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    expect(accepted.json()).toEqual({ recorded: true, workItemCompleted: true });
+    expect((await recordScope(f, acceptance)).json()).toEqual({
+      recorded: false,
+      workItemCompleted: true,
+    });
+    const item = state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId);
+    expect(item?.status).toBe('completed');
+    expect(item?.mergeSha).toBe(git(['rev-parse', 'main'], root).trim());
+    expect(
+      state.context.storage.planning.dependencies.listPredecessors(state.workspaceId, f.second)[0]
+        ?.status,
+    ).toBe('completed');
+    const reopened = openCraftingTableStorage(state.context.config.databasePath);
+    try {
+      expect(reopened.scopeReceipts.list(state.workspaceId, state.workItemId)).toHaveLength(3);
+      expect(reopened.execution.worktrees.find(state.workspaceId, a.id)?.executionScope).toEqual(
+        f.scopes[0],
+      );
+    } finally {
+      reopened.close();
+    }
+    expect(f.backend.launches.at(-1)?.prompt).toContain('Original plan conforms');
+    expect(f.backend.launches.at(-1)?.prompt).toContain('CASE-PARENT');
+    const lastRun = state.context.storage.execution.runs.listForWorktree(
+      state.workspaceId,
+      acceptance.id,
+    )[0]!;
+    const ledger = JSON.parse(
+      readFileSync(
+        join(
+          state.context.config.execution.runsRoot,
+          lastRun.id,
+          'plan',
+          'craftingtable-scope-evidence.json',
+        ),
+        'utf8',
+      ),
+    );
+    expect(ledger.receipts).toHaveLength(2);
+    const db = openDatabase(state.context.config.databasePath);
+    try {
+      expect(() => db.prepare('UPDATE scope_receipts SET record_json = record_json').run()).toThrow(
+        'immutable',
+      );
+      expect(() =>
+        db.prepare('UPDATE worktrees SET execution_scope_json = NULL WHERE id = ?').run(a.id),
+      ).toThrow('immutable');
+    } finally {
+      db.close();
+    }
+  });
+  it('allows sibling cycles and persists their scope through roadmap reservations', {
+    timeout: 15000,
+  }, async () => {
+    const f = await slicedFixture(),
+      { state } = f;
+    f.backend.replyForRequest = (request) =>
+      request.model === 'design-model'
+        ? designDone
+        : request.model === 'review-model'
+          ? {
+              resultText: scopeReport(
+                state,
+                state.context.storage.execution.worktrees
+                  .listForWorkItem(state.workspaceId, state.workItemId)
+                  .find((t) => t.path === request.cwd)!.executionScope!,
+              ),
+            }
+          : implementationDone;
+    const input = {
+      ...roadmapInput(state, [state.workItemId, state.workItemId]),
+      scheduling: {
+        mode: 'parallel',
+        maxInFlight: 2,
+        maxPerRepository: 2,
+        maxIntegrationRefreshes: 3,
+      },
+      entries: roadmapInput(state, [state.workItemId, state.workItemId]).entries.map((e, i) => ({
+        ...e,
+        executionScope: f.scopes[i],
+      })),
+    };
+    const saved = await saveRoadmapRequest(state, input);
+    expect(saved.statusCode, saved.body).toBe(200);
+    await roadmapControl(state, 'start');
+    await waitFor(
+      () => state.context.storage.execution.cycles.list(state.workspaceId).length === 2,
+      'two sibling cycles',
+      8000,
+    );
+    const cycles = state.context.storage.execution.cycles.list(state.workspaceId);
+    expect(new Set(cycles.map((c) => c.executionScope?.sourceId)).size).toBe(2);
+    expect(new Set(cycles.map((c) => c.worktreeId)).size).toBe(2);
+    for (const cycle of cycles)
+      await waitFor(
+        () => {
+          const c = currentCycle(state, cycle);
+          if (c.status === 'needs-attention') throw new Error(c.reason);
+          return c.status === 'awaiting-merge';
+        },
+        `review ${cycle.executionScope?.sourceId}`,
+        8000,
+      );
+    const first = cycles[0]!,
+      second = cycles[1]!;
+    await mergeRoadmapAttempt(state, first.worktreeId);
+    await waitFor(
+      () =>
+        currentCycle(state, second).integrationRefreshes === 1 &&
+        currentCycle(state, second).status === 'awaiting-merge',
+      'fresh slice review',
+      6000,
+    );
+    await mergeRoadmapAttempt(state, second.worktreeId);
+    await waitFor(() => storedRoadmap(state).status === 'completed', 'slice roadmap completed');
+    expect(
+      state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.status,
+    ).toBe('admitted');
+    expect(
+      state.context.storage.planning.dependencies.listPredecessors(state.workspaceId, f.second)[0]
+        ?.status,
+    ).toBe('admitted');
+  });
+  it('rejects stale integration evidence, supports fresh verification, and keeps older bound attempts visible', async () => {
+    const f = await slicedFixture(),
+      { state, root } = f;
+    const a = await scopeTree(f, f.scopes[0]!);
+    commitFile(a.path, 'a.txt', 'A');
+    await reviewScope(f, a);
+    expect((await merge(state, a.id)).statusCode).toBe(200);
+    commitFile(root, 'later.txt', 'Later integration change');
+    const stale = await recordScope(f, a);
+    expect(stale.statusCode, stale.body).toBe(409);
+    expect(stale.body).toContain('fresh slice verification');
+    const verification = await scopeTree(f, { ...f.scopes[0]!, kind: 'slice-verification' });
+    await reviewScope(f, verification);
+    const badCsrf = await recordScope(f, verification, {
+      ...mutationHeaders(state),
+      'x-craftingtable-csrf': 'bad',
+    });
+    expect(badCsrf.statusCode).toBe(403);
+    const accepted = await recordScope(f, verification);
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    const old = state.context.storage.imports.bindings(
+      state.workspaceId,
+      f.scopes[0]!.definitionId,
+    )[0]!;
+    state.context.storage.imports.addBindings({ ...old, revision: 2 });
+    const choices = state.context.services.executionService.executionScopes(
+      f.auth,
+      state.workspaceId,
+      state.workItemId,
+    ).choices;
+    expect(choices[0]?.scope.bindingRevision).toBe(1);
+    expect(choices[0]?.status).toBe('verified');
+    const settings = state.context.storage.execution.branchSettings.find(
+      state.workspaceId,
+      asPlanVersionId('version-1'),
+    )!;
+    state.context.storage.execution.branchSettings.save(
+      { ...settings, version: settings.version + 1 },
+      settings.version,
+    );
+    await expect(scopeTree(f, f.scopes[1]!)).rejects.toThrow('binding changed');
+  });
+});
+
+it('enforces slice phase requirements in manual controls without treating checkpoints as passed', async () => {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    slices: source.slices.map((s, i) =>
+      i === 0
+        ? s
+        : {
+            ...s,
+            start_requires: [{ kind: 'slice', id: 'AQ-01.A', state: 'merged' }],
+            verify_requires: [{ kind: 'checkpoint', id: 'external-proof', state: 'passed' }],
+          },
+    ),
+  }));
+  await expect(scopeTree(f, f.scopes[1]!)).rejects.toThrow('must be merged');
+  const a = await scopeTree(f, f.scopes[0]!);
+  commitFile(a.path, 'a.txt', 'A');
+  await reviewScope(f, a);
+  expect((await merge(f.state, a.id)).statusCode).toBe(200);
+  const b = await scopeTree(f, f.scopes[1]!);
+  commitFile(b.path, 'b.txt', 'B');
+  await reviewScope(f, b);
+  expect((await merge(f.state, b.id)).statusCode).toBe(200);
+  const evidence = await recordScope(f, b);
+  expect(evidence.statusCode, evidence.body).toBe(409);
+  expect(evidence.body).toContain('Checkpoint external-proof must pass');
+  expect(
+    f.state.context.storage.scopeReceipts.list(f.state.workspaceId, f.state.workItemId),
+  ).toHaveLength(0);
 });

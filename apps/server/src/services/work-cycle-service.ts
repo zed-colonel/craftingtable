@@ -1,3 +1,5 @@
+import { sameExecutionScope } from '@craftingtable/domain';
+import { requireScope, requireTreeScope, scopedReviewIssue } from './execution-scope.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type {
   ControlFinalizationRequest,
@@ -87,7 +89,13 @@ export class WorkCycleService {
     const worktree = this.storage.execution.worktrees.find(workspaceId, input.worktreeId);
     if (!worktree || worktree.workItemId !== workItemId) throw new NotFoundError();
     this.mutations.requireAvailable(input.worktreeId);
-    const item = this.requireReady(workspaceId, workItemId);
+    if (worktree.executionScope && worktree.executionScope.kind !== 'slice')
+      throw new ExecutionRequestError(
+        'conflict',
+        'Parent acceptance uses a review run, not an implementation cycle.',
+      );
+    requireTreeScope(this.storage, worktree, 'start');
+    const item = this.requireReady(workspaceId, workItemId, worktree.executionScope);
     if (worktree.status !== 'active')
       throw new ExecutionRequestError('conflict', 'Worktree has been removed');
     if (
@@ -95,7 +103,11 @@ export class WorkCycleService {
         .list(workspaceId)
         .some(
           (cycle) =>
-            cycle.workItemId === workItemId && !['stopped', 'completed'].includes(cycle.status),
+            cycle.workItemId === workItemId &&
+            (!cycle.executionScope ||
+              !worktree.executionScope ||
+              sameExecutionScope(cycle.executionScope, worktree.executionScope)) &&
+            !['stopped', 'completed'].includes(cycle.status),
         )
     ) {
       throw new ExecutionRequestError('conflict', 'This work item already has an active cycle');
@@ -112,9 +124,10 @@ export class WorkCycleService {
       id: reservedId ?? randomUUID(),
       workspaceId,
       workItemId,
+      ...(worktree.executionScope ? { executionScope: worktree.executionScope } : {}),
       projectId: worktree.projectId,
       worktreeId: worktree.id,
-      workItemSourceId: item.sourceId,
+      workItemSourceId: worktree.executionScope?.sourceId ?? item.sourceId,
       workItemTitle: item.title,
       createdByUserId: context.user.id,
       createdAt: occurredAt,
@@ -608,7 +621,7 @@ export class WorkCycleService {
         expectedVersion,
       });
     this.mutations.requireAvailable(cycle.worktreeId);
-    if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId);
+    if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     else finalizationForCycle(this.storage, cycle);
     const allRuns = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
     const run = allRuns[0];
@@ -767,7 +780,8 @@ export class WorkCycleService {
       this.attention(cycle, 'The initiating user no longer has permission to run this cycle.');
       return;
     }
-    if (cycle.workItemId) this.requireReady(cycle.workspaceId, cycle.workItemId);
+    if (cycle.workItemId)
+      this.requireReady(cycle.workspaceId, cycle.workItemId, cycle.executionScope);
     else finalizationForCycle(this.storage, cycle);
     if (
       this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
@@ -928,7 +942,13 @@ export class WorkCycleService {
       return;
     }
     const assessment = latestReviewReport(this.storage.execution, run);
-    const decision = evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext);
+    const scopedTree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    const scopeIssue = scopedTree && scopedReviewIssue(this.storage, scopedTree, assessment);
+    const decision = evaluateCycleCompletion(
+      cycle,
+      scopeIssue ? { status: 'invalid', issues: [scopeIssue] } : assessment,
+      run.reviewBranchContext,
+    );
     if (finalization && assessment?.status === 'invalid') {
       this.attention(
         cycle,
@@ -1501,7 +1521,13 @@ export class WorkCycleService {
       if (blocker) throw new ExecutionRequestError('conflict', blocker);
     }
     const assessment = latestReviewReport(this.storage.execution, run);
-    const decision = evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext);
+    const scopedTree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    const scopeIssue = scopedTree && scopedReviewIssue(this.storage, scopedTree, assessment);
+    const decision = evaluateCycleCompletion(
+      cycle,
+      scopeIssue ? { status: 'invalid', issues: [scopeIssue] } : assessment,
+      run.reviewBranchContext,
+    );
     if (remediationUsed(cycle) >= remediationAllowance(cycle) + (grant?.additionalRounds ?? 0)) {
       this.attention(cycle, `Remediation limit reached. ${decision.reason}`);
       return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
@@ -1969,7 +1995,7 @@ export class WorkCycleService {
     const git = this.git;
     const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
     if (!git || !tree?.integrationBranch || tree.status !== 'active') throw new NotFoundError();
-    if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId);
+    if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     else finalizationForCycle(this.storage, cycle);
     return this.resolutionMutation(cycle, async (checkOwned) => {
       const check = () => {
@@ -2346,7 +2372,12 @@ export class WorkCycleService {
     }
     return result.value.headSha;
   }
-  private requireReady(workspaceId: WorkspaceId, workItemId: WorkItemId) {
+  private requireReady(
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
+    scope?: import('@craftingtable/domain').ExecutionScope,
+  ) {
+    if (scope) requireScope(this.storage, workspaceId, workItemId, scope, 'start');
     const item = this.storage.planning.workItems.find(workspaceId, workItemId);
     if (item?.status !== 'admitted')
       throw new ExecutionRequestError(

@@ -163,6 +163,12 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
       };
     case 'source-repository-registered':
       return { ...current, repositoryList: true };
+    case 'scope-evidence-recorded':
+      return {
+        ...current,
+        workspaceSummary: true,
+        workItemIds: unique([...current.workItemIds, event.payload.workItemId]),
+      };
     case 'roadmap-changed':
     case 'notifications-changed':
     case 'workspace-updated':

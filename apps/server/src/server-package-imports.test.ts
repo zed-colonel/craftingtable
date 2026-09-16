@@ -181,6 +181,38 @@ describe('package import HTTP flow', () => {
       expect.objectContaining({ code: 'baseline-unbound', severity: 'info' }),
     ]);
     expect(saved.json().summary.executable).toBe(false);
+    const item = saved.json().repositories.find((p: { alias: string }) => p.alias === 'wi')
+      .boundWorkItems[0].workItemId;
+    const scopes = await r.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${r.workspaceId}/work-items/${item}/execution-scopes`,
+      headers: { cookie: r.session.cookie },
+    });
+    expect(scopes.statusCode, scopes.body).toBe(200);
+    expect(
+      scopes
+        .json()
+        .choices.some((c: { scope: { kind: string } }) => c.scope.kind === 'parent-acceptance'),
+    ).toBe(true);
+    expect(
+      scopes
+        .json()
+        .choices.every((c: { blockers: string[] }) =>
+          c.blockers.some((b) => b.includes('Pinned upstream environments')),
+        ),
+    ).toBe(true);
+    const blocked = await r.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${r.workspaceId}/work-items/${item}/worktrees`,
+      headers: {
+        cookie: r.session.cookie,
+        origin: r.context.config.publicOrigin,
+        'x-craftingtable-csrf': r.session.csrfToken,
+      },
+      payload: { repositoryId, executionScope: scopes.json().choices[0].scope },
+    });
+    expect(blocked.statusCode, blocked.body).toBe(409);
+    expect(blocked.body).toContain('Pinned upstream environments');
     expect(
       saved.json().repositories.find((p: { alias: string }) => p.alias === 'wi').boundWorkItems,
     ).toHaveLength(14);

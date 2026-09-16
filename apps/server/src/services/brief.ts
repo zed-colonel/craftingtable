@@ -24,6 +24,15 @@ export interface BriefPlanDocument {
 }
 
 export interface BriefInput {
+  readonly executionScope?: {
+    readonly identity: import('@craftingtable/domain').ExecutionScope;
+    readonly title: string;
+    readonly scope: string;
+    readonly excludes: readonly string[];
+    readonly requirements: readonly string[];
+    readonly cases: readonly string[];
+    readonly context: string;
+  };
   readonly reviewContinuationArtifacts?: readonly string[];
   readonly resolvingIntegration?: boolean;
   readonly planFinalization?: boolean;
@@ -161,7 +170,15 @@ function formatSourceFields(value: JsonValue): string {
 }
 
 export function composeBrief(input: BriefInput): string {
-  const { workItem, worktree } = input;
+  const workItem = input.executionScope
+    ? {
+        ...input.workItem,
+        sourceId: input.executionScope.identity.sourceId,
+        title: input.executionScope.title,
+        exitGate: input.executionScope.scope,
+      }
+    : input.workItem;
+  const { worktree } = input;
   const sections: string[] = [];
   sections.push(
     input.planFinalization
@@ -169,6 +186,16 @@ export function composeBrief(input: BriefInput): string {
       : `# Work item ${workItem.sourceId}: ${workItem.title}`,
   );
   sections.push(`Project: ${input.projectName}\nRole: ${input.role}`);
+  if (input.executionScope) {
+    const s = input.executionScope;
+    sections.push(
+      `## Controller-owned execution scope\n\nThis run covers only ${s.identity.sourceId}. The parent exit gate remains: ${input.workItem.exitGate}. Do not implement excluded work or mark the parent complete.\nScope: ${s.scope}\nExclusions:\n${s.excludes.map((e) => `- ${e}`).join('\n') || '- none'}\n${s.context}\nEvidence obligations:\n${s.requirements.map((e) => `- ${e}`).join('\n')}\nAssigned cases: ${s.cases.join(', ') || 'none'}`,
+    );
+    if (input.role === 'review')
+      sections.push(
+        `In the structured craftingtable-review report add scopeEvidence with this exact scope identity, an evidence entry for each requirement actually verified, and caseIds for cases actually checked. Never claim missing verification or outside-scope obligations passed. Shape: ${JSON.stringify({ scopeEvidence: { scope: s.identity, requirements: s.requirements.map((requirement) => ({ requirement, evidence: 'Concise commands/results and durable evidence references' })), caseIds: s.cases } })}. A slice review approves integration of this scope; it never accepts its parent. Use the supplied craftingtable-scope-evidence.json artifact for recorded slice receipts and verification references. A parent-acceptance review must independently assess the full original exit gate and retained source-plan obligations. Do not modify source files during acceptance review.`,
+      );
+  }
   sections.push(
     `## Your role\n\n${input.resolvingIntegration ? 'Resolve the daemon-prepared integration merge in this worktree. Stage intended changes and verify the combined behavior. Do not commit, switch branches, start another merge, abort the merge, or move any branch. The daemon owns completion. Follow the pinned resolution instructions below.' : ROLE_INSTRUCTIONS[input.role]}`,
   );

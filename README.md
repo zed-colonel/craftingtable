@@ -24,6 +24,16 @@ it is mergeable.
   Saved selections are shown separately from future baseline verification and execution setup.
   The preview shows missing configuration, targets, proposed decisions, resources and gates;
   adoption and cross-project execution arrive in later increments.
+- **Execution slices and parent acceptance.** Bound map slices appear on their work-item
+  pages and in the roadmap editor's **Execution scope** selector. Each slice has its own
+  branch, worktree and cycle. A slice merge leaves its parent incomplete. Record slice
+  verification from a successful scoped review; if integration has advanced, create a fresh
+  verification review. Once all required slices and evidence are verified, create a parent
+  acceptance worktree, launch its review, and use **Accept parent after review**. Only that
+  acceptance completes the parent and releases its dependents. Reviews retain evidence in a
+  separate run artifact. The reference WI/EXO map remains blocked on the upcoming scheduling,
+  adoption and upstream-environment increments; importing or selecting a slice never approves
+  those requirements. Existing whole-item workflows remain available.
 - **Repositories.** Register any local Git checkout by path.
 - **Plan branches.** Open **Projects → a plan → Repository & branches** to select a
   registered repository and an existing integration branch, or explicitly create one

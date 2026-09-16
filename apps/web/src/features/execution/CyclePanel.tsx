@@ -59,13 +59,21 @@ export function CyclePanel({
     input: Omit<IntegrationResolutionRequest, 'expectedVersion'>,
   ) => void;
 }) {
-  const active = cycles.find((cycle) => !['stopped', 'completed'].includes(cycle.status));
-  const activeWorktrees = worktrees.filter((worktree) => worktree.status === 'active');
+  const activeWorktrees = worktrees.filter(
+    (worktree) =>
+      worktree.status === 'active' &&
+      (!worktree.executionScope || worktree.executionScope.kind === 'slice'),
+  );
   const [worktreeId, setWorktreeId] = useState(activeWorktrees[0]?.id ?? '');
   const selected =
     activeWorktrees.find((worktree) => worktree.id === worktreeId)?.id ??
     activeWorktrees[0]?.id ??
     '';
+  const active = cycles.find(
+    (cycle) =>
+      (!selected || cycle.worktreeId === selected) &&
+      !['stopped', 'completed'].includes(cycle.status),
+  );
   const [policy, setPolicy] = useState(DEFAULT_COMPLETION_POLICY);
   const [instructions, setInstructions] = useState('');
   const [choices, setChoices] = useState<CycleProfiles>(
@@ -98,6 +106,18 @@ export function CyclePanel({
   );
   return (
     <section className="panel cycle-panel" aria-label="Automated cycle">
+      {activeWorktrees.length > 1 && (
+        <label className="field">
+          Cycle worktree
+          <select value={selected} onChange={(e) => setWorktreeId(e.target.value)}>
+            {activeWorktrees.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.executionScope?.sourceId ?? t.branchName} · {t.branchName}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <h2>Automated cycle</h2>
       {active ? (
         <>

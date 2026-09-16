@@ -59,6 +59,7 @@ export function ownsIntegrationResolution(cycle: WorkCycle | undefined): boolean
   );
 }
 export interface WorkCycle {
+  readonly executionScope?: import('./execution-scope.js').ExecutionScope;
   readonly id: string;
   readonly workspaceId: WorkspaceId;
   readonly workItemId?: WorkItemId;

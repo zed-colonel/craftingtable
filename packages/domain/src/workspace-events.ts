@@ -54,6 +54,7 @@ export const WORKSPACE_EVENT_KINDS = [
   'branches-changed',
   'notifications-changed',
   'roadmap-changed',
+  'scope-evidence-recorded',
 ] as const;
 export type WorkspaceEventKind = (typeof WORKSPACE_EVENT_KINDS)[number];
 
@@ -80,8 +81,9 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'branches-changed': 10,
   'notifications-changed': 11,
   'roadmap-changed': 12,
+  'scope-evidence-recorded': 18,
 } as const satisfies Readonly<
-  Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11 | 12 | 17>
+  Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11 | 12 | 17 | 18>
 >;
 
 export function isWorkspaceEventKind(value: unknown): value is WorkspaceEventKind {
@@ -452,7 +454,23 @@ export interface RoadmapChangedEvent extends WorkspaceEventBase {
     readonly reason: string;
   };
 }
+export interface ScopeEvidenceRecordedEvent extends WorkspaceEventBase {
+  readonly kind: 'scope-evidence-recorded';
+  readonly projectId?: never;
+  readonly workItemId?: never;
+  readonly runId?: never;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: {
+    readonly workItemId: WorkItemId;
+    readonly worktreeId: WorktreeId;
+    readonly sourceId: string;
+    readonly parentAccepted: boolean;
+  };
+}
 export type WorkspaceEvent =
+  | ScopeEvidenceRecordedEvent
   | RoadmapChangedEvent
   | NotificationsChangedEvent
   | BranchesChangedEvent

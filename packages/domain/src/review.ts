@@ -24,6 +24,7 @@ export interface ReviewFinding {
 
 /** A reviewer's consolidated assertions, not independently proven correctness. */
 export interface ReviewReport {
+  readonly scopeEvidence?: import('./execution-scope.js').ScopeReviewEvidence;
   readonly version: 1;
   readonly complete: true;
   readonly verdict: AgentRunVerdict;

@@ -119,7 +119,9 @@ export function DelegationPanel({
   profiles?: readonly ProfileEntry[];
 }) {
   const roleProfiles = profiles ?? [];
-  const initialChoice = profileChoice('implement', roleProfiles);
+  const initialScope = worktrees.find((t) => t.status === 'active')?.executionScope;
+  const initialRole = initialScope && initialScope.kind !== 'slice' ? 'review' : 'implement';
+  const initialChoice = profileChoice(initialRole, roleProfiles);
   const availableBackends = backends.filter((backend) => backend.available);
   const [backendKind, setBackendKind] = useState<AgentBackendKind | ''>(
     initialChoice?.backend ?? '',
@@ -133,7 +135,7 @@ export function DelegationPanel({
   const mergedWorktrees = worktrees.filter((worktree) => worktree.mergedAt !== undefined);
   const [repositoryId, setRepositoryId] = useState<string>('');
   const [worktreeId, setWorktreeId] = useState<string>('');
-  const [role, setRole] = useState<AgentRunRole>('implement');
+  const [role, setRole] = useState<AgentRunRole>(initialRole);
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>(
     initialChoice?.permissionMode ?? 'auto',
   );
@@ -156,7 +158,11 @@ export function DelegationPanel({
   };
 
   const selectedRepository = repositoryId || activeRepositories[0]?.id || '';
-  const selectedWorktree = worktreeId || activeWorktrees[0]?.id || '';
+  const selectedWorktree =
+    activeWorktrees.find((t) => t.id === worktreeId)?.id || activeWorktrees[0]?.id || '';
+  const selectedScope = activeWorktrees.find((t) => t.id === selectedWorktree)?.executionScope;
+  const reviewOnly = !!selectedScope && selectedScope.kind !== 'slice';
+  const effectiveRole = reviewOnly ? 'review' : role;
   const liveRuns = runs.filter((run) => isLiveStatus(run.status));
   const latestFinished = runs.find(
     (run) => run.worktreeId === selectedWorktree && !isLiveStatus(run.status),
@@ -180,11 +186,11 @@ export function DelegationPanel({
     onLaunch({
       backend: selectedBackend.kind,
       worktreeId: selectedWorktree as WorktreeId,
-      role,
+      role: effectiveRole,
       permissionMode,
       ...(trimmedModel.length === 0 ? {} : { model: trimmedModel }),
       ...(trimmedInstructions.length === 0 ? {} : { instructions: trimmedInstructions }),
-      ...(role === 'review' && latestFinished !== undefined
+      ...(effectiveRole === 'review' && latestFinished !== undefined
         ? { parentRunId: latestFinished.id }
         : {}),
     });
@@ -260,6 +266,12 @@ export function DelegationPanel({
               <li key={worktree.id} className="worktree-item">
                 <div>
                   <span className="mono">{worktree.branchName}</span>
+                  {worktree.executionScope && (
+                    <p className="hint">
+                      {worktree.executionScope.sourceId} ·{' '}
+                      {worktree.executionScope.kind.replaceAll('-', ' ')}
+                    </p>
+                  )}
                   <span className="hint">
                     {' '}
                     from {worktree.baseBranch} @ {shortSha(worktree.baseSha)}
@@ -390,36 +402,41 @@ export function DelegationPanel({
           })}
         </ul>
       )}
-      {canMutate && !itemCompleted && !hideCreateWorktree && (
-        <form
-          className="inline-form"
-          onSubmit={createWorktree}
-          style={{ marginTop: 'var(--space-3)' }}
-        >
-          <label className="field">
-            Repository
-            <select
-              value={selectedRepository}
-              onChange={(event) => setRepositoryId(event.target.value)}
+      {canMutate &&
+        !itemCompleted &&
+        !hideCreateWorktree &&
+        !worktrees.some((t) => t.executionScope) && (
+          <form
+            className="inline-form"
+            onSubmit={createWorktree}
+            style={{ marginTop: 'var(--space-3)' }}
+          >
+            <label className="field">
+              Repository
+              <select
+                value={selectedRepository}
+                onChange={(event) => setRepositoryId(event.target.value)}
+                disabled={busy || activeRepositories.length === 0}
+              >
+                {activeRepositories.map((repository) => (
+                  <option key={repository.id} value={repository.id}>
+                    {repository.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="secondary-button"
               disabled={busy || activeRepositories.length === 0}
             >
-              {activeRepositories.map((repository) => (
-                <option key={repository.id} value={repository.id}>
-                  {repository.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="submit"
-            className="secondary-button"
-            disabled={busy || activeRepositories.length === 0}
-          >
-            Create worktree
-          </button>
-          {activeRepositories.length === 0 && <p className="hint">Register a repository first.</p>}
-        </form>
-      )}
+              Create worktree
+            </button>
+            {activeRepositories.length === 0 && (
+              <p className="hint">Register a repository first.</p>
+            )}
+          </form>
+        )}
 
       {canMutate && !itemCompleted && (
         <form className="stack-form" onSubmit={launch} aria-label="Launch an agent">
@@ -435,7 +452,13 @@ export function DelegationPanel({
               Worktree
               <select
                 value={selectedWorktree}
-                onChange={(event) => setWorktreeId(event.target.value)}
+                onChange={(event) => {
+                  setWorktreeId(event.target.value);
+                  const scope = activeWorktrees.find(
+                    (t) => t.id === event.target.value,
+                  )?.executionScope;
+                  if (scope && scope.kind !== 'slice') applyRole('review');
+                }}
                 disabled={busy || activeWorktrees.length === 0}
               >
                 {activeWorktrees.map((worktree) => (
@@ -468,9 +491,9 @@ export function DelegationPanel({
             <label className="field">
               Role
               <select
-                value={role}
+                value={effectiveRole}
                 onChange={(event) => applyRole(event.target.value as AgentRunRole)}
-                disabled={busy}
+                disabled={busy || reviewOnly}
               >
                 {AGENT_RUN_ROLES.map((candidate) => (
                   <option key={candidate} value={candidate}>
@@ -524,7 +547,7 @@ export function DelegationPanel({
               className="primary-button"
               disabled={busy || activeWorktrees.length === 0 || !backendAvailable}
             >
-              {busy ? 'Working…' : `Launch ${RUN_ROLE_LABELS[role].toLowerCase()} run`}
+              {busy ? 'Working…' : `Launch ${RUN_ROLE_LABELS[effectiveRole].toLowerCase()} run`}
             </button>
           </div>
         </form>

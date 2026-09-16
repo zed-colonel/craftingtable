@@ -1,3 +1,12 @@
+import {
+  requireScope,
+  requireScopeOwnership,
+  requireTreeScope,
+  scopeChoices,
+  scopedReviewIssue,
+  scopeEvidenceIssues,
+  latestSliceMerge,
+} from './execution-scope.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -40,7 +49,9 @@ export type MergeGateReason =
   | 'run-live'
   | 'worktree-removed'
   | 'branch-review-required'
-  | 'merge-recovery-required';
+  | 'merge-recovery-required'
+  | 'scope-blocked'
+  | 'scope-review-only';
 
 export interface MergeGate {
   readonly mergeable: boolean;
@@ -119,6 +130,8 @@ function slug(value: string, maximum = 40): string {
 
 const MERGE_GATE_MESSAGES: Readonly<Record<MergeGateReason, string>> = {
   'merge-recovery-required': 'Recover the reserved integration merge before continuing',
+  'scope-blocked': 'Execution scope requirements or scoped review evidence are unresolved',
+  'scope-review-only': 'This worktree records verification or parent acceptance; it does not merge',
   'branch-review-required': 'Adopt an integration branch if needed and run a fresh review',
   ready: 'Ready to merge',
   'no-review': 'Merging requires a review run with a mergeable verdict; launch a review first',
@@ -383,6 +396,28 @@ export class ExecutionService {
         result.mergeGates[worktree.id] = { mergeable: true, reason: 'merge-recovery-required' };
         continue;
       }
+      if (worktree.executionScope?.kind && worktree.executionScope.kind !== 'slice') {
+        result.mergeGates[worktree.id] = { mergeable: false, reason: 'scope-review-only' };
+        continue;
+      }
+      if (worktree.executionScope && gate?.mergeable) {
+        try {
+          requireTreeScope(this.storage, worktree, 'merge');
+          const run = result.runs.find((r) => r.id === gate.reviewRunId);
+          if (
+            !run ||
+            scopedReviewIssue(
+              this.storage,
+              worktree,
+              latestReviewReport(this.storage.execution, run),
+            )
+          )
+            throw new Error('Scoped review required');
+        } catch {
+          result.mergeGates[worktree.id] = { mergeable: false, reason: 'scope-blocked' };
+          continue;
+        }
+      }
       if (!gate?.mergeable) continue;
       try {
         await this.branches.assertReview(
@@ -428,11 +463,230 @@ export class ExecutionService {
     });
   }
 
+  executionScopes(context: AuthContext, workspaceId: WorkspaceId, workItemId: WorkItemId) {
+    this.workspaceService.requireAuthorized(context, workspaceId);
+    if (!this.storage.planning.workItems.find(workspaceId, workItemId)) throw new NotFoundError();
+    return { choices: scopeChoices(this.storage, workspaceId, workItemId) };
+  }
+
+  async recordScopeReceipt(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    worktreeId: WorktreeId,
+    expectedWorktreeVersion: number,
+  ) {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    return this.mutations.during(worktreeId, async () => {
+      const tree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
+      if (!tree?.workItemId || !tree.executionScope) throw new NotFoundError();
+      const workItemId = tree.workItemId,
+        scope = tree.executionScope;
+      const repo = this.storage.execution.sourceRepositories.find(workspaceId, tree.repositoryId);
+      if (!repo) throw new NotFoundError();
+      return this.branches.duringMerge(repo.rootPath, async () => {
+        const git = this.requireGit();
+        const parent = scope.kind === 'parent-acceptance';
+        const phase = parent ? 'accept' : 'verify';
+        if (tree.version !== expectedWorktreeVersion)
+          throw new ExecutionRequestError(
+            'conflict',
+            'The worktree changed. Refresh before recording scope evidence.',
+          );
+        const normalized = {
+          ...scope,
+          kind: parent ? ('parent-acceptance' as const) : ('slice' as const),
+        };
+        const run = this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0];
+        const prior = this.storage.scopeReceipts
+          .list(workspaceId, workItemId)
+          .find((r) => r.worktreeId === worktreeId && r.reviewRunId === run?.id);
+        if (prior) return { recorded: false, workItemCompleted: parent };
+        const resolved = requireScope(this.storage, workspaceId, workItemId, scope, phase);
+        if (
+          tree.integrationBranch !== resolved.binding.integrationBranch ||
+          tree.repositoryId !== resolved.binding.repositoryId
+        )
+          throw new ExecutionRequestError(
+            'conflict',
+            'The worktree differs from its frozen scope binding.',
+          );
+        const report = run && latestReviewReport(this.storage.execution, run);
+        const turn =
+          run &&
+          this.storage.execution.runEvents.latestOfKind(workspaceId, run.id, 'turn-completed');
+        if (
+          run?.role !== 'review' ||
+          run.status !== 'finished' ||
+          turn?.kind !== 'turn-completed' ||
+          turn.payload.outcome !== 'success' ||
+          turn.payload.truncated ||
+          report?.status !== 'complete' ||
+          report.report.verdict !== 'mergeable' ||
+          !report.report.exitGate.met ||
+          report.report.findings.some((f) => f.status === 'open' && f.severity !== 'nit')
+        )
+          throw new ExecutionRequestError(
+            'conflict',
+            'A finished, successful independent review with no open blocking, major or minor findings is required.',
+          );
+        const evidence = report.report.scopeEvidence;
+        const issues = scopeEvidenceIssues(resolved, evidence);
+        if (issues.length || !evidence)
+          throw new ExecutionRequestError(
+            'conflict',
+            issues.join(' ') || 'Missing scope evidence.',
+          );
+        const head = await git.resolveBranch(
+          repo.rootPath,
+          resolved.binding.integrationBranch ?? '',
+        );
+        if (!head.ok) throw new ExecutionRequestError('conflict', head.failure.message);
+        let mergeSha = head.value;
+        if (scope.kind === 'slice') {
+          const merge = this.storage.execution.merges.latest(workspaceId, worktreeId);
+          if (
+            !tree.mergeSha ||
+            tree.mergeSha !== head.value ||
+            !merge ||
+            merge.reviewRunId !== run.id ||
+            merge.sourceSha !== run.reviewBranchContext?.headSha ||
+            merge.targetSha !== run.reviewBranchContext?.targetSha
+          )
+            throw new ExecutionRequestError(
+              'conflict',
+              'Merge this reviewed slice first. If integration has advanced, create a fresh slice verification worktree.',
+            );
+          mergeSha = tree.mergeSha;
+        } else {
+          if (tree.status !== 'active')
+            throw new ExecutionRequestError('conflict', 'The review worktree is no longer active.');
+          const reviewed = await this.branches.assertReview(tree, run);
+          if (reviewed.headSha !== head.value || reviewed.targetSha !== head.value)
+            throw new ExecutionRequestError(
+              'conflict',
+              'Acceptance and verification reviews must inspect the unchanged current integration snapshot.',
+            );
+          if (!parent) {
+            const merged = this.storage.execution.worktrees
+              .listForWorkItem(workspaceId, workItemId)
+              .filter(
+                (t) =>
+                  t.executionScope?.kind === 'slice' &&
+                  t.executionScope.sourceId === scope.sourceId &&
+                  t.executionScope.definitionId === scope.definitionId &&
+                  t.executionScope.bindingRevision === scope.bindingRevision &&
+                  t.mergeSha,
+              )
+              .sort((a, b) => (b.mergedAt ?? '').localeCompare(a.mergedAt ?? ''))[0];
+            if (!merged?.mergeSha)
+              throw new ExecutionRequestError('conflict', 'The slice has not merged.');
+            const ancestor = await git.isAncestor(repo.rootPath, merged.mergeSha, head.value);
+            if (!ancestor.ok || !ancestor.value)
+              throw new ExecutionRequestError(
+                'conflict',
+                'The slice merge is absent from integration.',
+              );
+            mergeSha = merged.mergeSha;
+          }
+        }
+        if (parent) {
+          for (const sourceId of resolved.parent.required_slices) {
+            const merged = latestSliceMerge(this.storage, workspaceId, workItemId, {
+              ...scope,
+              kind: 'slice',
+              sourceId,
+            });
+            const ancestor =
+              merged?.mergeSha &&
+              (await git.isAncestor(repo.rootPath, merged.mergeSha, head.value));
+            if (!ancestor || !ancestor.ok || !ancestor.value)
+              throw new ExecutionRequestError(
+                'conflict',
+                `Required slice ${sourceId} is absent from the reviewed integration snapshot.`,
+              );
+          }
+        }
+        // Recheck authority and gates after asynchronous Git inspection, before committing evidence.
+        this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+        requireScope(this.storage, workspaceId, workItemId, scope, phase);
+        if (
+          this.storage.execution.worktrees.find(workspaceId, worktreeId)?.version !==
+            expectedWorktreeVersion ||
+          this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0]?.id !== run.id
+        )
+          throw new ExecutionRequestError(
+            'conflict',
+            'The execution changed while recording evidence. Refresh and try again.',
+          );
+        const at = this.now().toISOString();
+        const result = this.storage.transaction((tx) => {
+          tx.scopeReceipts.add({
+            id: randomUUID(),
+            workspaceId,
+            workItemId,
+            scope: normalized,
+            worktreeId,
+            reviewRunId: run.id,
+            headSha: run.reviewBranchContext?.headSha ?? head.value,
+            integrationSha: mergeSha,
+            evidence,
+            recordedAt: at,
+            recordedByUserId: context.user.id,
+          });
+          const completion = parent
+            ? this.workItemService.completeWithin(tx, {
+                context,
+                workspaceId,
+                workItemId,
+                occurredAt: at,
+                worktreeId,
+                mergeSha: head.value,
+              })
+            : { completed: false };
+          tx.audit.append({
+            id: asAuditEventId(randomUUID()),
+            workspaceId,
+            occurredAt: at,
+            actorKind: 'user',
+            actorUserId: context.user.id,
+            sessionId: context.session.id,
+            action: 'scope.evidence-recorded',
+            targetType: 'worktree',
+            targetId: worktreeId,
+            outcome: 'succeeded',
+            metadata: {
+              operation: parent ? 'parent-accepted' : 'slice-verified',
+              sourceId: scope.sourceId,
+              definitionId: scope.definitionId,
+              bindingRevision: scope.bindingRevision,
+              reviewRunId: run.id,
+            },
+          });
+          tx.workspaceEvents.appendEvent({
+            id: asEventId(randomUUID()),
+            workspaceId,
+            occurredAt: at,
+            actorUserId: context.user.id,
+            kind: 'scope-evidence-recorded',
+            payload: { workItemId, worktreeId, sourceId: scope.sourceId, parentAccepted: parent },
+          });
+          return { recorded: true, workItemCompleted: completion.completed };
+        });
+        this.notifier.notify();
+        return result;
+      });
+    });
+  }
+
   async createWorktree(
     context: CommandContext,
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
-    input: { readonly repositoryId: SourceRepositoryId; readonly branchName?: string },
+    input: {
+      readonly repositoryId: SourceRepositoryId;
+      readonly branchName?: string;
+      readonly executionScope?: import('@craftingtable/domain').ExecutionScope;
+    },
     requestId?: string,
     reservation?: { readonly id: WorktreeId; readonly check: () => void },
   ): Promise<Worktree> {
@@ -440,6 +694,25 @@ export class ExecutionService {
       ...(requestId === undefined ? {} : { requestId }),
     });
     return this.workItemService.duringWorktreeCreation(workItemId, async () => {
+      requireScopeOwnership(this.storage, workspaceId, workItemId, input.executionScope);
+      const scoped = input.executionScope
+        ? requireScope(
+            this.storage,
+            workspaceId,
+            workItemId,
+            input.executionScope,
+            input.executionScope.kind === 'slice'
+              ? 'start'
+              : input.executionScope.kind === 'slice-verification'
+                ? 'verify'
+                : 'accept',
+          )
+        : undefined;
+      if (scoped && scoped.item.status !== 'admitted')
+        throw new ExecutionRequestError(
+          'conflict',
+          'Admit the parent before starting scoped execution.',
+        );
       const git = this.requireGit();
       const { item, repository } = this.storage.readTransaction((tx) => {
         const found = tx.planning.workItems.find(workspaceId, workItemId);
@@ -454,7 +727,9 @@ export class ExecutionService {
       }
       reservation?.check();
       const shortId = (reservation?.id ?? randomUUID()).slice(0, 8);
-      const branchName = input.branchName ?? `ct/${slug(item.sourceId)}-${shortId}`;
+      const branchName =
+        input.branchName ??
+        `ct/${slug(input.executionScope?.sourceId ?? item.sourceId)}-${shortId}`;
       if (!isValidBranchName(branchName)) {
         throw new ExecutionRequestError('invalid-request', 'Branch name is not well formed');
       }
@@ -467,6 +742,18 @@ export class ExecutionService {
       return this.branches.duringMerge(repository.rootPath, async () => {
         const base = await this.branches.creationBase(workspaceId, workItemId, repository.id);
         reservation?.check();
+        if (input.executionScope)
+          requireScope(
+            this.storage,
+            workspaceId,
+            workItemId,
+            input.executionScope,
+            input.executionScope.kind === 'slice'
+              ? 'start'
+              : input.executionScope.kind === 'slice-verification'
+                ? 'verify'
+                : 'accept',
+          );
         const created = await git.createWorktree({
           repositoryPath: repository.rootPath,
           worktreePath: path,
@@ -492,6 +779,7 @@ export class ExecutionService {
             repositoryId: repository.id,
             projectId: item.projectId,
             workItemId,
+            ...(input.executionScope ? { executionScope: input.executionScope } : {}),
             branchName,
             baseSha: base.headSha,
             baseBranch: base.branch,
@@ -762,6 +1050,7 @@ export class ExecutionService {
         const check = () => {
           this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
           delegation?.check();
+          requireTreeScope(this.storage, worktree, 'merge');
           this.branches.requireIntegrationAvailable(
             repository.rootPath,
             worktree.integrationBranch ?? '',
@@ -859,6 +1148,19 @@ export class ExecutionService {
             );
           const review = this.storage.execution.runs.find(workspaceId, gate.reviewRunId);
           const reviewed = await this.branches.assertReview(worktree, review);
+          if (
+            worktree.executionScope &&
+            (!review ||
+              scopedReviewIssue(
+                this.storage,
+                worktree,
+                latestReviewReport(this.storage.execution, review),
+              ))
+          )
+            throw new ExecutionRequestError(
+              'conflict',
+              'A complete review of this exact execution scope is required before merging.',
+            );
           if (
             finalApproval &&
             cycle &&
@@ -1027,7 +1329,7 @@ export class ExecutionService {
             },
           });
           const completion =
-            worktree.workItemId && item.status === 'admitted'
+            worktree.workItemId && !worktree.executionScope && item.status === 'admitted'
               ? this.workItemService.completeWithin(tx, {
                   context,
                   workspaceId,

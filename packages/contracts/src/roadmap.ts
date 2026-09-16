@@ -1,3 +1,4 @@
+import { executionScopeSchema } from './execution-scope.js';
 import { ROADMAP_STATUSES } from '@craftingtable/domain';
 import { z } from 'zod';
 import {
@@ -23,6 +24,7 @@ export const roadmapSchedulingSchema = z.strictObject({
   maxIntegrationRefreshes: z.number().int().min(1).max(20),
 });
 export const roadmapEntryInputSchema = z.strictObject({
+  executionScope: executionScopeSchema.extend({ kind: z.literal('slice') }).optional(),
   id: z.string().uuid(),
   workItemId: workItemIdSchema,
   profiles: cycleProfilesSchema,
@@ -46,8 +48,25 @@ export const saveRoadmapRequestSchema = z
   .refine(
     (x) =>
       new Set(x.entries.map((e) => e.id)).size === x.entries.length &&
-      new Set(x.entries.map((e) => e.workItemId)).size === x.entries.length,
-    'Entries and work items must be unique',
+      new Set(
+        x.entries.map(
+          (e) =>
+            `${e.workItemId}:${e.executionScope?.definitionId ?? ''}:${e.executionScope?.bindingRevision ?? ''}:${e.executionScope?.sourceId ?? ''}`,
+        ),
+      ).size === x.entries.length &&
+      x.entries.every(
+        (e) =>
+          !x.entries.some(
+            (other) =>
+              other.workItemId === e.workItemId &&
+              (!!e.executionScope !== !!other.executionScope ||
+                (e.executionScope &&
+                  other.executionScope &&
+                  (e.executionScope.definitionId !== other.executionScope.definitionId ||
+                    e.executionScope.bindingRevision !== other.executionScope.bindingRevision))),
+          ),
+      ),
+    'Entries and execution scopes must be unique; a parent cannot mix whole-item execution or map bindings',
   );
 export type SaveRoadmapRequest = z.infer<typeof saveRoadmapRequestSchema>;
 export const controlRoadmapRequestSchema = z.strictObject({

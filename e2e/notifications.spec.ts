@@ -7,6 +7,8 @@ test('owners configure write-only Pushover credentials and test delivery on desk
   await page.getByLabel('Username').fill('e2e-admin');
   await page.getByLabel('Password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Sign in' }).click();
+  // Wait for the initial redirect before opening the mobile navigation menu.
+  await expect(page.getByRole('heading', { name: 'Default workspace', exact: true })).toBeVisible();
   const navigate = async (name: string) => {
     const menu = page.getByRole('button', { name: 'Menu', exact: true });
     if (info.project.name === 'mobile-chromium') {

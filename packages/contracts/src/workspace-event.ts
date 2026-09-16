@@ -593,7 +593,21 @@ const roadmapChangedEventSchema = workspaceEventBaseSchema.extend({
     reason: z.string().max(4000),
   }),
 });
+const scopeEvidenceRecordedEventSchema = workspaceEventBaseSchema.extend({
+  kind: z.literal('scope-evidence-recorded'),
+  projectId: forbiddenCorrelationSchema,
+  workItemId: forbiddenCorrelationSchema,
+  runId: forbiddenCorrelationSchema,
+  ...noRepositoryCorrelations,
+  payload: z.strictObject({
+    workItemId: workItemIdSchema,
+    worktreeId: worktreeIdSchema,
+    sourceId: z.string().min(1).max(200),
+    parentAccepted: z.boolean(),
+  }),
+});
 export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
+  scopeEvidenceRecordedEventSchema,
   notificationsChangedEventSchema,
   roadmapChangedEventSchema,
   workspaceCreatedEventSchema,

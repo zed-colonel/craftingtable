@@ -69,6 +69,7 @@ export interface ReviewBranchContext {
 }
 
 export interface Worktree {
+  readonly executionScope?: import('./execution-scope.js').ExecutionScope;
   readonly id: WorktreeId;
   readonly workspaceId: WorkspaceId;
   readonly repositoryId: SourceRepositoryId;

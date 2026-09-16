@@ -990,7 +990,7 @@ describe('automated cycle controls', () => {
       stalledReviews: 0,
       reason: 'Operator merge approval required.',
     };
-    render(
+    const view = render(
       <CyclePanel
         cycles={[cycle]}
         worktrees={[worktree]}
@@ -1011,6 +1011,36 @@ describe('automated cycle controls', () => {
     expect(onControl).toHaveBeenCalledWith(cycle, 'pause');
     fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
     expect(onControl).toHaveBeenCalledWith(cycle, 'stop');
+    const siblingTree = {
+      ...worktree,
+      id: 'wt-2' as WorktreeSummary['id'],
+      branchName: 'ct/sibling',
+    };
+    const sibling = {
+      ...cycle,
+      id: 'second-cycle',
+      worktreeId: siblingTree.id,
+      reason: 'Sibling awaiting acceptance.',
+    };
+    view.rerender(
+      <CyclePanel
+        cycles={[cycle, sibling]}
+        worktrees={[worktree, siblingTree]}
+        runs={[]}
+        backends={backends}
+        profiles={profiles}
+        canMutate
+        busy={false}
+        admitted
+        onStart={vi.fn()}
+        onControl={onControl}
+        onOpenRun={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Cycle worktree'), { target: { value: 'wt-2' } });
+    expect(screen.getByText(sibling.reason)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
+    expect(onControl).toHaveBeenLastCalledWith(sibling, 'stop');
   });
 });
 
@@ -1063,4 +1093,34 @@ it('folds only the exact validated review report and retains other code and raw 
   );
   expect(document.querySelector('.run-outcome-prose')?.textContent).not.toContain('"findings"');
   expect(document.querySelector('.run-event-body')?.textContent).toBe(text);
+});
+
+it('offers only an independent review on a parent acceptance worktree with review defaults', () => {
+  const onLaunch = vi.fn();
+  render(
+    <DelegationPanel
+      {...panelProps({
+        onLaunch,
+        worktrees: [
+          {
+            ...worktree,
+            executionScope: {
+              kind: 'parent-acceptance',
+              definitionId: 'map',
+              bindingRevision: 1,
+              sourceId: 'AQ-01',
+            },
+          },
+        ],
+      })}
+    />,
+  );
+  const form = screen.getByRole('form', { name: 'Launch an agent' });
+  expect((within(form).getByLabelText('Role') as HTMLSelectElement).value).toBe('review');
+  expect((within(form).getByLabelText('Role') as HTMLSelectElement).disabled).toBe(true);
+  expect((within(form).getByLabelText('Agent') as HTMLSelectElement).value).toBe('claude-code');
+  fireEvent.click(within(form).getByRole('button', { name: 'Launch review run' }));
+  expect(onLaunch).toHaveBeenCalledWith(
+    expect.objectContaining({ role: 'review', worktreeId: worktree.id, model: 'opus' }),
+  );
 });

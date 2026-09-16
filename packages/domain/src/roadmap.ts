@@ -44,6 +44,7 @@ export interface RoadmapEntryHold {
   readonly reason: string;
 }
 export interface RoadmapEntry {
+  readonly executionScope?: import('./execution-scope.js').ExecutionScope;
   readonly id: string;
   readonly workItemId: WorkItemId;
   readonly projectId: ProjectId;
@@ -69,7 +70,7 @@ export interface RoadmapDefinition {
   readonly createdAt: string;
   readonly createdByUserId: UserId;
 }
-/** A whole-item execution attempt has its own identity and frozen definition binding. */
+/** A whole-item or slice execution attempt has its own identity and frozen definition binding. */
 export interface RoadmapAttempt {
   readonly id: string;
   readonly entryId: string;

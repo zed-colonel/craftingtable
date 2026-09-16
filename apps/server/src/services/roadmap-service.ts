@@ -1,3 +1,10 @@
+import { sameExecutionScope } from '@craftingtable/domain';
+import {
+  resolveScope,
+  scopeBlockers,
+  requireScopeOwnership,
+  unsupportedScopeCapabilities,
+} from './execution-scope.js';
 import { randomUUID } from 'node:crypto';
 import type { SaveRoadmapRequest } from '@craftingtable/contracts';
 import {
@@ -89,10 +96,16 @@ export class RoadmapService {
     const entries: RoadmapEntry[] = input.entries.map((entry, index) => {
       const item = this.storage.planning.workItems.find(workspaceId, entry.workItemId);
       if (!item) throw new NotFoundError();
+      const scoped = entry.executionScope
+        ? resolveScope(this.storage, workspaceId, entry.workItemId, entry.executionScope)
+        : undefined;
+      if (entry.executionScope && entry.executionScope.kind !== 'slice')
+        conflict('Roadmaps delegate slices, not parent acceptance reviews.');
       const frozen = started.find((e) => e.id === entry.id);
       if (frozen) {
         if (
           JSON.stringify({
+            ...(frozen.executionScope ? { executionScope: frozen.executionScope } : {}),
             id: frozen.id,
             workItemId: frozen.workItemId,
             profiles: frozen.profiles,
@@ -121,8 +134,8 @@ export class RoadmapService {
         ...entry,
         projectId: item.projectId,
         planVersionId: item.planVersionId,
-        sourceId: item.sourceId,
-        title: item.title,
+        sourceId: entry.executionScope?.sourceId ?? item.sourceId,
+        title: scoped?.slice?.title ?? item.title,
         repositoryId: settings.repositoryId,
         integrationBranch: settings.integrationBranch,
       };
@@ -225,6 +238,14 @@ export class RoadmapService {
           .some((r) => r.id !== id && r.status !== 'draft' && !ended(r))
       )
         conflict('This workspace already has a delegated roadmap. Stop or finish it first.');
+      for (const entry of roadmap.definition.entries) {
+        if (!entry.executionScope) continue;
+        const unsupported = unsupportedScopeCapabilities(
+          resolveScope(this.storage, workspaceId, entry.workItemId, entry.executionScope),
+        );
+        if (unsupported.length)
+          conflict(`This map scope cannot start yet: ${unsupported.join(' ')}`);
+      }
       // Explicit resume may adopt the owned cycle's manual handoff, using its normal guards.
       for (const attempt of roadmap.attempts.filter((a) => a.status !== 'completed')) {
         if (roadmap.entryHolds?.[attempt.entryId]?.status === 'paused') continue;
@@ -472,7 +493,8 @@ export class RoadmapService {
       if (
         worktree &&
         (worktree.integrationBranch !== entry.integrationBranch ||
-          worktree.repositoryId !== entry.repositoryId)
+          worktree.repositoryId !== entry.repositoryId ||
+          !sameExecutionScope(worktree.executionScope, entry.executionScope))
       )
         conflict(
           `${entry.sourceId}: The execution branch binding changed. Stop this roadmap and reconcile the remaining queue with the new target.`,
@@ -523,7 +545,8 @@ export class RoadmapService {
           );
           if (
             tree?.integrationBranch !== entry.integrationBranch ||
-            tree.repositoryId !== entry.repositoryId
+            tree.repositoryId !== entry.repositoryId ||
+            !sameExecutionScope(tree.executionScope, entry.executionScope)
           )
             conflict('Roadmap integration binding changed.');
         };
@@ -632,7 +655,10 @@ export class RoadmapService {
         context,
         roadmap.workspaceId,
         entry.workItemId,
-        { repositoryId: entry.repositoryId },
+        {
+          repositoryId: entry.repositoryId,
+          ...(entry.executionScope ? { executionScope: entry.executionScope } : {}),
+        },
         undefined,
         { id: reserved.worktreeId, check },
       );
@@ -643,7 +669,8 @@ export class RoadmapService {
       );
     if (
       worktree.integrationBranch !== entry.integrationBranch ||
-      worktree.repositoryId !== entry.repositoryId
+      worktree.repositoryId !== entry.repositoryId ||
+      !sameExecutionScope(worktree.executionScope, entry.executionScope)
     )
       conflict('Reserved worktree no longer matches this entry’s branch binding.');
     // Cycle creation and attempt attachment commit together, before the cycle worker can launch.
@@ -672,7 +699,11 @@ export class RoadmapService {
     const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
     return attempt
       ? attempt.status === 'completed'
-      : this.storage.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status ===
+      : entry.executionScope
+        ? this.storage.execution.worktrees
+            .listForWorkItem(roadmap.workspaceId, entry.workItemId)
+            .some((t) => sameExecutionScope(t.executionScope, entry.executionScope) && !!t.mergedAt)
+        : this.storage.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status ===
           'completed';
   }
   private blocker(
@@ -698,6 +729,27 @@ export class RoadmapService {
       return blocked(
         `${entry.sourceId}: Marked complete without merging the roadmap worktree. Inspect the item; the queue will not advance.`,
       );
+    try {
+      requireScopeOwnership(
+        this.storage,
+        roadmap.workspaceId,
+        entry.workItemId,
+        entry.executionScope,
+        attempt?.worktreeId,
+      );
+      if (entry.executionScope) {
+        const issues = scopeBlockers(
+          this.storage,
+          roadmap.workspaceId,
+          entry.workItemId,
+          entry.executionScope,
+          'start',
+        );
+        if (issues.length) return blocked(`${entry.sourceId}: ${issues.join(' ')}`, false);
+      }
+    } catch (error) {
+      return blocked(error instanceof Error ? error.message : 'Execution scope is unavailable.');
+    }
     const required = this.storage.planning.dependencies
       .listPredecessors(roadmap.workspaceId, entry.workItemId)
       .filter(
@@ -756,6 +808,9 @@ export class RoadmapService {
         (tree) =>
           tree.workspaceId === roadmap.workspaceId &&
           tree.workItemId === entry.workItemId &&
+          (!tree.executionScope ||
+            !entry.executionScope ||
+            sameExecutionScope(tree.executionScope, entry.executionScope)) &&
           tree.id !== attempt?.worktreeId,
       )
     )

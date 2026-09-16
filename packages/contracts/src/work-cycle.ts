@@ -1,3 +1,4 @@
+import { executionScopeSchema } from './execution-scope.js';
 import {
   AGENT_BACKENDS,
   AGENT_PERMISSION_MODES,
@@ -69,6 +70,7 @@ export const integrationResolutionRequestSchema = z.strictObject({
 export type IntegrationResolutionRequest = z.infer<typeof integrationResolutionRequestSchema>;
 export const workCycleSchema = z
   .strictObject({
+    executionScope: executionScopeSchema.optional(),
     id: z.string().uuid(),
     workspaceId: workspaceIdSchema,
     workItemId: workItemIdSchema.optional(),

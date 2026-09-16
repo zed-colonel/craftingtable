@@ -1,4 +1,9 @@
 import {
+  executionScopeChoicesSchema,
+  recordScopeReceiptRequestSchema,
+  recordScopeReceiptResponseSchema,
+} from '@craftingtable/contracts';
+import {
   createWorktreeRequestSchema,
   createWorktreeResponseSchema,
   executionStatusResponseSchema,
@@ -50,6 +55,44 @@ export function registerExecutionRoutes(
   config: ServerConfig,
 ): void {
   registerBranchRoutes(app, authService, executionService.branches, config);
+  app.get<{ Params: { workspaceId: string; workItemId: string } }>(
+    '/api/workspaces/:workspaceId/work-items/:workItemId/execution-scopes',
+    async (request, reply) => {
+      const context = authenticate(request, authService);
+      const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        item = workItemIdSchema.safeParse(request.params.workItemId);
+      if (!ws.success || !item.success)
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      return noStore(reply).send(
+        executionScopeChoicesSchema.parse(
+          executionService.executionScopes(context, ws.data, item.data),
+        ),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
+    '/api/workspaces/:workspaceId/worktrees/:worktreeId/scope-evidence',
+    async (request, reply) => {
+      const context = authorizeMutation(request, authService, config);
+      const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        tree = worktreeIdSchema.safeParse(request.params.worktreeId);
+      if (!ws.success || !tree.success)
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      const body = recordScopeReceiptRequestSchema.safeParse(request.body);
+      if (!body.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid scope evidence request');
+      return noStore(reply).send(
+        recordScopeReceiptResponseSchema.parse(
+          await executionService.recordScopeReceipt(
+            context,
+            ws.data,
+            tree.data,
+            body.data.expectedWorktreeVersion,
+          ),
+        ),
+      );
+    },
+  );
   app.get('/api/execution-status', async (request, reply) => {
     authenticate(request, authService);
     return noStore(reply).send(executionStatusResponseSchema.parse(status()));

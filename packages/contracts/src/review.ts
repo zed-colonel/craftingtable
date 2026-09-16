@@ -1,3 +1,4 @@
+import { scopeReviewEvidenceSchema } from './execution-scope.js';
 import { AGENT_RUN_VERDICTS, FINDING_SEVERITIES, FINDING_STATUSES } from '@craftingtable/domain';
 import { z } from 'zod';
 import { stageReviewReportSchema } from './stage-report.js';
@@ -27,6 +28,7 @@ export const reviewFindingSchema = z
 
 export const reviewReportSchema = z
   .strictObject({
+    scopeEvidence: scopeReviewEvidenceSchema.optional(),
     version: z.literal(1),
     complete: z.literal(true),
     verdict: z.enum(AGENT_RUN_VERDICTS),

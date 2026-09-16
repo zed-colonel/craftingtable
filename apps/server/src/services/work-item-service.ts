@@ -305,6 +305,18 @@ export class WorkItemService {
         'Only an admitted work item can be completed; admit it into the agenda first',
       );
     }
+    if (
+      tx.execution.worktrees
+        .listForWorkItem(workspaceId, workItemId)
+        .some((t) => t.executionScope) &&
+      !tx.scopeReceipts
+        .list(workspaceId, workItemId)
+        .some((r) => r.scope.kind === 'parent-acceptance')
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'This item uses slices. Complete its independent parent acceptance review; merging slices does not complete the parent.',
+      );
     const completedItem = tx.planning.workItems.complete({
       workItemId,
       workspaceId,

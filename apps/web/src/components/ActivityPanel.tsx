@@ -2,6 +2,8 @@ import type { WorkspaceEventEnvelope } from '@craftingtable/contracts';
 
 export function describeEvent(event: WorkspaceEventEnvelope): string {
   switch (event.kind) {
+    case 'scope-evidence-recorded':
+      return `${event.payload.sourceId}: ${event.payload.parentAccepted ? 'parent accepted' : 'slice verification recorded'}`;
     case 'roadmap-changed':
       return `Roadmap ${event.payload.status}: ${event.payload.reason}`;
     case 'notifications-changed':

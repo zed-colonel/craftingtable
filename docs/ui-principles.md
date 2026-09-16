@@ -160,3 +160,12 @@ Unstarted items in the agenda offer **Remove from agenda** beside the existing a
 It returns the item to Proposed and preserves admission history. Show the daemon's
 reason when work history, an active worktree or roadmap prevents removal; no completion
 is recorded and dependencies stay blocked.
+
+
+Execution slices live on their parent's work-item page. Distinguish a prepared worktree,
+started execution, merged slice, verified slice and accepted parent. Give each active slice
+its own cycle selector; review-only worktrees offer review runs instead of implementation
+cycles. The roadmap editor may select bound slice identities without silently adopting map
+decisions. Show unmet capabilities and evidence obligations before execution; never label
+slice integration as parent completion. Parent acceptance is an explicit review/evidence
+command, with separate fresh verification controls when integration has moved.

@@ -187,5 +187,37 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect(
     maps.locator('summary').filter({ hasText: 'wi/WI-02/domain · slice' }),
   ).toBeVisible();
+  await navigate('Projects');
+  await page.getByRole('button', { name: 'WorldInterface', exact: true }).click();
+  await page.getByRole('button', { name: 'WI-01', exact: true }).first().click();
+  const scopes = page.getByRole('region', { name: 'Execution slices and parent acceptance' });
+  await expect(scopes.getByRole('heading', { name: /wi\/WI-01/ }).first()).toBeVisible();
+  await expect(
+    scopes
+      .getByText(
+        'Pinned upstream environments and baseline evidence are not available yet; this map cannot execute.',
+      )
+      .first(),
+  ).toBeVisible();
+  for (const button of await scopes.getByRole('button').all()) await expect(button).toBeDisabled();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+  await scopes.screenshot({ path: info.outputPath('execution-scopes.png') });
+  await navigate('Roadmaps');
+  await page.getByRole('button', { name: 'New roadmap', exact: true }).click();
+  const editor = page.getByRole('region', { name: 'Roadmap editor' });
+  const itemOption = await editor
+    .getByLabel('Add work item')
+    .locator('option')
+    .filter({ hasText: ' · WI-01 · ' })
+    .getAttribute('value');
+  await editor.getByLabel('Add work item').selectOption(itemOption!);
+  const scopePicker = editor.getByRole('combobox', { name: 'Execution scope', exact: true });
+  await expect(scopePicker).toBeVisible();
+  const scopeOption = await scopePicker.locator('option').nth(1).getAttribute('value');
+  await scopePicker.selectOption(scopeOption!);
+  await editor.getByRole('button', { name: 'Add to sequence', exact: true }).click();
+  await expect(editor.getByRole('heading', { name: /wi\/WI-01/ }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });

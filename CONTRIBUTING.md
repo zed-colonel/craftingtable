@@ -28,6 +28,7 @@ pnpm lint          lint with Biome
 pnpm typecheck     tsc -b across project references + web app
 pnpm test          Vitest unit tests
 pnpm test:e2e      Playwright desktop and phone browser tests
+pnpm ui:walkthrough capture every page on desktop and phone into docs/ui-walkthrough/
 pnpm db:migrate    migrate the configured SQLite database
 pnpm db:status     report configured SQLite schema status
 pnpm check:scope   forbidden-scope check (no Exo Stack dependencies, process authority)

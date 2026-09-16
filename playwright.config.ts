@@ -28,7 +28,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: '**/mobile.spec.ts',
+      testIgnore: ['**/mobile.spec.ts', '**/walkthrough.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         // Typical MacBook browser viewport (acceptance criterion 5).
@@ -50,6 +50,17 @@ export default defineConfig({
         browserName: 'chromium',
       },
     },
+    // The UI walkthrough photographs every page into docs/ui-walkthrough/. It is
+    // opted into by `pnpm ui:walkthrough` and never part of the test gate.
+    ...(process.env.CRAFTINGTABLE_WALKTHROUGH === '1'
+      ? [
+          {
+            name: 'walkthrough',
+            testMatch: '**/walkthrough.spec.ts',
+            use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+          },
+        ]
+      : []),
   ],
   webServer: [
     {

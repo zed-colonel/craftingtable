@@ -187,6 +187,9 @@ it is mergeable.
 Not yet: cross-project dependency maps, pinned upstream build environments,
 email/SMS notifications, additional backends, or interactive permission prompts.
 
+The agreed [cross-project concurrency roadmap](docs/cross-project-roadmap.md) records the
+next implementation sequence, starting with map import/preview and exact plan binding.
+
 Pushover notifications are configured per workspace in **Settings**. Owners can save
 write-only credentials, choose merge/attention alerts, send a test, and inspect delivery
 status. Reminders persist across restarts: immediately, +30 minutes, +1 through +6 hours,

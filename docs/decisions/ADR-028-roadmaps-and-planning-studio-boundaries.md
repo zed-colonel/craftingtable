@@ -2,6 +2,12 @@
 
 Status: proposed. Date: 2026-09-11.
 
+Implementation planning update (2026-09-15): the operator-approved
+[cross-project concurrency roadmap](../cross-project-roadmap.md) applies these boundaries
+to the revised v0.3.0 package and records the delivery sequence and acceptance criteria.
+The v0.1.0 facts below remain historical context; the linked roadmap records current input
+identities. Cross-map import and execution are not implemented yet.
+
 ## Context
 
 Single-item cycles, integration branches, phone supervision, and Pushover delivery have

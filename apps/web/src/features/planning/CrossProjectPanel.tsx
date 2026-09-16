@@ -297,13 +297,17 @@ export function CrossProjectPanel({
       title={roadmap ? 'Cross-project supervision' : 'Target scope and cross-project roadmap'}
       label={roadmap ? 'Cross-project supervision' : 'Create cross-project roadmap'}
       summary={
-        !bindingRevision
-          ? 'Save exact plan and repository bindings first.'
-          : !target
-            ? 'Choose a planning target to preview its scope.'
-            : view
-              ? `${included.length} selected milestones · ${excluded.length} excluded`
-              : 'Loading scope preview…'
+        !bindingRevision ? (
+          'Save exact plan and repository bindings first.'
+        ) : !target ? (
+          'Choose a planning target to preview its scope.'
+        ) : view ? (
+          <>
+            <strong>{included.length} selected milestones</strong> · {excluded.length} excluded
+          </>
+        ) : (
+          'Loading scope preview…'
+        )
       }
     >
       {error && (

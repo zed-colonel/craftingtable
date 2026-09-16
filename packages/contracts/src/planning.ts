@@ -184,7 +184,17 @@ export const planVersionDetailResponseSchema = z.strictObject({
   }),
   projectId: projectIdSchema,
   counts: planningStatusCountsSchema,
-  artifacts: z.array(planArtifactSummarySchema).max(12),
+  artifacts: z.array(planArtifactSummarySchema).max(64),
+  archives: z
+    .array(
+      z.strictObject({
+        id: z.uuid(),
+        filename: z.string().max(200),
+        digest: z.string().regex(/^[a-f0-9]{64}$/),
+        byteLength: z.number().int().nonnegative(),
+      }),
+    )
+    .optional(),
   diagnostics: z.array(planImportDiagnosticSchema).max(500),
   workItems: z.array(workItemSummarySchema).max(2000),
 });

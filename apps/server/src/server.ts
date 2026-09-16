@@ -1,11 +1,3 @@
-import type { StorageService } from './services/storage-service.js';
-import { registerStorageRoutes } from './routes/storage.js';
-import type { FinalizationService } from './services/finalization-service.js';
-import { registerFinalizationRoutes } from './routes/finalizations.js';
-import type { RoadmapService } from './services/roadmap-service.js';
-import { registerRoadmapRoutes } from './routes/roadmaps.js';
-import type { NotificationService } from './services/notification-service.js';
-import { registerNotificationRoutes } from './routes/notifications.js';
 import { readFileSync } from 'node:fs';
 import cookie from '@fastify/cookie';
 import { type FastifyInstance, fastify } from 'fastify';
@@ -13,10 +5,15 @@ import type { ServerConfig } from './config.js';
 import { registerAgentRunRoutes } from './routes/agent-runs.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerExecutionRoutes } from './routes/execution.js';
+import { registerFinalizationRoutes } from './routes/finalizations.js';
 import { registerHealthRoute } from './routes/health.js';
 import { sendApiError } from './routes/http.js';
+import { registerNotificationRoutes } from './routes/notifications.js';
+import { registerPackageImportRoutes } from './routes/package-imports.js';
 import { registerPlanningRoutes } from './routes/planning.js';
+import { registerRoadmapRoutes } from './routes/roadmaps.js';
 import { registerStaticWebRoutes } from './routes/static-web.js';
+import { registerStorageRoutes } from './routes/storage.js';
 import { registerWorkCycleRoutes } from './routes/work-cycles.js';
 import { registerWorkspaceEventRoute } from './routes/workspace-events.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
@@ -30,15 +27,21 @@ import {
   UnauthenticatedError,
 } from './services/errors.js';
 import type { ExecutionService, ExecutionStatus } from './services/execution-service.js';
+import type { FinalizationService } from './services/finalization-service.js';
+import type { NotificationService } from './services/notification-service.js';
+import type { PackageImportService } from './services/package-import-service.js';
 import type { PlanImportService } from './services/plan-import-service.js';
 import type { PlanningQueryService } from './services/planning-query-service.js';
+import type { RoadmapService } from './services/roadmap-service.js';
 import type { RunEventStreamService } from './services/run-event-stream-service.js';
+import type { StorageService } from './services/storage-service.js';
 import type { WorkCycleService } from './services/work-cycle-service.js';
 import type { WorkItemService } from './services/work-item-service.js';
 import type { WorkspaceEventStreamService } from './services/workspace-event-stream-service.js';
 import type { WorkspaceService } from './services/workspace-service.js';
 
 export interface ServerDependencies {
+  readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
@@ -109,6 +112,7 @@ export function buildServer(
     await deps.notificationService.shutdown();
     await deps.workCycleService.shutdown();
   });
+  registerPackageImportRoutes(app, deps.authService, deps.packageImportService, config);
   registerStorageRoutes(app, deps.authService, deps.storageService, config);
   registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);
   registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);

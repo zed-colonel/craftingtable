@@ -5,9 +5,9 @@ import type {
 } from '@craftingtable/contracts';
 import {
   CYCLE_STEPS,
+  type CycleProfiles,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_SCHEDULING,
-  type CycleProfiles,
   type Roadmap,
   type RoadmapDefinition,
   type RoadmapStatus,
@@ -16,8 +16,6 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
-import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
-import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
 import {
@@ -27,6 +25,9 @@ import {
   saveRoadmap,
 } from '../../lib/roadmap-api.js';
 import { buildPath } from '../../lib/route.js';
+import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
+import { ConcurrencyImports } from './ConcurrencyImports.js';
+import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
 
 const labels: Record<RoadmapStatus, string> = {
   draft: 'Draft',
@@ -198,6 +199,12 @@ export function RoadmapsPage({
           </button>
         )}
       </header>
+      <ConcurrencyImports
+        key={workspaceId}
+        workspaceId={workspaceId}
+        csrfToken={csrfToken}
+        canMutate={canMutate}
+      />
       {error && (
         <p role="alert" className="error">
           {error}

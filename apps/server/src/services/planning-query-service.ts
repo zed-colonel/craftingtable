@@ -267,6 +267,19 @@ export class PlanningQueryService {
       },
       projectId: version.projectId,
       counts: tx.planning.queries.versionStatusCounts(workspaceId, planVersionId),
+      archives: tx.imports.planLinks(workspaceId, planVersionId).flatMap((link) => {
+        const archive = tx.imports.archiveInfo(workspaceId, link.archiveId);
+        return archive
+          ? [
+              {
+                id: archive.id,
+                filename: archive.filename,
+                digest: archive.digest,
+                byteLength: archive.byteLength,
+              },
+            ]
+          : [];
+      }),
       artifacts: tx.planning.artifacts
         .listForVersion(workspaceId, planVersionId)
         .map((artifact) => ({

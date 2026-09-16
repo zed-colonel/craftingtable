@@ -61,6 +61,9 @@ export const AUDIT_ACTIONS = [
   'storage.updated',
   'storage.cleaned',
   'storage.backup',
+  'package.import',
+  'concurrency.bindings',
+  'plan.version-activated',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -106,8 +109,11 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'storage.updated': 15,
   'storage.cleaned': 15,
   'storage.backup': 15,
+  'package.import': 16,
+  'concurrency.bindings': 16,
+  'plan.version-activated': 16,
 } as const satisfies Readonly<
-  Record<AuditAction, 1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15>
+  Record<AuditAction, 1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16>
 >;
 
 export function isAuditAction(value: unknown): value is AuditAction {

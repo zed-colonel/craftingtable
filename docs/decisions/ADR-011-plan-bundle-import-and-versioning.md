@@ -4,6 +4,10 @@
 - **Date:** 2026-07-24
 - **Amended:** 2026-07-24 after independent review (CT03-R4, CT03-R5)
 
+ZIP support, artifact limits and explicit guarded active-version selection are amended by
+[ADR-043](043-package-imports-and-concurrency-previews.md). Historical choices below describe
+the original discrete-file increment.
+
 ## Context
 
 CT-03 must ingest a structured planning bundle from an authenticated operator,

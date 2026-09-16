@@ -1,5 +1,5 @@
 import type { JsonValue } from '@craftingtable/domain';
-import { parseAllDocuments } from 'yaml';
+import { isAlias, isScalar, parseAllDocuments, visit } from 'yaml';
 import { error, type PlanDiagnostic } from './diagnostics.js';
 import { YAML_LIMITS } from './limits.js';
 
@@ -154,7 +154,11 @@ function toJsonValue(
  * Parses one YAML document into plain JSON data, or returns actionable
  * diagnostics. Never throws for malformed input.
  */
-export function parseYamlDocument(text: string, artifactName: string): YamlParseResult {
+export function parseYamlDocument(
+  text: string,
+  artifactName: string,
+  strictReferences = false,
+): YamlParseResult {
   let documents: ReturnType<typeof parseAllDocuments>;
   try {
     documents = parseAllDocuments(text, PARSE_OPTIONS);
@@ -203,6 +207,31 @@ export function parseYamlDocument(text: string, artifactName: string): YamlParse
         }),
       ),
     };
+  }
+
+  if (strictReferences) {
+    let unsafe = false;
+    visit(document, {
+      Node(_key, node) {
+        if (isAlias(node) || ('anchor' in node && node.anchor) || ('tag' in node && node.tag))
+          unsafe = true;
+      },
+      Pair(_key, pair) {
+        if (!isScalar(pair.key) || typeof pair.key.value !== 'string' || pair.key.value === '<<')
+          unsafe = true;
+      },
+    });
+    if (unsafe)
+      return {
+        ok: false,
+        diagnostics: [
+          error(
+            'invalid-yaml',
+            'Aliases, anchors, explicit tags, merge keys and non-string keys are unsupported.',
+            { artifactName },
+          ),
+        ],
+      };
   }
 
   let raw: unknown;

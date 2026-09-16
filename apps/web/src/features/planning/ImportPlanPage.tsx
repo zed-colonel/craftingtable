@@ -1,10 +1,11 @@
 import type { PlanImportResponse, ProjectSummary } from '@craftingtable/contracts';
-import type { ProjectId } from '@craftingtable/domain';
+import type { ProjectId, WorkspaceId } from '@craftingtable/domain';
 import { useState } from 'react';
 import { PLAN_BUNDLE_LIMITS } from '../../lib/plan-limits.js';
 import type { PlanImportUpload } from '../../lib/planning-api.js';
 import { IMPORT_OUTCOME_LABELS } from '../../lib/planning-labels.js';
 import { DiagnosticList } from './DiagnosticList.js';
+import { PlanArchiveForm } from './PlanArchiveForm.js';
 
 const ROLES = [
   { role: 'implementation-plan', label: 'Implementation plan', required: true, multiple: false },
@@ -24,17 +25,24 @@ const ROLES = [
  */
 export function ImportPlanPage({
   projects,
+  workspaceId,
+  csrfToken,
+  onZipImported,
   onImport,
   result,
   busy,
   error,
 }: {
+  workspaceId?: WorkspaceId;
+  csrfToken?: string;
+  onZipImported?: (result: PlanImportResponse) => void;
   projects: readonly ProjectSummary[];
   onImport: (upload: PlanImportUpload) => void;
   result?: PlanImportResponse;
   busy: boolean;
   error?: string;
 }) {
+  const [mode, setMode] = useState<'files' | 'zip'>('files');
   const [projectName, setProjectName] = useState('');
   const [projectId, setProjectId] = useState('');
   const [selections, setSelections] = useState<Record<string, File[]>>({});
@@ -87,75 +95,96 @@ export function ImportPlanPage({
         <div>
           <h1>Import a plan bundle</h1>
           <p className="subtitle">
-            Discrete planning files only. CraftingTable does not accept archives, host paths, or
-            external URLs.
+            Import discrete planning files or a complete planning ZIP into a new or existing
+            project.
           </p>
         </div>
       </header>
 
-      <section className="panel" aria-label="Import form">
-        <label className="field">
-          Project name
-          <input
-            type="text"
-            value={projectName}
-            onChange={(event) => setProjectName(event.target.value)}
-            placeholder="ActionQueue — AQ-CONT-1"
-            maxLength={120}
-          />
-        </label>
-
-        {projects.length > 0 && (
-          <label className="field">
-            Or add a version to an existing project
-            <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-              <option value="">Create a new project</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        {ROLES.map((entry) => (
-          <label className="field" key={entry.role}>
-            {entry.label}
-            {entry.required ? ' (required)' : ' (optional)'}
-            <input
-              type="file"
-              multiple={entry.multiple}
-              accept=".md,.markdown,.yaml,.yml,.json,.txt,.sha256"
-              onChange={(event) =>
-                setSelections((current) => ({
-                  ...current,
-                  [entry.role]: [...(event.target.files ?? [])],
-                }))
-              }
-            />
-          </label>
-        ))}
-
-        {localError !== undefined && (
-          <p className="error-state" role="alert">
-            {localError}
-          </p>
-        )}
-        {error !== undefined && (
-          <p className="error-state" role="alert">
-            {error}
-          </p>
-        )}
-
-        <div>
-          <button type="button" className="primary-button" onClick={submit} disabled={busy}>
-            {busy ? 'Importing…' : 'Import plan bundle'}
+      {workspaceId && csrfToken && (
+        <div className="button-row">
+          <button type="button" aria-pressed={mode === 'files'} onClick={() => setMode('files')}>
+            Individual files
+          </button>
+          <button type="button" aria-pressed={mode === 'zip'} onClick={() => setMode('zip')}>
+            Import ZIP archive
           </button>
         </div>
-      </section>
+      )}
+      {mode === 'zip' && workspaceId && csrfToken ? (
+        <PlanArchiveForm
+          workspaceId={workspaceId}
+          csrfToken={csrfToken}
+          projects={projects}
+          onImported={onZipImported}
+        />
+      ) : (
+        <>
+          <section className="panel" aria-label="Import form">
+            <label className="field">
+              Project name
+              <input
+                type="text"
+                value={projectName}
+                onChange={(event) => setProjectName(event.target.value)}
+                placeholder="ActionQueue — AQ-CONT-1"
+                maxLength={120}
+              />
+            </label>
 
-      {result !== undefined && <ImportOutcome result={result} />}
+            {projects.length > 0 && (
+              <label className="field">
+                Or add a version to an existing project
+                <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+                  <option value="">Create a new project</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {ROLES.map((entry) => (
+              <label className="field" key={entry.role}>
+                {entry.label}
+                {entry.required ? ' (required)' : ' (optional)'}
+                <input
+                  type="file"
+                  multiple={entry.multiple}
+                  accept=".md,.markdown,.yaml,.yml,.json,.txt,.sha256"
+                  onChange={(event) =>
+                    setSelections((current) => ({
+                      ...current,
+                      [entry.role]: [...(event.target.files ?? [])],
+                    }))
+                  }
+                />
+              </label>
+            ))}
+
+            {localError !== undefined && (
+              <p className="error-state" role="alert">
+                {localError}
+              </p>
+            )}
+            {error !== undefined && (
+              <p className="error-state" role="alert">
+                {error}
+              </p>
+            )}
+
+            <div>
+              <button type="button" className="primary-button" onClick={submit} disabled={busy}>
+                {busy ? 'Importing…' : 'Import plan bundle'}
+              </button>
+            </div>
+          </section>
+
+          {result !== undefined && <ImportOutcome result={result} />}
+        </>
+      )}
     </div>
   );
 }

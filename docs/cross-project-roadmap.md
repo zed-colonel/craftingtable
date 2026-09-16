@@ -1,7 +1,7 @@
 # Cross-project concurrency roadmap
 
-Status: agreed implementation plan, recorded 2026-09-15. Implementation has not started.
-The next deliverable is **import/preview and exact plan binding**. Recording this plan
+Status: increment 1 delivered 2026-09-15; increments 2–6 pending.
+The next deliverable is **executable slices and parent acceptance**. Recording this plan
 neither imports packages nor adopts their proposed decisions, starts execution, changes
 project state, or approves a merge.
 
@@ -91,7 +91,7 @@ the correctness/conformance review scopes called slices in staged plan finalizat
 
 ## Delivery sequence
 
-### 1. Import, preview and exact plan binding — pending; next
+### 1. Import, preview and exact plan binding — delivered
 
 Add **Import concurrency map** under Roadmaps. Accept the reference ZIP through a bounded
 archive adapter; validate before persisting an inactive immutable definition. Keep parsing,
@@ -109,10 +109,10 @@ pure semantic validation, project binding and execution separate.
 - Match source documents and relevant whole-item source records, including supporting
   acceptance/environment documents. Source IDs alone are not identity across plan versions.
   Preserve raw archive provenance separately from CraftingTable's canonical bundle digest.
-- The current plan importer accepts only 12 artifacts / 10 supporting files. The map refers
-  to 13 WI documents. Extend bounded artifact support and the upload experience so the
-  revised plans can retain the required material. Keep the existing discrete-file path usable;
-  a broader plan-ZIP importer is not a prerequisite unless explicitly chosen during design.
+- The operator explicitly requested full ZIP imports over existing projects for this increment.
+  Both import paths now support 64 artifacts / 60 supporting files. ZIP import previews current
+  documents, retains the full archive, adds an immutable version, and offers guarded explicit
+  activation. Old versions/history remain intact; new branch settings need explicit configuration.
 - Map snapshots supply provenance, not duplicate imported plans. Missing/mismatched plans
   are diagnostics with a binding remedy, not permission to manufacture a compatible plan.
 - Preserve import attempts/diagnostics, immutable source and definition identity. Reimporting
@@ -277,6 +277,13 @@ points are `packages/domain/src/roadmap.ts`, `apps/server/src/services/roadmap-s
 `packages/planning/src/limits.ts`, `apps/server/src/services/execution-service.ts`, and
 `apps/web/src/features/planning/ImportPlanPage.tsx`.
 
-Delivery status: **all six increments pending**. No concurrency map or revised WI/EXO plan was
-imported while preparing this roadmap. Next task: implement increment 1, preserving the later
-lifecycle and evidence requirements documented above.
+Delivery status: **increment 1 delivered; increments 2–6 pending**. See [ADR-043](decisions/043-package-imports-and-concurrency-previews.md).
+Reference-fixture checks reconstruct 335 milestones and 1,221 edges. WI and EXO ZIPs
+retain 27 and 28 current planning documents respectively. Desktop/phone tests cover
+upload, exact binding and reload; daemon tests cover source mismatch, stale binding
+revisions, conflicting imports, durable records, preserved versions and activation guards.
+No user production plan or map was imported by this implementation. The operator will
+upload the revised plans into existing projects, configure their new plan-version branch
+settings, then import/bind the concurrency map. AQ remains a registered upstream with
+unresolved runtime pins/evidence. Next task: increment 2, preserving all later lifecycle
+and evidence requirements above.

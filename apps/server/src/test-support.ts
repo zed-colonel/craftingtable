@@ -1,4 +1,3 @@
-import type { NotificationTransport } from './services/notification-transport.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +9,7 @@ import { createServices, type ServiceSet } from './composition.js';
 import { configFromEnv, SESSION_COOKIE_NAME, type ServerConfig } from './config.js';
 import type { PasswordHasher } from './security/password-hasher.js';
 import { buildServer } from './server.js';
+import type { NotificationTransport } from './services/notification-transport.js';
 import type { WorkspaceEventStreamHooks } from './services/workspace-event-stream-service.js';
 
 export const TEST_USERNAME = 'test-user';
@@ -77,6 +77,7 @@ export async function createTestContext(
   });
   const app = buildServer(
     {
+      packageImportService: services.packageImportService,
       storageService: services.storageService,
       authService: services.authService,
       workspaceService: services.workspaceService,

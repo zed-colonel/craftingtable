@@ -1,4 +1,3 @@
-import { StoragePanel } from './features/workspace/StoragePanel.js';
 import type {
   AgentRunDetailResponse,
   AuditRecordSummary,
@@ -41,6 +40,7 @@ import { AccountPage } from './features/account/AccountPage.js';
 import { CYCLE_STATUS_LABELS, CyclePanel } from './features/execution/CyclePanel.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
 import { DiffView } from './features/execution/DiffView.js';
+import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
 import { PlanBranchPanel } from './features/execution/PlanBranchPanel.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
 import { RunPage } from './features/execution/RunPage.js';
@@ -49,15 +49,15 @@ import { WorktreeBranchPanel } from './features/execution/WorktreeBranchPanel.js
 import { WorkspacesPage } from './features/home/WorkspacesPage.js';
 import { AgendaPage } from './features/planning/AgendaPage.js';
 import { ImportPlanPage } from './features/planning/ImportPlanPage.js';
-import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
 import { PlanVersionPage } from './features/planning/PlanVersionPage.js';
 import { ProjectCards } from './features/planning/ProjectCards.js';
 import { ProjectPage } from './features/planning/ProjectPage.js';
+import { RoadmapsPage } from './features/planning/RoadmapsPage.js';
 import { SourceText } from './features/planning/SourceText.js';
 import { WorkItemPage } from './features/planning/WorkItemPage.js';
-import { RoadmapsPage } from './features/planning/RoadmapsPage.js';
 import { NotificationPanel } from './features/workspace/NotificationPanel.js';
 import { SettingsPage } from './features/workspace/SettingsPage.js';
+import { StoragePanel } from './features/workspace/StoragePanel.js';
 import {
   ApiError,
   changePassword,
@@ -120,8 +120,8 @@ import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
 import {
   controlWorkCycle,
   loadWorkCycles,
-  startWorkCycle,
   resolveIntegration,
+  startWorkCycle,
 } from './lib/work-cycle-api.js';
 import {
   type ConnectionState,
@@ -1242,6 +1242,10 @@ export function App() {
         )}
         {route.name === 'import' && (
           <ImportPlanPage
+            key={workspaceId}
+            workspaceId={workspaceId}
+            csrfToken={authenticated.csrfToken}
+            onZipImported={() => setRefreshToken((value) => value + 1)}
             projects={projection.projects}
             onImport={handleImport}
             busy={importBusy}
@@ -1281,6 +1285,7 @@ export function App() {
 
         {route.name === 'plan-version' && planVersion?.version.id === route.planVersionId && (
           <PlanVersionPage
+            workspaceId={workspaceId}
             detail={planVersion}
             branchSettings={
               <>

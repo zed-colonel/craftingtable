@@ -14,6 +14,14 @@ it is mergeable.
 - **Plans and work items.** Import an implementation plan plus work breakdown as a plan
   bundle; browse projects, plan versions, and work items with their dependencies. Items
   move `Proposed → In agenda → Completed`; completing one unblocks its dependents.
+  **Import plan → Import ZIP archive** previews a full package and adds a preserved version
+  to an existing project. Choose **Make active** to use it when prior work is idle, then
+  configure that new version's repository/branches. Original ZIPs remain downloadable.
+- **Cross-project map previews.** **Roadmaps → Import concurrency map** accepts v0.3 ZIPs,
+  checks source documents and phase dependencies, and saves an inactive draft. Choose exact
+  WI/EXO plan versions and the registered upstream repository, then **Save exact bindings**.
+  The preview shows missing configuration, targets, proposed decisions, resources and gates;
+  adoption and cross-project execution arrive in later increments.
 - **Repositories.** Register any local Git checkout by path.
 - **Plan branches.** Open **Projects → a plan → Repository & branches** to select a
   registered repository and an existing integration branch, or explicitly create one
@@ -184,11 +192,11 @@ it is mergeable.
 - **Durability.** Runs, events, worktrees, and repositories live in SQLite. A daemon
   restart marks runs that were live as interrupted; nothing is lost.
 
-Not yet: cross-project dependency maps, pinned upstream build environments,
+Not yet: cross-project execution, pinned upstream build environments,
 email/SMS notifications, additional backends, or interactive permission prompts.
 
 The agreed [cross-project concurrency roadmap](docs/cross-project-roadmap.md) records the
-next implementation sequence, starting with map import/preview and exact plan binding.
+remaining implementation sequence, next extending execution to slices and parent acceptance.
 
 Pushover notifications are configured per workspace in **Settings**. Owners can save
 write-only credentials, choose merge/attention alerts, send a test, and inspect delivery
@@ -218,7 +226,7 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 15 (the daemon also
+Upgrading from an earlier build: `pnpm db:migrate` applies schema 16 (the daemon also
 migrates on start). Existing runs and their event journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,

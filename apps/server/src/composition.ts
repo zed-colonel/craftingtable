@@ -27,6 +27,7 @@ import {
   type NotificationTransport,
   PushoverTransport,
 } from './services/notification-transport.js';
+import { PackageImportService } from './services/package-import-service.js';
 import { PlanImportService } from './services/plan-import-service.js';
 import { PlanningQueryService } from './services/planning-query-service.js';
 import {
@@ -50,6 +51,7 @@ import { WorkspaceService } from './services/workspace-service.js';
 import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
 
 export interface ServiceSet {
+  readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
@@ -247,6 +249,13 @@ export async function createServices(
       now,
       () => storageService.alerts(),
     ),
+    packageImportService: new PackageImportService(
+      storage,
+      workspaceService,
+      planImportService,
+      notifier,
+      now,
+    ),
     bootstrapService: new BootstrapService(storage, passwordHasher, notifier, now),
     authService,
     workspaceService,
@@ -292,6 +301,7 @@ export async function createRuntime(
     const services = await createServices(storage, config, options.overrides);
     const app = buildServer(
       {
+        packageImportService: services.packageImportService,
         storageService: services.storageService,
         authService: services.authService,
         workspaceService: services.workspaceService,

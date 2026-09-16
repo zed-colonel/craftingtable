@@ -126,6 +126,9 @@ importers:
       '@craftingtable/domain':
         specifier: workspace:*
         version: link:../domain
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
       yaml:
         specifier: 2.9.0
         version: 2.9.0

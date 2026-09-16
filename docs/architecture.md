@@ -322,3 +322,13 @@ requirement changes require an explicit version-checked operator decision. Confo
 require every in-scope obligation, and final review requires all obligations and full checks on
 the current candidate. Completed-stage evidence may be reused only at matching commits and inputs
 outside final review. Agent journal records retain original reports and audit preserves decisions.
+
+## Package imports and concurrency-map drafts
+
+Schema 16 retains immutable archive provenance, import attempts, concurrency definitions,
+plan archive links and binding revisions. `PackageImportService` composes pure bounded
+ZIP/schema/graph validation with existing immutable plan import and transactional binding.
+It has no Git or agent authority. Importing a map creates no executable roadmap entries;
+its UI lives under Roadmaps as an inactive draft. Exact plans/work items/source artifacts
+and configured branch versions are recorded explicitly. Live configuration changes produce
+binding diagnostics, never implicit rebinding. See ADR-043 and the cross-project roadmap.

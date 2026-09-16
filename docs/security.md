@@ -257,3 +257,13 @@ checks, genuine questions, correctness/conformance findings and blocking/major f
 be waived by an optional-batch decision or a nit allowance. Evidence reuse requires completed
 matching-commit provenance; final promotion rechecks all stage completion and current full-review
 evidence before the existing exact-commit merge authority check. No stage grants merge authority.
+
+## Planning ZIP and concurrency-map input
+
+ZIPs are bounded, parsed in memory and never extracted or executed. The daemon validates
+paths, links, entry overlap, decompression size and CRC, and applies its own closed map
+schema and source/graph checks. Uploaded validators and schemas are inert data. Raw ZIPs
+and failed import diagnostics remain workspace-scoped, with inert authenticated downloads.
+Exact plan binding does not approve proposals, grant environment authority, pass a checkpoint
+or start execution. Activating a revised plan requires an explicit version-checked command
+and idle project; old history is retained and branch settings are not inherited. See ADR-043.

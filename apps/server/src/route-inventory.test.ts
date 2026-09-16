@@ -7,6 +7,13 @@ import { createTestContext } from './test-support.js';
  */
 
 const EXPECTED_ROUTES = [
+  'POST /api/workspaces/:workspaceId/plan-archives/preview',
+  'POST /api/workspaces/:workspaceId/plan-archives/import',
+  'GET /api/workspaces/:workspaceId/concurrency-imports',
+  'POST /api/workspaces/:workspaceId/concurrency-imports',
+  'GET /api/workspaces/:workspaceId/concurrency-definitions/:id',
+  'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/bindings',
+  'GET /api/workspaces/:workspaceId/import-archives/:id',
   'GET /api/workspaces/:workspaceId/storage',
   'POST /api/workspaces/:workspaceId/storage',
   'POST /api/workspaces/:workspaceId/storage/scan',
@@ -142,7 +149,7 @@ describe('route inventory', () => {
     }
   });
 
-  it('accepts no host path, external URL, or archive in a route (CT03-A41)', async () => {
+  it('accepts no host path or external URL in a route (ZIP support: ADR-043)', async () => {
     const context = await createTestContext();
     try {
       await context.app.ready();
@@ -150,7 +157,6 @@ describe('route inventory', () => {
       expect(table).not.toContain('url');
       expect(table).not.toContain('path');
       expect(table).not.toContain('zip');
-      expect(table).not.toContain('archive');
     } finally {
       await context.cleanup();
     }

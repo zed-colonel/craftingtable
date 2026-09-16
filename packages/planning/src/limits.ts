@@ -6,15 +6,15 @@
  * policy cannot drift apart.
  */
 export const PLAN_BUNDLE_LIMITS = {
-  maxArtifacts: 12,
+  maxArtifacts: 64,
   maxBytesPerArtifact: 2 * 1024 * 1024,
   maxTotalBytes: 8 * 1024 * 1024,
   maxFields: 8,
-  maxParts: 24,
+  maxParts: 80,
   maxFieldByteLength: 512,
   maxHeaderPairs: 200,
   maxLogicalFilenameLength: 200,
-  maxSupportingArtifacts: 10,
+  maxSupportingArtifacts: 60,
 } as const;
 
 /** Bounds applied to parsed YAML before it is trusted as data. */

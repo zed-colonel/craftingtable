@@ -7,7 +7,7 @@
  * records a durable diagnostic when one is exceeded.
  */
 export const PLAN_BUNDLE_LIMITS = {
-  maxArtifacts: 12,
+  maxArtifacts: 64,
   maxBytesPerArtifact: 2 * 1024 * 1024,
   maxTotalBytes: 8 * 1024 * 1024,
 } as const;

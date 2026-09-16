@@ -55,7 +55,7 @@ function diagnosticPayload(diagnostic: PlanDiagnostic) {
   };
 }
 
-function importResponse(result: PlanImportResult) {
+export function importResponse(result: PlanImportResult) {
   switch (result.outcome) {
     case 'succeeded':
       return {

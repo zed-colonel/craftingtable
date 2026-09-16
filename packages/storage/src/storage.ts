@@ -1,14 +1,15 @@
 import { chmodSync } from 'node:fs';
-import { SqliteStorageMaintenanceRepository } from './repositories/maintenance.js';
-import { SqliteRoadmapRepository } from './repositories/roadmaps.js';
 import type Database from 'better-sqlite3';
-import { SqliteNotificationRepository } from './repositories/notifications.js';
 import { openDatabase } from './database.js';
 import { discoverMigrations, runMigrations } from './migrations.js';
 import { SqliteAuditRepository } from './repositories/audit.js';
 import { executionRepositories } from './repositories/execution/index.js';
+import { SqliteImportRepository } from './repositories/imports.js';
+import { SqliteStorageMaintenanceRepository } from './repositories/maintenance.js';
+import { SqliteNotificationRepository } from './repositories/notifications.js';
 import { planningRepositories } from './repositories/planning/index.js';
 import { repositoryRegistryRepositories } from './repositories/repository-registry/index.js';
+import { SqliteRoadmapRepository } from './repositories/roadmaps.js';
 import { SqliteSessionRepository } from './repositories/sessions.js';
 import { SqliteUserRepository } from './repositories/users.js';
 import { SqliteWorkspaceEventRepository } from './repositories/workspace-events.js';
@@ -17,6 +18,7 @@ import type { CraftingTableStorage, MigrationStatus, StorageRepositories } from 
 
 function repositories(database: Database.Database): StorageRepositories {
   return {
+    imports: new SqliteImportRepository(database),
     maintenance: new SqliteStorageMaintenanceRepository(database),
     roadmaps: new SqliteRoadmapRepository(database),
     notifications: new SqliteNotificationRepository(database),
@@ -32,6 +34,7 @@ function repositories(database: Database.Database): StorageRepositories {
 }
 
 class SqliteCraftingTableStorage implements CraftingTableStorage {
+  readonly imports;
   readonly maintenance;
   readonly roadmaps;
   readonly notifications;
@@ -52,6 +55,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     readonly migrationStatus: MigrationStatus,
   ) {
     const repos = repositories(database);
+    this.imports = repos.imports;
     this.maintenance = repos.maintenance;
     this.roadmaps = repos.roadmaps;
     this.notifications = repos.notifications;

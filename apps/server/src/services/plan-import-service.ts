@@ -30,6 +30,8 @@ import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 
 export interface PlanImportInput {
+  /** Outer package-import transaction sends its own post-commit notification. */
+  readonly deferNotification?: boolean;
   readonly workspaceId: WorkspaceId;
   readonly projectName?: string;
   readonly projectId?: ProjectId;
@@ -134,7 +136,7 @@ export class PlanImportService {
     }
 
     const result = this.commitImport(input, analysis, actorUserId, occurredAt);
-    if (result.outcome === 'succeeded') {
+    if (result.outcome === 'succeeded' && !input.deferNotification) {
       // After commit, never inside it, and never as storage (CT03-I12).
       this.notifier.notify();
     }

@@ -1783,3 +1783,39 @@ button:disabled {
   cursor: pointer;
   padding-block: 0.5rem;
 }
+
+.concurrency-imports,
+.import-binding,
+.import-node,
+.import-issues,
+.import-digest {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.concurrency-imports details {
+  margin-block: 0.75rem;
+}
+.concurrency-imports summary {
+  cursor: pointer;
+  padding-block: 0.5rem;
+}
+.import-binding {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-block: 1rem;
+}
+.import-node {
+  border-top: 1px solid var(--color-border);
+}
+.import-issues li {
+  margin-block: 0.5rem;
+}
+.import-digest {
+  word-break: break-all;
+}
+@media (max-width: 900px) {
+  .concurrency-imports summary {
+    min-height: 44px;
+  }
+}

@@ -1,6 +1,7 @@
 import type { PlanVersionDetailResponse } from '@craftingtable/contracts';
-import type { PlanArtifactId, WorkItemId } from '@craftingtable/domain';
+import type { PlanArtifactId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 import type { ReactNode } from 'react';
+import { archiveDownloadPath } from '../../lib/package-import-api.js';
 import { formatBytes, shortDigest } from '../../lib/planning-labels.js';
 import { DiagnosticList } from './DiagnosticList.js';
 import { PlanCompletion } from './PlanCompletion.js';
@@ -9,11 +10,13 @@ import { WorkItemTable } from './WorkItemTable.js';
 /** An immutable, content-addressed plan version. */
 export function PlanVersionPage({
   detail,
+  workspaceId,
   branchSettings,
   onOpenWorkItem,
   onViewArtifact,
 }: {
   branchSettings?: ReactNode;
+  workspaceId?: WorkspaceId;
   detail: PlanVersionDetailResponse;
   onOpenWorkItem: (workItemId: WorkItemId) => void;
   onViewArtifact: (artifactId: PlanArtifactId, filename: string) => void;
@@ -57,6 +60,25 @@ export function PlanVersionPage({
         </p>
       </section>
 
+      {workspaceId && !!detail.archives?.length && (
+        <section className="panel" aria-label="Original planning archives">
+          <h3>Original planning archives</h3>
+          <p>
+            Full uploaded ZIPs retain scripts, historical files and package provenance separately
+            from agent-facing planning documents.
+          </p>
+          <ul className="artifact-list">
+            {detail.archives.map((archive) => (
+              <li key={archive.id} className="artifact">
+                <a href={archiveDownloadPath(workspaceId, archive.id)}>{archive.filename}</a>
+                <span className="artifact-meta">
+                  {formatBytes(archive.byteLength)} · <code>{archive.digest}</code>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <section className="panel" aria-label="Source artifacts">
         <h3>Source artifacts</h3>
         <ul className="artifact-list">

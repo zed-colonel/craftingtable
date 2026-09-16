@@ -146,3 +146,12 @@ The single next-step form switches between stage selection, explicit plan-adjust
 recovery. Empty optional selections are valid and keep suggestions open. Stage verification does
 not restart discovery; required findings and genuine questions still need action. Exact final
 promotion approval remains separate. Legacy round setup and existing attempts stay usable.
+
+## Cross-project import drafts
+
+Show imported concurrency definitions under Roadmaps with an explicit inactive label and
+no execution controls. Keep exact project/plan choices visible, preserve missing/mismatched
+binding diagnostics, and group long source hashes, phase requirements and resource details
+in wrapping disclosures. Saving bindings records identity only; adoption and Start are
+separate future actions. Plan ZIP replacement means a new preserved version, with an explicit
+active-version choice and a link to configure that version's branches.

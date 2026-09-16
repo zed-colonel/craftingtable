@@ -574,7 +574,8 @@ export class PackageImportService {
         issues.push(
           issue(
             'baseline-unbound',
-            'Repository selection preserves AQ history; the current implementation commit, build evidence, acceptance and publication remain unbound.',
+            'Branch and commit pinning, baseline verification evidence, acceptance and publication will be configured in a later release. No action is required for those steps in this import preview.',
+            'info',
           ),
         );
       else if (selected) {

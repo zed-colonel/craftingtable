@@ -116,7 +116,7 @@ export function ConcurrencyImports({
       );
       setListing(await loadConcurrencyImports(workspaceId));
       setNotice(
-        'Exact bindings saved. Decisions and checkpoints remain unresolved; execution is unavailable.',
+        'Selections saved. Baseline verification, decision adoption and execution setup will be available in later releases. This draft cannot run yet.',
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save bindings.');
@@ -215,7 +215,7 @@ export function ConcurrencyImports({
               Download original concurrency ZIP
             </a>
           </details>
-          <ImportIssues issues={detail.blockers} />
+          <ImportIssues issues={detail.blockers} errorLabel="Before execution" />
           <h3>Exact project and plan bindings</h3>
           <p>
             Choose the revised plan versions explicitly. Saving records an immutable binding
@@ -223,6 +223,11 @@ export function ConcurrencyImports({
           </p>
           {detail.repositories.map((repo) => {
             const option = repo.options.find((o) => o.planVersionId === selections[repo.alias]);
+            const recordedSelection =
+              repo.role === 'implemented_upstream'
+                ? repo.selectedRepositoryId
+                : repo.selectedPlanVersionId;
+            const selectionChanged = (selections[repo.alias] ?? '') !== (recordedSelection ?? '');
             return (
               <article className="import-binding" key={repo.alias}>
                 <h4>
@@ -262,6 +267,17 @@ export function ConcurrencyImports({
                         ))}
                   </select>
                 </label>
+                {selectionChanged ? (
+                  <p className="hint">Unsaved selection — use Save exact bindings below.</p>
+                ) : recordedSelection ? (
+                  <p>
+                    <strong>
+                      {repo.role === 'implemented_upstream'
+                        ? 'Repository selection saved.'
+                        : 'Plan version selection saved.'}
+                    </strong>
+                  </p>
+                ) : null}
                 {option && (
                   <>
                     <p>

@@ -21,6 +21,7 @@ it is mergeable.
 - **Cross-project map previews.** **Roadmaps → Import concurrency map** accepts v0.3 ZIPs,
   checks source documents and phase dependencies, and saves an inactive draft. Choose exact
   WI/EXO plan versions and the registered upstream repository, then **Save exact bindings**.
+  Saved selections are shown separately from future baseline verification and execution setup.
   The preview shows missing configuration, targets, proposed decisions, resources and gates;
   adoption and cross-project execution arrive in later increments.
 - **Repositories.** Register any local Git checkout by path.

@@ -87,6 +87,17 @@ async function importPlan(
 describe('package import HTTP flow', () => {
   it('imports full plans and an inactive map, binds exact versions, and never launches work', async () => {
     const r = await setup();
+    const repositoryId = asSourceRepositoryId(randomUUID());
+    r.context.storage.execution.sourceRepositories.insert({
+      id: repositoryId,
+      workspaceId: r.workspaceId,
+      displayName: 'AQ upstream',
+      rootPath: r.context.directory,
+      defaultBranch: 'main',
+      registeredHeadSha: 'a'.repeat(40),
+      registeredAt: new Date().toISOString(),
+      registeredByUserId: r.context.storage.users.findByNormalizedUsername('test-user')!.id,
+    });
     const versions = [];
     for (const name of planNames) {
       const response = await importPlan(r, name);
@@ -119,6 +130,9 @@ describe('package import HTTP flow', () => {
       checkpointCount: 95,
       executable: false,
     });
+    expect(
+      detail.json().repositories.find((p: { alias: string }) => p.alias === 'aq').issues,
+    ).toContainEqual(expect.objectContaining({ code: 'binding-missing', severity: 'error' }));
     for (const alias of ['wi', 'exo'])
       expect(
         detail
@@ -140,6 +154,7 @@ describe('package import HTTP flow', () => {
       payload: {
         expectedRevision: 0,
         bindings: [
+          { alias: 'aq', repositoryId },
           { alias: 'wi', planVersionId: versions[0] },
           { alias: 'exo', planVersionId: versions[1] },
         ],
@@ -160,6 +175,12 @@ describe('package import HTTP flow', () => {
     expect((await bindingRequest(1, versions[1])).statusCode).toBe(409);
     expect(saved.statusCode, saved.body).toBe(200);
     expect(saved.json().summary.bindingRevision).toBe(1);
+    const upstream = saved.json().repositories.find((p: { alias: string }) => p.alias === 'aq');
+    expect(upstream.selectedRepositoryId).toBe(repositoryId);
+    expect(upstream.issues).toEqual([
+      expect.objectContaining({ code: 'baseline-unbound', severity: 'info' }),
+    ]);
+    expect(saved.json().summary.executable).toBe(false);
     expect(
       saved.json().repositories.find((p: { alias: string }) => p.alias === 'wi').boundWorkItems,
     ).toHaveLength(14);
@@ -184,6 +205,21 @@ describe('package import HTTP flow', () => {
     } finally {
       reopened.close();
     }
+    r.context.storage.execution.sourceRepositories.retire({
+      workspaceId: r.workspaceId,
+      repositoryId,
+      occurredAt: new Date().toISOString(),
+    });
+    const retired = await r.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${r.workspaceId}/concurrency-definitions/${id}`,
+      headers: { cookie: r.session.cookie },
+    });
+    expect(
+      retired.json().repositories.find((p: { alias: string }) => p.alias === 'aq').issues,
+    ).toContainEqual(
+      expect.objectContaining({ code: 'repository-unavailable', severity: 'error' }),
+    );
     const downloaded = await r.context.app.inject({
       method: 'GET',
       url: `/api/workspaces/${r.workspaceId}/import-archives/${imported.json().attempt.archiveId}`,

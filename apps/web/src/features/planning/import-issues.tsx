@@ -1,5 +1,11 @@
 import type { ImportIssue } from '@craftingtable/domain';
-export function ImportIssues({ issues }: { issues: readonly ImportIssue[] }) {
+export function ImportIssues({
+  issues,
+  errorLabel = 'Needs resolution',
+}: {
+  issues: readonly ImportIssue[];
+  errorLabel?: string;
+}) {
   if (!issues.length) return null;
   return (
     <ul className="import-issues">
@@ -7,7 +13,7 @@ export function ImportIssues({ issues }: { issues: readonly ImportIssue[] }) {
         <li key={`${issue.code}-${issue.path ?? ''}-${issue.message}`}>
           <strong>
             {issue.severity === 'error'
-              ? 'Needs resolution'
+              ? errorLabel
               : issue.severity === 'warning'
                 ? 'Note'
                 : 'Information'}

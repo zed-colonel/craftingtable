@@ -1,10 +1,45 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, test } from '@playwright/test';
+import { test as base, expect } from '@playwright/test';
+
+const test = base.extend<{ upstreamRepository: string }>({
+  upstreamRepository: async ({ browserName }, use) => {
+    const path = mkdtempSync(join(tmpdir(), `craftingtable-upstream-${browserName}-e2e-`));
+    try {
+      const git = (args: string[]) =>
+        execFileSync('git', args, {
+          cwd: path,
+          stdio: 'pipe',
+          env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
+        });
+      git(['init', '--initial-branch=main', '.']);
+      git([
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '--allow-empty',
+        '-m',
+        'Upstream fixture',
+      ]);
+      await use(path);
+    } finally {
+      rmSync(path, { recursive: true, force: true });
+    }
+  },
+});
 
 const fixture = (name: string) =>
   fileURLToPath(new URL(`../fixtures/concurrency/${name}`, import.meta.url));
 test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap on desktop and phone', async ({
   page,
+  upstreamRepository,
 }, info) => {
   test.setTimeout(90000);
   const errors: string[] = [];
@@ -95,6 +130,11 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
       page.getByRole('region', { name: 'Original planning archives' }).getByRole('link'),
     ).toHaveCount(1);
   }
+  await navigate('Repositories');
+  await page.getByLabel('Absolute path to the checkout').fill(upstreamRepository);
+  await page.getByLabel('Display name (optional)').fill('ActionQueue upstream');
+  await page.getByRole('button', { name: 'Register', exact: true }).click();
+  await expect(page.getByText(upstreamRepository, { exact: true })).toBeVisible();
   await navigate('Roadmaps');
   const maps = page.getByRole('region', { name: 'Cross-project roadmap imports' });
   await maps.getByText('Import concurrency map', { exact: true }).click();
@@ -105,6 +145,11 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect(
     maps.getByText('Imported draft · execution unavailable', { exact: true }),
   ).toBeVisible();
+  const aq = maps
+    .locator('article.import-binding')
+    .filter({ has: page.getByLabel('aq upstream repository') });
+  await aq.getByLabel('aq upstream repository').selectOption({ label: 'ActionQueue upstream' });
+  await expect(aq.getByText('Unsaved selection — use Save exact bindings below.')).toBeVisible();
   for (const alias of ['wi', 'exo']) {
     const select = maps.getByLabel(`${alias} plan version`, { exact: true });
     const value = await select
@@ -116,6 +161,11 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   }
   await maps.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
   await expect(maps.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
+  await expect(aq.getByText('Repository selection saved.', { exact: true })).toBeVisible();
+  await expect(aq.getByText('Needs resolution', { exact: false })).toHaveCount(0);
+  await expect(
+    aq.getByText('No action is required for those steps in this import preview.', { exact: false }),
+  ).toBeVisible();
   await expect(maps.getByRole('button', { name: /start|approve|adopt/i })).toHaveCount(0);
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
@@ -127,6 +177,11 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     label: 'EXO-STACK-CONCURRENCY-DRAFT-1 · 0.3.0 · 33 parents / 69 slices',
   });
   await expect(maps.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
+  await expect(aq.getByText('Repository selection saved.', { exact: true })).toBeVisible();
+  await expect(aq.getByText('Needs resolution', { exact: false })).toHaveCount(0);
+  await expect(
+    aq.getByText('No action is required for those steps in this import preview.', { exact: false }),
+  ).toBeVisible();
   await maps.getByText('Work items, slices and checkpoint requirements', { exact: true }).click();
   await maps.getByLabel('Filter map nodes').fill('WI-02/domain');
   await expect(

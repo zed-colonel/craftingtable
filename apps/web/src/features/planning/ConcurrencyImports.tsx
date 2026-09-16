@@ -2,6 +2,9 @@ import { CrossProjectPanel } from './CrossProjectPanel.js';
 import type { ConcurrencyDetail, ConcurrencyList } from '@craftingtable/contracts';
 import type { PlanVersionId, SourceRepositoryId, WorkspaceId } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
+import { About } from '../../components/About.js';
+import { Section } from '../../components/Section.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import {
   archiveDownloadPath,
   importConcurrencyZip,
@@ -133,13 +136,24 @@ export function ConcurrencyImports({
       !r.options.find((o) => o.planVersionId === selections[r.alias])?.exactSources,
   );
   return (
-    <section className="panel concurrency-imports" aria-label="Cross-project roadmap imports">
-      <h2>Cross-project roadmaps</h2>
-      <p>
-        Import a concurrency map to inspect its slices, gates and exact plan bindings. Choose a
-        target, review and adopt its scheduling proposals, then create a roadmap and explicitly
-        Start. Importing alone never launches work.
-      </p>
+    <Section
+      title="Cross-project roadmaps"
+      label="Cross-project roadmap imports"
+      summary={
+        listing === undefined
+          ? undefined
+          : listing.definitions.length === 0
+            ? 'No concurrency maps imported yet.'
+            : `${listing.definitions.length} imported map${listing.definitions.length === 1 ? '' : 's'}.`
+      }
+    >
+      <About label="About cross-project roadmaps">
+        <p>
+          Import a concurrency map to inspect its slices, gates and exact plan bindings. Choose a
+          target, review and adopt its scheduling proposals, then create a roadmap and explicitly
+          Start. Importing alone never launches work.
+        </p>
+      </About>
       {canMutate && (
         <details>
           <summary>Import concurrency map</summary>
@@ -161,9 +175,6 @@ export function ConcurrencyImports({
           </button>
           {file && file.size > 8 * 1024 * 1024 && <p role="alert">ZIP exceeds 8 MiB.</p>}
         </details>
-      )}
-      {listing?.definitions.length === 0 && (
-        <p className="hint">No concurrency maps imported yet.</p>
       )}
       {listing && listing.definitions.length > 0 && (
         <label className="field">
@@ -195,14 +206,19 @@ export function ConcurrencyImports({
         <>
           <h3>{detail.summary.document}</h3>
           <p>
-            <strong>Imported definition · explicit delegation required</strong> ·{' '}
-            {detail.summary.parentCount} work items · {detail.summary.sliceCount} slices ·{' '}
-            {detail.summary.checkpointCount} checkpoints
+            <strong>Imported definition · explicit delegation required</strong>
           </p>
-          <p>
-            {detail.summary.graphNodeCount} milestones / {detail.summary.graphEdgeCount} dependency
-            edges. Checkpoint evidence and adoption are managed separately below.
-          </p>
+          <StatusStrip
+            compact
+            label="Map size"
+            facts={[
+              { label: 'Work items', value: detail.summary.parentCount, mono: true },
+              { label: 'Slices', value: detail.summary.sliceCount, mono: true },
+              { label: 'Checkpoints', value: detail.summary.checkpointCount, mono: true },
+              { label: 'Milestones', value: detail.summary.graphNodeCount, mono: true },
+              { label: 'Dependency edges', value: detail.summary.graphEdgeCount, mono: true },
+            ]}
+          />
           <details>
             <summary>Definition identity and original ZIP</summary>
             <p>
@@ -543,6 +559,6 @@ export function ConcurrencyImports({
           ))}
         </details>
       )}
-    </section>
+    </Section>
   );
 }

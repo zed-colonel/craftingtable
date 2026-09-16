@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { About } from '../../components/About.js';
+import { Section } from '../../components/Section.js';
 import {
   configureRuntimeSchema,
   evidenceSubmissionRequestSchema,
@@ -88,12 +90,20 @@ export function RuntimeEvidencePanel({
     return <p role={error ? 'alert' : undefined}>{error || 'Loading dependency environments…'}</p>;
   const selected = view.subjects.find((s) => `${s.subject.kind}:${s.subject.sourceId}` === subject);
   return (
-    <section aria-label="Dependency environments and evidence" className="runtime-evidence">
-      <h3>Dependency environments and evidence</h3>
-      <p>
-        Pin exact source commits for builds. Review qualification evidence separately. Saving here
-        does not start work or adopt map decisions.
-      </p>
+    <Section
+      title="Dependency environments and evidence"
+      summary={
+        view.current
+          ? `Generation ${view.current.generation} · binding ${view.bindingRevision}`
+          : 'No dependency environment configured.'
+      }
+    >
+      <About label="About dependency environments">
+        <p>
+          Pin exact source commits for builds. Review qualification evidence separately. Saving here
+          does not start work or adopt map decisions.
+        </p>
+      </About>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
       {view.issues.length > 0 && (
@@ -103,11 +113,6 @@ export function RuntimeEvidencePanel({
           ))}
         </ul>
       )}
-      <p>
-        {view.current
-          ? `Generation ${view.current.generation} · binding ${view.bindingRevision}`
-          : 'No dependency environment configured.'}
-      </p>
       <details>
         <summary>Configure pinned dependencies and environments</summary>
         <fieldset disabled={busy || !canMutate || !bindingRevision}>
@@ -653,6 +658,6 @@ export function RuntimeEvidencePanel({
       >
         Refresh evidence
       </button>
-    </section>
+    </Section>
   );
 }

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { About } from '../../components/About.js';
+import { Section } from '../../components/Section.js';
 import {
   amendmentImpactSchema,
   mapAmendmentsViewSchema,
@@ -123,14 +125,20 @@ export function MapAmendmentPanel({
       await refresh();
     });
   return (
-    <section aria-label="Planning amendments and finalization" className="runtime-evidence">
-      <h3>Planning amendments and reconciliation</h3>
-      <p>
-        Import revised plans with “Make active” unchecked, configure their branches, then import and
-        bind the revised map. Preview and propose the exact replacement here. Use the current
-        binding to reconcile stale reviews or change the selected target. Applying keeps this
-        roadmap paused.
-      </p>
+    <Section
+      title="Planning amendments and reconciliation"
+      label="Planning amendments and finalization"
+      collapsible
+      defaultOpen
+    >
+      <About label="About amendments">
+        <p>
+          Import revised plans with “Make active” unchecked, configure their branches, then import
+          and bind the revised map. Preview and propose the exact replacement here. Use the current
+          binding to reconcile stale reviews or change the selected target. Applying keeps this
+          roadmap paused.
+        </p>
+      </About>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
       {pending ? (
@@ -465,12 +473,14 @@ export function MapAmendmentPanel({
         </details>
       )}
       <h3>Project finalization readiness</h3>
-      <p>
-        Finalization covers the full original plan, freezes its integration commit and dependency
-        environment, and holds its integration branch. Final promotion always requires your approval
-        of the reviewed commit. Promotion does not prove publication or compatibility for consumers;
-        review new upstream pins and evidence explicitly.
-      </p>
+      <About label="About project finalization">
+        <p>
+          Finalization covers the full original plan, freezes its integration commit and dependency
+          environment, and holds its integration branch. Final promotion always requires your
+          approval of the reviewed commit. Promotion does not prove publication or compatibility for
+          consumers; review new upstream pins and evidence explicitly.
+        </p>
+      </About>
       {readiness?.projects.map((p) => (
         <article key={p.alias}>
           <h4>
@@ -499,6 +509,6 @@ export function MapAmendmentPanel({
           </a>
         </article>
       ))}
-    </section>
+    </Section>
   );
 }

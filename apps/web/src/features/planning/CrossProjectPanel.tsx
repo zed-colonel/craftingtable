@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ActionBar } from '../../components/ActionBar.js';
+import { Reasons } from '../../components/Reasons.js';
+import { Section } from '../../components/Section.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import type { CrossProjectView, ExecutionStatusResponse } from '@craftingtable/contracts';
 import {
   CYCLE_STEPS,
@@ -266,20 +270,53 @@ export function CrossProjectPanel({
       )}
     </article>
   );
+  const actions = view ? (
+    <ActionBar label="Cross-project roadmap actions">
+      {editing && (
+        <button
+          type="button"
+          className="primary-button"
+          disabled={busy || staleSettings || !settings || !name.trim()}
+          onClick={() => void save()}
+        >
+          {roadmap ? 'Save queued roadmap settings' : 'Create cross-project roadmap'}
+        </button>
+      )}
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={busy}
+        onClick={() => void command(refresh)}
+      >
+        Refresh scope and evidence
+      </button>
+    </ActionBar>
+  ) : undefined;
   return (
-    <section
-      className="cross-project-panel"
-      aria-label={roadmap ? 'Cross-project supervision' : 'Create cross-project roadmap'}
+    <Section
+      title={roadmap ? 'Cross-project supervision' : 'Target scope and cross-project roadmap'}
+      label={roadmap ? 'Cross-project supervision' : 'Create cross-project roadmap'}
+      summary={
+        !bindingRevision
+          ? 'Save exact plan and repository bindings first.'
+          : !target
+            ? 'Choose a planning target to preview its scope.'
+            : view
+              ? `${included.length} selected milestones · ${excluded.length} excluded`
+              : 'Loading scope preview…'
+      }
     >
-      <h3>{roadmap ? 'Cross-project supervision' : 'Target scope and cross-project roadmap'}</h3>
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <p role="alert" className="error-state">
+          {error}
+        </p>
+      )}
       {staleSettings && (
         <p role="alert">
           Saved settings changed elsewhere. Reload this page before editing queued settings.
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      {!bindingRevision && <p>Save exact plan and repository bindings first.</p>}
       <div className="cycle-settings-grid">
         <label className="field">
           Planning target
@@ -311,29 +348,42 @@ export function CrossProjectPanel({
           </select>
         </label>
       </div>
-      <p>{targets.find((t) => t.id === target)?.scope}</p>
+      <p className="subtle">{targets.find((t) => t.id === target)?.scope}</p>
       {view && (
         <>
-          <p>
-            <strong>{included.length} selected milestones</strong> · {excluded.length} excluded.
-            Priority changes scheduling order; it never waives a requirement.
-          </p>
-          <ul className="cross-map-completion">
-            <li>Target: {view.targetReached ? 'reached' : 'not reached'}</li>
-            <li>Selected scope: {view.selectedScopeComplete ? 'complete' : 'incomplete'}</li>
-            <li>All original parents: {view.fullPlanAccepted ? 'accepted' : 'not all accepted'}</li>
-            <li>Plans: {view.finalized ? 'finalized' : 'not all finalized'}</li>
-            <li>Publication: {view.published ? 'evidence accepted' : 'not established'}</li>
-          </ul>
+          <p className="hint">Priority changes scheduling order; it never waives a requirement.</p>
+          <StatusStrip
+            label="Roadmap progress"
+            facts={[
+              {
+                label: 'Target',
+                value: view.targetReached ? 'reached' : 'not reached',
+                accent: view.targetReached ? 'var(--color-ready)' : undefined,
+              },
+              {
+                label: 'Selected scope',
+                value: view.selectedScopeComplete ? 'complete' : 'incomplete',
+                accent: view.selectedScopeComplete ? 'var(--color-ready)' : undefined,
+              },
+              {
+                label: 'Original parents',
+                value: view.fullPlanAccepted ? 'all accepted' : 'not all accepted',
+              },
+              { label: 'Plans', value: view.finalized ? 'finalized' : 'not all finalized' },
+              {
+                label: 'Publication',
+                value: view.published ? 'evidence accepted' : 'not established',
+              },
+            ]}
+          />
+          {actions}
           {view.blockers.length > 0 && (
-            <details open>
-              <summary>Before Start</summary>
-              <ul>
-                {view.blockers.map((b) => (
-                  <li key={b}>{b}</li>
-                ))}
-              </ul>
-            </details>
+            <div>
+              <h4>Before Start</h4>
+              <Reasons
+                reasons={view.blockers.map((b) => ({ kind: 'attention' as const, text: b }))}
+              />
+            </div>
           )}
           <details id={`map-adoption-${definitionId}`}>
             <summary>
@@ -713,21 +763,8 @@ export function CrossProjectPanel({
               </>
             )}
           </div>
-          {editing && (
-            <button
-              type="button"
-              className="primary-button"
-              disabled={busy || staleSettings || !settings || !name.trim()}
-              onClick={() => void save()}
-            >
-              {roadmap ? 'Save queued roadmap settings' : 'Create cross-project roadmap'}
-            </button>
-          )}
-          <button type="button" disabled={busy} onClick={() => void command(refresh)}>
-            Refresh scope and evidence
-          </button>
         </>
       )}
-    </section>
+    </Section>
   );
 }

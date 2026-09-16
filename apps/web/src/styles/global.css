@@ -2402,4 +2402,8 @@ button:disabled {
   .data-table {
     min-width: 40rem;
   }
+
+  .data-table-wide {
+    min-width: 60rem;
+  }
 }

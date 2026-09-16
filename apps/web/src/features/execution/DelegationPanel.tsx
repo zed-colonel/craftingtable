@@ -612,7 +612,7 @@ export function DelegationPanel({
         <p className="empty-state">No agent runs yet.</p>
       ) : (
         <div className="table-scroll">
-          <table className="data-table">
+          <table className="data-table data-table-wide">
             <caption className="visually-hidden">Agent runs</caption>
             <thead>
               <tr>

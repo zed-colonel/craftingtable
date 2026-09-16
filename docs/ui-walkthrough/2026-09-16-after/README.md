@@ -1,6 +1,6 @@
 # UI walkthrough · 2026-09-16-after
 
-Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walkthrough.spec.ts`). Desktop captures are 1440×900; phone captures are iPhone 13 emulation (390×844) at 1×. Every capture is the full page.
+Captured from commit `3bfcf82` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walkthrough.spec.ts`). Desktop captures are 1440×900; phone captures are iPhone 13 emulation (390×844) at 1×. Every capture is the full page.
 
 ## Sign in
 
@@ -12,7 +12,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Dashboard of a new workspace
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -20,7 +20,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Import a plan bundle
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/import`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/import`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -28,7 +28,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Project after import
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/projects/207a2f71-0296-4916-826b-1b5787f24640`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/projects/a9e5fd48-da3c-40b9-b4c7-abce088471d6`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -36,7 +36,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Repositories
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/repositories`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/repositories`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -44,7 +44,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Projects
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/projects`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/projects`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -52,7 +52,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Project · configure branches
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/projects/207a2f71-0296-4916-826b-1b5787f24640`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/projects/a9e5fd48-da3c-40b9-b4c7-abce088471d6`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -60,7 +60,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Project with branches configured
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/projects/207a2f71-0296-4916-826b-1b5787f24640`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/projects/a9e5fd48-da3c-40b9-b4c7-abce088471d6`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -68,7 +68,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Plan version
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/projects/207a2f71-0296-4916-826b-1b5787f24640/plans/3ec24d18-04c0-4551-9181-40e9b379d13c`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/projects/a9e5fd48-da3c-40b9-b4c7-abce088471d6/plans/b8fc3a95-dcab-4a29-b725-5cbcb6a9b49b`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -76,7 +76,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Plan version · finalization setup
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/projects/207a2f71-0296-4916-826b-1b5787f24640/plans/3ec24d18-04c0-4551-9181-40e9b379d13c`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/projects/a9e5fd48-da3c-40b9-b4c7-abce088471d6/plans/b8fc3a95-dcab-4a29-b725-5cbcb6a9b49b`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -84,7 +84,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Work item · proposed
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/work-items/4c8869c1-6a06-4e7f-b2b4-9a3eff2e4172`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/work-items/5b56b224-fc71-4766-a459-3aa8dcb61364`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -92,7 +92,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Work item · worktree ready to delegate
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/work-items/4c8869c1-6a06-4e7f-b2b4-9a3eff2e4172`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/work-items/5b56b224-fc71-4766-a459-3aa8dcb61364`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -100,7 +100,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Run · waiting for the operator
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/runs/a841b847-e7b8-4e21-b298-9215ff427ed9`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/runs/865060de-02f8-409f-9f75-9b27af261b20`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -108,7 +108,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Run · finished with an outcome
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/runs/a841b847-e7b8-4e21-b298-9215ff427ed9`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/runs/865060de-02f8-409f-9f75-9b27af261b20`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -116,7 +116,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Run · diff
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/runs/a841b847-e7b8-4e21-b298-9215ff427ed9`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/runs/865060de-02f8-409f-9f75-9b27af261b20`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -124,7 +124,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Work item · cycle setup
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/work-items/4c8869c1-6a06-4e7f-b2b4-9a3eff2e4172`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/work-items/5b56b224-fc71-4766-a459-3aa8dcb61364`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -132,7 +132,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Work item · cycle awaiting merge approval
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/work-items/4c8869c1-6a06-4e7f-b2b4-9a3eff2e4172`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/work-items/5b56b224-fc71-4766-a459-3aa8dcb61364`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -140,7 +140,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Work item · merge confirmation
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/work-items/4c8869c1-6a06-4e7f-b2b4-9a3eff2e4172`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/work-items/5b56b224-fc71-4766-a459-3aa8dcb61364`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -148,7 +148,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Review run with findings
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/runs/adb2c139-f436-42b9-b4a5-5d00fcc4f35d`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/runs/0bd8691b-6ef4-4a8c-85a1-09fe3a5d7872`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -156,7 +156,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Work item · completed by merge
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/work-items/4c8869c1-6a06-4e7f-b2b4-9a3eff2e4172`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/work-items/5b56b224-fc71-4766-a459-3aa8dcb61364`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -164,7 +164,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Roadmaps · none yet
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/roadmaps`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/roadmaps`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -172,7 +172,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Roadmaps · editor
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/roadmaps`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/roadmaps`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -180,7 +180,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Roadmaps · saved draft
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/roadmaps`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/roadmaps`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -188,7 +188,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Roadmaps · running, first item awaiting merge
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/roadmaps`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/roadmaps`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -196,7 +196,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Import plan · ZIP preview
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/import`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/import`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -204,7 +204,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Roadmaps · imported map and cross-project supervisor
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/roadmaps`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/roadmaps`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -212,7 +212,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Work item · execution slices from a map
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/work-items/2addb6d1-df9c-4695-8f01-07ddeadf2203`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/work-items/81d39729-989b-4dea-85bd-33c9c6f534a3`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -220,7 +220,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Agenda · in agenda
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/agenda/admitted`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/agenda/admitted`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -228,7 +228,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Agenda · every item
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/agenda`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/agenda`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -236,7 +236,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Runs
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/runs`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/runs`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -244,7 +244,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Dashboard with work in flight
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -252,7 +252,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Phone navigation menu
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |
@@ -260,7 +260,7 @@ Captured from commit `9d2df8f` on 2026-09-16 by `pnpm ui:walkthrough` (`e2e/walk
 
 ## Workspace settings
 
-`/workspaces/778ed4fc-f519-44d8-b806-a72049dfa273/settings`
+`/workspaces/623f0510-7c20-407a-a7d8-8ed0f07ec0d6/settings`
 
 | Desktop 1440 wide | Phone 390 wide |
 | --- | --- |

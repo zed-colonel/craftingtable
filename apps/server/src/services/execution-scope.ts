@@ -296,7 +296,7 @@ export function scopePhaseBlockers(
   )
     add(
       'review',
-      `Evidence profile ${r.profile.id} requires reviewer qualifications (${r.profile.reviewer_roles.join(', ')}); assign those responsibilities explicitly to the roadmap review agent, or submit independently reviewed external evidence.`,
+      `Evidence profile ${r.profile.id} needs unassigned reviewer qualifications: ${r.profile.reviewer_roles.filter((role) => !scopeReviewerRoles(tx, workspaceId, scope).includes(role)).join(', ')}. Assign these responsibilities to the roadmap review agent, save the changed settings, then review the updated plan; independently reviewed external evidence is also supported.`,
     );
   return [...new Map(issues.map((i) => [i.message, i])).values()];
 }

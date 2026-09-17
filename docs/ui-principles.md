@@ -254,3 +254,11 @@ application/upstream commits, proposed local tags, storage location, preparation
 explicit confirmation before preparation. Read-only source baseline fields distinguish imported obligations
 from selectable historical upstream refs. Prepared sources are not passing tests. Keep collection logs
 accessible from the browser, label bounded/truncated previews, and preserve guidance after failures.
+
+Roadmap supervision starts with actionable scheduler and work-step recovery reasons. A restart
+checkpoint says Resume required and stays separate from plan acceptance and remediation recovery.
+Show saved/unsaved queued settings and acceptance of the exact saved revision together. Disable
+unchanged saves; unsaved edits block generation/acceptance of plan evidence and Start/Resume.
+Reviewer responsibilities use independent checkboxes with source-scope context and direct focus
+links to the controls. Existing assignments stay visible; no assignment is made implicitly.
+Amendment maintenance follows routine supervision and starts collapsed unless a proposal is pending.

@@ -8857,6 +8857,13 @@ it('adopts exact map decisions separately, previews exclusions, guards HTTP auth
   await adoptSupervisedMap(f);
   const after = f.service.view(f.auth, ws, f.input.configuration);
   expect(after.decisions.every((d) => d.adopted)).toBe(true);
+  expect(
+    after.nodes.find((n) => n.kind === 'slice' && n.state === 'verified')?.reviewerRoles,
+  ).toEqual(['repository-maintainer', 'independent-security-reviewer-if-required-by-source']);
+  expect(
+    after.nodes.filter((n) => n.kind === 'checkpoint').every((n) => !n.reviewerRoles?.length),
+  ).toBe(true);
+
   expect(after.targetReached).toBe(false);
   expect(
     (

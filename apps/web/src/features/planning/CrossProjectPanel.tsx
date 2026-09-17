@@ -1,9 +1,14 @@
+import { ReviewerResponsibilities } from './ReviewerResponsibilities.js';
 import { useCallback, useEffect, useState } from 'react';
 import { ActionBar } from '../../components/ActionBar.js';
 import { Reasons } from '../../components/Reasons.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
-import type { CrossProjectView, ExecutionStatusResponse } from '@craftingtable/contracts';
+import type {
+  CrossProjectView,
+  ExecutionStatusResponse,
+  RuntimeEvidenceView,
+} from '@craftingtable/contracts';
 import {
   CYCLE_STEPS,
   DEFAULT_COMPLETION_POLICY,
@@ -33,6 +38,9 @@ export function CrossProjectPanel({
   csrfToken,
   canMutate,
   roadmap,
+  runtimeView,
+  dependencySettingsDirty = false,
+  onDraftChange,
 }: {
   workspaceId: WorkspaceId;
   definitionId: string;
@@ -41,6 +49,9 @@ export function CrossProjectPanel({
   csrfToken: string;
   canMutate: boolean;
   roadmap?: Roadmap;
+  runtimeView?: RuntimeEvidenceView;
+  dependencySettingsDirty?: boolean;
+  onDraftChange?: (roadmapId: string, dirty: boolean) => void;
 }) {
   const saved = roadmap?.definition.crossProject;
   const panelKey = roadmap ? `roadmap-${roadmap.id}` : definitionId;
@@ -51,7 +62,7 @@ export function CrossProjectPanel({
     revealElement(`map-focus-${panelKey}`);
   };
   const [editingRevision, setEditingRevision] = useState(roadmap?.definition.revision);
-  const staleSettings = !!roadmap && editingRevision !== roadmap.definition.revision;
+  const staleSettings = !!roadmap && (editingRevision ?? 0) < roadmap.definition.revision;
   const [target, setTarget] = useState(saved?.targetId ?? ''),
     [selection, setSelection] = useState<'target-only' | 'prioritize-full'>(
       saved?.selection ?? 'target-only',
@@ -81,6 +92,25 @@ export function CrossProjectPanel({
       'project',
     ),
     [overrideKey, setOverrideKey] = useState('');
+  const snapshot = JSON.stringify({
+    name,
+    target,
+    selection,
+    settings,
+    overrides,
+    parentAcceptance,
+    limit,
+    repoLimit,
+    refreshLimit,
+  });
+  const [savedSnapshot, setSavedSnapshot] = useState(() => snapshot);
+  const dirty = !!roadmap && snapshot !== savedSnapshot;
+  const roadmapId = roadmap?.id;
+  useEffect(() => {
+    if (roadmapId) onDraftChange?.(roadmapId, dirty || staleSettings);
+  }, [roadmapId, dirty, staleSettings, onDraftChange]);
+  const plan = runtimeView?.planAcceptance?.roadmaps.find((r) => r.roadmapId === roadmap?.id);
+  const currentPlan = plan?.definitionRevision === editingRevision ? plan : undefined;
   const editing =
     canMutate && (!roadmap || ['draft', 'paused', 'needs-attention'].includes(roadmap.status));
   const refresh = useCallback(async () => {
@@ -230,7 +260,10 @@ export function CrossProjectPanel({
       window.dispatchEvent(
         new CustomEvent('craftingtable:saved-plan-changed', { detail: definitionId }),
       );
-      if (roadmap) setEditingRevision(result.roadmap.definition.revision);
+      if (roadmap) {
+        setEditingRevision(result.roadmap.definition.revision);
+        setSavedSnapshot(snapshot);
+      }
       setNotice(
         `Saved ${result.roadmap.definition.name}. Generate and review plan-acceptance evidence, then use the separate Start or Resume control when startup checks are clear.`,
       );
@@ -316,7 +349,7 @@ export function CrossProjectPanel({
         <button
           type="button"
           className="primary-button"
-          disabled={busy || staleSettings || !settings || !name.trim()}
+          disabled={busy || staleSettings || !settings || !name.trim() || (!!roadmap && !dirty)}
           onClick={() => void save()}
         >
           {roadmap ? 'Save queued roadmap settings' : 'Create cross-project roadmap'}
@@ -421,35 +454,85 @@ export function CrossProjectPanel({
             ]}
           />
           {roadmap && (
-            <p>
-              {JSON.stringify({
-                name,
-                target,
-                selection,
-                settings,
-                overrides,
-                parentAcceptance,
-                limit,
-                repoLimit,
-                refreshLimit,
-              }) ===
-              JSON.stringify({
-                name: roadmap.definition.name,
-                target: saved?.targetId,
-                selection: saved?.selection,
-                settings: saved?.defaults,
-                overrides: saved?.overrides,
-                parentAcceptance: saved?.parentAcceptance,
-                limit: roadmap.definition.scheduling?.maxInFlight,
-                repoLimit: roadmap.definition.scheduling?.maxPerRepository,
-                refreshLimit: roadmap.definition.scheduling?.maxIntegrationRefreshes,
-              })
-                ? `Roadmap settings saved · revision ${roadmap.definition.revision}.`
-                : 'Unsaved roadmap edits. Save queued roadmap settings before generating plan evidence.'}
-            </p>
+            <section aria-label="Settings and plan review" className="roadmap-setup-status">
+              <h4>Settings and plan review</h4>
+              <p role="status">
+                <strong>1. Queued settings: </strong>
+                {staleSettings
+                  ? 'Changed elsewhere — reload before editing.'
+                  : dirty
+                    ? 'Unsaved changes. Save these settings before reviewing the plan or resuming.'
+                    : `Saved · revision ${editingRevision}. No settings save needed.`}
+              </p>
+              <p role="status">
+                <strong>2. Plan acceptance: </strong>
+                {dependencySettingsDirty
+                  ? 'Unsaved dependency changes. Save the dependency environment before generating or accepting plan evidence.'
+                  : dirty || staleSettings
+                    ? 'Save first. Acceptance covers saved settings only; your edits will need a new plan review.'
+                    : currentPlan?.state === 'accepted'
+                      ? `Accepted for saved revision ${currentPlan.definitionRevision}. No further plan review needed unless settings or dependencies change.`
+                      : currentPlan?.state === 'awaiting-review'
+                        ? 'Evidence is generated. Review and accept it; do not save the roadmap again.'
+                        : currentPlan?.state === 'ready-to-generate'
+                          ? 'Saved settings need a new acceptance review. Generate evidence, then review it; no additional settings save is needed.'
+                          : currentPlan?.state === 'not-ready'
+                            ? 'Resolve the saved setup requirements listed in plan acceptance.'
+                            : 'Checking acceptance of the saved revision…'}
+              </p>
+              {runtimeView?.current && (
+                <p>
+                  <strong>Dependency environment: </strong>saved generation{' '}
+                  {runtimeView.current.generation}.
+                  {runtimeView.nativeVerification?.current
+                    ? ' Native verification approved.'
+                    : runtimeView.nativeVerification?.approval?.approved
+                      ? ' Native approval needs renewal for the current environment.'
+                      : runtimeView.nativeVerification
+                        ? ' Native verification needs approval.'
+                        : ''}
+                  {runtimeView.nativeVerification && !runtimeView.nativeVerification.current && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => revealElement(`${runtimePanelId}-native`)}
+                    >
+                      Review native approval
+                    </button>
+                  )}
+                </p>
+              )}
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={dirty || staleSettings || dependencySettingsDirty}
+                onClick={() =>
+                  revealElement(
+                    currentPlan?.submissionId &&
+                      ['accepted', 'awaiting-review'].includes(currentPlan.state)
+                      ? `${runtimePanelId}-submission-${currentPlan.submissionId}`
+                      : `${runtimePanelId}-plan-acceptance`,
+                  )
+                }
+              >
+                {currentPlan?.state === 'accepted'
+                  ? 'View accepted plan'
+                  : currentPlan?.state === 'awaiting-review'
+                    ? 'Review and accept saved plan'
+                    : 'Open plan acceptance'}
+              </button>
+            </section>
           )}
           {actions}
           <ActionBar label="Roadmap setup">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => revealElement(`map-reviewers-${panelKey}`)}
+            >
+              Assign independent reviewer responsibilities
+            </button>
+
             <button
               type="button"
               className="secondary-button"
@@ -471,13 +554,15 @@ export function CrossProjectPanel({
             >
               Preview launch readiness
             </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => revealElement(`${runtimePanelId}-plan-acceptance`)}
-            >
-              Review saved plan acceptance
-            </button>
+            {!roadmap && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => revealElement(`${runtimePanelId}-plan-acceptance`)}
+              >
+                Review saved plan acceptance
+              </button>
+            )}
             <button
               type="button"
               className="secondary-button"
@@ -500,7 +585,11 @@ export function CrossProjectPanel({
                 <ul>
                   {view.setupRequirements.map((requirement) => (
                     <li key={`${requirement.kind}:${requirement.message}`}>
-                      <p>{requirement.message}</p>
+                      <p>
+                        {roadmap && requirement.kind === 'plan-acceptance'
+                          ? 'The saved plan needs acceptance for the current configuration. Another settings save is needed only if you edit settings.'
+                          : requirement.message}
+                      </p>
                       {requirement.kind === 'adoption' && (
                         <button
                           type="button"
@@ -619,6 +708,33 @@ export function CrossProjectPanel({
             )}
             {settings && (
               <>
+                <div id={`map-reviewers-${panelKey}`}>
+                  <ReviewerResponsibilities
+                    label="Independent reviewer responsibilities"
+                    roles={view.reviewerRoles}
+                    selected={settings.reviewerRoles ?? []}
+                    nodes={included}
+                    disabled={!editing || busy}
+                    onChange={(reviewerRoles) => setSettings({ ...settings, reviewerRoles })}
+                  />
+                  <p className="hint">
+                    These are responsibilities delegated to the review agent, not approvals of its
+                    results. Check each responsibility you authorize. Overrides can replace these
+                    defaults; started attempts keep their saved assignments. Save changed settings
+                    once, then generate and review the updated plan. No native/Kata authority is
+                    granted here.
+                  </p>
+                  {editing && roadmap && (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={busy || staleSettings || !dirty || !name.trim()}
+                      onClick={() => void save()}
+                    >
+                      Save reviewer and queued settings
+                    </button>
+                  )}
+                </div>
                 <label className="field">
                   Roadmap name
                   <input
@@ -667,32 +783,6 @@ export function CrossProjectPanel({
                   backends={backends}
                   disabled={!editing || busy}
                 />
-                <label className="field">
-                  Independent reviewer responsibilities
-                  <select
-                    multiple
-                    aria-label="Independent reviewer responsibilities"
-                    value={[...(settings.reviewerRoles ?? [])]}
-                    disabled={!editing || busy}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        reviewerRoles: Array.from(e.currentTarget.selectedOptions, (o) => o.value),
-                      })
-                    }
-                  >
-                    {view.reviewerRoles.map((role) => (
-                      <option key={role} value={role}>
-                        {role}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <p className="hint">
-                  Explicitly designate the review agent to cover these responsibilities
-                  independently of the implementer. Each review still needs scope evidence. This
-                  assignment grants no native/Kata execution or external-effect authority.
-                </p>
                 <RoadmapAutomationFields
                   value={settings.automation}
                   onChange={(automation) => setSettings({ ...settings, automation })}
@@ -794,29 +884,13 @@ export function CrossProjectPanel({
                           backends={backends}
                           disabled={!editing || busy}
                         />
-                        <label className="field">
-                          Override reviewer responsibilities
-                          <select
-                            multiple
-                            value={[...(o.settings.reviewerRoles ?? [])]}
-                            disabled={!editing || busy}
-                            onChange={(e) =>
-                              update({
-                                ...o.settings,
-                                reviewerRoles: Array.from(
-                                  e.currentTarget.selectedOptions,
-                                  (o) => o.value,
-                                ),
-                              })
-                            }
-                          >
-                            {view.reviewerRoles.map((role) => (
-                              <option key={role} value={role}>
-                                {role}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
+                        <ReviewerResponsibilities
+                          label={`Override reviewer responsibilities: ${o.level} ${o.key}`}
+                          roles={view.reviewerRoles}
+                          selected={o.settings.reviewerRoles ?? []}
+                          disabled={!editing || busy}
+                          onChange={(reviewerRoles) => update({ ...o.settings, reviewerRoles })}
+                        />
                         <RoadmapAutomationFields
                           value={o.settings.automation}
                           onChange={(automation) => update({ ...o.settings, automation })}

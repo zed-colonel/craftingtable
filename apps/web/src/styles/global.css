@@ -2443,3 +2443,17 @@ button:disabled {
 .runtime-evidence details {
   scroll-margin-top: 1rem;
 }
+
+.roadmap-next-actions,
+.roadmap-setup-status {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.reviewer-responsibilities {
+  min-width: 0;
+}
+.reviewer-responsibilities .checkbox-row span {
+  overflow-wrap: anywhere;
+}

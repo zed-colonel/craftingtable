@@ -500,6 +500,27 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     );
 
     await walk.capture(
+      'roadmaps-reviewer-responsibilities',
+      'Roadmaps · direct reviewer responsibility assignment',
+      async (p: Page) => {
+        await selectTarget(p);
+        const supervisor = p.getByRole('region', {
+          name: 'Create cross-project roadmap',
+          exact: true,
+        });
+        await supervisor
+          .getByRole('button', {
+            name: 'Assign independent reviewer responsibilities',
+            exact: true,
+          })
+          .click();
+        await expect(
+          supervisor.getByRole('checkbox', { name: 'repository-maintainer', exact: true }),
+        ).toBeVisible();
+      },
+    );
+
+    await walk.capture(
       'roadmaps-verification-environments',
       'Roadmaps · native approval and Kata readiness',
       async (p: Page) => {

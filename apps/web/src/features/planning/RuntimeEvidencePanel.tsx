@@ -23,6 +23,9 @@ export function RuntimeEvidencePanel({
   roadmapRevision,
   csrfToken,
   canMutate,
+  roadmapSettingsDirty = false,
+  onViewChange,
+  onDraftChange,
   panelId = `runtime-evidence-${definitionId}`,
 }: {
   workspaceId: WorkspaceId;
@@ -33,6 +36,9 @@ export function RuntimeEvidencePanel({
   csrfToken: string;
   canMutate: boolean;
   panelId?: string;
+  roadmapSettingsDirty?: boolean;
+  onViewChange?: (roadmapId: string, view: RuntimeEvidenceView) => void;
+  onDraftChange?: (roadmapId: string, dirty: boolean) => void;
 }) {
   const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime`;
   const [view, setView] = useState<RuntimeEvidenceView>(),
@@ -40,6 +46,7 @@ export function RuntimeEvidencePanel({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
+  const [savedConfig, setSavedConfig] = useState('');
   const [refs, setRefs] = useState<Record<string, string>>({}),
     [subject, setSubject] = useState(''),
     [evidence, setEvidence] = useState(''),
@@ -48,7 +55,7 @@ export function RuntimeEvidencePanel({
   const adopt = useCallback((v: RuntimeEvidenceView) => {
     setView(v);
     setRefs(Object.fromEntries(v.current?.pins.map((p) => [p.alias, p.ref]) ?? []));
-    setConfig({
+    const nextConfig: ConfigureRuntime = {
       bindingRevision: v.bindingRevision,
       expectedGeneration: v.current?.generation ?? 0,
       pins:
@@ -65,8 +72,13 @@ export function RuntimeEvidencePanel({
           .filter((r) => r.role === 'planned_application')
           .map((r) => ({ alias: r.alias, upstreams: [] })),
       environments: v.current?.environments ?? [],
-    });
+    };
+    setConfig(nextConfig);
+    setSavedConfig(JSON.stringify(nextConfig));
   }, []);
+  useEffect(() => {
+    if (roadmapId && view) onViewChange?.(roadmapId, view);
+  }, [roadmapId, view, onViewChange]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Saved revisions invalidate this read even when the endpoint identity stays unchanged.
   useEffect(() => {
     let alive = true;
@@ -106,11 +118,20 @@ export function RuntimeEvidencePanel({
       headers: { 'x-craftingtable-csrf': csrfToken },
       body: JSON.stringify(body),
     });
+  const dependencyDirty =
+    !!config &&
+    (JSON.stringify(config) !== savedConfig ||
+      config.pins.some((pin) => refs[pin.alias] !== undefined && refs[pin.alias] !== pin.ref));
+  useEffect(() => {
+    if (roadmapId) onDraftChange?.(roadmapId, dependencyDirty);
+  }, [roadmapId, dependencyDirty, onDraftChange]);
   if (!view || !config)
     return <p role={error ? 'alert' : undefined}>{error || 'Loading dependency environments…'}</p>;
   const changedRefs = config.pins.some(
     (pin) => refs[pin.alias] !== undefined && refs[pin.alias] !== pin.ref,
   );
+  const configDirty = JSON.stringify(config) !== savedConfig;
+  const unsavedSetup = roadmapSettingsDirty || configDirty || changedRefs;
   const selected = view.subjects.find((s) => `${s.subject.kind}:${s.subject.sourceId}` === subject);
   return (
     <Section
@@ -165,6 +186,12 @@ export function RuntimeEvidencePanel({
       {view.planAcceptance && (
         <section id={`${panelId}-plan-acceptance`} aria-label="Saved plan acceptance">
           <h4>Saved plan acceptance · STACK-PLAN-ACCEPTED</h4>
+          {unsavedSetup && (
+            <p role="alert">
+              Unsaved roadmap or dependency settings: save them before generating or accepting plan
+              evidence. The current evidence describes only the last saved revision.
+            </p>
+          )}
           <p>
             Generate evidence from the saved roadmap and dependency setup. Unsaved form edits are
             not included. Generation records facts; your separate review and acceptance approve the
@@ -184,7 +211,7 @@ export function RuntimeEvidencePanel({
                 </p>
                 <p role="status">
                   {r.state === 'accepted'
-                    ? 'Plan evidence accepted. Start or Resume remains your action.'
+                    ? 'Plan evidence accepted. No further save or review is needed unless configuration changes. Start or Resume remains your action.'
                     : r.state === 'awaiting-review'
                       ? 'Evidence generated — awaiting your plan review.'
                       : r.state === 'ready-to-generate'
@@ -202,7 +229,7 @@ export function RuntimeEvidencePanel({
                   <button
                     type="button"
                     className="primary-button"
-                    disabled={busy || !canMutate || r.state !== 'ready-to-generate'}
+                    disabled={busy || !canMutate || unsavedSetup || r.state !== 'ready-to-generate'}
                     onClick={() =>
                       void act(async () => {
                         const next = await post('generate-plan', {
@@ -535,8 +562,11 @@ export function RuntimeEvidencePanel({
           </button>
 
           <p>
-            Saving a generation invalidates earlier evidence for this binding. Historical
-            submissions remain available.
+            {configDirty || changedRefs
+              ? 'Unsaved dependency changes. Saving creates a new generation and requires new native approval and plan acceptance. Historical evidence is retained.'
+              : view.current
+                ? `Dependency settings saved · generation ${view.current.generation}. No dependency save needed.`
+                : 'Discover or enter the dependency environment before saving.'}
           </p>
           {changedRefs && (
             <p role="status">Inspect or rediscover the changed refs before saving.</p>
@@ -544,7 +574,7 @@ export function RuntimeEvidencePanel({
           <button
             className="secondary-button"
             type="button"
-            disabled={changedRefs}
+            disabled={changedRefs || (!configDirty && !!view.current)}
             onClick={() =>
               void act(async () => {
                 const input = configureRuntimeSchema.parse(config);
@@ -838,7 +868,8 @@ export function RuntimeEvidencePanel({
                   disabled={
                     !rationale[s.id]?.trim() ||
                     (outcome === 'accepted' &&
-                      (issues.length > 0 || (!!s.generatedPlan && !planReviewed[s.id])))
+                      (issues.length > 0 ||
+                        (!!s.generatedPlan && (!planReviewed[s.id] || unsavedSetup))))
                   }
                   onClick={() =>
                     void act(async () => {

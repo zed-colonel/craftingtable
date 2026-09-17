@@ -82,3 +82,27 @@ it('does not expose execution controls to a read-only viewer', () => {
       .disabled,
   ).toBe(true);
 });
+it('explains an approval tied to an older dependency generation without suggesting another dependency save', () => {
+  const stale = {
+    ...view,
+    current: { ...view.current, id: 'new', generation: 3 },
+    history: [{ id: 'old', generation: 2 }],
+    nativeVerification: {
+      ...view.nativeVerification,
+      approval: { id: 'approval', runtimeId: 'old', approved: true },
+    },
+  } as RuntimeEvidenceView;
+  render(
+    <NativeVerificationPanel
+      base="/runtime"
+      view={stale}
+      csrfToken="csrf"
+      canMutate
+      onSaved={() => {}}
+    />,
+  );
+  expect(screen.getByRole('status').textContent).toContain('Approval covers generation 2');
+  expect(screen.getByRole('status').textContent).toContain('current saved generation is 3');
+  expect(screen.getByRole('status').textContent).toContain('do not need to save');
+  expect(request).not.toHaveBeenCalled();
+});

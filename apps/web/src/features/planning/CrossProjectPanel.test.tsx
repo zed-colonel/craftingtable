@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, it, expect, vi } from 'vitest';
-import { asWorkItemId, asWorkspaceId } from '@craftingtable/domain';
+import { asWorkItemId, asWorkspaceId, type Roadmap } from '@craftingtable/domain';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import {
   previewCrossProject,
@@ -23,7 +23,11 @@ afterEach(() => {
 });
 const id = '12345678-1234-4234-8234-123456789abc',
   ws = asWorkspaceId('workspace');
-function setup() {
+function setup(
+  roadmap?: Roadmap,
+  runtimeView?: import('@craftingtable/contracts').RuntimeEvidenceView,
+  onDraftChange?: (id: string, dirty: boolean) => void,
+) {
   vi.mocked(loadExecutionStatus).mockResolvedValue({
     backends: [{ kind: 'codex', label: 'Codex', available: true, models: [] }],
     git: { available: true },
@@ -39,7 +43,7 @@ function setup() {
   vi.mocked(previewCrossProject).mockResolvedValue({
     definitionId: id,
     bindingRevision: 1,
-    reviewerRoles: [],
+    reviewerRoles: ['repository-maintainer', 'independent-integration-reviewer'],
     targets: [
       { id: 'PROOF', checkpoint: 'WI-PROOF', scope: 'Native proof only', isRelease: false },
     ],
@@ -82,6 +86,7 @@ function setup() {
         sourceId: 'wi/WI-01/core',
         state: 'verified',
         parentId: 'wi/WI-01',
+        reviewerRoles: ['repository-maintainer'],
         title: 'Core provider',
         repository: 'wi',
         workItemId: asWorkItemId('item'),
@@ -112,6 +117,9 @@ function setup() {
   });
   render(
     <CrossProjectPanel
+      roadmap={roadmap}
+      runtimeView={runtimeView}
+      onDraftChange={onDraftChange}
       workspaceId={ws}
       definitionId={id}
       bindingRevision={1}
@@ -176,4 +184,84 @@ it('saves a draft with manual parent acceptance and inherited profiles; creation
   expect(sent.configuration.defaults.automation.integrationMerge).toBe('manual');
   expect(sent.expectedVersion).toBe(0);
   expect(adoptCrossProject).not.toHaveBeenCalled();
+});
+
+function savedRoadmap() {
+  return {
+    id,
+    status: 'needs-attention',
+    version: 3,
+    definition: {
+      revision: 2,
+      name: 'Stack roadmap',
+      scheduling: { maxInFlight: 2, maxPerRepository: 2, maxIntegrationRefreshes: 3 },
+      crossProject: {
+        definitionId: id,
+        bindingRevision: 1,
+        targetId: 'PROOF',
+        selection: 'target-only',
+        parentAcceptance: 'manual',
+        overrides: [],
+        defaults: {
+          reviewerRoles: ['independent-integration-reviewer'],
+          profiles: Object.fromEntries(
+            ['design', 'implement', 'review', 'remediate'].map((step) => [
+              step,
+              { backend: 'codex', permissionMode: 'auto' },
+            ]),
+          ),
+          policy: { maxNits: 0, maxRemediationRounds: 3, maxRunMinutes: 60 },
+          instructions: '',
+          automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
+        },
+      },
+    },
+  } as unknown as Roadmap;
+}
+it('opens the exact reviewer checkboxes, retains other assignments, and saves changes only once', async () => {
+  const roadmap = savedRoadmap(),
+    changed = vi.fn();
+  setup(
+    roadmap,
+    {
+      planAcceptance: {
+        roadmaps: [
+          { roadmapId: id, definitionRevision: 2, state: 'accepted', submissionId: 'facts' },
+        ],
+      },
+    } as import('@craftingtable/contracts').RuntimeEvidenceView,
+    changed,
+  );
+  await screen.findByText(/Accepted for saved revision 2/);
+  const save = screen.getByRole('button', { name: 'Save queued roadmap settings' });
+  expect(save.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Assign independent reviewer responsibilities' }),
+  );
+  expect(document.activeElement?.id).toBe(`map-reviewers-roadmap-${id}`);
+  expect((document.getElementById(`map-settings-roadmap-${id}`) as HTMLDetailsElement).open).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole('checkbox', { name: 'repository-maintainer' }));
+  expect(
+    (screen.getByRole('checkbox', { name: 'independent-integration-reviewer' }) as HTMLInputElement)
+      .checked,
+  ).toBe(true);
+  expect(screen.getByText(/Unsaved changes. Save these settings/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'View accepted plan' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  expect(changed).toHaveBeenLastCalledWith(id, true);
+  vi.mocked(saveCrossProject).mockResolvedValue({
+    roadmap: { ...roadmap, definition: { ...roadmap.definition, revision: 3 } },
+  } as Awaited<ReturnType<typeof saveCrossProject>>);
+  fireEvent.click(screen.getByRole('button', { name: 'Save reviewer and queued settings' }));
+  await waitFor(() => expect(saveCrossProject).toHaveBeenCalledTimes(1));
+  expect(
+    vi.mocked(saveCrossProject).mock.calls[0]![1].configuration.defaults.reviewerRoles,
+  ).toEqual(['independent-integration-reviewer', 'repository-maintainer']);
+  await screen.findByText(/Saved · revision 3. No settings save needed/);
+  expect(save.hasAttribute('disabled')).toBe(true);
+  expect(changed).toHaveBeenLastCalledWith(id, false);
+  expect(screen.queryByText(/Accepted for saved revision 2/)).toBeNull();
 });

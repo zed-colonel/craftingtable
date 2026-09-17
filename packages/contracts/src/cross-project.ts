@@ -75,6 +75,7 @@ export const mapNodeSchema = z.strictObject({
   priority: z.boolean(),
   satisfied: z.boolean(),
   status: z.string(),
+  reviewerRoles: z.array(z.string()).optional(),
   requirements: z.array(z.string()),
   blockers: z.array(z.string()),
   action: z.enum(['work-item', 'evidence', 'adopt', 'none']),

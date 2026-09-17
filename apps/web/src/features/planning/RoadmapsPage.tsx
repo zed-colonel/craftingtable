@@ -1,8 +1,9 @@
+import { RoadmapAttention, roadmapStatusLabel } from './RoadmapAttention.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { MapAmendmentPanel } from './MapAmendmentPanel.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
-import type { ExecutionScopeChoice } from '@craftingtable/contracts';
+import type { RuntimeEvidenceView, ExecutionScopeChoice } from '@craftingtable/contracts';
 import { executionScopeKey } from '@craftingtable/domain';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import type {
@@ -22,7 +23,7 @@ import {
   type WorkItemId,
   type WorkspaceId,
 } from '@craftingtable/domain';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { PageHeader } from '../../components/PageHeader.js';
@@ -61,6 +62,28 @@ export function RoadmapsPage({
   canMutate: boolean;
   onOpenWorkItem: (id: WorkItemId) => void;
 }) {
+  const [dirtyRoadmaps, setDirtyRoadmaps] = useState<Record<string, boolean>>({});
+  const [dependencyDrafts, setDependencyDrafts] = useState<Record<string, boolean>>({});
+  const dependencyDraftChanged = useCallback(
+    (id: string, dirty: boolean) =>
+      setDependencyDrafts((old) => (old[id] === dirty ? old : { ...old, [id]: dirty })),
+    [],
+  );
+  const [runtimeViews, setRuntimeViews] = useState<Record<string, RuntimeEvidenceView>>({});
+  const draftChanged = useCallback(
+    (id: string, dirty: boolean) =>
+      setDirtyRoadmaps((previous) =>
+        previous[id] === dirty ? previous : { ...previous, [id]: dirty },
+      ),
+    [],
+  );
+  const runtimeChanged = useCallback(
+    (id: string, view: RuntimeEvidenceView) =>
+      setRuntimeViews((previous) =>
+        previous[id] === view ? previous : { ...previous, [id]: view },
+      ),
+    [],
+  );
   const [roadmaps, setRoadmaps] = useState<readonly RoadmapView[]>([]);
   const [items, setItems] = useState<WorkspaceWorkItemListResponse['items']>([]);
   const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
@@ -638,7 +661,16 @@ export function RoadmapsPage({
         const completed = progress.filter((p) => p.status === 'completed').length;
         const attention =
           ['needs-attention'].includes(roadmap.status) ||
-          progress.some((p) => p.status === 'awaiting-merge' || p.status === 'needs-attention');
+          progress.some(
+            (p) =>
+              (p.status === 'awaiting-merge' || p.status === 'needs-attention') &&
+              (!p.blockers?.length ||
+                p.blockers.every(
+                  (b) =>
+                    b.kind === 'review' ||
+                    (b.kind === 'authorization' && b.message.startsWith('Resource ')),
+                )),
+          );
         return (
           <Section
             key={roadmap.id}
@@ -647,13 +679,13 @@ export function RoadmapsPage({
             summary={`${completed}/${progress.length} completed · revision ${roadmap.definition.revision}`}
             {...(attention ? { tone: 'attention' as const } : {})}
           >
-            <p role="status">{roadmap.reason}</p>
+            <RoadmapAttention roadmap={roadmap} progress={progress} workspaceId={workspaceId} />
             <StatusStrip
               label="Roadmap status"
               facts={[
                 {
                   label: 'Status',
-                  value: labels[roadmap.status],
+                  value: roadmapStatusLabel(roadmap, labels[roadmap.status]),
                   accent: attention
                     ? 'var(--color-attention)'
                     : roadmap.status === 'running'
@@ -679,6 +711,14 @@ export function RoadmapsPage({
                 },
               ]}
             />
+            {(dirtyRoadmaps[roadmap.id] || dependencyDrafts[roadmap.id]) && (
+              <p role="status">
+                Save the unsaved{' '}
+                {dirtyRoadmaps[roadmap.id] ? 'queued roadmap settings' : 'dependency settings'}{' '}
+                below before starting or resuming, then review plan acceptance for the updated
+                configuration.
+              </p>
+            )}
             <ActionBar label="Roadmap controls">
               {canMutate && (
                 <>
@@ -686,7 +726,9 @@ export function RoadmapsPage({
                     <button
                       type="button"
                       className="primary-button"
-                      disabled={busy || !!draft}
+                      disabled={
+                        busy || !!draft || dirtyRoadmaps[roadmap.id] || dependencyDrafts[roadmap.id]
+                      }
                       onClick={() => void command(roadmap, 'start')}
                     >
                       Start roadmap
@@ -706,7 +748,9 @@ export function RoadmapsPage({
                     <button
                       type="button"
                       className="primary-button"
-                      disabled={busy || !!draft}
+                      disabled={
+                        busy || !!draft || dirtyRoadmaps[roadmap.id] || dependencyDrafts[roadmap.id]
+                      }
                       onClick={() => void command(roadmap, 'resume')}
                     >
                       Resume roadmap
@@ -753,13 +797,6 @@ export function RoadmapsPage({
             </ActionBar>
             {roadmap.definition.crossProject && (
               <>
-                <MapAmendmentPanel
-                  key={`${roadmap.id}:${roadmap.definition.revision}`}
-                  workspaceId={workspaceId}
-                  roadmap={roadmap}
-                  csrfToken={csrfToken}
-                  canMutate={canMutate}
-                />
                 <CrossProjectPanel
                   workspaceId={workspaceId}
                   definitionId={roadmap.definition.crossProject.definitionId}
@@ -774,6 +811,9 @@ export function RoadmapsPage({
                     },
                   ]}
                   roadmap={roadmap}
+                  runtimeView={runtimeViews[roadmap.id]}
+                  dependencySettingsDirty={dependencyDrafts[roadmap.id]}
+                  onDraftChange={draftChanged}
                   csrfToken={csrfToken}
                   canMutate={canMutate}
                 />
@@ -781,9 +821,19 @@ export function RoadmapsPage({
                   panelId={`runtime-evidence-roadmap-${roadmap.id}`}
                   roadmapId={roadmap.id}
                   roadmapRevision={roadmap.definition.revision}
+                  roadmapSettingsDirty={dirtyRoadmaps[roadmap.id]}
+                  onViewChange={runtimeChanged}
+                  onDraftChange={dependencyDraftChanged}
                   workspaceId={workspaceId}
                   definitionId={roadmap.definition.crossProject.definitionId}
                   bindingRevision={roadmap.definition.crossProject.bindingRevision}
+                  csrfToken={csrfToken}
+                  canMutate={canMutate}
+                />
+                <MapAmendmentPanel
+                  key={`${roadmap.id}:${roadmap.definition.revision}`}
+                  workspaceId={workspaceId}
+                  roadmap={roadmap}
                   csrfToken={csrfToken}
                   canMutate={canMutate}
                 />
@@ -798,7 +848,7 @@ export function RoadmapsPage({
                   const state = progress.find((p) => p.entryId === entry.id);
                   const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
                   return (
-                    <li key={entry.id}>
+                    <li key={entry.id} id={`roadmap-entry-${roadmap.id}-${entry.id}`}>
                       <a
                         href={buildPath({
                           name: 'work-item',
@@ -858,7 +908,7 @@ export function RoadmapsPage({
                           <button
                             type="button"
                             className="secondary-button"
-                            onClick={() => revealElement(`map-settings-roadmap-${roadmap.id}`)}
+                            onClick={() => revealElement(`map-reviewers-roadmap-${roadmap.id}`)}
                           >
                             Assign independent reviewer responsibilities
                           </button>

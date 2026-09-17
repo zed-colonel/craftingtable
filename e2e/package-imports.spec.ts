@@ -408,6 +408,35 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   expect(creation.status(), await creation.text()).toBe(200);
   const saved = page.getByRole('region', { name: 'Amendable stack roadmap', exact: true });
   await expect(saved).toBeVisible();
+  const saveQueued = saved.getByRole('button', {
+    name: 'Save queued roadmap settings',
+    exact: true,
+  });
+  await expect(saveQueued).toBeDisabled();
+  await saved
+    .getByRole('button', { name: 'Assign independent reviewer responsibilities', exact: true })
+    .click();
+  await saved.getByRole('checkbox', { name: 'repository-maintainer', exact: true }).check();
+  await saved
+    .getByRole('checkbox', {
+      name: 'independent-security-reviewer-if-required-by-source',
+      exact: true,
+    })
+    .check();
+  await expect(saved.getByRole('button', { name: 'Start roadmap', exact: true })).toBeDisabled();
+  await expect(
+    saved.getByText('Unsaved changes. Save these settings before reviewing the plan or resuming.', {
+      exact: false,
+    }),
+  ).toBeVisible();
+  await saved
+    .getByRole('button', { name: 'Save reviewer and queued settings', exact: true })
+    .click();
+  await expect(saveQueued).toBeDisabled();
+  await expect(
+    saved.getByText('Saved · revision 2. No settings save needed.', { exact: false }),
+  ).toBeVisible();
+  await saved.screenshot({ path: info.outputPath('roadmap-next-actions.png') });
   await saved.getByRole('button', { name: 'Resolve dependency setup', exact: true }).click();
   const savedRuntime = saved.getByRole('region', {
     name: 'Dependency environments and evidence',
@@ -442,6 +471,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     name: 'Planning amendments and finalization',
     exact: true,
   });
+  await amendments.locator(':scope > details > summary').click();
   await amendments
     .getByRole('combobox', { name: 'Amended target', exact: true })
     .selectOption('EXO-EMBEDDED-VIABILITY-1');
@@ -461,6 +491,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .fill('Reviewed queued work and unchanged plan bindings.');
   await amendments.getByRole('button', { name: 'Apply reviewed amendment', exact: true }).click();
   await expect(amendments.getByText('Execution held:', { exact: true })).toHaveCount(0);
+  await amendments.locator(':scope > details > summary').click();
   await expect(amendments.getByText(/Amendment history/)).toBeVisible();
   await expect(
     amendments.getByRole('heading', { name: 'Project finalization readiness', exact: true }),

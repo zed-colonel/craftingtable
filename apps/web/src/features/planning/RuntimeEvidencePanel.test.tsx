@@ -303,7 +303,7 @@ it('separates saved readiness, evidence generation and explicit independent plan
   );
   expect(accept.hasAttribute('disabled')).toBe(false);
   fireEvent.click(accept);
-  await screen.findByText('Plan evidence accepted. Start or Resume remains your action.');
+  await screen.findByText(/Plan evidence accepted. No further save or review/);
   expect(vi.mocked(request).mock.calls[2]?.[0]).toMatch(/decide$/);
 });
 
@@ -339,4 +339,45 @@ it('explains missing saved setup and disables plan evidence generation', async (
       .getByRole('button', { name: 'Generate plan-acceptance evidence' })
       .hasAttribute('disabled'),
   ).toBe(true);
+});
+
+it('disables unchanged dependency saves and prevents generating plan evidence with unsaved roadmap edits', async () => {
+  vi.mocked(request).mockResolvedValue({
+    ...view(),
+    planAcceptance: {
+      checkpoint: 'STACK-PLAN-ACCEPTED',
+      roadmaps: [
+        {
+          roadmapId: runtimeId,
+          name: 'Saved',
+          definitionRevision: 2,
+          snapshotDigest: 'a'.repeat(64),
+          state: 'ready-to-generate',
+          issues: [],
+        },
+      ],
+    },
+  });
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+      roadmapSettingsDirty
+    />,
+  );
+  await screen.findByText(/Unsaved roadmap or dependency settings/);
+  expect(
+    screen
+      .getByRole('button', { name: 'Save dependency environment', hidden: true })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+  expect(
+    screen
+      .getByRole('button', { name: 'Generate plan-acceptance evidence' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+  expect(request).toHaveBeenCalledTimes(1);
 });

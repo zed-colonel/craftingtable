@@ -195,6 +195,17 @@ export function crossProjectState(
             : cp
               ? 'Ready for checkpoint evidence'
               : 'Eligible for scheduling')),
+      reviewerRoles: [
+        ...(d.source.evidence_profiles.find(
+          (p) =>
+            p.id ===
+            (r.kind === 'work_item'
+              ? d.source.work_items.find((w) => w.id === r.id)?.acceptance_evidence_profile
+              : r.kind === 'slice' && r.state === 'verified'
+                ? d.source.slices.find((s) => s.id === r.id)?.evidence_profile
+                : undefined),
+        )?.reviewer_roles ?? []),
+      ],
       requirements: [...n.requires],
       blockers,
       action: satisfied

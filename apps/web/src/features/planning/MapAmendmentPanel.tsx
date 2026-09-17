@@ -131,7 +131,7 @@ export function MapAmendmentPanel({
       title="Planning amendments and reconciliation"
       label="Planning amendments and finalization"
       collapsible
-      defaultOpen
+      defaultOpen={!!pending}
     >
       <About label="About amendments">
         <p>

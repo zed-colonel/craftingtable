@@ -71,6 +71,18 @@ export function NativeVerificationPanel({
               : 'Native verification needs approval'}
         </strong>
       </p>
+      {!native.current &&
+        native.approval?.approved &&
+        native.approval.runtimeId !== view.current?.id && (
+          <p role="status">
+            The dependency environment changed after approval. Approval covers generation{' '}
+            {view.history.find((g) => g.id === native.approval?.runtimeId)?.generation ??
+              'an earlier generation'}
+            ; the current saved generation is {view.current?.generation ?? 'not configured'}. Audit
+            and approve this generation here. You do not need to save the dependency environment
+            again.
+          </p>
+        )}
       <p>
         Approve non-sensitive repository fixtures on this workstation. CraftingTable provisions
         review worktrees, retains exact test evidence and cleans up bounded test processes. Approval

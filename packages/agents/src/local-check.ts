@@ -1,5 +1,6 @@
 /** Local verification adapter; commands originate in the supervised agent, never HTTP. */
 import { spawn, spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import {
   appendFileSync,
@@ -14,6 +15,15 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { PinnedCargoManifest } from './pinned-cargo.js';
+
+// Generated launchers also run directly from TypeScript in adapter tests.
+const { nativeHostDigest, nativeArguments, nativeExecutables, nativeUnit, stopNativeUnit } =
+  (await import(
+    new URL(
+      import.meta.url.endsWith('.ts') ? './native-environment.ts' : './native-environment.js',
+      import.meta.url,
+    ).href
+  )) as typeof import('./native-environment.js');
 
 export interface LocalCiConfig {
   readonly actExecutable: string;
@@ -40,7 +50,7 @@ export function loadLocalCiConfig(path: string | undefined): LocalCiConfig | und
   return c;
 }
 export function prepareLocalCheckLaunchers(bin: string, manifest: string, digest: string) {
-  for (const name of ['ct-check', 'ct-act']) {
+  for (const name of ['ct-check', 'ct-act', 'ct-native']) {
     const path = join(bin, name);
     writeFileSync(
       path,
@@ -209,7 +219,8 @@ export async function runLocalCheck(
     command = '',
     actual: string[] = [];
   const isCi = kind === 'ct-act';
-  const lease = join(directory, 'act-active');
+  const isNative = kind === 'ct-native';
+  const lease = join(directory, isNative ? 'native-active' : 'act-active');
   let ownsLease = false;
   try {
     verifySources(m);
@@ -227,6 +238,36 @@ export async function runLocalCheck(
       actual = args.slice(1);
       if (!command || command.startsWith('-') || command.includes('\0'))
         throw new Error('Usage: ct-check -- <executable> <arguments>');
+    }
+    if (isNative) {
+      if (!m.nativeVerification || m.nativeVerification.hostDigest !== nativeHostDigest())
+        throw new Error('A current approved native environment is required.');
+      mkdirSync(lease);
+      ownsLease = true;
+      const home = join(directory, 'native-home'),
+        tmp = join(directory, 'native-tmp');
+      for (const p of [home, tmp]) mkdirSync(p, { recursive: true, mode: 0o700 });
+      actual = nativeArguments(
+        nativeUnit(m.runId),
+        m.workspacePath,
+        (m.checkTimeoutMs ?? 1800000) / 1000,
+        [
+          '/usr/bin/env',
+          '-i',
+          `PATH=${dirname(path)}/bin:${join(homedir(), '.cargo/bin')}:/usr/local/bin:/usr/bin`,
+          `HOME=${home}`,
+          `TMPDIR=${tmp}`,
+          `CARGO_HOME=${join(homedir(), '.cargo')}`,
+          `RUSTUP_HOME=${join(homedir(), '.rustup')}`,
+          'RUSTUP_AUTO_INSTALL=0',
+          `CARGO_TARGET_DIR=${m.targetDirectory}`,
+          `CRAFTINGTABLE_CARGO_CONFIG=${m.configPath}`,
+          `CRAFTINGTABLE_DEPENDENCY_MANIFEST=${path}`,
+          command,
+          ...actual,
+        ],
+      );
+      command = nativeExecutables.systemdRun;
     }
     const env = isCi
       ? {
@@ -252,6 +293,7 @@ export async function runLocalCheck(
         killTimer ??= setTimeout(() => child.kill('SIGKILL'), 5000);
         expired = true;
         child.kill('SIGTERM');
+        if (isNative) void stopNativeUnit(m.runId).catch(() => {});
         if (isCi) {
           try {
             cleanupLocalCi(m.localCi!, m.runId);
@@ -294,7 +336,16 @@ export async function runLocalCheck(
   } catch (e) {
     diagnostic = e instanceof Error ? e.message : 'Check failed.';
   } finally {
-    if (ownsLease && m.localCi) {
+    if (isNative && ownsLease) {
+      try {
+        await stopNativeUnit(m.runId);
+        rmSync(lease, { recursive: true });
+      } catch (e) {
+        success = false;
+        diagnostic += ` ${e instanceof Error ? e.message : 'Native cleanup failed.'}`;
+      }
+    }
+    if (ownsLease && !isNative && m.localCi) {
       try {
         cleanupLocalCi(m.localCi, m.runId);
         rmSync(lease, { recursive: true });
@@ -308,7 +359,8 @@ export async function runLocalCheck(
     appendFileSync(
       m.receiptPath,
       JSON.stringify({
-        kind: isCi ? 'local-ci' : 'scoped-check',
+        kind: isNative ? 'native-check' : isCi ? 'local-ci' : 'scoped-check',
+        ...(isNative ? { nativeVerification: m.nativeVerification } : {}),
         runtimeId: m.runtimeId,
         runId: m.runId,
         manifestDigest: digest,
@@ -335,6 +387,14 @@ export async function runLocalCheck(
 
 /** Terminal/restart fallback after the agent process has stopped; never inside a DB transaction. */
 export async function cleanupLocalCiManifest(path: string, digest: string): Promise<void> {
+  const nativeLease = join(dirname(path), 'checks', 'native-active');
+  if (existsSync(nativeLease)) {
+    const raw = readFileSync(path, 'utf8');
+    if (hash(raw) !== digest) throw new Error('Native cleanup manifest changed.');
+    const m = JSON.parse(raw) as PinnedCargoManifest;
+    await stopNativeUnit(m.runId);
+    rmSync(nativeLease, { recursive: true });
+  }
   const lease = join(dirname(path), 'checks', 'act-active');
   if (!existsSync(lease)) return;
   const raw = readFileSync(path, 'utf8');

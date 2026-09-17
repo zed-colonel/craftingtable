@@ -181,7 +181,52 @@ export const evidenceDecisionSchema = z.strictObject({
   decidedAt: z.iso.datetime(),
   decidedByUserId: z.string(),
 });
+export const nativeAuditSchema = z.strictObject({
+  hostDigest: digest,
+  auditDigest: digest,
+  ready: z.boolean(),
+  facts: z.string().max(65536),
+  issues: z.array(z.string()),
+  kata: z.strictObject({ installed: z.boolean(), kvmAvailable: z.boolean(), message: z.string() }),
+});
+export type NativeAudit = z.infer<typeof nativeAuditSchema>;
+export const nativeApprovalRequestSchema = z.strictObject({
+  bindingRevision: z.number().int().positive(),
+  runtimeId: z.uuid(),
+  expectedApprovalId: z.string().nullable(),
+  approved: z.boolean(),
+  auditDigest: digest,
+  rationale: text,
+});
+export type NativeApprovalRequest = z.infer<typeof nativeApprovalRequestSchema>;
+export const nativeApprovalSchema = z.strictObject({
+  id: z.uuid(),
+  workspaceId: z.string(),
+  definitionId: z.string(),
+  bindingRevision: z.number(),
+  runtimeId: z.string(),
+  approved: z.boolean(),
+  hostDigest: digest,
+  auditDigest: digest,
+  audit: z.string(),
+  rationale: z.string(),
+  createdAt: z.string(),
+  createdByUserId: z.string(),
+});
 export const runtimeEvidenceViewSchema = z.strictObject({
+  nativeVerification: z
+    .strictObject({
+      approval: nativeApprovalSchema.optional(),
+      current: z.boolean(),
+      requirements: z.array(
+        z.strictObject({
+          resource: z.string(),
+          slices: z.array(z.string()),
+          supported: z.boolean(),
+        }),
+      ),
+    })
+    .optional(),
   planAcceptance: z
     .strictObject({
       checkpoint: z.literal('STACK-PLAN-ACCEPTED'),

@@ -1,3 +1,4 @@
+export { auditNativeEnvironment, nativeHostDigest } from './native-environment.js';
 export {
   prepareLocalCheckLaunchers,
   loadLocalCiConfig,

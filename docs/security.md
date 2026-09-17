@@ -375,3 +375,13 @@ Job containers have no mounted daemon socket or implicit host credential files. 
 workflow controls, not a hostile-code sandbox. CI logs cannot replace pinned integration Cargo receipts
 or native/Kata evidence. Run-owned container cleanup is label-specific and outside DB transactions;
 unfinished CI collection invalidates its frozen build record.
+
+ADR-054 adds an explicit managed native exception to the earlier closed native dispatch policy.
+Authenticated, CSRF-protected approval binds daemon-collected host/toolchain observations to
+an exact map binding and runtime. It never grants Kata/root-daemon authority. Commands originate
+in the already supervised agent; the browser cannot supply shell commands or executable paths.
+Fresh independent native evidence is required after integration. Native processes use bounded
+systemd user services and minimal environment variables, with retained command provenance and
+per-run cleanup; filesystem access still follows the trusted OS-user model. The separate Kata
+service uses root-owned non-user-replaceable storage and a private socket. Its smoke receipt is
+historical readiness, not an application pass or permission for agents to dispatch workloads.

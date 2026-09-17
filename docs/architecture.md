@@ -432,3 +432,11 @@ Historical preparation can supply development dependencies without changing the 
 The local-check adapter owns bounded repository checks and optional act execution. Per-run policy,
 image and dependency identities are frozen in the existing environment manifest and receipt record.
 Container cleanup after terminal/restart runs occurs outside SQLite transactions.
+
+Schema 23 adds immutable native execution approvals separately from dependency generations.
+RuntimeEvidenceService collects fixed asynchronous host probes and records attributed approval
+or revocation. Phase scheduling admits only the supported native resource with current approval;
+missing capabilities are actionable while reservations remain ordinary waits. Managed native
+checks run through the explicit native-environment/local-check adapters. Frozen run environments
+and build receipts retain approval identity; receipt reuse checks revocation and host freshness.
+Kata readiness is a separate root-owned infrastructure receipt, not an agent launch adapter.

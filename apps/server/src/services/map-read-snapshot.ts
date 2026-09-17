@@ -46,7 +46,12 @@ export function mapReadSnapshot(source: StorageRepositories): StorageRepositorie
       'superseded',
       'integrations',
     ]),
-    runtimeEvidence: memo(source.runtimeEvidence, ['generations', 'submissions', 'decisions']),
+    runtimeEvidence: memo(source.runtimeEvidence, [
+      'generations',
+      'submissions',
+      'decisions',
+      'nativeApprovals',
+    ]),
   };
   calculations.set(snapshot, new Map());
   return snapshot;

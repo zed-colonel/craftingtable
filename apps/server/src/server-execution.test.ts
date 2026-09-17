@@ -7831,7 +7831,7 @@ it('phase gates let development merge while qualified verification waits without
   expect(merged.statusCode, merged.body).toBe(200);
   const receipt = await recordScope(f, a);
   expect(receipt.statusCode, receipt.body).toBe(409);
-  expect(receipt.body).toContain('qualified environment');
+  expect(receipt.body).toContain('fresh slice-verification');
   expect(f.state.context.storage.phaseScheduling.active()).toHaveLength(0);
   expect(f.state.context.services.executionService.branches.repositoryBusy(f.root)).toBe(false);
   await expect(scopeTree(f, f.scopes[1]!)).resolves.toHaveProperty('executionScope', f.scopes[1]);
@@ -7841,7 +7841,7 @@ it('phase gates let development merge while qualified verification waits without
     f.state.workItemId,
   );
   expect(view.choices[0]?.phases.find((p) => p.phase === 'verify')?.blockers).toContainEqual(
-    expect.objectContaining({ kind: 'resource' }),
+    expect.objectContaining({ kind: 'authorization' }),
   );
 });
 it('phase gates require explicit bound early-development authorization but retain parent barriers', async () => {
@@ -9904,4 +9904,320 @@ it('invalidates generated plan evidence when saved settings change and rejects s
   expect(
     context.storage.runtimeEvidence.decisions(ws).some((d) => d.submissionId === third.id),
   ).toBe(false);
+});
+
+it('native resource approval is scoped, revocable and never admits Kata or development receipts', async () => {
+  const { nativeHostDigest } = await import('@craftingtable/agents');
+  const { phaseResources } = await import('./services/phase-resources.js');
+  const { resolveScope } = await import('./services/execution-scope.js');
+  const { currentScopeReceipt } = await import('./services/runtime-evidence-policy.js');
+  const f = await slicedFixture((source) => ({
+    ...source,
+    checkpoints: [],
+    slices: source.slices.map((s, i) => ({
+      ...s,
+      resources_by_phase: {
+        ...s.resources_by_phase,
+        verify: [i === 0 ? 'controlled-native-test-host' : 'kata-instance-test-host'],
+      },
+    })),
+  }));
+  const { state } = f,
+    tx = state.context.storage,
+    ws = state.workspaceId,
+    scope = f.scopes[0]!;
+  const runtime = {
+    id: randomUUID(),
+    workspaceId: ws,
+    definitionId: scope.definitionId,
+    bindingRevision: 1,
+    generation: 1,
+    digest: 'a'.repeat(64),
+    pins: [],
+    consumers: [],
+    environments: [],
+    createdAt: new Date().toISOString(),
+    createdByUserId: state.userId,
+  };
+  tx.runtimeEvidence.addGeneration(runtime);
+  const resolved = resolveScope(tx, ws, state.workItemId, scope);
+  expect(phaseResources(tx, resolved, 'verify').blockers[0]?.kind).toBe('authorization');
+  const approval = {
+    id: randomUUID(),
+    workspaceId: ws,
+    definitionId: scope.definitionId,
+    bindingRevision: 1,
+    runtimeId: runtime.id,
+    approved: true,
+    hostDigest: nativeHostDigest(),
+    auditDigest: 'a'.repeat(64),
+    audit: 'fixture',
+    rationale: 'Approve fixtures',
+    createdAt: new Date().toISOString(),
+    createdByUserId: state.userId,
+  };
+  tx.runtimeEvidence.addNativeApproval(approval);
+  expect(phaseResources(tx, resolved, 'verify')).toMatchObject({
+    blockers: [],
+    resources: [{ key: 'local-verification' }],
+  });
+  expect(
+    phaseResources(tx, resolveScope(tx, ws, state.workItemId, f.scopes[1]!), 'verify').blockers[0]
+      ?.kind,
+  ).toBe('authorization');
+  // An implementation review without native provenance cannot become a current native receipt.
+  expect(
+    currentScopeReceipt(tx, ws, {
+      scope,
+      workspaceId: ws,
+      reviewRunId: asAgentRunId('missing'),
+    } as import('@craftingtable/domain').ScopeReceipt),
+  ).toBe(false);
+  tx.runtimeEvidence.addNativeApproval({ ...approval, id: randomUUID(), approved: false });
+  expect(phaseResources(tx, resolved, 'verify').blockers[0]?.kind).toBe('authorization');
+  // The HTTP boundary requires CSRF before an audit/approval can run.
+  const denied = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/concurrency-definitions/${scope.definitionId}/runtime/authorize-native`,
+    headers: { cookie: state.cookie },
+    payload: {},
+  });
+  expect(denied.statusCode).toBe(403);
+  const agents = await import('@craftingtable/agents');
+  const audit = {
+    hostDigest: nativeHostDigest(),
+    auditDigest: 'b'.repeat(64),
+    facts: 'Audited fixtures',
+    ready: true,
+    issues: [],
+    kata: { installed: false, kvmAvailable: true, message: 'Not installed' },
+  };
+  const spy = vi.spyOn(agents, 'auditNativeEnvironment').mockResolvedValue(audit);
+  try {
+    const prior = tx.runtimeEvidence.nativeApprovals(ws, scope.definitionId, 1)[0]!;
+    const input = {
+      bindingRevision: 1,
+      runtimeId: runtime.id,
+      expectedApprovalId: prior.id,
+      approved: true,
+      auditDigest: audit.auditDigest,
+      rationale: 'Reviewed captured limits',
+    };
+    await expect(
+      state.context.services.runtimeEvidenceService.approveNative(f.auth, ws, scope.definitionId, {
+        ...input,
+        auditDigest: 'c'.repeat(64),
+      }),
+    ).rejects.toThrow('audit changed');
+    const saved = await state.context.services.runtimeEvidenceService.approveNative(
+      f.auth,
+      ws,
+      scope.definitionId,
+      input,
+    );
+    expect(saved.nativeVerification.current).toBe(true);
+    expect(tx.runtimeEvidence.generations(ws, scope.definitionId, 1)).toHaveLength(1);
+    const { buildVerificationPolicy } = await import('./services/build-verification-policy.js');
+    const verificationScope = { ...scope, kind: 'slice-verification' as const };
+    const policy = buildVerificationPolicy(
+      tx.imports.definition(ws, scope.definitionId)!,
+      verificationScope,
+    );
+    const runId = asAgentRunId(randomUUID()),
+      manifestDigest = 'd'.repeat(64),
+      headSha = 'e'.repeat(40);
+    const native = saved.nativeVerification.approval!;
+    let receipt = {
+      kind: 'scoped-check',
+      success: true,
+      clean: true,
+      headSha,
+      manifestDigest,
+      runId,
+      runtimeId: runtime.id,
+      verificationMode: policy.mode,
+      policyDigest: agents.cargoManifestDigest(JSON.stringify(policy)),
+      nativeVerification: {
+        approvalId: native.id,
+        hostDigest: native.hostDigest,
+        auditDigest: native.auditDigest,
+      },
+    };
+    const runSpy = vi.spyOn(tx.runtimeEvidence, 'run').mockReturnValue({
+      runId,
+      workspaceId: ws,
+      runtimeId: runtime.id,
+      manifestPath: '/unused',
+      manifestDigest,
+      nativeApprovalId: native.id,
+    });
+    const buildSpy = vi.spyOn(tx.runtimeEvidence, 'build').mockImplementation(() => ({
+      runId,
+      workspaceId: ws,
+      runtimeId: runtime.id,
+      manifestDigest,
+      digest: 'f'.repeat(64),
+      receipts: JSON.stringify(receipt),
+    }));
+    const agentSpy = vi.spyOn(tx.execution.runs, 'find').mockReturnValue({
+      id: runId,
+      reviewBranchContext: { headSha },
+    } as import('@craftingtable/domain').AgentRun);
+    try {
+      // Parent acceptance must become stale when its native prerequisite authority changes.
+      const parentReceipt = {
+        scope: f.parentScope,
+        workspaceId: ws,
+        reviewRunId: runId,
+      } as import('@craftingtable/domain').ScopeReceipt;
+      expect(currentScopeReceipt(tx, ws, parentReceipt)).toBe(true);
+      runSpy.mockReturnValueOnce({
+        runId,
+        workspaceId: ws,
+        runtimeId: runtime.id,
+        manifestPath: '/unused',
+        manifestDigest,
+        nativeApprovalId: randomUUID(),
+      });
+      expect(currentScopeReceipt(tx, ws, parentReceipt)).toBe(false);
+      const tree = {
+        workspaceId: ws,
+        repositoryId: f.repository.id,
+        executionScope: verificationScope,
+      } as import('@craftingtable/domain').Worktree;
+      expect(() => state.context.services.runtimeEvidenceService.assertRun(tree, runId)).toThrow(
+        'successful ct-native',
+      );
+      receipt = { ...receipt, kind: 'native-check' };
+      expect(() =>
+        state.context.services.runtimeEvidenceService.assertRun(tree, runId),
+      ).not.toThrow();
+      receipt = {
+        ...receipt,
+        nativeVerification: { ...receipt.nativeVerification, approvalId: randomUUID() },
+      };
+      expect(() => state.context.services.runtimeEvidenceService.assertRun(tree, runId)).toThrow(
+        'successful ct-native',
+      );
+    } finally {
+      runSpy.mockRestore();
+      buildSpy.mockRestore();
+      agentSpy.mockRestore();
+    }
+
+    await expect(
+      state.context.services.runtimeEvidenceService.approveNative(
+        f.auth,
+        ws,
+        scope.definitionId,
+        input,
+      ),
+    ).rejects.toThrow('approval changed');
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('alerts for an eligible missing native environment, not future dependency waits, and resolves after approval', async () => {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    evidence_profiles: source.evidence_profiles.map((p) => ({
+      ...p,
+      reviewer_roles: ['repository-maintainer'],
+    })),
+    slices: source.slices.map((s) => ({
+      ...s,
+      resources_by_phase: { ...s.resources_by_phase, verify: ['controlled-native-test-host'] },
+    })),
+  }));
+  const { state } = f,
+    ws = state.workspaceId,
+    tx = state.context.storage;
+  await state.context.services.roadmapService.shutdown();
+  const input = roadmapInput(state, [state.workItemId]);
+  const saved = await saveRoadmapRequest(state, {
+    ...input,
+    entries: input.entries.map((e) => ({
+      ...e,
+      executionScope: f.scopes[0],
+    })),
+  });
+  expect(saved.statusCode, saved.body).toBe(200);
+  const draft = storedRoadmap(state);
+  tx.roadmaps.save(
+    {
+      ...draft,
+      definition: {
+        ...draft.definition,
+        entries: draft.definition.entries.map((e) => ({
+          ...e,
+          executionScope: { ...f.scopes[0]!, kind: 'slice-verification' as const },
+        })),
+      },
+      version: draft.version + 1,
+      status: 'running',
+    },
+    draft.version,
+  );
+  const { DEFAULT_NOTIFICATION_PREFERENCES } = await import('@craftingtable/domain');
+  const notifications = state.context.services.notificationService;
+  notifications.save(f.auth, ws, {
+    expectedVersion: 0,
+    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, enabled: true },
+    applicationToken: 'a'.repeat(30),
+    userKey: 'u'.repeat(30),
+  });
+  await notifications.tick();
+  const alerts = () =>
+    tx.notifications.records(ws).filter((n) => n.sourceKey.includes(':environments:'));
+  expect(alerts()).toHaveLength(0);
+  const tree = await scopeTree(f, f.scopes[0]!);
+  commitFile(tree.path, 'a.txt', 'A');
+  await reviewScope(f, tree);
+  expect((await merge(state, tree.id)).statusCode).toBe(200);
+  await notifications.tick();
+  expect(alerts()).toHaveLength(1);
+  expect(alerts()[0]?.state).toBe('active');
+  expect(alerts()[0]?.message).toContain('controlled-native-test-host');
+  const { nativeHostDigest } = await import('@craftingtable/agents');
+  const runtimeId = randomUUID();
+  tx.runtimeEvidence.addGeneration({
+    id: runtimeId,
+    workspaceId: ws,
+    definitionId: f.parentScope.definitionId,
+    bindingRevision: 1,
+    generation: 1,
+    digest: 'a'.repeat(64),
+    pins: [],
+    consumers: [{ alias: 'local', upstreams: [] }],
+    environments: [],
+    createdAt: new Date().toISOString(),
+    createdByUserId: state.userId,
+  });
+  tx.runtimeEvidence.addNativeApproval({
+    id: randomUUID(),
+    workspaceId: ws,
+    definitionId: f.parentScope.definitionId,
+    bindingRevision: 1,
+    runtimeId,
+    approved: true,
+    hostDigest: nativeHostDigest(),
+    auditDigest: 'a'.repeat(64),
+    audit: 'fixture',
+    rationale: 'Approved',
+    createdAt: new Date().toISOString(),
+    createdByUserId: state.userId,
+  });
+  await notifications.tick();
+  expect(alerts().filter((n) => n.state === 'active')).toHaveLength(1);
+  expect(alerts().find((n) => n.state === 'active')?.message).toContain('reviewer qualifications');
+  const roleSpy = vi
+    .spyOn(await import('./services/map-adoption-policy.js'), 'scopeReviewerRoles')
+    .mockReturnValue(['repository-maintainer']);
+  try {
+    await notifications.tick();
+    expect(alerts().every((n) => n.state === 'resolved')).toBe(true);
+  } finally {
+    roleSpy.mockRestore();
+  }
 });

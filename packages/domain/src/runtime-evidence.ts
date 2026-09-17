@@ -1,4 +1,19 @@
 import type { WorkspaceId, UserId, SourceRepositoryId } from './ids.js';
+/** Approval grants bounded local fixture execution, never a test pass or Kata authority. */
+export interface NativeVerificationApproval {
+  readonly id: string;
+  readonly workspaceId: WorkspaceId;
+  readonly definitionId: string;
+  readonly bindingRevision: number;
+  readonly runtimeId: string;
+  readonly approved: boolean;
+  readonly hostDigest: string;
+  readonly auditDigest: string;
+  readonly audit: string;
+  readonly rationale: string;
+  readonly createdAt: string;
+  readonly createdByUserId: UserId;
+}
 export interface DependencyPin {
   readonly alias: string;
   readonly ref: string;
@@ -108,6 +123,7 @@ export interface EvidenceDecision {
   readonly decidedByUserId: UserId;
 }
 export interface RunEnvironment {
+  readonly nativeApprovalId?: string;
   readonly runId: string;
   readonly workspaceId: WorkspaceId;
   readonly runtimeId: string;

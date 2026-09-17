@@ -1,4 +1,6 @@
 import {
+  nativeAuditSchema,
+  nativeApprovalRequestSchema,
   configureRuntimeSchema,
   generatePlanEvidenceRequestSchema,
   discoverRuntimeRequestSchema,
@@ -47,6 +49,8 @@ export function registerRuntimeEvidenceRoutes(
     },
   );
   for (const action of [
+    'audit-native',
+    'authorize-native',
     'configure',
     'inspect',
     'discover',
@@ -62,6 +66,25 @@ export function registerRuntimeEvidenceRoutes(
           ws = workspaceIdSchema.safeParse(request.params.workspaceId);
         if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
         const id = request.params.id;
+        if (action === 'audit-native')
+          return noStore(reply).send(
+            nativeAuditSchema.parse(await service.auditNative(context, ws.data, id)),
+          );
+        if (action === 'authorize-native') {
+          const b = nativeApprovalRequestSchema.safeParse(request.body);
+          if (!b.success)
+            return sendApiError(
+              reply,
+              400,
+              'invalid-request',
+              'Choose the current native audit, approval and a rationale.',
+            );
+          return noStore(reply).send(
+            runtimeEvidenceViewSchema.parse(
+              await service.approveNative(context, ws.data, id, b.data),
+            ),
+          );
+        }
         if (action === 'generate-plan') {
           const body = generatePlanEvidenceRequestSchema.safeParse(request.body);
           if (!body.success)

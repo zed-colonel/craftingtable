@@ -489,6 +489,13 @@ export function CrossProjectPanel({
           {view.blockers.length > 0 && (
             <div>
               <h4>Before Start</h4>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => revealElement(`${runtimePanelId}-native`)}
+              >
+                Review verification environments
+              </button>
               {view.setupRequirements?.length ? (
                 <ul>
                   {view.setupRequirements.map((requirement) => (

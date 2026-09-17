@@ -1,3 +1,4 @@
+import { revealElement } from '../../lib/reveal-element.js';
 import { MapAmendmentPanel } from './MapAmendmentPanel.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
@@ -838,6 +839,30 @@ export function RoadmapsPage({
                         · <code>{entry.integrationBranch}</code>
                       </p>
                       <p className="hint">{state?.reason}</p>
+                      {entry.executionScope &&
+                        state?.blockers?.some(
+                          (b) => b.kind === 'authorization' && b.message.startsWith('Resource '),
+                        ) && (
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() =>
+                              revealElement(`runtime-evidence-roadmap-${roadmap.id}-native`)
+                            }
+                          >
+                            Set up verification environment
+                          </button>
+                        )}
+                      {entry.executionScope &&
+                        state?.blockers?.some((b) => b.kind === 'review') && (
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => revealElement(`map-settings-roadmap-${roadmap.id}`)}
+                          >
+                            Assign independent reviewer responsibilities
+                          </button>
+                        )}
                       {entry.executionScope && entry.executionScope.kind !== 'slice' ? (
                         <p className="hint">
                           Independent review records scope evidence; it does not merge a branch.

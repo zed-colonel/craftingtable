@@ -151,3 +151,13 @@ it('binds act to one repository workflow, pinned image, local storage and no aut
   writeFileSync(config, JSON.stringify({ ...localCi, image: 'image:latest' }));
   expect(() => loadLocalCiConfig(config)).toThrow('pinned by digest');
 });
+it('refuses native qualification without approval and keeps ordinary checks distinct', () => {
+  const f = fixture();
+  const p = spawnSync(join(f.launcher.binDirectory, 'ct-native'), ['--', '/usr/bin/true'], {
+    cwd: f.m.workspacePath,
+    encoding: 'utf8',
+  });
+  expect(p.status).toBe(1);
+  expect(f.receipts()[0]).toMatchObject({ kind: 'native-check', success: false });
+  expect(f.receipts()[0].diagnostic).toContain('approved native');
+});

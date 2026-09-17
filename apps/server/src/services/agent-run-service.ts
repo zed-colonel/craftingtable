@@ -828,6 +828,7 @@ export class AgentRunService {
           ? `
 
 Pinned dependency environment: ${pinned.manifestPath}
+${pinned.nativeVerification ? `Managed native verification is approved for this run (${pinned.nativeVerification.approvalId}). Execute applicable non-sensitive repository fixtures using ${pinned.binDirectory}/ct-native -- <executable> <arguments>. It provides a fresh HOME/TMPDIR and bounded user service (4 CPUs, 8 GiB, 512 tasks, at most 30 minutes). Retained receipts bind exact clean candidate, dependency manifest, environment approval and logs. Use supplied Cargo for dependency-bearing checks. ct-check/ct-act and inherited implementation results cannot substitute for native verification. Do not use live service credentials or claim Kata observations; report every scope requirement independently. This is cooperative native execution under the existing OS-user trust model, not a hostile-code sandbox.` : ''}
 Verification policy: ${pinned.verification.mode}. ${pinned.verification.reason}
 Use the controller Cargo launcher ${pinned.binDirectory}/cargo for Cargo checks (also supplied on PATH). Do not override supplied sources or use a neighboring checkout.
 ${
@@ -942,6 +943,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             runId,
             workspaceId,
             runtimeId: pinned.runtimeId,
+            nativeApprovalId: pinned.nativeApprovalId,
             manifestPath: pinned.manifestPath,
             manifestDigest: pinned.manifestDigest,
           });

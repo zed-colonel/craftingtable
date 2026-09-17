@@ -1,3 +1,4 @@
+import { nativeApproval } from './native-verification-policy.js';
 import { randomUUID } from 'node:crypto';
 import type { ExecutionPhase, PhaseBlocker, Worktree } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -9,7 +10,11 @@ export class PhaseGateError extends ExecutionRequestError {
     super('conflict', blockers.map((b) => b.message).join('\n'));
   }
   get waiting() {
-    return this.blockers.every((b) => b.kind !== 'authorization' && b.kind !== 'review');
+    return this.blockers.every(
+      (b) =>
+        (b.kind !== 'authorization' && b.kind !== 'review') ||
+        (b.kind === 'authorization' && b.message.startsWith('Resource ')),
+    );
   }
 }
 export function phaseResources(tx: StorageRepositories, r: ResolvedScope, phase: ExecutionPhase) {
@@ -19,14 +24,29 @@ export function phaseResources(tx: StorageRepositories, r: ResolvedScope, phase:
   for (const id of r.slice?.resources_by_phase[phase === 'accept' ? 'verify' : phase] ?? []) {
     const profile = r.definition.source.resource_profiles.find((p) => p.id === id);
     if (
+      id === 'controlled-native-test-host' &&
+      profile &&
+      !profile.requires_hardware_virtualization &&
+      nativeApproval(tx, r.item.workspaceId, r.scope)
+    ) {
+      resources.push({
+        key: 'local-verification',
+        capacity: tx.phaseScheduling.capacity('local-verification'),
+      });
+      continue;
+    }
+    if (
       id !== 'isolated-development-workspace' ||
       !profile ||
       profile.requires_hardware_virtualization ||
       profile.fixture_authorization_required
     ) {
       blockers.push({
-        kind: 'resource',
-        message: `Resource ${id} needs a qualified environment binding; that adapter is not available yet.`,
+        kind: 'authorization',
+        message:
+          id === 'controlled-native-test-host'
+            ? 'Resource controlled-native-test-host needs a qualified environment approval. Open Dependency environments and evidence → Verification environments, audit this workstation, then approve native verification.'
+            : `Resource ${id} has no managed execution adapter. Review its requirements in Verification environments; externally reviewed evidence remains available.`,
       });
       continue;
     }

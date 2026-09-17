@@ -1,3 +1,4 @@
+import { NativeVerificationPanel } from './NativeVerificationPanel.js';
 import { useCallback, useEffect, useState } from 'react';
 import { ActionBar } from '../../components/ActionBar.js';
 import { About } from '../../components/About.js';
@@ -122,6 +123,14 @@ export function RuntimeEvidencePanel({
           : 'No dependency environment configured.'
       }
     >
+      <NativeVerificationPanel
+        panelId={`${panelId}-native`}
+        base={base}
+        view={view}
+        csrfToken={csrfToken}
+        canMutate={canMutate}
+        onSaved={adopt}
+      />
       <About label="About dependency environments">
         <p>
           Pin exact source commits for builds. Review qualification evidence separately. Saving here

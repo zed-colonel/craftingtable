@@ -1,3 +1,4 @@
+import { nativeApproval, needsNativeEvidence } from './native-verification-policy.js';
 import { generatedPlanIssues } from './plan-acceptance-policy.js';
 import { integratedSlice } from './scope-lineage.js';
 import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
@@ -454,7 +455,13 @@ export function currentScopeReceipt(
     return false;
   const runtime = activeRuntime(tx, ws, p.scope.definitionId, p.scope.bindingRevision);
   if (!runtime) return true;
-  return tx.runtimeEvidence.run(ws, p.reviewRunId)?.runtimeId === runtime.id;
+  const run = tx.runtimeEvidence.run(ws, p.reviewRunId);
+  const d = tx.imports.definition(ws, p.scope.definitionId);
+  if (d && needsNativeEvidence(d, p.scope)) {
+    const approval = nativeApproval(tx, ws, p.scope);
+    if (!approval || run?.nativeApprovalId !== approval.id) return false;
+  }
+  return run?.runtimeId === runtime.id;
 }
 
 /** Completion in another adopted scope is history, not acceptance of these requirements. */

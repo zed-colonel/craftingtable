@@ -458,3 +458,24 @@ fresh discovery; restart requires explicit recovery. Discovery and investigation
 approve checkpoints, invent measurements, create/publish tags, change branch protection or
 merge. Repository administration and genuinely missing historical evidence remain explicit
 requirements. Manual handoffs and their subsequent adoption through Resume remain available.
+
+## Managed native verification
+
+In **Roadmaps → Dependency environments and evidence → Verification environments**, use
+**Audit workstation readiness**, review the captured host/toolchains/limits, and explicitly
+**Approve native verification** with a rationale. This authorizes non-sensitive repository
+fixtures for the exact map binding and dependency generation. It does not change pins or
+approve tests. Running roadmaps automatically dispatch eligible native verification reviews;
+paused roadmaps remain paused. Missing environment approvals generate attention reminders
+once their verification step is otherwise eligible. Occupied slots retry without alerts.
+
+Independent reviewers receive `ct-native`, which retains exact-commit evidence under bounded
+user-service execution. Ordinary development/act results cannot satisfy native verification.
+Revoking approval prevents acceptance/reuse of affected native reviews. The audit separately
+shows installed Kata/KVM and any configured root-owned guest smoke receipt; Kata dispatch and
+application qualification remain separate. See [Kata setup](scripts/kata/README.md) and ADR-054.
+
+If a scope also reports missing reviewer qualifications, use **Assign independent reviewer
+responsibilities** to open queued roadmap settings. Assign the source-required roles to the
+configured independent reviewer, save, and refresh saved-plan acceptance if prompted. Environment
+approval never assigns reviewer responsibilities or claims those obligations were satisfied.

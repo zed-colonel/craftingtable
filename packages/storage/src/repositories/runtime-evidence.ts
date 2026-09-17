@@ -1,4 +1,5 @@
 import type {
+  NativeVerificationApproval,
   RuntimeGeneration,
   EvidenceSubmission,
   EvidenceDecision,
@@ -9,6 +10,12 @@ import type Database from 'better-sqlite3';
 const decode = <T>(rows: unknown[]) =>
   rows.map((row) => JSON.parse((row as { record_json: string }).record_json) as T);
 export interface RuntimeEvidenceRepository {
+  nativeApprovals(
+    ws: string,
+    definitionId: string,
+    bindingRevision: number,
+  ): readonly NativeVerificationApproval[];
+  addNativeApproval(value: NativeVerificationApproval): void;
   generations(
     ws: string,
     definitionId: string,
@@ -26,6 +33,24 @@ export interface RuntimeEvidenceRepository {
 }
 export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepository {
   constructor(private readonly db: Database.Database) {}
+  nativeApprovals(
+    ws: string,
+    definitionId: string,
+    bindingRevision: number,
+  ): readonly NativeVerificationApproval[] {
+    return decode(
+      this.db
+        .prepare(
+          'SELECT record_json FROM native_verification_approvals WHERE workspace_id=? AND definition_id=? AND binding_revision=? ORDER BY rowid DESC',
+        )
+        .all(ws, definitionId, bindingRevision),
+    );
+  }
+  addNativeApproval(v: NativeVerificationApproval): void {
+    this.db
+      .prepare('INSERT INTO native_verification_approvals VALUES (?,?,?,?,?)')
+      .run(v.id, v.workspaceId, v.definitionId, v.bindingRevision, JSON.stringify(v));
+  }
   generations(
     ws: string,
     definitionId: string,

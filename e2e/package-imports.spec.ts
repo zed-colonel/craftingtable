@@ -217,7 +217,10 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
       exact: false,
     }),
   ).toBeVisible();
-  await expect(maps.getByRole('button', { name: /start|approve|adopt/i })).toHaveCount(0);
+  await expect(maps.getByRole('button', { name: /start|adopt/i })).toHaveCount(0);
+  await expect(
+    maps.getByRole('button', { name: 'Approve native verification', exact: true }),
+  ).toBeDisabled();
   const supervisor = maps.getByRole('region', {
     name: 'Create cross-project roadmap',
     exact: true,

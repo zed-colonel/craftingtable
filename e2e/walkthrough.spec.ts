@@ -500,6 +500,21 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     );
 
     await walk.capture(
+      'roadmaps-verification-environments',
+      'Roadmaps · native approval and Kata readiness',
+      async (p: Page) => {
+        await selectTarget(p);
+        await p
+          .getByRole('button', { name: 'Review verification environments', exact: true })
+          .first()
+          .click();
+        await expect(
+          p.getByRole('button', { name: 'Audit workstation readiness', exact: true }).first(),
+        ).toBeVisible();
+      },
+    );
+
+    await walk.capture(
       'roadmaps-dependency-graph',
       'Roadmaps · EXO integration requirements and WI providers',
       async (p: Page) => {

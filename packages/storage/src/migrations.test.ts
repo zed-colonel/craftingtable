@@ -32,8 +32,8 @@ describe('ordered SQL migrations', () => {
     const database = openDatabase(path);
     const migrations = discoverMigrations();
     expect(runMigrations(database, migrations)).toEqual({
-      currentVersion: 22,
-      supportedVersion: 22,
+      currentVersion: 23,
+      supportedVersion: 23,
       pendingVersions: [],
     });
     const rows = database
@@ -62,6 +62,7 @@ describe('ordered SQL migrations', () => {
       { version: 20, name: 'runtime-evidence', checksum: migrations[19]?.checksum },
       { version: 21, name: 'map-adoptions', checksum: migrations[20]?.checksum },
       { version: 22, name: 'map-amendments', checksum: migrations[21]?.checksum },
+      { version: 23, name: 'native-verification', checksum: migrations[22]?.checksum },
     ]);
     database.close();
   });
@@ -76,7 +77,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(22);
+    ).toBe(23);
     second.close();
   });
 
@@ -98,7 +99,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(22);
+    ).toBe(23);
     database.close();
   });
 
@@ -109,7 +110,7 @@ describe('ordered SQL migrations', () => {
     database
       .prepare(
         `INSERT INTO schema_migrations (version, name, checksum, applied_at)
-         VALUES (23, 'future', ?, ?)`,
+         VALUES (24, 'future', ?, ?)`,
       )
       .run('f'.repeat(64), new Date().toISOString());
     expect(() => migrationStatus(database)).toThrow(/newer than or unknown/);
@@ -158,9 +159,9 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 22,
+      supportedVersion: 23,
       pendingVersions: [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
       ],
     });
 
@@ -176,9 +177,9 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 22,
+      supportedVersion: 23,
       pendingVersions: [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
       ],
     });
     expect(existsSync(path)).toBe(false);

@@ -1,3 +1,8 @@
+import {
+  nativeApproval,
+  needsNativeVerification,
+  needsNativeEvidence,
+} from './native-verification-policy.js';
 import { buildVerificationPolicy } from './build-verification-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import {
@@ -11,6 +16,7 @@ import { homedir, hostname, platform, release, arch } from 'node:os';
 import { dirname, join } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync, statSync, existsSync } from 'node:fs';
 import {
+  auditNativeEnvironment,
   cargoManifestDigest as hash,
   prepareCargoLauncher,
   loadLocalCiConfig,
@@ -113,6 +119,63 @@ export class RuntimeEvidenceService {
   private current(ws: WorkspaceId, id: string) {
     const b = this.storage.imports.bindings(ws, id)[0];
     return b && activeRuntime(this.storage, ws, id, b.revision);
+  }
+  async auditNative(context: AuthContext, ws: WorkspaceId, id: string) {
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    this.definition(ws, id);
+    return auditNativeEnvironment();
+  }
+  async approveNative(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    input: import('@craftingtable/contracts').NativeApprovalRequest,
+  ) {
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    this.definition(ws, id);
+    const audit = input.approved ? await auditNativeEnvironment() : undefined;
+    if (audit && (!audit.ready || audit.auditDigest !== input.auditDigest))
+      conflict('Workstation audit changed or is incomplete. Audit again before approving.');
+    this.storage.transaction((tx) => {
+      this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+      const runtime = activeRuntime(tx, ws, id, input.bindingRevision);
+      const prior = tx.runtimeEvidence.nativeApprovals(ws, id, input.bindingRevision)[0];
+      if (
+        !runtime ||
+        runtime.id !== input.runtimeId ||
+        (prior?.id ?? null) !== input.expectedApprovalId
+      )
+        conflict('Environment or approval changed. Refresh before saving.');
+      if (!audit && !prior) conflict('No native approval to revoke.');
+      const at = this.now().toISOString();
+      tx.runtimeEvidence.addNativeApproval({
+        id: randomUUID(),
+        workspaceId: ws,
+        definitionId: id,
+        bindingRevision: input.bindingRevision,
+        runtimeId: runtime.id,
+        approved: input.approved,
+        hostDigest: audit?.hostDigest ?? prior!.hostDigest,
+        auditDigest: audit?.auditDigest ?? prior!.auditDigest,
+        audit: audit?.facts ?? prior!.audit,
+        rationale: input.rationale,
+        createdAt: at,
+        createdByUserId: context.user.id,
+      });
+      this.changed(
+        tx,
+        context,
+        ws,
+        id,
+        'runtime.configured',
+        input.approved
+          ? 'Managed native verification approved. No test results or Kata authority granted.'
+          : 'Managed native verification revoked.',
+        at,
+      );
+    });
+    this.notifier.notify();
+    return this.view(context, ws, id);
   }
   async inspect(
     context: AuthContext,
@@ -909,6 +972,29 @@ export class RuntimeEvidenceService {
       ],
     }));
     return {
+      nativeVerification: {
+        approval: binding
+          ? snapshot.runtimeEvidence.nativeApprovals(ws, id, binding.revision)[0]
+          : undefined,
+        current:
+          !!binding &&
+          !!nativeApproval(snapshot, ws, {
+            kind: 'slice',
+            definitionId: id,
+            bindingRevision: binding.revision,
+            sourceId: '',
+          }),
+        requirements: d.source.resource_profiles
+          .filter((p) => p.fixture_authorization_required || p.requires_hardware_virtualization)
+          .map((p) => ({
+            resource: p.id,
+            supported:
+              p.id === 'controlled-native-test-host' && !p.requires_hardware_virtualization,
+            slices: d.source.slices
+              .filter((s) => s.resources_by_phase.verify.includes(p.id))
+              .map((s) => s.id),
+          })),
+      },
       ...(planAcceptance ? { planAcceptance } : {}),
       issues: freshness,
       builds,
@@ -1084,7 +1170,58 @@ export class RuntimeEvidenceService {
         'unavailable',
         'Git is required for pinned build provenance.',
       );
+    let nativeVerification: PinnedCargoManifest['nativeVerification'];
+    if (
+      !('finalization' in scope) &&
+      scope.kind === 'slice-verification' &&
+      needsNativeVerification(definition, scope)
+    ) {
+      const approval = nativeApproval(this.storage, tree.workspaceId, scope);
+      if (!approval)
+        conflict('Audit and approve the managed native environment before verification.');
+      const audit = await auditNativeEnvironment();
+      if (!audit.ready || audit.auditDigest !== approval.auditDigest)
+        conflict('Native environment changed or failed its smoke test. Re-audit and approve it.');
+      const candidate = await this.requireGit().resolveCommit(tree.path, 'HEAD');
+      if (!candidate.ok) conflict(candidate.failure.message);
+      const rustc = resolveExecutable('rustc', undefined, process.env, [
+        join(homedir(), '.cargo', 'bin'),
+      ]);
+      if (!rustc) conflict('Installed Rust is required for native verification.');
+      const toolchain = JSON.stringify(
+        await observeRustToolchain({ cargo: cargoExecutable, rustc }, tree.path),
+      );
+      nativeVerification = {
+        approvalId: approval.id,
+        hostDigest: approval.hostDigest,
+        auditDigest: approval.auditDigest,
+        fixtureDigest: hash(
+          JSON.stringify({
+            candidateTree: candidate.value.treeSha,
+            dependencies: dependencyIdentities,
+            files,
+            configDigest: hash(config),
+          }),
+        ),
+        toolchainDigest: hash(toolchain),
+        toolchain,
+      };
+    }
+    const authority =
+      !('finalization' in scope) && needsNativeEvidence(definition, scope) && scope.kind !== 'slice'
+        ? nativeApproval(this.storage, tree.workspaceId, scope)
+        : undefined;
+    if (
+      !('finalization' in scope) &&
+      scope.kind === 'parent-acceptance' &&
+      needsNativeEvidence(definition, scope) &&
+      !authority
+    )
+      conflict(
+        'Parent acceptance requires current native verification authority for its prerequisite evidence.',
+      );
     const manifest: PinnedCargoManifest = {
+      ...(nativeVerification ? { nativeVerification } : {}),
       gitExecutable,
       checkTimeoutMs: Math.min(
         30 * 60000,
@@ -1120,6 +1257,8 @@ export class RuntimeEvidenceService {
       ...launch,
       verification,
       localCi: manifest.localCi,
+      nativeVerification,
+      nativeApprovalId: authority?.id,
       runtimeId: runtime.id,
       definitionId: scope.definitionId,
       bindingRevision: scope.bindingRevision,
@@ -1155,6 +1294,28 @@ export class RuntimeEvidenceService {
       'finalization' in scope ? undefined : scope,
     );
     if (
+      !('finalization' in scope) &&
+      scope.kind === 'parent-acceptance' &&
+      needsNativeEvidence(this.definition(tree.workspaceId, scope.definitionId), scope)
+    ) {
+      const authority = nativeApproval(this.storage, tree.workspaceId, scope);
+      if (!authority || env?.nativeApprovalId !== authority.id)
+        conflict(
+          'Parent review native verification authority changed. Run a fresh acceptance review.',
+        );
+    }
+    const nativeRequired =
+      !('finalization' in scope) &&
+      scope.kind === 'slice-verification' &&
+      needsNativeVerification(this.definition(tree.workspaceId, scope.definitionId), scope);
+    const approval =
+      nativeRequired && !('finalization' in scope)
+        ? nativeApproval(this.storage, tree.workspaceId, scope)
+        : undefined;
+    if (nativeRequired && !approval)
+      conflict('Native verification approval is missing, revoked or stale.');
+    if (
+      !nativeRequired &&
       verification.mode !== 'scoped-checks' &&
       !runtime.consumers.find((c) => c.alias === alias)?.upstreams.length
     )
@@ -1181,7 +1342,27 @@ export class RuntimeEvidenceService {
               verificationMode?: string;
               policyDigest?: string;
               kind?: string;
+              nativeVerification?: { approvalId: string; hostDigest: string; auditDigest: string };
             },
+        );
+      if (
+        nativeRequired &&
+        !receipts.some(
+          (r) =>
+            r.success &&
+            r.clean &&
+            r.kind === 'native-check' &&
+            r.headSha === run?.reviewBranchContext?.headSha &&
+            r.manifestDigest === env.manifestDigest &&
+            r.runId === runId &&
+            r.runtimeId === runtime.id &&
+            r.nativeVerification?.approvalId === approval?.id &&
+            r.nativeVerification?.hostDigest === approval?.hostDigest &&
+            r.nativeVerification?.auditDigest === approval?.auditDigest,
+        )
+      )
+        conflict(
+          'Independent verification needs a successful ct-native check on the exact clean reviewed commit in the currently approved environment. Development/act receipts cannot substitute.',
         );
       if (
         !receipts.some(
@@ -1196,6 +1377,7 @@ export class RuntimeEvidenceService {
               ? r.verificationMode === 'scoped-checks' &&
                 r.policyDigest === hash(JSON.stringify(verification))
               : r.kind !== 'scoped-check' &&
+                r.kind !== 'native-check' &&
                 r.kind !== 'local-ci' &&
                 r.verificationMode !== 'scoped-checks'),
         )
@@ -1225,7 +1407,11 @@ export class RuntimeEvidenceService {
       const raw = readFileSync(env.manifestPath, 'utf8');
       if (hash(raw) !== env.manifestDigest) throw new Error('Pinned manifest changed.');
       const m = JSON.parse(raw) as PinnedCargoManifest;
-      if (existsSync(join(dirname(env.manifestPath), 'checks', 'act-active')))
+      if (
+        ['act-active', 'native-active'].some((name) =>
+          existsSync(join(dirname(env.manifestPath), 'checks', name)),
+        )
+      )
         throw new Error('Local CI did not finish collection; a fresh review is required.');
       if (statSync(m.receiptPath).size > 4 * 1024 * 1024)
         throw new Error('Build receipts exceed 4 MiB.');

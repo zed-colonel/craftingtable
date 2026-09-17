@@ -1,3 +1,5 @@
+import { scopePhaseBlockers } from './execution-scope.js';
+import { mapReadSnapshot } from './map-read-snapshot.js';
 import { crossProjectState } from './cross-project-service.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { NotificationStatus, SaveNotificationsRequest } from '@craftingtable/contracts';
@@ -326,6 +328,37 @@ export class NotificationService {
     if (settings.preferences.needsAttention) {
       for (const roadmap of tx.roadmaps.list(workspaceId)) {
         if (roadmap.status === 'running') {
+          const snapshot = mapReadSnapshot(tx);
+          const environmentWaits = roadmap.definition.entries.flatMap((entry) => {
+            if (entry.executionScope?.kind !== 'slice-verification') return [];
+            if (roadmap.attempts.some((a) => a.entryId === entry.id)) return [];
+            const blockers = scopePhaseBlockers(
+              snapshot,
+              workspaceId,
+              entry.workItemId,
+              entry.executionScope,
+              'verify',
+            );
+            const environment = blockers.filter(
+              (b) =>
+                (b.kind === 'authorization' && b.message.startsWith('Resource ')) ||
+                b.kind === 'review',
+            );
+            return environment.length && blockers.every((b) => environment.includes(b))
+              ? environment.map((b) => `${entry.sourceId}: ${b.message}`)
+              : [];
+          });
+          if (environmentWaits.length)
+            result.push({
+              sourceKey: `roadmap:${roadmap.id}:environments:${createHash('sha256').update(JSON.stringify(environmentWaits.sort())).digest('hex')}`,
+              kind: 'attention',
+              title: notificationText(
+                `${roadmap.definition.name} · Verification setup needed`,
+                250,
+              ),
+              message: notificationText(environmentWaits.join('\n'), 1024),
+              path: `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`,
+            });
           if (roadmap.definition.crossProject) {
             const view = crossProjectState(tx, workspaceId, roadmap.definition.crossProject);
             const ready = view.nodes

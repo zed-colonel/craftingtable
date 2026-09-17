@@ -1,3 +1,4 @@
+import { needsNativeVerification } from './native-verification-policy.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { acceptedEvidence } from './runtime-evidence-policy.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
@@ -571,6 +572,11 @@ export class ExecutionService {
         .find((r) => r.worktreeId === worktreeId && r.reviewRunId === run?.id);
       if (prior) return { recorded: false, workItemCompleted: parent };
       const resolved = requireScope(this.storage, workspaceId, workItemId, scope, phase);
+      if (scope.kind === 'slice' && needsNativeVerification(resolved.definition, scope))
+        throw new ExecutionRequestError(
+          'conflict',
+          'Create a fresh slice-verification review to collect approved native evidence after integration.',
+        );
       return withPhaseReservation(this.storage, resolved, tree, phase, () =>
         this.branches.duringMerge(repo.rootPath, async () => {
           const git = this.requireGit();

@@ -14,6 +14,14 @@ import {
 import { delimiter, dirname, join, resolve, relative, isAbsolute } from 'node:path';
 
 export interface PinnedCargoManifest {
+  readonly nativeVerification?: {
+    approvalId: string;
+    hostDigest: string;
+    auditDigest: string;
+    fixtureDigest: string;
+    toolchainDigest: string;
+    toolchain: string;
+  };
   readonly checkTimeoutMs?: number;
   readonly forbiddenPackages?: readonly string[];
   readonly verification?: {

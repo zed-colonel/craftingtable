@@ -26,6 +26,8 @@ const EXPECTED_ROUTES = [
   'GET /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime',
   'GET /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/runs/:runId/build-record',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/configure',
+  'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/audit-native',
+  'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/authorize-native',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/inspect',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/discover',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/generate-plan',

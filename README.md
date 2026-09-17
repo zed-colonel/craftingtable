@@ -193,7 +193,13 @@ it is mergeable.
   or minor findings, and a configurable nit allowance (default 3). Remediation rounds
   and step time are bounded; incomplete reports, failures, and stalled reviews pause
   for attention. Pause/resume supports manual intervention; stop returns the worktree
-  to the manual flow. Cycle settings stay fixed after start. Workspace notices persist
+  to the manual flow. An exhausted review shows **Continue remediation** in the item's
+  **Automated cycle** section, including slice cycles launched by roadmaps. Choose 1–20
+  additional attempts, optionally add cycle guidance, and select **Authorize more remediation**.
+  This immediately delegates the next remediation, preserving the initial policy, findings,
+  worktree, agent settings, and round history; it does not resume a paused roadmap. A valid,
+  completed review is required, and recovery cannot bypass questions or conflicts.
+  Other cycle settings stay fixed after start. Workspace notices persist
   across reloads, and daemon restart requires explicit resume. Review and merge check
   the reviewed source and target commits. Standalone cycles stop for your merge approval;
   roadmaps can delegate integration merges explicitly.

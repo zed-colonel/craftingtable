@@ -2306,6 +2306,122 @@ describe('single work-item automation', () => {
     },
   );
 
+  it('extends an exhausted work-item cycle explicitly without resetting history or accepting duplicate grants', async () => {
+    const review = { resultText: reviewText([structuredFinding]) };
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      implementationDone,
+      review,
+      implementationDone,
+      review,
+      implementationDone,
+      {
+        resultText: reviewText([
+          { ...structuredFinding, status: 'resolved', disposition: 'Verified regression fix.' },
+        ]),
+      },
+    ]);
+    const cycle = await startCycle(state, worktree.id, {
+      policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 1 },
+      instructions: 'Keep the approved API.',
+    });
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'exhausted cycle');
+    const paused = currentCycle(state, cycle);
+    const payload = {
+      action: 'authorize-remediation',
+      expectedVersion: paused.version,
+      additionalRounds: 1,
+      instructions: 'Concentrate on the remaining regression.',
+    };
+    const authorize = (body: typeof payload) =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+        headers: mutationHeaders(state),
+        payload: body,
+      });
+    const results = await Promise.all([authorize(payload), authorize(payload)]);
+    expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409]);
+    const granted = workCycleResponseSchema.parse(
+      present(results.find((r) => r.statusCode === 200)).json(),
+    ).cycle;
+    expect(granted).toMatchObject({
+      remediationRounds: 2,
+      additionalRemediationRounds: 1,
+      policy: { maxRemediationRounds: 1 },
+      parentRunId: paused.currentRunId,
+      worktreeId: worktree.id,
+    });
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'awaiting-merge',
+      'review after recovery',
+    );
+    expect(backend.launches).toHaveLength(7);
+    expect(backend.launches[5]?.prompt).toContain('Keep the approved API.');
+    expect(backend.launches[5]?.prompt).toContain('Concentrate on the remaining regression.');
+    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    try {
+      expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)).toMatchObject({
+        remediationRounds: 2,
+        additionalRemediationRounds: 1,
+        policy: { maxRemediationRounds: 1 },
+      });
+    } finally {
+      reopened.close();
+    }
+    expect((await authorize(payload)).statusCode).toBe(409);
+    const audits = state.context.storage.audit
+      .listWorkspace({ workspaceId: state.workspaceId, limit: 1000 })
+      .filter((e) => e.metadata?.action === 'authorize-remediation');
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorKind: 'user',
+      actorUserId: state.userId,
+      metadata: {
+        initialRemediationAllowance: 1,
+        additionalRemediationRounds: 1,
+        remediationAllowance: 2,
+      },
+    });
+  });
+
+  it.each(['questions', 'invalid', 'truncated', 'branch'] as const)(
+    'does not grant a work-item allowance across a %s checkpoint',
+    async (checkpoint) => {
+      const review =
+        checkpoint === 'invalid'
+          ? 'Review missing report.'
+          : `${checkpoint === 'questions' ? '## Open questions\nWhich API should be changed?\n\n## Review report\n' : ''}${reviewText([structuredFinding])}`;
+      const { state, backend, worktree } = await cycleFixture([
+        designDone,
+        implementationDone,
+        { resultText: review, truncated: checkpoint === 'truncated' },
+      ]);
+      const cycle = await startCycle(state, worktree.id, {
+        policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+      });
+      await waitFor(
+        () => currentCycle(state, cycle).status === 'needs-attention',
+        'review checkpoint',
+      );
+      if (checkpoint === 'branch') git(['checkout', '-b', 'unexpected'], worktree.path);
+      const before = currentCycle(state, cycle);
+      const response = await state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+        headers: mutationHeaders(state),
+        payload: {
+          action: 'authorize-remediation',
+          expectedVersion: before.version,
+          additionalRounds: 1,
+        },
+      });
+      expect(response.statusCode, response.body).toBe(409);
+      expect(currentCycle(state, cycle)).toEqual(before);
+      expect(backend.launches).toHaveLength(3);
+    },
+  );
+
   it('stops after two unchanged remediation rounds even with remaining budget', async () => {
     const review = { resultText: reviewText([structuredFinding]) };
     const { state, backend, worktree } = await cycleFixture([
@@ -10228,3 +10344,65 @@ it('alerts for an eligible missing native environment, not future dependency wai
     roleSpy.mockRestore();
   }
 });
+
+it.each([false, true])(
+  'slice remediation recovery preserves exact scope (missing evidence: %s)',
+  async (omitEvidence) => {
+    const f = await slicedFixture();
+    const { state, backend } = f;
+    const scope = f.scopes[0]!;
+    const tree = await scopeTree(f, scope);
+    let resolved = false;
+    backend.replyForRequest = (request) => {
+      if (request.model === 'design-model') return designDone;
+      if (request.model !== 'review-model') return implementationDone;
+      const finding = resolved
+        ? { ...structuredFinding, status: 'resolved', disposition: 'Verified the slice fix.' }
+        : structuredFinding;
+      return {
+        resultText: scopeReport(state, scope, omitEvidence)
+          .replace('"findings":[]', `"findings":${JSON.stringify([finding])}`)
+          .replaceAll('mergeable', resolved ? 'mergeable' : 'changes-requested'),
+      };
+    };
+    const cycle = await startCycle(state, tree.id, {
+      policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+    });
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'slice checkpoint',
+    );
+    const before = currentCycle(state, cycle);
+    resolved = true;
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: {
+        action: 'authorize-remediation',
+        expectedVersion: before.version,
+        additionalRounds: 1,
+      },
+    });
+    expect(response.statusCode, response.body).toBe(omitEvidence ? 409 : 200);
+    if (omitEvidence) {
+      expect(currentCycle(state, cycle)).toEqual(before);
+      expect(backend.launches).toHaveLength(3);
+    } else {
+      expect(workCycleResponseSchema.parse(response.json()).cycle).toMatchObject({
+        executionScope: scope,
+        additionalRemediationRounds: 1,
+      });
+      await waitFor(
+        () => currentCycle(state, cycle).status === 'awaiting-merge',
+        'recovered slice review',
+      );
+      expect(currentCycle(state, cycle)).toMatchObject({
+        executionScope: scope,
+        remediationRounds: 1,
+        policy: { maxRemediationRounds: 0 },
+      });
+      expect(backend.launches).toHaveLength(5);
+    }
+  },
+);

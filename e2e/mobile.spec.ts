@@ -153,9 +153,21 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     const cycle = page.getByRole('region', { name: 'Automated cycle', exact: true });
     await cycle.getByText('Set up a cycle', { exact: true }).click();
     await cycle.getByLabel('Allowed nits').fill('1');
-    await cycle.getByLabel(/Instructions/).fill('MOBILE-FINDINGS');
+    await cycle.getByLabel('Maximum remediation rounds').fill('0');
+    await cycle.getByLabel(/Instructions/).fill('MOBILE-FINDINGS CYCLE-EXTRA-REMEDIATION');
     await fitsPhone(page);
     await cycle.getByRole('button', { name: 'Start automated cycle' }).click();
+    await expect(cycle.getByRole('button', { name: 'Authorize more remediation' })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(cycle.getByRole('button', { name: 'Resume automation' })).toHaveCount(0);
+    await fitsPhone(page);
+    await cycle.screenshot({ path: info.outputPath('phone-remediation-recovery.png') });
+    await cycle
+      .getByLabel('Additional cycle guidance (optional)')
+      .fill('E2E-AUTHORIZED-RECOVERY: Address the remaining regression.');
+    await cycle.getByRole('button', { name: 'Authorize more remediation' }).click();
+
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
       timeout: 15_000,
     });

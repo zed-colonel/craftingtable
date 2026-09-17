@@ -1,4 +1,5 @@
 import {
+  type AuthorizeWorkCycleRemediationRequest,
   type StartWorkCycleRequest,
   baselinePreviewSchema,
   baselineEvidenceSchema,
@@ -93,5 +94,21 @@ export function loadBaselineEvidence(cycle: WorkCycle) {
   return request(
     `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/baseline-evidence`,
     baselineEvidenceSchema,
+  );
+}
+
+export function authorizeWorkCycleRemediation(
+  cycle: WorkCycle,
+  input: Pick<AuthorizeWorkCycleRemediationRequest, 'additionalRounds' | 'instructions'>,
+  csrfToken: string,
+) {
+  return request(
+    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/control`,
+    workCycleResponseSchema,
+    mutation(csrfToken, {
+      ...input,
+      action: 'authorize-remediation',
+      expectedVersion: cycle.version,
+    }),
   );
 }

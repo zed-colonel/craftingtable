@@ -282,7 +282,6 @@ export const workCycleSchema = z
       cycle.workItemId !== undefined
         ? cycle.planVersionId === undefined &&
           cycle.finalizationId === undefined &&
-          cycle.additionalRemediationRounds === undefined &&
           cycle.deferredNits === undefined &&
           cycle.findingFocus === undefined &&
           cycle.finalizationAgentOverride === undefined &&
@@ -292,8 +291,20 @@ export const workCycleSchema = z
   );
 export const workCyclesResponseSchema = z.strictObject({ cycles: z.array(workCycleSchema) });
 export const workCycleResponseSchema = z.strictObject({ cycle: workCycleSchema });
-export const controlWorkCycleRequestSchema = z.strictObject({
-  action: z.enum(['pause', 'resume', 'stop']),
-  expectedVersion: z.number().int().positive(),
-});
+export const controlWorkCycleRequestSchema = z.discriminatedUnion('action', [
+  z.strictObject({
+    action: z.enum(['pause', 'resume', 'stop']),
+    expectedVersion: z.number().int().positive(),
+  }),
+  z.strictObject({
+    action: z.literal('authorize-remediation'),
+    expectedVersion: z.number().int().positive(),
+    additionalRounds: z.number().int().min(1).max(20),
+    instructions: z.string().trim().max(16000).default(''),
+  }),
+]);
+export type AuthorizeWorkCycleRemediationRequest = Extract<
+  z.infer<typeof controlWorkCycleRequestSchema>,
+  { action: 'authorize-remediation' }
+>;
 export type StartWorkCycleRequest = z.infer<typeof startWorkCycleRequestSchema>;

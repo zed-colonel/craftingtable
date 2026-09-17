@@ -108,7 +108,11 @@ lines.on('line', (line) => {
     reviewing = true;
   }
   if (reviewing) {
-    const verdict = text.includes('VERDICT-CHANGES') ? 'changes-requested' : 'mergeable';
+    const verdict =
+      text.includes('VERDICT-CHANGES') ||
+      (text.includes('CYCLE-EXTRA-REMEDIATION') && !existsSync(join(cwd, 'RECOVERED.md')))
+        ? 'changes-requested'
+        : 'mergeable';
     const findings =
       finalizing && text.includes('FINALIZATION-REMEDIATION-LIMIT')
         ? [
@@ -128,8 +132,11 @@ lines.on('line', (line) => {
           ? [
               {
                 id: 'F-001',
-                severity: 'nit',
-                status: 'open',
+                severity: text.includes('CYCLE-EXTRA-REMEDIATION') ? 'major' : 'nit',
+                status: existsSync(join(cwd, 'RECOVERED.md')) ? 'resolved' : 'open',
+                ...(existsSync(join(cwd, 'RECOVERED.md'))
+                  ? { disposition: 'Verified the regression fix.' }
+                  : {}),
                 title: 'Clarify the example in the integration guide',
                 location: {
                   path: `docs/${'long-directory-name/'.repeat(8)}integration-guide.md`,
@@ -210,6 +217,8 @@ lines.on('line', (line) => {
     : '';
   const filename = `${finalizing ? 'POLISH' : 'SMOKE'}${itemSuffix}-${turns}.md`;
   writeFileSync(join(cwd, filename), `turn ${turns}: ${text.split('\n')[0]}\n`);
+  if (text.includes('E2E-AUTHORIZED-RECOVERY'))
+    writeFileSync(join(cwd, 'RECOVERED.md'), 'Fixed and checked.\n');
   if (text.includes('MOBILE-FINDINGS')) {
     writeFileSync(join(cwd, 'mobile-layout.md'), `${'Long diff line '.repeat(50)}\n`);
   }

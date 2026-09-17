@@ -131,7 +131,7 @@ export interface WorkCycle {
   /** Automatic recovery attempts within the current step, independent of remediation. */
   readonly resultContinuations?: number;
   readonly remediationRounds: number;
-  /** Extra attempts explicitly authorized after a finalization exhausts its initial allowance. */
+  /** Extra attempts explicitly authorized after a cycle exhausts its initial allowance. */
   readonly additionalRemediationRounds?: number;
   readonly finalizationAgentOverride?: FinalizationAgentSelection | null;
   readonly deferredNits?: readonly {

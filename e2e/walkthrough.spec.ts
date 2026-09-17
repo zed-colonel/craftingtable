@@ -304,7 +304,10 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       await expect(region.getByLabel('Allowed nits')).toBeVisible();
     });
     await cycle.getByLabel('Allowed nits').fill('1');
-    await cycle.getByLabel(/Instructions/).fill('MOBILE-FINDINGS DESIGN-QUESTIONS');
+    await cycle.getByLabel('Maximum remediation rounds').fill('0');
+    await cycle
+      .getByLabel(/Instructions/)
+      .fill('MOBILE-FINDINGS DESIGN-QUESTIONS CYCLE-EXTRA-REMEDIATION');
     await cycle.getByRole('button', { name: 'Start automated cycle' }).click();
     await expect(
       cycle.getByRole('button', { name: 'Resolve design questions', exact: true }),
@@ -351,6 +354,19 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .fill('I own the baseline decision. Use the pinned baseline.');
     await page.getByRole('combobox', { name: 'Next action', exact: true }).selectOption('continue');
     await page.getByRole('button', { name: 'Continue design with evidence', exact: true }).click();
+    await expect(cycle.getByRole('button', { name: 'Authorize more remediation' })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(cycle.getByRole('button', { name: 'Resume automation' })).toHaveCount(0);
+    await walk.capture(
+      'work-item-remediation-recovery',
+      'Work item · exhausted remediation allowance',
+    );
+    await cycle
+      .getByLabel('Additional cycle guidance (optional)')
+      .fill('E2E-AUTHORIZED-RECOVERY: Address the remaining regression.');
+    await cycle.getByRole('button', { name: 'Authorize more remediation' }).click();
+
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
       timeout: 30_000,
     });

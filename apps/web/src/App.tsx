@@ -124,6 +124,7 @@ import { useRoute } from './lib/use-route.js';
 import { useRunEventStream } from './lib/use-run-event-stream.js';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
 import {
+  authorizeWorkCycleRemediation,
   controlWorkCycle,
   loadWorkCycles,
   resolveIntegration,
@@ -1413,6 +1414,11 @@ export function App() {
                   onStart={(input) =>
                     executionCommand(async (csrfToken, forWorkspace) => {
                       await startWorkCycle(forWorkspace, workItem.workItem.id, input, csrfToken);
+                    })
+                  }
+                  onAuthorizeRemediation={(cycle, input) =>
+                    executionCommand(async (csrfToken) => {
+                      await authorizeWorkCycleRemediation(cycle, input, csrfToken);
                     })
                   }
                   onControl={(cycle, action) =>

@@ -112,3 +112,19 @@ it('limits integration branch removal choices to explicit final promotion comman
     }).success,
   ).toBe(false);
 });
+
+it('bounds explicit work-item remediation grants and rejects allowance changes on Resume', () => {
+  const request = { action: 'authorize-remediation', expectedVersion: 2, additionalRounds: 2 };
+  expect(controlWorkCycleRequestSchema.parse(request)).toEqual({ ...request, instructions: '' });
+  for (const additionalRounds of [0, -1, 21, 1.5])
+    expect(controlWorkCycleRequestSchema.safeParse({ ...request, additionalRounds }).success).toBe(
+      false,
+    );
+  expect(controlWorkCycleRequestSchema.safeParse({ ...request, action: 'resume' }).success).toBe(
+    false,
+  );
+  expect(
+    controlWorkCycleRequestSchema.safeParse({ ...request, instructions: 'x'.repeat(16001) })
+      .success,
+  ).toBe(false);
+});

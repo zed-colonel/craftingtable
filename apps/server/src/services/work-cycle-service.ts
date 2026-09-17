@@ -8,6 +8,7 @@ import { sameExecutionScope } from '@craftingtable/domain';
 import { requireScope, requireTreeScope, scopedReviewIssue } from './execution-scope.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type {
+  AuthorizeWorkCycleRemediationRequest,
   ControlFinalizationRequest,
   IntegrationResolutionRequest,
   StartWorkCycleRequest,
@@ -659,12 +660,15 @@ export class WorkCycleService {
 
   /** Read-only eligibility for the recovery control; command checks repeat after Git inspection. */
   finalizationRemediationBlocker(cycle: WorkCycle): string | undefined {
-    if (
-      !cycle.finalizationId ||
-      !['paused', 'needs-attention'].includes(cycle.status) ||
-      cycle.step !== 'review'
-    )
-      return 'Additional remediation requires a paused finalization review.';
+    if (!cycle.finalizationId) return 'Additional remediation requires a finalization review.';
+    return this.remediationBlocker(cycle);
+  }
+
+  private remediationBlocker(cycle: WorkCycle): string | undefined {
+    if (!['paused', 'needs-attention'].includes(cycle.status) || cycle.step !== 'review')
+      return 'Additional remediation requires a paused review.';
+    if (cycle.executionScope && cycle.executionScope.kind !== 'slice')
+      return 'Address findings through the owning slice, not this review-only snapshot.';
     if (
       cycle.integrationResolution &&
       !['completed', 'abandoned'].includes(cycle.integrationResolution.status)
@@ -680,7 +684,7 @@ export class WorkCycleService {
     if (cycle.finalizationProgress?.obligations.some((o) => o.status === 'change-requested'))
       return 'Decide the proposed plan change or resume with guidance before authorizing remediation.';
     if (remediationUsed(cycle) < remediationAllowance(cycle))
-      return 'The remediation allowance is not exhausted; use Resume finalization.';
+      return 'The remediation allowance is not exhausted; use Resume.';
     const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
     const run = runs[0];
     if (
@@ -689,7 +693,7 @@ export class WorkCycleService {
       run.role !== 'review' ||
       run.status !== 'finished'
     )
-      return 'The current finalization review must finish before authorizing remediation.';
+      return 'The current review must finish before authorizing remediation.';
     const turn = this.storage.execution.runEvents.latestOfKind(
       cycle.workspaceId,
       run.id,
@@ -699,16 +703,68 @@ export class WorkCycleService {
       turn?.kind !== 'turn-completed' ||
       turn.payload.outcome !== 'success' ||
       turn.payload.truncated ||
-      !finalizationHasNoQuestions(turn.payload.resultText)
+      ((cycle.finalizationId || /^## Open questions[ \t]*$/m.test(turn.payload.resultText)) &&
+        !finalizationHasNoQuestions(turn.payload.resultText))
     )
-      return 'Resolve the finalization questions or incomplete outcome before authorizing remediation.';
+      return 'Resolve the questions or incomplete outcome before authorizing remediation.';
     const assessment = latestReviewReport(this.storage.execution, run);
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    const scopeIssue = tree && scopedReviewIssue(this.storage, tree, assessment);
+    if (!tree || tree.status !== 'active' || scopeIssue)
+      return scopeIssue ?? 'The managed worktree must be active before authorizing remediation.';
     if (
       assessment?.status !== 'complete' ||
       evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action !== 'remediate'
     )
       return 'A valid review requiring remediation is needed before extending the allowance.';
     return undefined;
+  }
+
+  async authorizeWorkItemRemediation(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: AuthorizeWorkCycleRemediationRequest,
+  ): Promise<WorkCycle> {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    if (!cycle) throw new NotFoundError();
+    if (cycle.version !== input.expectedVersion)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Cycle changed; refresh before authorizing remediation.',
+      );
+    if (!cycle.workItemId || cycle.finalizationId)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Use finalization recovery for a plan finalization.',
+      );
+    this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
+    this.mutations.requireAvailable(cycle.worktreeId);
+    if (
+      !Number.isInteger(input.additionalRounds) ||
+      input.additionalRounds < 1 ||
+      input.additionalRounds > 20 ||
+      remediationAllowance(cycle) + input.additionalRounds > Number.MAX_SAFE_INTEGER - 20
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Authorize between 1 and 20 additional remediation attempts.',
+      );
+    const instructions = [cycle.instructions, input.instructions].filter(Boolean).join('\n\n');
+    if (instructions.length > 16000)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Combined cycle guidance exceeds 16000 characters; shorten the additional guidance.',
+      );
+    const blocker = this.remediationBlocker(cycle);
+    if (blocker) throw new ExecutionRequestError('conflict', blocker);
+    const run = this.storage.execution.runs.find(workspaceId, cycle.currentRunId);
+    if (!run) throw new NotFoundError();
+    return this.reviewRemediation(cycle, run, context, {
+      additionalRounds: input.additionalRounds,
+      instructions,
+    });
   }
 
   async authorizeFinalizationRemediation(
@@ -1831,16 +1887,18 @@ export class WorkCycleService {
       if (!context)
         throw new ExecutionRequestError('conflict', 'Operator authorization is required.');
       this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
-      finalizationForCycle(this.storage, cycle);
+      if (cycle.workItemId)
+        this.requireReady(cycle.workspaceId, cycle.workItemId, cycle.executionScope);
+      else finalizationForCycle(this.storage, cycle);
       this.mutations.requireAvailable(cycle.worktreeId);
       if (
         this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !== cycle.version
       )
         throw new ExecutionRequestError(
           'conflict',
-          'Finalization changed; refresh before authorizing more remediation.',
+          'Cycle changed; refresh before authorizing more remediation.',
         );
-      const blocker = this.finalizationRemediationBlocker(cycle);
+      const blocker = this.remediationBlocker(cycle);
       if (blocker) throw new ExecutionRequestError('conflict', blocker);
     }
     const assessment = latestReviewReport(this.storage.execution, run);
@@ -2867,6 +2925,7 @@ export class WorkCycleService {
           : {}),
         ...(action === 'authorize-remediation' || action === 'remediate-findings'
           ? {
+              instructions: cycle.instructions,
               initialRemediationAllowance: cycle.policy.maxRemediationRounds,
               additionalRemediationRounds: cycle.additionalRemediationRounds ?? 0,
               remediationAllowance: remediationAllowance(cycle),

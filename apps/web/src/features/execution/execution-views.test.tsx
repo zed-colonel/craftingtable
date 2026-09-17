@@ -1011,6 +1011,54 @@ describe('automated cycle controls', () => {
     expect(onControl).toHaveBeenCalledWith(cycle, 'pause');
     fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
     expect(onControl).toHaveBeenCalledWith(cycle, 'stop');
+    const onAuthorizeRemediation = vi.fn();
+    const exhausted = {
+      ...cycle,
+      status: 'needs-attention' as const,
+      remediationRounds: 4,
+      additionalRemediationRounds: 1,
+      reason: 'Remediation limit reached. One major finding remains.',
+    };
+    const recoveryProps = {
+      cycles: [exhausted],
+      worktrees: [worktree],
+      backends,
+      profiles,
+      canMutate: true,
+      busy: false,
+      admitted: true,
+      onStart: vi.fn(),
+      onControl,
+      onOpenRun: vi.fn(),
+      onAuthorizeRemediation,
+    };
+    view.rerender(
+      <CyclePanel {...recoveryProps} runs={[run({ status: 'finished', role: 'review' })]} />,
+    );
+    expect(screen.getByText('4 of 4')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Additional remediation attempts'), {
+      target: { value: '2' },
+    });
+    fireEvent.change(screen.getByLabelText('Additional cycle guidance (optional)'), {
+      target: { value: 'Address the boundary regression.' },
+    });
+    expect(screen.getByText('New total allowance: 6 attempts.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Authorize more remediation' }));
+    expect(onAuthorizeRemediation).toHaveBeenCalledWith(exhausted, {
+      additionalRounds: 2,
+      instructions: 'Address the boundary regression.',
+    });
+    view.rerender(<CyclePanel {...recoveryProps} runs={[run({ status: 'running' })]} />);
+    expect(
+      (screen.getByRole('button', { name: 'Authorize more remediation' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    view.rerender(<CyclePanel {...recoveryProps} canMutate={false} runs={[]} />);
+    expect(
+      (screen.getByRole('button', { name: 'Authorize more remediation' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
     const siblingTree = {
       ...worktree,
       id: 'wt-2' as WorktreeSummary['id'],

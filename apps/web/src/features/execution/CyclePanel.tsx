@@ -1,3 +1,7 @@
+import {
+  CycleRemediationRecovery,
+  type CycleRemediationGrant,
+} from './CycleRemediationRecovery.js';
 import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
 import { CycleSettingsFields } from './CycleSettingsFields.js';
@@ -14,6 +18,7 @@ import {
   CYCLE_STEPS,
   type CycleProfiles,
   DEFAULT_COMPLETION_POLICY,
+  remediationAllowance,
   type WorkCycle,
   type WorktreeId,
 } from '@craftingtable/domain';
@@ -37,6 +42,7 @@ export function CyclePanel({
   admitted,
   onStart,
   onControl,
+  onAuthorizeRemediation,
   onOpenRun,
   onResolution,
   selectedWorktreeId,
@@ -57,6 +63,7 @@ export function CyclePanel({
   onStart: (input: StartWorkCycleRequest) => void;
   onControl: (cycle: WorkCycle, action: 'pause' | 'resume' | 'stop') => void;
   onOpenRun: (id: AgentRunId) => void;
+  onAuthorizeRemediation?: (cycle: WorkCycle, input: CycleRemediationGrant) => void;
   onResolution?: (
     cycle: WorkCycle,
     input: Omit<IntegrationResolutionRequest, 'expectedVersion'>,
@@ -111,6 +118,16 @@ export function CyclePanel({
   const liveRun = runs.some(
     (run) => run.worktreeId === selected && ['starting', 'running', 'waiting'].includes(run.status),
   );
+  const exhaustedReview =
+    active &&
+    onAuthorizeRemediation &&
+    ['paused', 'needs-attention'].includes(active.status) &&
+    active.step === 'review' &&
+    active.reason.startsWith('Remediation limit reached.') &&
+    active.remediationRounds >= remediationAllowance(active) &&
+    (!active.executionScope || active.executionScope.kind === 'slice') &&
+    (!active.integrationResolution ||
+      ['completed', 'abandoned'].includes(active.integrationResolution.status));
   const previous = cycles.filter((cycle) => ['stopped', 'completed'].includes(cycle.status));
   const attention =
     active !== undefined && ['needs-attention', 'awaiting-merge'].includes(active.status);
@@ -159,7 +176,7 @@ export function CyclePanel({
               { label: 'Step', value: active.step },
               {
                 label: 'Remediation',
-                value: `${active.remediationRounds} of ${active.policy.maxRemediationRounds}`,
+                value: `${active.remediationRounds} of ${remediationAllowance(active)}`,
               },
               { label: 'Allowed nits', value: active.policy.maxNits },
               { label: 'Minutes per step', value: active.policy.maxRunMinutes },
@@ -186,6 +203,7 @@ export function CyclePanel({
               </button>
             )}
             {['paused', 'needs-attention'].includes(active.status) &&
+              !exhaustedReview &&
               active.integrationResolution?.status !== 'detected' &&
               !(
                 renderDesignRecovery &&
@@ -210,6 +228,14 @@ export function CyclePanel({
               Stop automation
             </button>
           </ActionBar>
+          {exhaustedReview && onAuthorizeRemediation && (
+            <CycleRemediationRecovery
+              key={`${active.id}:${active.version}`}
+              cycle={active}
+              disabled={disabled || liveRun}
+              onAuthorize={(input) => onAuthorizeRemediation(active, input)}
+            />
+          )}
           {renderDesignRecovery &&
             canMutate &&
             recoverableDesign &&
@@ -245,7 +271,8 @@ export function CyclePanel({
               The cycle completes when zero blocking, major, or minor findings remain and at most
               the allowed nits. Pause leaves the agent session available for manual work. Stop
               cancels its current process and ends the cycle. Resume adopts a manual run handed off
-              from this cycle. Settings stay fixed for this cycle.
+              from this cycle. Agent settings stay fixed; an exhausted review allowance can be
+              extended explicitly.
             </p>
           </About>
         </>

@@ -142,13 +142,21 @@ export function registerWorkCycleRoutes(
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       if (!body.success)
         return sendApiError(reply, 400, 'invalid-request', 'Invalid cycle command');
-      const cycle = await cycles.control(
-        context,
-        workspace.data,
-        request.params.cycleId,
-        body.data.action,
-        body.data.expectedVersion,
-      );
+      const cycle =
+        body.data.action === 'authorize-remediation'
+          ? await cycles.authorizeWorkItemRemediation(
+              context,
+              workspace.data,
+              request.params.cycleId,
+              body.data,
+            )
+          : await cycles.control(
+              context,
+              workspace.data,
+              request.params.cycleId,
+              body.data.action,
+              body.data.expectedVersion,
+            );
       return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
     },
   );

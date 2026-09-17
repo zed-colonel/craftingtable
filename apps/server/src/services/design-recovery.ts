@@ -1,3 +1,4 @@
+import { buildVerificationPolicy } from './build-verification-policy.js';
 import { createHash } from 'node:crypto';
 import type { AgentRunId, DesignRecoverySource, WorkCycle } from '@craftingtable/domain';
 import type { DesignRecoveryPreview } from '@craftingtable/contracts';
@@ -177,6 +178,10 @@ export function collectDesignRecovery(
         integrationBranch: tree.integrationBranch,
       },
       baselinePreparation: cycle.baselinePreparation,
+      buildVerification:
+        scope && tx.imports.definition(ws, scope.definitionId)
+          ? buildVerificationPolicy(tx.imports.definition(ws, scope.definitionId)!, scope)
+          : undefined,
       scope,
       mapDigest: scope ? tx.imports.definition(ws, scope.definitionId)?.digest : undefined,
       binding,

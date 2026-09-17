@@ -612,9 +612,7 @@ export class AgentRunService {
       mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
       const pinned = await this.runtimeEvidence?.prepare(prepared.worktree, runId, runDirectory);
       const historical =
-        cycle?.step === 'design' &&
-        cycle.designRecovery?.runId === cycle.currentRunId &&
-        cycle.baselinePreparation?.status === 'prepared'
+        cycle?.baselinePreparation?.status === 'prepared'
           ? await this.baselines?.materialize(cycle, runDirectory)
           : undefined;
       const planDirectory = join(runDirectory, 'plan');
@@ -830,7 +828,14 @@ export class AgentRunService {
           ? `
 
 Pinned dependency environment: ${pinned.manifestPath}
-Use the controller Cargo launcher ${pinned.binDirectory}/cargo for builds and tests (also supplied on PATH). Do not override pins or use a neighboring checkout. Its build receipts are required before merge/acceptance. Align incompatible Cargo version constraints with the supplied crates.
+Verification policy: ${pinned.verification.mode}. ${pinned.verification.reason}
+Use the controller Cargo launcher ${pinned.binDirectory}/cargo for Cargo checks (also supplied on PATH). Do not override supplied sources or use a neighboring checkout.
+${
+  pinned.verification.mode === 'scoped-checks'
+    ? `Use ${pinned.binDirectory}/ct-check -- <executable> <arguments> to retain repository-owned contract, inventory, fixture or domain test evidence. Use ${pinned.binDirectory}/ct-act -W .github/workflows/<file>.yml -j <job> for local GitHub Actions execution. A successful check on the exact clean reviewed commit is required, together with independent evidence for EVERY scope obligation. Any prepared historical dependency commits are development inputs only. Do not port upstream code or align the whole legacy workspace to current pins merely to satisfy this slice. Document known baseline failures separately; new scope checks must pass.`
+    : `A successful Cargo build/test using current exact pins is required before merge/acceptance. ct-check and ct-act logs supplement but never replace that receipt. Align constraints only within the approved integration scope.`
+}
+Local CI: ${pinned.localCi ? `configured with image ${pinned.localCi.image}. Workflows receive CRAFTINGTABLE_DEPENDENCY_MANIFEST, CRAFTINGTABLE_CARGO_CONFIG, CRAFTINGTABLE_VERIFICATION_MODE and CRAFTINGTABLE_CI_ARTIFACTS_DIR. Use the supplied Cargo config explicitly in CI scripts (cargo --config "$CRAFTINGTABLE_CARGO_CONFIG" ...); all supplied paths are mounted into the runner. The image includes Rust 1.89, rustfmt/clippy and native build tools. Repository workflows must select suitable checks for this scope; do not run the legacy whole-runtime workflow merely because it already exists.` : 'not configured; use ct-check and the supplied Cargo launcher for local checks.'} CI receipts do not establish external native/Kata qualification. Repository workflows and scripts remain repository-owned; selecting a narrow job never waives other scope obligations.
 `
           : '');
       const historicalBrief = historical
@@ -841,7 +846,7 @@ Manifest: ${historical.manifestPath}
 Historical workspace: ${historical.workspacePath}
 Historical Cargo: ${historical.launcher}
 Command receipts: ${historical.receiptPath}
-Use this separate launcher ONLY to collect the historical baseline. It uses original lockfiles and historical sibling sources, not current upstream pins. Use the normal controller Cargo launcher for candidate builds. First attempt historical build/test collection, and relevant recovery/benchmark checks requested by the plan within this run's deadline; record exact failures and missing prerequisites. Do not port historical code, change dependencies/lockfiles or fabricate results. Preserve summaries, measurements and non-Cargo logs under historical-evidence (outside disposable scratch). Do not ask the operator to provision ordinary worktrees or these already supplied sources. Historical results never satisfy current-runtime build gates. Genuine architectural/implementation decisions remain the operator's authority; collected facts do not authorize deviations.
+Use this separate launcher ONLY to collect the historical baseline. It uses original lockfiles and historical sibling sources, not current upstream pins. For candidate checks, follow the scope verification policy above and use the normal controller Cargo launcher. Reuse recorded historical evidence with matching source identities; collect missing baseline build/test or recovery/benchmark evidence only when required by the plan, within this run's deadline. Record exact failures and missing prerequisites. Do not port historical code, change dependencies/lockfiles or fabricate results. Preserve summaries, measurements and non-Cargo logs under historical-evidence (outside disposable scratch). Do not ask the operator to provision ordinary worktrees or these already supplied sources. Historical results never satisfy current-runtime build gates. Genuine architectural/implementation decisions remain the operator's authority; collected facts do not authorize deviations.
 `
         : '';
       brief += historicalBrief;
@@ -960,7 +965,11 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         prompt: brief,
         permissionMode: input.permissionMode,
         ...(input.model === undefined ? {} : { model: input.model }),
-        additionalDirectories: [runDirectory, ...(historical ? [historical.cargoHome] : [])],
+        additionalDirectories: [
+          runDirectory,
+          ...(historical ? [historical.cargoHome] : []),
+          ...(pinned?.localCi ? [pinned.localCi.cacheRoot] : []),
+        ],
         sessionName: `CraftingTable ${prepared.row.sourceId} ${input.role}`,
       };
       let session: AgentSession;
@@ -1504,10 +1513,14 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     });
     if (changed) {
       const run = this.storage.execution.runs.find(workspaceId, runId);
-      if (run && status !== 'interrupted' && this.storageService)
-        void this.storageService
-          .cleanupAfterRun(run.worktreeId)
-          .finally(() => this.notifier.notify());
+      void Promise.resolve(this.runtimeEvidence?.cleanupRun(workspaceId, runId))
+        .then(() =>
+          run && status !== 'interrupted'
+            ? this.storageService?.cleanupAfterRun(run.worktreeId)
+            : undefined,
+        )
+        .catch((error) => this.log.warn('Run cleanup failed', { runId, error: String(error) }))
+        .finally(() => this.notifier.notify());
       this.notifier.notify();
     }
   }

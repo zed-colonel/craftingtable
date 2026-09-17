@@ -1,3 +1,4 @@
+import { buildVerificationPolicy } from './build-verification-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import {
   PLAN_CHECKPOINT,
@@ -8,10 +9,13 @@ import { assertFinalizationMap, providerBranch } from './map-finalization-policy
 import { randomUUID } from 'node:crypto';
 import { homedir, hostname, platform, release, arch } from 'node:os';
 import { dirname, join } from 'node:path';
-import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, statSync, existsSync } from 'node:fs';
 import {
   cargoManifestDigest as hash,
   prepareCargoLauncher,
+  loadLocalCiConfig,
+  cleanupLocalCiManifest,
+  prepareLocalCheckLaunchers,
   observeRustToolchain,
   type PinnedCargoManifest,
 } from '@craftingtable/agents';
@@ -987,6 +991,27 @@ export class RuntimeEvidenceService {
     const consumer = runtime.consumers.find((c) => c.alias === b.alias);
     if (!consumer) conflict('Configure the consumer dependency environment.');
 
+    const definition = this.definition(tree.workspaceId, scope.definitionId);
+    const verification = buildVerificationPolicy(
+      definition,
+      'finalization' in scope ? undefined : scope,
+    );
+    const preparations =
+      verification.mode === 'scoped-checks'
+        ? this.storage.execution.cycles
+            .list(tree.workspaceId)
+            .filter(
+              (c) =>
+                c.baselinePreparation?.status === 'prepared' &&
+                c.executionScope?.definitionId === scope.definitionId &&
+                c.executionScope.bindingRevision === scope.bindingRevision &&
+                c.baselinePreparation.consumerAlias === b.alias,
+            )
+        : [];
+    // Keep an existing cycle on its own operator-approved historical selection.
+    // Fresh verification/parent trees may reuse the latest preparation for this exact binding.
+    const historical = (preparations.find((c) => c.worktreeId === tree.id) ?? preparations[0])
+      ?.baselinePreparation;
     const cargoExecutable = resolveExecutable('cargo', undefined, process.env, [
       join(homedir(), '.cargo', 'bin'),
     ]);
@@ -995,21 +1020,34 @@ export class RuntimeEvidenceService {
     const directory = join(runDirectory, 'dependencies'),
       files: { path: string; digest: string }[] = [],
       supplied: { name: string; path: string }[] = [];
+    const dependencyIdentities: {
+      alias: string;
+      commitSha: string;
+      treeSha?: string;
+      purpose: string;
+    }[] = [];
     for (const alias of consumer.upstreams) {
-      const pin = runtime.pins.find((p) => p.alias === alias);
+      // Scoped development may use the operator-prepared historical dependencies.
+      // Without preparation it remains dependency-free; never silently use registry fallback.
+      if (verification.mode === 'scoped-checks' && !historical) continue;
+      const baseline = historical?.sources.find((s) => s.alias === alias);
+      const pin =
+        verification.mode === 'scoped-checks'
+          ? baseline && { ...baseline, packages: undefined }
+          : runtime.pins.find((p) => p.alias === alias);
       if (!pin) conflict('A required pin is unavailable.');
       const repo = this.storage.execution.sourceRepositories.find(
         tree.workspaceId,
         pin.repositoryId,
       );
-      if (!repo) conflict('Pinned repository unavailable.');
+      if (repo?.status !== 'active') conflict('Pinned repository unavailable.');
       const exported = await this.requireGit().exportCommit(repo.rootPath, pin.commitSha);
       if (!exported.ok) conflict(exported.failure.message);
       const root = join(
         runDirectory,
         'scratch',
         'dependencies',
-        `source-${runtime.pins.indexOf(pin)}`,
+        `source-${consumer.upstreams.indexOf(alias)}`,
       );
       for (const file of exported.value) {
         const path = join(root, file.path);
@@ -1017,7 +1055,19 @@ export class RuntimeEvidenceService {
         writeFileSync(path, file.content, { mode: file.executable ? 0o500 : 0o400 });
         files.push({ path, digest: hash(file.content) });
       }
-      supplied.push(...pin.packages.map((p) => ({ name: p.name, path: join(root, p.path) })));
+      supplied.push(
+        ...(pin.packages ?? packages(exported.value)).map((p) => ({
+          name: p.name,
+          path: join(root, p.path),
+        })),
+      );
+      dependencyIdentities.push({
+        alias,
+        commitSha: pin.commitSha,
+        ...('treeSha' in pin ? { treeSha: pin.treeSha } : {}),
+        purpose:
+          verification.mode === 'scoped-checks' ? 'historical-development' : 'current-upstream',
+      });
     }
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const configPath = join(directory, 'pins.toml');
@@ -1036,6 +1086,22 @@ export class RuntimeEvidenceService {
       );
     const manifest: PinnedCargoManifest = {
       gitExecutable,
+      checkTimeoutMs: Math.min(
+        30 * 60000,
+        (this.storage.execution.cycles.activeForWorktree(tree.workspaceId, tree.id)?.policy
+          .maxRunMinutes ?? 30) * 60000,
+      ),
+      localCi: loadLocalCiConfig(process.env.CRAFTINGTABLE_ACT_CONFIG),
+      verification,
+      dependencyIdentities,
+      ...(verification.mode === 'scoped-checks' && !historical
+        ? {
+            forbiddenPackages: runtime.pins
+              .filter((p) => consumer.upstreams.includes(p.alias))
+              .flatMap((p) => p.packages.map((p) => p.name)),
+          }
+        : {}),
+      ...(historical ? { historicalPreparationId: historical.id } : {}),
       runtimeId: runtime.id,
       runId,
       cargoExecutable,
@@ -1049,8 +1115,11 @@ export class RuntimeEvidenceService {
     };
     await this.assertFreshTree(tree);
     const launch = prepareCargoLauncher(directory, manifest);
+    prepareLocalCheckLaunchers(launch.binDirectory, launch.manifestPath, launch.manifestDigest);
     return {
       ...launch,
+      verification,
+      localCi: manifest.localCi,
       runtimeId: runtime.id,
       definitionId: scope.definitionId,
       bindingRevision: scope.bindingRevision,
@@ -1081,7 +1150,15 @@ export class RuntimeEvidenceService {
       scope.definitionId,
       scope.bindingRevision,
     ).bindings.find((b) => b.repositoryId === tree.repositoryId)?.alias;
-    if (!runtime.consumers.find((c) => c.alias === alias)?.upstreams.length) return;
+    const verification = buildVerificationPolicy(
+      this.definition(tree.workspaceId, scope.definitionId),
+      'finalization' in scope ? undefined : scope,
+    );
+    if (
+      verification.mode !== 'scoped-checks' &&
+      !runtime.consumers.find((c) => c.alias === alias)?.upstreams.length
+    )
+      return;
     if (!env || env.runtimeId !== runtime.id)
       conflict('Review uses an obsolete dependency environment. Run a fresh review.');
     try {
@@ -1101,6 +1178,9 @@ export class RuntimeEvidenceService {
               manifestDigest: string;
               runId: string;
               runtimeId: string;
+              verificationMode?: string;
+              policyDigest?: string;
+              kind?: string;
             },
         );
       if (
@@ -1111,11 +1191,19 @@ export class RuntimeEvidenceService {
             r.headSha === run?.reviewBranchContext?.headSha &&
             r.manifestDigest === env.manifestDigest &&
             r.runId === runId &&
-            r.runtimeId === runtime.id,
+            r.runtimeId === runtime.id &&
+            (verification.mode === 'scoped-checks'
+              ? r.verificationMode === 'scoped-checks' &&
+                r.policyDigest === hash(JSON.stringify(verification))
+              : r.kind !== 'scoped-check' &&
+                r.kind !== 'local-ci' &&
+                r.verificationMode !== 'scoped-checks'),
         )
       )
         conflict(
-          'The review needs a successful pinned Cargo build/test on its exact clean reviewed commit.',
+          verification.mode === 'scoped-checks'
+            ? 'The review needs a successful scoped check on its exact clean reviewed commit. Use ct-check for repository checks, ct-act for CI, or the supplied Cargo launcher; report every scope obligation separately.'
+            : 'The review needs a successful pinned Cargo build/test on its exact clean reviewed commit.',
         );
     } catch (error) {
       if (error instanceof ExecutionRequestError) throw error;
@@ -1123,6 +1211,10 @@ export class RuntimeEvidenceService {
         'A successful pinned Cargo build/test receipt is required before accepting this review.',
       );
     }
+  }
+  async cleanupRun(ws: WorkspaceId, runId: string) {
+    const env = this.storage.runtimeEvidence.run(ws, runId);
+    if (env) await cleanupLocalCiManifest(env.manifestPath, env.manifestDigest);
   }
   freezeRun(tx: StorageRepositories, ws: WorkspaceId, runId: string) {
     const env = tx.runtimeEvidence.run(ws, runId);
@@ -1133,6 +1225,8 @@ export class RuntimeEvidenceService {
       const raw = readFileSync(env.manifestPath, 'utf8');
       if (hash(raw) !== env.manifestDigest) throw new Error('Pinned manifest changed.');
       const m = JSON.parse(raw) as PinnedCargoManifest;
+      if (existsSync(join(dirname(env.manifestPath), 'checks', 'act-active')))
+        throw new Error('Local CI did not finish collection; a fresh review is required.');
       if (statSync(m.receiptPath).size > 4 * 1024 * 1024)
         throw new Error('Build receipts exceed 4 MiB.');
       receipts = readFileSync(m.receiptPath, 'utf8');
@@ -1180,7 +1274,11 @@ export class RuntimeEvidenceService {
     const d = this.definition(tree.workspaceId, scope.definitionId),
       binding = this.binding(tree.workspaceId, d.id, scope.bindingRevision);
     const alias = binding.bindings.find((b) => b.repositoryId === tree.repositoryId)?.alias;
-    const issues = await this.freshness(tree.workspaceId, runtime, alias);
+    const verification = buildVerificationPolicy(d, 'finalization' in scope ? undefined : scope);
+    const issues =
+      verification.mode === 'scoped-checks'
+        ? []
+        : await this.freshness(tree.workspaceId, runtime, alias);
     if ('finalization' in scope) {
       if (issues.length) conflict(issues.join('\n'));
       this.treeContext(tree);
@@ -1207,7 +1305,17 @@ export class RuntimeEvidenceService {
         subject,
       );
       if (evidence && (!root || phase === 'verify' || phase === 'accept'))
-        issues.push(...(await this.evidenceFreshness(d, runtime, evidence)));
+        issues.push(
+          ...(await this.evidenceFreshness(
+            d,
+            runtime,
+            evidence,
+            spec.checkpoint &&
+              ['plan_approval', 'architecture_decision'].includes(spec.checkpoint.kind)
+              ? []
+              : undefined,
+          )),
+        );
       const reqs =
         spec.checkpoint?.requires ??
         (spec.slice

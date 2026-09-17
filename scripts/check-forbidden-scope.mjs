@@ -45,6 +45,7 @@ export const FORBIDDEN_CAPABILITY_PATTERNS = [
  * reason. Adding one is a reviewed decision, not a convenience.
  */
 export const PROCESS_AUTHORITY = new Map([
+  ['packages/agents/src/local-check.ts', 'Scoped checks and bounded local act execution (ADR-053)'],
   ['packages/git/src/command-runner.ts', 'read-only Git inspection (ADR-016)'],
   ['packages/git/src/operations.ts', 'worktree creation, removal, and diffing'],
   ['packages/agents/src/process.ts', 'Agent backend process supervision'],

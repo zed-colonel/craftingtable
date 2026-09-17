@@ -52,8 +52,8 @@ it is mergeable.
   setup remains available; external native/Kata qualification uses separate environment and
   tested-fixture identities, not the local discovery fingerprints.
   Each scoped run receives its own source snapshots and Cargo launcher. The launcher rejects
-  dependency fallback and records clean-commit builds; successful review builds are required
-  before merge. Frozen build records survive cleanup and are downloadable from the map.
+  dependency fallback and records clean-commit builds. Independent contract/domain scopes require
+  successful scoped checks; integration/conformance/release scopes retain current upstream builds. Frozen build records survive cleanup and are downloadable from the map.
   Use the subject-specific JSON template or upload an evidence package with real logs, exact case
   hashes and independent reviewer attestations. Inspect its readable artifacts and explicitly
   accept or reject it with a rationale. New pins/environments invalidate older evidence without
@@ -105,8 +105,15 @@ it is mergeable.
   **View historical collection logs** exposes bounded previews in the browser. Historical build targets
   use registered run scratch and normal post-run cache cleanup; source snapshots and the shared registry
   cache are retained. Preparation does not start a run or approve evidence. Architecture, implementation
-  choices, ownership and remote protection policy remain operator decisions. Candidate builds retain
-  their current dependency pins and verification gates.
+  choices, ownership and remote protection policy remain operator decisions. Independent scoped candidate
+  checks can use these exact historical dependencies without repinning the target runtime; integration
+  and finalization still require current upstream builds. New run briefs and design recovery facts
+  name the selected verification policy.
+- **Local CI.** Scoped runs receive `ct-check` for repository scripts and `ct-act` for a selected
+  GitHub Actions workflow/job. An optional rootless Docker installation supplies a digest-pinned
+  Rust runner, exact dependency mounts, shared download caches and retained execution logs.
+  CI is bounded and cleans run-owned containers; build targets use post-run scratch cleanup.
+  See [local CI setup](scripts/local-ci/README.md). Configuration never resumes paused work.
 - **Repositories.** Register any local Git checkout by path.
 - **Plan branches.** Open **Projects → a plan → Repository & branches** to select a
   registered repository and an existing integration branch, or explicitly create one

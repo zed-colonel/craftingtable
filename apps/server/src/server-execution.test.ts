@@ -7417,15 +7417,28 @@ function scopeReport(
     '\n```\nVERDICT: mergeable'
   );
 }
+function runScopedFixtureCheck(request: import('@craftingtable/agents').AgentLaunchRequest) {
+  if (!request.buildEnvironment) return;
+  const manifest = JSON.parse(
+    readFileSync(join(request.buildEnvironment.binDirectory, '../manifest.json'), 'utf8'),
+  );
+  if (manifest.verification?.mode === 'scoped-checks')
+    execFileSync(
+      join(request.buildEnvironment.binDirectory, 'ct-check'),
+      ['--', '/usr/bin/git', 'diff', '--check', 'HEAD'],
+      { cwd: request.cwd },
+    );
+}
 async function reviewScope(
   f: Awaited<ReturnType<typeof slicedFixture>>,
   tree: import('@craftingtable/domain').Worktree,
   omitRequirement = false,
   omitCase = false,
 ) {
-  f.backend.replyForRequest = () => ({
-    resultText: scopeReport(f.state, tree.executionScope!, omitRequirement, omitCase),
-  });
+  f.backend.replyForRequest = (request) => {
+    runScopedFixtureCheck(request);
+    return { resultText: scopeReport(f.state, tree.executionScope!, omitRequirement, omitCase) };
+  };
   return runToFinish(f.state, tree.id, { role: 'review' });
 }
 async function recordScope(
@@ -8357,151 +8370,188 @@ it('protects runtime routes with workspace authorization and mutation CSRF', asy
   expect(bad.statusCode, bad.body).toBe(400);
 });
 
-it('supplies isolated pinned sources to real Cargo runs and freezes generation-bound review provenance', async () => {
-  const f = await slicedFixture((source) => ({
-    ...source,
-    checkpoints: [],
-    repositories: [
-      { ...source.repositories[0]!, id: 'local' },
-      { ...source.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
-    ],
-    work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
-  }));
-  const provider = fixtureRepository();
-  writeFileSync(
-    join(provider, 'Cargo.toml'),
-    '[package]\nname="ct_runtime_provider"\nversion="0.2.0"\nedition="2021"\n[lib]\npath="lib.rs"\n',
-  );
-  writeFileSync(join(provider, 'lib.rs'), 'pub fn value()->u32{42}\n');
-  git(['add', '.'], provider);
-  git(['commit', '-m', 'provider'], provider);
-  writeFileSync(
-    join(f.root, 'Cargo.toml'),
-    '[package]\nname="ct_runtime_consumer"\nversion="0.1.0"\nedition="2021"\n[lib]\npath="lib.rs"\n[dependencies]\nct_runtime_provider="0.2"\n',
-  );
-  writeFileSync(
-    join(f.root, 'lib.rs'),
-    '#[test] fn pin(){assert_eq!(ct_runtime_provider::value(),42);}\n',
-  );
-  const cargo = join(process.env.HOME!, '.cargo/bin/cargo');
-  execFileSync(
-    cargo,
-    [
-      'generate-lockfile',
-      '--offline',
-      '--config',
-      `patch.crates-io.ct_runtime_provider.path=${JSON.stringify(provider)}`,
-    ],
-    { cwd: f.root },
-  );
-  git(['add', '.'], f.root);
-  git(['commit', '-m', 'consumer'], f.root);
-  const registered = await f.state.context.app.inject({
-    method: 'POST',
-    url: `/api/workspaces/${f.state.workspaceId}/repositories`,
-    headers: mutationHeaders(f.state),
-    payload: { rootPath: provider, displayName: 'Pinned provider' },
-  });
-  expect(registered.statusCode, registered.body).toBe(200);
-  const repository = registerSourceRepositoryResponseSchema.parse(registered.json()).repository;
-  const ws = f.state.workspaceId,
-    definitionId = f.parentScope.definitionId,
-    svc = f.state.context.services.runtimeEvidenceService,
-    storage = f.state.context.storage;
-  const old = storage.imports.bindings(ws, definitionId)[0]!;
-  storage.imports.addBindings({
-    ...old,
-    revision: 2,
-    bindings: [
-      ...old.bindings,
-      {
-        alias: 'provider',
-        repositoryId: repository.id,
-        integrationBranch: 'main',
-        sourceArtifacts: [],
-        workItems: [],
-      },
-    ],
-  });
-  const observed = await svc.inspect(f.auth, ws, definitionId, {
-    bindingRevision: 2,
-    alias: 'provider',
-    ref: 'main',
-  });
-  expect(observed.packages).toEqual([{ name: 'ct_runtime_provider', path: '', version: '0.2.0' }]);
-  const config = {
-    bindingRevision: 2,
-    expectedGeneration: 0,
-    pins: [
-      {
-        alias: 'provider',
-        ref: 'main',
-        conformanceRevision: 'local-fixture',
-        packages: observed.packages,
-      },
-    ],
-    consumers: [{ alias: 'local', upstreams: ['provider'] }],
-    environments: [
-      {
-        id: 'local',
-        kind: 'local-development' as const,
-        identityDigest: '1'.repeat(64),
-        fixtureDigest: '2'.repeat(64),
-        toolchainDigest: '3'.repeat(64),
-        authorization: 'Isolated fixture builds only.',
-      },
-    ],
-  };
-  await svc.configure(f.auth, ws, definitionId, config);
-  const scope = { ...f.scopes[0]!, bindingRevision: 2 },
-    tree = await scopeTree(f, scope);
-  const withoutBuild = await reviewScope(f, tree);
-  expect(() => svc.assertRun(tree, withoutBuild)).toThrow('frozen pinned build record');
-  f.backend.replyForRequest = (request) => {
-    expect(request.buildEnvironment?.namespace).toBeTruthy();
-    expect(request.prompt).toContain('Pinned dependency environment:');
-    execFileSync(join(request.buildEnvironment!.binDirectory, 'cargo'), ['test', '--offline'], {
-      cwd: request.cwd,
-      env: { ...process.env, CARGO_NET_OFFLINE: 'true' },
-      stdio: 'pipe',
+it.each(['integration', 'implementation'] as const)(
+  'supplies isolated %s verification and freezes generation-bound review provenance',
+  async (mode) => {
+    const f = await slicedFixture((source) => ({
+      ...source,
+      checkpoints: [],
+      slices: source.slices.map((s) => ({ ...s, mode })),
+      repositories: [
+        { ...source.repositories[0]!, id: 'local' },
+        { ...source.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
+      ],
+      work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
+    }));
+    const provider = fixtureRepository();
+    writeFileSync(
+      join(provider, 'Cargo.toml'),
+      '[package]\nname="ct_runtime_provider"\nversion="0.2.0"\nedition="2021"\n[lib]\npath="lib.rs"\n',
+    );
+    writeFileSync(join(provider, 'lib.rs'), 'pub fn value()->u32{42}\n');
+    git(['add', '.'], provider);
+    git(['commit', '-m', 'provider'], provider);
+    writeFileSync(
+      join(f.root, 'Cargo.toml'),
+      '[package]\nname="ct_runtime_consumer"\nversion="0.1.0"\nedition="2021"\n[lib]\npath="lib.rs"\n[dependencies]\nct_runtime_provider="0.2"\n',
+    );
+    writeFileSync(
+      join(f.root, 'lib.rs'),
+      '#[test] fn pin(){assert_eq!(ct_runtime_provider::value(),42);}\n',
+    );
+    const cargo = join(process.env.HOME!, '.cargo/bin/cargo');
+    execFileSync(
+      cargo,
+      [
+        'generate-lockfile',
+        '--offline',
+        '--config',
+        `patch.crates-io.ct_runtime_provider.path=${JSON.stringify(provider)}`,
+      ],
+      { cwd: f.root },
+    );
+    git(['add', '.'], f.root);
+    git(['commit', '-m', 'consumer'], f.root);
+    const registered = await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/repositories`,
+      headers: mutationHeaders(f.state),
+      payload: { rootPath: provider, displayName: 'Pinned provider' },
     });
-    return { resultText: scopeReport(f.state, scope) };
-  };
-  const run = await runToFinish(f.state, tree.id, { role: 'review' });
-  expect(() => svc.assertRun(tree, run)).not.toThrow();
-  const environment = storage.runtimeEvidence.run(ws, run)!;
-  const manifest = JSON.parse(
-    readFileSync(environment.manifestPath, 'utf8'),
-  ) as import('@craftingtable/agents').PinnedCargoManifest;
-  expect(manifest.packages[0]!.path).not.toBe(provider);
-  expect(manifest.packages[0]!.path).toContain('/scratch/dependencies/');
-  const frozen = storage.runtimeEvidence.build(ws, run)!;
-  expect(frozen.error).toBeUndefined();
-  expect(frozen.receipts).toContain('"success":true');
-  rmSync(manifest.receiptPath);
-  expect(() => svc.assertRun(tree, run)).not.toThrow();
-  const db = openDatabase(storage.databasePath);
-  try {
-    expect(() =>
-      db.prepare('UPDATE run_build_records SET record_json=? WHERE run_id=?').run('{}', run),
-    ).toThrow('immutable');
-  } finally {
-    db.close();
-  }
-  await svc.configure(f.auth, ws, definitionId, { ...config, expectedGeneration: 1 });
-  expect(() => svc.assertRun(tree, run)).toThrow('obsolete dependency environment');
-  git(['commit', '--allow-empty', '-m', 'provider advanced'], provider);
-  await expect(
-    svc.configure(f.auth, ws, definitionId, {
-      ...config,
-      expectedGeneration: 2,
-      pins: config.pins.map((p) => ({ ...p, expectedCommitSha: observed.commitSha })),
-    }),
-  ).rejects.toThrow('ref advanced before saving');
-  await expect(
-    svc.prepare(tree, randomUUID(), join(f.state.context.directory, 'new-run')),
-  ).rejects.toThrow('integration changed');
-});
+    expect(registered.statusCode, registered.body).toBe(200);
+    const repository = registerSourceRepositoryResponseSchema.parse(registered.json()).repository;
+    const ws = f.state.workspaceId,
+      definitionId = f.parentScope.definitionId,
+      svc = f.state.context.services.runtimeEvidenceService,
+      storage = f.state.context.storage;
+    const old = storage.imports.bindings(ws, definitionId)[0]!;
+    storage.imports.addBindings({
+      ...old,
+      revision: 2,
+      bindings: [
+        ...old.bindings,
+        {
+          alias: 'provider',
+          repositoryId: repository.id,
+          integrationBranch: 'main',
+          sourceArtifacts: [],
+          workItems: [],
+        },
+      ],
+    });
+    const observed = await svc.inspect(f.auth, ws, definitionId, {
+      bindingRevision: 2,
+      alias: 'provider',
+      ref: 'main',
+    });
+    expect(observed.packages).toEqual([
+      { name: 'ct_runtime_provider', path: '', version: '0.2.0' },
+    ]);
+    const config = {
+      bindingRevision: 2,
+      expectedGeneration: 0,
+      pins: [
+        {
+          alias: 'provider',
+          ref: 'main',
+          conformanceRevision: 'local-fixture',
+          packages: observed.packages,
+        },
+      ],
+      consumers: [{ alias: 'local', upstreams: ['provider'] }],
+      environments: [
+        {
+          id: 'local',
+          kind: 'local-development' as const,
+          identityDigest: '1'.repeat(64),
+          fixtureDigest: '2'.repeat(64),
+          toolchainDigest: '3'.repeat(64),
+          authorization: 'Isolated fixture builds only.',
+        },
+      ],
+    };
+    await svc.configure(f.auth, ws, definitionId, config);
+    const scope = { ...f.scopes[0]!, bindingRevision: 2 },
+      tree = await scopeTree(f, scope);
+    f.backend.replyForRequest = () => ({ resultText: scopeReport(f.state, scope) });
+    const withoutBuild = await runToFinish(f.state, tree.id, { role: 'review' });
+    expect(() => svc.assertRun(tree, withoutBuild)).toThrow('frozen pinned build record');
+    f.backend.replyForRequest = (request) => {
+      expect(request.buildEnvironment?.namespace).toBeTruthy();
+      expect(request.prompt).toContain('Pinned dependency environment:');
+      execFileSync(
+        join(request.buildEnvironment!.binDirectory, mode === 'integration' ? 'cargo' : 'ct-check'),
+        mode === 'integration'
+          ? ['test', '--offline']
+          : [
+              '--',
+              process.execPath,
+              '-e',
+              'if(!require("node:fs").readFileSync("lib.rs","utf8").includes("pin()"))process.exit(1)',
+            ],
+        {
+          cwd: request.cwd,
+          env: { ...process.env, CARGO_NET_OFFLINE: 'true' },
+          stdio: 'pipe',
+        },
+      );
+      return { resultText: scopeReport(f.state, scope) };
+    };
+    if (mode === 'integration') {
+      const original = f.backend.replyForRequest;
+      f.backend.replyForRequest = (request) => {
+        execFileSync(
+          join(request.buildEnvironment!.binDirectory, 'ct-check'),
+          ['--', process.execPath, '-e', 'console.log("contract checked")'],
+          { cwd: request.cwd },
+        );
+        return { resultText: scopeReport(f.state, scope) };
+      };
+      const scopedOnly = await runToFinish(f.state, tree.id, { role: 'review' });
+      expect(() => svc.assertRun(tree, scopedOnly)).toThrow('successful pinned Cargo');
+      f.backend.replyForRequest = original;
+    }
+    const run = await runToFinish(f.state, tree.id, { role: 'review' });
+    expect(() => svc.assertRun(tree, run)).not.toThrow();
+    const environment = storage.runtimeEvidence.run(ws, run)!;
+    const manifest = JSON.parse(
+      readFileSync(environment.manifestPath, 'utf8'),
+    ) as import('@craftingtable/agents').PinnedCargoManifest;
+    if (mode === 'integration') {
+      expect(manifest.packages[0]!.path).not.toBe(provider);
+      expect(manifest.packages[0]!.path).toContain('/scratch/dependencies/');
+    } else {
+      expect(manifest.packages).toHaveLength(0);
+      expect(manifest.verification?.mode).toBe('scoped-checks');
+    }
+    const frozen = storage.runtimeEvidence.build(ws, run)!;
+    expect(frozen.error).toBeUndefined();
+    expect(frozen.receipts).toContain('"success":true');
+    rmSync(manifest.receiptPath);
+    expect(() => svc.assertRun(tree, run)).not.toThrow();
+    const db = openDatabase(storage.databasePath);
+    try {
+      expect(() =>
+        db.prepare('UPDATE run_build_records SET record_json=? WHERE run_id=?').run('{}', run),
+      ).toThrow('immutable');
+    } finally {
+      db.close();
+    }
+    await svc.configure(f.auth, ws, definitionId, { ...config, expectedGeneration: 1 });
+    expect(() => svc.assertRun(tree, run)).toThrow('obsolete dependency environment');
+    git(['commit', '--allow-empty', '-m', 'provider advanced'], provider);
+    await expect(
+      svc.configure(f.auth, ws, definitionId, {
+        ...config,
+        expectedGeneration: 2,
+        pins: config.pins.map((p) => ({ ...p, expectedCommitSha: observed.commitSha })),
+      }),
+    ).rejects.toThrow('ref advanced before saving');
+    const prepared = svc.prepare(tree, randomUUID(), join(f.state.context.directory, 'new-run'));
+    if (mode === 'integration') await expect(prepared).rejects.toThrow('integration changed');
+    else await expect(prepared).resolves.toMatchObject({ verification: { mode: 'scoped-checks' } });
+  },
+);
 
 it('binds consumer evidence independently of checkpoint ownership and derives cross-project build providers', async () => {
   const f = await evidenceFixture('aq');
@@ -8682,6 +8732,7 @@ async function supervisedMapFixture(
   f.backend.replyForRequest = (request) => {
     if (request.model === 'design-model') return designDone;
     if (request.model === 'review-model') {
+      runScopedFixtureCheck(request);
       const tree = f.state.context.storage.execution.worktrees
         .listActive(ws)
         .find((t) => t.path === request.cwd)!;

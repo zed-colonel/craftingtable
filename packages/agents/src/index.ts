@@ -1,4 +1,11 @@
 export {
+  prepareLocalCheckLaunchers,
+  loadLocalCiConfig,
+  cleanupLocalCi,
+  cleanupLocalCiManifest,
+  type LocalCiConfig,
+} from './local-check.js';
+export {
   prepareCargoLauncher,
   type PinnedCargoManifest,
   cargoManifestDigest,

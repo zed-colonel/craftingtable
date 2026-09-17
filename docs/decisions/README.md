@@ -51,3 +51,5 @@ Write an ADR only for a decision that is material and hard to reverse. Later
 concerns stay deferred rather than being designed prematurely.
 
 - [ADR-052: Historical baseline preparation](ADR-052-historical-baseline-preparation.md)
+
+- [ADR-053: Scoped verification and local CI](ADR-053-scoped-verification-and-local-ci.md)

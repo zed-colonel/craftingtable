@@ -17,9 +17,10 @@ server      Fastify routes, services, composition (depends on all of the above)
 web         React projection (depends on domain + contracts only)
 ```
 
-Only `storage` owns SQL. Only three modules may spawn a process, and
+Only `storage` owns SQL. Only the explicitly listed adapter modules may spawn a process, and
 `scripts/check-forbidden-scope.mjs` enforces that list: the Git inspector runner,
-the Git operations module, and the shared agent process supervisor. No package depends
+the Git operations module, the shared agent process supervisor, the pinned Cargo adapter,
+and the local-check/act adapter. No package depends
 on ActionQueue, WorldInterface, Exoskeleton, or any other supervised project.
 
 ## The execution model
@@ -423,3 +424,11 @@ Source exports use configured storage; per-run copies are regenerated from exact
 than trusting an earlier agent's scratch. Historical Cargo uses a separate launcher and receipt format
 inside the existing Cargo process adapter. Its results never enter current-runtime build authority.
 Restart marks incomplete preparation for explicit retry. No agent or roadmap is resumed by preparation.
+
+
+ADR-053 derives build applicability from the exact execution scope. Scoped verification preserves
+phase/evidence gates and records clean candidate checks separately from current upstream integration.
+Historical preparation can supply development dependencies without changing the runtime generation.
+The local-check adapter owns bounded repository checks and optional act execution. Per-run policy,
+image and dependency identities are frozen in the existing environment manifest and receipt record.
+Container cleanup after terminal/restart runs occurs outside SQLite transactions.

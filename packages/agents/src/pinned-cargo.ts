@@ -1,4 +1,5 @@
 /** Explicit Cargo adapter. Child commands stay in the coding agent's process group. */
+import type { ExecutionScope } from '@craftingtable/domain';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -13,6 +14,22 @@ import {
 import { delimiter, dirname, join, resolve, relative, isAbsolute } from 'node:path';
 
 export interface PinnedCargoManifest {
+  readonly checkTimeoutMs?: number;
+  readonly forbiddenPackages?: readonly string[];
+  readonly verification?: {
+    version: 1;
+    mode: 'scoped-checks' | 'current-upstream-build';
+    scope?: ExecutionScope;
+    reason: string;
+  };
+  readonly dependencyIdentities?: readonly {
+    alias: string;
+    commitSha: string;
+    treeSha?: string;
+    purpose: string;
+  }[];
+  readonly historicalPreparationId?: string;
+  readonly localCi?: import('./local-check.js').LocalCiConfig;
   readonly runtimeId: string;
   readonly runId: string;
   readonly cargoExecutable: string;
@@ -161,6 +178,10 @@ export function runPinnedCargo(path: string, expectedDigest: string, args: strin
     if (!graph.resolve) throw new Error('Cargo did not return a resolved dependency graph.');
     const ids = new Set(graph.resolve.nodes.map((n) => n.id));
     for (const pkg of graph.packages.filter((p) => ids.has(p.id))) {
+      if (m.forbiddenPackages?.includes(pkg.name))
+        throw new Error(
+          `Prepare exact historical dependencies before building ${pkg.name} in this independent scope.`,
+        );
       const pin = m.packages.find((p) => p.name === pkg.name);
       if (!pin) continue;
       if (
@@ -170,7 +191,7 @@ export function runPinnedCargo(path: string, expectedDigest: string, args: strin
         throw new Error(`Refusing unpinned ${pkg.name}: ${pkg.manifest_path}`);
       resolvedPackages.push({ name: pkg.name, path: pin.path });
     }
-    if (m.packages.length && !resolvedPackages.length)
+    if (m.verification?.mode !== 'scoped-checks' && m.packages.length && !resolvedPackages.length)
       throw new Error('The resolved build graph uses none of the configured upstream packages.');
   }
   const separator = args.indexOf('--');
@@ -192,6 +213,12 @@ export function runPinnedCargo(path: string, expectedDigest: string, args: strin
       JSON.stringify({
         runtimeId: m.runtimeId,
         runId: m.runId,
+        ...(m.verification
+          ? {
+              verificationMode: m.verification.mode,
+              policyDigest: cargoManifestDigest(JSON.stringify(m.verification)),
+            }
+          : {}),
         manifestDigest: expectedDigest,
         command,
         args,

@@ -50,7 +50,7 @@ It submits:
   agent never holds merge authority; a review agent supplies evidence for the daemon
   command under operator approval or explicit integration delegation.
 
-Process authority is confined to three modules listed in
+Process authority is confined to the adapter modules listed in
 `scripts/check-forbidden-scope.mjs`. Every spawn uses argument arrays with `shell: false`,
 a detached process group that is terminated as a group, and bounded output.
 
@@ -365,3 +365,13 @@ successes outside current verification receipts. It uses configured storage for 
 The existing trusted OS-user boundary still applies: imported build scripts execute with agent permissions.
 Historical log previews use registered run directories, fixed filenames, byte/count limits and link checks;
 no browser-supplied filesystem path or command is accepted. Genuine design decisions remain operator-owned.
+
+
+Scoped verification (ADR-053) never waives map requirements or treats historical builds as current
+integration. `ct-check` commands originate inside an already authorized agent process, not HTTP.
+`ct-act` restricts its input to one ordinary repository workflow and optional job; host configuration
+selects the local socket, image digest and storage. Rootless Docker retains ordinary user authority.
+Job containers have no mounted daemon socket or implicit host credential files. These are cooperative
+workflow controls, not a hostile-code sandbox. CI logs cannot replace pinned integration Cargo receipts
+or native/Kata evidence. Run-owned container cleanup is label-specific and outside DB transactions;
+unfinished CI collection invalidates its frozen build record.

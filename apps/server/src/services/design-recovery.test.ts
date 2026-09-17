@@ -63,7 +63,7 @@ function fixture() {
     },
     imports: {
       bindings: () => [binding],
-      definition: () => ({ digest: 'map-digest' }),
+      definition: () => ({ digest: 'map-digest', source: { slices: [], work_items: [] } }),
       planLinks: (_ws: string, plan: string) =>
         plan === 'wi-plan' ? [{ archiveId: archiveRecord.id }] : [],
       archive: () => archiveRecord,

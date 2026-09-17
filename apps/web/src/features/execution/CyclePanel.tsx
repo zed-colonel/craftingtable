@@ -1,3 +1,4 @@
+import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
 import { CycleSettingsFields } from './CycleSettingsFields.js';
 import type {
@@ -214,6 +215,7 @@ export function CyclePanel({
             recoverableDesign &&
             ['paused', 'needs-attention'].includes(active.status) &&
             renderDesignRecovery(active)}
+          {active.baselinePreparation && <HistoricalEvidencePanel cycle={active} />}
           {onResolution && (
             <IntegrationResolutionPanel
               cycle={active}
@@ -314,9 +316,12 @@ export function CyclePanel({
         </details>
       )}
       {previous.slice(0, 3).map((cycle) => (
-        <p className="hint" key={cycle.id}>
-          Previous cycle: {CYCLE_STATUS_LABELS[cycle.status]} — {cycle.reason}
-        </p>
+        <div key={cycle.id}>
+          <p className="hint">
+            Previous cycle: {CYCLE_STATUS_LABELS[cycle.status]} — {cycle.reason}
+          </p>
+          {cycle.baselinePreparation && <HistoricalEvidencePanel cycle={cycle} />}
+        </div>
       ))}
     </Section>
   );

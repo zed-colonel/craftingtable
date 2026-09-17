@@ -414,3 +414,12 @@ original context; stale reviews are replaced while compatible development remain
 finalization records an exact map/runtime context and uses RuntimeEvidenceService for dependency
 preparation and promotion checks. The ZIP adapter and future Studio share bounded normalized map
 validation; authoring remains separate from binding, adoption and execution. See ADR-049.
+
+
+Baseline preparation (ADR-052) adds an optional durable reservation to a work-item cycle.
+It resolves only repositories from the exact map binding, freezes imported application commits and
+explicit historical upstream selections, and creates local baseline tags with create-only ref updates.
+Source exports use configured storage; per-run copies are regenerated from exact Git objects rather
+than trusting an earlier agent's scratch. Historical Cargo uses a separate launcher and receipt format
+inside the existing Cargo process adapter. Its results never enter current-runtime build authority.
+Restart marks incomplete preparation for explicit retry. No agent or roadmap is resumed by preparation.

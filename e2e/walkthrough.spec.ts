@@ -318,6 +318,34 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
         await expect(p.getByLabel('Answers and guidance')).toBeVisible();
       },
     );
+    await walk.capture(
+      'work-item-baseline-preparation',
+      'Work item · historical sources and explicit baseline preparation',
+      async (p) => {
+        const recovery = p.getByRole('button', { name: 'Resolve design questions', exact: true });
+        if (await recovery.isVisible()) await recovery.click();
+        await p.getByRole('button', { name: 'Prepare baseline evidence', exact: true }).click();
+        await expect(p.getByLabel('Historical commit or local ref')).toBeVisible();
+      },
+    );
+    await page
+      .getByRole('checkbox', {
+        name: 'Use these historical revisions and create the displayed local baseline tags.',
+      })
+      .check();
+    await page
+      .getByRole('button', { name: 'Prepare historical sources and tags', exact: true })
+      .click();
+    await expect(page.getByText(/Sources prepared ·/)).toBeVisible();
+    await walk.capture(
+      'work-item-baseline-prepared',
+      'Work item · prepared historical baseline and retained evidence',
+      async (p) => {
+        const recovery = p.getByRole('button', { name: 'Resolve design questions', exact: true });
+        if (await recovery.isVisible()) await recovery.click();
+        await expect(p.getByText(/Sources prepared ·/)).toBeVisible();
+      },
+    );
     await page
       .getByLabel('Answers and guidance')
       .fill('I own the baseline decision. Use the pinned baseline.');

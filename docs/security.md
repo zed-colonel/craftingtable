@@ -350,3 +350,18 @@ and launch recheck these facts. Supporting text is operator-supplied, not indepe
 verified; materialized filenames are daemon-generated. A selected recovery model retains
 the design permission posture. Investigation always pauses for review and confers no
 checkpoint, repository-administration, plan-amendment or merge authority.
+
+
+Historical baseline preparation requires an idle design cycle, owner/editor authority, CSRF/origin,
+expected version and exact binding digest. Browser input is limited to bound aliases and local Git refs;
+application commits and proposed tag names are checked against the bound source plan. Tags use
+create-only compare-and-swap and never overwrite, publish, protect branches or grant merge authority.
+Reservations and partial failures are retained; restart requires explicit retry. Repository and worktree
+mutation guards exclude concurrent daemon mutations and launches, with authority/binding rechecks.
+Historical exports reject links and unsafe paths through the existing Git adapter. Run copies are
+regenerated from exact objects. The historical Cargo adapter enforces original lockfiles, verifies
+source hashes before/after collection, rejects path dependencies outside the prepared sources, bounds command duration/output and keeps both failures and
+successes outside current verification receipts. It uses configured storage for downloads and targets.
+The existing trusted OS-user boundary still applies: imported build scripts execute with agent permissions.
+Historical log previews use registered run directories, fixed filenames, byte/count limits and link checks;
+no browser-supplied filesystem path or command is accepted. Genuine design decisions remain operator-owned.

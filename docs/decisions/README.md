@@ -49,3 +49,5 @@ Each ADR should contain:
 
 Write an ADR only for a decision that is material and hard to reverse. Later
 concerns stay deferred rather than being designed prematurely.
+
+- [ADR-052: Historical baseline preparation](ADR-052-historical-baseline-preparation.md)

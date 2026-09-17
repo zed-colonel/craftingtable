@@ -1910,6 +1910,128 @@ describe('single work-item automation', () => {
     expect(backend.launches).toHaveLength(4);
   });
 
+  it('prepares historical sources without launching an agent, then carries collection tools into bounded recovery', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: '## Open questions\nCollect the historical baseline.' },
+      designDone,
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'design pause');
+    const base = `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}`;
+    const preview = await state.context.app.inject({
+      method: 'GET',
+      url: `${base}/baseline-preparation`,
+      headers: { cookie: state.cookie },
+    });
+    expect(preview.statusCode, preview.body).toBe(200);
+    const value = preview.json();
+    expect(value.sources[0].ref).toBe(worktree.baseSha);
+    const payload = {
+      expectedVersion: value.expectedVersion,
+      contextDigest: value.contextDigest,
+      sources: value.sources.map((source: { alias: string; ref: string }) => ({
+        alias: source.alias,
+        ref: source.ref,
+      })),
+    };
+    const noCsrf = await state.context.app.inject({
+      method: 'POST',
+      url: `${base}/baseline-preparation`,
+      headers: { cookie: state.cookie },
+      payload,
+    });
+    expect(noCsrf.statusCode).toBe(403);
+    const prepared = await state.context.app.inject({
+      method: 'POST',
+      url: `${base}/baseline-preparation`,
+      headers: mutationHeaders(state),
+      payload,
+    });
+    expect(prepared.statusCode, prepared.body).toBe(200);
+    const saved = workCycleResponseSchema.parse(prepared.json()).cycle;
+    expect(saved.baselinePreparation?.status).toBe('prepared');
+    expect(saved.status).toBe('needs-attention');
+    expect(backend.launches).toHaveLength(1);
+    const source = present(saved.baselinePreparation?.sources[0]);
+    expect(
+      existsSync(
+        join(present(saved.baselinePreparation).directory, source.directoryName, 'README.md'),
+      ),
+    ).toBe(true);
+    const stale = await state.context.app.inject({
+      method: 'POST',
+      url: `${base}/baseline-preparation`,
+      headers: mutationHeaders(state),
+      payload,
+    });
+    expect(stale.statusCode).toBe(409);
+    const discovery = await state.context.app.inject({
+      method: 'GET',
+      url: `${base}/design-recovery`,
+      headers: { cookie: state.cookie },
+    });
+    const recovery = discovery.json();
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url: `${base}/design-recovery`,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: saved.version,
+        snapshotDigest: recovery.snapshotDigest,
+        mode: 'investigate',
+        profile: { backend: 'claude-code' },
+        instructions: 'Collect results; I retain all architectural decisions.',
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    await waitFor(
+      () =>
+        backend.launches.length === 2 && currentCycle(state, cycle).status === 'needs-attention',
+      'bounded collection ends',
+    );
+    const launch = present(backend.launches[1]);
+    expect(launch.prompt).toContain('historical-cargo');
+    expect(launch.prompt).toContain('Genuine architectural/implementation decisions remain');
+    expect(launch.cwd).toBe(worktree.path);
+    const directory = present(launch.additionalDirectories?.[0]);
+    const logs = join(directory, 'historical-evidence');
+    writeFileSync(
+      join(logs, 'commands.jsonl'),
+      '{"success":false,"currentRuntimeVerification":false}\n',
+    );
+    writeFileSync(join(logs, '123-456.log'), 'Recorded historical dependency failure');
+    const evidence = await state.context.app.inject({
+      method: 'GET',
+      url: `${base}/baseline-evidence`,
+      headers: { cookie: state.cookie },
+    });
+    expect(evidence.statusCode, evidence.body).toBe(200);
+    expect(
+      evidence
+        .json()
+        .artifacts.some((a: { content: string }) =>
+          a.content.includes('Recorded historical dependency failure'),
+        ),
+    ).toBe(true);
+    expect(currentCycle(state, cycle).status).toBe('needs-attention');
+    expect(currentCycle(state, cycle).remediationRounds).toBe(0);
+    const beforeRestart = currentCycle(state, cycle);
+    state.context.storage.execution.cycles.replace(
+      {
+        ...beforeRestart,
+        version: beforeRestart.version + 1,
+        baselinePreparation: { ...present(beforeRestart.baselinePreparation), status: 'preparing' },
+      },
+      beforeRestart.version,
+    );
+    state.context.services.workCycleService.recoverInterrupted();
+    expect(currentCycle(state, cycle).baselinePreparation?.status).toBe('failed');
+    expect(currentCycle(state, cycle).baselinePreparation?.message).toContain(
+      'interrupted by restart',
+    );
+    expect(backend.launches).toHaveLength(2);
+  });
+
   it('recovers design with guidance and attachments in the same worktree and keeps review authority separate', async () => {
     const { state, backend, worktree } = await cycleFixture([
       { resultText: '## Open questions\nWhich storage format?' },

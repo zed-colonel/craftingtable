@@ -1,3 +1,5 @@
+import type { BaselinePreparationService } from './baseline-preparation.js';
+import type { PrepareBaselineRequest } from '@craftingtable/contracts';
 import { collectDesignRecovery } from './design-recovery.js';
 import type { RecoverDesignRequest } from '@craftingtable/contracts';
 import { PhaseGateError } from './phase-resources.js';
@@ -64,6 +66,7 @@ export class WorkCycleService {
     private readonly now: () => Date = () => new Date(),
     private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
     private readonly branches?: BranchService,
+    private readonly baselines?: BaselinePreparationService,
   ) {}
 
   list(context: CommandContext, workspaceId: WorkspaceId): readonly WorkCycle[] {
@@ -110,6 +113,88 @@ export class WorkCycleService {
   previewDesignRecovery(context: CommandContext, workspaceId: WorkspaceId, id: string) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
     return this.storage.readTransaction((tx) => collectDesignRecovery(tx, cycle));
+  }
+
+  async previewBaseline(context: CommandContext, workspaceId: WorkspaceId, id: string) {
+    const cycle = this.requireDesignRecovery(context, workspaceId, id);
+    if (!this.baselines)
+      throw new ExecutionRequestError('unavailable', 'Baseline preparation unavailable.');
+    return this.baselines.preview(cycle);
+  }
+
+  baselineEvidence(context: CommandContext, workspaceId: WorkspaceId, id: string) {
+    this.workspaceService.requireAuthorized(context, workspaceId);
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    if (!cycle || !this.baselines) throw new NotFoundError();
+    return this.baselines.evidence(cycle);
+  }
+  async prepareBaseline(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: PrepareBaselineRequest,
+  ) {
+    const cycle = this.requireDesignRecovery(context, workspaceId, id);
+    if (!this.baselines || !this.branches)
+      throw new ExecutionRequestError('unavailable', 'Baseline preparation unavailable.');
+    const service = this.baselines;
+    const branches = this.branches;
+    return this.mutations.during(cycle.worktreeId, async () => {
+      const resolved = await service.resolve(cycle, input);
+      this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+      const preparation = { ...resolved, createdByUserId: context.user.id };
+      const reserved = this.change(
+        cycle,
+        { baselinePreparation: preparation },
+        'baseline-preparation-reserved',
+        context,
+      );
+      const guard = () => {
+        this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+        if (this.storage.execution.cycles.find(workspaceId, id)?.version !== reserved.version)
+          throw new ExecutionRequestError('conflict', 'Cycle changed during baseline preparation.');
+        this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
+        service.assertCurrent(cycle, preparation);
+      };
+      try {
+        await service.prepare(cycle, preparation, guard, (path, fn) =>
+          branches.duringMerge(path, fn),
+        );
+        guard();
+        return this.change(
+          reserved,
+          {
+            baselinePreparation: {
+              ...preparation,
+              status: 'prepared',
+              message:
+                'Historical sources and local baseline tags prepared. No tests have run and no remote protection or architecture decisions were approved.',
+            },
+          },
+          'baseline-preparation-completed',
+          context,
+        );
+      } catch (error) {
+        const current = this.storage.execution.cycles.find(workspaceId, id);
+        if (current?.baselinePreparation?.id === preparation.id)
+          this.change(
+            current,
+            {
+              baselinePreparation: {
+                ...preparation,
+                status: 'failed',
+                message: (error instanceof Error
+                  ? error.message
+                  : 'Baseline preparation failed.'
+                ).slice(0, 4000),
+              },
+            },
+            'baseline-preparation-failed',
+            context,
+          );
+        throw error;
+      }
+    });
   }
 
   async recoverDesign(
@@ -839,7 +924,20 @@ export class WorkCycleService {
   }
 
   recoverInterrupted(): void {
-    for (const cycle of this.storage.execution.cycles.list()) {
+    for (let cycle of this.storage.execution.cycles.list()) {
+      if (cycle.baselinePreparation?.status === 'preparing')
+        cycle = this.change(
+          cycle,
+          {
+            baselinePreparation: {
+              ...cycle.baselinePreparation,
+              status: 'failed',
+              message:
+                'Preparation interrupted by restart. Inspect local tags and retry explicitly; existing tags will never be moved.',
+            },
+          },
+          'baseline-preparation-interrupted',
+        );
       if (cycle.status === 'running')
         this.attention(
           cycle,
@@ -2726,6 +2824,14 @@ export class WorkCycleService {
       resultingVersion: cycle.version,
       metadata: {
         action,
+        ...(action.startsWith('baseline-preparation') && cycle.baselinePreparation
+          ? {
+              baselinePreparation: {
+                ...cycle.baselinePreparation,
+                sources: cycle.baselinePreparation.sources.map((source) => ({ ...source })),
+              },
+            }
+          : {}),
         status: cycle.status,
         step: cycle.step,
         reason: cycle.reason,

@@ -117,3 +117,5 @@ export { CodexBackend } from './codex/backend.js';
 export { CODEX_MODELS } from './codex/models.js';
 
 export { observeRustToolchain } from './local-toolchain.js';
+
+export { prepareHistoricalCargoLauncher } from './pinned-cargo.js';

@@ -1,3 +1,4 @@
+import { BaselinePreparationService } from './services/baseline-preparation.js';
 import { MapAmendmentService } from './services/map-amendment-service.js';
 import { CrossProjectService } from './services/cross-project-service.js';
 import { homedir } from 'node:os';
@@ -192,6 +193,11 @@ export async function createServices(
     worktreeMutations,
     runtimeEvidenceService,
   );
+  const baselineService = new BaselinePreparationService(
+    storage,
+    gitOperations,
+    storageService.executionConfig,
+  );
   const agentRunService = new AgentRunService(
     storage,
     workspaceService,
@@ -204,6 +210,7 @@ export async function createServices(
     executionService.branches,
     storageService,
     runtimeEvidenceService,
+    baselineService,
   );
   storage.transaction((tx) => {
     tx.phaseScheduling.setCapacity('local-development', config.execution.developmentCapacity ?? 2);
@@ -222,6 +229,7 @@ export async function createServices(
     now,
     worktreeMutations,
     executionService.branches,
+    baselineService,
   );
   workCycleService.recoverInterrupted();
   const roadmapService = new RoadmapService(

@@ -10,7 +10,7 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve, relative, isAbsolute } from 'node:path';
 
 export interface PinnedCargoManifest {
   readonly runtimeId: string;
@@ -206,4 +206,195 @@ export function runPinnedCargo(path: string, expectedDigest: string, args: strin
       { mode: 0o600 },
     );
   process.exitCode = result.status ?? 1;
+}
+
+/** Historical characterization is deliberately outside the current pinned-build receipt format. */
+export interface HistoricalCargoManifest {
+  readonly sourceRoots: readonly string[];
+  readonly cargoHome?: string;
+  readonly preparationId: string;
+  readonly sources: readonly { alias: string; commitSha: string }[];
+  readonly cargoExecutable: string;
+  readonly workspacePath: string;
+  readonly targetDirectory: string;
+  readonly files: readonly { path: string; digest: string }[];
+  readonly receiptPath: string;
+  readonly logDirectory: string;
+  readonly timeoutMs: number;
+}
+export function prepareHistoricalCargoLauncher(
+  directory: string,
+  manifest: HistoricalCargoManifest,
+) {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const path = join(directory, 'manifest.json');
+  const text = JSON.stringify(manifest, null, 2);
+  writeFileSync(path, text, { mode: 0o400 });
+  const launcher = join(directory, 'historical-cargo');
+  writeFileSync(
+    launcher,
+    `#!${process.execPath}\nimport(${JSON.stringify(import.meta.url)}).then(m=>m.runHistoricalCargo(${JSON.stringify(path)},${JSON.stringify(cargoManifestDigest(text))},process.argv.slice(2))).catch(e=>{console.error(e.message);process.exitCode=1;});\n`,
+    { mode: 0o500 },
+  );
+  chmodSync(launcher, 0o500);
+  return {
+    launcher,
+    manifestPath: path,
+    workspacePath: manifest.workspacePath,
+    receiptPath: manifest.receiptPath,
+  };
+}
+export function runHistoricalCargo(path: string, expectedDigest: string, args: string[]): void {
+  const raw = readFileSync(path, 'utf8');
+  if (cargoManifestDigest(raw) !== expectedDigest) throw new Error('Historical manifest changed.');
+  const m = JSON.parse(raw) as HistoricalCargoManifest;
+  const startedAt = new Date().toISOString();
+  const id = `${Date.now()}-${process.pid}`;
+  let success = false;
+  let diagnostic = '';
+  let exitCode: number | null = null;
+  let log = '';
+  let toolchain = '';
+  let resolvedPackages: {
+    name: string;
+    version: string;
+    source: string | null;
+    manifest_path: string;
+  }[] = [];
+  const deadline = Date.now() + m.timeoutMs;
+  const remaining = () => {
+    const duration = deadline - Date.now();
+    if (duration <= 0) throw new Error('Historical command time limit reached.');
+    return duration;
+  };
+  const verify = () => {
+    for (const file of m.files)
+      if (
+        !lstatSync(file.path).isFile() ||
+        realpathSync(file.path) !== resolve(file.path) ||
+        cargoManifestDigest(readFileSync(file.path)) !== file.digest
+      )
+        throw new Error(`Historical source changed: ${file.path}`);
+  };
+  try {
+    verify();
+    if (
+      !['fetch', 'metadata', 'tree', 'build', 'check', 'test', 'bench', 'clippy'].includes(
+        args[0] ?? '',
+      ) ||
+      args.some(
+        (a) =>
+          a.startsWith('+') ||
+          ['--config', '--manifest-path', '--target-dir', '--lockfile-path'].some(
+            (flag) => a === flag || a.startsWith(`${flag}=`),
+          ),
+      )
+    )
+      throw new Error(
+        'Historical Cargo supports bounded collection on its original workspace only; configuration, manifest and toolchain overrides are not allowed.',
+      );
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      CARGO_TARGET_DIR: m.targetDirectory,
+      RUSTUP_AUTO_INSTALL: '0',
+      PATH: `${dirname(m.cargoExecutable)}${delimiter}${process.env.PATH ?? ''}`,
+      ...(m.cargoHome ? { CARGO_HOME: m.cargoHome } : {}),
+    };
+    // Do not inherit the current run adapter or externally supplied Cargo patches/configuration.
+    for (const key of Object.keys(env)) if (key.startsWith('CARGO_PATCH_')) delete env[key];
+    const version = spawnSync(m.cargoExecutable, ['--version', '--verbose'], {
+      cwd: m.workspacePath,
+      env,
+      shell: false,
+      encoding: 'utf8',
+      timeout: 30000,
+      maxBuffer: 1024 * 1024,
+    });
+    toolchain = `${version.stdout ?? ''}${version.stderr ?? ''}`;
+    if (version.status !== 0) throw new Error(`Historical toolchain unavailable: ${toolchain}`);
+    if (args[0] !== 'fetch') {
+      const metadataArgs = ['metadata', '--format-version', '1', '--locked'];
+      for (let i = 1; i < args.length && args[i] !== '--'; i++) {
+        const arg = args[i]!;
+        if (
+          ['--offline', '--frozen', '--all-features', '--no-default-features'].includes(arg) ||
+          arg.startsWith('--features=')
+        )
+          metadataArgs.push(arg);
+        else if (['--features', '-F'].includes(arg) && args[i + 1])
+          metadataArgs.push(arg, args[++i]!);
+      }
+      const metadata = spawnSync(m.cargoExecutable, metadataArgs, {
+        cwd: m.workspacePath,
+        env,
+        shell: false,
+        encoding: 'utf8',
+        timeout: remaining(),
+        killSignal: 'SIGKILL',
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      log = `DEPENDENCY RESOLUTION\n${metadata.stderr ?? ''}`;
+      if (metadata.status !== 0 || metadata.error) {
+        exitCode = metadata.status;
+        throw new Error(
+          metadata.error?.message ?? 'Historical dependency resolution failed; see retained log.',
+        );
+      }
+      const graph = JSON.parse(metadata.stdout) as { packages: typeof resolvedPackages };
+      resolvedPackages = graph.packages.map((p) => ({
+        name: p.name,
+        version: p.version,
+        source: p.source,
+        manifest_path: p.manifest_path,
+      }));
+      for (const pkg of resolvedPackages.filter((p) => p.source === null)) {
+        const path = realpathSync(dirname(pkg.manifest_path));
+        if (
+          !m.sourceRoots.some((root) => {
+            const child = relative(realpathSync(root), path);
+            return (
+              child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith('../'))
+            );
+          })
+        )
+          throw new Error(
+            `Historical dependency escaped the prepared sources: ${pkg.name} at ${path}`,
+          );
+      }
+    }
+    const separator = args.indexOf('--');
+    const locked = args.slice(0, separator < 0 ? args.length : separator).includes('--locked')
+      ? []
+      : ['--locked'];
+    const actual =
+      separator < 0
+        ? [...args, ...locked]
+        : [...args.slice(0, separator), ...locked, ...args.slice(separator)];
+    const result = spawnSync(m.cargoExecutable, actual, {
+      cwd: m.workspacePath,
+      env,
+      shell: false,
+      encoding: 'utf8',
+      timeout: remaining(),
+      killSignal: 'SIGKILL',
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    exitCode = result.status;
+    log += `\nSTDOUT\n${result.stdout ?? ''}\nSTDERR\n${result.stderr ?? ''}`;
+    if (result.error) diagnostic = result.error.message;
+    verify();
+    success = result.status === 0 && !result.error;
+  } catch (error) {
+    diagnostic = error instanceof Error ? error.message : String(error);
+  }
+  const logPath = join(m.logDirectory, `${id}.log`);
+  writeFileSync(logPath, `${log}\n${diagnostic}`, { mode: 0o600 });
+  appendFileSync(
+    m.receiptPath,
+    `${JSON.stringify({ kind: 'historical-baseline-command-v1', preparationId: m.preparationId, manifestDigest: expectedDigest, sources: m.sources, args, enforcedLocked: true, resolvedPackages, toolchain, startedAt, finishedAt: new Date().toISOString(), success, exitCode, diagnostic, logPath, logDigest: cargoManifestDigest(`${log}\n${diagnostic}`), currentRuntimeVerification: false })}\n`,
+    { mode: 0o600 },
+  );
+  process.stdout.write(log);
+  if (diagnostic) process.stderr.write(`${diagnostic}\n`);
+  process.exitCode = success ? 0 : 1;
 }

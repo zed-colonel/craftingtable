@@ -1,3 +1,4 @@
+import { BaselinePreparationPanel } from './BaselinePreparationPanel.js';
 import type {
   DesignRecoveryPreview,
   ExecutionStatusResponse,
@@ -73,6 +74,14 @@ export function DesignRecoveryPanel({
           )}
           {preview && (
             <>
+              <BaselinePreparationPanel
+                cycle={cycle}
+                csrfToken={csrfToken}
+                onChanged={() => {
+                  onChanged();
+                  void discover();
+                }}
+              />
               <h4>Questions from the latest design</h4>
               <pre className="run-event-body">{preview.questions}</pre>
               <details>
@@ -229,7 +238,8 @@ export function DesignRecoveryPanel({
                 <p className="hint">
                   One design attempt, up to {cycle.policy.maxRunMinutes} minutes. Permissions remain{' '}
                   {cycle.profiles.design.permissionMode}. No remediation allowance is consumed.
-                  Tags, branch protection and missing test results still need explicit resolution.
+                  Historical setup can be prepared above. Architecture, implementation choices and
+                  remote protection still require your decisions.
                 </p>
                 <button
                   type="submit"

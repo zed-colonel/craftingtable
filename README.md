@@ -96,6 +96,17 @@ it is mergeable.
   the map, integration snapshot and runtime; changed pins require a new finalization. No target or
   roadmap policy approves final promotion. After promotion consumers explicitly repin to the recorded
   destination and reassess evidence. Publication remains separate. Native/Kata execution remains external.
+- **Historical baseline preparation.** An idle design recovery offers **Prepare baseline evidence**.
+  Review exact bound application baselines and the retained upstream pre-redesign tag, then explicitly
+  prepare local baseline tags and source snapshots. Existing tags are never moved or published.
+  Sources live under configured worktree storage (`.baselines`); shared downloaded Cargo packages use
+  `.historical-cargo` there. Bounded design recovery receives fresh isolated sibling copies and a separate
+  historical Cargo launcher with original lockfiles, retained command receipts and failure logs.
+  **View historical collection logs** exposes bounded previews in the browser. Historical build targets
+  use registered run scratch and normal post-run cache cleanup; source snapshots and the shared registry
+  cache are retained. Preparation does not start a run or approve evidence. Architecture, implementation
+  choices, ownership and remote protection policy remain operator decisions. Candidate builds retain
+  their current dependency pins and verification gates.
 - **Repositories.** Register any local Git checkout by path.
 - **Plan branches.** Open **Projects → a plan → Repository & branches** to select a
   registered repository and an existing integration branch, or explicitly create one

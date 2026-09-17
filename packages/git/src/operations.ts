@@ -113,6 +113,12 @@ export interface IntegrationMergeState {
   treeSha?: string;
 }
 export interface GitOperations {
+  listBaselineTags(repositoryPath: string): Promise<GitResult<readonly string[]>>;
+  ensureBaselineTag(
+    repositoryPath: string,
+    tag: string,
+    commitSha: string,
+  ): Promise<GitResult<void>>;
   resolveCommit(
     repositoryPath: string,
     ref: string,
@@ -1678,7 +1684,50 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     return { ok: true, value: files };
   }
 
+  async function listBaselineTags(repositoryPath: string): Promise<GitResult<readonly string[]>> {
+    const result = await runOk(['tag', '--list', '*/pre-*'], repositoryPath);
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      value: result.value.stdout.toString('utf8').trim().split('\n').filter(Boolean).slice(0, 100),
+    };
+  }
+  async function ensureBaselineTag(
+    repositoryPath: string,
+    tag: string,
+    commitSha: string,
+  ): Promise<GitResult<void>> {
+    if (
+      !isSafeBranchName(tag) ||
+      !/^[^/]+\/pre-[A-Za-z0-9._-]+$/.test(tag) ||
+      !/^[0-9a-f]{40,64}$/.test(commitSha)
+    )
+      return fail(
+        'invalid-path',
+        'Only explicit local baseline tags at exact commits are supported',
+      );
+    const ref = `refs/tags/${tag}`;
+    const existing = await run(
+      ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`],
+      repositoryPath,
+    );
+    if (!existing.ok) return existing;
+    if (existing.value.exitCode === 0)
+      return existing.value.stdout.toString('utf8').trim() === commitSha
+        ? { ok: true, value: undefined }
+        : fail('git-failed', 'Baseline tag already points to another commit; it will not be moved');
+    const resolved = await resolveCommit(repositoryPath, commitSha);
+    if (!resolved.ok) return resolved;
+    const created = await runOk(
+      ['update-ref', ref, commitSha, '0'.repeat(commitSha.length)],
+      repositoryPath,
+    );
+    if (!created.ok) return created;
+    return { ok: true, value: undefined };
+  }
   return {
+    listBaselineTags,
+    ensureBaselineTag,
     resolveCommit,
     exportCommit,
     previewIntegration,

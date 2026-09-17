@@ -36,6 +36,7 @@ export interface StorageMaintenanceRepository {
   ownsInstallation(userId: UserId): boolean;
   registerRunDirectory(runId: AgentRunId, path: string, device: number): void;
   unregisteredRuns(): readonly { readonly id: AgentRunId }[];
+  directory(runId: AgentRunId): { path: string; device: number } | undefined;
   directories(): readonly RunDirectory[];
   protectedPaths(): readonly string[];
   activeWorktreePaths(): readonly string[];

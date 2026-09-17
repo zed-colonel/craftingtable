@@ -1,5 +1,8 @@
 import {
   type StartWorkCycleRequest,
+  baselinePreviewSchema,
+  baselineEvidenceSchema,
+  type PrepareBaselineRequest,
   type RecoverDesignRequest,
   designRecoveryPreviewSchema,
   type IntegrationResolutionRequest,
@@ -65,5 +68,30 @@ export function recoverDesign(cycle: WorkCycle, input: RecoverDesignRequest, csr
     `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/design-recovery`,
     workCycleResponseSchema,
     mutation(csrfToken, input),
+  );
+}
+
+export function previewBaseline(cycle: WorkCycle) {
+  return request(
+    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/baseline-preparation`,
+    baselinePreviewSchema,
+  );
+}
+export function prepareBaseline(
+  cycle: WorkCycle,
+  input: PrepareBaselineRequest,
+  csrfToken: string,
+) {
+  return request(
+    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/baseline-preparation`,
+    workCycleResponseSchema,
+    mutation(csrfToken, input),
+  );
+}
+
+export function loadBaselineEvidence(cycle: WorkCycle) {
+  return request(
+    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/baseline-evidence`,
+    baselineEvidenceSchema,
   );
 }

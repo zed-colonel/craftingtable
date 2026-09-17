@@ -1,3 +1,4 @@
+import type { BaselinePreparationService } from './baseline-preparation.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
@@ -130,6 +131,7 @@ export class AgentRunService {
     private readonly branches?: BranchService,
     private readonly storageService?: StorageService,
     private readonly runtimeEvidence?: RuntimeEvidenceService,
+    private readonly baselines?: BaselinePreparationService,
   ) {}
 
   hasBackend(kind: AgentBackendKind): boolean {
@@ -609,6 +611,12 @@ export class AgentRunService {
       const temporaryDirectory = join(runDirectory, 'scratch');
       mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
       const pinned = await this.runtimeEvidence?.prepare(prepared.worktree, runId, runDirectory);
+      const historical =
+        cycle?.step === 'design' &&
+        cycle.designRecovery?.runId === cycle.currentRunId &&
+        cycle.baselinePreparation?.status === 'prepared'
+          ? await this.baselines?.materialize(cycle, runDirectory)
+          : undefined;
       const planDirectory = join(runDirectory, 'plan');
       mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
       const planDocuments = prepared.artifacts.map((artifact) => {
@@ -816,7 +824,7 @@ export class AgentRunService {
               },
             }),
       });
-      const brief =
+      let brief =
         composedBrief +
         (pinned
           ? `
@@ -825,6 +833,18 @@ Pinned dependency environment: ${pinned.manifestPath}
 Use the controller Cargo launcher ${pinned.binDirectory}/cargo for builds and tests (also supplied on PATH). Do not override pins or use a neighboring checkout. Its build receipts are required before merge/acceptance. Align incompatible Cargo version constraints with the supplied crates.
 `
           : '');
+      const historicalBrief = historical
+        ? `
+
+Controller-prepared historical baseline (characterization only):
+Manifest: ${historical.manifestPath}
+Historical workspace: ${historical.workspacePath}
+Historical Cargo: ${historical.launcher}
+Command receipts: ${historical.receiptPath}
+Use this separate launcher ONLY to collect the historical baseline. It uses original lockfiles and historical sibling sources, not current upstream pins. Use the normal controller Cargo launcher for candidate builds. First attempt historical build/test collection, and relevant recovery/benchmark checks requested by the plan within this run's deadline; record exact failures and missing prerequisites. Do not port historical code, change dependencies/lockfiles or fabricate results. Preserve summaries, measurements and non-Cargo logs under historical-evidence (outside disposable scratch). Do not ask the operator to provision ordinary worktrees or these already supplied sources. Historical results never satisfy current-runtime build gates. Genuine architectural/implementation decisions remain the operator's authority; collected facts do not authorize deviations.
+`
+        : '';
+      brief += historicalBrief;
       writeFileSync(join(runDirectory, 'brief.md'), brief, { mode: 0o600 });
 
       const createdAt = this.now().toISOString();
@@ -940,7 +960,7 @@ Use the controller Cargo launcher ${pinned.binDirectory}/cargo for builds and te
         prompt: brief,
         permissionMode: input.permissionMode,
         ...(input.model === undefined ? {} : { model: input.model }),
-        additionalDirectories: [runDirectory],
+        additionalDirectories: [runDirectory, ...(historical ? [historical.cargoHome] : [])],
         sessionName: `CraftingTable ${prepared.row.sourceId} ${input.role}`,
       };
       let session: AgentSession;

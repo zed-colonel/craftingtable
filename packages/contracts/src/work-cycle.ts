@@ -13,6 +13,7 @@ import {
   planArtifactIdSchema,
   planVersionIdSchema,
   projectIdSchema,
+  sourceRepositoryIdSchema,
   userIdSchema,
   workItemIdSchema,
   workspaceIdSchema,
@@ -111,8 +112,81 @@ export const designRecoveryPreviewSchema = z.strictObject({
   notices: z.array(z.string()),
 });
 export type DesignRecoveryPreview = z.infer<typeof designRecoveryPreviewSchema>;
+const baselineRefSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/)
+  .refine((v) => !v.includes('..') && !v.endsWith('/') && !v.endsWith('.lock'));
+export const baselineSourceSchema = z.strictObject({
+  alias: z.string().min(1).max(100),
+  repositoryId: sourceRepositoryIdSchema,
+  directoryName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/),
+  commitSha: commitShaSchema,
+  tag: baselineRefSchema.optional(),
+});
+export const baselinePreparationSchema = z.strictObject({
+  id: z.string().uuid(),
+  contextDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  createdAt: z.iso.datetime(),
+  createdByUserId: userIdSchema,
+  status: z.enum(['preparing', 'prepared', 'failed']),
+  directory: z.string(),
+  consumerAlias: z.string(),
+  sources: z.array(baselineSourceSchema).min(1).max(8),
+  message: z.string(),
+});
+export const baselinePreviewSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  contextDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  consumerAlias: z.string(),
+  sources: z
+    .array(
+      z.strictObject({
+        alias: z.string(),
+        repositoryId: sourceRepositoryIdSchema,
+        directoryName: z.string(),
+        ref: z.string(),
+        tag: z.string(),
+        explanation: z.string(),
+        fixed: z.boolean(),
+      }),
+    )
+    .max(8),
+  notices: z.array(z.string()),
+});
+export const baselineEvidenceSchema = z.strictObject({
+  artifacts: z
+    .array(
+      z.strictObject({
+        runId: z.string(),
+        name: z.string(),
+        content: z.string(),
+        truncated: z.boolean(),
+      }),
+    )
+    .max(32),
+  notice: z.string(),
+});
+export const prepareBaselineRequestSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  contextDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  sources: z
+    .array(
+      z.strictObject({
+        alias: z.string().min(1).max(100),
+        ref: baselineRefSchema,
+        tag: baselineRefSchema.optional(),
+      }),
+    )
+    .min(1)
+    .max(8),
+});
+export type BaselinePreview = z.infer<typeof baselinePreviewSchema>;
+export type PrepareBaselineRequest = z.infer<typeof prepareBaselineRequestSchema>;
 export const workCycleSchema = z
   .strictObject({
+    baselinePreparation: baselinePreparationSchema.optional(),
     designRecovery: z
       .strictObject({
         runId: agentRunIdSchema,

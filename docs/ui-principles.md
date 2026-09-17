@@ -247,3 +247,10 @@ and existing execution slice. Show the recorded questions, saved facts and hash-
 shared documents before guidance, supporting text files and agent selection. Distinguish a
 bounded investigation that always returns for review from a design continuation that may
 advance. Do not present another worktree creation button as recovery for an existing slice.
+
+
+Design recovery exposes historical baseline setup separately from answers and agent launch. Show exact
+application/upstream commits, proposed local tags, storage location, preparation state and errors; require
+explicit confirmation before preparation. Read-only source baseline fields distinguish imported obligations
+from selectable historical upstream refs. Prepared sources are not passing tests. Keep collection logs
+accessible from the browser, label bounded/truncated previews, and preserve guidance after failures.

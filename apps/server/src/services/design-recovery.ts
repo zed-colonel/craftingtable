@@ -176,6 +176,7 @@ export function collectDesignRecovery(
         baseSha: tree.baseSha,
         integrationBranch: tree.integrationBranch,
       },
+      baselinePreparation: cycle.baselinePreparation,
       scope,
       mapDigest: scope ? tx.imports.definition(ws, scope.definitionId)?.digest : undefined,
       binding,

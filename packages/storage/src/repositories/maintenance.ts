@@ -40,6 +40,11 @@ export class SqliteStorageMaintenanceRepository implements StorageMaintenanceRep
       .prepare('SELECT id FROM agent_runs WHERE id NOT IN (SELECT run_id FROM run_directories)')
       .all() as { id: AgentRunId }[];
   }
+  directory(runId: AgentRunId): { path: string; device: number } | undefined {
+    return this.database
+      .prepare('SELECT path, device FROM run_directories WHERE run_id = ?')
+      .get(runId) as { path: string; device: number } | undefined;
+  }
   directories(): readonly RunDirectory[] {
     const rows = this.database
       .prepare(`SELECT d.run_id AS runId, r.workspace_id AS workspaceId, w.id AS worktreeId, d.path, d.device, MAX(COALESCE(r.finished_at, r.created_at), COALESCE(w.removed_at, w.created_at)) AS retainedSince,

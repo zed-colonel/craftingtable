@@ -1,5 +1,8 @@
 import {
   controlWorkCycleRequestSchema,
+  baselinePreviewSchema,
+  baselineEvidenceSchema,
+  prepareBaselineRequestSchema,
   recoverDesignRequestSchema,
   designRecoveryPreviewSchema,
   integrationResolutionRequestSchema,
@@ -52,6 +55,19 @@ export function registerWorkCycleRoutes(
     },
   );
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-evidence',
+    async (request, reply) => {
+      const context = authenticate(request, auth);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      return noStore(reply).send(
+        baselineEvidenceSchema.parse(
+          cycles.baselineEvidence(context, workspace.data, request.params.cycleId),
+        ),
+      );
+    },
+  );
+  app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
     async (request, reply) => {
       const context = authenticate(request, auth);
@@ -61,6 +77,40 @@ export function registerWorkCycleRoutes(
         designRecoveryPreviewSchema.parse(
           cycles.previewDesignRecovery(context, workspace.data, request.params.cycleId),
         ),
+      );
+    },
+  );
+  app.get<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',
+    async (request, reply) => {
+      const context = authenticate(request, auth);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      return noStore(reply).send(
+        baselinePreviewSchema.parse(
+          await cycles.previewBaseline(context, workspace.data, request.params.cycleId),
+        ),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const input = prepareBaselineRequestSchema.safeParse(request.body);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      if (!input.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid baseline preparation');
+      return noStore(reply).send(
+        workCycleResponseSchema.parse({
+          cycle: await cycles.prepareBaseline(
+            context,
+            workspace.data,
+            request.params.cycleId,
+            input.data,
+          ),
+        }),
       );
     },
   );

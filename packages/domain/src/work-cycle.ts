@@ -77,7 +77,25 @@ export interface DesignRecovery {
   readonly sources: readonly DesignRecoverySource[];
   readonly attachments: readonly { readonly name: string; readonly content: string }[];
 }
+export interface BaselinePreparation {
+  readonly id: string;
+  readonly contextDigest: string;
+  readonly createdAt: string;
+  readonly createdByUserId: UserId;
+  readonly status: 'preparing' | 'prepared' | 'failed';
+  readonly directory: string;
+  readonly sources: readonly {
+    readonly alias: string;
+    readonly repositoryId: import('./ids.js').SourceRepositoryId;
+    readonly directoryName: string;
+    readonly commitSha: string;
+    readonly tag?: string;
+  }[];
+  readonly consumerAlias: string;
+  readonly message: string;
+}
 export interface WorkCycle {
+  readonly baselinePreparation?: BaselinePreparation;
   readonly designRecovery?: DesignRecovery;
 
   readonly executionScope?: import('./execution-scope.js').ExecutionScope;

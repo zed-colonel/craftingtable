@@ -27,6 +27,42 @@ function fixture(): RepositoryFixture {
 const operations = createGitOperations({ gitExecutable: GIT_EXECUTABLE });
 
 describe('git operations', () => {
+  it('creates baseline tags idempotently and never moves an existing tag', async () => {
+    const repo = fixture();
+    const head = runFixtureGit(['-C', repo.repository, 'rev-parse', 'HEAD']).toString().trim();
+    expect(
+      (await operations.ensureBaselineTag(repo.repository, 'fixture/pre-redesign', head)).ok,
+    ).toBe(true);
+    expect(
+      (await operations.ensureBaselineTag(repo.repository, 'fixture/pre-redesign', head)).ok,
+    ).toBe(true);
+    expect(await operations.listBaselineTags(repo.repository)).toEqual({
+      ok: true,
+      value: ['fixture/pre-redesign'],
+    });
+    writeFileSync(join(repo.repository, 'next.txt'), 'next');
+    runFixtureGit(['-C', repo.repository, 'add', '.']);
+    runFixtureGit([
+      '-C',
+      repo.repository,
+      '-c',
+      'user.name=T',
+      '-c',
+      'user.email=t@example.invalid',
+      'commit',
+      '-m',
+      'next',
+    ]);
+    const next = runFixtureGit(['-C', repo.repository, 'rev-parse', 'HEAD']).toString().trim();
+    expect(
+      (await operations.ensureBaselineTag(repo.repository, 'fixture/pre-redesign', next)).ok,
+    ).toBe(false);
+    expect((await operations.ensureBaselineTag(repo.repository, '../unsafe', head)).ok).toBe(false);
+    expect(
+      runFixtureGit(['-C', repo.repository, 'rev-parse', 'fixture/pre-redesign']).toString().trim(),
+    ).toBe(head);
+  });
+
   it('inspects a primary checkout at its top level', async () => {
     const repo = fixture();
     const result = await operations.inspectRepository(repo.repository);

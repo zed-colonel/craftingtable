@@ -113,7 +113,7 @@ export const crossProjectViewSchema = z.strictObject({
   setupRequirements: z
     .array(
       z.strictObject({
-        kind: z.enum(['binding', 'adoption', 'runtime']),
+        kind: z.enum(['binding', 'adoption', 'runtime', 'plan-acceptance']),
         message: z.string(),
       }),
     )

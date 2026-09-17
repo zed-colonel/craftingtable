@@ -1,3 +1,5 @@
+import { acceptedEvidence } from './runtime-evidence-policy.js';
+import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { crossProjectState, bindingIssues, milestoneSatisfied } from './cross-project-service.js';
 import { PhaseGateError } from './phase-resources.js';
@@ -246,6 +248,9 @@ export class RoadmapService {
       return await this.controlWithin(context, workspaceId, id, action, expectedVersion);
     } finally {
       this.controlling.delete(id);
+      // A notification during control can wake a tick that must skip this lock.
+      // Wake again after release so Start/Resume never depend on the idle timer.
+      this.notifier.notify();
     }
   }
   private async controlWithin(
@@ -287,15 +292,29 @@ export class RoadmapService {
           roadmap.definition.crossProject,
         );
         if (preview.blockers.length) conflict(preview.blockers.join(' '));
-      }
-      for (const entry of roadmap.definition.entries) {
-        if (!entry.executionScope) continue;
-        const unsupported = unsupportedScopeCapabilities(
-          resolveScope(this.storage, workspaceId, entry.workItemId, entry.executionScope),
+        const plan = acceptedEvidence(
           this.storage,
+          workspaceId,
+          roadmap.definition.crossProject.definitionId,
+          roadmap.definition.crossProject.bindingRevision,
+          { kind: 'checkpoint', sourceId: PLAN_CHECKPOINT },
         );
-        if (unsupported.length)
-          conflict(`This map scope cannot start yet: ${unsupported.join(' ')}`);
+        if (plan?.generatedPlan && plan.generatedPlan.roadmapId !== roadmap.id)
+          conflict(
+            'Generate and review plan-acceptance evidence for this saved roadmap before Start or Resume.',
+          );
+      }
+      {
+        const snapshot = mapReadSnapshot(this.storage);
+        for (const entry of roadmap.definition.entries) {
+          if (!entry.executionScope) continue;
+          const unsupported = unsupportedScopeCapabilities(
+            resolveScope(snapshot, workspaceId, entry.workItemId, entry.executionScope),
+            snapshot,
+          );
+          if (unsupported.length)
+            conflict(`This map scope cannot start yet: ${unsupported.join(' ')}`);
+        }
       }
       // Explicit resume may adopt the owned cycle's manual handoff, using its normal guards.
       for (const attempt of roadmap.attempts.filter((a) => a.status !== 'completed')) {
@@ -400,6 +419,9 @@ export class RoadmapService {
       return this.view(roadmap);
     } finally {
       this.controlling.delete(id);
+      // A notification during control can wake a tick that must skip this lock.
+      // Wake again after release so Start/Resume never depend on the idle timer.
+      this.notifier.notify();
     }
   }
 
@@ -424,7 +446,17 @@ export class RoadmapService {
       await this.tick();
       await this.notifier.waitForChangeOrTimeout({
         generation,
-        timeoutMs: 1000,
+        // Persisted changes wake this immediately. A fully waiting roadmap does not
+        // need to re-evaluate an unchanged map every second.
+        timeoutMs: this.storage.roadmaps
+          .list()
+          .some(
+            (r) =>
+              r.status === 'running' &&
+              (!r.definition.crossProject || r.attempts.some((a) => a.status !== 'completed')),
+          )
+          ? 1000
+          : 5000,
         signal: this.abort.signal,
       });
     }
@@ -486,7 +518,11 @@ export class RoadmapService {
       if (issues.length) conflict(issues.join(' '));
     }
     if (roadmap.definition.scheduling?.mode === 'parallel') {
+      // Advisory deferral only. Read once synchronously, then discard the snapshot before
+      // any await/mutation. Eligible entries still pass every fresh admission check below.
+      const deferred = this.deferredEntries(roadmap);
       for (const entry of roadmap.definition.entries) {
+        if (deferred.has(entry.id)) continue;
         const current = this.find(roadmap.workspaceId, roadmap.id);
         if (
           current.status !== 'running' ||
@@ -541,7 +577,7 @@ export class RoadmapService {
       const current = this.find(roadmap.workspaceId, roadmap.id);
       if (current.status !== 'running') return;
       if (
-        current.definition.entries.every((e) => this.complete(current, e)) &&
+        this.entriesComplete(current) &&
         (!current.definition.crossProject ||
           crossProjectState(this.storage, current.workspaceId, current.definition.crossProject)
             .selectedScopeComplete)
@@ -858,6 +894,23 @@ export class RoadmapService {
       });
     });
   }
+  private entriesComplete(roadmap: Roadmap): boolean {
+    const tx = mapReadSnapshot(this.storage);
+    return roadmap.definition.entries.every((entry) => this.complete(roadmap, entry, tx));
+  }
+  private deferredEntries(roadmap: Roadmap): ReadonlySet<string> {
+    const tx = mapReadSnapshot(this.storage);
+    return new Set(
+      roadmap.definition.entries.flatMap((entry) => {
+        const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
+        if (this.complete(roadmap, entry, tx))
+          return !attempt || attempt.status === 'completed' ? [entry.id] : [];
+        if (attempt) return [];
+        const blocker = this.blocker(roadmap, entry, undefined, tx);
+        return blocker && !blocker.needsAttention ? [entry.id] : [];
+      }),
+    );
+  }
   private complete(
     roadmap: Roadmap,
     entry: RoadmapEntry,
@@ -892,6 +945,7 @@ export class RoadmapService {
     roadmap: Roadmap,
     entry: RoadmapEntry,
     attempt?: RoadmapAttempt,
+    tx: StorageRepositories = this.storage,
   ):
     | {
         reason: string;
@@ -904,7 +958,7 @@ export class RoadmapService {
       needsAttention = true,
       kind: 'dependency-blocked' | 'capacity-blocked' | 'exclusion-blocked' = 'dependency-blocked',
     ) => ({ reason, needsAttention, kind });
-    const item = this.storage.planning.workItems.find(roadmap.workspaceId, entry.workItemId);
+    const item = tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId);
     if (!item || item.planVersionId !== entry.planVersionId)
       return blocked(`${entry.sourceId}: Bound plan item is unavailable.`);
     if (item.status === 'completed' && attempt && !entry.executionScope)
@@ -913,7 +967,7 @@ export class RoadmapService {
       );
     try {
       requireScopeOwnership(
-        this.storage,
+        tx,
         roadmap.workspaceId,
         entry.workItemId,
         entry.executionScope,
@@ -921,7 +975,7 @@ export class RoadmapService {
       );
       if (entry.executionScope) {
         const issues = scopeBlockers(
-          this.storage,
+          tx,
           roadmap.workspaceId,
           entry.workItemId,
           entry.executionScope,
@@ -936,7 +990,7 @@ export class RoadmapService {
     } catch (error) {
       return blocked(error instanceof Error ? error.message : 'Execution scope is unavailable.');
     }
-    const required = this.storage.planning.dependencies
+    const required = tx.planning.dependencies
       .listPredecessors(roadmap.workspaceId, entry.workItemId)
       .filter(
         (e) =>
@@ -952,21 +1006,13 @@ export class RoadmapService {
       );
     if (
       required.length &&
-      !scopeAllowsEarlyDevelopment(
-        this.storage,
-        roadmap.workspaceId,
-        entry.workItemId,
-        entry.executionScope,
-      )
+      !scopeAllowsEarlyDevelopment(tx, roadmap.workspaceId, entry.workItemId, entry.executionScope)
     )
       return blocked(
         `${entry.sourceId}: Waiting for required predecessors: ${required.map((e) => `${e.sourceId}${roadmap.definition.entries.some((item) => item.workItemId === e.workItemId) ? '' : ' (outside this roadmap)'}`).join(', ')}.`,
         false,
       );
-    const settings = this.storage.execution.branchSettings.find(
-      roadmap.workspaceId,
-      entry.planVersionId,
-    );
+    const settings = tx.execution.branchSettings.find(roadmap.workspaceId, entry.planVersionId);
     if (
       settings?.repositoryId !== entry.repositoryId ||
       settings.integrationBranch !== entry.integrationBranch
@@ -974,10 +1020,7 @@ export class RoadmapService {
       return blocked(
         `${entry.sourceId}: Plan branch settings changed. Pause and save queued settings to adopt the new target.`,
       );
-    const repo = this.storage.execution.sourceRepositories.find(
-      roadmap.workspaceId,
-      entry.repositoryId,
-    );
+    const repo = tx.execution.sourceRepositories.find(roadmap.workspaceId, entry.repositoryId);
     if (repo?.status !== 'active') return blocked(`${entry.sourceId}: Repository is unavailable.`);
     if (!attempt && this.execution.branches.repositoryBusy(repo.rootPath))
       return blocked(
@@ -1002,11 +1045,11 @@ export class RoadmapService {
         false,
         'capacity-blocked',
       );
-    const trees = this.storage.execution.worktrees
+    const trees = tx.execution.worktrees
       .listActive()
       .filter(
         (t) =>
-          !this.storage.amendments.retired(t.workspaceId, t.id) &&
+          !tx.amendments.retired(t.workspaceId, t.id) &&
           (!t.executionScope || t.executionScope.kind === 'slice'),
       );
     if (
@@ -1028,13 +1071,13 @@ export class RoadmapService {
     const occupied = trees.filter(
       (w) =>
         w.id !== attempt?.worktreeId &&
-        this.storage.execution.sourceRepositories.find(w.workspaceId, w.repositoryId)?.rootPath ===
+        tx.execution.sourceRepositories.find(w.workspaceId, w.repositoryId)?.rootPath ===
           repo.rootPath,
     );
     // Include reserved preparations before a worktree exists, across workspace schedulers.
     let reservations = 0;
     let repositoryLimit = parallel ? policy.maxPerRepository : 1;
-    for (const other of this.storage.roadmaps.list()) {
+    for (const other of tx.roadmaps.list()) {
       for (const reservation of other.attempts) {
         if (reservation.status === 'completed' || reservation.worktreeId === attempt?.worktreeId)
           continue;
@@ -1053,8 +1096,8 @@ export class RoadmapService {
             'exclusion-blocked',
           );
         if (
-          this.storage.execution.sourceRepositories.find(other.workspaceId, bound.repositoryId)
-            ?.rootPath !== repo.rootPath
+          tx.execution.sourceRepositories.find(other.workspaceId, bound.repositoryId)?.rootPath !==
+          repo.rootPath
         )
           continue;
         if (pending) reservations++;

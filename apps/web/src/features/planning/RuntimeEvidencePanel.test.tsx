@@ -212,3 +212,131 @@ it('discovers an editable draft, opens setup, and only persists after explicit s
   await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
   expect(vi.mocked(request).mock.calls[2]?.[0]).toMatch(/\/configure$/);
 });
+
+it('separates saved readiness, evidence generation and explicit independent plan acceptance', async () => {
+  const saved = {
+    roadmapId: runtimeId,
+    name: 'Cross-project test',
+    definitionRevision: 3,
+    snapshotDigest: 'a'.repeat(64),
+    issues: [],
+    state: 'ready-to-generate',
+  };
+  const facts = {
+    ...submission,
+    id: 'generated-plan',
+    subject: { kind: 'checkpoint', sourceId: 'STACK-PLAN-ACCEPTED' },
+    reviewers: [],
+    generatedPlan: {
+      kind: 'saved-plan-v1',
+      roadmapId: runtimeId,
+      definitionRevision: 3,
+      snapshotDigest: saved.snapshotDigest,
+    },
+    artifacts: [
+      {
+        name: 'saved-facts',
+        digest: 'b'.repeat(64),
+        content: 'Exact saved bindings and review settings.',
+      },
+    ],
+  };
+  const ready = {
+    ...view(),
+    submissions: [],
+    planAcceptance: { checkpoint: 'STACK-PLAN-ACCEPTED', roadmaps: [saved] },
+  };
+  const pending = {
+    ...ready,
+    submissions: [{ submission: facts, issues: [] }],
+    planAcceptance: {
+      ...ready.planAcceptance,
+      roadmaps: [{ ...saved, state: 'awaiting-review', submissionId: facts.id }],
+    },
+  };
+  vi.mocked(request)
+    .mockResolvedValueOnce(ready)
+    .mockResolvedValueOnce(pending)
+    .mockResolvedValueOnce({
+      ...pending,
+      planAcceptance: {
+        ...ready.planAcceptance,
+        roadmaps: [{ ...saved, state: 'accepted', submissionId: facts.id }],
+      },
+      submissions: [
+        {
+          submission: facts,
+          issues: [],
+          decision: {
+            outcome: 'accepted',
+            decidedByUserId: 'operator',
+            rationale: 'Reviewed saved configuration.',
+          },
+        },
+      ],
+    });
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  await screen.findByText('Saved configuration is ready to generate plan evidence.');
+  fireEvent.click(screen.getByRole('button', { name: 'Generate plan-acceptance evidence' }));
+  await screen.findByText('Evidence generated — awaiting your plan review.');
+  expect(JSON.parse(String(vi.mocked(request).mock.calls[1]?.[2]?.body))).toEqual({
+    roadmapId: runtimeId,
+    definitionRevision: 3,
+    snapshotDigest: saved.snapshotDigest,
+  });
+  expect(vi.mocked(request).mock.calls[1]?.[0]).toMatch(/generate-plan$/);
+  const accept = screen.getByRole('button', { name: 'Accept evidence', hidden: true });
+  fireEvent.change(screen.getByLabelText('Review decision rationale'), {
+    target: { value: 'Reviewed saved configuration.' },
+  });
+  expect(accept.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(
+    screen.getByRole('checkbox', { name: /I reviewed the saved plan/, hidden: true }),
+  );
+  expect(accept.hasAttribute('disabled')).toBe(false);
+  fireEvent.click(accept);
+  await screen.findByText('Plan evidence accepted. Start or Resume remains your action.');
+  expect(vi.mocked(request).mock.calls[2]?.[0]).toMatch(/decide$/);
+});
+
+it('explains missing saved setup and disables plan evidence generation', async () => {
+  vi.mocked(request).mockResolvedValue({
+    ...view(),
+    planAcceptance: {
+      checkpoint: 'STACK-PLAN-ACCEPTED',
+      roadmaps: [
+        {
+          roadmapId: runtimeId,
+          name: 'Saved roadmap',
+          definitionRevision: 1,
+          snapshotDigest: 'a'.repeat(64),
+          state: 'not-ready',
+          issues: ['Save the pinned dependency environment first.'],
+        },
+      ],
+    },
+  });
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  await screen.findByText('Save the pinned dependency environment first.');
+  expect(
+    screen
+      .getByRole('button', { name: 'Generate plan-acceptance evidence' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+});

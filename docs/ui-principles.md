@@ -233,3 +233,11 @@ project ownership; physical placement never implies execution order. Show cross-
 requirements by phase, including inherited gates, and expandable checkpoint-to-provider chains.
 Dependency navigation opens collapsed ancestors, scrolls and moves keyboard focus. Launch previews
 show current phase eligibility and waits without promising dispatch ahead of resource/capacity checks.
+
+
+Saved plan acceptance is a visible setup step. Name the saved roadmap revision, exact binding
+and environment generation, distinguish unsaved edits, and list missing prerequisites beside
+the disabled generator. Generating facts and independently accepting the plan are separate
+controls. Generated evidence opens directly for review, names the operator's review responsibility
+and requires confirmation plus rationale. Start/Resume remain separate; a stale saved snapshot
+requires regeneration. Never present collected configuration as a completed technical test.

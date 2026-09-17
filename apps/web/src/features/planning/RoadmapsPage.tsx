@@ -778,6 +778,8 @@ export function RoadmapsPage({
                 />
                 <RuntimeEvidencePanel
                   panelId={`runtime-evidence-roadmap-${roadmap.id}`}
+                  roadmapId={roadmap.id}
+                  roadmapRevision={roadmap.definition.revision}
                   workspaceId={workspaceId}
                   definitionId={roadmap.definition.crossProject.definitionId}
                   bindingRevision={roadmap.definition.crossProject.bindingRevision}

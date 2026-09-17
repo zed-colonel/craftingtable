@@ -229,6 +229,19 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .getByRole('combobox', { name: 'Planning target', exact: true })
     .selectOption('WI-EMBEDDED-WORKER-PROOF-1');
   await expect(supervisor.getByText(/selected milestones/)).toBeVisible();
+  await supervisor.getByRole('button', { name: 'Resolve plan acceptance', exact: true }).click();
+  await expect(
+    runtime.getByRole('heading', {
+      name: 'Saved plan acceptance · STACK-PLAN-ACCEPTED',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    runtime.getByText(
+      'Save a cross-project roadmap first using Create cross-project roadmap above.',
+    ),
+  ).toBeVisible();
+
   const lanes = supervisor.locator('.cross-map-lanes');
   await expect(lanes.getByRole('heading', { name: 'WI', exact: true })).toBeVisible();
   await expect(lanes.getByRole('heading', { name: 'EXO', exact: true })).toHaveCount(0);

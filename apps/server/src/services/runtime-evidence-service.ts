@@ -1,3 +1,9 @@
+import { mapReadSnapshot } from './map-read-snapshot.js';
+import {
+  PLAN_CHECKPOINT,
+  savedPlanSnapshot,
+  generatedPlanIssues,
+} from './plan-acceptance-policy.js';
 import { assertFinalizationMap, providerBranch } from './map-finalization-policy.js';
 import { randomUUID } from 'node:crypto';
 import { homedir, hostname, platform, release, arch } from 'node:os';
@@ -476,8 +482,11 @@ export class RuntimeEvidenceService {
     d: ConcurrencyDefinition,
     runtime: RuntimeGeneration,
     s: EvidenceSubmission,
+    knownFreshness?: readonly string[],
   ) {
-    const issues = await this.freshness(d.workspaceId, runtime);
+    const issues = knownFreshness
+      ? [...knownFreshness]
+      : await this.freshness(d.workspaceId, runtime);
     const binding = this.binding(d.workspaceId, d.id, s.bindingRevision);
     for (const code of s.testedCode ?? []) {
       const b = binding.bindings.find((b) => b.alias === code.alias);
@@ -496,7 +505,7 @@ export class RuntimeEvidenceService {
           `Evidence must identify the current integration commit for its subject (${code.alias}).`,
         );
     }
-    if (!s.testedCode?.length && !runtime.pins.length)
+    if (!s.generatedPlan && !s.testedCode?.length && !runtime.pins.length)
       issues.push('Identify the tested code with consumer commits or upstream pins.');
     return issues;
   }
@@ -631,6 +640,10 @@ export class RuntimeEvidenceService {
         );
       if (input.outcome === 'accepted' && this.current(ws, id)?.id !== runtime?.id)
         conflict('Runtime changed during review.');
+      if (input.outcome === 'accepted' && s.generatedPlan) {
+        const issues = generatedPlanIssues(tx, d, this.current(ws, id), s);
+        if (issues.length) conflict(issues.join(' '));
+      }
       tx.runtimeEvidence.addDecision({
         ...input,
         id: randomUUID(),
@@ -645,6 +658,117 @@ export class RuntimeEvidenceService {
         id,
         'evidence.decided',
         `${s.subject.sourceId} evidence ${input.outcome}.`,
+        at,
+      );
+    });
+    this.notifier.notify();
+    return this.view(context, ws, id);
+  }
+  async generatePlanEvidence(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    input: { roadmapId: string; definitionRevision: number; snapshotDigest: string },
+  ) {
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    const runtime = this.current(ws, id);
+    if (!runtime) conflict('Save the pinned dependency environment first.');
+    const freshness = await this.freshness(ws, runtime);
+    if (freshness.length) conflict(freshness.join(' '));
+    this.storage.transaction((tx) => {
+      this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+      const d = tx.imports.definition(ws, id),
+        roadmap = tx.roadmaps.find(ws, input.roadmapId);
+      if (!d || !roadmap) throw new NotFoundError();
+      if (this.current(ws, id)?.id !== runtime.id)
+        conflict('Runtime changed. Refresh before generating evidence.');
+      const snapshot = savedPlanSnapshot(tx, d, roadmap, runtime);
+      if (snapshot.issues.length) conflict(snapshot.issues.join(' '));
+      if (
+        roadmap.definition.revision !== input.definitionRevision ||
+        snapshot.snapshotDigest !== input.snapshotDigest
+      )
+        conflict('Saved configuration changed. Refresh before generating evidence.');
+      const existing = tx.runtimeEvidence
+        .submissions(ws, id)
+        .find(
+          (s) =>
+            s.generatedPlan?.roadmapId === roadmap.id &&
+            s.generatedPlan.snapshotDigest === snapshot.snapshotDigest &&
+            !tx.runtimeEvidence
+              .decisions(ws)
+              .some((a) => a.submissionId === s.id && a.outcome === 'rejected'),
+        );
+      if (existing) return;
+      const at = this.now().toISOString();
+      const subject = { kind: 'checkpoint' as const, sourceId: PLAN_CHECKPOINT };
+      const spec = subjectRequirements(d, subject);
+      const artifacts = Object.entries(snapshot.facts).map(([name, facts]) => {
+        const content = JSON.stringify(facts, null, 2);
+        return { name, content, digest: hash(content) };
+      });
+      const content = [
+        `Saved roadmap: ${roadmap.definition.name} (revision ${roadmap.definition.revision})`,
+        `Map: ${d.mapId} ${d.revision}; binding ${runtime.bindingRevision}; environment generation ${runtime.generation}`,
+        `Target: ${roadmap.definition.crossProject!.targetId}; selection: ${roadmap.definition.crossProject!.selection}`,
+        `Import validation: structure, source snapshots and graph acyclicity checked (${d.graphNodeCount} milestones, ${d.graphEdgeCount} edges).`,
+        `Scheduling decisions: ${d.source.decisions.length} adopted for the exact binding.`,
+        ...snapshot.facts.binding!.bindings.map(
+          (b) =>
+            `Binding ${b.alias}: plan ${b.planVersionId ?? 'implemented upstream'}; repository ${b.repositoryId}; integration ${b.integrationBranch ?? 'upstream ref below'}`,
+        ),
+        ...runtime.pins.map(
+          (p) => `Pin ${p.alias}: ${p.ref} at ${p.commitSha}; conformance ${p.conformanceRevision}`,
+        ),
+        `Saved activities: ${roadmap.definition.entries.length}. Review their model profiles and reviewer responsibilities in the roadmap artifact.`,
+        `Local admission capacity: ${snapshot.facts.resources.developmentCapacity} development, ${snapshot.facts.resources.verificationCapacity} verification.`,
+        '',
+        'The daemon collected these saved setup facts. This package does not claim a human review, test execution, AQ qualification or release approval. Review the artifacts and record your decision as stack-integration-owner. The authenticated acceptance decision and rationale are the independent plan review.',
+      ].join('\n');
+      artifacts.unshift({ name: 'plan-review-guide', content, digest: hash(content) });
+      if (
+        artifacts.some((a) => Buffer.byteLength(a.content) > 512 * 1024) ||
+        artifacts.reduce((n, a) => n + Buffer.byteLength(a.content), 0) > 4 * 1024 * 1024
+      )
+        conflict(
+          'The saved configuration exceeds the evidence artifact limit. Submit bounded evidence manually.',
+        );
+      const submission: EvidenceSubmission = {
+        id: randomUUID(),
+        workspaceId: ws,
+        definitionId: id,
+        bindingRevision: runtime.bindingRevision,
+        runtimeId: runtime.id,
+        subject,
+        environmentId: runtime.environments[0]!.id,
+        executedBy: 'CraftingTable setup collector',
+        executedAt: at,
+        reviewers: [],
+        requirements: spec.requirements.map((requirement) => ({
+          requirement,
+          artifact: 'plan-review-guide',
+        })),
+        cases: [],
+        artifacts,
+        createdAt: at,
+        createdByUserId: context.user.id,
+        generatedPlan: {
+          kind: 'saved-plan-v1',
+          roadmapId: roadmap.id,
+          definitionRevision: roadmap.definition.revision,
+          snapshotDigest: snapshot.snapshotDigest,
+        },
+      };
+      const issues = submissionIssues(tx, d, runtime, submission);
+      if (issues.length) conflict(issues.join(' '));
+      tx.runtimeEvidence.addSubmission(submission);
+      this.changed(
+        tx,
+        context,
+        ws,
+        id,
+        'evidence.submitted',
+        'Saved plan evidence generated; independent operator acceptance is still required.',
         at,
       );
     });
@@ -713,8 +837,76 @@ export class RuntimeEvidenceService {
         ];
       })
       .slice(0, 30);
+    const freshness = runtime ? await this.freshness(ws, runtime) : [];
+    const snapshot = mapReadSnapshot(this.storage);
+    const planAcceptance = d.source.checkpoints.some((c) => c.id === PLAN_CHECKPOINT)
+      ? {
+          checkpoint: PLAN_CHECKPOINT,
+          roadmaps: snapshot.roadmaps
+            .list(ws)
+            .filter((r) => r.definition.crossProject?.definitionId === id && r.status !== 'stopped')
+            .map((roadmap) => {
+              const saved = savedPlanSnapshot(snapshot, d, roadmap, runtime);
+              const issues = [...saved.issues, ...freshness];
+              const submission = snapshot.runtimeEvidence
+                .submissions(ws, id)
+                .find(
+                  (s) =>
+                    s.generatedPlan?.roadmapId === roadmap.id &&
+                    s.generatedPlan.snapshotDigest === saved.snapshotDigest &&
+                    !decisions.some((a) => a.submissionId === s.id && a.outcome === 'rejected'),
+                );
+              const accepted = acceptedEvidence(snapshot, ws, id, binding?.revision ?? 0, {
+                kind: 'checkpoint',
+                sourceId: PLAN_CHECKPOINT,
+              });
+              return {
+                roadmapId: roadmap.id,
+                name: roadmap.definition.name,
+                definitionRevision: roadmap.definition.revision,
+                snapshotDigest: saved.snapshotDigest,
+                issues,
+                state: issues.length
+                  ? ('not-ready' as const)
+                  : accepted &&
+                      (!accepted.generatedPlan || accepted.generatedPlan.roadmapId === roadmap.id)
+                    ? ('accepted' as const)
+                    : submission
+                      ? ('awaiting-review' as const)
+                      : ('ready-to-generate' as const),
+                ...(submission ? { submissionId: submission.id } : {}),
+              };
+            }),
+        }
+      : undefined;
+    const subjectsView = subjects.map((subject) => {
+      const spec = subjectRequirements(d, subject);
+      return {
+        subject,
+        title: spec.title,
+        profile: spec.profile,
+        requirements: spec.requirements,
+        reviewerRoles: spec.reviewerRoles,
+        testedRepositories: testedRepositories(d, subject),
+        cases: spec.cases,
+        issues: binding
+          ? prerequisiteIssues(snapshot, d, binding.revision, subject)
+          : ['Bind plans first.'],
+      };
+    });
+    const submissionsView = snapshot.runtimeEvidence.submissions(ws, id).map((s) => ({
+      submission: s,
+      ...(decisions.find((v) => v.submissionId === s.id)
+        ? { decision: decisions.find((v) => v.submissionId === s.id) }
+        : {}),
+      issues: [
+        ...submissionIssues(snapshot, d, runtime, s),
+        ...prerequisiteIssues(snapshot, d, s.bindingRevision, s.subject),
+      ],
+    }));
     return {
-      issues: runtime ? await this.freshness(ws, runtime) : [],
+      ...(planAcceptance ? { planAcceptance } : {}),
+      issues: freshness,
       builds,
       bindingRevision: binding?.revision ?? 0,
       ...(runtime ? { current: runtime } : {}),
@@ -740,31 +932,13 @@ export class RuntimeEvidenceService {
             : {}),
         };
       }),
-      subjects: subjects.map((subject) => {
-        const spec = subjectRequirements(d, subject);
-        return {
-          subject,
-          title: spec.title,
-          profile: spec.profile,
-          requirements: spec.requirements,
-          reviewerRoles: spec.reviewerRoles,
-          testedRepositories: testedRepositories(d, subject),
-          cases: spec.cases,
-          issues: binding
-            ? prerequisiteIssues(this.storage, d, binding.revision, subject)
-            : ['Bind plans first.'],
-        };
-      }),
+      subjects: subjectsView,
       submissions: await Promise.all(
-        this.storage.runtimeEvidence.submissions(ws, id).map(async (s) => ({
-          submission: s,
-          ...(decisions.find((v) => v.submissionId === s.id)
-            ? { decision: decisions.find((v) => v.submissionId === s.id) }
-            : {}),
+        submissionsView.map(async (v) => ({
+          ...v,
           issues: [
-            ...submissionIssues(this.storage, d, runtime, s),
-            ...prerequisiteIssues(this.storage, d, s.bindingRevision, s.subject),
-            ...(runtime ? await this.evidenceFreshness(d, runtime, s) : []),
+            ...v.issues,
+            ...(runtime ? await this.evidenceFreshness(d, runtime, v.submission, freshness) : []),
           ],
         })),
       ),

@@ -1,5 +1,6 @@
 import {
   configureRuntimeSchema,
+  generatePlanEvidenceRequestSchema,
   discoverRuntimeRequestSchema,
   discoverRuntimeResponseSchema,
   evidenceSubmissionRequestSchema,
@@ -45,7 +46,14 @@ export function registerRuntimeEvidenceRoutes(
         .send(JSON.stringify(record));
     },
   );
-  for (const action of ['configure', 'inspect', 'discover', 'submit', 'decide'] as const)
+  for (const action of [
+    'configure',
+    'inspect',
+    'discover',
+    'generate-plan',
+    'submit',
+    'decide',
+  ] as const)
     app.post<{ Params: { workspaceId: string; id: string } }>(
       `${base}/${action}`,
       { bodyLimit: 5 * 1024 * 1024 },
@@ -54,6 +62,21 @@ export function registerRuntimeEvidenceRoutes(
           ws = workspaceIdSchema.safeParse(request.params.workspaceId);
         if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
         const id = request.params.id;
+        if (action === 'generate-plan') {
+          const body = generatePlanEvidenceRequestSchema.safeParse(request.body);
+          if (!body.success)
+            return sendApiError(
+              reply,
+              400,
+              'invalid-request',
+              'Choose the current saved roadmap revision and snapshot.',
+            );
+          return noStore(reply).send(
+            runtimeEvidenceViewSchema.parse(
+              await service.generatePlanEvidence(context, ws.data, id, body.data),
+            ),
+          );
+        }
         if (action === 'discover') {
           const b = discoverRuntimeRequestSchema.safeParse(request.body);
           if (!b.success)

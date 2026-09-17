@@ -1,4 +1,16 @@
 import type { StorageRepositories } from '@craftingtable/storage';
+const calculations = new WeakMap<StorageRepositories, Map<string, unknown>>();
+/** Only memoizes inside an explicitly bounded read snapshot; ordinary storage reads stay fresh. */
+export function snapshotCalculation<T>(
+  tx: StorageRepositories,
+  key: string,
+  calculate: () => T,
+): T {
+  const cache = calculations.get(tx);
+  if (!cache) return calculate();
+  if (!cache.has(key)) cache.set(key, calculate());
+  return cache.get(key) as T;
+}
 /** Synchronous projection only. Never retain this snapshot across awaits or mutations. */
 export function mapReadSnapshot(source: StorageRepositories): StorageRepositories {
   function memo<T extends object>(repo: T, names: readonly (keyof T)[]): T {
@@ -17,9 +29,15 @@ export function mapReadSnapshot(source: StorageRepositories): StorageRepositorie
       },
     });
   }
-  return {
+  const snapshot = {
     ...source,
-    imports: memo(source.imports, ['definition', 'bindings', 'adoptions']),
+    imports: memo(source.imports, [
+      'definition',
+      'bindings',
+      'adoptions',
+      'archiveInfo',
+      'planLinks',
+    ]),
     roadmaps: memo(source.roadmaps, ['list', 'find', 'history']),
     amendments: memo(source.amendments, [
       'list',
@@ -30,4 +48,6 @@ export function mapReadSnapshot(source: StorageRepositories): StorageRepositorie
     ]),
     runtimeEvidence: memo(source.runtimeEvidence, ['generations', 'submissions', 'decisions']),
   };
+  calculations.set(snapshot, new Map());
+  return snapshot;
 }

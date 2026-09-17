@@ -1,3 +1,4 @@
+import { generatedPlanIssues } from './plan-acceptance-policy.js';
 import { integratedSlice } from './scope-lineage.js';
 import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
 import type {
@@ -222,7 +223,8 @@ export function submissionIssues(
   }
   if (s.cases.some((c) => !spec.cases.some((e) => e.id === c.id)))
     issues.push('Case evidence is assigned to another subject.');
-  for (const role of spec.reviewerRoles)
+  if (s.generatedPlan) issues.push(...generatedPlanIssues(tx, d, runtime, s));
+  for (const role of s.generatedPlan ? [] : spec.reviewerRoles)
     if (
       !s.reviewers.some(
         (r) =>
@@ -233,6 +235,7 @@ export function submissionIssues(
     )
       issues.push(`Independent review evidence is missing role ${role}.`);
   if (
+    !s.generatedPlan &&
     !s.reviewers.some(
       (r) => r.identity.toLowerCase() !== s.executedBy.toLowerCase() && artifact(r.artifact),
     )

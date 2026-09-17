@@ -71,7 +71,13 @@ it is mergeable.
   evidence remains separate. Set roadmap profiles/policy defaults, optional project/activity/individual
   overrides, explicit independent reviewer responsibilities, parallel development limits, integration
   policies and parent-acceptance policy. Unassigned specialized reviewer roles remain evidence gates.
-  **Create cross-project roadmap** saves a draft; **Start roadmap** separately delegates it.
+  **Create cross-project roadmap** saves a draft. **Saved plan acceptance** shows the saved revision
+  and missing setup. Use **Generate plan-acceptance evidence** to collect the saved map/source hashes,
+  exact bindings, adopted decisions, pins, reviewer settings and resources. Inspect the generated
+  artifacts, confirm your review as stack-integration-owner, and explicitly **Accept evidence** with
+  a rationale. Generation does not approve the plan. Changed saved settings or runtime require a
+  fresh package and review. **Start roadmap** or **Resume roadmap** separately delegates execution;
+  unresolved `STACK-PLAN-ACCEPTED` now appears in the startup requirements.
   Development cycles, independent verification and parent acceptance progress under their phase gates.
   Parent acceptance defaults to manual; automatic acceptance still requires all original obligations
   and a fresh independent review. Review snapshots never implement fixes: findings and questions pause

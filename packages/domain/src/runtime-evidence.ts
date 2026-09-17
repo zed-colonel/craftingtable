@@ -49,7 +49,15 @@ export interface EvidenceArtifact {
   readonly content: string;
   readonly digest: string;
 }
+export interface GeneratedPlanEvidence {
+  readonly kind: 'saved-plan-v1';
+  readonly roadmapId: string;
+  readonly definitionRevision: number;
+  readonly snapshotDigest: string;
+}
 export interface EvidenceSubmission {
+  /** Daemon-collected setup facts; the separate operator decision supplies plan review. */
+  readonly generatedPlan?: GeneratedPlanEvidence;
   readonly id: string;
   readonly workspaceId: WorkspaceId;
   readonly definitionId: string;

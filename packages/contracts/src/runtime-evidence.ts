@@ -145,7 +145,22 @@ export const evidenceDecisionRequestSchema = z.strictObject({
   outcome: z.enum(['accepted', 'rejected']),
   rationale: text,
 });
+export const generatedPlanEvidenceSchema = z.strictObject({
+  kind: z.literal('saved-plan-v1'),
+  roadmapId: z.uuid(),
+  definitionRevision: z.number().int().positive(),
+  snapshotDigest: digest,
+});
+export const generatePlanEvidenceRequestSchema = z.strictObject({
+  roadmapId: z.uuid(),
+  definitionRevision: z.number().int().positive(),
+  snapshotDigest: digest,
+});
 export const evidenceSubmissionSchema = evidenceSubmissionRequestSchema.safeExtend({
+  generatedPlan: generatedPlanEvidenceSchema.optional(),
+  reviewers: z
+    .array(z.strictObject({ identity: name, roles: z.array(name).min(1).max(20), artifact: name }))
+    .max(20),
   id: z.uuid(),
   workspaceId: z.string(),
   definitionId: z.uuid(),
@@ -167,6 +182,22 @@ export const evidenceDecisionSchema = z.strictObject({
   decidedByUserId: z.string(),
 });
 export const runtimeEvidenceViewSchema = z.strictObject({
+  planAcceptance: z
+    .strictObject({
+      checkpoint: z.literal('STACK-PLAN-ACCEPTED'),
+      roadmaps: z.array(
+        z.strictObject({
+          roadmapId: z.uuid(),
+          name: z.string(),
+          definitionRevision: z.number().int().positive(),
+          snapshotDigest: digest,
+          issues: z.array(z.string()),
+          state: z.enum(['not-ready', 'ready-to-generate', 'awaiting-review', 'accepted']),
+          submissionId: z.uuid().optional(),
+        }),
+      ),
+    })
+    .optional(),
   issues: z.array(z.string()),
   builds: z.array(
     z.strictObject({

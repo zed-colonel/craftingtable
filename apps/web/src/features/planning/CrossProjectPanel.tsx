@@ -191,6 +191,9 @@ export function CrossProjectPanel({
         rationale,
         csrfToken,
       );
+      window.dispatchEvent(
+        new CustomEvent('craftingtable:saved-plan-changed', { detail: definitionId }),
+      );
       setApproved(false);
       setRationale('');
       setNotice(
@@ -224,9 +227,12 @@ export function CrossProjectPanel({
         },
         csrfToken,
       );
+      window.dispatchEvent(
+        new CustomEvent('craftingtable:saved-plan-changed', { detail: definitionId }),
+      );
       if (roadmap) setEditingRevision(result.roadmap.definition.revision);
       setNotice(
-        `Saved ${result.roadmap.definition.name}. Use its separate Start roadmap control below when the configuration and adoption checks are clear.`,
+        `Saved ${result.roadmap.definition.name}. Generate and review plan-acceptance evidence, then use the separate Start or Resume control when startup checks are clear.`,
       );
     });
   const included = view?.nodes.filter((n) => n.included) ?? [],
@@ -414,6 +420,34 @@ export function CrossProjectPanel({
               },
             ]}
           />
+          {roadmap && (
+            <p>
+              {JSON.stringify({
+                name,
+                target,
+                selection,
+                settings,
+                overrides,
+                parentAcceptance,
+                limit,
+                repoLimit,
+                refreshLimit,
+              }) ===
+              JSON.stringify({
+                name: roadmap.definition.name,
+                target: saved?.targetId,
+                selection: saved?.selection,
+                settings: saved?.defaults,
+                overrides: saved?.overrides,
+                parentAcceptance: saved?.parentAcceptance,
+                limit: roadmap.definition.scheduling?.maxInFlight,
+                repoLimit: roadmap.definition.scheduling?.maxPerRepository,
+                refreshLimit: roadmap.definition.scheduling?.maxIntegrationRefreshes,
+              })
+                ? `Roadmap settings saved · revision ${roadmap.definition.revision}.`
+                : 'Unsaved roadmap edits. Save queued roadmap settings before generating plan evidence.'}
+            </p>
+          )}
           {actions}
           <ActionBar label="Roadmap setup">
             <button
@@ -440,6 +474,13 @@ export function CrossProjectPanel({
             <button
               type="button"
               className="secondary-button"
+              onClick={() => revealElement(`${runtimePanelId}-plan-acceptance`)}
+            >
+              Review saved plan acceptance
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
               onClick={() => revealElement(`map-settings-${panelKey}`)}
             >
               Review automation settings
@@ -460,6 +501,15 @@ export function CrossProjectPanel({
                           onClick={() => revealElement(`map-adoption-${panelKey}`)}
                         >
                           Resolve map adoption
+                        </button>
+                      )}
+                      {requirement.kind === 'plan-acceptance' && (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => revealElement(`${runtimePanelId}-plan-acceptance`)}
+                        >
+                          Resolve plan acceptance
                         </button>
                       )}
                       {requirement.kind === 'runtime' && (

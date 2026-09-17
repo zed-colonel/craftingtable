@@ -1,3 +1,5 @@
+import { PLAN_REQUIREMENTS, PLAN_CRITERIA } from './services/plan-acceptance-policy.js';
+import { acceptedEvidence } from './services/runtime-evidence-policy.js';
 import { randomUUID } from 'node:crypto';
 import { resolveScope, scopeRequirements, scopeCases } from './services/execution-scope.js';
 import type { ExecutionScope } from '@craftingtable/domain';
@@ -20,6 +22,7 @@ import type {
   AgentSessionItem,
 } from '@craftingtable/agents';
 import {
+  evidenceSubmissionRequestSchema,
   agentRunCommandResponseSchema,
   agentRunDetailResponseSchema,
   createWorktreeResponseSchema,
@@ -62,7 +65,7 @@ import {
 } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { openCraftingTableStorage, openDatabase } from '@craftingtable/storage';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { mergeGateFor } from './services/execution-service.js';
 import { assessStageReport, stagedPromotionIssue } from './services/finalization-stage-policy.js';
@@ -8184,19 +8187,32 @@ async function supervisedMapFixture(
   partial = false,
   parentAcceptance: 'manual' | 'automatic' = 'automatic',
   wholePlan = false,
+  planApproval = false,
 ) {
   const f = await slicedFixture(
     (s) => ({
       ...s,
       repositories: s.repositories.map((r) => ({ ...r, id: 'local' })),
       decisions: [s.decisions[0]!],
-      evidence_profiles: s.evidence_profiles.map((p) => ({
-        ...p,
-        reviewer_roles: [
-          'repository-maintainer',
-          'independent-security-reviewer-if-required-by-source',
-        ],
-      })),
+      evidence_profiles: [
+        ...(planApproval
+          ? [
+              {
+                id: 'plan-approval',
+                required_evidence: [...PLAN_REQUIREMENTS],
+                reviewer_roles: ['stack-integration-owner'],
+                independence_required: true as const,
+              },
+            ]
+          : []),
+        ...s.evidence_profiles.map((p) => ({
+          ...p,
+          reviewer_roles: [
+            'repository-maintainer',
+            'independent-security-reviewer-if-required-by-source',
+          ],
+        })),
+      ],
       work_items: s.work_items.flatMap((p) => [
         { ...p, repository: 'local', source_profile_case_ids: [] },
         ...(wholePlan
@@ -8214,8 +8230,28 @@ async function supervisedMapFixture(
             ]
           : []),
       ]),
-      slices: s.slices.map((s) => ({ ...s, decision_refs: ['CS-D01'] })),
+      slices: s.slices.map((s) => ({
+        ...s,
+        start_requires: planApproval
+          ? [{ kind: 'checkpoint' as const, id: 'STACK-PLAN-ACCEPTED', state: 'passed' as const }]
+          : s.start_requires,
+        decision_refs: ['CS-D01'],
+      })),
       checkpoints: [
+        ...(planApproval
+          ? [
+              {
+                ...s.checkpoints[0]!,
+                id: 'STACK-PLAN-ACCEPTED',
+                owner: 'stack',
+                kind: 'plan_approval' as const,
+                requires: [],
+                decision_refs: ['CS-D01'],
+                evidence_profile: 'plan-approval',
+                pass_criteria: [...PLAN_CRITERIA],
+              },
+            ]
+          : []),
         {
           ...s.checkpoints[0]!,
           id: 'LOCAL-TARGET',
@@ -9284,4 +9320,182 @@ it('discovers reviewable local setup without saving, preserves exact pins, and r
   storage.imports.addBindings({ ...storage.imports.bindings(ws, definitionId)[0]!, revision: 3 });
   await expect(svc.discover(f.auth, ws, definitionId, payload)).rejects.toThrow('binding changed');
   expect(storage.imports.adoptions(ws, definitionId)).toHaveLength(0);
+});
+
+it('generates saved plan facts without approval, guards HTTP authority and starts only after explicit plan review', async () => {
+  const f = await supervisedMapFixture(false, 'automatic', false, true);
+  const { context, workspaceId: ws } = f.state;
+  const svc = context.services.runtimeEvidenceService;
+  const id = f.parentScope.definitionId;
+  const base = `/api/workspaces/${ws}/concurrency-definitions/${id}/runtime`;
+  await adoptSupervisedMap(f);
+  expect((await svc.view(f.auth, ws, id)).planAcceptance?.roadmaps).toHaveLength(0);
+  const saved = f.service.save(f.auth, ws, f.input).roadmap;
+  const ready = (await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!;
+  expect(ready.state).toBe('ready-to-generate');
+  expect(
+    f.service
+      .view(f.auth, ws, f.input.configuration)
+      .setupRequirements.some((r) => r.kind === 'plan-acceptance'),
+  ).toBe(true);
+  await expect(
+    context.services.roadmapService.control(f.auth, ws, saved.id, 'start', saved.version),
+  ).rejects.toThrow('Waiting for plan acceptance');
+  const payload = {
+    roadmapId: saved.id,
+    definitionRevision: ready.definitionRevision,
+    snapshotDigest: ready.snapshotDigest,
+  };
+  const post = (headers = mutationHeaders(f.state), body = payload) =>
+    context.app.inject({ method: 'POST', url: `${base}/generate-plan`, headers, payload: body });
+  expect((await post({ cookie: f.state.cookie })).statusCode).toBe(403);
+  expect(
+    (await post(mutationHeaders(f.state), { ...payload, snapshotDigest: '0'.repeat(64) }))
+      .statusCode,
+  ).toBe(409);
+  const response = await post();
+  expect(response.statusCode, response.body).toBe(200);
+  const generated = response.json();
+  const evidence = generated.submissions[0].submission;
+  expect(evidence.generatedPlan.roadmapId).toBe(saved.id);
+  expect(evidence.reviewers).toEqual([]);
+  expect(generated.planAcceptance.roadmaps[0].state).toBe('awaiting-review');
+  expect(generated.submissions[0].issues).toEqual([]);
+  expect(context.storage.runtimeEvidence.decisions(ws)).toHaveLength(0);
+  expect(context.storage.roadmaps.find(ws, saved.id)?.attempts).toHaveLength(0);
+  expect(evidence.artifacts.map((a: { name: string }) => a.name)).toEqual(
+    expect.arrayContaining(['map', 'binding', 'adoption', 'runtime', 'roadmap', 'resources']),
+  );
+  expect((await post()).statusCode).toBe(200);
+  expect(context.storage.runtimeEvidence.submissions(ws, id)).toHaveLength(1);
+  const manualPackage = {
+    runtimeId: evidence.runtimeId,
+    subject: evidence.subject,
+    environmentId: evidence.environmentId,
+    executedBy: evidence.executedBy,
+    executedAt: evidence.executedAt,
+    reviewers: [
+      {
+        identity: 'Independent fixture reviewer',
+        roles: ['stack-integration-owner'],
+        artifact: 'plan-review-guide',
+      },
+    ],
+    requirements: evidence.requirements,
+    cases: evidence.cases,
+    artifacts: evidence.artifacts.map((a: { name: string; content: string }) => ({
+      name: a.name,
+      content: a.content,
+    })),
+  };
+  expect(evidenceSubmissionRequestSchema.safeParse(manualPackage).success).toBe(true);
+  expect(
+    (
+      await context.app.inject({
+        method: 'POST',
+        url: `${base}/submit`,
+        headers: mutationHeaders(f.state),
+        payload: { ...manualPackage, generatedPlan: evidence.generatedPlan },
+      })
+    ).statusCode,
+  ).toBe(400);
+  const accepted = await svc.decide(f.auth, ws, id, {
+    submissionId: evidence.id,
+    outcome: 'accepted',
+    rationale:
+      'I reviewed the exact saved plan and configured independent review responsibilities as stack-integration-owner.',
+  });
+  expect(accepted.planAcceptance!.roadmaps[0]!.state).toBe('accepted');
+  expect(f.service.view(f.auth, ws, f.input.configuration).blockers).toEqual([]);
+  expect(context.storage.roadmaps.find(ws, saved.id)?.status).toBe('draft');
+  await context.services.roadmapService.control(f.auth, ws, saved.id, 'start', saved.version);
+  expect(context.storage.roadmaps.find(ws, saved.id)?.status).toBe('running');
+  const prior = accepted.current!;
+  await svc.configure(f.auth, ws, id, {
+    bindingRevision: 1,
+    expectedGeneration: prior.generation,
+    pins: [],
+    consumers: prior.consumers.map((c) => ({ ...c, upstreams: [...c.upstreams] })),
+    environments: [...prior.environments],
+  });
+  expect(acceptedEvidence(context.storage, ws, id, 1, evidence.subject)).toBeUndefined();
+});
+
+it('invalidates generated plan evidence when saved settings change and rejects stale acceptance after an await', async () => {
+  const f = await supervisedMapFixture(false, 'automatic', false, true);
+  const { context, workspaceId: ws } = f.state;
+  const svc = context.services.runtimeEvidenceService,
+    id = f.parentScope.definitionId;
+  await adoptSupervisedMap(f);
+  const saved = f.service.save(f.auth, ws, f.input).roadmap;
+  const ready = (await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!;
+  const generated = await svc.generatePlanEvidence(f.auth, ws, id, {
+    roadmapId: saved.id,
+    definitionRevision: ready.definitionRevision,
+    snapshotDigest: ready.snapshotDigest,
+  });
+  const first = generated.submissions[0]!.submission;
+  const changed = f.service.save(f.auth, ws, {
+    ...f.input,
+    expectedVersion: saved.version,
+    name: 'Revised saved settings',
+  }).roadmap;
+  await expect(
+    svc.decide(f.auth, ws, id, {
+      submissionId: first.id,
+      outcome: 'accepted',
+      rationale: 'Review old facts',
+    }),
+  ).rejects.toThrow('Saved configuration changed');
+  expect(context.storage.runtimeEvidence.decisions(ws)).toHaveLength(0);
+  const current = (await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!;
+  const next = await svc.generatePlanEvidence(f.auth, ws, id, {
+    roadmapId: saved.id,
+    definitionRevision: current.definitionRevision,
+    snapshotDigest: current.snapshotDigest,
+  });
+  const second = next.submissions.find((s) => s.submission.id !== first.id)!.submission;
+  await svc.decide(f.auth, ws, id, {
+    submissionId: second.id,
+    outcome: 'accepted',
+    rationale: 'Reviewed revised settings',
+  });
+  expect(acceptedEvidence(context.storage, ws, id, 1, second.subject)?.id).toBe(second.id);
+  // The idle scan only uses a shared snapshot to defer work. A later scan sees new settings.
+  const service = context.services.roadmapService;
+  const spy = vi.spyOn(context.storage.imports, 'definition');
+  service['deferredEntries'](changed);
+  expect(spy.mock.calls.length).toBeLessThanOrEqual(3);
+  spy.mockRestore();
+  f.service.save(f.auth, ws, {
+    ...f.input,
+    expectedVersion: changed.version,
+    name: 'Changed again',
+  });
+  expect(acceptedEvidence(context.storage, ws, id, 1, second.subject)).toBeUndefined();
+  expect(
+    service['deferredEntries'](context.storage.roadmaps.find(ws, saved.id)!).size,
+  ).toBeGreaterThan(0);
+  const pending = (await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!;
+  const thirdView = await svc.generatePlanEvidence(f.auth, ws, id, {
+    roadmapId: saved.id,
+    definitionRevision: pending.definitionRevision,
+    snapshotDigest: pending.snapshotDigest,
+  });
+  const third = thirdView.submissions.find((s) => !s.decision && !s.issues.length)!.submission;
+  const review = svc.decide(f.auth, ws, id, {
+    submissionId: third.id,
+    outcome: 'accepted',
+    rationale: 'Reviewed before a concurrent settings change',
+  });
+  const latest = context.storage.roadmaps.find(ws, saved.id)!;
+  f.service.save(f.auth, ws, {
+    ...f.input,
+    expectedVersion: latest.version,
+    name: 'Changed during review',
+  });
+  await expect(review).rejects.toThrow('Saved configuration changed');
+  expect(
+    context.storage.runtimeEvidence.decisions(ws).some((d) => d.submissionId === third.id),
+  ).toBe(false);
 });

@@ -18,6 +18,8 @@ export function RuntimeEvidencePanel({
   workspaceId,
   definitionId,
   bindingRevision,
+  roadmapId,
+  roadmapRevision,
   csrfToken,
   canMutate,
   panelId = `runtime-evidence-${definitionId}`,
@@ -25,6 +27,8 @@ export function RuntimeEvidencePanel({
   workspaceId: WorkspaceId;
   definitionId: string;
   bindingRevision: number;
+  roadmapId?: string;
+  roadmapRevision?: number;
   csrfToken: string;
   canMutate: boolean;
   panelId?: string;
@@ -38,7 +42,8 @@ export function RuntimeEvidencePanel({
   const [refs, setRefs] = useState<Record<string, string>>({}),
     [subject, setSubject] = useState(''),
     [evidence, setEvidence] = useState(''),
-    [rationale, setRationale] = useState<Record<string, string>>({});
+    [rationale, setRationale] = useState<Record<string, string>>({}),
+    [planReviewed, setPlanReviewed] = useState<Record<string, boolean>>({});
   const adopt = useCallback((v: RuntimeEvidenceView) => {
     setView(v);
     setRefs(Object.fromEntries(v.current?.pins.map((p) => [p.alias, p.ref]) ?? []));
@@ -61,19 +66,27 @@ export function RuntimeEvidencePanel({
       environments: v.current?.environments ?? [],
     });
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Saved revisions invalidate this read even when the endpoint identity stays unchanged.
   useEffect(() => {
     let alive = true;
-    void request(base, runtimeEvidenceViewSchema)
-      .then((v) => {
-        if (alive) adopt(v);
-      })
-      .catch((e) => {
-        if (alive) setError(e instanceof Error ? e.message : 'Could not load runtime evidence.');
-      });
+    const load = () =>
+      void request(base, runtimeEvidenceViewSchema)
+        .then((v) => {
+          if (alive) adopt(v);
+        })
+        .catch((e) => {
+          if (alive) setError(e instanceof Error ? e.message : 'Could not load runtime evidence.');
+        });
+    load();
+    const changed = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === definitionId) load();
+    };
+    window.addEventListener('craftingtable:saved-plan-changed', changed);
     return () => {
       alive = false;
+      window.removeEventListener('craftingtable:saved-plan-changed', changed);
     };
-  }, [base, adopt]);
+  }, [base, adopt, bindingRevision, roadmapRevision, definitionId]);
   const act = async (work: () => Promise<void>) => {
     setBusy(true);
     setError('');
@@ -140,6 +153,82 @@ export function RuntimeEvidencePanel({
           Review checkpoint evidence
         </button>
       </ActionBar>
+      {view.planAcceptance && (
+        <section id={`${panelId}-plan-acceptance`} aria-label="Saved plan acceptance">
+          <h4>Saved plan acceptance · STACK-PLAN-ACCEPTED</h4>
+          <p>
+            Generate evidence from the saved roadmap and dependency setup. Unsaved form edits are
+            not included. Generation records facts; your separate review and acceptance approve the
+            plan.
+          </p>
+          {!view.planAcceptance.roadmaps.length && (
+            <p>Save a cross-project roadmap first using Create cross-project roadmap above.</p>
+          )}
+          {view.planAcceptance.roadmaps
+            .filter((r) => !roadmapId || r.roadmapId === roadmapId)
+            .map((r) => (
+              <div key={r.roadmapId}>
+                <p>
+                  <strong>{r.name}</strong> · Saved revision {r.definitionRevision} · Binding{' '}
+                  {view.bindingRevision} · Environment generation{' '}
+                  {view.current?.generation ?? 'not saved'}
+                </p>
+                <p role="status">
+                  {r.state === 'accepted'
+                    ? 'Plan evidence accepted. Start or Resume remains your action.'
+                    : r.state === 'awaiting-review'
+                      ? 'Evidence generated — awaiting your plan review.'
+                      : r.state === 'ready-to-generate'
+                        ? 'Saved configuration is ready to generate plan evidence.'
+                        : 'Saved configuration needs attention before evidence can be generated.'}
+                </p>
+                {r.issues.length > 0 && (
+                  <ul>
+                    {r.issues.map((issue) => (
+                      <li key={issue}>{issue}</li>
+                    ))}
+                  </ul>
+                )}
+                <ActionBar label="Plan acceptance actions">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={busy || !canMutate || r.state !== 'ready-to-generate'}
+                    onClick={() =>
+                      void act(async () => {
+                        const next = await post('generate-plan', {
+                          roadmapId: r.roadmapId,
+                          definitionRevision: r.definitionRevision,
+                          snapshotDigest: r.snapshotDigest,
+                        });
+                        adopt(next);
+                        const generated = next.planAcceptance?.roadmaps.find(
+                          (p) => p.roadmapId === r.roadmapId,
+                        );
+                        setNotice(
+                          'Plan evidence generated. Inspect the saved facts below, then record your independent plan review. No checkpoint has been accepted.',
+                        );
+                        if (generated?.submissionId)
+                          revealElement(`${panelId}-submission-${generated.submissionId}`);
+                      })
+                    }
+                  >
+                    Generate plan-acceptance evidence
+                  </button>
+                  {r.submissionId && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => revealElement(`${panelId}-submission-${r.submissionId}`)}
+                    >
+                      Review generated plan evidence
+                    </button>
+                  )}
+                </ActionBar>
+              </div>
+            ))}
+        </section>
+      )}
       <details id={`${panelId}-setup`}>
         <summary>Configure pinned dependencies and environments</summary>
         <fieldset disabled={busy || !canMutate || !bindingRevision}>
@@ -657,7 +746,7 @@ export function RuntimeEvidencePanel({
       <h4>Evidence review</h4>
       {!view.submissions.length && <p>No submissions yet.</p>}
       {view.submissions.map(({ submission: s, decision, issues }) => (
-        <details key={s.id}>
+        <details key={s.id} id={`${panelId}-submission-${s.id}`}>
           <summary>
             {s.subject.sourceId} · {decision?.outcome ?? 'awaiting review'}
             {issues.length ? ' · blocked or stale' : ''}
@@ -666,8 +755,18 @@ export function RuntimeEvidencePanel({
             Environment {s.environmentId} · tested {s.executedAt} · executor {s.executedBy}
           </p>
           <p>
-            Independent reviewers:{' '}
-            {s.reviewers.map((r) => `${r.identity} (${r.roles.join(', ')})`).join('; ')}
+            {s.generatedPlan ? (
+              decision ? (
+                `Plan review recorded by ${decision.decidedByUserId} as stack-integration-owner.`
+              ) : (
+                'Independent plan review pending: accepting below records your authenticated review as stack-integration-owner. The daemon only collected setup facts.'
+              )
+            ) : (
+              <>
+                Independent reviewers:{' '}
+                {s.reviewers.map((r) => `${r.identity} (${r.roles.join(', ')})`).join('; ')}
+              </>
+            )}
           </p>
           <p>
             Code:{' '}
@@ -700,6 +799,21 @@ export function RuntimeEvidencePanel({
             </p>
           ) : (
             <fieldset disabled={busy || !canMutate}>
+              {s.generatedPlan && (
+                <label className="field">
+                  <span>
+                    <input
+                      type="checkbox"
+                      checked={planReviewed[s.id] ?? false}
+                      onChange={(e) =>
+                        setPlanReviewed({ ...planReviewed, [s.id]: e.target.checked })
+                      }
+                    />{' '}
+                    I reviewed the saved plan, bindings, decisions, reviewer assignments and
+                    resources as stack-integration-owner.
+                  </span>
+                </label>
+              )}
               <label className="field">
                 Review decision rationale
                 <textarea
@@ -713,7 +827,9 @@ export function RuntimeEvidencePanel({
                   key={outcome}
                   type="button"
                   disabled={
-                    !rationale[s.id]?.trim() || (outcome === 'accepted' && issues.length > 0)
+                    !rationale[s.id]?.trim() ||
+                    (outcome === 'accepted' &&
+                      (issues.length > 0 || (!!s.generatedPlan && !planReviewed[s.id])))
                   }
                   onClick={() =>
                     void act(async () => {
@@ -724,7 +840,14 @@ export function RuntimeEvidencePanel({
                           rationale: rationale[s.id],
                         }),
                       );
-                      setNotice(`Evidence ${outcome}.`);
+                      setNotice(
+                        s.generatedPlan && outcome === 'accepted'
+                          ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'
+                          : `Evidence ${outcome}.`,
+                      );
+                      window.dispatchEvent(
+                        new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
+                      );
                     })
                   }
                 >

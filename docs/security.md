@@ -329,3 +329,14 @@ local development observations, not test results, qualification attestations or 
 Explicit save checks their hashes, rejects external qualification kinds for discovery captures,
 and rechecks exact pin commits, binding and generation. No approval, adoption or launch occurs
 through discovery. Later native/Kata evidence retains its existing independent review gates.
+
+
+For the supported `STACK-PLAN-ACCEPTED` setup contract, an authenticated owner/editor can
+explicitly generate an immutable package of daemon-collected saved facts. It contains no
+invented reviewer identity or test results. The separate attributed operator acceptance and
+rationale supply independent plan review as stack-integration-owner. Generation is bound to
+the exact roadmap definition revision, map/source identities, binding, adoption, runtime and
+resource settings; all are rechecked at acceptance, including after asynchronous Git checks.
+The server-only generated marker is rejected by the public evidence-upload schema. Unknown
+plan obligations and technical/native/Kata/publication checkpoints retain their external
+independent-evidence requirements. See ADR-050.

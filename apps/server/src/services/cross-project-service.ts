@@ -1,3 +1,6 @@
+import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
+import { bindingIssues } from './map-binding-policy.js';
+export { bindingIssues } from './map-binding-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { integratedSlice } from './scope-lineage.js';
 import { randomUUID } from 'node:crypto';
@@ -40,44 +43,6 @@ export type MapSelection = Pick<
   CrossProjectConfiguration,
   'definitionId' | 'bindingRevision' | 'targetId' | 'selection'
 >;
-export function bindingIssues(
-  tx: StorageRepositories,
-  ws: WorkspaceId,
-  id: string,
-  revision: number,
-): string[] {
-  const d = tx.imports.definition(ws, id),
-    b = tx.imports.bindings(ws, id)[0];
-  if (!d || !b || b.revision !== revision) return ['Select the current exact map binding.'];
-  const issues: string[] = [];
-  if (tx.amendments.superseded(ws, id, revision))
-    issues.push('This map binding was retired by a reviewed amendment. Select its replacement.');
-  for (const repo of d.source.repositories) {
-    const bound = b.bindings.find((b) => b.alias === repo.id);
-    if (
-      !bound?.repositoryId ||
-      tx.execution.sourceRepositories.find(ws, bound.repositoryId)?.status !== 'active'
-    ) {
-      issues.push(`Bind an active repository for ${repo.id}.`);
-      continue;
-    }
-    if (repo.role === 'implemented_upstream') continue;
-    if (!bound.planVersionId || !bound.projectId) {
-      issues.push(`Bind the exact ${repo.id} plan version.`);
-      continue;
-    }
-    const settings = tx.execution.branchSettings.find(ws, bound.planVersionId);
-    if (tx.planning.projects.find(ws, bound.projectId)?.activePlanVersionId !== bound.planVersionId)
-      issues.push(`Make the bound ${repo.id} plan active.`);
-    if (
-      settings?.version !== bound.branchSettingsVersion ||
-      settings?.repositoryId !== bound.repositoryId ||
-      settings?.integrationBranch !== bound.integrationBranch
-    )
-      issues.push(`Refresh ${repo.id} repository and branch bindings.`);
-  }
-  return issues;
-}
 export function milestoneSatisfied(
   tx: StorageRepositories,
   ws: WorkspaceId,
@@ -243,6 +208,9 @@ export function crossProjectState(
               : 'none',
     };
   });
+  const planApprovalPending = nodes.some(
+    (n) => n.included && n.kind === 'checkpoint' && n.sourceId === PLAN_CHECKPOINT && !n.satisfied,
+  );
   const fullPlanAccepted = d.source.work_items.every((w) =>
     milestoneSatisfied(tx, ws, d, revision, { kind: 'work_item', id: w.id, state: 'accepted' }),
   );
@@ -272,6 +240,15 @@ export function crossProjectState(
       bindingRevision: a.bindingRevision,
     })),
     setupRequirements: [
+      ...(planApprovalPending
+        ? [
+            {
+              kind: 'plan-acceptance' as const,
+              message:
+                'Save the roadmap, generate STACK-PLAN-ACCEPTED evidence, then review and accept it before Start or Resume.',
+            },
+          ]
+        : []),
       ...bindingIssues(tx, ws, d.id, revision).map((message) => ({
         kind: 'binding' as const,
         message,
@@ -295,6 +272,11 @@ export function crossProjectState(
         : []),
     ],
     blockers: [
+      ...(planApprovalPending
+        ? [
+            'Waiting for plan acceptance: review and accept STACK-PLAN-ACCEPTED evidence before Start or Resume.',
+          ]
+        : []),
       ...bindingIssues(tx, ws, d.id, revision),
       ...(!mapAdopted(tx, ws, d.id, revision)
         ? ['Adopt the exact map and its proposed scheduling decisions before Start.']

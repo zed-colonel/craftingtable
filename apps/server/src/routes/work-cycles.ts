@@ -1,5 +1,7 @@
 import {
   controlWorkCycleRequestSchema,
+  recoverDesignRequestSchema,
+  designRecoveryPreviewSchema,
   integrationResolutionRequestSchema,
   startWorkCycleRequestSchema,
   workCycleResponseSchema,
@@ -47,6 +49,38 @@ export function registerWorkCycleRoutes(
           cycle: cycles.start(context, workspace.data, item.data, body.data),
         }),
       );
+    },
+  );
+  app.get<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
+    async (request, reply) => {
+      const context = authenticate(request, auth);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      return noStore(reply).send(
+        designRecoveryPreviewSchema.parse(
+          cycles.previewDesignRecovery(context, workspace.data, request.params.cycleId),
+        ),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
+    { bodyLimit: 2 * 1024 * 1024 },
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const input = recoverDesignRequestSchema.safeParse(request.body);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      if (!input.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid design recovery request');
+      const cycle = await cycles.recoverDesign(
+        context,
+        workspace.data,
+        request.params.cycleId,
+        input.data,
+      );
+      return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
     },
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(

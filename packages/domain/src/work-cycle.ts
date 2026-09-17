@@ -58,7 +58,28 @@ export function ownsIntegrationResolution(cycle: WorkCycle | undefined): boolean
     ['preparing', 'resolving', 'committing'].includes(cycle.integrationResolution.status)
   );
 }
+export interface DesignRecoverySource {
+  readonly planVersionId: import('./ids.js').PlanVersionId;
+  readonly artifactId?: import('./ids.js').PlanArtifactId;
+  readonly archiveId?: string;
+  readonly archiveDigest?: string;
+  readonly name: string;
+  readonly digest: string;
+}
+export interface DesignRecovery {
+  readonly runId: AgentRunId;
+  readonly sourceRunId: AgentRunId;
+  readonly mode: 'investigate' | 'continue';
+  readonly profile: FinalizationAgentSelection;
+  readonly instructions: string;
+  readonly snapshotDigest: string;
+  readonly facts: string;
+  readonly sources: readonly DesignRecoverySource[];
+  readonly attachments: readonly { readonly name: string; readonly content: string }[];
+}
 export interface WorkCycle {
+  readonly designRecovery?: DesignRecovery;
+
   readonly executionScope?: import('./execution-scope.js').ExecutionScope;
   readonly id: string;
   readonly workspaceId: WorkspaceId;

@@ -35,6 +35,7 @@ ADR-029-sequential-roadmap-execution.md
 ADR-030-controlled-parallel-roadmaps.md
 ADR-031-worktree-finalization-and-review-housekeeping.md
 ADR-032-delegated-integration-conflict-resolution.md
+ADR-051-design-question-recovery.md
 ```
 
 Each ADR should contain:

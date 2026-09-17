@@ -1,3 +1,4 @@
+import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { reservePhase } from './phase-resources.js';
@@ -279,7 +280,14 @@ export class AgentRunService {
     if (existing !== undefined) return existing;
     const resolution = ownsIntegrationResolution(cycle) ? cycle.integrationResolution : undefined;
     const finalization = finalizationForCycle(this.storage, cycle);
+    const recovery =
+      cycle.step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
+        ? cycle.designRecovery
+        : undefined;
     const profile =
+      (recovery
+        ? { permissionMode: cycle.profiles.design.permissionMode, ...recovery.profile }
+        : undefined) ??
       resolution?.profile ??
       (finalization ? finalizationProfile(finalization, cycle) : cycle.profiles[cycle.step]);
     return this.launchAuthorized(
@@ -292,6 +300,17 @@ export class AgentRunService {
         ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
         instructions: [
           cycle.instructions,
+          ...(recovery
+            ? [
+                'This is a bounded design-question recovery in the existing worktree. Read the complete prior handoff, recovery context, shared source documents and operator attachments before asking for information again.',
+                'Collect verifiable facts and cite exact artifacts, commits and commands. Saved pins and imported documents are context, not proof that tests passed. Separate repository observations, missing evidence, and decisions that require the operator. Do not invent owners, measurements, protection rules or acceptance receipts.',
+                'Do not implement product changes, create/publish tags, change branch protection, push, merge or amend adopted requirements. Preserve source code; keep collected reports and logs in the supplied run scratch directory. Repository administration needs a separate explicit operator action.',
+                recovery.mode === 'investigate'
+                  ? 'Investigate the unresolved questions and report evidence and remaining decisions. The controller will pause after this run for operator review even if all questions are answered.'
+                  : 'Apply the operator answers and supporting evidence to complete the design. The controller advances only if no genuine questions remain. Keep unresolved evidence requirements explicit.',
+                recovery.instructions,
+              ]
+            : []),
           cycle.executionScope && cycle.executionScope.kind !== 'slice'
             ? `Operator-designated independent reviewer responsibilities: ${scopeReviewerRoles(this.storage, cycle.workspaceId, cycle.executionScope).join(', ') || 'standard independent review'}. Supply evidence for every applicable responsibility; if you cannot perform a required review, report an open question rather than claiming it passed.`
             : '',
@@ -597,6 +616,59 @@ export class AgentRunService {
         writeFileSync(path, artifact.content, { mode: 0o600 });
         return { filename: artifact.logicalFilename, role: artifact.role, path };
       });
+      if (cycle?.designRecovery) {
+        const recovery = cycle.designRecovery;
+        if (cycle.step === 'design' && recovery.runId === cycle.currentRunId) {
+          const current = this.storage.readTransaction((tx) =>
+            collectDesignRecovery(tx, cycle, recovery.sourceRunId),
+          );
+          if (current.snapshotDigest !== recovery.snapshotDigest)
+            throw new ExecutionRequestError(
+              'conflict',
+              'Design recovery inputs changed before launch. Refresh discovery.',
+            );
+        }
+        const recoveryDirectory = join(runDirectory, 'design-recovery');
+        mkdirSync(recoveryDirectory, { recursive: true, mode: 0o700 });
+        const entries = [
+          { name: 'context.json', content: recovery.facts },
+          ...recovery.sources.map((source, i) => ({
+            name: `source-${i + 1}.txt`,
+            content: readDesignRecoverySource(this.storage, cycle, source),
+          })),
+          ...recovery.attachments.map((attachment, i) => ({
+            name: `operator-${i + 1}.txt`,
+            content: `Operator-supplied supporting material: ${attachment.name}\nNot independently verified.\n\n${attachment.content}`,
+          })),
+          {
+            name: 'manifest.json',
+            content: JSON.stringify(
+              {
+                snapshotDigest: recovery.snapshotDigest,
+                sources: recovery.sources.map((source, i) => ({
+                  file: `source-${i + 1}.txt`,
+                  ...source,
+                })),
+                attachments: recovery.attachments.map((attachment, i) => ({
+                  file: `operator-${i + 1}.txt`,
+                  name: attachment.name,
+                })),
+              },
+              null,
+              2,
+            ),
+          },
+        ];
+        for (const entry of entries) {
+          const path = join(recoveryDirectory, entry.name);
+          writeFileSync(path, entry.content, { mode: 0o600 });
+          planDocuments.push({
+            filename: `design-recovery/${entry.name}`,
+            role: 'supporting',
+            path,
+          });
+        }
+      }
       if (prepared.worktree.planVersionId) {
         const inventoryPath = join(planDirectory, 'craftingtable-work-items.json');
         writeFileSync(

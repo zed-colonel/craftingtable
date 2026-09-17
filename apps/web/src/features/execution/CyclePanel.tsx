@@ -16,7 +16,7 @@ import {
   type WorkCycle,
   type WorktreeId,
 } from '@craftingtable/domain';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { Section } from '../../components/Section.js';
@@ -38,7 +38,13 @@ export function CyclePanel({
   onControl,
   onOpenRun,
   onResolution,
+  selectedWorktreeId,
+  onSelectWorktree,
+  renderDesignRecovery,
 }: {
+  selectedWorktreeId?: WorktreeId;
+  onSelectWorktree?: (id: WorktreeId) => void;
+  renderDesignRecovery?: (cycle: WorkCycle) => ReactNode;
   cycles: readonly WorkCycle[];
   worktrees: readonly WorktreeSummary[];
   runs: readonly AgentRunSummary[];
@@ -62,7 +68,7 @@ export function CyclePanel({
   );
   const [worktreeId, setWorktreeId] = useState(activeWorktrees[0]?.id ?? '');
   const selected =
-    activeWorktrees.find((worktree) => worktree.id === worktreeId)?.id ??
+    activeWorktrees.find((worktree) => worktree.id === (selectedWorktreeId ?? worktreeId))?.id ??
     activeWorktrees[0]?.id ??
     '';
   const active = cycles.find(
@@ -70,6 +76,10 @@ export function CyclePanel({
       (!selected || cycle.worktreeId === selected) &&
       !['stopped', 'completed'].includes(cycle.status),
   );
+  const latestRun = runs.find((run) => run.worktreeId === selected);
+  const recoverableDesign =
+    active?.step === 'design' &&
+    (!runs.some((run) => run.id === active.currentRunId) || latestRun?.id === active.currentRunId);
   const [policy, setPolicy] = useState(DEFAULT_COMPLETION_POLICY);
   const [instructions, setInstructions] = useState('');
   const [choices, setChoices] = useState<CycleProfiles>(
@@ -119,7 +129,13 @@ export function CyclePanel({
       {activeWorktrees.length > 1 && (
         <label className="field">
           Cycle worktree
-          <select value={selected} onChange={(e) => setWorktreeId(e.target.value)}>
+          <select
+            value={selected}
+            onChange={(e) => {
+              setWorktreeId(e.target.value);
+              onSelectWorktree?.(e.target.value as WorktreeId);
+            }}
+          >
             {activeWorktrees.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.executionScope?.sourceId ?? t.branchName} · {t.branchName}
@@ -169,7 +185,12 @@ export function CyclePanel({
               </button>
             )}
             {['paused', 'needs-attention'].includes(active.status) &&
-              active.integrationResolution?.status !== 'detected' && (
+              active.integrationResolution?.status !== 'detected' &&
+              !(
+                renderDesignRecovery &&
+                recoverableDesign &&
+                runs.some((run) => run.id === active.currentRunId)
+              ) && (
                 <button
                   type="button"
                   className="primary-button"
@@ -188,6 +209,11 @@ export function CyclePanel({
               Stop automation
             </button>
           </ActionBar>
+          {renderDesignRecovery &&
+            canMutate &&
+            recoverableDesign &&
+            ['paused', 'needs-attention'].includes(active.status) &&
+            renderDesignRecovery(active)}
           {onResolution && (
             <IntegrationResolutionPanel
               cycle={active}

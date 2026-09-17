@@ -1910,6 +1910,239 @@ describe('single work-item automation', () => {
     expect(backend.launches).toHaveLength(4);
   });
 
+  it('recovers design with guidance and attachments in the same worktree and keeps review authority separate', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: '## Open questions\nWhich storage format?' },
+      designDone,
+      implementationDone,
+      { resultText: reviewText([]) },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'design pause');
+    const url = `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/design-recovery`;
+    const preview = await state.context.app.inject({
+      method: 'GET',
+      url,
+      headers: { cookie: state.cookie },
+    });
+    expect(preview.statusCode, preview.body).toBe(200);
+    const snapshot = preview.json();
+    expect(snapshot.questions).toContain('Which storage format?');
+    expect(backend.launches).toHaveLength(1);
+    const payload = {
+      expectedVersion: snapshot.expectedVersion,
+      snapshotDigest: snapshot.snapshotDigest,
+      mode: 'continue',
+      profile: { backend: 'claude-code', model: 'recovery-model' },
+      instructions: 'Use SQLite; I own the storage decision.',
+      attachments: [{ name: '../../decision.md', content: 'Operator supplied storage decision.' }],
+    };
+    const missingCsrf = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: { cookie: state.cookie },
+      payload,
+    });
+    expect(missingCsrf.statusCode).toBe(403);
+    const stale = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: { ...payload, snapshotDigest: '0'.repeat(64) },
+    });
+    expect(stale.statusCode).toBe(409);
+    const invalid = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: { ...payload, profile: { ...payload.profile, permissionMode: 'bypass' } },
+    });
+    expect(invalid.statusCode).toBe(400);
+    const launched = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload,
+    });
+    expect(launched.statusCode, launched.body).toBe(200);
+    const reserved = workCycleResponseSchema.parse(launched.json()).cycle;
+    expect(reserved.worktreeId).toBe(worktree.id);
+    expect(reserved.designRecovery?.sourceRunId).toBe(snapshot.sourceRunId);
+    expect(reserved.remediationRounds).toBe(0);
+    const duplicate = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload,
+    });
+    expect(duplicate.statusCode).toBe(409);
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'recovered design');
+    expect(backend.launches).toHaveLength(4);
+    const request = present(backend.launches[1]);
+    expect(
+      state.context.storage.execution.runs.find(state.workspaceId, reserved.currentRunId)?.role,
+    ).toBe('design');
+    expect(request.model).toBe('recovery-model');
+    expect(request.prompt).toContain('Use SQLite');
+    expect(request.prompt).toContain('Which storage format?');
+    expect(backend.launches[2]?.model).toBe('implement-model');
+    const path = join(
+      present(request.temporaryDirectory),
+      '..',
+      'design-recovery',
+      'operator-1.txt',
+    );
+    expect(readFileSync(path, 'utf8')).toContain('Operator supplied storage decision.');
+    const implementation = present(backend.launches[2]);
+    expect(
+      readFileSync(
+        join(present(implementation.temporaryDirectory), '..', 'design-recovery', 'operator-1.txt'),
+        'utf8',
+      ),
+    ).toContain('Operator supplied storage decision.');
+    expect(implementation.prompt).toContain('design-recovery/manifest.json');
+    expect(currentCycle(state, cycle).status).toBe('awaiting-merge');
+  });
+
+  it('stops a design investigation even with no questions and continues only on a new explicit request', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: '## Open questions\nCollect baseline measurements.' },
+      designDone,
+      { resultText: '## Open questions\nWho approves the remaining decision?' },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'design pause');
+    const url = `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/design-recovery`;
+    const snapshot = (
+      await state.context.app.inject({ method: 'GET', url, headers: { cookie: state.cookie } })
+    ).json();
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: snapshot.expectedVersion,
+        snapshotDigest: snapshot.snapshotDigest,
+        mode: 'investigate',
+        profile: { backend: 'claude-code' },
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'investigation completed',
+    );
+    expect(currentCycle(state, cycle).reason).toContain('investigation finished');
+    expect(backend.launches).toHaveLength(2);
+    await controlCycle(state, currentCycle(state, cycle), 'resume');
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'investigation cannot bypass review',
+    );
+    expect(backend.launches).toHaveLength(2);
+    const next = (
+      await state.context.app.inject({ method: 'GET', url, headers: { cookie: state.cookie } })
+    ).json();
+    const continued = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: next.expectedVersion,
+        snapshotDigest: next.snapshotDigest,
+        mode: 'continue',
+        profile: { backend: 'claude-code' },
+        instructions: 'Use the collected measurements.',
+      },
+    });
+    expect(continued.statusCode, continued.body).toBe(200);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'genuine question retained',
+    );
+    expect(backend.launches).toHaveLength(3);
+    expect(currentCycle(state, cycle).step).toBe('design');
+  });
+
+  it('can adopt a manual design after an investigation without retaining the investigation stop', async () => {
+    const { state, worktree } = await cycleFixture([
+      { resultText: '## Open questions\nWhich owner?' },
+      designDone,
+      designDone,
+      implementationDone,
+      { resultText: reviewText([]) },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'design pause');
+    const url = `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/design-recovery`;
+    const snapshot = (
+      await state.context.app.inject({ method: 'GET', url, headers: { cookie: state.cookie } })
+    ).json();
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: snapshot.expectedVersion,
+        snapshotDigest: snapshot.snapshotDigest,
+        mode: 'investigate',
+        profile: { backend: 'claude-code' },
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'investigation pause',
+    );
+    await runToFinish(state, worktree.id, {
+      role: 'design',
+      parentRunId: currentCycle(state, cycle).currentRunId,
+    });
+    await controlCycle(state, currentCycle(state, cycle), 'resume');
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'awaiting-merge',
+      'manual design adopted',
+    );
+  });
+
+  it('preserves an unlaunched design recovery across restart without replaying it', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: '## Open questions\nWhich owner?' },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'design pause');
+    await state.context.services.workCycleService.shutdown();
+    const url = `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/design-recovery`;
+    const snapshot = (
+      await state.context.app.inject({ method: 'GET', url, headers: { cookie: state.cookie } })
+    ).json();
+    const result = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: snapshot.expectedVersion,
+        snapshotDigest: snapshot.snapshotDigest,
+        mode: 'continue',
+        profile: { backend: 'claude-code' },
+        instructions: 'I own the decision.',
+      },
+    });
+    expect(result.statusCode, result.body).toBe(200);
+    state.context.services.workCycleService.recoverInterrupted();
+    const recovered = currentCycle(state, cycle);
+    expect(recovered.status).toBe('needs-attention');
+    expect(recovered.designRecovery?.instructions).toBe('I own the decision.');
+    expect(backend.launches).toHaveLength(1);
+    const fresh = await state.context.app.inject({
+      method: 'GET',
+      url,
+      headers: { cookie: state.cookie },
+    });
+    expect(fresh.statusCode, fresh.body).toBe(200);
+    expect(fresh.json().sourceRunId).toBe(snapshot.sourceRunId);
+  });
+
   it.each([
     [
       'unstructured review',

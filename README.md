@@ -421,3 +421,22 @@ a browser shell, or a replacement for Git or GitHub, and nothing here is a runti
 dependency of the projects it supervises.
 
 > Do not finish CraftingTable before using CraftingTable.
+
+### Resolving design questions
+
+An idle design cycle offers **Resolve design questions**. Open it from the work item's
+Automated cycle section; an existing slice links to that cycle, and a finished design run
+links back to recovery. Discovery reads the recorded questions, saved branch/dependency
+identities and matching documents from the exact bound plan versions and preserved ZIPs.
+Inspect the hashes and source text, enter answers, and optionally attach up to four small
+text files. Choose the backend/model for this recovery without changing the cycle's other
+step profiles or permission posture.
+
+**Start bounded investigation** runs one design attempt and always stops for your review.
+**Continue design with evidence** resumes design and advances only when its final Open
+questions section says `none`. Both reuse the worktree, preserve the complete handoff and
+use the cycle's step timeout without spending remediation attempts. Changed context requires
+fresh discovery; restart requires explicit recovery. Discovery and investigation do not
+approve checkpoints, invent measurements, create/publish tags, change branch protection or
+merge. Repository administration and genuinely missing historical evidence remain explicit
+requirements. Manual handoffs and their subsequent adoption through Resume remain available.

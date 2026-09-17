@@ -61,7 +61,11 @@ lines.on('line', (line) => {
     finalizing = /^# Plan finalization:/m.test(text);
   }
   if (automated && designing) {
-    const result = 'Design complete.\n\n## Open questions\nnone';
+    const result =
+      text.includes('DESIGN-QUESTIONS') &&
+      !text.includes('This is a bounded design-question recovery')
+        ? '## Open questions\nWho owns the baseline decision?'
+        : 'Design complete.\n\n## Open questions\nnone';
     emit({
       type: 'assistant',
       message: { role: 'assistant', content: [{ type: 'text', text: result }] },

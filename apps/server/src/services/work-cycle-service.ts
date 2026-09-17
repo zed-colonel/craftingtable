@@ -1,3 +1,5 @@
+import { collectDesignRecovery } from './design-recovery.js';
+import type { RecoverDesignRequest } from '@craftingtable/contracts';
 import { PhaseGateError } from './phase-resources.js';
 import { scopePhaseBlockers, scopeAllowsEarlyDevelopment } from './execution-scope.js';
 import { sameExecutionScope } from '@craftingtable/domain';
@@ -67,6 +69,108 @@ export class WorkCycleService {
   list(context: CommandContext, workspaceId: WorkspaceId): readonly WorkCycle[] {
     this.workspaceService.requireAuthorized(context, workspaceId);
     return this.storage.execution.cycles.list(workspaceId);
+  }
+
+  private requireDesignRecovery(context: CommandContext, workspaceId: WorkspaceId, id: string) {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    if (!cycle) throw new NotFoundError();
+    if (
+      !cycle.workItemId ||
+      cycle.step !== 'design' ||
+      !['paused', 'needs-attention'].includes(cycle.status) ||
+      ownsIntegrationResolution(cycle)
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Only an idle work-item design cycle can recover design questions.',
+      );
+    const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
+    if (tree?.status !== 'active')
+      throw new ExecutionRequestError('conflict', 'The design worktree is no longer active.');
+    this.mutations.requireAvailable(cycle.worktreeId);
+    const runs = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
+    if (
+      runs.some((run) => !isTerminalAgentRunStatus(run.status)) ||
+      runs[0]?.id !==
+        (this.storage.execution.runs.find(workspaceId, cycle.currentRunId)
+          ? cycle.currentRunId
+          : cycle.parentRunId)
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'End live sessions and adopt any manual continuation before recovering this design.',
+      );
+    if (this.storage.execution.merges.latest(workspaceId, cycle.worktreeId)?.status === 'reserved')
+      throw new ExecutionRequestError('conflict', 'A merge operation owns this worktree.');
+    this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
+    return cycle;
+  }
+
+  previewDesignRecovery(context: CommandContext, workspaceId: WorkspaceId, id: string) {
+    const cycle = this.requireDesignRecovery(context, workspaceId, id);
+    return this.storage.readTransaction((tx) => collectDesignRecovery(tx, cycle));
+  }
+
+  async recoverDesign(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: RecoverDesignRequest,
+  ) {
+    const cycle = this.requireDesignRecovery(context, workspaceId, id);
+    if (cycle.version !== input.expectedVersion)
+      throw new ExecutionRequestError('conflict', 'Cycle changed; refresh design recovery.');
+    const preview = this.storage.readTransaction((tx) => collectDesignRecovery(tx, cycle));
+    if (preview.snapshotDigest !== input.snapshotDigest)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Design evidence changed; refresh discovery before continuing.',
+      );
+    if (!this.runs.hasBackend(input.profile.backend))
+      throw new ExecutionRequestError('unavailable', 'The selected design backend is unavailable.');
+    if (
+      input.mode === 'continue' &&
+      preview.questions.trim().toLowerCase() !== 'none' &&
+      !input.instructions.trim() &&
+      !input.attachments.length &&
+      !preview.sources.length
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Supply answers or supporting evidence, or choose a bounded investigation.',
+      );
+    const runId = asAgentRunId(randomUUID());
+    // One explicitly authorized same-step run, with its ordinary timeout. No retry loop.
+    return this.change(
+      cycle,
+      {
+        status: 'running',
+        step: 'design',
+        currentRunId: runId,
+        parentRunId: preview.sourceRunId,
+        phaseWait: null,
+        resultContinuations: 0,
+        runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+        designRecovery: {
+          runId,
+          sourceRunId: preview.sourceRunId,
+          mode: input.mode,
+          profile: input.profile,
+          instructions: input.instructions,
+          attachments: input.attachments,
+          snapshotDigest: preview.snapshotDigest,
+          facts: preview.facts,
+          sources: preview.sources.map((entry) => entry.source),
+        },
+        reason:
+          input.mode === 'investigate'
+            ? 'Investigating design questions; this attempt stops for operator review.'
+            : 'Continuing design with collected evidence and operator guidance.',
+      },
+      'design-recovery',
+      context,
+    );
   }
 
   validateSettings(input: Pick<StartWorkCycleRequest, 'profiles'>): void {
@@ -1011,10 +1115,17 @@ export class WorkCycleService {
       return;
     }
     if (cycle.step === 'design') {
+      if (cycle.designRecovery?.runId === run.id && cycle.designRecovery.mode === 'investigate') {
+        this.attention(
+          cycle,
+          'Design investigation finished. Review the evidence and answers, then use Resolve design questions to continue.',
+        );
+        return;
+      }
       if (!designHasNoOpenQuestions(turn.payload.resultText)) {
         this.attention(
           cycle,
-          'Design has open questions or lacks an explicit “## Open questions” section containing only “none”. Resolve them manually, then resume.',
+          'Design has open questions or lacks an explicit “## Open questions” section containing only “none”. Use Resolve design questions to collect evidence and provide guidance.',
         );
         return;
       }
@@ -2460,10 +2571,14 @@ export class WorkCycleService {
           'The selected finalization backend is unavailable.',
         );
     }
+    const nextRunId = asAgentRunId(randomUUID());
     return this.change(
       cycle,
       {
         housekeepingInstructions: '',
+        ...(step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
+          ? { designRecovery: { ...cycle.designRecovery, runId: nextRunId } }
+          : {}),
         // An explicit resume grants a fresh recovery window; automatic attempts retain their count/deadline.
         resultContinuations: collectingReview && context ? 1 : 0,
         // Resume guidance belongs to that attempt; its answers remain in the handoff journal.
@@ -2471,7 +2586,7 @@ export class WorkCycleService {
         ...changes,
         status: 'running',
         step,
-        currentRunId: asAgentRunId(randomUUID()),
+        currentRunId: nextRunId,
         ...(parent === undefined ? {} : { parentRunId: parent.id }),
         ...(reviewHeadSha === undefined ? {} : { reviewHeadSha }),
         runDeadlineAt:

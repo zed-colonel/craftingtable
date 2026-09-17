@@ -241,3 +241,9 @@ the disabled generator. Generating facts and independently accepting the plan ar
 controls. Generated evidence opens directly for review, names the operator's review responsibility
 and requires confirmation plus rationale. Start/Resume remain separate; a stale saved snapshot
 requires regeneration. Never present collected configuration as a completed technical test.
+
+Design questions have a recovery action beside the cycle's status, with links from its run
+and existing execution slice. Show the recorded questions, saved facts and hash-identified
+shared documents before guidance, supporting text files and agent selection. Distinguish a
+bounded investigation that always returns for review from a design continuation that may
+advance. Do not present another worktree creation button as recovery for an existing slice.

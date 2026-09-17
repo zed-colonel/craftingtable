@@ -304,8 +304,25 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       await expect(region.getByLabel('Allowed nits')).toBeVisible();
     });
     await cycle.getByLabel('Allowed nits').fill('1');
-    await cycle.getByLabel(/Instructions/).fill('MOBILE-FINDINGS');
+    await cycle.getByLabel(/Instructions/).fill('MOBILE-FINDINGS DESIGN-QUESTIONS');
     await cycle.getByRole('button', { name: 'Start automated cycle' }).click();
+    await expect(
+      cycle.getByRole('button', { name: 'Resolve design questions', exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await walk.capture('work-item-design-questions', 'Work item · design needs answers');
+    await walk.capture(
+      'work-item-design-recovery',
+      'Work item · design recovery and evidence',
+      async (p) => {
+        await p.getByRole('button', { name: 'Resolve design questions', exact: true }).click();
+        await expect(p.getByLabel('Answers and guidance')).toBeVisible();
+      },
+    );
+    await page
+      .getByLabel('Answers and guidance')
+      .fill('I own the baseline decision. Use the pinned baseline.');
+    await page.getByRole('combobox', { name: 'Next action', exact: true }).selectOption('continue');
+    await page.getByRole('button', { name: 'Continue design with evidence', exact: true }).click();
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
       timeout: 30_000,
     });

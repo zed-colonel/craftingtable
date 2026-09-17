@@ -179,6 +179,7 @@ export function RunPage({
   profiles,
   runs,
   onHandoff,
+  onResolveDesign,
 }: {
   detail: AgentRunDetailResponse;
   events: readonly RunEventEnvelope[];
@@ -190,6 +191,7 @@ export function RunPage({
   onSend: (text: string) => void;
   onEnd: () => void;
   onCancel: () => void;
+  onResolveDesign?: () => void;
   onOpenWorkItem: () => void;
   onLoadDiff: () => void;
   onCloseDiff: () => void;
@@ -341,6 +343,11 @@ export function RunPage({
         }
         actions={
           <ActionBar label="Run controls">
+            {onResolveDesign && (
+              <button type="button" className="primary-button" onClick={onResolveDesign}>
+                Resolve design questions on work item
+              </button>
+            )}
             {onHandoff !== undefined && target !== undefined && (
               <button
                 type="button"

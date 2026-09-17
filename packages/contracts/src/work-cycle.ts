@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { finalizationProgressSchema } from './finalization-progress.js';
 import {
   agentRunIdSchema,
+  planArtifactIdSchema,
   planVersionIdSchema,
   projectIdSchema,
   userIdSchema,
@@ -69,8 +70,62 @@ export const integrationResolutionRequestSchema = z.strictObject({
   instructions: z.string().max(16000).optional(),
 });
 export type IntegrationResolutionRequest = z.infer<typeof integrationResolutionRequestSchema>;
+export const designRecoverySourceSchema = z.strictObject({
+  planVersionId: planVersionIdSchema,
+  artifactId: planArtifactIdSchema.optional(),
+  archiveId: z.string().uuid().optional(),
+  archiveDigest: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+  name: z.string().min(1).max(500),
+  digest: z.string().regex(/^[0-9a-f]{64}$/),
+});
+const designAttachmentSchema = z.strictObject({
+  name: z.string().trim().min(1).max(200),
+  content: z.string().min(1).max(64000),
+});
+export const recoverDesignRequestSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  snapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  mode: z.enum(['investigate', 'continue']),
+  profile: finalizationAgentSelectionSchema,
+  instructions: z.string().max(16000).default(''),
+  attachments: z.array(designAttachmentSchema).max(4).default([]),
+});
+export type RecoverDesignRequest = z.infer<typeof recoverDesignRequestSchema>;
+export const designRecoveryPreviewSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  sourceRunId: agentRunIdSchema,
+  questions: z.string(),
+  facts: z.string(),
+  snapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  sources: z
+    .array(
+      z.strictObject({
+        source: designRecoverySourceSchema,
+        content: z.string(),
+      }),
+    )
+    .max(32),
+  notices: z.array(z.string()),
+});
+export type DesignRecoveryPreview = z.infer<typeof designRecoveryPreviewSchema>;
 export const workCycleSchema = z
   .strictObject({
+    designRecovery: z
+      .strictObject({
+        runId: agentRunIdSchema,
+        sourceRunId: agentRunIdSchema,
+        mode: z.enum(['investigate', 'continue']),
+        profile: finalizationAgentSelectionSchema,
+        instructions: z.string().max(16000),
+        snapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),
+        facts: z.string().max(128000),
+        sources: z.array(designRecoverySourceSchema).max(32),
+        attachments: z.array(designAttachmentSchema).max(4),
+      })
+      .optional(),
     executionScope: executionScopeSchema.optional(),
     id: z.string().uuid(),
     workspaceId: workspaceIdSchema,

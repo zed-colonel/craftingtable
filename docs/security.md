@@ -340,3 +340,13 @@ resource settings; all are rechecked at acceptance, including after asynchronous
 The server-only generated marker is rejected by the public evidence-upload schema. Unknown
 plan obligations and technical/native/Kata/publication checkpoints retain their external
 independent-evidence requirements. See ADR-050.
+
+Design recovery is an authenticated owner/editor command with CSRF/origin and cycle-version
+checks. It reserves one same-design continuation on the existing idle worktree. Discovery
+reads only exact bound plan versions and their preserved archives, with bounded parsing,
+matching and materialization; uploaded helpers remain inert. Snapshot hashes bind the source
+report, saved worktree identity, map binding, runtime and selected source hashes. Reservation
+and launch recheck these facts. Supporting text is operator-supplied, not independently
+verified; materialized filenames are daemon-generated. A selected recovery model retains
+the design permission posture. Investigation always pauses for review and confers no
+checkpoint, repository-administration, plan-amendment or merge authority.

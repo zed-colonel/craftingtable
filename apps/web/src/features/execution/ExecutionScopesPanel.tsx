@@ -2,6 +2,8 @@ import type { ExecutionScopeChoice, WorktreeSummary } from '@craftingtable/contr
 import {
   executionScopeKey,
   type SourceRepositoryId,
+  type WorkCycle,
+  type WorktreeId,
   type WorkItemId,
   type WorkspaceId,
 } from '@craftingtable/domain';
@@ -25,7 +27,11 @@ export function ExecutionScopesPanel({
   admitted,
   refreshToken,
   onChanged,
+  cycles = [],
+  onOpenCycle,
 }: {
+  cycles?: readonly WorkCycle[];
+  onOpenCycle?: (id: WorktreeId) => void;
   workspaceId: WorkspaceId;
   workItemId: WorkItemId;
   worktrees: readonly WorktreeSummary[];
@@ -93,189 +99,214 @@ export function ExecutionScopesPanel({
         </p>
       )}
       {!admitted && <p className="hint">Admit the parent before creating an execution worktree.</p>}
-      {choices.map((choice) => (
-        <article className="import-binding" key={executionScopeKey(choice.scope)}>
-          <h3>
-            {choice.scope.sourceId} · {choice.title}
-          </h3>
-          <p>
-            <strong>
-              {
+      {choices.map((choice) => {
+        const existing = worktrees.find(
+          (tree) =>
+            tree.status === 'active' &&
+            tree.executionScope &&
+            executionScopeKey(tree.executionScope) === executionScopeKey(choice.scope),
+        );
+        const cycle =
+          existing &&
+          cycles.find(
+            (entry) =>
+              entry.worktreeId === existing.id && !['stopped', 'completed'].includes(entry.status),
+          );
+        return (
+          <article className="import-binding" key={executionScopeKey(choice.scope)}>
+            <h3>
+              {choice.scope.sourceId} · {choice.title}
+            </h3>
+            <p>
+              <strong>
                 {
-                  'not-started': 'Not started',
-                  prepared: 'Worktree prepared',
-                  started: 'Execution started',
-                  merged: 'Slice merged — verification pending',
-                  verified: 'Slice verified',
-                  accepted: 'Parent accepted',
-                }[choice.status]
-              }
-            </strong>
-          </p>
-          <p>{choice.description}</p>
-          {choice.excludes.length > 0 && (
-            <details>
-              <summary>Excluded from this slice</summary>
-              <ul>
-                {choice.excludes.map((e) => (
-                  <li key={e}>{e}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-          <details open={choice.phases.some((p) => p.blockers.length > 0)}>
-            <summary>Transition requirements and reservations</summary>
-            {choice.phases.map((p) => (
-              <div key={p.phase}>
-                <h4>
                   {
+                    'not-started': 'Not started',
+                    prepared: 'Worktree prepared',
+                    started: 'Execution started',
+                    merged: 'Slice merged — verification pending',
+                    verified: 'Slice verified',
+                    accepted: 'Parent accepted',
+                  }[choice.status]
+                }
+              </strong>
+            </p>
+            <p>{choice.description}</p>
+            {choice.excludes.length > 0 && (
+              <details>
+                <summary>Excluded from this slice</summary>
+                <ul>
+                  {choice.excludes.map((e) => (
+                    <li key={e}>{e}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            <details open={choice.phases.some((p) => p.blockers.length > 0)}>
+              <summary>Transition requirements and reservations</summary>
+              {choice.phases.map((p) => (
+                <div key={p.phase}>
+                  <h4>
                     {
-                      start: 'Start development',
-                      merge: 'Merge into integration',
-                      verify: 'Verify merged slice',
-                      accept: 'Accept parent',
-                    }[p.phase]
-                  }
-                </h4>
-                <Reasons
-                  reasons={p.blockers.map((b) => ({ kind: b.kind, text: b.message }))}
-                  satisfied="Phase requirements satisfied; current review and branch checks still apply."
-                />
-                {p.resources.map((r) => (
-                  <p key={r.key} className="hint">
-                    <code>{r.key}</code>: {r.capacity} admission slot(s).
-                  </p>
-                ))}
-                {p.reservations
-                  .filter((r) => r.phase === p.phase)
-                  .map((r) => (
-                    <p key={r.id}>
-                      <code>{r.resourceKey}</code> reserved since{' '}
-                      {new Date(r.acquiredAt).toLocaleString()} (capacity {r.capacity}).
+                      {
+                        start: 'Start development',
+                        merge: 'Merge into integration',
+                        verify: 'Verify merged slice',
+                        accept: 'Accept parent',
+                      }[p.phase]
+                    }
+                  </h4>
+                  <Reasons
+                    reasons={p.blockers.map((b) => ({ kind: b.kind, text: b.message }))}
+                    satisfied="Phase requirements satisfied; current review and branch checks still apply."
+                  />
+                  {p.resources.map((r) => (
+                    <p key={r.key} className="hint">
+                      <code>{r.key}</code>: {r.capacity} admission slot(s).
                     </p>
                   ))}
-              </div>
-            ))}
-          </details>
-          {choice.earlyDevelopment && (
-            <p className="hint">
-              {choice.earlyDevelopmentAuthorized
-                ? 'Early development authorized for this exact slice binding. Original predecessor acceptance still applies to the parent.'
-                : 'The imported early-development exception has not been authorized.'}
-            </p>
-          )}
-          {choice.canAuthorizeEarlyDevelopment && !choice.earlyDevelopmentAuthorized && (
-            <button
-              type="button"
-              disabled={busy || !canMutate}
-              onClick={() =>
-                void command(() =>
-                  authorizeScopeScheduling(workspaceId, workItemId, choice.scope, csrfToken),
-                )
-              }
-            >
-              Authorize this slice’s early-development rule
-            </button>
-          )}
-          <p className="hint">Map binding revision {choice.scope.bindingRevision}.</p>
-          <button
-            type="button"
-            disabled={
-              busy ||
-              !canMutate ||
-              !admitted ||
-              !choice.repositoryId ||
-              !!choice.blockers.length ||
-              choice.status === 'accepted'
-            }
-            onClick={() =>
-              void command(() =>
-                createWorktree(
-                  workspaceId,
-                  workItemId,
-                  {
-                    repositoryId: choice.repositoryId as SourceRepositoryId,
-                    executionScope: choice.scope,
-                  },
-                  csrfToken,
-                ),
-              )
-            }
-          >
-            {choice.scope.kind === 'slice'
-              ? 'Create slice worktree'
-              : 'Create parent acceptance review'}
-          </button>
-          {choice.scope.kind === 'slice' && ['merged', 'verified'].includes(choice.status) && (
-            <button
-              type="button"
-              disabled={
-                busy ||
-                !canMutate ||
-                !admitted ||
-                !choice.repositoryId ||
-                !!choice.phases.find((p) => p.phase === 'verify')?.blockers.length
-              }
-              onClick={() =>
-                void command(() =>
-                  createWorktree(
-                    workspaceId,
-                    workItemId,
-                    {
-                      repositoryId: choice.repositoryId as SourceRepositoryId,
-                      executionScope: { ...choice.scope, kind: 'slice-verification' },
-                    },
-                    csrfToken,
-                  ),
-                )
-              }
-            >
-              Create fresh verification review
-            </button>
-          )}
-          {worktrees
-            .filter(
-              (t) =>
-                t.executionScope?.definitionId === choice.scope.definitionId &&
-                t.executionScope.bindingRevision === choice.scope.bindingRevision &&
-                t.executionScope.sourceId === choice.scope.sourceId &&
-                (t.mergedAt || (t.status === 'active' && t.executionScope.kind !== 'slice')),
-            )
-            .map((tree) => (
-              <p key={tree.id}>
-                <code>{tree.branchName}</code>{' '}
-                <button
-                  type="button"
-                  disabled={
-                    busy ||
-                    !canMutate ||
-                    !admitted ||
-                    !!choice.phases.find(
-                      (p) =>
-                        p.phase ===
-                        (choice.scope.kind === 'parent-acceptance' ? 'accept' : 'verify'),
-                    )?.blockers.length
-                  }
-                  onClick={() =>
-                    void command(() =>
-                      recordScopeEvidence(workspaceId, tree.id, tree.version, csrfToken),
-                    )
-                  }
-                >
-                  {choice.scope.kind === 'parent-acceptance'
-                    ? 'Accept parent after review'
-                    : 'Record slice verification'}
-                </button>
+                  {p.reservations
+                    .filter((r) => r.phase === p.phase)
+                    .map((r) => (
+                      <p key={r.id}>
+                        <code>{r.resourceKey}</code> reserved since{' '}
+                        {new Date(r.acquiredAt).toLocaleString()} (capacity {r.capacity}).
+                      </p>
+                    ))}
+                </div>
+              ))}
+            </details>
+            {choice.earlyDevelopment && (
+              <p className="hint">
+                {choice.earlyDevelopmentAuthorized
+                  ? 'Early development authorized for this exact slice binding. Original predecessor acceptance still applies to the parent.'
+                  : 'The imported early-development exception has not been authorized.'}
               </p>
-            ))}
-          {choice.scope.kind === 'parent-acceptance' && (
-            <p className="hint">
-              Launch a review run in the acceptance worktree below. After acceptance, remove its
-              unused review worktree before plan finalization.
-            </p>
-          )}
-        </article>
-      ))}
+            )}
+            {choice.canAuthorizeEarlyDevelopment && !choice.earlyDevelopmentAuthorized && (
+              <button
+                type="button"
+                disabled={busy || !canMutate}
+                onClick={() =>
+                  void command(() =>
+                    authorizeScopeScheduling(workspaceId, workItemId, choice.scope, csrfToken),
+                  )
+                }
+              >
+                Authorize this slice’s early-development rule
+              </button>
+            )}
+            <p className="hint">Map binding revision {choice.scope.bindingRevision}.</p>
+            {existing && onOpenCycle && choice.scope.kind === 'slice' ? (
+              <div className="stack">
+                {cycle && <p role="status">{cycle.reason}</p>}
+                <button type="button" onClick={() => onOpenCycle(existing.id)}>
+                  {cycle?.step === 'design' && ['paused', 'needs-attention'].includes(cycle.status)
+                    ? 'Open cycle to resolve design questions'
+                    : 'Open existing slice cycle'}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={
+                  busy ||
+                  !canMutate ||
+                  !admitted ||
+                  !choice.repositoryId ||
+                  !!choice.blockers.length ||
+                  choice.status === 'accepted'
+                }
+                onClick={() =>
+                  void command(() =>
+                    createWorktree(
+                      workspaceId,
+                      workItemId,
+                      {
+                        repositoryId: choice.repositoryId as SourceRepositoryId,
+                        executionScope: choice.scope,
+                      },
+                      csrfToken,
+                    ),
+                  )
+                }
+              >
+                {choice.scope.kind === 'slice'
+                  ? 'Create slice worktree'
+                  : 'Create parent acceptance review'}
+              </button>
+            )}
+            {choice.scope.kind === 'slice' && ['merged', 'verified'].includes(choice.status) && (
+              <button
+                type="button"
+                disabled={
+                  busy ||
+                  !canMutate ||
+                  !admitted ||
+                  !choice.repositoryId ||
+                  !!choice.phases.find((p) => p.phase === 'verify')?.blockers.length
+                }
+                onClick={() =>
+                  void command(() =>
+                    createWorktree(
+                      workspaceId,
+                      workItemId,
+                      {
+                        repositoryId: choice.repositoryId as SourceRepositoryId,
+                        executionScope: { ...choice.scope, kind: 'slice-verification' },
+                      },
+                      csrfToken,
+                    ),
+                  )
+                }
+              >
+                Create fresh verification review
+              </button>
+            )}
+            {worktrees
+              .filter(
+                (t) =>
+                  t.executionScope?.definitionId === choice.scope.definitionId &&
+                  t.executionScope.bindingRevision === choice.scope.bindingRevision &&
+                  t.executionScope.sourceId === choice.scope.sourceId &&
+                  (t.mergedAt || (t.status === 'active' && t.executionScope.kind !== 'slice')),
+              )
+              .map((tree) => (
+                <p key={tree.id}>
+                  <code>{tree.branchName}</code>{' '}
+                  <button
+                    type="button"
+                    disabled={
+                      busy ||
+                      !canMutate ||
+                      !admitted ||
+                      !!choice.phases.find(
+                        (p) =>
+                          p.phase ===
+                          (choice.scope.kind === 'parent-acceptance' ? 'accept' : 'verify'),
+                      )?.blockers.length
+                    }
+                    onClick={() =>
+                      void command(() =>
+                        recordScopeEvidence(workspaceId, tree.id, tree.version, csrfToken),
+                      )
+                    }
+                  >
+                    {choice.scope.kind === 'parent-acceptance'
+                      ? 'Accept parent after review'
+                      : 'Record slice verification'}
+                  </button>
+                </p>
+              ))}
+            {choice.scope.kind === 'parent-acceptance' && (
+              <p className="hint">
+                Launch a review run in the acceptance worktree below. After acceptance, remove its
+                unused review worktree before plan finalization.
+              </p>
+            )}
+          </article>
+        );
+      })}
     </Section>
   );
 }

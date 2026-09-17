@@ -1,5 +1,7 @@
 import {
   type StartWorkCycleRequest,
+  type RecoverDesignRequest,
+  designRecoveryPreviewSchema,
   type IntegrationResolutionRequest,
   workCycleResponseSchema,
   workCyclesResponseSchema,
@@ -49,5 +51,19 @@ export function resolveIntegration(
     `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/integration-resolution`,
     workCycleResponseSchema,
     mutation(csrfToken, { ...input, expectedVersion: cycle.version }),
+  );
+}
+
+export function previewDesignRecovery(cycle: WorkCycle) {
+  return request(
+    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/design-recovery`,
+    designRecoveryPreviewSchema,
+  );
+}
+export function recoverDesign(cycle: WorkCycle, input: RecoverDesignRequest, csrfToken: string) {
+  return request(
+    `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/design-recovery`,
+    workCycleResponseSchema,
+    mutation(csrfToken, input),
   );
 }

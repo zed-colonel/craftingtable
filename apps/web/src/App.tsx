@@ -41,6 +41,7 @@ import { Section } from './components/Section.js';
 import { StatusCards } from './components/StatusCards.js';
 import { WorkspaceShell } from './components/WorkspaceShell.js';
 import { AccountPage } from './features/account/AccountPage.js';
+import { DesignRecoveryPanel } from './features/execution/DesignRecoveryPanel.js';
 import { CyclePanel } from './features/execution/CyclePanel.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
 import { DiffView } from './features/execution/DiffView.js';
@@ -206,6 +207,7 @@ export function App() {
   const [profilesBusy, setProfilesBusy] = useState(false);
   const [profilesError, setProfilesError] = useState<string>();
   const [profilesNotice, setProfilesNotice] = useState<string>();
+  const [selectedCycleWorktreeId, setSelectedCycleWorktreeId] = useState<WorktreeId>();
   const [workItemExecution, setWorkItemExecution] = useState<WorkItemExecutionResponse>();
   const [runsOverview, setRunsOverview] = useState<WorkspaceRunsResponse>();
   const [branches, setBranches] = useState<RepositoryBranchesResponse>();
@@ -1387,6 +1389,19 @@ export function App() {
               cycleState?.workspaceId === workspaceId && (
                 <CyclePanel
                   key={route.workItemId}
+                  {...(selectedCycleWorktreeId
+                    ? { selectedWorktreeId: selectedCycleWorktreeId }
+                    : {})}
+                  onSelectWorktree={setSelectedCycleWorktreeId}
+                  renderDesignRecovery={(cycle) => (
+                    <DesignRecoveryPanel
+                      key={`${cycle.id}-${cycle.currentRunId}`}
+                      cycle={cycle}
+                      backends={executionStatus?.backends ?? []}
+                      csrfToken={authenticated.csrfToken}
+                      onChanged={() => setRefreshToken((v) => v + 1)}
+                    />
+                  )}
                   cycles={cycles.filter((cycle) => cycle.workItemId === route.workItemId)}
                   worktrees={workItemExecution.worktrees}
                   runs={workItemExecution.runs}
@@ -1456,6 +1471,16 @@ export function App() {
             )}
             <ExecutionScopesPanel
               key={`scopes-${workspaceId}-${route.workItemId}`}
+              cycles={cycles}
+              onOpenCycle={(id) => {
+                setSelectedCycleWorktreeId(id);
+                const element = document.getElementById('automation');
+                element?.scrollIntoView({ block: 'start' });
+                if (element) {
+                  element.tabIndex = -1;
+                  element.focus({ preventScroll: true });
+                }
+              }}
               workspaceId={workspaceId}
               workItemId={workItem.workItem.id}
               worktrees={
@@ -1517,6 +1542,22 @@ export function App() {
             onCloseDiff={() => setDiff(undefined)}
             {...(executionStatus === undefined ? {} : { backends: executionStatus.backends })}
             {...(runProfiles === undefined ? {} : { profiles: runProfiles.profiles })}
+            {...(canMutate &&
+            run.run.workItemId &&
+            cycles.some(
+              (cycle) =>
+                cycle.worktreeId === run.worktree.id &&
+                cycle.step === 'design' &&
+                ['paused', 'needs-attention'].includes(cycle.status),
+            )
+              ? {
+                  onResolveDesign: () => {
+                    setSelectedCycleWorktreeId(run.worktree.id);
+                    if (run.run.workItemId)
+                      go({ name: 'work-item', workspaceId, workItemId: run.run.workItemId });
+                  },
+                }
+              : {})}
             {...(workItemExecution && workItemExecution.workItemId === run.run.workItemId
               ? { runs: workItemExecution.runs }
               : {})}

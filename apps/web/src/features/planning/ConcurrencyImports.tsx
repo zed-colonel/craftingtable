@@ -137,6 +137,7 @@ export function ConcurrencyImports({
   );
   return (
     <Section
+      id="cross-project-imports"
       title="Cross-project roadmaps"
       label="Cross-project roadmap imports"
       summary={
@@ -244,7 +245,6 @@ export function ConcurrencyImports({
             canMutate={canMutate}
             key={`supervision:${detail.summary.id}:${detail.summary.bindingRevision}`}
           />
-          <div id={`runtime-evidence-${detail.summary.id}`} />
           <RuntimeEvidencePanel
             key={`${detail.summary.id}:${detail.summary.bindingRevision}`}
             workspaceId={workspaceId}

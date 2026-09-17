@@ -1,11 +1,12 @@
 import { assertFinalizationMap, providerBranch } from './map-finalization-policy.js';
 import { randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
+import { homedir, hostname, platform, release, arch } from 'node:os';
 import { dirname, join } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import {
   cargoManifestDigest as hash,
   prepareCargoLauncher,
+  observeRustToolchain,
   type PinnedCargoManifest,
 } from '@craftingtable/agents';
 import {
@@ -38,6 +39,7 @@ import {
   expectedSubjectCommit,
   acceptedEvidence,
   testedRepositories,
+  requiredUpstreams,
 } from './runtime-evidence-policy.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -121,6 +123,167 @@ export class RuntimeEvidenceService {
     if (!exported.ok) conflict(exported.failure.message);
     return { ...commit.value, packages: packages(exported.value) };
   }
+  async discover(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    input: { bindingRevision: number; refs: { alias: string; ref: string }[] },
+  ) {
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    const d = this.definition(ws, id),
+      binding = this.binding(ws, id, input.bindingRevision);
+    if (this.storage.imports.bindings(ws, id)[0]?.revision !== binding.revision)
+      conflict('The map binding changed. Refresh before discovering setup.');
+    if (
+      new Set(input.refs.map((r) => r.alias)).size !== input.refs.length ||
+      input.refs.some((r) => !binding.bindings.some((b) => b.alias === r.alias))
+    )
+      conflict('Choose each bound repository ref at most once.');
+    const current = this.current(ws, id);
+    const consumers = d.source.repositories
+      .filter((r) => r.role === 'planned_application')
+      .map((r) => ({ alias: r.id, upstreams: requiredUpstreams(d, r.id) }));
+    const aliases = new Set(consumers.flatMap((c) => c.upstreams));
+    const pins: ConfigureRuntime['pins'] = [];
+    for (const alias of aliases) {
+      const b = binding.bindings.find((b) => b.alias === alias);
+      const repo =
+        b?.repositoryId && this.storage.execution.sourceRepositories.find(ws, b.repositoryId);
+      if (!b || !repo || repo.status !== 'active')
+        conflict(`Bind an active repository for ${alias} before discovery.`);
+      const ref =
+        input.refs.find((r) => r.alias === alias)?.ref ??
+        providerBranch(this.storage, ws, b) ??
+        repo.defaultBranch;
+      if (!ref) conflict(`Choose the branch or commit for ${alias}.`);
+      const observed = await this.inspect(context, ws, id, {
+        bindingRevision: binding.revision,
+        alias,
+        ref,
+      });
+      if (!observed.packages.length)
+        conflict(`No publishable Cargo packages were found for ${alias} at ${ref}.`);
+      const baseline = d.source.aq_baseline_binding;
+      if (
+        baseline?.repository === alias &&
+        (observed.commitSha === baseline.historical_pre_contract_commit ||
+          observed.packages.some((p) => p.version !== baseline.crate_version))
+      )
+        conflict(
+          `${alias} must point to the implemented baseline with Cargo version ${baseline.crate_version}.`,
+        );
+      pins.push({
+        alias,
+        ref,
+        expectedCommitSha: observed.commitSha,
+        packages: observed.packages,
+        conformanceRevision:
+          baseline?.repository === alias
+            ? String(baseline.conformance_package_revision)
+            : (current?.pins.find((p) => p.alias === alias)?.conformanceRevision ??
+              (b.planVersionId ? `plan-version:${b.planVersionId}` : `map:${d.revision}`)),
+      });
+    }
+    const cargo = resolveExecutable('cargo', undefined, process.env, [
+      join(homedir(), '.cargo', 'bin'),
+    ]);
+    const rustc = resolveExecutable('rustc', undefined, process.env, [
+      join(homedir(), '.cargo', 'bin'),
+    ]);
+    if (!cargo || !rustc)
+      conflict('Local discovery requires installed Cargo and rustc executables.');
+    const observations = [];
+    for (const consumer of consumers) {
+      const b = binding.bindings.find((b) => b.alias === consumer.alias);
+      const repo =
+        b?.repositoryId && this.storage.execution.sourceRepositories.find(ws, b.repositoryId);
+      if (!repo || repo.status !== 'active')
+        conflict(
+          `Configure the ${consumer.alias} plan repository and integration branch before discovery.`,
+        );
+      const toolchain = await observeRustToolchain({ cargo, rustc }, repo.rootPath).catch(() =>
+        conflict(
+          `Could not observe the installed Rust toolchain for ${consumer.alias}. Check that Cargo and rustc work in its registered checkout; discovery does not install toolchains.`,
+        ),
+      );
+      observations.push({ repository: consumer.alias, ...toolchain });
+    }
+    const discovery = {
+      kind: 'local-discovery-v1' as const,
+      environment: JSON.stringify(
+        {
+          host: hostname(),
+          platform: platform(),
+          release: release(),
+          architecture: arch(),
+          scope:
+            'Local development on the CraftingTable daemon host; no native or Kata qualification.',
+        },
+        null,
+        2,
+      ),
+      fixtures: JSON.stringify(
+        {
+          description:
+            'Imported source and case manifests for local development; no executed fixture or test result is asserted.',
+          definitionDigest: d.digest,
+          bindingRevision: binding.revision,
+          sources: binding.bindings
+            .flatMap((b) =>
+              b.sourceArtifacts.map((a) => ({
+                alias: b.alias,
+                source: a.sourceId,
+                digest: a.sha256,
+              })),
+            )
+            .sort((a, b) => `${a.alias}:${a.source}`.localeCompare(`${b.alias}:${b.source}`)),
+        },
+        null,
+        2,
+      ),
+      toolchains: JSON.stringify(
+        {
+          description:
+            'Installed toolchains observed in the registered consumer checkouts. Actual run builds retain separate provenance.',
+          observations,
+        },
+        null,
+        2,
+      ),
+    };
+    if (
+      this.storage.imports.bindings(ws, id)[0]?.revision !== binding.revision ||
+      this.current(ws, id)?.id !== current?.id
+    )
+      conflict('The binding or runtime changed during discovery. Refresh and try again.');
+    return {
+      configuration: configureRuntimeSchema.parse({
+        bindingRevision: binding.revision,
+        expectedGeneration: current?.generation ?? 0,
+        pins,
+        consumers,
+        environments: [
+          ...(current?.environments.filter((e) => e.id !== 'craftingtable-local-development') ??
+            []),
+          {
+            id: 'craftingtable-local-development',
+            kind: 'local-development',
+            discovery,
+            identityDigest: hash(discovery.environment),
+            fixtureDigest: hash(discovery.fixtures),
+            toolchainDigest: hash(discovery.toolchains),
+            authorization:
+              'Local development on this daemon host using the selected dependency pins. External native/Kata qualification is not authorized.',
+          },
+        ],
+      }),
+      notes: [
+        'Discovery is a draft. Review the commits and captured inputs, then explicitly save the dependency environment.',
+        'For planned upstreams, the suggested conformance identity names the exact imported plan version; it does not claim that conformance has passed.',
+        'The fixture fingerprint identifies imported planning/case sources. Native/Kata execution and qualification fixtures require separate reviewed evidence.',
+      ],
+    };
+  }
   async configure(context: AuthContext, ws: WorkspaceId, id: string, raw: ConfigureRuntime) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const input = configureRuntimeSchema.parse(raw),
@@ -141,6 +304,18 @@ export class RuntimeEvidenceService {
       input.environments.map((p) => p.id),
       'environments',
     );
+    for (const env of input.environments) {
+      if (
+        env.discovery &&
+        (env.kind !== 'local-development' ||
+          hash(env.discovery.environment) !== env.identityDigest ||
+          hash(env.discovery.fixtures) !== env.fixtureDigest ||
+          hash(env.discovery.toolchains) !== env.toolchainDigest)
+      )
+        conflict(
+          'Discovered local fingerprints must match their captured inputs and cannot qualify external environments.',
+        );
+    }
     for (const consumer of input.consumers) {
       if (
         !d.source.repositories.some(
@@ -544,21 +719,27 @@ export class RuntimeEvidenceService {
       bindingRevision: binding?.revision ?? 0,
       ...(runtime ? { current: runtime } : {}),
       history,
-      repositories: d.source.repositories.map((r) => ({
-        alias: r.id,
-        role: r.role,
-        configured: !!binding?.bindings.find((b) => b.alias === r.id)?.repositoryId,
-        ...(binding?.bindings.find((b) => b.alias === r.id) &&
-        providerBranch(this.storage, ws, binding.bindings.find((b) => b.alias === r.id)!)
-          ? {
-              integrationBranch: providerBranch(
-                this.storage,
-                ws,
-                binding.bindings.find((b) => b.alias === r.id)!,
-              ),
-            }
-          : {}),
-      })),
+      repositories: d.source.repositories.map((r) => {
+        const b = binding?.bindings.find((b) => b.alias === r.id);
+        const repo =
+          b?.repositoryId && this.storage.execution.sourceRepositories.find(ws, b.repositoryId);
+        const integrationBranch =
+          b && (providerBranch(this.storage, ws, b) || (repo && repo.defaultBranch));
+        return {
+          alias: r.id,
+          role: r.role,
+          configured: !!repo && repo.status === 'active',
+          requiredUpstreams: r.role === 'planned_application' ? requiredUpstreams(d, r.id) : [],
+          ...(integrationBranch ? { integrationBranch } : {}),
+          ...(d.source.aq_baseline_binding?.repository === r.id
+            ? {
+                conformanceRevision: String(
+                  d.source.aq_baseline_binding.conformance_package_revision,
+                ),
+              }
+            : {}),
+        };
+      }),
       subjects: subjects.map((subject) => {
         const spec = subjectRequirements(d, subject);
         return {

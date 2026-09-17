@@ -110,6 +110,14 @@ export const crossProjectViewSchema = z.strictObject({
     }),
   ),
   blockers: z.array(z.string()),
+  setupRequirements: z
+    .array(
+      z.strictObject({
+        kind: z.enum(['binding', 'adoption', 'runtime']),
+        message: z.string(),
+      }),
+    )
+    .default([]),
   nodes: z.array(mapNodeSchema),
   targetReached: z.boolean(),
   selectedScopeComplete: z.boolean(),

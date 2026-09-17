@@ -454,6 +454,27 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       selectTarget,
     );
 
+    await walk.capture(
+      'roadmaps-dependency-graph',
+      'Roadmaps · EXO integration requirements and WI providers',
+      async (p: Page) => {
+        await selectTarget(p);
+        const supervisor = p.getByRole('region', {
+          name: 'Create cross-project roadmap',
+          exact: true,
+        });
+        await supervisor
+          .getByRole('combobox', { name: 'Selection mode', exact: true })
+          .selectOption('prioritize-full');
+        await supervisor
+          .getByRole('combobox', { name: 'Focused dependency view', exact: true })
+          .selectOption('slice:exo/EXO-03/integration:merged');
+        await expect(
+          supervisor.getByRole('region', { name: 'Dependency graph', exact: true }),
+        ).toBeVisible();
+      },
+    );
+
     await navigate(page, 'Projects');
     await page.getByRole('button', { name: 'WorldInterface', exact: true }).click();
     await page.getByRole('button', { name: 'WI-01', exact: true }).first().click();

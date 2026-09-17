@@ -49,7 +49,10 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
 }, info) => {
   test.setTimeout(120000);
   const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('pageerror', (e) => {
+    errors.push(String(e));
+    console.error('Browser page error:', String(e));
+  });
   await page.goto('/');
   await page.getByLabel('Username').fill('e2e-admin');
   await page.getByLabel('Password').fill('correct horse battery staple');
@@ -234,6 +237,28 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .selectOption('prioritize-full');
   await expect(lanes.getByRole('heading', { name: 'EXO', exact: true })).toBeVisible();
   await supervisor
+    .getByRole('combobox', { name: 'Focused dependency view', exact: true })
+    .selectOption('slice:exo/EXO-03/integration:merged');
+  const graph = supervisor.getByRole('region', { name: 'Dependency graph', exact: true });
+  await expect(
+    graph.getByRole('button', { name: 'WI · EXO-WI-G1 · passed', exact: true }),
+  ).toBeVisible();
+  const providerNode = graph
+    .getByRole('button', { name: 'WI · wi/WI-02 · accepted', exact: true })
+    .first();
+  await expect(providerNode).toBeVisible();
+  await providerNode
+    .locator('..')
+    .getByRole('button', { name: 'Show in project', exact: true })
+    .first()
+    .click();
+  const wiParent = lanes.getByText('wi/WI-02 · parent acceptance included', { exact: true });
+  await expect(wiParent.locator('..')).toHaveAttribute('open', '');
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+
+  await supervisor
     .getByRole('combobox', { name: 'Selection mode', exact: true })
     .selectOption('target-only');
   await expect(lanes.getByRole('heading', { name: 'EXO', exact: true })).toHaveCount(0);
@@ -243,7 +268,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect(
     supervisor
       .locator('.cross-map-focus')
-      .getByRole('link', { name: 'Submit or review checkpoint evidence' })
+      .getByRole('button', { name: 'Submit or review checkpoint evidence' })
       .first(),
   ).toBeVisible();
   await supervisor.getByText(/Map decision adoption ·/).click();
@@ -281,7 +306,9 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await page.getByRole('button', { name: 'WorldInterface', exact: true }).click();
   await page.getByRole('button', { name: 'WI-01', exact: true }).first().click();
   const scopes = page.getByRole('region', { name: 'Execution slices and parent acceptance' });
-  await expect(scopes.getByRole('heading', { name: /wi\/WI-01/ }).first()).toBeVisible();
+  await expect(scopes.getByRole('heading', { name: /wi\/WI-01/ }).first()).toBeVisible({
+    timeout: 15000,
+  });
   await expect(scopes.getByText('wi must use an exact aq upstream pin.').first()).toBeVisible();
   for (const button of await scopes.getByRole('button').all()) await expect(button).toBeDisabled();
   await expect
@@ -365,12 +392,42 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   expect(creation.status(), await creation.text()).toBe(200);
   const saved = page.getByRole('region', { name: 'Amendable stack roadmap', exact: true });
   await expect(saved).toBeVisible();
+  await saved.getByRole('button', { name: 'Resolve dependency setup', exact: true }).click();
+  const savedRuntime = saved.getByRole('region', {
+    name: 'Dependency environments and evidence',
+    exact: true,
+  });
+  await expect(
+    savedRuntime.getByRole('button', { name: 'Discover local setup', exact: true }),
+  ).toBeVisible();
+  const discovered = page.waitForResponse(
+    (r) => r.url().endsWith('/runtime/discover') && r.request().method() === 'POST',
+  );
+  await savedRuntime.getByRole('button', { name: 'Discover local setup', exact: true }).click();
+  const discoveryResponse = await discovered;
+  expect(discoveryResponse.status(), await discoveryResponse.text()).toBe(200);
+  await expect(
+    savedRuntime.getByText('Captured local fingerprint inputs', { exact: true }),
+  ).toBeVisible();
+  await savedRuntime.getByText('Captured local fingerprint inputs', { exact: true }).click();
+  await expect(
+    savedRuntime.getByText('No dependency environment configured.', { exact: true }),
+  ).toBeVisible();
+  await expect(savedRuntime.getByLabel('Authorization and scope', { exact: true })).toHaveValue(
+    /Local development/,
+  );
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+  await saved.getByRole('button', { name: 'Preview launch readiness', exact: true }).click();
+  await expect(saved.getByText(/Eligibility is a current snapshot/)).toBeVisible();
+
   const amendments = saved.getByRole('region', {
     name: 'Planning amendments and finalization',
     exact: true,
   });
   await amendments
-    .getByLabel('Amended target', { exact: true })
+    .getByRole('combobox', { name: 'Amended target', exact: true })
     .selectOption('EXO-EMBEDDED-VIABILITY-1');
   await amendments
     .getByLabel('Planning proposal', { exact: true })

@@ -45,8 +45,12 @@ it is mergeable.
   in the daemon environment to tune them. These coordinate daemon work, not host CPU or isolation.
 - **Pinned dependencies and evidence.** Open an imported map in **Roadmaps** and expand
   **Dependency environments and evidence**. Inspect bound Git refs and their Cargo package mappings,
-  record conformance revisions, and choose the upstreams supplied to each consumer. Configure
-  explicit local/native/Kata environment, fixture and toolchain identities, then save a generation.
+  use **Set up dependencies → Discover local setup** to propose required upstream relationships,
+  exact commits, conformance identities, and local environment fingerprints. Review captured
+  workstation, imported fixture-source, and installed Rust toolchain inputs before explicitly
+  saving a generation. Discovery never approves a checkpoint or starts work. Advanced manual
+  setup remains available; external native/Kata qualification uses separate environment and
+  tested-fixture identities, not the local discovery fingerprints.
   Each scoped run receives its own source snapshots and Cargo launcher. The launcher rejects
   dependency fallback and records clean-commit builds; successful review builds are required
   before merge. Frozen build records survive cleanup and are downloadable from the map.
@@ -57,7 +61,12 @@ it is mergeable.
   is not dispatched by this version; checkpoint decisions and final promotion remain separate.
 - **Cross-project supervision.** In **Roadmaps**, open an imported map, explicitly choose a
   target, then select **Only target prerequisites** or **Full roadmap; prioritize this target**.
-  Inspect the included/excluded milestone preview, project lanes and focused dependency view.
+  Inspect **Selected work by project** (ownership groups, not scheduling order). Each parent
+  exposes cross-project requirements grouped by start, merge, verification and acceptance.
+  The focused dependency graph expands checkpoint chains to provider work items; **Show in project**
+  opens and focuses the provider. Startup notices open their resolution controls, and **Preview
+  launch readiness** shows clear phase gates and the reasons other slices wait. Finalization
+  and publication indicators describe eventual completion, not startup prerequisites.
   Adopt the exact map's scheduling proposals with a rationale; independently reviewed checkpoint
   evidence remains separate. Set roadmap profiles/policy defaults, optional project/activity/individual
   overrides, explicit independent reviewer responsibilities, parallel development limits, integration

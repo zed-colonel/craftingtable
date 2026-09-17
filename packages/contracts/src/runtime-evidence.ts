@@ -13,6 +13,14 @@ export const qualificationEnvironmentSchema = z.strictObject({
   fixtureDigest: digest,
   toolchainDigest: digest,
   authorization: text,
+  discovery: z
+    .strictObject({
+      kind: z.literal('local-discovery-v1'),
+      environment: z.string().max(65536),
+      fixtures: z.string().max(262144),
+      toolchains: z.string().max(65536),
+    })
+    .optional(),
 });
 export const cratePinSchema = z.strictObject({
   version: name.optional(),
@@ -178,6 +186,8 @@ export const runtimeEvidenceViewSchema = z.strictObject({
       role: z.enum(['implemented_upstream', 'planned_application']),
       configured: z.boolean(),
       integrationBranch: z.string().optional(),
+      requiredUpstreams: z.array(name).default([]),
+      conformanceRevision: name.optional(),
     }),
   ),
   subjects: z.array(
@@ -218,3 +228,12 @@ export const inspectDependencyResponseSchema = z.strictObject({
 export type ConfigureRuntime = z.infer<typeof configureRuntimeSchema>;
 export type EvidenceSubmissionRequest = z.infer<typeof evidenceSubmissionRequestSchema>;
 export type RuntimeEvidenceView = z.infer<typeof runtimeEvidenceViewSchema>;
+
+export const discoverRuntimeRequestSchema = z.strictObject({
+  bindingRevision: z.number().int().positive(),
+  refs: z.array(z.strictObject({ alias: name, ref: z.string().trim().min(1).max(200) })).max(20),
+});
+export const discoverRuntimeResponseSchema = z.strictObject({
+  configuration: configureRuntimeSchema,
+  notes: z.array(z.string()),
+});

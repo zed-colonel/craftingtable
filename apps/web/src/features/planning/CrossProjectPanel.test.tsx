@@ -54,6 +54,7 @@ function setup() {
     ],
     adoptions: [],
     blockers: ['Adopt exact decisions before Start.'],
+    setupRequirements: [{ kind: 'adoption', message: 'Review scheduling decisions.' }],
     targetReached: false,
     selectedScopeComplete: false,
     fullPlanAccepted: false,

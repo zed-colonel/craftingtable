@@ -2407,3 +2407,39 @@ button:disabled {
     min-width: 60rem;
   }
 }
+
+/* Dependency paths remain readable and navigable at phone widths. */
+.dependency-link {
+  background: transparent;
+  color: var(--color-accent);
+  border: 0;
+  font: inherit;
+  padding: var(--space-1);
+  cursor: pointer;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.dependency-graph ul {
+  list-style: none;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--color-border);
+}
+.dependency-graph li {
+  margin-block: 0.6rem;
+  overflow-wrap: anywhere;
+}
+.cross-project-requirements {
+  margin-block: 0.5rem;
+}
+.runtime-evidence pre {
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cross-map-focus,
+.cross-map-lane [id],
+.runtime-evidence details {
+  scroll-margin-top: 1rem;
+}

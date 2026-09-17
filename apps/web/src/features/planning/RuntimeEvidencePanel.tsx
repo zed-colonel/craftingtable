@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ActionBar } from '../../components/ActionBar.js';
 import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import {
   configureRuntimeSchema,
+  discoverRuntimeResponseSchema,
   evidenceSubmissionRequestSchema,
   inspectDependencyResponseSchema,
   runtimeEvidenceViewSchema,
@@ -10,6 +12,7 @@ import {
   type RuntimeEvidenceView,
 } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
+import { revealElement } from '../../lib/reveal-element.js';
 import { request } from '../../lib/api-client.js';
 export function RuntimeEvidencePanel({
   workspaceId,
@@ -17,12 +20,14 @@ export function RuntimeEvidencePanel({
   bindingRevision,
   csrfToken,
   canMutate,
+  panelId = `runtime-evidence-${definitionId}`,
 }: {
   workspaceId: WorkspaceId;
   definitionId: string;
   bindingRevision: number;
   csrfToken: string;
   canMutate: boolean;
+  panelId?: string;
 }) {
   const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime`;
   const [view, setView] = useState<RuntimeEvidenceView>(),
@@ -36,6 +41,7 @@ export function RuntimeEvidencePanel({
     [rationale, setRationale] = useState<Record<string, string>>({});
   const adopt = useCallback((v: RuntimeEvidenceView) => {
     setView(v);
+    setRefs(Object.fromEntries(v.current?.pins.map((p) => [p.alias, p.ref]) ?? []));
     setConfig({
       bindingRevision: v.bindingRevision,
       expectedGeneration: v.current?.generation ?? 0,
@@ -88,9 +94,13 @@ export function RuntimeEvidencePanel({
     });
   if (!view || !config)
     return <p role={error ? 'alert' : undefined}>{error || 'Loading dependency environments…'}</p>;
+  const changedRefs = config.pins.some(
+    (pin) => refs[pin.alias] !== undefined && refs[pin.alias] !== pin.ref,
+  );
   const selected = view.subjects.find((s) => `${s.subject.kind}:${s.subject.sourceId}` === subject);
   return (
     <Section
+      id={panelId}
       className="runtime-evidence"
       title="Dependency environments and evidence"
       summary={
@@ -114,9 +124,70 @@ export function RuntimeEvidencePanel({
           ))}
         </ul>
       )}
-      <details>
+      <ActionBar label="Dependency setup and evidence">
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => revealElement(`${panelId}-setup`)}
+        >
+          Set up dependencies
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => revealElement(`${panelId}-evidence`)}
+        >
+          Review checkpoint evidence
+        </button>
+      </ActionBar>
+      <details id={`${panelId}-setup`}>
         <summary>Configure pinned dependencies and environments</summary>
         <fieldset disabled={busy || !canMutate || !bindingRevision}>
+          <h4>Local development setup</h4>
+          <p>
+            Inspect the selected branches, discover required dependencies, and capture this
+            workstation’s environment and installed Rust toolchains. Review the draft before saving.
+          </p>
+          <ul>
+            {view.repositories
+              .filter((r) => r.role === 'planned_application')
+              .map((r) => (
+                <li key={r.alias}>
+                  {r.alias.toUpperCase()} needs{' '}
+                  {r.requiredUpstreams.map((a) => a.toUpperCase()).join(' and ') ||
+                    'no upstream pins'}
+                  .
+                </li>
+              ))}
+          </ul>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() =>
+              void act(async () => {
+                const result = await request(`${base}/discover`, discoverRuntimeResponseSchema, {
+                  method: 'POST',
+                  headers: { 'x-craftingtable-csrf': csrfToken },
+                  body: JSON.stringify({
+                    bindingRevision,
+                    refs: view.repositories.flatMap((r) => {
+                      const ref = refs[r.alias] ?? r.integrationBranch;
+                      return ref ? [{ alias: r.alias, ref }] : [];
+                    }),
+                  }),
+                });
+                setConfig(result.configuration);
+                setNotice(result.notes.join(' '));
+              })
+            }
+          >
+            {busy ? 'Working…' : 'Discover local setup'}
+          </button>
+          <p>
+            Discovery replaces the setup draft below. Nothing is saved or approved until you choose
+            Save dependency environment. External native/Kata qualification is configured separately
+            when its gates need evidence.
+          </p>
           <p>
             Inspect a ref in a bound repository to discover its Cargo package mappings. The saved
             pin is an exact commit; later integration changes require a new generation and fresh
@@ -157,6 +228,7 @@ export function RuntimeEvidencePanel({
                           packages: pin.packages,
                           conformanceRevision:
                             config.pins.find((p) => p.alias === repo.alias)?.conformanceRevision ??
+                            repo.conformanceRevision ??
                             '',
                         },
                       ],
@@ -253,6 +325,21 @@ export function RuntimeEvidencePanel({
             // biome-ignore lint/suspicious/noArrayIndexKey: Controlled inputs; editable names are not stable keys.
             <fieldset key={index}>
               <legend>Environment {index + 1}</legend>
+              {env.discovery && (
+                <details>
+                  <summary>Captured local fingerprint inputs</summary>
+                  <p>
+                    Observed configuration only. These fingerprints do not establish passing tests
+                    or native/Kata qualification.
+                  </p>
+                  <h5>Workstation</h5>
+                  <pre>{env.discovery.environment}</pre>
+                  <h5>Imported fixture sources</h5>
+                  <pre>{env.discovery.fixtures}</pre>
+                  <h5>Installed toolchains</h5>
+                  <pre>{env.discovery.toolchains}</pre>
+                </details>
+              )}
               <label className="field">
                 Environment name
                 <input
@@ -270,6 +357,7 @@ export function RuntimeEvidencePanel({
               <label className="field">
                 Kind
                 <select
+                  disabled={!!env.discovery}
                   value={env.kind}
                   onChange={(e) =>
                     setConfig({
@@ -298,6 +386,7 @@ export function RuntimeEvidencePanel({
                     }[field]
                   }
                   <input
+                    readOnly={!!env.discovery && field !== 'authorization'}
                     value={env[field]}
                     onChange={(e) =>
                       setConfig({
@@ -351,13 +440,20 @@ export function RuntimeEvidencePanel({
             Saving a generation invalidates earlier evidence for this binding. Historical
             submissions remain available.
           </p>
+          {changedRefs && (
+            <p role="status">Inspect or rediscover the changed refs before saving.</p>
+          )}
           <button
             className="secondary-button"
             type="button"
+            disabled={changedRefs}
             onClick={() =>
               void act(async () => {
                 const input = configureRuntimeSchema.parse(config);
                 adopt(await post('configure', input));
+                window.dispatchEvent(
+                  new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
+                );
                 setNotice(
                   'New dependency environment recorded. Prior evidence must be reassessed.',
                 );
@@ -368,7 +464,7 @@ export function RuntimeEvidencePanel({
           </button>
         </fieldset>
       </details>
-      <details>
+      <details id={`${panelId}-evidence`}>
         <summary>Submit qualification or checkpoint evidence</summary>
         <fieldset disabled={busy || !canMutate || !view.current}>
           <label className="field">

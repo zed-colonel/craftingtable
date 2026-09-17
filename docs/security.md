@@ -320,3 +320,12 @@ approval transfers. Exact revised plan activation is part of the reviewed transa
 map/runtime context, uses enforcing pinned builds and rechecks authority before operator-only promotion.
 Shared normalized-definition validation bounds and hashes snapshots for future authoring transports.
 Publication and remote qualification remain separate evidence authorities. See ADR-049.
+
+Local runtime discovery is an authenticated, CSRF/origin-protected owner/editor preview.
+It resolves only registered repository refs and runs bounded Cargo/rustc version probes through
+the existing process supervisor, with toolchain auto-installation disabled. Captured workstation,
+imported source-manifest and toolchain inputs accompany their SHA-256 fingerprints. These are
+local development observations, not test results, qualification attestations or execution grants.
+Explicit save checks their hashes, rejects external qualification kinds for discovery captures,
+and rechecks exact pin commits, binding and generation. No approval, adoption or launch occurs
+through discovery. Later native/Kata evidence retains its existing independent review gates.

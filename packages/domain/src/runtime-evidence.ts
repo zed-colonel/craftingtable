@@ -19,6 +19,13 @@ export interface QualificationEnvironment {
   readonly fixtureDigest: string;
   readonly toolchainDigest: string;
   readonly authorization: string;
+  /** Readable inputs to the three fingerprints; local observations are not qualification. */
+  readonly discovery?: {
+    readonly kind: 'local-discovery-v1';
+    readonly environment: string;
+    readonly fixtures: string;
+    readonly toolchains: string;
+  };
 }
 export interface RuntimeGeneration {
   readonly id: string;

@@ -1,5 +1,7 @@
 import {
   configureRuntimeSchema,
+  discoverRuntimeRequestSchema,
+  discoverRuntimeResponseSchema,
   evidenceSubmissionRequestSchema,
   evidenceDecisionRequestSchema,
   runtimeEvidenceViewSchema,
@@ -43,7 +45,7 @@ export function registerRuntimeEvidenceRoutes(
         .send(JSON.stringify(record));
     },
   );
-  for (const action of ['configure', 'inspect', 'submit', 'decide'] as const)
+  for (const action of ['configure', 'inspect', 'discover', 'submit', 'decide'] as const)
     app.post<{ Params: { workspaceId: string; id: string } }>(
       `${base}/${action}`,
       { bodyLimit: 5 * 1024 * 1024 },
@@ -52,6 +54,21 @@ export function registerRuntimeEvidenceRoutes(
           ws = workspaceIdSchema.safeParse(request.params.workspaceId);
         if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
         const id = request.params.id;
+        if (action === 'discover') {
+          const b = discoverRuntimeRequestSchema.safeParse(request.body);
+          if (!b.success)
+            return sendApiError(
+              reply,
+              400,
+              'invalid-request',
+              'Choose the current binding and repository refs.',
+            );
+          return noStore(reply).send(
+            discoverRuntimeResponseSchema.parse(
+              await service.discover(context, ws.data, id, b.data),
+            ),
+          );
+        }
         if (action === 'inspect') {
           const b = inspectDependencyRequestSchema.safeParse(request.body);
           if (!b.success)

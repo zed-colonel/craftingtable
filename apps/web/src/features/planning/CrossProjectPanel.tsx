@@ -23,6 +23,8 @@ import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js
 import { buildPath } from '../../lib/route.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
+import { revealElement } from '../../lib/reveal-element.js';
+import { DependencyGraph, PhaseRequirements, phaseLabel } from './DependencyRequirements.js';
 export function CrossProjectPanel({
   workspaceId,
   definitionId,
@@ -41,6 +43,13 @@ export function CrossProjectPanel({
   roadmap?: Roadmap;
 }) {
   const saved = roadmap?.definition.crossProject;
+  const panelKey = roadmap ? `roadmap-${roadmap.id}` : definitionId;
+  const runtimePanelId = `runtime-evidence-${panelKey}`;
+  const nodeId = (key: string) => `map-node-${panelKey}-${encodeURIComponent(key)}`;
+  const trace = (key: string) => {
+    setFocus(key);
+    revealElement(`map-focus-${panelKey}`);
+  };
   const [editingRevision, setEditingRevision] = useState(roadmap?.definition.revision);
   const staleSettings = !!roadmap && editingRevision !== roadmap.definition.revision;
   const [target, setTarget] = useState(saved?.targetId ?? ''),
@@ -84,6 +93,16 @@ export function CrossProjectPanel({
       ),
     );
   }, [workspaceId, definitionId, bindingRevision, target, selection, csrfToken]);
+  useEffect(() => {
+    const changed = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === definitionId)
+        void refresh().catch((e) =>
+          setError(e instanceof Error ? e.message : 'Could not refresh prerequisites.'),
+        );
+    };
+    window.addEventListener('craftingtable:runtime-saved', changed);
+    return () => window.removeEventListener('craftingtable:runtime-saved', changed);
+  }, [definitionId, refresh]);
   useEffect(() => {
     let live = true;
     void Promise.all([loadExecutionStatus(), loadRunProfiles(workspaceId)])
@@ -244,20 +263,35 @@ export function CrossProjectPanel({
         <br />
         {n.title}
       </p>
+      <p>{phaseLabel(n)}</p>
       <p>
         {n.status}
         {n.priority && selection === 'prioritize-full' ? ' · Target priority' : ''}
       </p>
-      <div className="button-row">
-        <button type="button" onClick={() => setFocus(n.key)}>
+      <ActionBar label="Milestone actions">
+        <button type="button" className="secondary-button" onClick={() => trace(n.key)}>
           Trace requirements
         </button>
         {n.workItemId && <a href={scopeLink(n.workItemId)}>Open work item / advance scope</a>}
         {n.action === 'evidence' && (
-          <a href={`#runtime-evidence-${definitionId}`}>Submit or review checkpoint evidence</a>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => revealElement(`${runtimePanelId}-evidence`)}
+          >
+            Submit or review checkpoint evidence
+          </button>
         )}
-        {n.action === 'adopt' && <a href={`#map-adoption-${definitionId}`}>Review map decisions</a>}
-      </div>
+        {n.action === 'adopt' && (
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => revealElement(`map-adoption-${panelKey}`)}
+          >
+            Review map decisions
+          </button>
+        )}
+      </ActionBar>
       {n.blockers.length > 0 && (
         <details>
           <summary>{n.blockers.length} waiting requirements</summary>
@@ -381,15 +415,86 @@ export function CrossProjectPanel({
             ]}
           />
           {actions}
+          <ActionBar label="Roadmap setup">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => revealElement(`map-adoption-${panelKey}`)}
+            >
+              Review scheduling decisions
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => revealElement(`${runtimePanelId}-setup`)}
+            >
+              Configure dependencies
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => revealElement(`map-readiness-${panelKey}`)}
+            >
+              Preview launch readiness
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => revealElement(`map-settings-${panelKey}`)}
+            >
+              Review automation settings
+            </button>
+          </ActionBar>
           {view.blockers.length > 0 && (
             <div>
               <h4>Before Start</h4>
-              <Reasons
-                reasons={view.blockers.map((b) => ({ kind: 'attention' as const, text: b }))}
-              />
+              {view.setupRequirements?.length ? (
+                <ul>
+                  {view.setupRequirements.map((requirement) => (
+                    <li key={`${requirement.kind}:${requirement.message}`}>
+                      <p>{requirement.message}</p>
+                      {requirement.kind === 'adoption' && (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => revealElement(`map-adoption-${panelKey}`)}
+                        >
+                          Resolve map adoption
+                        </button>
+                      )}
+                      {requirement.kind === 'runtime' && (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => revealElement(`${runtimePanelId}-setup`)}
+                        >
+                          Resolve dependency setup
+                        </button>
+                      )}
+                      {requirement.kind === 'binding' && (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() =>
+                            revealElement(
+                              roadmap ? `map-amendments-${roadmap.id}` : 'cross-project-imports',
+                            )
+                          }
+                        >
+                          {roadmap ? 'Review binding reconciliation' : 'Review exact plan bindings'}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Reasons
+                  reasons={view.blockers.map((b) => ({ kind: 'attention' as const, text: b }))}
+                />
+              )}
             </div>
           )}
-          <details id={`map-adoption-${definitionId}`}>
+          <details id={`map-adoption-${panelKey}`}>
             <summary>
               Map decision adoption · {view.decisions.filter((d) => d.adopted).length}/
               {view.decisions.length} approved
@@ -430,6 +535,7 @@ export function CrossProjectPanel({
                   </label>
                   <button
                     type="button"
+                    className="secondary-button"
                     disabled={busy || !approved || !rationale.trim()}
                     onClick={() => void adopt()}
                   >
@@ -444,7 +550,7 @@ export function CrossProjectPanel({
               </p>
             ))}
           </details>
-          <details>
+          <details id={`map-settings-${panelKey}`}>
             <summary>
               {roadmap ? 'Queued settings and overrides' : 'Roadmap agent and automation settings'}
             </summary>
@@ -593,6 +699,7 @@ export function CrossProjectPanel({
                   </label>
                   <button
                     type="button"
+                    className="secondary-button"
                     disabled={
                       !editing ||
                       busy ||
@@ -661,6 +768,7 @@ export function CrossProjectPanel({
                         />
                         <button
                           type="button"
+                          className="secondary-button"
                           disabled={!editing || busy}
                           onClick={() => setOverrides(overrides.filter((_, j) => i !== j))}
                         >
@@ -674,9 +782,13 @@ export function CrossProjectPanel({
             )}
           </details>
           <details open={!roadmap}>
-            <summary>Selected scope preview · project lanes</summary>
+            <summary>Selected work by project</summary>
+            <p>
+              Grouped by ownership, not execution order. Projects can progress together; start,
+              merge, and verification requirements determine when each slice advances.
+            </p>
             <div className="cross-map-lanes">
-              {[...new Set(included.map((n) => n.repository))].map((repo) => (
+              {[...new Set(included.map((n) => n.repository))].sort().map((repo) => (
                 <section key={repo} className="cross-map-lane">
                   <h4>{repo.toUpperCase()}</h4>
                   {[
@@ -693,6 +805,15 @@ export function CrossProjectPanel({
                           ? 'parent acceptance included'
                           : 'partial slices only; parent acceptance excluded'}
                       </summary>
+                      <PhaseRequirements
+                        nodes={view.nodes}
+                        roots={included.filter(
+                          (n) =>
+                            n.parentId === parent ||
+                            (n.kind === 'work_item' && n.sourceId === parent),
+                        )}
+                        onTrace={trace}
+                      />
                       {included
                         .filter(
                           (n) =>
@@ -700,7 +821,11 @@ export function CrossProjectPanel({
                             (n.parentId === parent ||
                               (n.kind === 'work_item' && n.sourceId === parent)),
                         )
-                        .map(nodeCard)}
+                        .map((n) => (
+                          <div key={n.key} id={nodeId(n.key)}>
+                            {nodeCard(n)}
+                          </div>
+                        ))}
                     </details>
                   ))}
                   <details>
@@ -714,7 +839,11 @@ export function CrossProjectPanel({
                     </summary>
                     {included
                       .filter((n) => n.repository === repo && n.kind === 'checkpoint')
-                      .map(nodeCard)}
+                      .map((n) => (
+                        <div key={n.key} id={nodeId(n.key)}>
+                          {nodeCard(n)}
+                        </div>
+                      ))}
                   </details>
                 </section>
               ))}
@@ -730,7 +859,51 @@ export function CrossProjectPanel({
               ))}
             </ul>
           </details>
-          <div className="cross-map-focus">
+          <details id={`map-readiness-${panelKey}`}>
+            <summary>
+              Launch readiness ·{' '}
+              {
+                included.filter(
+                  (n) =>
+                    n.kind === 'slice' &&
+                    n.state === 'started' &&
+                    !n.satisfied &&
+                    n.blockers.length === 0,
+                ).length
+              }{' '}
+              slices have clear phase gates
+            </summary>
+            <p>
+              Eligibility is a current snapshot, not a promise of simultaneous launch. Before Start
+              requirements, configured concurrency, resource availability and earlier queued work
+              still apply.
+            </p>
+            {included
+              .filter((n) => n.kind === 'slice' && n.state === 'started' && !n.satisfied)
+              .map((n) => (
+                <div key={n.key}>
+                  <button type="button" className="dependency-link" onClick={() => trace(n.key)}>
+                    {n.sourceId}
+                  </button>
+                  <p>
+                    {n.blockers.length
+                      ? `${n.blockers.length} waiting requirements`
+                      : 'Start phase gates clear'}
+                  </p>
+                  {n.blockers.length > 0 && (
+                    <details>
+                      <summary>Why this slice waits</summary>
+                      <ul>
+                        {n.blockers.map((b) => (
+                          <li key={b}>{view.nodes.find((v) => v.key === b)?.title ?? b}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              ))}
+          </details>
+          <div className="cross-map-focus" id={`map-focus-${panelKey}`}>
             <label className="field">
               Focused dependency view
               <select value={focus} onChange={(e) => setFocus(e.target.value)}>
@@ -748,6 +921,13 @@ export function CrossProjectPanel({
                   {selected.sourceId} · required state: {selected.state}
                 </h4>
                 <p>{selected.status}</p>
+                <h5>{phaseLabel(selected)}</h5>
+                <DependencyGraph
+                  nodes={view.nodes}
+                  selected={selected}
+                  onTrace={trace}
+                  onLocate={(key) => revealElement(nodeId(key))}
+                />
                 {selected.requirements.length === 0 && (
                   <p>
                     No graph prerequisites. Review its phase requirements and evidence obligations.

@@ -9186,3 +9186,102 @@ it('activates only the reviewed replacement plan while preserving admitted histo
     ),
   ).toBe(true);
 });
+
+it('discovers reviewable local setup without saving, preserves exact pins, and rejects stale or altered captures', async () => {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    checkpoints: [],
+    repositories: [
+      { ...source.repositories[0]!, id: 'local' },
+      { ...source.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
+    ],
+    work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
+    aq_baseline_binding: { ...source.aq_baseline_binding!, repository: 'provider' },
+  }));
+  const provider = fixtureRepository();
+  writeFileSync(
+    join(provider, 'Cargo.toml'),
+    '[package]\nname="discovery_provider"\nversion="0.2.0"\nedition="2021"\n',
+  );
+  git(['add', '.'], provider);
+  git(['commit', '-m', 'provider'], provider);
+  const registered = await f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${f.state.workspaceId}/repositories`,
+    headers: mutationHeaders(f.state),
+    payload: { rootPath: provider, displayName: 'Discovery fixture' },
+  });
+  const repository = registerSourceRepositoryResponseSchema.parse(registered.json()).repository;
+  const { workspaceId: ws, context } = f.state,
+    storage = context.storage;
+  const definitionId = f.parentScope.definitionId;
+  const binding = storage.imports.bindings(ws, definitionId)[0]!;
+  storage.imports.addBindings({
+    ...binding,
+    revision: 2,
+    bindings: [
+      ...binding.bindings,
+      {
+        alias: 'provider',
+        repositoryId: repository.id,
+        sourceArtifacts: [],
+        workItems: [],
+      },
+    ],
+  });
+  const base = `/api/workspaces/${ws}/concurrency-definitions/${definitionId}/runtime`;
+  const payload = { bindingRevision: 2, refs: [] };
+  const forbidden = await context.app.inject({
+    method: 'POST',
+    url: `${base}/discover`,
+    headers: { cookie: f.state.cookie },
+    payload,
+  });
+  expect(forbidden.statusCode).toBe(403);
+  const response = await context.app.inject({
+    method: 'POST',
+    url: `${base}/discover`,
+    headers: mutationHeaders(f.state),
+    payload,
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const { discoverRuntimeResponseSchema } = await import('@craftingtable/contracts');
+  const { configuration } = discoverRuntimeResponseSchema.parse(response.json());
+  expect(configuration.pins[0]).toMatchObject({
+    alias: 'provider',
+    ref: 'main',
+    expectedCommitSha: git(['rev-parse', 'HEAD'], provider).trim(),
+    conformanceRevision: '16',
+  });
+  expect(configuration.consumers).toEqual([{ alias: 'local', upstreams: ['provider'] }]);
+  const env = configuration.environments[0]!;
+  expect(env.kind).toBe('local-development');
+  expect(env.discovery?.toolchains).toContain('rustc');
+  expect(storage.runtimeEvidence.generations(ws, definitionId, 2)).toHaveLength(0);
+  const svc = context.services.runtimeEvidenceService;
+  await expect(
+    svc.configure(f.auth, ws, definitionId, {
+      ...configuration,
+      environments: [{ ...env, identityDigest: 'a'.repeat(64) }],
+    }),
+  ).rejects.toThrow('must match');
+  await expect(
+    svc.configure(f.auth, ws, definitionId, {
+      ...configuration,
+      environments: [{ ...env, kind: 'external-kata' }],
+    }),
+  ).rejects.toThrow('cannot qualify external');
+  const saved = await svc.configure(f.auth, ws, definitionId, configuration);
+  expect(saved.current?.environments[0]?.discovery).toEqual(env.discovery);
+  await expect(svc.configure(f.auth, ws, definitionId, configuration)).rejects.toThrow(
+    'Runtime or plan binding changed',
+  );
+  const draft = await svc.discover(f.auth, ws, definitionId, payload);
+  git(['commit', '--allow-empty', '-m', 'Upstream moved after discovery'], provider);
+  await expect(svc.configure(f.auth, ws, definitionId, draft.configuration)).rejects.toThrow(
+    'advanced before saving',
+  );
+  storage.imports.addBindings({ ...storage.imports.bindings(ws, definitionId)[0]!, revision: 3 });
+  await expect(svc.discover(f.auth, ws, definitionId, payload)).rejects.toThrow('binding changed');
+  expect(storage.imports.adoptions(ws, definitionId)).toHaveLength(0);
+});

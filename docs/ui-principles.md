@@ -225,3 +225,11 @@ Show immutable decision history and links to preserved attempts. Applying does n
 finalization readiness counts all original parents and links to the established staged controls; partial
 target progress, promotion and publication stay separate. Keep these controls usable as a wrapping phone
 form with disclosure panels for detailed impact.
+
+Cross-project startup requirements have direct resolution actions. Local setup proposes exact
+pins and required consumer relationships, captures fingerprint inputs for review and requires
+explicit saving. Keep external qualification evidence separate. Selected work is grouped by
+project ownership; physical placement never implies execution order. Show cross-project
+requirements by phase, including inherited gates, and expandable checkpoint-to-provider chains.
+Dependency navigation opens collapsed ancestors, scrolls and moves keyboard focus. Launch previews
+show current phase eligibility and waits without promising dispatch ahead of resource/capacity checks.

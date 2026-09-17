@@ -271,6 +271,29 @@ export function crossProjectState(
       createdByUserId: a.createdByUserId,
       bindingRevision: a.bindingRevision,
     })),
+    setupRequirements: [
+      ...bindingIssues(tx, ws, d.id, revision).map((message) => ({
+        kind: 'binding' as const,
+        message,
+      })),
+      ...(!mapAdopted(tx, ws, d.id, revision)
+        ? [
+            {
+              kind: 'adoption' as const,
+              message: 'Review and adopt the scheduling decisions for these exact plans.',
+            },
+          ]
+        : []),
+      ...(!activeRuntime(tx, ws, d.id, revision) &&
+      d.source.repositories.some((r) => r.role === 'implemented_upstream')
+        ? [
+            {
+              kind: 'runtime' as const,
+              message: 'Discover and save the pinned dependency environment.',
+            },
+          ]
+        : []),
+    ],
     blockers: [
       ...bindingIssues(tx, ws, d.id, revision),
       ...(!mapAdopted(tx, ws, d.id, revision)

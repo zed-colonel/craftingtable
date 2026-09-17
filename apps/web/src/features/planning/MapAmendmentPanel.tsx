@@ -126,6 +126,7 @@ export function MapAmendmentPanel({
     });
   return (
     <Section
+      id={`map-amendments-${roadmap.id}`}
       className="runtime-evidence"
       title="Planning amendments and reconciliation"
       label="Planning amendments and finalization"

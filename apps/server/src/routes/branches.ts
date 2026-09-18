@@ -1,5 +1,8 @@
 import {
   createWorktreeResponseSchema,
+  repositoryPolicyEvidenceSchema,
+  saveRepositoryPolicyRequestSchema,
+  gitBranchNameSchema,
   planBranchSettingsResponseSchema,
   planVersionIdSchema,
   recordIntegrationEvidenceRequestSchema,
@@ -24,6 +27,45 @@ export function registerBranchRoutes(
   branches: BranchService,
   config: ServerConfig,
 ) {
+  app.get<{
+    Params: { workspaceId: string; planVersionId: string };
+    Querystring: { freezeBranch?: string };
+  }>(
+    '/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
+    async (request, reply) => {
+      const context = authenticate(request, auth);
+      const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
+      const freeze = gitBranchNameSchema.optional().safeParse(request.query.freezeBranch);
+      if (!ws.success || !plan.success)
+        return sendApiError(reply, 404, 'not-found', 'Plan not found');
+      if (!freeze.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid freeze branch');
+      return noStore(reply).send(
+        repositoryPolicyEvidenceSchema.parse(
+          await branches.policyPreview(context, ws.data, plan.data, freeze.data),
+        ),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; planVersionId: string } }>(
+    '/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const plan = planVersionIdSchema.safeParse(request.params.planVersionId);
+      const input = saveRepositoryPolicyRequestSchema.safeParse(request.body);
+      if (!ws.success || !plan.success)
+        return sendApiError(reply, 404, 'not-found', 'Plan not found');
+      if (!input.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid repository policy');
+      return noStore(reply).send(
+        repositoryPolicyEvidenceSchema.parse(
+          await branches.savePolicy(context, ws.data, plan.data, input.data),
+        ),
+      );
+    },
+  );
   app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
     async (request, reply) => {

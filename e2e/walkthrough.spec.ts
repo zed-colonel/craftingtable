@@ -244,6 +244,17 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     });
     await branches.getByRole('button', { name: 'Save branch settings' }).click();
     await expect(branches.getByText('revision', { exact: true })).toBeVisible();
+    await walk.capture('repository-policy-form', 'Project · adopt repository policy', async (p) => {
+      await p.getByRole('button', { name: 'Record repository policy', exact: true }).click();
+      await expect(p.getByRole('form', { name: 'Adopt repository policy' })).toBeVisible();
+    });
+    await page
+      .getByRole('checkbox', {
+        name: 'I adopt this interpretation and the displayed freeze, where selected, for this plan.',
+      })
+      .check();
+    await page.getByRole('button', { name: 'Adopt repository policy', exact: true }).click();
+    await expect(page.getByText(/Adopted revision 1/)).toBeVisible();
     await walk.capture('project', 'Project with branches configured');
 
     // ---- Plan version and finalization setup ---------------------------------------------

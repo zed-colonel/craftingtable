@@ -62,6 +62,7 @@ export interface PlanBranchSettings {
 }
 
 export interface ReviewBranchContext {
+  readonly repositoryPolicyVersion?: number;
   readonly headSha: string;
   readonly targetBranch: string;
   readonly targetSha: string;

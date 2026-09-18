@@ -298,6 +298,7 @@ export const agentRunSummarySchema = z
         targetBranch: gitBranchNameSchema,
         targetSha: gitShaSchema,
         worktreeVersion: positiveSafeInteger,
+        repositoryPolicyVersion: positiveSafeInteger.optional(),
       })
       .optional(),
     backendSessionId: z.string().min(1).max(200).optional(),

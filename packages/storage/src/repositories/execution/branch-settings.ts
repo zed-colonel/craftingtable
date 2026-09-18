@@ -1,4 +1,5 @@
 import type {
+  RepositoryPolicy,
   PlanBranchSettings,
   PlanVersionId,
   SourceRepositoryId,
@@ -9,6 +10,8 @@ import type {
 import type Database from 'better-sqlite3';
 
 export interface PlanBranchSettingsRepository {
+  policy(workspaceId: WorkspaceId, planVersionId: PlanVersionId): RepositoryPolicy | undefined;
+  savePolicy(policy: RepositoryPolicy, expectedVersion: number): boolean;
   list(): readonly PlanBranchSettings[];
   evidence(
     workspaceId: WorkspaceId,
@@ -28,6 +31,27 @@ export interface PlanBranchSettingsRepository {
 }
 export class SqlitePlanBranchSettingsRepository implements PlanBranchSettingsRepository {
   constructor(private readonly database: Database.Database) {}
+  policy(workspaceId: WorkspaceId, planVersionId: PlanVersionId): RepositoryPolicy | undefined {
+    const row = this.database
+      .prepare(
+        'SELECT state_json FROM plan_repository_policies WHERE workspace_id = ? AND plan_version_id = ? ORDER BY version DESC LIMIT 1',
+      )
+      .get(workspaceId, planVersionId) as { state_json: string } | undefined;
+    return row ? (JSON.parse(row.state_json) as RepositoryPolicy) : undefined;
+  }
+  savePolicy(policy: RepositoryPolicy, expectedVersion: number): boolean {
+    if (
+      (this.policy(policy.workspaceId, policy.planVersionId)?.version ?? 0) !== expectedVersion ||
+      policy.version !== expectedVersion + 1
+    )
+      return false;
+    this.database
+      .prepare(
+        'INSERT INTO plan_repository_policies (workspace_id, plan_version_id, version, state_json) VALUES (?, ?, ?, ?)',
+      )
+      .run(policy.workspaceId, policy.planVersionId, policy.version, JSON.stringify(policy));
+    return true;
+  }
   list(): readonly PlanBranchSettings[] {
     return (
       this.database

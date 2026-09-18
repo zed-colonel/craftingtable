@@ -1,5 +1,7 @@
 import {
   createWorktreeResponseSchema,
+  repositoryPolicyEvidenceSchema,
+  type SaveRepositoryPolicyRequest,
   planBranchSettingsResponseSchema,
   type SavePlanBranchSettingsRequest,
   worktreeBranchStatusResponseSchema,
@@ -64,3 +66,28 @@ export function recordIntegrationEvidence(
     mutation(csrfToken, { commitSha }),
   );
 }
+
+export function loadRepositoryPolicy(
+  workspaceId: WorkspaceId,
+  planVersionId: PlanVersionId,
+  freezeBranch?: string,
+) {
+  return request(
+    `${policyUrl(workspaceId, planVersionId)}${freezeBranch ? `?freezeBranch=${encode(freezeBranch)}` : ''}`,
+    repositoryPolicyEvidenceSchema,
+  );
+}
+export function saveRepositoryPolicy(
+  workspaceId: WorkspaceId,
+  planVersionId: PlanVersionId,
+  input: SaveRepositoryPolicyRequest,
+  csrfToken: string,
+) {
+  return request(
+    policyUrl(workspaceId, planVersionId),
+    repositoryPolicyEvidenceSchema,
+    mutation(csrfToken, input),
+  );
+}
+const policyUrl = (workspaceId: WorkspaceId, planVersionId: PlanVersionId) =>
+  `/api/workspaces/${encode(workspaceId)}/plan-versions/${encode(planVersionId)}/repository-policy`;

@@ -20,3 +20,5 @@ export * from './workspace-event.js';
 
 export * from './execution-scope.js';
 export * from './runtime-evidence.js';
+
+export * from './repository-policy.js';

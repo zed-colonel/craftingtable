@@ -18,6 +18,16 @@ it is mergeable.
   to an existing project. Use **Remove from agenda** on an unstarted work item to return it
   to Proposed without recording a completion. Choose **Make active** to use it when prior work is idle, then
   configure that new version's repository/branches. Original ZIPs remain downloadable.
+- **Repository policy and transition evidence.** Under **Repository & branches → Record repository
+  policy**, adopt the local integration interpretation, an optional frozen experimental branch
+  at its observed commit, and the separately due remote-publication obligation. Adoption creates
+  an immutable operator record; it does not configure hosting protections, move Git refs, or start
+  agents. Every run receives fresh local observations and the policy, with explicit limits on what
+  is verified. Prior operator guidance accompanies related slices, independent verification,
+  parent acceptance, and finalization. Policy changes require fresh review/acceptance evidence;
+  frozen-branch drift blocks fresh review until resolved. Ordinary controller merges cannot target
+  a frozen branch; final promotion still needs explicit operator approval. These typed records and
+  commands are also the integration point for future planning interfaces.
 - **Cross-project map previews.** **Roadmaps → Import concurrency map** accepts v0.3 ZIPs,
   checks source documents and phase dependencies, and saves an inactive draft. Choose exact
   WI/EXO plan versions and the registered upstream repository, then **Save exact bindings**.

@@ -24,6 +24,7 @@ export interface BriefPlanDocument {
 }
 
 export interface BriefInput {
+  readonly repositoryPolicyGuidance?: string;
   readonly executionScope?: {
     readonly identity: import('@craftingtable/domain').ExecutionScope;
     readonly title: string;
@@ -186,6 +187,10 @@ export function composeBrief(input: BriefInput): string {
       : `# Work item ${workItem.sourceId}: ${workItem.title}`,
   );
   sections.push(`Project: ${input.projectName}\nRole: ${input.role}`);
+  if (input.repositoryPolicyGuidance)
+    sections.push(
+      `## Repository policy and operator decisions\n\n${input.repositoryPolicyGuidance}`,
+    );
   if (input.executionScope) {
     const s = input.executionScope;
     sections.push(

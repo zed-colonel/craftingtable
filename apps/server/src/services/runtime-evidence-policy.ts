@@ -453,6 +453,14 @@ export function currentScopeReceipt(
     tx.imports.bindings(ws, p.scope.definitionId)[0]?.revision !== p.scope.bindingRevision
   )
     return false;
+  const item = tx.planning.workItems.find(ws, p.workItemId);
+  const policy = item && tx.execution.branchSettings.policy(ws, item.planVersionId);
+  if (
+    policy &&
+    tx.execution.runs.find(ws, p.reviewRunId)?.reviewBranchContext?.repositoryPolicyVersion !==
+      policy.version
+  )
+    return false;
   const runtime = activeRuntime(tx, ws, p.scope.definitionId, p.scope.bindingRevision);
   if (!runtime) return true;
   const run = tx.runtimeEvidence.run(ws, p.reviewRunId);

@@ -1,3 +1,4 @@
+import { RepositoryPolicyPanel } from './RepositoryPolicyPanel.js';
 import type { PlanBranchSettingsResponse, SourceRepositorySummary } from '@craftingtable/contracts';
 import type { PlanVersionId, SourceRepositoryId, WorkspaceId } from '@craftingtable/domain';
 import { useEffect, useId, useState } from 'react';
@@ -164,6 +165,16 @@ export function PlanBranchPanel({
           Choose a repository and integration branch before creating worktrees. Imported plan
           documents remain unchanged.
         </p>
+      )}
+      {settings && (
+        <RepositoryPolicyPanel
+          workspaceId={workspaceId}
+          planVersionId={planVersionId}
+          csrfToken={csrfToken}
+          editable={editable}
+          refreshToken={refreshToken + reload}
+          onChanged={onChanged}
+        />
       )}
       <About label="About branch settings">
         <p>

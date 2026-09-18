@@ -75,6 +75,8 @@ const EXPECTED_ROUTES = [
   'GET /api/workspaces/:workspaceId/work-items/:workItemId',
   'GET /api/workspaces/:workspaceId/work-items/:workItemId/execution',
   'GET /api/workspaces/:workspaceId/worktrees/:worktreeId/diff',
+  'GET /api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
+  'POST /api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
   'GET /api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
   'POST /api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
   'GET /api/workspaces/:workspaceId/worktrees/:worktreeId/branch-status',

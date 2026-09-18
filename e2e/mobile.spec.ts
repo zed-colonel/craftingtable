@@ -127,6 +127,22 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
       .selectOption(TARGET);
     await fitsPhone(page);
     await branches.getByRole('button', { name: 'Save branch settings' }).click();
+    await branches.getByRole('button', { name: 'Record repository policy', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: 'Adopt repository policy', exact: true }),
+    ).toBeDisabled();
+    await fitsPhone(page);
+    await page
+      .getByRole('form', { name: 'Adopt repository policy' })
+      .screenshot({ path: info.outputPath('phone-repository-policy.png') });
+    await page
+      .getByRole('checkbox', {
+        name: 'I adopt this interpretation and the displayed freeze, where selected, for this plan.',
+      })
+      .check();
+    await page.getByRole('button', { name: 'Adopt repository policy', exact: true }).click();
+    await expect(page.getByText(/Adopted revision 1/)).toBeVisible();
+
     await expect(branches.getByText(TARGET, { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'AQ-01', exact: true }).click();
     await page.getByRole('button', { name: 'Admit into agenda' }).click();

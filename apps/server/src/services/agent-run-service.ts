@@ -1,3 +1,5 @@
+import { operatorDecisions } from './operator-decisions.js';
+import { worktreePlan, REPOSITORY_POLICY_GUIDANCE } from './repository-policy.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
@@ -753,7 +755,67 @@ export class AgentRunService {
           path,
         });
       }
+      const policyPlan = worktreePlan(this.storage, prepared.worktree);
+      if (policyPlan && this.branches) {
+        const evidence = await this.branches.policyEvidence(workspaceId, policyPlan);
+        if (
+          evidence.policy &&
+          (evidence.policy.repositoryId !== prepared.worktree.repositoryId ||
+            (!prepared.worktree.planVersionId &&
+              evidence.policy.integrationBranch !== prepared.worktree.integrationBranch))
+        )
+          throw new ExecutionRequestError(
+            'conflict',
+            'The worktree does not match the adopted repository policy.',
+          );
+        if (evidence.policy && evidence.issues.length)
+          throw new ExecutionRequestError('conflict', evidence.issues.join(' '));
+        if (
+          reviewBranchContext &&
+          evidence.policy?.version !== reviewBranchContext.repositoryPolicyVersion
+        )
+          throw new ExecutionRequestError(
+            'conflict',
+            'Repository policy changed during review preparation. Start a fresh review.',
+          );
+        const path = join(planDirectory, 'craftingtable-repository-policy.json');
+        writeFileSync(path, JSON.stringify(evidence, null, 2), { mode: 0o600 });
+        planDocuments.push({
+          filename: 'craftingtable-repository-policy.json',
+          role: 'supporting',
+          path,
+        });
+      }
+      if (policyPlan) {
+        const decisions = scope
+          ? scopeEvidenceLedger(this.storage, scope).operatorDecisions
+          : operatorDecisions(
+              this.storage,
+              workspaceId,
+              prepared.worktree.workItemId
+                ? [prepared.worktree.workItemId]
+                : this.storage.planning.workItems
+                    .listForVersion(workspaceId, policyPlan)
+                    .map((w) => w.id),
+            );
+        const path = join(planDirectory, 'craftingtable-operator-decisions.json');
+        writeFileSync(
+          path,
+          JSON.stringify(
+            { kind: 'operator-decisions-v1', planVersionId: policyPlan, decisions },
+            null,
+            2,
+          ),
+          { mode: 0o600 },
+        );
+        planDocuments.push({
+          filename: 'craftingtable-operator-decisions.json',
+          role: 'supporting',
+          path,
+        });
+      }
       const composedBrief = composeBrief({
+        repositoryPolicyGuidance: REPOSITORY_POLICY_GUIDANCE,
         ...(scope ? { executionScope: scopeBrief(scope) } : {}),
         ...(prepared.worktree.planVersionId &&
         input.role === 'review' &&

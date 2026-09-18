@@ -1,3 +1,4 @@
+import { operatorDecisions } from './operator-decisions.js';
 import { integratedSlice, amendmentHoldingScope } from './scope-lineage.js';
 import { adoptedDecisions, mapAdopted, scopeReviewerRoles } from './map-adoption-policy.js';
 import {
@@ -621,6 +622,15 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
     evidenceProducers: [...producers],
     cases: scopeCases(r),
     runtime: activeRuntime(tx, r.item.workspaceId, r.definition.id, r.scope.bindingRevision),
+    operatorDecisions: operatorDecisions(
+      tx,
+      r.item.workspaceId,
+      bindings?.bindings
+        .flatMap((b) => b.workItems)
+        .filter((w) => parentIds.has(w.sourceId))
+        .map((w) => w.workItemId) ?? [],
+      r.scope,
+    ),
     acceptedExternalEvidence: tx.runtimeEvidence
       .submissions(r.item.workspaceId, r.definition.id)
       .filter(

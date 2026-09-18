@@ -1,7 +1,13 @@
+import { operatorDecisions } from './services/operator-decisions.js';
 import { PLAN_REQUIREMENTS, PLAN_CRITERIA } from './services/plan-acceptance-policy.js';
 import { acceptedEvidence } from './services/runtime-evidence-policy.js';
 import { randomUUID } from 'node:crypto';
-import { resolveScope, scopeRequirements, scopeCases } from './services/execution-scope.js';
+import {
+  resolveScope,
+  scopeRequirements,
+  scopeCases,
+  scopeEvidenceLedger,
+} from './services/execution-scope.js';
 import type { ExecutionScope } from '@craftingtable/domain';
 import { execFileSync } from 'node:child_process';
 import {
@@ -10406,3 +10412,122 @@ it.each([false, true])(
     }
   },
 );
+
+it('adopts immutable repository policy, packages fresh evidence, and expires prior review approval', async () => {
+  const state = await ready();
+  const root = fixtureRepository();
+  git(['branch', 'revision'], root);
+  const { worktree } = await registerAndWorktree(state, root, 'revision');
+  const path = 'plan-versions/version-1/repository-policy';
+  const preview = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${state.workspaceId}/${path}`,
+    headers: { cookie: state.cookie },
+  });
+  expect(preview.statusCode, preview.body).toBe(200);
+  expect(preview.json().policy).toBeUndefined();
+  const input = {
+    expectedVersion: 0,
+    expectedBranchSettingsVersion: 1,
+    controlMode: 'controller-local',
+    experimentalFreeze: preview.json().proposedFreeze,
+    interpretation: 'Use controller gates now; preserve the experimental baseline.',
+    publicationRequirement: 'Verify remote protections before first publication.',
+  };
+  await runToFinish(state, worktree.id, { role: 'review', instructions: 'VERDICT-MERGEABLE' });
+  const saved = await branchCommand(state, path, input);
+  expect(saved.statusCode, saved.body).toBe(200);
+  expect(saved.json()).toMatchObject({
+    settingsVersion: 1,
+    issues: [],
+    policy: { version: 1, adoptedByUserId: state.userId },
+    observedFreezeSha: git(['rev-parse', 'main'], root).trim(),
+  });
+  const branches = state.context.services.executionService.branches;
+  expect(() =>
+    branches.requirePolicyMergeTarget(state.workspaceId, worktree.repositoryId, 'main'),
+  ).toThrow('frozen by repository policy');
+  expect(() =>
+    branches.requirePolicyMergeTarget(state.workspaceId, worktree.repositoryId, 'revision'),
+  ).not.toThrow();
+  expect(() =>
+    branches.requirePolicyMergeTarget(state.workspaceId, worktree.repositoryId, 'main', true),
+  ).not.toThrow();
+  expect((await branchCommand(state, path, input)).statusCode).toBe(409);
+  expect((await merge(state, worktree.id)).statusCode).toBe(409);
+  const review = await runToFinish(state, worktree.id, {
+    role: 'review',
+    instructions: 'VERDICT-MERGEABLE',
+  });
+  const run = state.context.storage.execution.runs.find(state.workspaceId, review)!;
+  expect(run.reviewBranchContext?.repositoryPolicyVersion).toBe(1);
+  const evidencePath = run.brief.match(/`([^`]+\/craftingtable-repository-policy.json)`/)?.[1];
+  expect(evidencePath).toBeTruthy();
+  const evidence = JSON.parse(readFileSync(evidencePath!, 'utf8'));
+  expect(evidence.policy).toMatchObject({
+    version: 1,
+    experimentalFreeze: input.experimentalFreeze,
+  });
+  expect(evidence.limitations.join(' ')).toContain('No remote protection');
+  const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+  try {
+    expect(
+      reopened.execution.branchSettings.policy(state.workspaceId, asPlanVersionId('version-1'))
+        ?.version,
+    ).toBe(1);
+  } finally {
+    reopened.close();
+  }
+  const changed = await branchCommand(state, path, {
+    ...input,
+    expectedVersion: 1,
+    interpretation: 'Revised operator interpretation.',
+  });
+  expect(changed.statusCode, changed.body).toBe(200);
+  expect((await merge(state, worktree.id)).statusCode).toBe(409);
+  // A direct Git mutation is observable, not prevented by the claimed local workflow control.
+  commitFile(root, 'outside-controller.txt', 'changed baseline');
+  const drift = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${state.workspaceId}/${path}`,
+    headers: { cookie: state.cookie },
+  });
+  expect(drift.json().issues.join(' ')).toContain('frozen experimental branch moved');
+  expect((await branchCommand(state, path, { ...input, expectedVersion: 2 })).statusCode).toBe(409);
+  expect(git(['rev-parse', 'revision'], root).trim()).toBe(input.experimentalFreeze.commitSha);
+});
+
+it('carries recorded operator guidance into related verification and acceptance scopes only', async () => {
+  const f = await slicedFixture();
+  const { state, backend } = f;
+  const tree = await scopeTree(f, f.scopes[0]!);
+  backend.replyForRequest = () => ({ resultText: '## Open questions\nWhich policy applies?' });
+  const cycle = await startCycle(state, tree.id, {
+    instructions: 'Original operator instruction: local integration controls.',
+  });
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'design question');
+  const stopped = await controlCycle(state, currentCycle(state, cycle), 'stop');
+  expect(operatorDecisions(state.context.storage, state.workspaceId, [f.second])).toEqual([]);
+  expect(
+    operatorDecisions(state.context.storage, state.workspaceId, [state.workItemId], {
+      ...f.scopes[0]!,
+      bindingRevision: 999,
+    }),
+  ).toEqual([]);
+  for (const scope of [
+    f.scopes[0]!,
+    { ...f.scopes[0]!, kind: 'slice-verification' as const },
+    f.parentScope,
+  ]) {
+    const ledger = scopeEvidenceLedger(
+      state.context.storage,
+      resolveScope(state.context.storage, state.workspaceId, state.workItemId, scope),
+    );
+    expect(ledger.operatorDecisions).toEqual([
+      expect.objectContaining({
+        sourceCycleId: stopped.id,
+        cycleInstructions: 'Original operator instruction: local integration controls.',
+      }),
+    ]);
+  }
+});

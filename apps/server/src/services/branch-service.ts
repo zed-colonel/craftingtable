@@ -1,3 +1,5 @@
+import { repositoryPolicyEvidence, worktreePlan } from './repository-policy.js';
+import type { SaveRepositoryPolicyRequest } from '@craftingtable/contracts';
 import { amendmentHoldingScope } from './scope-lineage.js';
 import { scopeAllowsEarlyDevelopment } from './execution-scope.js';
 import { randomUUID } from 'node:crypto';
@@ -229,6 +231,86 @@ export class BranchService {
     }
   }
 
+  async policyEvidence(
+    workspaceId: WorkspaceId,
+    planVersionId: PlanVersionId,
+    freezeBranch?: string,
+  ) {
+    this.plan(workspaceId, planVersionId);
+    return repositoryPolicyEvidence(
+      this.storage,
+      this.requireGit(),
+      workspaceId,
+      planVersionId,
+      this.now().toISOString(),
+      freezeBranch,
+    );
+  }
+
+  async policyPreview(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    planVersionId: PlanVersionId,
+    freezeBranch?: string,
+  ) {
+    this.workspaceService.requireAuthorized(context, workspaceId);
+    return this.policyEvidence(workspaceId, planVersionId, freezeBranch);
+  }
+
+  async savePolicy(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    planVersionId: PlanVersionId,
+    input: SaveRepositoryPolicyRequest,
+  ) {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    const plan = this.plan(workspaceId, planVersionId);
+    const settings = this.storage.execution.branchSettings.find(workspaceId, planVersionId);
+    if (!settings || settings.version !== input.expectedBranchSettingsVersion)
+      conflict('Plan branches changed; refresh before adopting policy.');
+    const repo = this.repository(workspaceId, settings.repositoryId);
+    const git = this.requireGit();
+    value(await git.resolveBranch(repo.rootPath, settings.integrationBranch));
+    if (input.experimentalFreeze) {
+      if (input.experimentalFreeze.branch === settings.integrationBranch)
+        conflict('The integration branch cannot also be the frozen experimental branch.');
+      const head = value(await git.resolveBranch(repo.rootPath, input.experimentalFreeze.branch));
+      if (head !== input.experimentalFreeze.commitSha)
+        conflict(
+          'The proposed freeze commit changed; refresh the observation before adopting policy.',
+        );
+    }
+    this.storage.transaction((tx) => {
+      this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+      if (
+        tx.execution.branchSettings.find(workspaceId, planVersionId)?.version !== settings.version
+      )
+        conflict('Plan branches changed during policy adoption; refresh.');
+      const policy = {
+        workspaceId,
+        planVersionId,
+        repositoryId: settings.repositoryId,
+        integrationBranch: settings.integrationBranch,
+        branchSettingsVersion: settings.version,
+        version: input.expectedVersion + 1,
+        controlMode: input.controlMode,
+        ...(input.experimentalFreeze ? { experimentalFreeze: input.experimentalFreeze } : {}),
+        publicationRequirement: input.publicationRequirement,
+        interpretation: input.interpretation,
+        adoptedAt: this.now().toISOString(),
+        adoptedByUserId: context.user.id,
+      };
+      if (!tx.execution.branchSettings.savePolicy(policy, input.expectedVersion))
+        conflict('Repository policy changed; refresh before adopting a new revision.');
+      this.record(tx, context, workspaceId, plan.projectId, planVersionId, 'configured', {
+        repositoryPolicyVersion: policy.version,
+        repositoryPolicy: JSON.stringify(policy),
+      });
+    });
+    this.notifier.notify();
+    return this.policyEvidence(workspaceId, planVersionId);
+  }
+
   async recordEvidence(
     context: AuthContext,
     workspaceId: WorkspaceId,
@@ -424,7 +506,23 @@ export class BranchService {
         'Review continuation found more than 100 untracked paths; inspect and classify them before resuming.',
       );
     const targetSha = value(await git.resolveBranch(repo.rootPath, targetBranch));
+    const planVersionId = worktreePlan(this.storage, worktree);
+    const policyEvidence = planVersionId
+      ? await this.policyEvidence(worktree.workspaceId, planVersionId)
+      : undefined;
+    if (
+      policyEvidence?.policy &&
+      (policyEvidence.policy.repositoryId !== worktree.repositoryId ||
+        (!worktree.planVersionId &&
+          policyEvidence.policy.integrationBranch !== worktree.integrationBranch))
+    )
+      conflict(
+        'Worktree destination differs from the adopted repository policy. Retarget or review the policy.',
+      );
+    if (policyEvidence?.policy && policyEvidence.issues.length)
+      conflict(policyEvidence.issues.join(' '));
     const context = {
+      ...(policyEvidence?.policy ? { repositoryPolicyVersion: policyEvidence.policy.version } : {}),
       headSha: state.headSha,
       targetBranch,
       targetSha,
@@ -435,7 +533,8 @@ export class BranchService {
       (baseline.headSha !== context.headSha ||
         baseline.targetSha !== context.targetSha ||
         baseline.targetBranch !== context.targetBranch ||
-        baseline.worktreeVersion !== context.worktreeVersion)
+        baseline.worktreeVersion !== context.worktreeVersion ||
+        baseline.repositoryPolicyVersion !== context.repositoryPolicyVersion)
     )
       conflict(
         'The interrupted review baseline changed. Refresh and verify the changed branches before starting a fresh review.',
@@ -464,7 +563,8 @@ export class BranchService {
       recorded.headSha !== current.headSha ||
       recorded.targetSha !== current.targetSha ||
       recorded.targetBranch !== current.targetBranch ||
-      recorded.worktreeVersion !== current.worktreeVersion
+      recorded.worktreeVersion !== current.worktreeVersion ||
+      recorded.repositoryPolicyVersion !== current.repositoryPolicyVersion
     )
       conflict('The reviewed branch context changed; update if needed and run a fresh review');
     return recorded;
@@ -505,6 +605,13 @@ export class BranchService {
         recorded?.headSha === state.headSha &&
         recorded.targetSha === targetSha &&
         recorded.targetBranch === worktree.integrationBranch &&
+        recorded.repositoryPolicyVersion ===
+          (worktreePlan(this.storage, worktree)
+            ? this.storage.execution.branchSettings.policy(
+                workspaceId,
+                worktreePlan(this.storage, worktree)!,
+              )?.version
+            : undefined) &&
         recorded.worktreeVersion === worktree.version;
       return { worktree, headSha: state.headSha, targetSha, containsTarget, reviewCurrent, issues };
     } catch (error) {
@@ -554,6 +661,30 @@ export class BranchService {
             ?.rootPath === repositoryPath,
       );
     if (hold) throw new IntegrationHeldError(branch);
+  }
+
+  requirePolicyMergeTarget(
+    workspaceId: WorkspaceId,
+    repositoryId: SourceRepositoryId,
+    branch: string,
+    finalPromotion = false,
+  ): void {
+    if (finalPromotion) return;
+    const root = this.repository(workspaceId, repositoryId).rootPath;
+    for (const settings of this.storage.execution.branchSettings.list()) {
+      const other = this.storage.execution.sourceRepositories.find(
+        settings.workspaceId,
+        settings.repositoryId,
+      );
+      const policy = this.storage.execution.branchSettings.policy(
+        settings.workspaceId,
+        settings.planVersionId,
+      );
+      if (other?.rootPath === root && policy?.experimentalFreeze?.branch === branch)
+        conflict(
+          `Experimental branch ${branch} is frozen by repository policy. Use explicitly approved plan finalization to promote into it.`,
+        );
+    }
   }
 
   requireAutomaticMergeTarget(

@@ -1176,6 +1176,12 @@ export class ExecutionService {
             const review = this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0];
             if (review) this.runtimeEvidence?.assertRun(worktree, review.id);
             requireTreeScope(this.storage, worktree, 'merge');
+            this.branches.requirePolicyMergeTarget(
+              workspaceId,
+              repository.id,
+              worktree.integrationBranch ?? '',
+              !!finalApproval,
+            );
             this.branches.requireIntegrationAvailable(
               repository.rootPath,
               worktree.integrationBranch ?? '',

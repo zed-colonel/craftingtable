@@ -11,6 +11,8 @@ import {
   workCyclesResponseSchema,
   workItemIdSchema,
   workspaceIdSchema,
+  scopeRepairPreviewSchema,
+  scopeRepairRequestSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from '../config.js';
@@ -25,6 +27,40 @@ export function registerWorkCycleRoutes(
   cycles: WorkCycleService,
   config: ServerConfig,
 ): void {
+  app.get<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
+    async (request, reply) => {
+      const context = authenticate(request, auth);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      return noStore(reply).send(
+        scopeRepairPreviewSchema.parse(
+          cycles.previewScopeRepair(context, workspace.data, request.params.cycleId),
+        ),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; cycleId: string } }>(
+    '/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const input = scopeRepairRequestSchema.safeParse(request.body);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      if (!input.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid scope repair request');
+      return noStore(reply).send(
+        workCycleResponseSchema.parse({
+          cycle: await cycles.delegateScopeRepair(
+            context,
+            workspace.data,
+            request.params.cycleId,
+            input.data,
+          ),
+        }),
+      );
+    },
+  );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/cycles',
     async (request, reply) => {

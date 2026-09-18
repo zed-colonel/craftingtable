@@ -89,6 +89,8 @@ const EXPECTED_ROUTES = [
   'POST /api/workspaces',
   'GET /api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
   'POST /api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
+  'GET /api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
+  'POST /api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
   'POST /api/workspaces/:workspaceId/cycles/:cycleId/control',
   'POST /api/workspaces/:workspaceId/cycles/:cycleId/integration-resolution',
   'POST /api/workspaces/:workspaceId/work-items/:workItemId/cycles',

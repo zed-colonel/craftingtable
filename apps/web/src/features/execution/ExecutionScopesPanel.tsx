@@ -214,7 +214,7 @@ export function ExecutionScopesPanel({
             <p className="hint">Map binding revision {choice.scope.bindingRevision}.</p>
             {existing && onOpenCycle && (choice.scope.kind === 'slice' || cycle) ? (
               <div className="stack">
-                {cycle && <p role="status">{cycle.reason}</p>}
+                {cycle && <p role="status">{cycle.scopeReviewWait ?? cycle.reason}</p>}
                 <button type="button" onClick={() => onOpenCycle(existing.id)}>
                   {cycle?.step === 'design' && ['paused', 'needs-attention'].includes(cycle.status)
                     ? 'Open cycle to resolve design questions'

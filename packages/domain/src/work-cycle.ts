@@ -95,6 +95,17 @@ export interface BaselinePreparation {
   readonly message: string;
 }
 export interface WorkCycle {
+  /** Read projection only: an older review waits for current prerequisite work. */
+  readonly scopeReviewWait?: string;
+  /** Explicit repair delegation, with immutable journal turns from related scope reviews. */
+  readonly scopeRepair?: {
+    readonly sourceCycleId: string;
+    readonly sources: readonly {
+      readonly runId: AgentRunId;
+      readonly sequence: number;
+      readonly label: string;
+    }[];
+  };
   readonly baselinePreparation?: BaselinePreparation;
   readonly designRecovery?: DesignRecovery;
 

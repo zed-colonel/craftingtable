@@ -90,6 +90,12 @@ an earlier one. Legacy unstructured reviews retain the manual verdict path. Mate
 handoff files are copies for agent context, not a new authorization surface; the durable
 report source remains the daemon's event journal. Source runs are checked against the
 child's workspace, work item, and worktree before their conversations are copied.
+An explicit owning-slice repair command can additionally pin complete review turns from
+that work item's independent verification and parent-acceptance scopes, at the exact
+map binding. This separate packet retains source run IDs and journal sequences, gives
+colliding finding IDs distinct names, and cannot authorize scope changes or merges.
+It does not relax ordinary same-worktree run lineage checks. The server requires a
+supported disposition for every pinned open finding in subsequent repair reviews.
 
 ## Delegated work-item cycles
 

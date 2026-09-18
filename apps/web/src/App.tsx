@@ -43,6 +43,7 @@ import { WorkspaceShell } from './components/WorkspaceShell.js';
 import { AccountPage } from './features/account/AccountPage.js';
 import { DesignRecoveryPanel } from './features/execution/DesignRecoveryPanel.js';
 import { ScopeReviewRecovery } from './features/execution/ScopeReviewRecovery.js';
+import { ScopeRepairPanel } from './features/execution/ScopeRepairPanel.js';
 import { CyclePanel } from './features/execution/CyclePanel.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
 import { DiffView } from './features/execution/DiffView.js';
@@ -1051,6 +1052,7 @@ export function App() {
   const openCycle = (cycle: WorkCycle): void => {
     if (workspaceId === undefined) return;
     if (cycle.workItemId) {
+      setSelectedCycleWorktreeId(cycle.worktreeId);
       go({ name: 'work-item', workspaceId, workItemId: cycle.workItemId });
     } else if (cycle.planVersionId) {
       go({
@@ -1405,22 +1407,38 @@ export function App() {
                     />
                   )}
                   renderReviewRecovery={(cycle, liveRun) => (
-                    <ScopeReviewRecovery
-                      key={`${cycle.id}:${cycle.version}`}
-                      cycle={cycle}
-                      disabled={executionBusy || !canMutate || liveRun}
-                      refreshToken={refreshToken}
-                      onResume={(instructions) =>
-                        executionCommand(async (csrfToken) => {
-                          await controlWorkCycle(
-                            cycle,
-                            cycle.status === 'completed' ? 'review-again' : 'resume',
-                            csrfToken,
-                            instructions,
-                          );
-                        })
-                      }
-                    />
+                    <>
+                      {['paused', 'needs-attention'].includes(cycle.status) && (
+                        <ScopeRepairPanel
+                          key={`repair-${cycle.id}:${cycle.version}`}
+                          cycle={cycle}
+                          disabled={executionBusy || !canMutate || liveRun}
+                          csrfToken={authenticated.csrfToken}
+                          refreshToken={refreshToken}
+                          onOpen={setSelectedCycleWorktreeId}
+                          onStarted={(repair) => {
+                            setSelectedCycleWorktreeId(repair.worktreeId);
+                            setRefreshToken((v) => v + 1);
+                          }}
+                        />
+                      )}
+                      <ScopeReviewRecovery
+                        key={`${cycle.id}:${cycle.version}`}
+                        cycle={cycle}
+                        disabled={executionBusy || !canMutate || liveRun}
+                        refreshToken={refreshToken}
+                        onResume={(instructions) =>
+                          executionCommand(async (csrfToken) => {
+                            await controlWorkCycle(
+                              cycle,
+                              cycle.status === 'completed' ? 'review-again' : 'resume',
+                              csrfToken,
+                              instructions,
+                            );
+                          })
+                        }
+                      />
+                    </>
                   )}
                   cycles={cycles.filter((cycle) => cycle.workItemId === route.workItemId)}
                   worktrees={workItemExecution.worktrees}

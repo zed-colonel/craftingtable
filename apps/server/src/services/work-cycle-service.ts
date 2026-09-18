@@ -1,4 +1,8 @@
 import type { BaselinePreparationService } from './baseline-preparation.js';
+import type { ExecutionService } from './execution-service.js';
+import type { ScopeRepairRequest } from '@craftingtable/contracts';
+import { collectScopeRepair, scopeReviewWait } from './scope-repair.js';
+import { mapReadSnapshot } from './map-read-snapshot.js';
 import type { PrepareBaselineRequest } from '@craftingtable/contracts';
 import { collectDesignRecovery } from './design-recovery.js';
 import type { RecoverDesignRequest } from '@craftingtable/contracts';
@@ -68,11 +72,147 @@ export class WorkCycleService {
     private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
     private readonly branches?: BranchService,
     private readonly baselines?: BaselinePreparationService,
+    private readonly execution?: ExecutionService,
   ) {}
 
   list(context: CommandContext, workspaceId: WorkspaceId): readonly WorkCycle[] {
     this.workspaceService.requireAuthorized(context, workspaceId);
-    return this.storage.execution.cycles.list(workspaceId);
+    const tx = mapReadSnapshot(this.storage);
+    return this.storage.execution.cycles.list(workspaceId).map((c) => {
+      const wait = scopeReviewWait(tx, c);
+      return wait ? { ...c, scopeReviewWait: wait } : c;
+    });
+  }
+
+  previewScopeRepair(context: CommandContext, workspaceId: WorkspaceId, id: string) {
+    this.workspaceService.requireAuthorized(context, workspaceId);
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    if (!cycle) throw new NotFoundError();
+    return collectScopeRepair(mapReadSnapshot(this.storage), cycle);
+  }
+
+  private readonly repairing = new Set<string>();
+  async delegateScopeRepair(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: ScopeRepairRequest,
+  ) {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    const source = this.storage.execution.cycles.find(workspaceId, id);
+    if (!source?.workItemId || !['paused', 'needs-attention'].includes(source.status))
+      throw new ExecutionRequestError(
+        'conflict',
+        'An idle scope review is required for source remediation.',
+      );
+    const check = () => {
+      this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+      const current = this.storage.execution.cycles.find(workspaceId, id);
+      if (
+        current?.version !== input.expectedVersion ||
+        current.currentRunId !== source.currentRunId
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Review changed; refresh recovery before delegating fixes.',
+        );
+      if (
+        this.storage.execution.runs
+          .listForWorktree(workspaceId, source.worktreeId)
+          .some((r) => !isTerminalAgentRunStatus(r.status))
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'End the review session before delegating fixes.',
+        );
+    };
+    check();
+    const preview = collectScopeRepair(mapReadSnapshot(this.storage), source);
+    if (preview.snapshotDigest !== input.snapshotDigest)
+      throw new ExecutionRequestError('conflict', 'Recovery inputs changed; refresh the preview.');
+    const selected = preview.candidates.find((c) => c.scope.sourceId === input.sourceId);
+    const selectedSources = preview.sources.filter(
+      (s) => s.scope.kind === 'parent-acceptance' || s.scope.sourceId === selected?.scope.sourceId,
+    );
+    if (
+      !selected?.profiles ||
+      !selected.policy ||
+      selected.blockers.length ||
+      !selectedSources.length
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        selected?.blockers.join(' ') || 'Select an eligible owning slice with open findings.',
+      );
+    if (selected.cycleId)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Open the existing slice repair cycle before delegating another.',
+      );
+    if (!this.execution)
+      throw new ExecutionRequestError('unavailable', 'Execution service is unavailable.');
+    const key = `${workspaceId}:${source.workItemId}:${input.sourceId}`;
+    if (this.repairing.has(key))
+      throw new ExecutionRequestError('conflict', 'Slice repair is already being prepared.');
+    this.repairing.add(key);
+    try {
+      this.validateSettings({ profiles: selected.profiles });
+      const resolved = requireScope(
+        this.storage,
+        workspaceId,
+        source.workItemId,
+        selected.scope,
+        'start',
+      );
+      let tree =
+        selected.worktreeId &&
+        this.storage.execution.worktrees.find(workspaceId, selected.worktreeId);
+      if (!tree)
+        tree = await this.execution.createWorktree(context, workspaceId, source.workItemId, {
+          repositoryId: resolved.binding.repositoryId!,
+          executionScope: selected.scope,
+        });
+      check();
+      // Recheck source journals after Git, but allow the newly prepared (empty) worktree.
+      const fresh = collectScopeRepair(mapReadSnapshot(this.storage), source);
+      const freshOwner = fresh.candidates.find((c) => c.scope.sourceId === input.sourceId);
+      if (
+        JSON.stringify(fresh.sources) !== JSON.stringify(preview.sources) ||
+        !freshOwner ||
+        freshOwner.blockers.length ||
+        freshOwner.cycleId
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Source findings changed during preparation; refresh recovery.',
+        );
+      return this.storage.transaction(() => {
+        const started = this.start(context, workspaceId, source.workItemId!, {
+          worktreeId: tree.id,
+          profiles: selected.profiles!,
+          policy: { ...selected.policy!, maxRemediationRounds: input.maxRemediationRounds },
+          instructions: input.instructions,
+        });
+        const sources = selectedSources.map((s) => ({
+          runId: s.runId,
+          sequence: s.sequence,
+          label: s.label,
+        }));
+        return this.change(
+          started,
+          {
+            step: 'remediate',
+            scopeRepair: { sourceCycleId: id, sources },
+            reason:
+              'Implementing the pinned independent-review findings in the owning slice. Merge approval remains separate.',
+          },
+          'delegate-scope-repair',
+          context,
+        );
+      });
+    } finally {
+      this.repairing.delete(key);
+    }
   }
 
   private requireDesignRecovery(context: CommandContext, workspaceId: WorkspaceId, id: string) {
@@ -996,7 +1136,10 @@ export class WorkCycleService {
     else finalizationForCycle(this.storage, cycle);
     const allRuns = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
     const run = allRuns[0];
-    if (reviewGuidance !== undefined) {
+    if (
+      reviewGuidance !== undefined ||
+      (cycle.step === 'review' && cycle.executionScope && cycle.executionScope.kind !== 'slice')
+    ) {
       if (
         cycle.step !== 'review' ||
         !cycle.executionScope ||
@@ -1009,13 +1152,34 @@ export class WorkCycleService {
           'conflict',
           'Review guidance requires an idle verification or parent-acceptance cycle with its current review run.',
         );
-      const instructions = [cycle.instructions, reviewGuidance.trim()].filter(Boolean).join('\n\n');
+      const instructions = [cycle.instructions, reviewGuidance?.trim()]
+        .filter(Boolean)
+        .join('\n\n');
       if (instructions.length > 16000)
         throw new ExecutionRequestError(
           'conflict',
           'Combined cycle guidance exceeds 16000 characters; shorten the additional guidance.',
         );
-      return this.next(cycle, 'review', run, context, { instructions });
+      const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
+      if (!tree || !this.branches)
+        throw new ExecutionRequestError('unavailable', 'Review snapshot is unavailable.');
+      const check = () => {
+        if (this.storage.execution.cycles.find(workspaceId, id)?.version !== expectedVersion)
+          throw new ExecutionRequestError('conflict', 'Cycle changed; refresh before resuming.');
+        this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
+      };
+      await this.branches.changeWorktree(
+        context,
+        workspaceId,
+        tree.id,
+        { expectedVersion: tree.version },
+        true,
+        { cycleId: id, check },
+      );
+      return this.mutations.during(tree.id, async () => {
+        check();
+        return this.next(cycle, 'review', run, context, { instructions });
+      });
     }
     if (
       allRuns.some(

@@ -202,6 +202,18 @@ it is mergeable.
   ones with their dispositions. Work-item reports retain prior IDs in their handoff
   lineage; finalization reports may omit findings already closed by a valid review. Invalid reports cannot supply a merge verdict; legacy unstructured reviews
   remain usable manually, with their conversation included in handoffs.
+- **Independent-review source recovery.** On a paused verification or parent review,
+  **Automation → Source changes required** shows open findings from related independent
+  reviews. **Delegate fixes to owning slice** prepares an editable slice worktree from
+  current integration and starts a focused remediation/review cycle using its previous
+  implementation settings and an explicit follow-up allowance. Findings from separate
+  reviews retain distinct IDs even when their original IDs match. Approve the repaired
+  slice's integration merge in **Delegation**, resume the existing verification review,
+  record its verification, then resume and accept the parent review. Resume updates clean
+  independent snapshots from integration even while the roadmap is paused. Recovery does
+  not resume roadmap scheduling or delegate its integration merge. Old review questions
+  remain in history; reviews waiting on prerequisite work do not produce duplicate
+  header attention or push reminders.
 - **Automated work-item cycles.** On an admitted, unblocked item's page, create a
   worktree and open **Automated cycle → Set up a cycle**. Choose each step's agent,
   model, and permissions; the daemon runs design → implement → review → remediate,

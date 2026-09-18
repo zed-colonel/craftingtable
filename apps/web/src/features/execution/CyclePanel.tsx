@@ -74,7 +74,12 @@ export function CyclePanel({
   const activeWorktrees = worktrees.filter((worktree) => worktree.status === 'active');
   const preferred =
     activeWorktrees.find((t) =>
-      cycles.some((c) => c.worktreeId === t.id && ['needs-attention', 'paused'].includes(c.status)),
+      cycles.some(
+        (c) =>
+          c.worktreeId === t.id &&
+          !c.scopeReviewWait &&
+          ['needs-attention', 'paused'].includes(c.status),
+      ),
     ) ??
     activeWorktrees.find((t) =>
       cycles.some((c) => c.worktreeId === t.id && !['completed', 'stopped'].includes(c.status)),
@@ -144,9 +149,12 @@ export function CyclePanel({
       ['completed', 'abandoned'].includes(active.integrationResolution.status));
   const previous = cycles.filter((cycle) => ['stopped', 'completed'].includes(cycle.status));
   const attention =
-    active !== undefined && ['needs-attention', 'awaiting-merge'].includes(active.status);
-  const statusLabel =
-    active && readOnly && active.status === 'awaiting-merge'
+    active !== undefined &&
+    !active.scopeReviewWait &&
+    ['needs-attention', 'awaiting-merge'].includes(active.status);
+  const statusLabel = active?.scopeReviewWait
+    ? 'Waiting for prerequisite work'
+    : active && readOnly && active.status === 'awaiting-merge'
       ? 'Ready for scope acceptance'
       : active
         ? CYCLE_STATUS_LABELS[active.status]
@@ -185,7 +193,7 @@ export function CyclePanel({
       )}
       {active ? (
         <>
-          <p role="status">{active.reason}</p>
+          <p role="status">{active.scopeReviewWait ?? active.reason}</p>
           <StatusStrip
             label="Cycle status"
             facts={[

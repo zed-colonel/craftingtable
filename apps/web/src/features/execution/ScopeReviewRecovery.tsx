@@ -68,7 +68,7 @@ export function ScopeReviewRecovery({
       <p>
         {repeat
           ? 'Start a fresh review using this cycle’s assigned reviewer and existing worktree. The controller requires an idle, clean snapshot and updates it from integration without overwriting changes. Earlier runs and evidence remain in history.'
-          : 'Resume starts a fresh review with the saved repository policy, earlier findings, and your additional guidance. It does not delegate implementation or accept this scope.'}
+          : 'Resume updates this idle, clean snapshot from integration and starts a fresh review with the saved repository policy, earlier findings, and your additional guidance. Merge source fixes first. It does not delegate implementation or accept this scope.'}
       </p>
       {error && (
         <p role="alert" className="error-state">

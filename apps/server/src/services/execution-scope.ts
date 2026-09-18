@@ -155,6 +155,19 @@ export function scopePhaseBlockers(
     add('dependency', 'Start this slice before merging it.');
   if (phase === 'verify' && !latestSliceMerge(tx, workspaceId, workItemId, scope))
     add('dependency', 'Merge this slice before starting fresh verification.');
+  if (
+    phase === 'verify' &&
+    tx.execution.worktrees
+      .listForWorkItem(workspaceId, workItemId)
+      .some(
+        (t) =>
+          t.status === 'active' &&
+          !t.mergedAt &&
+          !tx.amendments.retired(workspaceId, t.id) &&
+          sameExecutionScope(t.executionScope, { ...scope, kind: 'slice' }),
+      )
+  )
+    add('dependency', 'Finish and merge the active owning-slice attempt before verification.');
   // Imported requirements confer no adoption, environment or effect authority.
   issues.push(...runtimeScopeBlockers(tx, workspaceId, scope, r.binding.alias));
   const adopted = adoptedDecisions(tx, workspaceId, scope.definitionId, scope.bindingRevision);

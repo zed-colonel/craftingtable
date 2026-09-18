@@ -230,6 +230,7 @@ export async function createServices(
     worktreeMutations,
     executionService.branches,
     baselineService,
+    executionService,
   );
   workCycleService.recoverInterrupted();
   const roadmapService = new RoadmapService(

@@ -186,6 +186,22 @@ export type BaselinePreview = z.infer<typeof baselinePreviewSchema>;
 export type PrepareBaselineRequest = z.infer<typeof prepareBaselineRequestSchema>;
 export const workCycleSchema = z
   .strictObject({
+    scopeReviewWait: z.string().optional(),
+    scopeRepair: z
+      .strictObject({
+        sourceCycleId: z.uuid(),
+        sources: z
+          .array(
+            z.strictObject({
+              runId: agentRunIdSchema,
+              sequence: z.number().int().positive(),
+              label: z.string().regex(/^R([1-9]|1[0-9]|20)$/),
+            }),
+          )
+          .min(1)
+          .max(20),
+      })
+      .optional(),
     baselinePreparation: baselinePreparationSchema.optional(),
     designRecovery: z
       .strictObject({
@@ -291,6 +307,39 @@ export const workCycleSchema = z
   );
 export const workCyclesResponseSchema = z.strictObject({ cycles: z.array(workCycleSchema) });
 export const workCycleResponseSchema = z.strictObject({ cycle: workCycleSchema });
+export const scopeRepairPreviewSchema = z.strictObject({
+  cycleVersion: z.number().int().positive(),
+  snapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  candidates: z.array(
+    z.strictObject({
+      scope: executionScopeSchema,
+      title: z.string(),
+      blockers: z.array(z.string()),
+      profiles: cycleProfilesSchema.optional(),
+      policy: completionPolicySchema.optional(),
+      worktreeId: worktreeIdSchema.optional(),
+      cycleId: z.uuid().optional(),
+    }),
+  ),
+  sources: z.array(
+    z.strictObject({
+      runId: agentRunIdSchema,
+      sequence: z.number().int().positive(),
+      label: z.string(),
+      scope: executionScopeSchema,
+      findings: z.array(reviewFindingSchema.safeExtend({ originalId: z.string() })),
+    }),
+  ),
+});
+export const scopeRepairRequestSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  snapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  sourceId: z.string().min(1).max(200),
+  instructions: z.string().trim().max(16000).default(''),
+  maxRemediationRounds: z.number().int().min(1).max(20),
+});
+export type ScopeRepairRequest = z.infer<typeof scopeRepairRequestSchema>;
+export type ScopeRepairPreview = z.infer<typeof scopeRepairPreviewSchema>;
 export const controlWorkCycleRequestSchema = z.discriminatedUnion('action', [
   z.strictObject({
     action: z.enum(['pause', 'stop']),

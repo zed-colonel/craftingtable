@@ -62,6 +62,7 @@ import { finalizationForCycle, finalizationInstructions } from './finalization-p
 import { assessStageReport } from './finalization-stage-policy.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
 import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-handoff.js';
+import { scopeRepairPacket } from './scope-repair.js';
 import type { StorageService } from './storage-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -304,6 +305,9 @@ export class AgentRunService {
         ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
         instructions: [
           cycle.instructions,
+          cycle.scopeRepair
+            ? 'Read craftingtable-scope-repair.json in the supplied plan documents. It contains pinned findings from independent slice and parent reviews. Address every namespaced finding ID, including findings from older parent reviews; identical original IDs from different runs are separate obligations. Reviewers must include every namespaced finding with a supported disposition. Current adopted policy answers superseded administrative questions; do not invent a new policy. Source changes belong only to this owning slice. Commit intended changes; do not merge.'
+            : '',
           ...(recovery
             ? [
                 'This is a bounded design-question recovery in the existing worktree. Read the complete prior handoff, recovery context, shared source documents and operator attachments before asking for information again.',
@@ -624,6 +628,17 @@ export class AgentRunService {
         writeFileSync(path, artifact.content, { mode: 0o600 });
         return { filename: artifact.logicalFilename, role: artifact.role, path };
       });
+      if (cycle?.scopeRepair) {
+        const path = join(planDirectory, 'craftingtable-scope-repair.json');
+        writeFileSync(path, JSON.stringify(scopeRepairPacket(this.storage, cycle), null, 2), {
+          mode: 0o600,
+        });
+        planDocuments.push({
+          filename: 'craftingtable-scope-repair.json',
+          role: 'supporting',
+          path,
+        });
+      }
       if (cycle?.designRecovery) {
         const recovery = cycle.designRecovery;
         if (cycle.step === 'design' && recovery.runId === cycle.currentRunId) {
@@ -1367,6 +1382,15 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       if (event.kind === 'turn-completed') {
         const run = this.storage.execution.runs.find(workspaceId, runId);
         if (run?.role === 'review') {
+          const repairCycle = this.storage.execution.cycles.activeForWorktree(
+            run.workspaceId,
+            run.worktreeId,
+          );
+          const repairIds = repairCycle?.scopeRepair
+            ? scopeRepairPacket(this.storage, repairCycle).sources.flatMap((s) =>
+                s.findings.map((f) => f.id),
+              )
+            : [];
           let reviewReport =
             event.payload.outcome === 'error'
               ? {
@@ -1376,7 +1400,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
               : assessReviewReport(
                   event.payload.resultText,
                   event.payload.truncated,
-                  requiredFindingIds(this.storage.execution, run),
+                  new Set([...requiredFindingIds(this.storage.execution, run), ...repairIds]),
                 );
           const stagedCycle = this.storage.execution.cycles.activeForWorktree(
             run.workspaceId,

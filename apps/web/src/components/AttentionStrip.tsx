@@ -5,7 +5,9 @@ import { Section } from './Section.js';
 /** Cycles that stopped for an operator decision: merge approval or attention. */
 export function attentionCycles(cycles: readonly WorkCycle[]): readonly WorkCycle[] {
   return cycles.filter(
-    (cycle) => cycle.status === 'needs-attention' || cycle.status === 'awaiting-merge',
+    (cycle) =>
+      !cycle.scopeReviewWait &&
+      (cycle.status === 'needs-attention' || cycle.status === 'awaiting-merge'),
   );
 }
 

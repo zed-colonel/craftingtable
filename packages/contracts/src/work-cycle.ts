@@ -302,6 +302,11 @@ export const controlWorkCycleRequestSchema = z.discriminatedUnion('action', [
     instructions: z.string().trim().max(16000).optional(),
   }),
   z.strictObject({
+    action: z.literal('review-again'),
+    expectedVersion: z.number().int().positive(),
+    instructions: z.string().trim().max(16000).optional(),
+  }),
+  z.strictObject({
     action: z.literal('authorize-remediation'),
     expectedVersion: z.number().int().positive(),
     additionalRounds: z.number().int().min(1).max(20),

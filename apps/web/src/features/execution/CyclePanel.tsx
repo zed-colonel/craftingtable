@@ -89,11 +89,15 @@ export function CyclePanel({
   const readOnly = activeWorktrees.some(
     (t) => t.id === selected && t.executionScope && t.executionScope.kind !== 'slice',
   );
-  const active = cycles.find(
-    (cycle) =>
-      (!selected || cycle.worktreeId === selected) &&
-      !['stopped', 'completed'].includes(cycle.status),
-  );
+  const active =
+    cycles.find(
+      (cycle) =>
+        (!selected || cycle.worktreeId === selected) &&
+        !['stopped', 'completed'].includes(cycle.status),
+    ) ??
+    (readOnly
+      ? cycles.find((cycle) => cycle.worktreeId === selected && cycle.status === 'completed')
+      : undefined);
   const latestRun = runs.find((run) => run.worktreeId === selected);
   const recoverableDesign =
     active?.step === 'design' &&
@@ -241,14 +245,16 @@ export function CyclePanel({
                   Resume automation
                 </button>
               )}
-            <button
-              type="button"
-              className="secondary-button danger"
-              disabled={disabled}
-              onClick={() => onControl(active, 'stop')}
-            >
-              Stop automation
-            </button>
+            {active.status !== 'completed' && (
+              <button
+                type="button"
+                className="secondary-button danger"
+                disabled={disabled}
+                onClick={() => onControl(active, 'stop')}
+              >
+                Stop automation
+              </button>
+            )}
           </ActionBar>
           {readOnly && (
             <p className="hint">
@@ -259,7 +265,7 @@ export function CyclePanel({
           )}
           {readOnly &&
             renderReviewRecovery &&
-            ['paused', 'needs-attention'].includes(active.status) &&
+            ['paused', 'needs-attention', 'completed'].includes(active.status) &&
             renderReviewRecovery(active, liveRun)}
           {exhaustedReview && onAuthorizeRemediation && (
             <CycleRemediationRecovery

@@ -48,6 +48,7 @@ export function ScopeReviewRecovery({
     (p) => p.phase === (scope?.kind === 'parent-acceptance' ? 'accept' : 'verify'),
   );
   const blockers = phase?.blockers ?? [];
+  const repeat = cycle.status === 'completed';
   return (
     <form
       aria-label="Recover scope review"
@@ -58,13 +59,16 @@ export function ScopeReviewRecovery({
       }}
     >
       <h3>
-        {scope?.kind === 'parent-acceptance'
-          ? 'Recover parent acceptance'
-          : 'Recover slice verification'}
+        {repeat
+          ? 'Review again'
+          : scope?.kind === 'parent-acceptance'
+            ? 'Recover parent acceptance'
+            : 'Recover slice verification'}
       </h3>
       <p>
-        Resume starts a fresh review with the saved repository policy, earlier findings, and your
-        additional guidance. It does not delegate implementation or accept this scope.
+        {repeat
+          ? 'Start a fresh review using this cycle’s assigned reviewer and existing worktree. The controller requires an idle, clean snapshot and updates it from integration without overwriting changes. Earlier runs and evidence remain in history.'
+          : 'Resume starts a fresh review with the saved repository policy, earlier findings, and your additional guidance. It does not delegate implementation or accept this scope.'}
       </p>
       {error && (
         <p role="alert" className="error-state">
@@ -114,7 +118,7 @@ export function ScopeReviewRecovery({
         className="primary-button"
         disabled={disabled || !phase || !!blockers.length}
       >
-        Resume scope review
+        {repeat ? 'Start fresh scope review' : 'Resume scope review'}
       </button>
     </form>
   );

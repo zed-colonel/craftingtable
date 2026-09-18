@@ -150,14 +150,22 @@ export function registerWorkCycleRoutes(
               request.params.cycleId,
               body.data,
             )
-          : await cycles.control(
-              context,
-              workspace.data,
-              request.params.cycleId,
-              body.data.action,
-              body.data.expectedVersion,
-              body.data.action === 'resume' ? body.data.instructions : undefined,
-            );
+          : body.data.action === 'review-again'
+            ? await cycles.repeatScopeReview(
+                context,
+                workspace.data,
+                request.params.cycleId,
+                body.data.expectedVersion,
+                body.data.instructions ?? '',
+              )
+            : await cycles.control(
+                context,
+                workspace.data,
+                request.params.cycleId,
+                body.data.action,
+                body.data.expectedVersion,
+                body.data.action === 'resume' ? body.data.instructions : undefined,
+              );
       return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
     },
   );

@@ -73,3 +73,33 @@ it('does not enable recovery when requirements cannot be loaded', async () => {
     (screen.getByRole('button', { name: 'Resume scope review' }) as HTMLButtonElement).disabled,
   ).toBe(true);
 });
+it('offers an explicit fresh review with guidance for completed verification', async () => {
+  const completed = {
+    ...cycle,
+    status: 'completed',
+    executionScope: { ...cycle.executionScope!, kind: 'slice-verification' },
+  } as WorkCycle;
+  vi.mocked(loadExecutionScopes).mockResolvedValue({
+    choices: [
+      {
+        scope: { ...completed.executionScope!, kind: 'slice' },
+        phases: [{ phase: 'verify', blockers: [] }],
+      } as unknown as ExecutionScopeChoice,
+    ],
+  });
+  const onResume = vi.fn();
+  render(
+    <ScopeReviewRecovery cycle={completed} disabled={false} refreshToken={0} onResume={onResume} />,
+  );
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Start fresh scope review' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false),
+  );
+  fireEvent.change(screen.getByLabelText('Additional review guidance'), {
+    target: { value: 'Recheck with the saved policy.' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Start fresh scope review' }));
+  expect(onResume).toHaveBeenCalledWith('Recheck with the saved policy.');
+});

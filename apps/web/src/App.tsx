@@ -1412,7 +1412,12 @@ export function App() {
                       refreshToken={refreshToken}
                       onResume={(instructions) =>
                         executionCommand(async (csrfToken) => {
-                          await controlWorkCycle(cycle, 'resume', csrfToken, instructions);
+                          await controlWorkCycle(
+                            cycle,
+                            cycle.status === 'completed' ? 'review-again' : 'resume',
+                            csrfToken,
+                            instructions,
+                          );
                         })
                       }
                     />

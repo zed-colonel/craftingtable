@@ -43,6 +43,9 @@ it is mergeable.
   acceptance completes the parent and releases its dependents. Reviews retain evidence in a
   separate run artifact. Active verification and parent-acceptance cycles appear in the work item's
   **Automated cycle** selector, with guidance/resume recovery and current phase requirements.
+  **Review again with existing verification cycle** reuses a completed review’s worktree and assigned
+  reviewer. Add guidance, then **Start fresh scope review** explicitly; the daemon requires an idle,
+  clean snapshot and fast-forwards it from integration. Older runs and receipts remain in history.
   Recovery retains prior instructions and starts another review; source changes belong to the
   owning slice. Stale verification must be refreshed before parent acceptance can resume.
   The reference WI/EXO map retains its adoption, environment and evidence gates; importing or selecting a slice never approves

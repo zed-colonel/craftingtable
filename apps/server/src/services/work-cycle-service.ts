@@ -824,6 +824,94 @@ export class WorkCycleService {
       context,
     );
   }
+  /** Explicitly renew a completed independent review without losing its roadmap assignment. */
+  async repeatScopeReview(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    expectedVersion: number,
+    guidance: string,
+  ): Promise<WorkCycle> {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    if (!cycle) throw new NotFoundError();
+    const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
+    if (
+      cycle.status !== 'completed' ||
+      cycle.step !== 'review' ||
+      !cycle.workItemId ||
+      !cycle.executionScope ||
+      cycle.executionScope.kind === 'slice' ||
+      !tree ||
+      !sameExecutionScope(tree.executionScope, cycle.executionScope)
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Only a completed independent scope review can be reviewed again.',
+      );
+    const instructions = [cycle.instructions, guidance.trim()].filter(Boolean).join('\n\n');
+    if (instructions.length > 16000)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Combined cycle guidance exceeds 16000 characters; shorten the additional guidance.',
+      );
+    const check = () => {
+      this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+      const current = this.storage.execution.cycles.find(workspaceId, id);
+      if (current?.version !== expectedVersion || current.status !== 'completed')
+        throw new ExecutionRequestError(
+          'conflict',
+          'Cycle changed; refresh before requesting another review.',
+        );
+      const currentTree = this.storage.execution.worktrees.find(workspaceId, tree.id);
+      if (!currentTree || currentTree.status !== 'active')
+        throw new ExecutionRequestError('conflict', 'The review worktree is no longer active.');
+      requireTreeScope(this.storage, currentTree, 'start');
+      this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
+      const runs = this.storage.execution.runs.listForWorktree(workspaceId, tree.id);
+      if (
+        runs[0]?.id !== cycle.currentRunId ||
+        runs.some((r) => !isTerminalAgentRunStatus(r.status))
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'End live sessions and reconcile any newer manual runs before repeating this review.',
+        );
+      if (this.storage.execution.cycles.activeForWorktree(workspaceId, tree.id))
+        throw new ExecutionRequestError(
+          'conflict',
+          'Another cycle already owns this review worktree.',
+        );
+    };
+    check();
+    if (!this.branches)
+      throw new ExecutionRequestError('unavailable', 'Branch operations are unavailable.');
+    // Existing branch authority rejects dirty, diverged, retired or busy snapshots. It only
+    // fast-forwards review worktrees, and invalidates older branch-context evidence first.
+    await this.branches.changeWorktree(
+      context,
+      workspaceId,
+      tree.id,
+      { expectedVersion: tree.version },
+      true,
+      { cycleId: id, check },
+    );
+    return this.mutations.during(tree.id, async () => {
+      check();
+      return this.next(
+        cycle,
+        'review',
+        this.storage.execution.runs.find(workspaceId, cycle.currentRunId),
+        context,
+        {
+          instructions,
+          reason: 'Starting a fresh independent review with the existing reviewer assignment.',
+        },
+        'review-again',
+      );
+    });
+  }
+
   async control(
     context: CommandContext,
     workspaceId: WorkspaceId,

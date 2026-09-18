@@ -112,6 +112,21 @@ export function ExecutionScopesPanel({
             (entry) =>
               entry.worktreeId === existing.id && !['stopped', 'completed'].includes(entry.status),
           );
+        const verificationTree =
+          choice.scope.kind === 'slice'
+            ? worktrees.find(
+                (tree) =>
+                  tree.status === 'active' &&
+                  tree.executionScope &&
+                  executionScopeKey(tree.executionScope) ===
+                    executionScopeKey({ ...choice.scope, kind: 'slice-verification' }),
+              )
+            : undefined;
+        const verificationCycle =
+          verificationTree &&
+          cycles.find(
+            (entry) => entry.worktreeId === verificationTree.id && entry.status !== 'stopped',
+          );
         return (
           <article className="import-binding" key={executionScopeKey(choice.scope)}>
             <h3>
@@ -238,33 +253,54 @@ export function ExecutionScopesPanel({
                   : 'Create parent acceptance review'}
               </button>
             )}
-            {choice.scope.kind === 'slice' && ['merged', 'verified'].includes(choice.status) && (
-              <button
-                type="button"
-                disabled={
-                  busy ||
-                  !canMutate ||
-                  !admitted ||
-                  !choice.repositoryId ||
-                  !!choice.phases.find((p) => p.phase === 'verify')?.blockers.length
-                }
-                onClick={() =>
-                  void command(() =>
-                    createWorktree(
-                      workspaceId,
-                      workItemId,
-                      {
-                        repositoryId: choice.repositoryId as SourceRepositoryId,
-                        executionScope: { ...choice.scope, kind: 'slice-verification' },
-                      },
-                      csrfToken,
-                    ),
-                  )
-                }
-              >
-                Create fresh verification review
-              </button>
-            )}
+            {choice.scope.kind === 'slice' &&
+              ['merged', 'verified'].includes(choice.status) &&
+              (verificationTree ? (
+                <div className="stack">
+                  <p className="hint">
+                    A verification worktree already exists. Review again reuses its clean snapshot,
+                    updates it from integration, and retains the assigned reviewer and previous
+                    evidence.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={busy || !onOpenCycle}
+                    onClick={() => onOpenCycle?.(verificationTree.id)}
+                  >
+                    {verificationCycle?.status === 'completed'
+                      ? 'Review again with existing verification cycle'
+                      : verificationCycle
+                        ? 'Open verification recovery'
+                        : 'Open existing verification worktree'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={
+                    busy ||
+                    !canMutate ||
+                    !admitted ||
+                    !choice.repositoryId ||
+                    !!choice.phases.find((p) => p.phase === 'verify')?.blockers.length
+                  }
+                  onClick={() =>
+                    void command(() =>
+                      createWorktree(
+                        workspaceId,
+                        workItemId,
+                        {
+                          repositoryId: choice.repositoryId as SourceRepositoryId,
+                          executionScope: { ...choice.scope, kind: 'slice-verification' },
+                        },
+                        csrfToken,
+                      ),
+                    )
+                  }
+                >
+                  Create verification worktree
+                </button>
+              ))}
             {worktrees
               .filter(
                 (t) =>

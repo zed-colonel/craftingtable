@@ -10630,3 +10630,100 @@ it('recovers parent review with durable guidance only after current verification
     state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.status,
   ).toBe('admitted');
 });
+
+it('repeats completed verification in its existing worktree with the assigned roadmap reviewer', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(false, 'manual'),
+    { state } = f,
+    ws = state.workspaceId;
+  f.service.save(f.auth, ws, f.input);
+  await adoptSupervisedMap(f);
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () =>
+      state.context.storage.execution.cycles
+        .list(ws)
+        .some(
+          (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
+        ),
+    'parent review ready',
+    15000,
+  );
+  await roadmapControl(state, 'pause');
+  const cycle = state.context.storage.execution.cycles
+    .list(ws)
+    .find((c) => c.executionScope?.kind === 'slice-verification' && c.status === 'completed')!;
+  expect(cycle).toBeDefined();
+  const tree = state.context.storage.execution.worktrees.find(ws, cycle.worktreeId)!;
+  const receipts = state.context.storage.scopeReceipts.list(ws, state.workItemId);
+  const count = state.context.storage.execution.worktrees.listForWorkItem(
+    ws,
+    state.workItemId,
+  ).length;
+  const command = (id = cycle.id, version = cycle.version, headers = mutationHeaders(state)) =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/cycles/${id}/control`,
+      headers,
+      payload: {
+        action: 'review-again',
+        expectedVersion: version,
+        instructions: 'Use the adopted repository policy.',
+      },
+    });
+  expect((await command(cycle.id, cycle.version, { cookie: state.cookie })).statusCode).toBe(403);
+  expect((await command(cycle.id, cycle.version + 1)).statusCode).toBe(409);
+  const implementation = state.context.storage.execution.cycles
+    .list(ws)
+    .find((c) => c.executionScope?.kind === 'slice')!;
+  expect((await command(implementation.id, implementation.version)).statusCode).toBe(409);
+  const policy = await branchCommand(state, 'plan-versions/version-1/repository-policy', {
+    expectedVersion: 0,
+    expectedBranchSettingsVersion: state.context.storage.execution.branchSettings.find(
+      ws,
+      state.context.storage.planning.workItems.find(ws, state.workItemId)!.planVersionId,
+    )!.version,
+    controlMode: 'controller-local',
+    interpretation: 'Local controller gates.',
+    publicationRequirement: 'Before remote publication.',
+  });
+  expect(policy.statusCode, policy.body).toBe(200);
+  git(['checkout', 'revision'], f.root);
+  commitFile(f.root, 'fresh-integration.txt', 'new integration evidence');
+  const head = git(['rev-parse', 'HEAD'], f.root).trim();
+  git(['checkout', 'main'], f.root);
+  writeFileSync(join(tree.path, 'operator-note.txt'), 'preserve this');
+  const dirty = await command();
+  expect(dirty.statusCode, dirty.body).toBe(409);
+  expect(readFileSync(join(tree.path, 'operator-note.txt'), 'utf8')).toBe('preserve this');
+  expect(currentCycle(state, cycle)).toEqual(cycle);
+  rmSync(join(tree.path, 'operator-note.txt'));
+  const result = await command();
+  expect(result.statusCode, result.body).toBe(200);
+  expect(git(['rev-parse', 'HEAD'], tree.path).trim()).toBe(head);
+  const repeated = currentCycle(state, cycle);
+  expect(repeated.currentRunId).not.toBe(cycle.currentRunId);
+  expect(repeated.parentRunId).toBe(cycle.currentRunId);
+  expect(repeated.profiles).toEqual(cycle.profiles);
+  expect(repeated.remediationRounds).toBe(0);
+  expect((await command()).statusCode).toBe(409);
+  await waitFor(() => currentCycle(state, cycle).status !== 'running', 'repeated verification');
+  expect(currentCycle(state, cycle).status, currentCycle(state, cycle).reason).toBe(
+    'awaiting-merge',
+  );
+  const run = state.context.storage.execution.runs.find(ws, repeated.currentRunId)!;
+  expect(run.role).toBe('review');
+  expect(run.reviewBranchContext?.repositoryPolicyVersion).toBe(1);
+  expect(run.brief).toContain('Use the adopted repository policy.');
+  const refreshedTree = state.context.storage.execution.worktrees.find(ws, tree.id)!;
+  const recorded = await recordScope(f, refreshedTree);
+  expect(recorded.statusCode, recorded.body).toBe(200);
+  expect(state.context.storage.scopeReceipts.list(ws, state.workItemId)).toHaveLength(
+    receipts.length + 1,
+  );
+  expect(
+    state.context.storage.execution.worktrees.listForWorkItem(ws, state.workItemId),
+  ).toHaveLength(count);
+  expect(storedRoadmap(state).status).toBe('paused');
+});

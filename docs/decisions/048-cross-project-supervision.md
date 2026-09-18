@@ -36,7 +36,10 @@ manual and can be explicitly delegated; protected final promotion cannot.
 Completion requires every selected milestone, including accepted target checkpoint evidence,
 with external Git freshness rechecked. Show target reached, selected scope complete, all
 parents accepted, plans finalized and publication separately. Newly invalidated completed
-verification needs a new selection/review rather than silent history rewrites. Native/Kata
+verification requires an explicit new review rather than silent history rewrites. The operator can
+use Review again on a completed review cycle: it retains the attempt’s frozen reviewer assignment,
+fast-forwards its idle clean snapshot, and creates a new run with the previous review as its parent.
+Prior runs and receipts remain immutable; current phase gates and receipt checks still apply. Native/Kata
 qualification remains externally executed and explicitly reviewed. Aggregate eligible
 checkpoint reminders through the existing durable notification outbox; ordinary dependency
 and resource waits are not attention events.

@@ -1123,6 +1123,25 @@ describe('automated cycle controls', () => {
       expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
       expect(onControl).toHaveBeenLastCalledWith(reviewCycle, 'stop');
+      reviewView.rerender(
+        <CyclePanel
+          cycles={[{ ...reviewCycle, status: 'completed' }]}
+          worktrees={[reviewTree]}
+          runs={[]}
+          backends={backends}
+          profiles={profiles}
+          canMutate
+          busy={false}
+          admitted
+          onStart={vi.fn()}
+          onControl={onControl}
+          onOpenRun={vi.fn()}
+          renderReviewRecovery={(c) => <p>Review again for {c.executionScope?.kind}</p>}
+        />,
+      );
+      expect(screen.getByText(`Review again for ${kind}`)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Stop automation' })).toBeNull();
+      expect(screen.queryByText('Set up a cycle')).toBeNull();
       reviewView.unmount();
     }
   });

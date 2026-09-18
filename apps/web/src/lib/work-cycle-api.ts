@@ -36,7 +36,7 @@ export function startWorkCycle(
 }
 export function controlWorkCycle(
   cycle: WorkCycle,
-  action: 'pause' | 'resume' | 'stop',
+  action: 'pause' | 'resume' | 'stop' | 'review-again',
   csrfToken: string,
   instructions?: string,
 ) {

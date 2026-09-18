@@ -128,3 +128,13 @@ it('bounds explicit work-item remediation grants and rejects allowance changes o
       .success,
   ).toBe(false);
 });
+
+it('accepts bounded review guidance only on resume commands', () => {
+  const input = { action: 'resume', expectedVersion: 2, instructions: 'Use the saved policy.' };
+  expect(controlWorkCycleRequestSchema.parse(input)).toEqual(input);
+  for (const action of ['pause', 'stop'])
+    expect(controlWorkCycleRequestSchema.safeParse({ ...input, action }).success).toBe(false);
+  expect(
+    controlWorkCycleRequestSchema.safeParse({ ...input, instructions: 'x'.repeat(16001) }).success,
+  ).toBe(false);
+});

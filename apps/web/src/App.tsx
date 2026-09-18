@@ -42,6 +42,7 @@ import { StatusCards } from './components/StatusCards.js';
 import { WorkspaceShell } from './components/WorkspaceShell.js';
 import { AccountPage } from './features/account/AccountPage.js';
 import { DesignRecoveryPanel } from './features/execution/DesignRecoveryPanel.js';
+import { ScopeReviewRecovery } from './features/execution/ScopeReviewRecovery.js';
 import { CyclePanel } from './features/execution/CyclePanel.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
 import { DiffView } from './features/execution/DiffView.js';
@@ -1401,6 +1402,19 @@ export function App() {
                       backends={executionStatus?.backends ?? []}
                       csrfToken={authenticated.csrfToken}
                       onChanged={() => setRefreshToken((v) => v + 1)}
+                    />
+                  )}
+                  renderReviewRecovery={(cycle, liveRun) => (
+                    <ScopeReviewRecovery
+                      key={`${cycle.id}:${cycle.version}`}
+                      cycle={cycle}
+                      disabled={executionBusy || !canMutate || liveRun}
+                      refreshToken={refreshToken}
+                      onResume={(instructions) =>
+                        executionCommand(async (csrfToken) => {
+                          await controlWorkCycle(cycle, 'resume', csrfToken, instructions);
+                        })
+                      }
                     />
                   )}
                   cycles={cycles.filter((cycle) => cycle.workItemId === route.workItemId)}

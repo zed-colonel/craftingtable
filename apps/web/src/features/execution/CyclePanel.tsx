@@ -48,7 +48,9 @@ export function CyclePanel({
   selectedWorktreeId,
   onSelectWorktree,
   renderDesignRecovery,
+  renderReviewRecovery,
 }: {
+  renderReviewRecovery?: (cycle: WorkCycle, liveRun: boolean) => ReactNode;
   selectedWorktreeId?: WorktreeId;
   onSelectWorktree?: (id: WorktreeId) => void;
   renderDesignRecovery?: (cycle: WorkCycle) => ReactNode;
@@ -69,16 +71,24 @@ export function CyclePanel({
     input: Omit<IntegrationResolutionRequest, 'expectedVersion'>,
   ) => void;
 }) {
-  const activeWorktrees = worktrees.filter(
-    (worktree) =>
-      worktree.status === 'active' &&
-      (!worktree.executionScope || worktree.executionScope.kind === 'slice'),
-  );
-  const [worktreeId, setWorktreeId] = useState(activeWorktrees[0]?.id ?? '');
+  const activeWorktrees = worktrees.filter((worktree) => worktree.status === 'active');
+  const preferred =
+    activeWorktrees.find((t) =>
+      cycles.some((c) => c.worktreeId === t.id && ['needs-attention', 'paused'].includes(c.status)),
+    ) ??
+    activeWorktrees.find((t) =>
+      cycles.some((c) => c.worktreeId === t.id && !['completed', 'stopped'].includes(c.status)),
+    ) ??
+    activeWorktrees.find((t) => !t.executionScope || t.executionScope.kind === 'slice') ??
+    activeWorktrees[0];
+  const [worktreeId, setWorktreeId] = useState('');
   const selected =
     activeWorktrees.find((worktree) => worktree.id === (selectedWorktreeId ?? worktreeId))?.id ??
-    activeWorktrees[0]?.id ??
+    preferred?.id ??
     '';
+  const readOnly = activeWorktrees.some(
+    (t) => t.id === selected && t.executionScope && t.executionScope.kind !== 'slice',
+  );
   const active = cycles.find(
     (cycle) =>
       (!selected || cycle.worktreeId === selected) &&
@@ -131,13 +141,19 @@ export function CyclePanel({
   const previous = cycles.filter((cycle) => ['stopped', 'completed'].includes(cycle.status));
   const attention =
     active !== undefined && ['needs-attention', 'awaiting-merge'].includes(active.status);
+  const statusLabel =
+    active && readOnly && active.status === 'awaiting-merge'
+      ? 'Ready for scope acceptance'
+      : active
+        ? CYCLE_STATUS_LABELS[active.status]
+        : '';
   return (
     <Section
       id="automation"
       title="Automated cycle"
       summary={
         active
-          ? `${CYCLE_STATUS_LABELS[active.status]} · ${active.step} step`
+          ? `${statusLabel} · ${active.step} step`
           : previous.length > 0
             ? 'No cycle running.'
             : 'Design → Implement → Review → Remediate as needed → your merge approval.'
@@ -156,7 +172,8 @@ export function CyclePanel({
           >
             {activeWorktrees.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.executionScope?.sourceId ?? t.branchName} · {t.branchName}
+                {t.executionScope?.sourceId ?? t.branchName}
+                {t.executionScope ? ` · ${t.executionScope.kind}` : ''} · {t.branchName}
               </option>
             ))}
           </select>
@@ -170,14 +187,18 @@ export function CyclePanel({
             facts={[
               {
                 label: 'Status',
-                value: CYCLE_STATUS_LABELS[active.status],
+                value: statusLabel,
                 accent: attention ? 'var(--color-attention)' : 'var(--color-active)',
               },
               { label: 'Step', value: active.step },
-              {
-                label: 'Remediation',
-                value: `${active.remediationRounds} of ${remediationAllowance(active)}`,
-              },
+              ...(!readOnly
+                ? [
+                    {
+                      label: 'Remediation',
+                      value: `${active.remediationRounds} of ${remediationAllowance(active)}`,
+                    },
+                  ]
+                : []),
               { label: 'Allowed nits', value: active.policy.maxNits },
               { label: 'Minutes per step', value: active.policy.maxRunMinutes },
             ]}
@@ -204,6 +225,7 @@ export function CyclePanel({
             )}
             {['paused', 'needs-attention'].includes(active.status) &&
               !exhaustedReview &&
+              !(readOnly && renderReviewRecovery) &&
               active.integrationResolution?.status !== 'detected' &&
               !(
                 renderDesignRecovery &&
@@ -228,6 +250,17 @@ export function CyclePanel({
               Stop automation
             </button>
           </ActionBar>
+          {readOnly && (
+            <p className="hint">
+              This is an independent review snapshot. Address code or documentation findings through
+              the owning slice, then verify the changed integration before parent acceptance.{' '}
+              <a href="#slices">Open execution slices and verification controls</a>.
+            </p>
+          )}
+          {readOnly &&
+            renderReviewRecovery &&
+            ['paused', 'needs-attention'].includes(active.status) &&
+            renderReviewRecovery(active, liveRun)}
           {exhaustedReview && onAuthorizeRemediation && (
             <CycleRemediationRecovery
               key={`${active.id}:${active.version}`}
@@ -242,7 +275,7 @@ export function CyclePanel({
             ['paused', 'needs-attention'].includes(active.status) &&
             renderDesignRecovery(active)}
           {active.baselinePreparation && <HistoricalEvidencePanel cycle={active} />}
-          {onResolution && (
+          {onResolution && !readOnly && (
             <IntegrationResolutionPanel
               cycle={active}
               backends={backends}
@@ -256,7 +289,7 @@ export function CyclePanel({
           <details>
             <summary>Cycle settings</summary>
             <ul>
-              {CYCLE_STEPS.map((step) => (
+              {(readOnly ? (['review'] as const) : CYCLE_STEPS).map((step) => (
                 <li key={step}>
                   {step}: {AGENT_BACKEND_LABELS[active.profiles[step].backend]} ·{' '}
                   {active.profiles[step].model ?? 'Backend default'} ·{' '}
@@ -267,15 +300,29 @@ export function CyclePanel({
             {active.instructions && <pre>{active.instructions}</pre>}
           </details>
           <About label="About cycle controls">
-            <p>
-              The cycle completes when zero blocking, major, or minor findings remain and at most
-              the allowed nits. Pause leaves the agent session available for manual work. Stop
-              cancels its current process and ends the cycle. Resume adopts a manual run handed off
-              from this cycle. Agent settings stay fixed; an exhausted review allowance can be
-              extended explicitly.
-            </p>
+            {readOnly ? (
+              <p>
+                Independent reviews collect evidence and report findings. Resume starts a fresh
+                review after its phase requirements clear. Address source changes through the owning
+                slice; recording verification or accepting the parent remains a separate guarded
+                command.
+              </p>
+            ) : (
+              <p>
+                The cycle completes when zero blocking, major, or minor findings remain and at most
+                the allowed nits. Pause leaves the agent session available for manual work. Stop
+                cancels its current process and ends the cycle. Resume adopts a manual run handed
+                off from this cycle. Agent settings stay fixed; an exhausted review allowance can be
+                extended explicitly.
+              </p>
+            )}
           </About>
         </>
+      ) : readOnly ? (
+        <p className="hint">
+          This worktree is a review snapshot. Use Delegation to launch its review; implementation
+          cycles belong to an owning slice.
+        </p>
       ) : (
         <details>
           <summary>Set up a cycle</summary>

@@ -75,7 +75,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { mergeGateFor } from './services/execution-service.js';
 import { assessStageReport, stagedPromotionIssue } from './services/finalization-stage-policy.js';
-import { recordedFindings, requiredFindingIds } from './services/run-handoff.js';
+import {
+  latestReviewReport,
+  recordedFindings,
+  requiredFindingIds,
+} from './services/run-handoff.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
 /* -------------------------------------------------------------------------- */
@@ -10530,4 +10534,99 @@ it('carries recorded operator guidance into related verification and acceptance 
       }),
     ]);
   }
+});
+
+it('recovers parent review with durable guidance only after current verification gates clear', async () => {
+  const f = await slicedFixture(),
+    { state } = f;
+  for (const scope of f.scopes) {
+    const tree = await scopeTree(f, scope);
+    commitFile(tree.path, `${scope.sourceId.replaceAll('/', '-')}.txt`, 'slice implementation');
+    await reviewScope(f, tree);
+    expect((await merge(state, tree.id)).statusCode).toBe(200);
+    expect((await recordScope(f, tree)).statusCode).toBe(200);
+  }
+  const tree = await scopeTree(f, f.parentScope);
+  f.backend.replyForRequest = (request) => {
+    runScopedFixtureCheck(request);
+    return {
+      resultText: `## Open questions\nWhich policy applies?\n\n## Review report\n${scopeReport(state, f.parentScope)}`,
+    };
+  };
+  const cycle = state.context.services.workCycleService.start(
+    f.auth,
+    state.workspaceId,
+    state.workItemId,
+    {
+      worktreeId: tree.id,
+      profiles: cycleProfiles,
+      policy: DEFAULT_COMPLETION_POLICY,
+      instructions: 'Keep the original parent gate.',
+    },
+    undefined,
+    true,
+  );
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'parent question');
+  const saved = await branchCommand(state, 'plan-versions/version-1/repository-policy', {
+    expectedVersion: 0,
+    expectedBranchSettingsVersion: 1,
+    controlMode: 'controller-local',
+    interpretation: 'Use the local controller gates.',
+    publicationRequirement: 'Before remote publication.',
+  });
+  expect(saved.statusCode, saved.body).toBe(200);
+  const resume = (
+    expectedVersion = currentCycle(state, cycle).version,
+    headers = mutationHeaders(state),
+  ) =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers,
+      payload: {
+        action: 'resume',
+        expectedVersion,
+        instructions: 'Apply the adopted policy without waiving the source gate.',
+      },
+    });
+  const prior = currentCycle(state, cycle);
+  const blocked = await resume();
+  expect(blocked.statusCode, blocked.body).toBe(409);
+  expect(blocked.body).toContain('has not been verified');
+  expect(currentCycle(state, cycle)).toEqual(prior);
+  expect((await resume(prior.version, { cookie: state.cookie })).statusCode).toBe(403);
+  for (const scope of f.scopes) {
+    const verification = await scopeTree(f, { ...scope, kind: 'slice-verification' });
+    await reviewScope(f, verification);
+    expect((await recordScope(f, verification)).statusCode).toBe(200);
+  }
+  f.backend.replyForRequest = (request) => {
+    runScopedFixtureCheck(request);
+    return {
+      resultText: `## Open questions\nnone\n\n## Review report\n${scopeReport(state, f.parentScope)}`,
+    };
+  };
+  expect((await resume(prior.version + 1)).statusCode).toBe(409);
+  const result = await resume();
+  expect(result.statusCode, result.body).toBe(200);
+  const continued = currentCycle(state, cycle);
+  expect(continued.instructions).toContain('Keep the original parent gate.');
+  expect(continued.instructions).toContain('Apply the adopted policy');
+  expect(continued.remediationRounds).toBe(0);
+  await waitFor(() => currentCycle(state, cycle).status !== 'running', 'fresh parent review');
+  const run = state.context.storage.execution.runs.find(
+    state.workspaceId,
+    currentCycle(state, cycle).currentRunId,
+  )!;
+  const assessment = latestReviewReport(state.context.storage.execution, run);
+  expect(assessment, JSON.stringify(assessment)).toMatchObject({ status: 'complete' });
+  expect(currentCycle(state, cycle).status, currentCycle(state, cycle).reason).toBe(
+    'awaiting-merge',
+  );
+  expect(run.role).toBe('review');
+  expect(run.brief).toContain('Apply the adopted policy');
+  expect(run.reviewBranchContext?.repositoryPolicyVersion).toBe(1);
+  expect(
+    state.context.storage.planning.workItems.find(state.workspaceId, state.workItemId)?.status,
+  ).toBe('admitted');
 });

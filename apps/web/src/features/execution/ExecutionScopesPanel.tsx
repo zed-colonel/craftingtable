@@ -197,13 +197,15 @@ export function ExecutionScopesPanel({
               </button>
             )}
             <p className="hint">Map binding revision {choice.scope.bindingRevision}.</p>
-            {existing && onOpenCycle && choice.scope.kind === 'slice' ? (
+            {existing && onOpenCycle && (choice.scope.kind === 'slice' || cycle) ? (
               <div className="stack">
                 {cycle && <p role="status">{cycle.reason}</p>}
                 <button type="button" onClick={() => onOpenCycle(existing.id)}>
                   {cycle?.step === 'design' && ['paused', 'needs-attention'].includes(cycle.status)
                     ? 'Open cycle to resolve design questions'
-                    : 'Open existing slice cycle'}
+                    : choice.scope.kind === 'parent-acceptance'
+                      ? 'Open parent acceptance recovery'
+                      : 'Open existing slice cycle'}
                 </button>
               </div>
             ) : (
@@ -274,6 +276,15 @@ export function ExecutionScopesPanel({
               .map((tree) => (
                 <p key={tree.id}>
                   <code>{tree.branchName}</code>{' '}
+                  {onOpenCycle &&
+                    cycles.some(
+                      (c) =>
+                        c.worktreeId === tree.id && !['completed', 'stopped'].includes(c.status),
+                    ) && (
+                      <button type="button" onClick={() => onOpenCycle(tree.id)}>
+                        Open review cycle
+                      </button>
+                    )}
                   <button
                     type="button"
                     disabled={

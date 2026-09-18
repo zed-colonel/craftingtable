@@ -38,11 +38,16 @@ export function controlWorkCycle(
   cycle: WorkCycle,
   action: 'pause' | 'resume' | 'stop',
   csrfToken: string,
+  instructions?: string,
 ) {
   return request(
     `/api/workspaces/${encode(cycle.workspaceId)}/cycles/${encode(cycle.id)}/control`,
     workCycleResponseSchema,
-    mutation(csrfToken, { action, expectedVersion: cycle.version }),
+    mutation(csrfToken, {
+      action,
+      expectedVersion: cycle.version,
+      ...(instructions !== undefined ? { instructions } : {}),
+    }),
   );
 }
 

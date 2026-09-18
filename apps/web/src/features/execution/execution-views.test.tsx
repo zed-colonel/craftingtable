@@ -1089,6 +1089,42 @@ describe('automated cycle controls', () => {
     expect(screen.getByText(sibling.reason)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
     expect(onControl).toHaveBeenLastCalledWith(sibling, 'stop');
+    view.unmount();
+    for (const kind of ['parent-acceptance', 'slice-verification'] as const) {
+      const scope = { kind, definitionId: 'map', bindingRevision: 4, sourceId: 'wi/WI-01' };
+      const reviewTree = { ...siblingTree, executionScope: scope };
+      const reviewCycle = {
+        ...sibling,
+        executionScope: scope,
+        status: 'needs-attention' as const,
+        reason: 'Review needs operator guidance.',
+      };
+      const reviewView = render(
+        <CyclePanel
+          cycles={[{ ...cycle, status: 'completed' }, reviewCycle]}
+          worktrees={[worktree, reviewTree]}
+          runs={[]}
+          backends={backends}
+          profiles={profiles}
+          canMutate
+          busy={false}
+          admitted
+          onStart={vi.fn()}
+          onControl={onControl}
+          onOpenRun={vi.fn()}
+          renderReviewRecovery={(c) => <p>Review recovery for {c.executionScope?.kind}</p>}
+        />,
+      );
+      expect((screen.getByLabelText('Cycle worktree') as HTMLSelectElement).value).toBe(
+        reviewTree.id,
+      );
+      expect(screen.getByText(`Review recovery for ${kind}`)).toBeTruthy();
+      expect(screen.queryByText('Set up a cycle')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Stop automation' }));
+      expect(onControl).toHaveBeenLastCalledWith(reviewCycle, 'stop');
+      reviewView.unmount();
+    }
   });
 });
 

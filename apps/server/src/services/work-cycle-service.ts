@@ -830,6 +830,7 @@ export class WorkCycleService {
     id: string,
     action: 'pause' | 'resume' | 'stop',
     expectedVersion: number,
+    reviewGuidance?: string,
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
@@ -907,6 +908,27 @@ export class WorkCycleService {
     else finalizationForCycle(this.storage, cycle);
     const allRuns = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
     const run = allRuns[0];
+    if (reviewGuidance !== undefined) {
+      if (
+        cycle.step !== 'review' ||
+        !cycle.executionScope ||
+        cycle.executionScope.kind === 'slice' ||
+        !run ||
+        run.id !== cycle.currentRunId ||
+        allRuns.some((r) => !isTerminalAgentRunStatus(r.status))
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Review guidance requires an idle verification or parent-acceptance cycle with its current review run.',
+        );
+      const instructions = [cycle.instructions, reviewGuidance.trim()].filter(Boolean).join('\n\n');
+      if (instructions.length > 16000)
+        throw new ExecutionRequestError(
+          'conflict',
+          'Combined cycle guidance exceeds 16000 characters; shorten the additional guidance.',
+        );
+      return this.next(cycle, 'review', run, context, { instructions });
+    }
     if (
       allRuns.some(
         (candidate) => candidate.id !== run?.id && !isTerminalAgentRunStatus(candidate.status),

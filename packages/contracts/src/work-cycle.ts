@@ -293,8 +293,13 @@ export const workCyclesResponseSchema = z.strictObject({ cycles: z.array(workCyc
 export const workCycleResponseSchema = z.strictObject({ cycle: workCycleSchema });
 export const controlWorkCycleRequestSchema = z.discriminatedUnion('action', [
   z.strictObject({
-    action: z.enum(['pause', 'resume', 'stop']),
+    action: z.enum(['pause', 'stop']),
     expectedVersion: z.number().int().positive(),
+  }),
+  z.strictObject({
+    action: z.literal('resume'),
+    expectedVersion: z.number().int().positive(),
+    instructions: z.string().trim().max(16000).optional(),
   }),
   z.strictObject({
     action: z.literal('authorize-remediation'),

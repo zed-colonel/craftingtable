@@ -41,7 +41,11 @@ it is mergeable.
   verification review. Once all required slices and evidence are verified, create a parent
   acceptance worktree, launch its review, and use **Accept parent after review**. Only that
   acceptance completes the parent and releases its dependents. Reviews retain evidence in a
-  separate run artifact. The reference WI/EXO map retains its adoption, environment and evidence gates; importing or selecting a slice never approves
+  separate run artifact. Active verification and parent-acceptance cycles appear in the work item's
+  **Automated cycle** selector, with guidance/resume recovery and current phase requirements.
+  Recovery retains prior instructions and starts another review; source changes belong to the
+  owning slice. Stale verification must be refreshed before parent acceptance can resume.
+  The reference WI/EXO map retains its adoption, environment and evidence gates; importing or selecting a slice never approves
   those requirements. Existing whole-item workflows remain available.
 - **Transition scheduling and resources.** Execution scopes show separate start, integration,
   verification and parent-acceptance requirements, with typed waiting reasons and reservations.

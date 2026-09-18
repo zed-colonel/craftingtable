@@ -156,6 +156,7 @@ export function registerWorkCycleRoutes(
               request.params.cycleId,
               body.data.action,
               body.data.expectedVersion,
+              body.data.action === 'resume' ? body.data.instructions : undefined,
             );
       return noStore(reply).send(workCycleResponseSchema.parse({ cycle }));
     },

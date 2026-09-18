@@ -11,6 +11,7 @@ import {
   sourceRepositoryIdSchema,
   userIdSchema,
   worktreeIdSchema,
+  agentRunIdSchema,
 } from './ids.js';
 import { cycleProfilesSchema, completionPolicySchema } from './work-cycle.js';
 export const roadmapAutomationSchema = z.strictObject({
@@ -77,6 +78,12 @@ export const controlRoadmapRequestSchema = z.strictObject({
   action: z.enum(['start', 'pause', 'resume', 'stop']),
   entryId: z.string().uuid().optional(),
 });
+export const scopeRecoveryPolicyRequestSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  enabled: z.boolean(),
+  maxRoundsPerParent: z.number().int().min(1).max(20),
+});
+export type ScopeRecoveryPolicyRequest = z.infer<typeof scopeRecoveryPolicyRequestSchema>;
 const entrySchema = roadmapEntryInputSchema.extend({
   projectId: projectIdSchema,
   planVersionId: planVersionIdSchema,
@@ -97,6 +104,14 @@ export const roadmapDefinitionSchema = z.strictObject({
   createdByUserId: userIdSchema,
 });
 export const roadmapSchema = z.strictObject({
+  scopeRecovery: z
+    .strictObject({
+      enabled: z.boolean(),
+      maxRoundsPerParent: z.number().int().min(1).max(20),
+      grantedByUserId: userIdSchema,
+      grantedAt: z.iso.datetime(),
+    })
+    .optional(),
   id: z.string().uuid(),
   workspaceId: workspaceIdSchema,
   version: z.number().int().positive(),
@@ -118,6 +133,17 @@ export const roadmapSchema = z.strictObject({
     .optional(),
   attempts: z.array(
     z.strictObject({
+      recovery: z
+        .strictObject({
+          sourceEntryId: z.string().uuid(),
+          sourceRunId: agentRunIdSchema,
+          sourceSequence: z.number().int().positive(),
+          findingFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+          phase: z.enum(['repair', 'verification', 'parent-review', 'completed']),
+          reviewRunIds: z.record(z.string().uuid(), z.string().uuid()),
+          reviewRestarts: z.record(z.string().uuid(), z.number().int().nonnegative()).optional(),
+        })
+        .optional(),
       id: z.string().uuid(),
       entryId: z.string().uuid(),
       definitionRevision: z.number().int().positive(),

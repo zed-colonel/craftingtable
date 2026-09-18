@@ -1,3 +1,4 @@
+import { ScopeRecoveryPanel } from './ScopeRecoveryPanel.js';
 import { RoadmapAttention, roadmapStatusLabel } from './RoadmapAttention.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { MapAmendmentPanel } from './MapAmendmentPanel.js';
@@ -797,6 +798,13 @@ export function RoadmapsPage({
             </ActionBar>
             {roadmap.definition.crossProject && (
               <>
+                <ScopeRecoveryPanel
+                  roadmap={roadmap}
+                  csrfToken={csrfToken}
+                  canMutate={canMutate}
+                  onChange={apply}
+                  onOpenWorkItem={onOpenWorkItem}
+                />
                 <CrossProjectPanel
                   workspaceId={workspaceId}
                   definitionId={roadmap.definition.crossProject.definitionId}

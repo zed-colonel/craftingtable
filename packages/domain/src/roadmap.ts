@@ -74,6 +74,16 @@ export interface RoadmapDefinition {
 }
 /** A whole-item or slice execution attempt has its own identity and frozen definition binding. */
 export interface RoadmapAttempt {
+  /** Additional owning-slice attempt; the original entry and reviewer assignments stay intact. */
+  readonly recovery?: {
+    readonly sourceEntryId: string;
+    readonly sourceRunId: import('./ids.js').AgentRunId;
+    readonly sourceSequence: number;
+    readonly findingFingerprint: string;
+    readonly phase: 'repair' | 'verification' | 'parent-review' | 'completed';
+    readonly reviewRunIds: Readonly<Record<string, string>>;
+    readonly reviewRestarts?: Readonly<Record<string, number>>;
+  };
   readonly id: string;
   readonly entryId: string;
   readonly definitionRevision: number;
@@ -84,6 +94,13 @@ export interface RoadmapAttempt {
   readonly completedAt?: string;
 }
 export interface Roadmap {
+  /** Separate, explicit execution delegation. Changing it never changes the accepted plan. */
+  readonly scopeRecovery?: {
+    readonly enabled: boolean;
+    readonly maxRoundsPerParent: number;
+    readonly grantedByUserId: UserId;
+    readonly grantedAt: string;
+  };
   readonly id: string;
   readonly workspaceId: WorkspaceId;
   readonly version: number;

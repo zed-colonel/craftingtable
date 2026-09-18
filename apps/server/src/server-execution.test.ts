@@ -8719,6 +8719,7 @@ async function supervisedMapFixture(
   parentAcceptance: 'manual' | 'automatic' = 'automatic',
   wholePlan = false,
   planApproval = false,
+  singleOwner = false,
 ) {
   const f = await slicedFixture(
     (s) => ({
@@ -8745,7 +8746,12 @@ async function supervisedMapFixture(
         })),
       ],
       work_items: s.work_items.flatMap((p) => [
-        { ...p, repository: 'local', source_profile_case_ids: [] },
+        {
+          ...p,
+          repository: 'local',
+          source_profile_case_ids: [],
+          required_slices: singleOwner ? p.required_slices.slice(0, 1) : p.required_slices,
+        },
         ...(wholePlan
           ? [
               {
@@ -8761,7 +8767,7 @@ async function supervisedMapFixture(
             ]
           : []),
       ]),
-      slices: s.slices.map((s) => ({
+      slices: (singleOwner ? s.slices.slice(0, 1) : s.slices).map((s) => ({
         ...s,
         start_requires: planApproval
           ? [{ kind: 'checkpoint' as const, id: 'STACK-PLAN-ACCEPTED', state: 'passed' as const }]
@@ -10823,6 +10829,29 @@ it.each([false, true])(
       'verification finding',
     );
     const latestVerification = currentCycle(state, verification);
+    const { scopeRecoveryDecision } = await import('./services/scope-recovery-policy.js');
+    const roadmap = storedRoadmap(state);
+    const verificationEntry = roadmap.definition.entries.find(
+      (e) =>
+        e.executionScope?.kind === 'slice-verification' &&
+        e.executionScope.sourceId === verification.executionScope!.sourceId,
+    )!;
+    expect(
+      scopeRecoveryDecision(
+        tx,
+        {
+          ...roadmap,
+          scopeRecovery: {
+            enabled: true,
+            maxRoundsPerParent: 3,
+            grantedAt: new Date().toISOString(),
+            grantedByUserId: state.userId,
+          },
+        },
+        verificationEntry,
+        latestVerification,
+      ).reason,
+    ).toContain('ambiguous');
     const path = `/api/workspaces/${ws}/cycles/${verification.id}/scope-repair`;
     const response = await state.context.app.inject({
       method: 'GET',
@@ -11024,3 +11053,329 @@ it.each([false, true])(
     expect(repairedTree.executionScope?.kind).toBe('slice');
   },
 );
+
+it.each(['accepted', 'questions', 'unchanged', 'exhausted', 'ambiguous'] as const)(
+  'bounded roadmap scope recovery: %s',
+  { timeout: 45000 },
+  async (outcome) => {
+    const f = await supervisedMapFixture(false, 'automatic', false, false, outcome !== 'ambiguous');
+    const { state } = f,
+      ws = state.workspaceId,
+      tx = state.context.storage;
+    const normal = f.backend.replyForRequest!;
+    let parentReviews = 0;
+    let repairs = 0;
+    const reportWith = (scope: ExecutionScope, findings: readonly unknown[], questions = 'none') =>
+      '## Open questions\n' +
+      questions +
+      '\n\n## Review report\n' +
+      scopeReport(state, scope)
+        .replace('"findings":[]', `"findings":${JSON.stringify(findings)}`)
+        .replaceAll(
+          'mergeable',
+          findings.some((f) => (f as { status: string }).status === 'open')
+            ? 'changes-requested'
+            : 'mergeable',
+        );
+    f.backend.replyForRequest = (request) => {
+      const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
+      const scope = tree.executionScope!;
+      if (scope.kind === 'parent-acceptance') {
+        parentReviews++;
+        runScopedFixtureCheck(request);
+        const defect = {
+          ...structuredFinding,
+          id: 'F003',
+          severity: 'major',
+          title: 'Complete semantic coverage',
+          explanation:
+            outcome === 'unchanged'
+              ? 'The same missing behavior remains.'
+              : `Prior corrections verified; missing family ${parentReviews}.`,
+        };
+        const finished = outcome === 'accepted' && parentReviews >= 3;
+        return {
+          resultText: reportWith(
+            scope,
+            finished
+              ? [{ ...defect, status: 'resolved', disposition: 'Verified all families.' }]
+              : [defect],
+            outcome === 'questions' && parentReviews > 1
+              ? 'Which authority should own this behavior?'
+              : 'none',
+          ),
+        };
+      }
+      const packetPath = /`([^`]+\/craftingtable-scope-repair\.json)`/.exec(request.prompt)?.[1];
+      if (packetPath) {
+        expect(scope.kind).toBe('slice');
+        expect(request.prompt).toContain('audit that family systematically');
+        if (request.model !== 'review-model') {
+          repairs++;
+          commitFile(request.cwd, `repair-${repairs}.txt`, `Corrected family ${repairs}`);
+          return implementationDone;
+        }
+        runScopedFixtureCheck(request);
+        const packet = JSON.parse(readFileSync(packetPath, 'utf8'));
+        const findings = packet.sources
+          .flatMap((s: { findings: (typeof structuredFinding)[] }) => s.findings)
+          .map((finding: typeof structuredFinding) => ({
+            id: finding.id,
+            title: finding.title,
+            severity: finding.severity,
+            explanation: finding.explanation,
+            recommendation: finding.recommendation,
+            status: 'resolved',
+            disposition: 'Verified the committed correction.',
+          }));
+        return { resultText: reportWith(scope, findings) };
+      }
+      return normal(request);
+    };
+    f.service.save(f.auth, ws, f.input);
+    await adoptSupervisedMap(f);
+    await roadmapControl(state, 'start');
+    await waitFor(
+      () =>
+        tx.execution.cycles
+          .list(ws)
+          .some(
+            (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'needs-attention',
+          ),
+      'initial parent finding',
+      15000,
+    );
+    await roadmapControl(state, 'pause');
+    const prior = storedRoadmap(state);
+    const policyPath = `/api/workspaces/${ws}/roadmaps/${roadmapId}/scope-recovery`;
+    const input = {
+      expectedVersion: prior.version,
+      enabled: true,
+      maxRoundsPerParent: outcome === 'exhausted' ? 1 : 3,
+    };
+    expect(
+      (
+        await state.context.app.inject({
+          method: 'POST',
+          url: policyPath,
+          headers: { cookie: state.cookie },
+          payload: input,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await state.context.app.inject({
+          method: 'POST',
+          url: policyPath,
+          headers: mutationHeaders(state),
+          payload: { ...input, expectedVersion: input.expectedVersion - 1 },
+        })
+      ).statusCode,
+    ).toBe(409);
+    const saved = await state.context.app.inject({
+      method: 'POST',
+      url: policyPath,
+      headers: mutationHeaders(state),
+      payload: input,
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(storedRoadmap(state).definition).toEqual(prior.definition);
+    expect(parentReviews).toBe(1);
+    const stoppedParent = tx.execution.cycles
+      .list(ws)
+      .find((c) => c.executionScope?.kind === 'parent-acceptance')!;
+    const assessment = tx.execution.runEvents.latestOfKind(
+      ws,
+      stoppedParent.currentRunId,
+      'turn-completed',
+    );
+    expect(
+      assessment?.kind === 'turn-completed' && assessment.payload.reviewReport?.status,
+      JSON.stringify(assessment?.payload),
+    ).toBe('complete');
+    await roadmapControl(state, 'resume');
+    if (outcome === 'accepted') {
+      await waitFor(
+        () => tx.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
+        'automatic recovered parent acceptance',
+        22000,
+      );
+      await waitFor(
+        () =>
+          storedRoadmap(state)
+            .attempts.filter((a) => a.recovery)
+            .every((a) => a.recovery!.phase === 'completed'),
+        'rounds completed',
+      );
+      expect(repairs).toBe(2); // Repeated F003 with new evidence is real progress, not ID-based stagnation.
+      expect(parentReviews).toBe(3);
+    } else {
+      await waitFor(
+        () =>
+          Object.values(storedRoadmap(state).entryHolds ?? {}).some((h) =>
+            h.reason.includes(
+              outcome === 'questions'
+                ? 'resolve questions'
+                : outcome === 'unchanged'
+                  ? 'same substantive findings'
+                  : outcome === 'exhausted'
+                    ? 'allowance exhausted'
+                    : 'ambiguous',
+            ),
+          ),
+        'bounded recovery stopping reason',
+        22000,
+      );
+      expect(repairs).toBe(outcome === 'ambiguous' ? 0 : 1);
+      expect(tx.planning.workItems.find(ws, state.workItemId)?.status).not.toBe('completed');
+    }
+    const rounds = storedRoadmap(state).attempts.filter((a) => a.recovery);
+    for (const round of rounds) {
+      expect(tx.execution.worktrees.find(ws, round.worktreeId)?.mergedAt).toBeTruthy();
+      expect(tx.execution.merges.latest(ws, round.worktreeId)?.roadmapId).toBe(roadmapId);
+      expect(round.definitionRevision).toBe(prior.definition.revision);
+    }
+    const reopened = openCraftingTableStorage(tx.databasePath);
+    try {
+      expect(reopened.roadmaps.find(ws, roadmapId)?.attempts).toEqual(
+        storedRoadmap(state).attempts,
+      );
+    } finally {
+      reopened.close();
+    }
+    expect(
+      rounds.every(
+        (a) => tx.execution.worktrees.find(ws, a.worktreeId)?.integrationBranch !== 'main',
+      ),
+    ).toBe(true);
+  },
+);
+
+it('recovers a verification defect, survives pause/restart, and preserves manual integration and parent approval', {
+  timeout: 30000,
+}, async () => {
+  const f = await supervisedMapFixture(false, 'manual', false, false, true);
+  const { state } = f,
+    ws = state.workspaceId,
+    tx = state.context.storage;
+  const normal = f.backend.replyForRequest!;
+  let verifications = 0;
+  f.backend.replyForRequest = (request) => {
+    const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
+    const scope = tree.executionScope!;
+    let findings: unknown[] | undefined;
+    if (scope.kind === 'slice-verification') {
+      runScopedFixtureCheck(request);
+      findings = [
+        {
+          ...structuredFinding,
+          ...(++verifications > 1
+            ? { status: 'resolved', disposition: 'Verified committed repair.' }
+            : {}),
+        },
+      ];
+    }
+    const packetPath = /`([^`]+\/craftingtable-scope-repair\.json)`/.exec(request.prompt)?.[1];
+    if (packetPath) {
+      if (request.model !== 'review-model') {
+        commitFile(request.cwd, 'repair.txt', 'Corrected verification finding');
+        return implementationDone;
+      }
+      runScopedFixtureCheck(request);
+      const packet = JSON.parse(readFileSync(packetPath, 'utf8'));
+      findings = packet.sources
+        .flatMap((s: { findings: (typeof structuredFinding)[] }) => s.findings)
+        .map((f: typeof structuredFinding) => ({
+          id: f.id,
+          severity: f.severity,
+          title: f.title,
+          explanation: f.explanation,
+          recommendation: f.recommendation,
+          status: 'resolved',
+          disposition: 'Verified the regression.',
+        }));
+    }
+    return findings
+      ? {
+          resultText:
+            '## Open questions\nnone\n\n## Review report\n' +
+            scopeReport(state, scope)
+              .replace('"findings":[]', `"findings":${JSON.stringify(findings)}`)
+              .replaceAll(
+                'mergeable',
+                scope.kind === 'slice-verification' && verifications === 1
+                  ? 'changes-requested'
+                  : 'mergeable',
+              ),
+        }
+      : normal(request);
+  };
+  f.service.save(f.auth, ws, {
+    ...f.input,
+    configuration: {
+      ...f.input.configuration,
+      defaults: {
+        ...f.input.configuration.defaults,
+        automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
+      },
+    },
+  });
+  await adoptSupervisedMap(f);
+  state.context.services.roadmapService.configureScopeRecovery(f.auth, ws, roadmapId, {
+    expectedVersion: storedRoadmap(state).version,
+    enabled: true,
+    maxRoundsPerParent: 2,
+  });
+  await roadmapControl(state, 'start');
+  const first = await awaitRoadmapMerge(state, 0);
+  await mergeRoadmapAttempt(state, first.worktreeId);
+  await waitFor(
+    () =>
+      storedRoadmap(state).attempts.some(
+        (a) => a.recovery && tx.execution.cycles.find(ws, a.cycleId)?.status === 'awaiting-merge',
+      ),
+    'manual repair integration',
+    10000,
+  );
+  const repair = storedRoadmap(state).attempts.find((a) => a.recovery)!;
+  expect(tx.execution.worktrees.find(ws, repair.worktreeId)?.mergedAt).toBeUndefined();
+  const source = tx.execution.cycles
+    .list(ws)
+    .find((c) => c.executionScope?.kind === 'slice-verification')!;
+  expect(
+    state.context.services.workCycleService.list(f.auth, ws).find((c) => c.id === source.id)
+      ?.scopeReviewWait,
+  ).toContain('roadmap recovery');
+  await roadmapControl(state, 'pause');
+  expect(storedRoadmap(state).attempts.filter((a) => a.recovery)).toHaveLength(1);
+  state.context.services.roadmapService.recoverInterrupted();
+  await roadmapControl(state, 'resume');
+  state.context.services.roadmapService.recoverInterrupted();
+  expect(storedRoadmap(state).status).toBe('needs-attention');
+  await state.context.services.roadmapService.tick();
+  expect(tx.execution.worktrees.find(ws, repair.worktreeId)?.mergedAt).toBeUndefined();
+  await roadmapControl(state, 'resume');
+  expect(storedRoadmap(state).attempts.filter((a) => a.recovery)).toHaveLength(1);
+  await mergeRoadmapAttempt(state, repair.worktreeId);
+  await waitFor(
+    () =>
+      tx.execution.cycles
+        .list(ws)
+        .some(
+          (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
+        ),
+    'manual parent approval',
+    10000,
+  );
+  expect(verifications).toBe(2);
+  expect(tx.planning.workItems.find(ws, state.workItemId)?.status).not.toBe('completed');
+  const parent = tx.execution.cycles
+    .list(ws)
+    .find((c) => c.executionScope?.kind === 'parent-acceptance')!;
+  await recordScope(f, tx.execution.worktrees.find(ws, parent.worktreeId)!);
+  await waitFor(
+    () => tx.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
+    'explicit parent approval',
+  );
+});

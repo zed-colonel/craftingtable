@@ -6,6 +6,7 @@ import {
   roadmapViewSchema,
   roadmapHistoryResponseSchema,
   workspaceIdSchema,
+  scopeRecoveryPolicyRequestSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from '../config.js';
@@ -40,6 +41,27 @@ export function registerRoadmapRoutes(
         roadmapHistoryResponseSchema.parse({
           definitions: roadmaps.history(context, workspace.data, request.params.roadmapId),
         }),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/scope-recovery',
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const body = scopeRecoveryPolicyRequestSchema.safeParse(request.body);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      if (!body.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid recovery delegation');
+      return noStore(reply).send(
+        roadmapViewSchema.parse(
+          roadmaps.configureScopeRecovery(
+            context,
+            workspace.data,
+            request.params.roadmapId,
+            body.data,
+          ),
+        ),
       );
     },
   );

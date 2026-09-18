@@ -2,6 +2,7 @@ import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { ExecutionService } from './execution-service.js';
 import type { ScopeRepairRequest } from '@craftingtable/contracts';
 import { collectScopeRepair, scopeReviewWait } from './scope-repair.js';
+import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import type { PrepareBaselineRequest } from '@craftingtable/contracts';
 import { collectDesignRecovery } from './design-recovery.js';
@@ -79,7 +80,7 @@ export class WorkCycleService {
     this.workspaceService.requireAuthorized(context, workspaceId);
     const tx = mapReadSnapshot(this.storage);
     return this.storage.execution.cycles.list(workspaceId).map((c) => {
-      const wait = scopeReviewWait(tx, c);
+      const wait = automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c);
       return wait ? { ...c, scopeReviewWait: wait } : c;
     });
   }
@@ -97,6 +98,14 @@ export class WorkCycleService {
     workspaceId: WorkspaceId,
     id: string,
     input: ScopeRepairRequest,
+    delegation?: {
+      worktreeId: import('@craftingtable/domain').WorktreeId;
+      cycleId: string;
+      profiles: WorkCycle['profiles'];
+      policy: WorkCycle['policy'];
+      check: () => void;
+      attach: () => void;
+    },
   ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const source = this.storage.execution.cycles.find(workspaceId, id);
@@ -106,6 +115,7 @@ export class WorkCycleService {
         'An idle scope review is required for source remediation.',
       );
     const check = () => {
+      delegation?.check();
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
       const current = this.storage.execution.cycles.find(workspaceId, id);
       if (
@@ -156,7 +166,7 @@ export class WorkCycleService {
       throw new ExecutionRequestError('conflict', 'Slice repair is already being prepared.');
     this.repairing.add(key);
     try {
-      this.validateSettings({ profiles: selected.profiles });
+      this.validateSettings({ profiles: delegation?.profiles ?? selected.profiles });
       const resolved = requireScope(
         this.storage,
         workspaceId,
@@ -167,11 +177,17 @@ export class WorkCycleService {
       let tree =
         selected.worktreeId &&
         this.storage.execution.worktrees.find(workspaceId, selected.worktreeId);
+      if (delegation && tree && tree.id !== delegation.worktreeId)
+        throw new ExecutionRequestError('conflict', 'Another slice attempt needs manual recovery.');
       if (!tree)
-        tree = await this.execution.createWorktree(context, workspaceId, source.workItemId, {
-          repositoryId: resolved.binding.repositoryId!,
-          executionScope: selected.scope,
-        });
+        tree = await this.execution.createWorktree(
+          context,
+          workspaceId,
+          source.workItemId,
+          { repositoryId: resolved.binding.repositoryId!, executionScope: selected.scope },
+          undefined,
+          delegation ? { id: delegation.worktreeId, check } : undefined,
+        );
       check();
       // Recheck source journals after Git, but allow the newly prepared (empty) worktree.
       const fresh = collectScopeRepair(mapReadSnapshot(this.storage), source);
@@ -187,28 +203,40 @@ export class WorkCycleService {
           'Source findings changed during preparation; refresh recovery.',
         );
       return this.storage.transaction(() => {
-        const started = this.start(context, workspaceId, source.workItemId!, {
-          worktreeId: tree.id,
-          profiles: selected.profiles!,
-          policy: { ...selected.policy!, maxRemediationRounds: input.maxRemediationRounds },
-          instructions: input.instructions,
-        });
+        check();
+        const started = this.start(
+          context,
+          workspaceId,
+          source.workItemId!,
+          {
+            worktreeId: tree.id,
+            profiles: delegation?.profiles ?? selected.profiles!,
+            policy: delegation?.policy ?? {
+              ...selected.policy!,
+              maxRemediationRounds: input.maxRemediationRounds,
+            },
+            instructions: input.instructions,
+          },
+          delegation?.cycleId,
+        );
         const sources = selectedSources.map((s) => ({
           runId: s.runId,
           sequence: s.sequence,
           label: s.label,
         }));
-        return this.change(
+        const repaired = this.change(
           started,
           {
             step: 'remediate',
             scopeRepair: { sourceCycleId: id, sources },
             reason:
-              'Implementing the pinned independent-review findings in the owning slice. Merge approval remains separate.',
+              'Implementing the pinned independent-review findings in the owning slice. Integration follows its recorded merge policy.',
           },
           'delegate-scope-repair',
           context,
         );
+        delegation?.attach();
+        return repaired;
       });
     } finally {
       this.repairing.delete(key);
@@ -971,6 +999,8 @@ export class WorkCycleService {
     id: string,
     expectedVersion: number,
     guidance: string,
+    delegationCheck?: () => void,
+    onReviewReserved?: () => void,
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
@@ -996,6 +1026,7 @@ export class WorkCycleService {
         'Combined cycle guidance exceeds 16000 characters; shorten the additional guidance.',
       );
     const check = () => {
+      delegationCheck?.();
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
       const current = this.storage.execution.cycles.find(workspaceId, id);
       if (current?.version !== expectedVersion || current.status !== 'completed')
@@ -1048,6 +1079,7 @@ export class WorkCycleService {
           reason: 'Starting a fresh independent review with the existing reviewer assignment.',
         },
         'review-again',
+        { check: delegationCheck, attach: onReviewReserved },
       );
     });
   }
@@ -1059,8 +1091,11 @@ export class WorkCycleService {
     action: 'pause' | 'resume' | 'stop',
     expectedVersion: number,
     reviewGuidance?: string,
+    delegationCheck?: () => void,
+    onReviewReserved?: () => void,
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    delegationCheck?.();
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
     if (cycle.version !== expectedVersion)
@@ -1164,6 +1199,7 @@ export class WorkCycleService {
       if (!tree || !this.branches)
         throw new ExecutionRequestError('unavailable', 'Review snapshot is unavailable.');
       const check = () => {
+        delegationCheck?.();
         if (this.storage.execution.cycles.find(workspaceId, id)?.version !== expectedVersion)
           throw new ExecutionRequestError('conflict', 'Cycle changed; refresh before resuming.');
         this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
@@ -1178,7 +1214,10 @@ export class WorkCycleService {
       );
       return this.mutations.during(tree.id, async () => {
         check();
-        return this.next(cycle, 'review', run, context, { instructions });
+        return this.next(cycle, 'review', run, context, { instructions }, 'resume', {
+          check: delegationCheck,
+          attach: onReviewReserved,
+        });
       });
     }
     if (
@@ -2407,6 +2446,11 @@ export class WorkCycleService {
     if (roadmap?.status !== 'running') return;
     const attempt = roadmap.attempts.find((a) => a.cycleId === cycle.id);
     if (!attempt || roadmap.entryHolds?.[attempt.entryId]) return;
+    if (
+      attempt.recovery &&
+      (!roadmap.scopeRecovery?.enabled || roadmap.entryHolds?.[attempt.recovery.sourceEntryId])
+    )
+      return;
     const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId);
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (
@@ -2948,6 +2992,7 @@ export class WorkCycleService {
     context?: CommandContext,
     changes: Partial<WorkCycle> = {},
     action = context === undefined ? 'advance' : 'resume',
+    reservation?: { check?: () => void; attach?: () => void },
   ): Promise<WorkCycle> {
     const ended =
       parent &&
@@ -3002,30 +3047,37 @@ export class WorkCycleService {
         );
     }
     const nextRunId = asAgentRunId(randomUUID());
-    return this.change(
-      cycle,
-      {
-        housekeepingInstructions: '',
-        ...(step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
-          ? { designRecovery: { ...cycle.designRecovery, runId: nextRunId } }
-          : {}),
-        // An explicit resume grants a fresh recovery window; automatic attempts retain their count/deadline.
-        resultContinuations: collectingReview && context ? 1 : 0,
-        // Resume guidance belongs to that attempt; its answers remain in the handoff journal.
-        ...(cycle.finalizationId && parent?.id === cycle.currentRunId ? { instructions: '' } : {}),
-        ...changes,
-        status: 'running',
-        step,
-        currentRunId: nextRunId,
-        ...(parent === undefined ? {} : { parentRunId: parent.id }),
-        ...(reviewHeadSha === undefined ? {} : { reviewHeadSha }),
-        runDeadlineAt:
-          changes.runDeadlineAt ?? this.deadline((changes.policy ?? cycle.policy).maxRunMinutes),
-        reason: changes.reason ?? `Starting ${step}.`,
-      },
-      action,
-      context,
-    );
+    reservation?.check?.();
+    return this.storage.transaction(() => {
+      const result = this.change(
+        cycle,
+        {
+          housekeepingInstructions: '',
+          ...(step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
+            ? { designRecovery: { ...cycle.designRecovery, runId: nextRunId } }
+            : {}),
+          // An explicit resume grants a fresh recovery window; automatic attempts retain their count/deadline.
+          resultContinuations: collectingReview && context ? 1 : 0,
+          // Resume guidance belongs to that attempt; its answers remain in the handoff journal.
+          ...(cycle.finalizationId && parent?.id === cycle.currentRunId
+            ? { instructions: '' }
+            : {}),
+          ...changes,
+          status: 'running',
+          step,
+          currentRunId: nextRunId,
+          ...(parent === undefined ? {} : { parentRunId: parent.id }),
+          ...(reviewHeadSha === undefined ? {} : { reviewHeadSha }),
+          runDeadlineAt:
+            changes.runDeadlineAt ?? this.deadline((changes.policy ?? cycle.policy).maxRunMinutes),
+          reason: changes.reason ?? `Starting ${step}.`,
+        },
+        action,
+        context,
+      );
+      reservation?.attach?.();
+      return result;
+    });
   }
 
   private async cleanHead(cycle: WorkCycle): Promise<string> {

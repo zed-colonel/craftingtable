@@ -803,9 +803,9 @@ export function CrossProjectPanel({
                   </select>
                 </label>
                 <p>
-                  Verification uses the review agent. Review findings or questions pause for
-                  recovery; review snapshots cannot implement changes. Final promotion remains your
-                  separate exact-commit decision.
+                  Verification uses the review agent. Independent review recovery can delegate
+                  source findings through the owning slice; genuine questions still need you. Final
+                  promotion remains your separate exact-commit decision.
                 </p>
                 <details>
                   <summary>Project, activity and individual overrides ({overrides.length})</summary>

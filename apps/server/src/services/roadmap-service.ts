@@ -1,4 +1,6 @@
 import { acceptedEvidence } from './runtime-evidence-policy.js';
+import { collectScopeRepair } from './scope-repair.js';
+import { scopeRecoveryDecision } from './scope-recovery-policy.js';
 import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { crossProjectState, bindingIssues, milestoneSatisfied } from './cross-project-service.js';
@@ -12,7 +14,7 @@ import {
   unsupportedScopeCapabilities,
 } from './execution-scope.js';
 import { randomUUID } from 'node:crypto';
-import type { SaveRoadmapRequest } from '@craftingtable/contracts';
+import type { SaveRoadmapRequest, ScopeRecoveryPolicyRequest } from '@craftingtable/contracts';
 import {
   DEFAULT_ROADMAP_SCHEDULING,
   DEFAULT_ROADMAP_AUTOMATION,
@@ -68,6 +70,39 @@ export class RoadmapService {
     this.workspaces.requireAuthorized(context, workspaceId);
     this.find(workspaceId, id);
     return this.storage.roadmaps.history(workspaceId, id);
+  }
+  configureScopeRecovery(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: ScopeRecoveryPolicyRequest,
+  ): RoadmapView {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    const roadmap = this.find(workspaceId, id);
+    if (this.controlling.has(id) || roadmap.version !== input.expectedVersion)
+      conflict('Roadmap changed; refresh before changing recovery delegation.');
+    if (
+      !roadmap.definition.crossProject ||
+      !['draft', 'paused', 'needs-attention'].includes(roadmap.status)
+    )
+      conflict('Pause this cross-project roadmap before changing recovery delegation.');
+    if (this.storage.amendments.pending(workspaceId, id))
+      conflict('Decide the pending amendment first.');
+    return this.view(
+      this.change(
+        roadmap,
+        {
+          scopeRecovery: {
+            enabled: input.enabled,
+            maxRoundsPerParent: input.maxRoundsPerParent,
+            grantedByUserId: context.user.id,
+            grantedAt: this.now().toISOString(),
+          },
+        },
+        'configure-scope-recovery',
+        context,
+      ),
+    );
   }
   save(
     context: AuthContext,
@@ -206,6 +241,9 @@ export class RoadmapService {
           updatedAt: at,
           ...(amendment
             ? {
+                ...(old.scopeRecovery
+                  ? { scopeRecovery: { ...old.scopeRecovery, enabled: false } }
+                  : {}),
                 attempts: old.attempts.filter((a) => amendment.retainAttemptIds.includes(a.id)),
                 entryHolds: {},
                 status: 'paused' as const,
@@ -320,6 +358,18 @@ export class RoadmapService {
       for (const attempt of roadmap.attempts.filter((a) => a.status !== 'completed')) {
         if (roadmap.entryHolds?.[attempt.entryId]?.status === 'paused') continue;
         const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
+        // Recovery, not another review of unchanged source, owns these stopped checkpoints.
+        if (
+          roadmap.scopeRecovery?.enabled &&
+          cycle?.executionScope &&
+          cycle.executionScope.kind !== 'slice' &&
+          (cycle.status === 'needs-attention' ||
+            !!this.recoveryFor(
+              roadmap,
+              roadmap.definition.entries.find((e) => e.id === attempt.entryId)!,
+            ))
+        )
+          continue;
         if (cycle && ['paused', 'needs-attention'].includes(cycle.status)) {
           const worktree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
           if (
@@ -398,6 +448,9 @@ export class RoadmapService {
       const holds = { ...roadmap.entryHolds };
       const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
       const cycle = attempt && this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
+      const recovery = this.recoveryFor(roadmap, entry);
+      const repairCycle =
+        recovery && this.storage.execution.cycles.find(workspaceId, recovery.cycleId);
       if (action === 'pause') {
         holds[entryId] = {
           status: 'paused',
@@ -406,13 +459,38 @@ export class RoadmapService {
         roadmap = this.change(roadmap, { entryHolds: holds }, 'pause-entry', context);
         if (cycle && ['running', 'needs-attention'].includes(cycle.status))
           await this.cycles.control(context, workspaceId, cycle.id, 'pause', cycle.version);
+        if (repairCycle && ['running', 'needs-attention'].includes(repairCycle.status))
+          await this.cycles.control(
+            context,
+            workspaceId,
+            repairCycle.id,
+            'pause',
+            repairCycle.version,
+          );
       } else {
-        if (cycle && ['stopped', 'completed'].includes(cycle.status))
+        if (cycle && ['stopped', 'completed'].includes(cycle.status) && !recovery)
           conflict(
             'This cycle has ended. For imported maps, use Planning amendments and reconciliation to review a replacement attempt.',
           );
-        if (cycle && ['paused', 'needs-attention'].includes(cycle.status))
+        if (
+          cycle &&
+          ['paused', 'needs-attention'].includes(cycle.status) &&
+          !(
+            roadmap.scopeRecovery?.enabled &&
+            cycle.executionScope &&
+            cycle.executionScope.kind !== 'slice' &&
+            (cycle.status === 'needs-attention' || !!recovery)
+          )
+        )
           await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
+        if (repairCycle?.status === 'paused')
+          await this.cycles.control(
+            context,
+            workspaceId,
+            repairCycle.id,
+            'resume',
+            repairCycle.version,
+          );
         delete holds[entryId];
         roadmap = this.change(roadmap, { entryHolds: holds }, 'resume-entry', context);
       }
@@ -623,10 +701,16 @@ export class RoadmapService {
     }
     await this.advanceEntry(roadmap, entry);
   }
-  private async advanceEntry(roadmap: Roadmap, entry: RoadmapEntry): Promise<void> {
+  private async advanceEntry(
+    roadmap: Roadmap,
+    entry: RoadmapEntry,
+    recoveryAttempt?: RoadmapAttempt,
+    reviewingRecovery = false,
+  ): Promise<void> {
     const context = this.authority(roadmap);
     const parallel = roadmap.definition.scheduling?.mode === 'parallel';
-    let attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
+    let attempt =
+      recoveryAttempt ?? roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
     if (attempt) {
       const worktree = this.storage.execution.worktrees.find(
         roadmap.workspaceId,
@@ -644,6 +728,12 @@ export class RoadmapService {
       if (entry.executionScope && entry.executionScope.kind !== 'slice' && worktree) {
         const cycle = this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
         if (cycle) {
+          if (
+            !reviewingRecovery &&
+            roadmap.scopeRecovery?.enabled &&
+            (await this.advanceScopeRecovery(roadmap, entry, cycle))
+          )
+            return;
           if (cycle.status === 'completed')
             conflict(
               'This review evidence is no longer current. Stop this roadmap and create a new selection for re-verification; prior attempts remain in history.',
@@ -727,6 +817,15 @@ export class RoadmapService {
           )
             throw new SupersededRoadmapOperation();
           this.authority(current);
+          if (
+            boundAttempt.recovery &&
+            (!current.scopeRecovery?.enabled ||
+              current.entryHolds?.[boundAttempt.recovery.sourceEntryId] ||
+              !current.attempts.some(
+                (a) => a.id === boundAttempt.id && a.recovery?.phase === 'repair',
+              ))
+          )
+            throw new SupersededRoadmapOperation();
           const tree = this.storage.execution.worktrees.find(
             roadmap.workspaceId,
             boundAttempt.worktreeId,
@@ -894,6 +993,291 @@ export class RoadmapService {
       });
     });
   }
+  private recoveryFor(roadmap: Roadmap, entry: RoadmapEntry) {
+    return roadmap.attempts.find(
+      (a) =>
+        a.recovery &&
+        a.recovery.phase !== 'completed' &&
+        roadmap.definition.entries.some(
+          (e) => e.id === a.entryId && e.workItemId === entry.workItemId,
+        ),
+    );
+  }
+  private updateRecovery(
+    roadmap: Roadmap,
+    attempt: RoadmapAttempt,
+    changes: Partial<RoadmapAttempt>,
+  ) {
+    return this.change(roadmap, {
+      attempts: roadmap.attempts.map((a) => (a.id === attempt.id ? { ...a, ...changes } : a)),
+    });
+  }
+  /** Each round survives worktree replacement and returns through the original independent reviewers. */
+  private async advanceScopeRecovery(
+    roadmap: Roadmap,
+    entry: RoadmapEntry,
+    sourceCycle: import('@craftingtable/domain').WorkCycle,
+  ): Promise<boolean> {
+    const ws = roadmap.workspaceId;
+    let attempt = this.recoveryFor(roadmap, entry);
+    if (attempt && attempt.recovery!.sourceEntryId !== entry.id) return true;
+    if (!attempt) {
+      if (sourceCycle.status !== 'needs-attention') return false;
+      const decision = scopeRecoveryDecision(
+        mapReadSnapshot(this.storage),
+        roadmap,
+        entry,
+        sourceCycle,
+      );
+      if (decision.waiting) return true;
+      if (!decision.owner) conflict(decision.reason!);
+      const ownerAttempt = roadmap.attempts.find(
+        (a) => a.entryId === decision.owner!.id && !a.recovery,
+      );
+      if (!ownerAttempt) conflict('The owning slice has no roadmap-bound implementation settings.');
+      const blocked = this.blocker(roadmap, decision.owner);
+      if (blocked) {
+        if (blocked.needsAttention) conflict(blocked.reason);
+        return true;
+      }
+      attempt = {
+        id: randomUUID(),
+        entryId: decision.owner.id,
+        definitionRevision: ownerAttempt.definitionRevision,
+        worktreeId: asWorktreeId(randomUUID()),
+        cycleId: randomUUID(),
+        status: 'preparing',
+        createdAt: this.now().toISOString(),
+        recovery: {
+          sourceEntryId: entry.id,
+          sourceRunId: sourceCycle.currentRunId,
+          sourceSequence: decision.sourceSequence!,
+          findingFingerprint: decision.fingerprint!,
+          phase: 'repair',
+          reviewRunIds: Object.fromEntries(
+            roadmap.attempts.flatMap((a) => {
+              const e = roadmap.definition.entries.find((e) => e.id === a.entryId);
+              const c = this.storage.execution.cycles.find(ws, a.cycleId);
+              return e?.workItemId === entry.workItemId && e.executionScope?.kind !== 'slice' && c
+                ? [[e.id, c.currentRunId]]
+                : [];
+            }),
+          ),
+        },
+      };
+      roadmap = this.change(
+        roadmap,
+        { attempts: [...roadmap.attempts, attempt] },
+        'reserve-scope-recovery',
+      );
+    }
+    const reserved = attempt;
+    const owner = roadmap.definition.entries.find((e) => e.id === reserved.entryId)!;
+    const check = () => {
+      const current = this.find(ws, roadmap.id);
+      if (
+        current.status !== 'running' ||
+        !current.scopeRecovery?.enabled ||
+        this.controlling.has(current.id) ||
+        this.abort.signal.aborted ||
+        current.entryHolds?.[entry.id] ||
+        current.entryHolds?.[owner.id] ||
+        !current.attempts.some((a) => a.id === reserved.id && a.recovery?.phase !== 'completed')
+      )
+        throw new SupersededRoadmapOperation();
+      this.authority(current);
+      if (
+        bindingIssues(
+          this.storage,
+          ws,
+          owner.executionScope!.definitionId,
+          owner.executionScope!.bindingRevision,
+        ).length
+      )
+        conflict('The recovery map binding changed. Reconcile the roadmap before continuing.');
+    };
+    check();
+    const context = this.authority(roadmap);
+    if (reserved.recovery!.phase === 'repair') {
+      const tree = this.storage.execution.worktrees.find(ws, reserved.worktreeId);
+      if (tree?.mergedAt) {
+        this.updateRecovery(roadmap, reserved, {
+          status: 'completed',
+          completedAt: tree.mergedAt,
+          recovery: { ...reserved.recovery!, phase: 'verification' },
+        });
+        return true;
+      }
+      if (reserved.status === 'preparing') {
+        const sourceTurn = this.storage.execution.runEvents.latestOfKind(
+          ws,
+          sourceCycle.currentRunId,
+          'turn-completed',
+        );
+        if (
+          sourceCycle.currentRunId !== reserved.recovery!.sourceRunId ||
+          sourceTurn?.sequence !== reserved.recovery!.sourceSequence
+        )
+          conflict(
+            'The source review changed during recovery preparation. Inspect the reserved attempt.',
+          );
+        const blocked = this.blocker(roadmap, owner, reserved);
+        if (blocked) {
+          if (blocked.needsAttention) conflict(blocked.reason);
+          return true;
+        }
+        const preview = collectScopeRepair(mapReadSnapshot(this.storage), sourceCycle);
+        const frozen = this.storage.roadmaps
+          .history(ws, roadmap.id)
+          .find((d) => d.revision === reserved.definitionRevision)
+          ?.entries.find((e) => e.id === owner.id);
+        if (!frozen) conflict('Recovery settings are unavailable.');
+        await this.cycles.delegateScopeRepair(
+          context,
+          ws,
+          sourceCycle.id,
+          {
+            expectedVersion: sourceCycle.version,
+            snapshotDigest: preview.snapshotDigest,
+            sourceId: owner.executionScope!.sourceId,
+            maxRemediationRounds: frozen.policy.maxRemediationRounds,
+            instructions: frozen.instructions,
+          },
+          {
+            worktreeId: reserved.worktreeId,
+            cycleId: reserved.cycleId,
+            profiles: frozen.profiles,
+            policy: frozen.policy,
+            check: () => {
+              check();
+              const blocker = this.blocker(this.find(ws, roadmap.id), owner, reserved);
+              if (blocker) conflict(blocker.reason);
+            },
+            attach: () =>
+              this.updateRecovery(this.find(ws, roadmap.id), reserved, { status: 'active' }),
+          },
+        );
+        return true;
+      }
+      const repair = this.storage.execution.cycles.find(ws, reserved.cycleId);
+      if (!repair) conflict('The reserved recovery cycle is unavailable.');
+      if (
+        ['needs-attention', 'paused', 'stopped'].includes(repair.status) &&
+        !repair.integrationResolution
+      )
+        conflict(`Owning-slice recovery needs your input: ${repair.reason}`);
+      await this.advanceEntry(roadmap, owner, reserved);
+      return true;
+    }
+    const reviews = roadmap.definition.entries.filter(
+      (e) =>
+        e.workItemId === entry.workItemId && e.executionScope && e.executionScope.kind !== 'slice',
+    );
+    const verification = reviews.filter((e) => e.executionScope!.kind === 'slice-verification');
+    const phase = verification.every((e) => this.complete(roadmap, e, this.storage, true))
+      ? 'parent-review'
+      : 'verification';
+    if (phase !== reserved.recovery!.phase) {
+      this.updateRecovery(roadmap, reserved, { recovery: { ...reserved.recovery!, phase } });
+      return true;
+    }
+    const target = (
+      phase === 'verification'
+        ? verification
+        : reviews.filter((e) => e.executionScope!.kind === 'parent-acceptance')
+    ).find((e) => !this.complete(roadmap, e, this.storage, true));
+    if (!target) {
+      this.updateRecovery(roadmap, reserved, {
+        recovery: { ...reserved.recovery!, phase: 'completed' },
+      });
+      return true;
+    }
+    if (roadmap.entryHolds?.[target.id]) return true;
+    const reviewAttempt = roadmap.attempts.find((a) => a.entryId === target.id && !a.recovery);
+    const cycle = reviewAttempt && this.storage.execution.cycles.find(ws, reviewAttempt.cycleId);
+    if (!cycle) {
+      await this.advanceEntry(roadmap, target, undefined, true);
+      return true;
+    }
+    const blockers = scopePhaseBlockers(
+      this.storage,
+      ws,
+      target.workItemId,
+      target.executionScope!,
+      phase === 'verification' ? 'verify' : 'accept',
+      { ownerId: cycle.currentRunId },
+    );
+    if (blockers.length) throw new PhaseGateError(blockers);
+    const prior = reserved.recovery!.reviewRunIds[target.id];
+    if (
+      cycle.status === 'completed' ||
+      (cycle.currentRunId === prior && ['needs-attention', 'paused'].includes(cycle.status))
+    ) {
+      const restarts = reserved.recovery!.reviewRestarts?.[target.id] ?? 0;
+      const settings =
+        this.storage.roadmaps
+          .history(ws, roadmap.id)
+          .find((d) => d.revision === reviewAttempt!.definitionRevision)?.scheduling ??
+        DEFAULT_ROADMAP_SCHEDULING;
+      if (restarts >= settings.maxIntegrationRefreshes)
+        conflict(
+          'Recovery review refresh allowance exhausted. Inspect and refresh this scope manually before resuming.',
+        );
+      const attach = () => {
+        const current = this.find(ws, roadmap.id);
+        const round = current.attempts.find((a) => a.id === reserved.id)!;
+        this.change(current, {
+          attempts: current.attempts.map((a) =>
+            a.id === reviewAttempt!.id
+              ? { ...a, status: 'active', completedAt: undefined }
+              : a.id === reserved.id
+                ? {
+                    ...a,
+                    recovery: {
+                      ...round.recovery!,
+                      reviewRestarts: {
+                        ...round.recovery!.reviewRestarts,
+                        [target.id]: restarts + 1,
+                      },
+                    },
+                  }
+                : a,
+          ),
+        });
+      };
+      if (cycle.status === 'completed')
+        await this.cycles.repeatScopeReview(
+          context,
+          ws,
+          cycle.id,
+          cycle.version,
+          '',
+          check,
+          attach,
+        );
+      else
+        await this.cycles.control(
+          context,
+          ws,
+          cycle.id,
+          'resume',
+          cycle.version,
+          undefined,
+          check,
+          attach,
+        );
+      return true;
+    }
+    if (['needs-attention', 'paused', 'stopped'].includes(cycle.status)) {
+      // This round reached an independent verdict. Any further repair consumes a new round.
+      this.updateRecovery(roadmap, reserved, {
+        recovery: { ...reserved.recovery!, phase: 'completed' },
+      });
+      return true;
+    }
+    await this.advanceEntry(roadmap, target, undefined, true);
+    return true;
+  }
   private entriesComplete(roadmap: Roadmap): boolean {
     const tx = mapReadSnapshot(this.storage);
     return roadmap.definition.entries.every((entry) => this.complete(roadmap, entry, tx));
@@ -915,7 +1299,14 @@ export class RoadmapService {
     roadmap: Roadmap,
     entry: RoadmapEntry,
     tx: StorageRepositories = this.storage,
+    ignoreRecovery = false,
   ): boolean {
+    if (
+      roadmap.scopeRecovery?.enabled &&
+      !ignoreRecovery &&
+      this.recoveryFor(roadmap, entry)?.recovery?.sourceEntryId === entry.id
+    )
+      return false;
     if (entry.executionScope) {
       const scope = entry.executionScope;
       const d = tx.imports.definition(roadmap.workspaceId, scope.definitionId);
@@ -1128,6 +1519,29 @@ export class RoadmapService {
             return { entryId: entry.id, status: 'completed', reason: 'Completed.' };
           const hold = roadmap.entryHolds?.[entry.id];
           if (hold) return { entryId: entry.id, status: hold.status, reason: hold.reason };
+          const recovery = this.recoveryFor(roadmap, entry);
+          if (
+            roadmap.scopeRecovery?.enabled &&
+            recovery &&
+            entry.executionScope?.kind !== 'slice'
+          ) {
+            const repair = snapshot.execution.cycles.find(roadmap.workspaceId, recovery.cycleId);
+            const repairNeedsYou =
+              recovery.recovery!.phase === 'repair' &&
+              repair &&
+              ['paused', 'needs-attention', 'stopped'].includes(repair.status);
+            return {
+              entryId: entry.id,
+              status: repairNeedsYou
+                ? 'needs-attention'
+                : roadmap.status === 'running'
+                  ? 'running'
+                  : 'paused',
+              reason: repairNeedsYou
+                ? `Owning-slice recovery: ${repair.reason}`
+                : `Roadmap recovery: ${recovery.recovery!.phase === 'repair' ? 'repair and integration' : recovery.recovery!.phase === 'verification' ? 'fresh independent verification' : 'parent acceptance'}.`,
+            };
+          }
           const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
           const cycle =
             attempt && snapshot.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
@@ -1252,6 +1666,12 @@ export class RoadmapService {
         status: roadmap.status,
         revision: roadmap.definition.revision,
         reason: roadmap.reason,
+        ...(action === 'configure-scope-recovery' && roadmap.scopeRecovery
+          ? {
+              recoveryEnabled: roadmap.scopeRecovery.enabled,
+              maxRecoveryRoundsPerParent: roadmap.scopeRecovery.maxRoundsPerParent,
+            }
+          : {}),
       },
     });
     tx.workspaceEvents.appendEvent({

@@ -1,5 +1,6 @@
 import { scopePhaseBlockers } from './execution-scope.js';
 import { scopeReviewWait } from './scope-repair.js';
+import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { crossProjectState } from './cross-project-service.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -235,7 +236,7 @@ export class NotificationService {
       let sourceKey: string;
       if (cycle !== undefined && !['stopped', 'completed'].includes(cycle.status)) {
         if (cycle.status !== 'awaiting-merge' && cycle.status !== 'needs-attention') continue;
-        if (scopeReviewWait(tx, cycle)) continue;
+        if (automatedScopeRecoveryWait(tx, cycle) || scopeReviewWait(tx, cycle)) continue;
         const owner = tx.roadmaps
           .list(workspaceId)
           .find((r) => r.status === 'running' && r.attempts.some((a) => a.cycleId === cycle.id));
@@ -253,6 +254,9 @@ export class NotificationService {
           owner &&
           attempt &&
           !owner.entryHolds?.[attempt.entryId] &&
+          (!attempt.recovery ||
+            (owner.scopeRecovery?.enabled &&
+              !owner.entryHolds?.[attempt.recovery.sourceEntryId])) &&
           ((cycle.status === 'awaiting-merge' &&
             (tree.executionScope?.kind === 'slice-verification' ||
               (tree.executionScope?.kind === 'parent-acceptance'

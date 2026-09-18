@@ -180,6 +180,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       '[package]\nname="aq_walkthrough_pin"\nversion="0.2.0"\nedition="2021"\n[lib]\npath="lib.rs"\n',
     'lib.rs': 'pub fn fixture(){}\n',
   });
+  const applicationRepositories: string[] = [];
   const phone = await newPhonePage(browser);
   try {
     // ---- Sign-in on both viewports ---------------------------------------------------
@@ -467,6 +468,29 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       }
       await panel.getByRole('button', { name: 'Import reviewed plan ZIP' }).click();
       await expect(panel.getByText('Import: succeeded', { exact: true })).toBeVisible();
+      const applicationRepo = initRepository('craftingtable-walkthrough-application-', {
+        'README.md': `# ${name} fixture\n`,
+      });
+      applicationRepositories.push(applicationRepo);
+      await navigate(page, 'Repositories');
+      await page.getByLabel('Absolute path to the checkout').fill(applicationRepo);
+      await page.getByLabel('Display name (optional)').fill(`${name} fixture`);
+      await page.getByRole('button', { name: 'Register', exact: true }).click();
+      await expect(page.getByText(applicationRepo, { exact: true })).toBeVisible();
+      await navigate(page, 'Projects');
+      await page.getByRole('button', { name, exact: true }).click();
+      const settings = page.getByRole('region', { name: 'Repository & branches', exact: true });
+      await settings.getByRole('button', { name: 'Configure branches' }).click();
+      await settings
+        .getByRole('combobox', { name: 'Repository', exact: true })
+        .selectOption({ label: `${name} fixture` });
+      await settings
+        .getByRole('combobox', { name: 'Branch action', exact: true })
+        .selectOption('create');
+      await settings.getByLabel('Integration branch', { exact: true }).fill('revision');
+      await settings.getByRole('combobox', { name: 'Create from branch' }).selectOption('main');
+      await settings.getByRole('button', { name: 'Save branch settings' }).click();
+      await expect(settings.getByText('revision', { exact: true })).toBeVisible();
     }
     await navigate(page, 'Roadmaps');
     const maps = page.getByRole('region', { name: 'Cross-project roadmap imports' });
@@ -583,6 +607,34 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       },
     );
 
+    await page
+      .getByRole('region', { name: 'Create cross-project roadmap', exact: true })
+      .getByRole('button', { name: 'Create cross-project roadmap', exact: true })
+      .click();
+    await expect(
+      page.getByRole('region', { name: 'Independent review recovery', exact: true }),
+    ).toBeVisible();
+    await walk.capture(
+      'roadmap-recovery-delegation',
+      'Roadmaps · bounded independent review recovery',
+      async (p: Page) => {
+        const recovery = p.getByRole('region', {
+          name: 'Independent review recovery',
+          exact: true,
+        });
+        await recovery
+          .getByRole('button', { name: 'Configure review recovery', exact: true })
+          .click();
+        await expect(recovery.getByLabel('Total automatic repair rounds per parent')).toHaveValue(
+          '3',
+        );
+        await expect(
+          recovery.getByRole('button', { name: 'Save recovery delegation' }),
+        ).toBeEnabled();
+        await recovery.scrollIntoViewIfNeeded();
+      },
+    );
+
     await navigate(page, 'Projects');
     await page.getByRole('button', { name: 'WorldInterface', exact: true }).click();
     await page.getByRole('button', { name: 'WI-01', exact: true }).first().click();
@@ -624,5 +676,6 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await phone.context().close();
     rmSync(repository, { recursive: true, force: true });
     rmSync(upstream, { recursive: true, force: true });
+    for (const path of applicationRepositories) rmSync(path, { recursive: true, force: true });
   }
 });

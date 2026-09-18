@@ -152,6 +152,15 @@ session. HTTP routes still require authenticated sessions. Integration merges ma
 delegated through the saved roadmap policy; final promotion remains an operator command. Pause/stop supersede pending preparation; a Git operation already in
 flight may finish creating a recorded worktree, but cannot launch a superseded cycle.
 
+Independent scope-recovery delegation is separately recorded by an owner/editor while the
+roadmap is idle. It grants a bounded number of source-repair attempts per parent, never a
+waiver of review, phase evidence or protected-target requirements. Recovery reservations
+bind to the original slice definition, and all asynchronous Git/review commands recheck
+current delegation before launch. Complete question-free reports can route only to an
+unambiguous owning slice. Original independent reviewer assignments remain unchanged.
+Paused/stopped roadmaps cannot dispatch recovery; restart retains reservations and used
+allowances and still requires explicit Resume. Main promotion is never delegated.
+
 Parallel scheduling retains the same authority checks and review-gated merge command. Item
 controls use authenticated, version-checked roadmap commands. Automatic integration refresh
 requires an active parallel or automatic-integration delegation, the frozen branch binding, current initiating-user

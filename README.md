@@ -97,8 +97,13 @@ it is mergeable.
   unresolved `STACK-PLAN-ACCEPTED` now appears in the startup requirements.
   Development cycles, independent verification and parent acceptance progress under their phase gates.
   Parent acceptance defaults to manual; automatic acceptance still requires all original obligations
-  and a fresh independent review. Review snapshots never implement fixes: findings and questions pause
-  for recovery through the owning scope. Current review snapshots fast-forward after integration
+  and a fresh independent review. Review snapshots never implement fixes. **Independent review
+  recovery → Configure review recovery** optionally delegates a bounded repair/integrate/reverify/
+  retry-parent loop. Pause scheduling to enable it and choose a total round allowance per parent,
+  then Resume explicitly. Saving this execution delegation does not change saved plan acceptance.
+  Repairs retain the owning slice's models, remediation and integration policies; rounds persist
+  across worktrees and restarts. Genuine questions, uncertain ownership, repeated unchanged findings
+  and exhausted allowances return to you. Manual owning-slice recovery remains available. Current review snapshots fast-forward after integration
   changes and get a fresh review. Started attempts keep their settings; pause to edit queued settings.
   Trace blocked EXO work to its supplying WI slice/checkpoint and open the relevant work item or evidence
   controls. Eligible checkpoint evidence gets durable Pushover reminders; ordinary dependency waits do not.

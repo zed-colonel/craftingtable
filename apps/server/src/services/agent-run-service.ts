@@ -306,7 +306,7 @@ export class AgentRunService {
         instructions: [
           cycle.instructions,
           cycle.scopeRepair
-            ? 'Read craftingtable-scope-repair.json in the supplied plan documents. It contains pinned findings from independent slice and parent reviews. Address every namespaced finding ID, including findings from older parent reviews; identical original IDs from different runs are separate obligations. Reviewers must include every namespaced finding with a supported disposition. Current adopted policy answers superseded administrative questions; do not invent a new policy. Source changes belong only to this owning slice. Commit intended changes; do not merge.'
+            ? 'Read craftingtable-scope-repair.json in the supplied plan documents. It contains pinned findings from independent slice and parent reviews. Address every namespaced finding ID, including findings from older parent reviews; identical original IDs from different runs are separate obligations. Reviewers must include every namespaced finding with a supported disposition. Current adopted policy answers superseded administrative questions; do not invent a new policy. Source changes belong only to this owning slice. When a finding identifies a broad or recurring family, audit that family systematically in bounded batches, including analogous producers, consumers, assertions and evidence. Explain coverage, actual corrections, remaining gaps and reproducible checks; do not merely patch cited examples or weaken acceptance checks. Ask for genuinely new decisions without expanding scope. Commit intended changes; do not merge.'
             : '',
           ...(recovery
             ? [

@@ -1,5 +1,6 @@
 import {
   type SaveRoadmapRequest,
+  type ScopeRecoveryPolicyRequest,
   roadmapsResponseSchema,
   roadmapViewSchema,
   roadmapHistoryResponseSchema,
@@ -13,6 +14,16 @@ const mutation = (csrfToken: string, body: unknown) => ({
   headers: { 'x-craftingtable-csrf': csrfToken },
   body: JSON.stringify(body),
 });
+export const configureScopeRecovery = (
+  roadmap: Roadmap,
+  input: ScopeRecoveryPolicyRequest,
+  csrfToken: string,
+) =>
+  request(
+    `${base(roadmap.workspaceId)}/${roadmap.id}/scope-recovery`,
+    roadmapViewSchema,
+    mutation(csrfToken, input),
+  );
 export const loadRoadmaps = (workspaceId: WorkspaceId) =>
   request(base(workspaceId), roadmapsResponseSchema);
 export const loadRoadmapHistory = (roadmap: Roadmap) =>

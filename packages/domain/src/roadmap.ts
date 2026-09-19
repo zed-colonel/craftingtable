@@ -74,6 +74,12 @@ export interface RoadmapDefinition {
 }
 /** A whole-item or slice execution attempt has its own identity and frozen definition binding. */
 export interface RoadmapAttempt {
+  /** One fresh review explicitly queued by a reviewed dependency refresh; no source repair. */
+  readonly dependencyRefresh?: {
+    readonly runtimeId: string;
+    readonly generation: number;
+    readonly sourceRunId: string;
+  };
   /** Additional owning-slice attempt; the original entry and reviewer assignments stay intact. */
   readonly recovery?: {
     readonly sourceEntryId: string;

@@ -36,3 +36,6 @@ Cargo's [configuration precedence](https://doc.rust-lang.org/cargo/reference/con
 [patch semantics](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html)
 require checking the [resolved metadata graph](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html):
 patches alone do not guarantee that version constraints selected the supplied crate.
+
+Evidence and native approval applicability across dependency generations are refined by
+[ADR-058](ADR-058-reviewed-dependency-refresh.md); original run/receipt provenance remains immutable.

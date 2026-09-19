@@ -5,6 +5,8 @@ import {
 } from './native-verification-policy.js';
 import { buildVerificationPolicy } from './build-verification-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
+import { relevantPinAliases } from './runtime-input-policy.js';
+import { runtimeRefreshImpact, queueRuntimeReviews } from './runtime-refresh.js';
 import {
   PLAN_CHECKPOINT,
   savedPlanSnapshot,
@@ -30,11 +32,15 @@ import {
   evidenceSubmissionRequestSchema,
   type ConfigureRuntime,
   type EvidenceSubmissionRequest,
+  type RuntimePinStatus,
+  type RuntimeRefreshPreview,
+  type ApplyRuntimeRefresh,
 } from '@craftingtable/contracts';
 import {
   asAgentRunId,
   asAuditEventId,
   asEventId,
+  canonicalDefinition,
   type ConcurrencyDefinition,
   type EvidenceSubmission,
   type EvidenceSubject,
@@ -56,6 +62,8 @@ import {
   acceptedEvidence,
   testedRepositories,
   requiredUpstreams,
+  evidenceInputs,
+  scopeRuntimeChanges,
 } from './runtime-evidence-policy.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -357,7 +365,189 @@ export class RuntimeEvidenceService {
       ],
     };
   }
-  async configure(context: AuthContext, ws: WorkspaceId, id: string, raw: ConfigureRuntime) {
+  private refreshBlockers(ws: WorkspaceId, id: string): string[] {
+    const tx = this.storage,
+      issues: string[] = [];
+    const roadmaps = tx.roadmaps
+      .list(ws)
+      .filter((r) => r.definition.crossProject?.definitionId === id);
+    if (roadmaps.some((r) => r.status === 'running'))
+      issues.push('Pause roadmap scheduling before refreshing dependencies.');
+    const trees = tx.execution.worktrees
+      .listActive(ws)
+      .filter((t) => t.executionScope?.definitionId === id);
+    for (const tree of trees) {
+      if (
+        tx.execution.runs
+          .listForWorktree(ws, tree.id)
+          .some((r) => !['finished', 'failed', 'cancelled', 'interrupted'].includes(r.status))
+      )
+        issues.push(`Wait for or end the live session in ${tree.branchName}.`);
+      const cycle = tx.execution.cycles.activeForWorktree(ws, tree.id);
+      if (cycle && ['running', 'queued'].includes(cycle.status))
+        issues.push(`Pause the cycle in ${tree.branchName}.`);
+      if (tx.execution.merges.latest(ws, tree.id)?.status === 'reserved')
+        issues.push(`Finish the pending merge in ${tree.branchName}.`);
+      if (
+        cycle?.integrationResolution &&
+        !['completed', 'abandoned'].includes(cycle.integrationResolution.status)
+      )
+        issues.push(`Finish or abandon conflict resolution in ${tree.branchName}.`);
+    }
+    if (tx.phaseScheduling.active().some((p) => trees.some((t) => t.id === p.worktreeId)))
+      issues.push('Wait for the current phase reservations to be released.');
+    if (
+      tx.execution.finalizations
+        .list(ws)
+        .some(
+          (f) => f.mapContext?.definitionId === id && !['stopped', 'completed'].includes(f.status),
+        )
+    )
+      issues.push('Finish or stop the active finalization before changing its pinned environment.');
+    if (roadmaps.some((r) => tx.amendments.pending(ws, r.id)))
+      issues.push('Resolve the pending roadmap amendment first.');
+    return [...new Set(issues)];
+  }
+  private refreshProjection(
+    ws: WorkspaceId,
+    id: string,
+    current: RuntimeGeneration,
+    pins: RuntimeGeneration['pins'],
+  ): RuntimeRefreshPreview {
+    const data = { pins, consumers: current.consumers, environments: current.environments };
+    const candidate: RuntimeGeneration = {
+      ...current,
+      ...data,
+      id: '00000000-0000-4000-8000-000000000000',
+      generation: current.generation + 1,
+      digest: hash(canonicalDefinition(data)),
+    };
+    const impact = runtimeRefreshImpact(this.storage, this.definition(ws, id), candidate);
+    const blockers = this.refreshBlockers(ws, id);
+    if (
+      pins.every((p) =>
+        current.pins.some((old) => canonicalDefinition(old) === canonicalDefinition(p)),
+      )
+    )
+      blockers.push(
+        'Dependency pins are already current. No new generation is needed; review plan acceptance instead.',
+      );
+    const facts = {
+      runtime: current,
+      data,
+      impact,
+      blockers,
+      roadmaps: this.storage.roadmaps
+        .list(ws)
+        .filter((r) => r.definition.crossProject?.definitionId === id)
+        .map((r) => ({ id: r.id, version: r.version })),
+      cycles: this.storage.execution.cycles
+        .list(ws)
+        .filter((c) => c.executionScope?.definitionId === id)
+        .map((c) => ({ id: c.id, version: c.version, runId: c.currentRunId })),
+      approval: this.storage.runtimeEvidence.nativeApprovals(ws, id, current.bindingRevision)[0],
+    };
+    return {
+      bindingRevision: current.bindingRevision,
+      expectedGeneration: current.generation,
+      snapshotDigest: hash(canonicalDefinition(facts)),
+      ...impact,
+      blockers,
+      pins: pins.map((p) => ({
+        alias: p.alias,
+        ref: p.ref,
+        before: current.pins.find((old) => old.alias === p.alias)!.commitSha,
+        after: p.commitSha,
+        changed:
+          canonicalDefinition(p) !==
+          canonicalDefinition(current.pins.find((old) => old.alias === p.alias)),
+      })),
+    };
+  }
+  private async refreshedPins(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    input: { bindingRevision: number; expectedGeneration: number },
+  ) {
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    const current = this.current(ws, id);
+    if (
+      !current ||
+      current.generation !== input.expectedGeneration ||
+      current.bindingRevision !== input.bindingRevision
+    )
+      conflict('The saved dependency generation changed. Refresh the preview.');
+    const binding = this.binding(ws, id, input.bindingRevision);
+    const pins: RuntimeGeneration['pins'][number][] = [];
+    for (const pin of current.pins) {
+      const b = binding.bindings.find((b) => b.alias === pin.alias);
+      const ref = (b && providerBranch(this.storage, ws, b)) ?? pin.ref;
+      const observed = await this.inspect(context, ws, id, {
+        bindingRevision: input.bindingRevision,
+        alias: pin.alias,
+        ref,
+      });
+      const packages = pin.packages.map((saved) => {
+        const pkg = observed.packages.find((p) => p.name === saved.name && p.path === saved.path);
+        if (!pkg)
+          conflict(
+            `The ${pin.alias} package mapping for ${saved.name} is no longer available. Review the advanced dependency setup before refreshing.`,
+          );
+        return pkg;
+      });
+      if (packages.length !== observed.packages.length)
+        conflict(
+          `The ${pin.alias} Cargo package set changed. Inspect and review its crate mappings in the advanced dependency setup.`,
+        );
+      pins.push({ ...pin, ref, ...observed, packages });
+    }
+    if (this.current(ws, id)?.id !== current.id)
+      conflict('The dependency generation changed during inspection. Preview again.');
+    return { current, pins };
+  }
+  async previewRefresh(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    input: { bindingRevision: number; expectedGeneration: number },
+  ) {
+    const { current, pins } = await this.refreshedPins(context, ws, id, input);
+    return this.refreshProjection(ws, id, current, pins);
+  }
+  async refresh(context: AuthContext, ws: WorkspaceId, id: string, input: ApplyRuntimeRefresh) {
+    const { current, pins } = await this.refreshedPins(context, ws, id, input);
+    const preview = this.refreshProjection(ws, id, current, pins);
+    if (preview.snapshotDigest !== input.snapshotDigest)
+      conflict('The dependency refresh impact changed. Preview and review it again.');
+    if (preview.blockers.length) conflict(preview.blockers.join(' '));
+    return this.configure(
+      context,
+      ws,
+      id,
+      {
+        bindingRevision: current.bindingRevision,
+        expectedGeneration: current.generation,
+        pins: pins.map((p) => ({
+          alias: p.alias,
+          ref: p.ref,
+          expectedCommitSha: p.commitSha,
+          conformanceRevision: p.conformanceRevision,
+          packages: [...p.packages],
+        })),
+        consumers: current.consumers.map((c) => ({ alias: c.alias, upstreams: [...c.upstreams] })),
+        environments: [...current.environments],
+      },
+      input,
+    );
+  }
+  async configure(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    raw: ConfigureRuntime,
+    refresh?: ApplyRuntimeRefresh,
+  ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const input = configureRuntimeSchema.parse(raw),
       d = this.definition(ws, id),
@@ -489,7 +679,16 @@ export class RuntimeEvidenceService {
       )
         conflict('Runtime or plan binding changed. Refresh before saving.');
       const data = { pins, consumers: input.consumers, environments: input.environments };
-      tx.runtimeEvidence.addGeneration({
+      const current = activeRuntime(tx, ws, id, input.bindingRevision);
+      const blockers = current ? this.refreshBlockers(ws, id) : [];
+      if (blockers.length) conflict(blockers.join(' '));
+      if (
+        refresh &&
+        (!current ||
+          this.refreshProjection(ws, id, current, pins).snapshotDigest !== refresh.snapshotDigest)
+      )
+        conflict('The dependency refresh impact changed during save. Preview and review it again.');
+      const generation: RuntimeGeneration = {
         id: randomUUID(),
         workspaceId: ws,
         definitionId: id,
@@ -499,7 +698,10 @@ export class RuntimeEvidenceService {
         ...data,
         createdAt: at,
         createdByUserId: context.user.id,
-      });
+      };
+      const impact = runtimeRefreshImpact(tx, d, generation);
+      tx.runtimeEvidence.addGeneration(generation);
+      queueRuntimeReviews(tx, context, generation, impact.reviews, at);
       this.changed(
         tx,
         context,
@@ -508,6 +710,17 @@ export class RuntimeEvidenceService {
         'runtime.configured',
         'Pinned dependency environment configured.',
         at,
+        {
+          generation: generation.generation,
+          previousRuntimeId: current?.id ?? null,
+          ...(refresh
+            ? { refreshDigest: refresh.snapshotDigest, rationale: refresh.rationale }
+            : {}),
+          retainedEvidenceIds: impact.evidence
+            .filter((e) => e.disposition === 'retained')
+            .map((e) => e.id),
+          reviews: impact.reviews.map((r) => ({ sourceId: r.sourceId, action: r.action })),
+        },
       );
     });
     this.notifier.notify();
@@ -518,42 +731,57 @@ export class RuntimeEvidenceService {
     runtime: RuntimeGeneration,
     consumerAlias?: string,
   ): Promise<string[]> {
-    const issues: string[] = [];
-    const binding = this.binding(ws, runtime.definitionId, runtime.bindingRevision);
-    if (this.current(ws, runtime.definitionId)?.id !== runtime.id)
-      issues.push('The runtime generation or plan binding has changed.');
     const required = consumerAlias
       ? runtime.consumers.find((c) => c.alias === consumerAlias)?.upstreams
       : undefined;
-    for (const pin of runtime.pins.filter((p) => !required || required.includes(p.alias))) {
+    return [
+      ...(this.current(ws, runtime.definitionId)?.id !== runtime.id
+        ? ['The runtime generation or plan binding has changed.']
+        : []),
+      ...(await this.pinStatus(ws, runtime, required)).flatMap((p) => (p.issue ? [p.issue] : [])),
+    ];
+  }
+  private async pinStatus(
+    ws: WorkspaceId,
+    runtime: RuntimeGeneration,
+    aliases?: readonly string[],
+  ): Promise<RuntimePinStatus[]> {
+    const result: RuntimePinStatus[] = [];
+    const binding = this.binding(ws, runtime.definitionId, runtime.bindingRevision);
+    for (const pin of runtime.pins.filter((p) => !aliases || aliases.includes(p.alias))) {
       const b = binding.bindings.find((b) => b.alias === pin.alias),
         repo = this.storage.execution.sourceRepositories.find(ws, pin.repositoryId);
+      const ref = (b && providerBranch(this.storage, ws, b)) ?? pin.ref;
+      const status = { alias: pin.alias, ref, savedCommitSha: pin.commitSha };
       if (!repo || repo.status !== 'active' || b?.repositoryId !== repo.id) {
-        issues.push(`Pinned repository ${pin.alias} is unavailable.`);
+        result.push({ ...status, issue: `Pinned repository ${pin.alias} is unavailable.` });
         continue;
       }
-      if (providerBranch(this.storage, ws, b) || pin.ref) {
-        const head = await this.requireGit().resolveCommit(
-          repo.rootPath,
-          providerBranch(this.storage, ws, b) ?? pin.ref,
-        );
-        if (!head.ok || head.value.commitSha !== pin.commitSha)
-          issues.push(
-            `${pin.alias} integration changed. Configure and review a new pin generation before reusing evidence.`,
-          );
-      }
+      const head = await this.requireGit().resolveCommit(repo.rootPath, ref);
+      result.push({
+        ...status,
+        ...(head.ok ? { currentCommitSha: head.value.commitSha } : {}),
+        ...(!head.ok
+          ? { issue: `${pin.alias} provider ref is unavailable. Check its repository binding.` }
+          : head.value.commitSha !== pin.commitSha
+            ? {
+                issue: `${pin.alias} integration changed. Preview dependency refresh to review the new pin and affected evidence.`,
+              }
+            : {}),
+      });
     }
-    return issues;
+    return result;
   }
   private async evidenceFreshness(
     d: ConcurrencyDefinition,
     runtime: RuntimeGeneration,
     s: EvidenceSubmission,
-    knownFreshness?: readonly string[],
+    knownFreshness?: readonly RuntimePinStatus[],
   ) {
-    const issues = knownFreshness
-      ? [...knownFreshness]
-      : await this.freshness(d.workspaceId, runtime);
+    const aliases = relevantPinAliases(runtime, evidenceInputs(d, s.subject));
+    const issues = (knownFreshness ?? (await this.pinStatus(d.workspaceId, runtime, aliases)))
+      .filter((p) => aliases.includes(p.alias))
+      .flatMap((p) => (p.issue ? [p.issue] : []));
     const binding = this.binding(d.workspaceId, d.id, s.bindingRevision);
     for (const code of s.testedCode ?? []) {
       const b = binding.bindings.find((b) => b.alias === code.alias);
@@ -904,7 +1132,8 @@ export class RuntimeEvidenceService {
         ];
       })
       .slice(0, 30);
-    const freshness = runtime ? await this.freshness(ws, runtime) : [];
+    const pinStatus = runtime ? await this.pinStatus(ws, runtime) : [];
+    const freshness = pinStatus.flatMap((p) => (p.issue ? [p.issue] : []));
     const snapshot = mapReadSnapshot(this.storage);
     const planAcceptance = d.source.checkpoints.some((c) => c.id === PLAN_CHECKPOINT)
       ? {
@@ -996,6 +1225,7 @@ export class RuntimeEvidenceService {
           })),
       },
       ...(planAcceptance ? { planAcceptance } : {}),
+      pinStatus,
       issues: freshness,
       builds,
       bindingRevision: binding?.revision ?? 0,
@@ -1028,7 +1258,7 @@ export class RuntimeEvidenceService {
           ...v,
           issues: [
             ...v.issues,
-            ...(runtime ? await this.evidenceFreshness(d, runtime, v.submission, freshness) : []),
+            ...(runtime ? await this.evidenceFreshness(d, runtime, v.submission, pinStatus) : []),
           ],
         })),
       ),
@@ -1320,11 +1550,22 @@ export class RuntimeEvidenceService {
       !runtime.consumers.find((c) => c.alias === alias)?.upstreams.length
     )
       return;
-    if (!env || env.runtimeId !== runtime.id)
+    if (
+      !env ||
+      ('finalization' in scope
+        ? env.runtimeId !== runtime.id
+        : scopeRuntimeChanges(this.storage, tree.workspaceId, scope, env.runtimeId, runtime)
+            .length > 0)
+    )
       conflict('Review uses an obsolete dependency environment. Run a fresh review.');
     try {
       const record = this.storage.runtimeEvidence.build(tree.workspaceId, runId);
-      if (!record || record.error || record.manifestDigest !== env.manifestDigest)
+      if (
+        !record ||
+        record.error ||
+        record.manifestDigest !== env.manifestDigest ||
+        record.runtimeId !== env.runtimeId
+      )
         conflict('The review has no valid frozen pinned build record.');
       const run = this.storage.execution.runs.find(tree.workspaceId, asAgentRunId(runId));
       const receipts = record.receipts
@@ -1355,7 +1596,7 @@ export class RuntimeEvidenceService {
             r.headSha === run?.reviewBranchContext?.headSha &&
             r.manifestDigest === env.manifestDigest &&
             r.runId === runId &&
-            r.runtimeId === runtime.id &&
+            r.runtimeId === env.runtimeId &&
             r.nativeVerification?.approvalId === approval?.id &&
             r.nativeVerification?.hostDigest === approval?.hostDigest &&
             r.nativeVerification?.auditDigest === approval?.auditDigest,
@@ -1372,7 +1613,7 @@ export class RuntimeEvidenceService {
             r.headSha === run?.reviewBranchContext?.headSha &&
             r.manifestDigest === env.manifestDigest &&
             r.runId === runId &&
-            r.runtimeId === runtime.id &&
+            r.runtimeId === env.runtimeId &&
             (verification.mode === 'scoped-checks'
               ? r.verificationMode === 'scoped-checks' &&
                 r.policyDigest === hash(JSON.stringify(verification))
@@ -1539,6 +1780,7 @@ export class RuntimeEvidenceService {
     action: 'runtime.configured' | 'evidence.submitted' | 'evidence.decided',
     message: string,
     at: string,
+    metadata: Record<string, import('@craftingtable/domain').JsonValue> = {},
   ) {
     tx.audit.append({
       id: asAuditEventId(randomUUID()),
@@ -1550,7 +1792,7 @@ export class RuntimeEvidenceService {
       targetType: 'concurrency-definition',
       targetId: id,
       outcome: 'succeeded',
-      metadata: {},
+      metadata,
     });
     tx.workspaceEvents.appendEvent({
       id: asEventId(randomUUID()),

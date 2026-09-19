@@ -196,6 +196,34 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .fill('Isolated test fixture only.');
   await runtime.getByRole('button', { name: 'Save dependency environment', exact: true }).click();
   await expect(runtime.getByText('Generation 1 · binding 1', { exact: true })).toBeVisible();
+  writeFileSync(join(upstreamRepository, 'POLICY.md'), 'Updated provider policy.\n');
+  execFileSync('git', ['add', 'POLICY.md'], { cwd: upstreamRepository });
+  execFileSync(
+    'git',
+    [
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '--no-gpg-sign',
+      '-m',
+      'Update provider policy',
+    ],
+    { cwd: upstreamRepository },
+  );
+  const refresh = runtime.getByRole('region', { name: 'Dependency pin refresh', exact: true });
+  await refresh.getByRole('button', { name: 'Preview dependency refresh' }).click();
+  await expect(refresh.getByText('Generation 1 → 2', { exact: true })).toBeVisible();
+  const apply = refresh.getByRole('button', { name: 'Apply reviewed dependency refresh' });
+  await expect(apply).toBeDisabled();
+  await refresh
+    .getByLabel('Dependency refresh rationale')
+    .fill('Reviewed the updated provider policy.');
+  await refresh.getByRole('checkbox', { name: 'I reviewed the new pins' }).check();
+  await apply.click();
+  await expect(runtime.getByText('Generation 2 · binding 1', { exact: true })).toBeVisible();
+  await expect(refresh.getByText(/No agents were started/)).toBeVisible();
   await runtime.getByText('Submit qualification or checkpoint evidence', { exact: true }).click();
   await runtime
     .getByRole('combobox', { name: 'Evidence subject', exact: true })

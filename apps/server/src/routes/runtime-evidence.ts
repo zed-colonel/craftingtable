@@ -2,6 +2,9 @@ import {
   nativeAuditSchema,
   nativeApprovalRequestSchema,
   configureRuntimeSchema,
+  runtimeRefreshRequestSchema,
+  applyRuntimeRefreshSchema,
+  runtimeRefreshPreviewSchema,
   generatePlanEvidenceRequestSchema,
   discoverRuntimeRequestSchema,
   discoverRuntimeResponseSchema,
@@ -52,6 +55,8 @@ export function registerRuntimeEvidenceRoutes(
     'audit-native',
     'authorize-native',
     'configure',
+    'preview-refresh',
+    'refresh',
     'inspect',
     'discover',
     'generate-plan',
@@ -66,6 +71,34 @@ export function registerRuntimeEvidenceRoutes(
           ws = workspaceIdSchema.safeParse(request.params.workspaceId);
         if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
         const id = request.params.id;
+        if (action === 'preview-refresh') {
+          const b = runtimeRefreshRequestSchema.safeParse(request.body);
+          if (!b.success)
+            return sendApiError(
+              reply,
+              400,
+              'invalid-request',
+              'Choose the current dependency generation.',
+            );
+          return noStore(reply).send(
+            runtimeRefreshPreviewSchema.parse(
+              await service.previewRefresh(context, ws.data, id, b.data),
+            ),
+          );
+        }
+        if (action === 'refresh') {
+          const b = applyRuntimeRefreshSchema.safeParse(request.body);
+          if (!b.success)
+            return sendApiError(
+              reply,
+              400,
+              'invalid-request',
+              'Review the dependency refresh preview and provide a rationale.',
+            );
+          return noStore(reply).send(
+            runtimeEvidenceViewSchema.parse(await service.refresh(context, ws.data, id, b.data)),
+          );
+        }
         if (action === 'audit-native')
           return noStore(reply).send(
             nativeAuditSchema.parse(await service.auditNative(context, ws.data, id)),

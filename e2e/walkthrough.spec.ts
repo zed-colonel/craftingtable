@@ -527,6 +527,20 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await runtime.getByLabel('aq · branch or commit', { exact: true }).fill('main');
     await runtime.getByRole('button', { name: 'Inspect aq', exact: true }).click();
     await expect(runtime.getByText(/Supplied crates: aq_walkthrough_pin/)).toBeVisible();
+    await runtime.getByLabel('Conformance revision', { exact: true }).fill('16');
+    await runtime.getByRole('button', { name: 'Add environment', exact: true }).click();
+    await runtime.getByLabel('Environment name', { exact: true }).fill('walkthrough-local');
+    await runtime.getByLabel('Environment SHA-256', { exact: true }).fill('1'.repeat(64));
+    await runtime.getByLabel('Fixture SHA-256', { exact: true }).fill('2'.repeat(64));
+    await runtime.getByLabel('Toolchain SHA-256', { exact: true }).fill('3'.repeat(64));
+    await runtime
+      .getByLabel('Authorization and scope', { exact: true })
+      .fill('Disposable walkthrough fixtures only.');
+    await runtime.getByRole('button', { name: 'Save dependency environment', exact: true }).click();
+    await expect(runtime.getByText('Generation 1 · binding 1', { exact: true })).toBeVisible();
+    writeFileSync(join(upstream, 'POLICY.md'), 'Updated fixture policy.\n');
+    git(['add', 'POLICY.md'], upstream);
+    git(['commit', '--no-gpg-sign', '-m', 'Update provider fixture'], upstream);
     const selectTarget = async (p: Page) => {
       // A fresh page lists imported maps without opening one.
       const drafts = p.getByLabel('Imported roadmap draft');
@@ -544,6 +558,20 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       await expect(region.getByText(/selected milestones/)).toBeVisible();
     };
     await selectTarget(page);
+    await walk.capture(
+      'roadmaps-dependency-refresh',
+      'Roadmaps · explicit dependency refresh preview',
+      async (p: Page) => {
+        await selectTarget(p);
+        const pins = p.getByRole('region', { name: 'Dependency pin refresh', exact: true });
+        await pins.getByRole('button', { name: 'Preview dependency refresh' }).click();
+        await expect(pins.getByText('Generation 1 → 2', { exact: true })).toBeVisible();
+        await pins
+          .getByLabel('Dependency refresh rationale')
+          .fill('Review the provider policy update.');
+        await pins.scrollIntoViewIfNeeded();
+      },
+    );
     await walk.capture(
       'roadmaps-cross-project',
       'Roadmaps · imported map and cross-project supervisor',

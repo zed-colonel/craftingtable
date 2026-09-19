@@ -1,4 +1,5 @@
 import { snapshotCalculation } from './map-read-snapshot.js';
+import { sameRuntimeEnvironments } from './runtime-input-policy.js';
 import { nativeHostDigest } from '@craftingtable/agents';
 import type { ExecutionScope, ConcurrencyDefinition } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
@@ -12,12 +13,17 @@ export function nativeApproval(tx: StorageRepositories, ws: string, scope: Execu
         scope.definitionId,
         scope.bindingRevision,
       )[0];
-      const runtime = tx.runtimeEvidence.generations(
+      const generations = tx.runtimeEvidence.generations(
         ws,
         scope.definitionId,
         scope.bindingRevision,
-      )[0];
-      return a?.approved && a.runtimeId === runtime?.id && a.hostDigest === nativeHostDigest()
+      );
+      return a?.approved &&
+        sameRuntimeEnvironments(
+          generations.find((r) => r.id === a.runtimeId),
+          generations[0],
+        ) &&
+        a.hostDigest === nativeHostDigest()
         ? a
         : undefined;
     },

@@ -1008,7 +1008,7 @@ export class WorkCycleService {
     if (!cycle) throw new NotFoundError();
     const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
     if (
-      cycle.status !== 'completed' ||
+      !['completed', 'awaiting-merge'].includes(cycle.status) ||
       cycle.step !== 'review' ||
       !cycle.workItemId ||
       !cycle.executionScope ||
@@ -1030,7 +1030,7 @@ export class WorkCycleService {
       delegationCheck?.();
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
       const current = this.storage.execution.cycles.find(workspaceId, id);
-      if (current?.version !== expectedVersion || current.status !== 'completed')
+      if (current?.version !== expectedVersion || current.status !== cycle.status)
         throw new ExecutionRequestError(
           'conflict',
           'Cycle changed; refresh before requesting another review.',
@@ -1049,7 +1049,8 @@ export class WorkCycleService {
           'conflict',
           'End live sessions and reconcile any newer manual runs before repeating this review.',
         );
-      if (this.storage.execution.cycles.activeForWorktree(workspaceId, tree.id))
+      const owner = this.storage.execution.cycles.activeForWorktree(workspaceId, tree.id);
+      if (owner && owner.id !== id)
         throw new ExecutionRequestError(
           'conflict',
           'Another cycle already owns this review worktree.',

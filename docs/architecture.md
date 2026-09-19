@@ -397,6 +397,16 @@ does not complete parents, adopt decisions or confer local native/Kata execution
 The browser provides explicit configuration, templates/uploads, artifact review and build-record
 downloads. See ADR-047.
 
+ADR-058 refines reuse to compare exact relevant inputs across immutable generations. A shared
+policy compares each bound consumer's upstream source/crate/conformance identities and environment
+inputs; unclassified evidence conservatively compares the full stack. Preview projects a candidate
+generation without writing it. An explicit digest-checked save creates the generation and durably
+queues affected completed independent reviews in one transaction. Existing owning-slice recoveries
+retain their round. Resume dispatches queued reviews through the ordinary phase gates after new
+saved-plan acceptance; it does not repeat integrated implementation. Receipts retain their original
+run/generation/build provenance. This changes no source, repository policy, reviewer or finalization
+gate. Per-read input comparisons and run/build lookups use the existing bounded snapshot cache.
+
 
 Schema 21 adds immutable exact-binding map adoptions. CrossProjectService computes and previews
 milestone closure and resolves layered settings into ordinary roadmap entries; it neither invents

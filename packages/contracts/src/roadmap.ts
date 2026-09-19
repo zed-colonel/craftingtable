@@ -133,6 +133,13 @@ export const roadmapSchema = z.strictObject({
     .optional(),
   attempts: z.array(
     z.strictObject({
+      dependencyRefresh: z
+        .strictObject({
+          runtimeId: z.uuid(),
+          generation: z.number().int().positive(),
+          sourceRunId: agentRunIdSchema,
+        })
+        .optional(),
       recovery: z
         .strictObject({
           sourceEntryId: z.string().uuid(),

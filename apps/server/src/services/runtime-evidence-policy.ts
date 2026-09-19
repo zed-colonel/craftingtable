@@ -1,6 +1,8 @@
 import { nativeApproval, needsNativeEvidence } from './native-verification-policy.js';
 import { generatedPlanIssues } from './plan-acceptance-policy.js';
 import { integratedSlice } from './scope-lineage.js';
+import { runtimeInputChanges } from './runtime-input-policy.js';
+import { snapshotCalculation } from './map-read-snapshot.js';
 import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
 import type {
   ConcurrencyDefinition,
@@ -110,6 +112,51 @@ export function testedRepositories(d: ConcurrencyDefinition, subject: EvidenceSu
   }
   return [...repositories];
 }
+/** Qualification uses its tested consumers; an unclassified/stack subject freezes all pins. */
+export function evidenceInputs(d: ConcurrencyDefinition, subject: EvidenceSubject) {
+  const consumers = testedRepositories(d, subject);
+  const owner = subjectRequirements(d, subject).checkpoint?.owner;
+  return consumers.length
+    ? {
+        consumers,
+        pins:
+          owner &&
+          d.source.repositories.some((r) => r.id === owner && r.role === 'implemented_upstream')
+            ? [owner]
+            : [],
+      }
+    : {};
+}
+
+export function scopeRuntimeChanges(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  scope: ExecutionScope,
+  recordedRuntimeId: string | undefined,
+  current = activeRuntime(tx, ws, scope.definitionId, scope.bindingRevision),
+): string[] {
+  if (recordedRuntimeId && recordedRuntimeId === current?.id) return [];
+  const binding = tx.imports
+    .bindings(ws, scope.definitionId)
+    .find((b) => b.revision === scope.bindingRevision);
+  const d = tx.imports.definition(ws, scope.definitionId);
+  const parent =
+    scope.kind === 'parent-acceptance'
+      ? scope.sourceId
+      : d?.source.slices.find((s) => s.id === scope.sourceId)?.work_item;
+  const alias = binding?.bindings.find((b) =>
+    b.workItems.some((w) => w.sourceId === parent),
+  )?.alias;
+  if (!alias) return ['The review consumer binding is unavailable.'];
+  const recorded = tx.runtimeEvidence
+    .generations(ws, scope.definitionId, scope.bindingRevision)
+    .find((r) => r.id === recordedRuntimeId);
+  return snapshotCalculation(
+    tx,
+    `runtime-inputs:${recordedRuntimeId}:${current?.id}:${alias}`,
+    () => runtimeInputChanges(recorded, current, { consumers: [alias] }),
+  );
+}
 /** Explicit start/merge providers inform the minimum supplied build environment. */
 export function requiredUpstreams(d: ConcurrencyDefinition, consumerAlias: string): string[] {
   const required = new Set(
@@ -166,11 +213,19 @@ export function submissionIssues(
   const issues: string[] = [];
   if (
     !runtime ||
-    runtime.id !== s.runtimeId ||
     runtime.bindingRevision !== s.bindingRevision ||
     tx.imports.bindings(d.workspaceId, d.id)[0]?.revision !== s.bindingRevision
   )
     issues.push('Evidence belongs to an inactive runtime generation or binding.');
+  const recorded = tx.runtimeEvidence
+    .generations(d.workspaceId, d.id, s.bindingRevision)
+    .find((r) => r.id === s.runtimeId);
+  issues.push(
+    ...runtimeInputChanges(recorded, runtime, {
+      ...evidenceInputs(d, s.subject),
+      environmentId: s.environmentId,
+    }),
+  );
   const spec = subjectRequirements(d, s.subject);
   const b = tx.imports.bindings(d.workspaceId, d.id).find((b) => b.revision === s.bindingRevision);
   const requiredCode = testedRepositories(d, s.subject),
@@ -469,7 +524,7 @@ export function currentScopeReceipt(
     const approval = nativeApproval(tx, ws, p.scope);
     if (!approval || run?.nativeApprovalId !== approval.id) return false;
   }
-  return run?.runtimeId === runtime.id;
+  return scopeRuntimeChanges(tx, ws, p.scope, run?.runtimeId, runtime).length === 0;
 }
 
 /** Completion in another adopted scope is history, not acceptance of these requirements. */

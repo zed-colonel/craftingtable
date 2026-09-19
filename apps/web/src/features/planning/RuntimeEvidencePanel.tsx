@@ -1,4 +1,5 @@
 import { NativeVerificationPanel } from './NativeVerificationPanel.js';
+import { DependencyRefreshPanel } from './DependencyRefreshPanel.js';
 import { useCallback, useEffect, useState } from 'react';
 import { ActionBar } from '../../components/ActionBar.js';
 import { About } from '../../components/About.js';
@@ -167,6 +168,18 @@ export function RuntimeEvidencePanel({
           ))}
         </ul>
       )}
+      <DependencyRefreshPanel
+        base={base}
+        view={view}
+        csrfToken={csrfToken}
+        disabled={!canMutate || busy || unsavedSetup}
+        onSaved={(next) => {
+          adopt(next);
+          window.dispatchEvent(
+            new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
+          );
+        }}
+      />
       <ActionBar label="Dependency setup and evidence">
         <button
           type="button"
@@ -315,8 +328,8 @@ export function RuntimeEvidencePanel({
           </p>
           <p>
             Inspect a ref in a bound repository to discover its Cargo package mappings. The saved
-            pin is an exact commit; later integration changes require a new generation and fresh
-            evidence.
+            pin is an exact commit. Use Preview dependency refresh after integration advances to see
+            which evidence remains applicable and which reviews must run again.
           </p>
           {view.repositories.map((repo) => (
             <div key={repo.alias}>
@@ -563,7 +576,7 @@ export function RuntimeEvidencePanel({
 
           <p>
             {configDirty || changedRefs
-              ? 'Unsaved dependency changes. Saving creates a new generation and requires new native approval and plan acceptance. Historical evidence is retained.'
+              ? 'Unsaved dependency changes. Saving creates a new generation and requires plan acceptance. Changed environment inputs require native approval; changed dependencies require affected reviews. Historical evidence is retained.'
               : view.current
                 ? `Dependency settings saved · generation ${view.current.generation}. No dependency save needed.`
                 : 'Discover or enter the dependency environment before saving.'}
@@ -583,7 +596,7 @@ export function RuntimeEvidencePanel({
                   new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),
                 );
                 setNotice(
-                  'New dependency environment recorded. Prior evidence must be reassessed.',
+                  'New dependency environment recorded. Unchanged inputs retain their evidence; affected roadmap reviews are queued for Resume. Review plan acceptance.',
                 );
               })
             }

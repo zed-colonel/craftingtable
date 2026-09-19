@@ -366,6 +366,7 @@ export class RoadmapService {
         );
       }
       for (const attempt of resumeAttempts) {
+        if (attempt.dependencyRefresh) continue;
         if (roadmap.entryHolds?.[attempt.entryId]?.status === 'paused') continue;
         const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
         // Recovery, not another review of unchanged source, owns these stopped checkpoints.
@@ -738,6 +739,71 @@ export class RoadmapService {
       if (entry.executionScope && entry.executionScope.kind !== 'slice' && worktree) {
         const cycle = this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
         if (cycle) {
+          if (attempt.dependencyRefresh) {
+            const refresh = attempt.dependencyRefresh;
+            const check = () => {
+              const current = this.find(roadmap.workspaceId, roadmap.id);
+              this.authority(current);
+              if (
+                current.status !== 'running' ||
+                current.entryHolds?.[entry.id] ||
+                this.controlling.has(current.id) ||
+                this.abort.signal.aborted ||
+                current.attempts.find((a) => a.id === attempt!.id)?.dependencyRefresh?.runtimeId !==
+                  refresh.runtimeId
+              )
+                throw new SupersededRoadmapOperation();
+              if (
+                this.storage.runtimeEvidence.generations(
+                  roadmap.workspaceId,
+                  entry.executionScope!.definitionId,
+                  entry.executionScope!.bindingRevision,
+                )[0]?.id !== refresh.runtimeId
+              )
+                conflict(
+                  'Dependencies changed again. Preview the current dependency refresh before resuming this review.',
+                );
+              if (
+                this.storage.execution.cycles.find(roadmap.workspaceId, cycle.id)?.currentRunId !==
+                refresh.sourceRunId
+              )
+                conflict('The queued review changed. Inspect its manual recovery before resuming.');
+              const blockers = scopePhaseBlockers(
+                this.storage,
+                roadmap.workspaceId,
+                entry.workItemId,
+                entry.executionScope!,
+                entry.executionScope!.kind === 'slice-verification' ? 'verify' : 'accept',
+                { ownerId: cycle.currentRunId },
+              );
+              if (blockers.length) throw new PhaseGateError(blockers);
+            };
+            check();
+            await this.cycles.repeatScopeReview(
+              context,
+              roadmap.workspaceId,
+              cycle.id,
+              cycle.version,
+              '',
+              check,
+              () => {
+                const current = this.find(roadmap.workspaceId, roadmap.id);
+                this.change(current, {
+                  attempts: current.attempts.map((a) =>
+                    a.id === attempt!.id
+                      ? {
+                          ...a,
+                          status: 'active',
+                          completedAt: undefined,
+                          dependencyRefresh: undefined,
+                        }
+                      : a,
+                  ),
+                });
+              },
+            );
+            return;
+          }
           if (
             !reviewingRecovery &&
             roadmap.scopeRecovery?.enabled &&
@@ -1592,6 +1658,12 @@ export class RoadmapService {
           const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
           const cycle =
             attempt && snapshot.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+          if (attempt?.dependencyRefresh)
+            return {
+              entryId: entry.id,
+              status: roadmap.status === 'running' ? 'queued' : 'paused',
+              reason: `Fresh independent review queued for dependency generation ${attempt.dependencyRefresh.generation}. Existing code and reviewer assignment are retained; plan acceptance and Resume are required.`,
+            };
           if (
             entry.executionScope &&
             (!cycle || ['running', 'awaiting-merge'].includes(cycle.status))

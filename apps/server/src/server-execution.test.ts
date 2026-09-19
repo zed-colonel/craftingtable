@@ -12,6 +12,7 @@ import type { ExecutionScope } from '@craftingtable/domain';
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -8421,7 +8422,7 @@ it('requires independently reviewed exact case coverage and distinguishes native
   expect(accepted.subjects.find((s) => s.subject.sourceId === 'LOCAL-PUBLISHED')?.issues).toEqual(
     [],
   );
-  // Eligibility is not a publication pass, and a new runtime invalidates the accepted old pass.
+  // Eligibility is not a publication pass. An identical generation retains exact qualification inputs.
   expect(
     accepted.submissions.some((s) => s.submission.subject.sourceId === 'LOCAL-PUBLISHED'),
   ).toBe(false);
@@ -8430,9 +8431,17 @@ it('requires independently reviewed exact case coverage and distinguishes native
     expectedGeneration: 1,
   });
   expect(revised.submissions[0]?.decision?.outcome).toBe('accepted');
-  expect(revised.submissions[0]?.issues.join(' ')).toContain('inactive runtime');
+  expect(revised.submissions[0]?.issues).toEqual([]);
+  const changed = await f.svc.configure(f.auth, ws, f.definitionId, {
+    ...f.input,
+    expectedGeneration: 2,
+    environments: f.input.environments.map((e) =>
+      e.id === 'kata' ? { ...e, fixtureDigest: 'f'.repeat(64) } : e,
+    ),
+  });
+  expect(changed.submissions[0]?.issues.join(' ')).toContain('Environment, fixture');
   expect(
-    revised.subjects.find((s) => s.subject.sourceId === 'LOCAL-PUBLISHED')?.issues.join(' '),
+    changed.subjects.find((s) => s.subject.sourceId === 'LOCAL-PUBLISHED')?.issues.join(' '),
   ).toContain('LOCAL-QUALIFIED');
   await expect(
     f.svc.decide(f.auth, ws, f.definitionId, {
@@ -8440,7 +8449,7 @@ it('requires independently reviewed exact case coverage and distinguishes native
       outcome: 'accepted',
       rationale: 'Retry stale record.',
     }),
-  ).rejects.toThrow('inactive runtime');
+  ).rejects.toThrow('Environment, fixture');
 });
 it('checks actual Git freshness at evidence review and keeps decisions immutable', async () => {
   const f = await evidenceFixture(),
@@ -8480,6 +8489,173 @@ it('checks actual Git freshness at evidence review and keeps decisions immutable
       rationale: 'Duplicate.',
     }),
   ).rejects.toThrow('immutable decision');
+});
+it('previews exact dependency refreshes, rejects stale approval and retains unchanged native authority', async () => {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    checkpoints: [],
+    repositories: [
+      { ...source.repositories[0]!, id: 'local' },
+      { ...source.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
+    ],
+    work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
+  }));
+  const ws = f.state.workspaceId,
+    tx = f.state.context.storage,
+    svc = f.state.context.services.runtimeEvidenceService;
+  const id = f.parentScope.definitionId,
+    provider = fixtureRepository();
+  commitFile(
+    provider,
+    'Cargo.toml',
+    '[package]\nname="refresh_provider"\nversion="0.2.0"\nedition="2021"\n',
+  );
+  const registered = await f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/repositories`,
+    headers: mutationHeaders(f.state),
+    payload: { rootPath: provider, displayName: 'Refresh provider' },
+  });
+  const repository = registerSourceRepositoryResponseSchema.parse(registered.json()).repository;
+  const binding = tx.imports.bindings(ws, id)[0]!;
+  tx.imports.addBindings({
+    ...binding,
+    revision: 2,
+    bindings: [
+      ...binding.bindings,
+      {
+        alias: 'provider',
+        repositoryId: repository.id,
+        integrationBranch: 'main',
+        sourceArtifacts: [],
+        workItems: [],
+      },
+    ],
+  });
+  const pin = await svc.inspect(f.auth, ws, id, {
+    bindingRevision: 2,
+    alias: 'provider',
+    ref: 'main',
+  });
+  const configured = await svc.configure(f.auth, ws, id, {
+    bindingRevision: 2,
+    expectedGeneration: 0,
+    pins: [
+      {
+        alias: 'provider',
+        ref: 'main',
+        expectedCommitSha: pin.commitSha,
+        conformanceRevision: 'fixture',
+        packages: pin.packages,
+      },
+    ],
+    consumers: [{ alias: 'local', upstreams: ['provider'] }],
+    environments: [
+      {
+        id: 'local',
+        kind: 'local-development',
+        identityDigest: 'a'.repeat(64),
+        fixtureDigest: 'b'.repeat(64),
+        toolchainDigest: 'c'.repeat(64),
+        authorization: 'Non-sensitive fixtures',
+      },
+    ],
+  });
+  const old = configured.current!;
+  const { nativeHostDigest } = await import('@craftingtable/agents');
+  const native = {
+    id: randomUUID(),
+    workspaceId: ws,
+    definitionId: id,
+    bindingRevision: 2,
+    runtimeId: old.id,
+    approved: true,
+    hostDigest: nativeHostDigest(),
+    auditDigest: 'a'.repeat(64),
+    audit: 'Approved host',
+    rationale: 'Non-sensitive fixtures',
+    createdAt: new Date().toISOString(),
+    createdByUserId: f.state.userId,
+  };
+  tx.runtimeEvidence.addNativeApproval(native);
+  commitFile(provider, 'POLICY.md', 'A source policy update is still an exact pin change.');
+  const base = `/api/workspaces/${ws}/concurrency-definitions/${id}/runtime`;
+  const input = { bindingRevision: 2, expectedGeneration: 1 };
+  expect(
+    (
+      await f.state.context.app.inject({
+        method: 'POST',
+        url: `${base}/preview-refresh`,
+        headers: { cookie: f.state.cookie },
+        payload: input,
+      })
+    ).statusCode,
+  ).toBe(403);
+  const response = await f.state.context.app.inject({
+    method: 'POST',
+    url: `${base}/preview-refresh`,
+    headers: mutationHeaders(f.state),
+    payload: input,
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const { runtimeRefreshPreviewSchema } = await import('@craftingtable/contracts');
+  const preview = runtimeRefreshPreviewSchema.parse(response.json());
+  expect(preview).toMatchObject({
+    nativeApproval: 'retained',
+    blockers: [],
+    pins: [{ alias: 'provider', before: pin.commitSha, changed: true }],
+  });
+  expect(tx.runtimeEvidence.generations(ws, id, 2)).toHaveLength(1);
+  expect(f.backend.launches).toHaveLength(0);
+  commitFile(provider, 'later.md', 'Provider advanced during review');
+  const stale = await f.state.context.app.inject({
+    method: 'POST',
+    url: `${base}/refresh`,
+    headers: mutationHeaders(f.state),
+    payload: { ...input, snapshotDigest: preview.snapshotDigest, rationale: 'Reviewed pins' },
+  });
+  expect(stale.statusCode, stale.body).toBe(409);
+  expect(tx.runtimeEvidence.generations(ws, id, 2)).toHaveLength(1);
+  const fresh = await svc.previewRefresh(f.auth, ws, id, input);
+  const applied = await f.state.context.app.inject({
+    method: 'POST',
+    url: `${base}/refresh`,
+    headers: mutationHeaders(f.state),
+    payload: {
+      ...input,
+      snapshotDigest: fresh.snapshotDigest,
+      rationale: 'Reviewed the changed provider and unchanged host scope',
+    },
+  });
+  expect(applied.statusCode, applied.body).toBe(200);
+  expect(applied.json()).toMatchObject({
+    current: {
+      generation: 2,
+      environments: old.environments,
+      pins: [{ packages: pin.packages }],
+    },
+    nativeVerification: { current: true, approval: { id: native.id, runtimeId: old.id } },
+    issues: [],
+  });
+  expect(tx.runtimeEvidence.generations(ws, id, 2)[1]).toEqual(old);
+  expect(f.backend.launches).toHaveLength(0);
+  expect(
+    (await svc.previewRefresh(f.auth, ws, id, { ...input, expectedGeneration: 2 })).blockers.join(
+      ' ',
+    ),
+  ).toContain('already current');
+  tx.runtimeEvidence.addNativeApproval({ ...native, id: randomUUID(), approved: false });
+  expect((await svc.view(f.auth, ws, id)).nativeVerification.current).toBe(false);
+  mkdirSync(join(provider, 'examples/extra'), { recursive: true });
+  commitFile(
+    provider,
+    'examples/extra/Cargo.toml',
+    '[package]\nname="unselected_example"\nversion="0.1.0"\nedition="2021"\n',
+  );
+  await expect(
+    svc.previewRefresh(f.auth, ws, id, { ...input, expectedGeneration: 2 }),
+  ).rejects.toThrow('Cargo package set changed');
+  expect(tx.runtimeEvidence.generations(ws, id, 2)).toHaveLength(2);
 });
 it('protects runtime routes with workspace authorization and mutation CSRF', async () => {
   const f = await evidenceFixture(),
@@ -8680,12 +8856,19 @@ it.each(['integration', 'implementation'] as const)(
       db.close();
     }
     await svc.configure(f.auth, ws, definitionId, { ...config, expectedGeneration: 1 });
+    expect(() => svc.assertRun(tree, run)).not.toThrow();
+    expect(storage.runtimeEvidence.build(ws, run)?.runtimeId).toBe(environment.runtimeId);
+    await svc.configure(f.auth, ws, definitionId, {
+      ...config,
+      expectedGeneration: 2,
+      environments: config.environments.map((e) => ({ ...e, toolchainDigest: 'f'.repeat(64) })),
+    });
     expect(() => svc.assertRun(tree, run)).toThrow('obsolete dependency environment');
     git(['commit', '--allow-empty', '-m', 'provider advanced'], provider);
     await expect(
       svc.configure(f.auth, ws, definitionId, {
         ...config,
-        expectedGeneration: 2,
+        expectedGeneration: 3,
         pins: config.pins.map((p) => ({ ...p, expectedCommitSha: observed.commitSha })),
       }),
     ).rejects.toThrow('ref advanced before saving');
@@ -9482,7 +9665,7 @@ it('reconciles stale reviews on the same binding while retaining integrated code
       expectedGeneration: runtime.generation,
       pins: [],
       consumers: runtime.consumers.map((c) => ({ ...c, upstreams: [...c.upstreams] })),
-      environments: [...runtime.environments],
+      environments: runtime.environments.map((e) => ({ ...e, fixtureDigest: 'f'.repeat(64) })),
     },
   );
   expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(false);
@@ -9524,6 +9707,126 @@ it('reconciles stale reviews on the same binding while retaining integrated code
   expect(
     storedRoadmap(state).attempts.filter((a) => old.attempts.some((prior) => prior.id === a.id)),
   ).toHaveLength(2);
+});
+
+it('queues affected completed scope reviews across restart and resumes them without repeating implementation', {
+  timeout: 30000,
+}, async () => {
+  const f = await supervisedMapFixture();
+  const { state } = f,
+    ws = state.workspaceId,
+    tx = state.context.storage;
+  const svc = state.context.services.runtimeEvidenceService,
+    id = f.parentScope.definitionId;
+  f.service.save(f.auth, ws, f.input);
+  await adoptSupervisedMap(f);
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
+    'original parent acceptance',
+    15000,
+  );
+  await roadmapControl(state, 'pause');
+  const before = storedRoadmap(state),
+    generation = f.runtime.current!;
+  const sourceRuns = state.context.storage.execution.runs
+    .listRecent(ws, 500)
+    .filter((r) => r.role === 'implement')
+    .map((r) => r.id);
+  const receipts = tx.scopeReceipts.list(ws, state.workItemId);
+  const identical = {
+    bindingRevision: 1,
+    expectedGeneration: 1,
+    pins: [],
+    consumers: [{ alias: 'local', upstreams: [] }],
+    environments: [...generation.environments],
+  };
+  await svc.configure(f.auth, ws, id, identical);
+  expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(true);
+  expect(tx.scopeReceipts.list(ws, state.workItemId)).toEqual(receipts);
+  expect(storedRoadmap(state).attempts.some((a) => a.dependencyRefresh)).toBe(false);
+  await svc.configure(f.auth, ws, id, {
+    ...identical,
+    expectedGeneration: 2,
+    environments: generation.environments.map((e) => ({ ...e, fixtureDigest: 'f'.repeat(64) })),
+  });
+  expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(false);
+  expect(storedRoadmap(state).status).toBe('paused');
+  expect(storedRoadmap(state).attempts.filter((a) => a.dependencyRefresh)).toHaveLength(3);
+  state.context.services.workCycleService.recoverInterrupted();
+  state.context.services.roadmapService.recoverInterrupted();
+  const reopened = openCraftingTableStorage(tx.databasePath);
+  try {
+    expect(
+      reopened.roadmaps.find(ws, roadmapId)?.attempts.filter((a) => a.dependencyRefresh),
+    ).toHaveLength(3);
+  } finally {
+    reopened.close();
+  }
+  await roadmapControl(state, 'resume');
+  await waitFor(
+    () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
+    'refreshed parent acceptance',
+    15000,
+  );
+  expect(storedRoadmap(state).attempts.map((a) => a.id)).toEqual(before.attempts.map((a) => a.id));
+  expect(storedRoadmap(state).attempts.some((a) => a.dependencyRefresh)).toBe(false);
+  expect(
+    tx.execution.runs
+      .listRecent(ws, 500)
+      .filter((r) => r.role === 'implement')
+      .map((r) => r.id),
+  ).toEqual(sourceRuns);
+  expect(
+    tx.scopeReceipts.list(ws, state.workItemId).filter((r) => r.scope.kind === 'parent-acceptance'),
+  ).toHaveLength(2);
+});
+
+it('refreshes a positive review awaiting manual parent acceptance without granting acceptance', {
+  timeout: 30000,
+}, async () => {
+  const f = await supervisedMapFixture(false, 'manual');
+  const { state } = f,
+    ws = state.workspaceId,
+    tx = state.context.storage;
+  f.service.save(f.auth, ws, f.input);
+  await adoptSupervisedMap(f);
+  await roadmapControl(state, 'start');
+  const parent = () =>
+    tx.execution.cycles.list(ws).find((c) => c.executionScope?.kind === 'parent-acceptance');
+  await waitFor(() => parent()?.status === 'awaiting-merge', 'manual parent review', 15000);
+  await roadmapControl(state, 'pause');
+  const old = parent()!,
+    runtime = f.runtime.current!;
+  await state.context.services.runtimeEvidenceService.configure(
+    f.auth,
+    ws,
+    f.parentScope.definitionId,
+    {
+      bindingRevision: 1,
+      expectedGeneration: 1,
+      pins: [],
+      consumers: [{ alias: 'local', upstreams: [] }],
+      environments: runtime.environments.map((e) => ({ ...e, fixtureDigest: 'f'.repeat(64) })),
+    },
+  );
+  expect(
+    storedRoadmap(state).attempts.find((a) => a.cycleId === old.id)?.dependencyRefresh,
+  ).toBeDefined();
+  await roadmapControl(state, 'resume');
+  await waitFor(
+    () => parent()?.currentRunId !== old.currentRunId && parent()?.status === 'awaiting-merge',
+    'fresh manual parent review',
+    15000,
+  );
+  expect(parent()?.id).toBe(old.id);
+  expect(tx.runtimeEvidence.run(ws, parent()!.currentRunId)?.runtimeId).toBe(
+    tx.runtimeEvidence.generations(ws, f.parentScope.definitionId, 1)[0]?.id,
+  );
+  expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(false);
+  expect(
+    tx.scopeReceipts.list(ws, state.workItemId).filter((r) => r.scope.kind === 'parent-acceptance'),
+  ).toHaveLength(0);
 });
 
 it('coordinates full-plan finalization with frozen map and runtime context and retains exact operator promotion', {
@@ -9971,6 +10274,13 @@ it('generates saved plan facts without approval, guards HTTP authority and start
   expect(context.storage.roadmaps.find(ws, saved.id)?.status).toBe('draft');
   await context.services.roadmapService.control(f.auth, ws, saved.id, 'start', saved.version);
   expect(context.storage.roadmaps.find(ws, saved.id)?.status).toBe('running');
+  await context.services.roadmapService.control(
+    f.auth,
+    ws,
+    saved.id,
+    'pause',
+    context.storage.roadmaps.find(ws, saved.id)!.version,
+  );
   const prior = accepted.current!;
   await svc.configure(f.auth, ws, id, {
     bindingRevision: 1,

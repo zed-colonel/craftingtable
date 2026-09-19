@@ -41,3 +41,6 @@ Actions and Cargo download caches live in configured CI storage; targets remain 
 scratch and receive ordinary post-run cleanup. Logs and explicit artifacts remain outside scratch.
 Images and shared download caches are retained, not automatically globally pruned. This first adapter
 uses mounted local artifacts rather than GitHub cache/artifact servers or external qualification hosts.
+
+Evidence and native approval applicability across dependency generations are refined by
+[ADR-058](ADR-058-reviewed-dependency-refresh.md); original run/receipt provenance remains immutable.

@@ -315,7 +315,8 @@ exceptions. Plan/architecture checkpoints still require independently reviewed e
 confers no environment or final-merge authority. Cross-project roadmap creation computes scope on the
 daemon. Start rechecks adoption/bindings; changing target scope requires a reviewed amendment. Review-only
 cycles cannot transition to implementation; they use current-generation build provenance, exact review
-commits and normal workspace authorization before evidence recording. Delegated parent acceptance is
+commits and normal workspace authorization before evidence recording. ADR-058 permits reuse across
+generations only when the exact relevant inputs match, retaining original provenance. Delegated parent acceptance is
 separate from protected promotion and is bound to the attempt's saved revision. Ordinary scope review
 findings and questions pause for recovery; restart never silently resumes agents. See ADR-048.
 
@@ -400,3 +401,13 @@ systemd user services and minimal environment variables, with retained command p
 per-run cleanup; filesystem access still follows the trusted OS-user model. The separate Kata
 service uses root-owned non-user-replaceable storage and a private socket. Its smoke receipt is
 historical readiness, not an application pass or permission for agents to dispatch workloads.
+
+Dependency refresh preview/apply requires owner/editor authorization and the usual CSRF/origin
+checks. Apply re-inspects exact commits and rejects stale preview digests, changed bindings, live
+runs, active scheduling, outstanding Git operations or finalization. It cannot invent new crate
+mappings, change the captured environment, approve evidence or launch agents. An existing native
+approval remains applicable across pin generations only for the same binding, host and complete
+environment/fixture/toolchain/authorization inputs, with no intervening revocation. Source evidence
+separately compares each consumer's exact upstream inputs; unknown scopes compare conservatively.
+Old runs, manifests and receipts are never rewritten. Saved-plan acceptance always binds the new
+generation, and finalization retains its strict generation gate. See ADR-058.

@@ -78,8 +78,13 @@ it is mergeable.
   successful scoped checks; integration/conformance/release scopes retain current upstream builds. Frozen build records survive cleanup and are downloadable from the map.
   Use the subject-specific JSON template or upload an evidence package with real logs, exact case
   hashes and independent reviewer attestations. Inspect its readable artifacts and explicitly
-  accept or reject it with a rationale. New pins/environments invalidate older evidence without
-  erasing history. Native results cannot satisfy actual-Kata requirements. External host execution
+  accept or reject it with a rationale. After a provider advances, pause scheduling and use
+  **Preview dependency refresh**. Review the exact commits, retained evidence and required fresh
+  reviews, then explicitly apply. Unchanged consumer inputs preserve applicable evidence and
+  unchanged host/environment inputs preserve workstation approval. Accept new saved-plan evidence
+  before Resume; affected completed reviews are queued automatically, and an existing owning-slice
+  recovery keeps its repair round. Historical receipts retain their original generation. Native
+  results cannot satisfy actual-Kata requirements. External host execution
   is not dispatched by this version; checkpoint decisions and final promotion remain separate.
 - **Cross-project supervision.** In **Roadmaps**, open an imported map, explicitly choose a
   target, then select **Only target prerequisites** or **Full roadmap; prioritize this target**.

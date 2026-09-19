@@ -213,7 +213,53 @@ export const nativeApprovalSchema = z.strictObject({
   createdAt: z.string(),
   createdByUserId: z.string(),
 });
+export const runtimePinStatusSchema = z.strictObject({
+  alias: name,
+  ref: name,
+  savedCommitSha: name,
+  currentCommitSha: name.optional(),
+  issue: z.string().optional(),
+});
+export type RuntimePinStatus = z.infer<typeof runtimePinStatusSchema>;
+export const runtimeRefreshRequestSchema = z.strictObject({
+  bindingRevision: z.number().int().positive(),
+  expectedGeneration: z.number().int().positive(),
+});
+export const applyRuntimeRefreshSchema = runtimeRefreshRequestSchema.extend({
+  snapshotDigest: digest,
+  rationale: text,
+});
+export const runtimeRefreshPreviewSchema = runtimeRefreshRequestSchema.extend({
+  snapshotDigest: digest,
+  pins: z.array(
+    z.strictObject({ alias: name, ref: name, before: name, after: name, changed: z.boolean() }),
+  ),
+  evidence: z.array(
+    z.strictObject({
+      id: z.string(),
+      sourceId: name,
+      kind: z.string(),
+      generation: z.number().int().positive().optional(),
+      disposition: z.enum(['retained', 'reverify', 'already-stale']),
+      reasons: z.array(z.string()),
+    }),
+  ),
+  reviews: z.array(
+    z.strictObject({
+      roadmapId: z.string(),
+      attemptId: z.string(),
+      sourceId: name,
+      action: z.enum(['queue', 'existing-recovery', 'manual']),
+      reason: z.string(),
+    }),
+  ),
+  nativeApproval: z.enum(['retained', 'needs-approval']),
+  blockers: z.array(z.string()),
+});
+export type RuntimeRefreshPreview = z.infer<typeof runtimeRefreshPreviewSchema>;
+export type ApplyRuntimeRefresh = z.infer<typeof applyRuntimeRefreshSchema>;
 export const runtimeEvidenceViewSchema = z.strictObject({
+  pinStatus: z.array(runtimePinStatusSchema).optional(),
   nativeVerification: z
     .strictObject({
       approval: nativeApprovalSchema.optional(),

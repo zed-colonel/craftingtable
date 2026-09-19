@@ -36,3 +36,6 @@ pinned runtime release, Workhorse storage and a disposable guest launch/cleanup 
 The audit can display that root-owned receipt as historical readiness. It does not grant
 agent access to the privileged socket, implement managed Kata dispatch, or satisfy EXO/WI
 conformance. Their distinct guest placement/lifecycle obligations still require evidence.
+
+Evidence and native approval applicability across dependency generations are refined by
+[ADR-058](ADR-058-reviewed-dependency-refresh.md); original run/receipt provenance remains immutable.

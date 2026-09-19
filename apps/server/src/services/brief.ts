@@ -146,6 +146,9 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
     'listing every decision that needs the operator, or the single word `none` if it can',
     'be implemented as written. CraftingTable hands your final message to the implement',
     'run that follows.',
+    'Before asking the operator, consult the exact supplied plans, current predecessor receipts, repository policy and approved architecture decisions in craftingtable-scope-evidence.json. Cite answers already fixed by those sources and proceed within their authority. A recommendation awaiting approval is not an accepted decision. A full-checkpoint approval and a scoped early-clause approval have different coverage.',
+    'Distinguish future merge/verification obligations from what this design needs now. An authorized early slice need not wait for every original parent predecessor. Worktree provisioning, supplied dependency paths and existing receipts are controller context; inspect them before asking the operator to create them.',
+    'Immediately before Open questions, include one fenced craftingtable-design JSON block: {"version":1,"items":[{"kind":"resolved","question":"Question considered","answer":"Plan-backed answer","sources":["exact source file, section or accepted decision ID"]}]}. Use an empty items array if there are no questions. Classify every remaining question as operator-decision (actual approval needed), planning-conflict (contradictory or missing scheduling/plan rule), or dependency (a known mapped predecessor must finish). A dependency item includes dependency:{kind:"work_item",id:"mapped parent ID",state:"accepted"} or {kind:"slice",id:"mapped slice ID",state:"merged"|"verified"}. Do not invent predecessor rules. Architecture checkpoint approvals belong to operator-decision. Resolved items require answers and citations. Other items still include question, answer and sources (which may be empty). Keep all unresolved items in Open questions; use none only when all items are resolved.',
   ].join(' '),
 };
 
@@ -232,7 +235,9 @@ export function composeBrief(input: BriefInput): string {
     [
       '## Dependencies',
       '',
-      'Required predecessors:',
+      input.executionScope
+        ? 'Original parent predecessors (slice readiness is defined by the controller scope and evidence ledger):'
+        : 'Required predecessors:',
       formatDependencies(input.requiredDependencies),
       '',
       'Recommended predecessors:',

@@ -82,6 +82,38 @@ export function DesignRecoveryPanel({
                   void discover();
                 }}
               />
+              {cycle.executionScope && (
+                <p>
+                  <a
+                    href={`/workspaces/${encodeURIComponent(cycle.workspaceId)}/roadmaps#architecture-decisions-${cycle.executionScope.definitionId}`}
+                  >
+                    Open shared architecture decisions
+                  </a>{' '}
+                  to approve reusable ADR choices once. Return here and refresh evidence before
+                  continuing.
+                </p>
+              )}
+              {preview.classificationIssue && <p role="alert">{preview.classificationIssue}</p>}
+              {preview.classifications && (
+                <div>
+                  <h4>Question disposition</h4>
+                  {preview.classifications.items.map((item) => (
+                    <div key={`${item.kind}-${item.question}`}>
+                      <strong>
+                        {item.kind} · {item.question}
+                      </strong>
+                      <p>{item.answer}</p>
+                      {item.sources.length > 0 && (
+                        <ul>
+                          {item.sources.map((source) => (
+                            <li key={source}>{source}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               <h4>Questions from the latest design</h4>
               <pre className="run-event-body">{preview.questions}</pre>
               <details>

@@ -76,6 +76,16 @@ export const mapNodeSchema = z.strictObject({
   satisfied: z.boolean(),
   status: z.string(),
   reviewerRoles: z.array(z.string()).optional(),
+  decisionCoverage: z
+    .array(
+      z.object({
+        checkpoint: z.string(),
+        submissionId: z.string(),
+        phase: z.enum(['start', 'merge']),
+      }),
+    )
+    .optional(),
+  originalRequirements: z.array(z.string()).optional(),
   requirements: z.array(z.string()),
   blockers: z.array(z.string()),
   action: z.enum(['work-item', 'evidence', 'adopt', 'none']),

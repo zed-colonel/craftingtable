@@ -1,3 +1,4 @@
+import { designDependencySchema, designReportSchema } from './design-report.js';
 import { phaseBlockerSchema } from './execution-scope.js';
 import { executionScopeSchema } from './execution-scope.js';
 import {
@@ -98,6 +99,8 @@ export type RecoverDesignRequest = z.infer<typeof recoverDesignRequestSchema>;
 export const designRecoveryPreviewSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
   sourceRunId: agentRunIdSchema,
+  classifications: designReportSchema.optional(),
+  classificationIssue: z.string().optional(),
   questions: z.string(),
   facts: z.string(),
   snapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),
@@ -245,6 +248,14 @@ export const workCycleSchema = z
       .strictObject({ startedAt: z.iso.datetime(), blockers: z.array(phaseBlockerSchema) })
       .nullable()
       .optional(),
+    designWait: z
+      .object({
+        startedAt: z.iso.datetime(),
+        requirements: z.array(designDependencySchema).min(1).max(40),
+      })
+      .nullable()
+      .optional(),
+    designDependencyContinuations: z.number().int().min(0).max(2).optional(),
     resultContinuations: z.number().int().min(0).max(2).optional(),
     remediationRounds: z.number().int().nonnegative(),
     additionalRemediationRounds: z

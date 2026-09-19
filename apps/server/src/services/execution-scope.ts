@@ -1,3 +1,8 @@
+import {
+  architectureDecisionPacket,
+  scopeArchitectureDecisions,
+  stagedDecision,
+} from './architecture-decision-policy.js';
 import { operatorDecisions } from './operator-decisions.js';
 import { integratedSlice, amendmentHoldingScope } from './scope-lineage.js';
 import { adoptedDecisions, mapAdopted, scopeReviewerRoles } from './map-adoption-policy.js';
@@ -14,6 +19,7 @@ import {
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import {
+  prerequisiteIssues,
   acceptedEvidence,
   runtimeScopeBlockers,
   activeRuntime,
@@ -188,8 +194,22 @@ export function scopePhaseBlockers(
           state: 'verified' as const,
         })),
       ];
+  for (const decision of scopeArchitectureDecisions(tx, workspaceId, scope)) {
+    const consumer = decision.architectureDecision?.consumers.find(
+      (c) => c.sliceId === scope.sourceId,
+    );
+    if (!consumer || (phase === 'start' && consumer.phase !== 'start')) continue;
+    for (const message of prerequisiteIssues(
+      tx,
+      r.definition,
+      scope.bindingRevision,
+      decision.subject,
+    ))
+      add('evidence', `${decision.subject.sourceId} staged approval: ${message}`);
+  }
   for (const requirement of requirements) {
     if (requirement.kind === 'checkpoint') {
+      if (stagedDecision(tx, workspaceId, scope, requirement.id)) continue;
       if (
         !acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
           kind: 'checkpoint',
@@ -565,6 +585,9 @@ export function scopeBrief(r: ResolvedScope) {
       parent: r.parent.id,
       originalPredecessors: r.parent.depends_on,
       requiredSlices: r.parent.required_slices,
+      gateInterpretation:
+        'These are REQUIRED states, not evidence of success. Consult phaseReadiness and current receipts in craftingtable-scope-evidence.json. Only the controller may approve staging changes.',
+      earlyStartProposed: r.slice?.early_start_exception,
       start: r.slice?.start_requires,
       merge: r.slice?.merge_requires,
       verify: r.slice?.verify_requires,
@@ -626,10 +649,38 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
   const producers = new Set([...r.parent.required_slices, ...parentEvidenceProducers(r)]);
   const parentIds = new Set([
     r.parent.id,
+    ...r.parent.depends_on,
+    ...(r.slice
+      ? [...r.slice.start_requires, ...r.slice.merge_requires, ...r.slice.verify_requires]
+      : r.parent.acceptance_requires
+    ).flatMap((requirement) =>
+      requirement.kind === 'work_item'
+        ? [requirement.id]
+        : requirement.kind === 'slice'
+          ? r.definition.source.slices
+              .filter((s) => s.id === requirement.id)
+              .map((s) => s.work_item)
+          : [],
+    ),
     ...r.definition.source.slices.filter((s) => producers.has(s.id)).map((s) => s.work_item),
   ]);
   return {
     scope: r.scope,
+    gateInterpretation:
+      'Requirements describe required states, not observed successes. The phase blockers below are controller observations. Future merge/verification obligations do not automatically prevent design.',
+    earlyDevelopmentAuthorized: scopeAllowsEarlyDevelopment(
+      tx,
+      r.item.workspaceId,
+      r.item.id,
+      r.scope,
+    ),
+    phaseReadiness: Object.fromEntries(
+      (r.slice ? (['start', 'merge', 'verify'] as const) : (['accept'] as const)).map((phase) => [
+        phase,
+        scopePhaseBlockers(tx, r.item.workspaceId, r.item.id, r.scope, phase, { resources: false }),
+      ]),
+    ),
+    architectureDecisions: architectureDecisionPacket(tx, r.item.workspaceId, r.scope),
     originalExitGate: r.parent.source_exit_gate,
     requiredSlices: r.parent.required_slices,
     evidenceProducers: [...producers],
@@ -648,6 +699,7 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
       .submissions(r.item.workspaceId, r.definition.id)
       .filter(
         (s) =>
+          !s.architectureDecision &&
           acceptedEvidence(
             tx,
             r.item.workspaceId,
@@ -665,6 +717,10 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
           (p) =>
             p.scope.definitionId === r.definition.id &&
             p.scope.bindingRevision === r.scope.bindingRevision,
-        ) ?? [],
+        )
+        .map((receipt) => ({
+          ...receipt,
+          current: currentScopeReceipt(tx, r.item.workspaceId, receipt),
+        })) ?? [],
   };
 }

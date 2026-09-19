@@ -156,7 +156,33 @@ export const generatePlanEvidenceRequestSchema = z.strictObject({
   definitionRevision: z.number().int().positive(),
   snapshotDigest: digest,
 });
+export const architectureDecisionInputSchema = z.strictObject({
+  coverage: z.enum(['full', 'clauses']),
+  proposal: text,
+  sourceReferences: text,
+  retainedObligations: z.string().trim().max(16000),
+  consumers: z
+    .array(
+      z.strictObject({
+        sliceId: name,
+        phase: z.enum(['start', 'merge']),
+        replacesFullCheckpoint: z.boolean(),
+      }),
+    )
+    .max(30),
+});
+export const proposeArchitectureDecisionSchema = architectureDecisionInputSchema.extend({
+  checkpointId: name,
+  bindingRevision: z.number().int().positive(),
+  sourceRunId: z.uuid().optional(),
+});
+export type ProposeArchitectureDecision = z.infer<typeof proposeArchitectureDecisionSchema>;
+export const architectureDecisionSchema = architectureDecisionInputSchema.extend({
+  kind: z.literal('architecture-decision-v1'),
+  bindingDigest: digest,
+});
 export const evidenceSubmissionSchema = evidenceSubmissionRequestSchema.safeExtend({
+  architectureDecision: architectureDecisionSchema.optional(),
   generatedPlan: generatedPlanEvidenceSchema.optional(),
   reviewers: z
     .array(z.strictObject({ identity: name, roles: z.array(name).min(1).max(20), artifact: name }))
@@ -259,6 +285,27 @@ export const runtimeRefreshPreviewSchema = runtimeRefreshRequestSchema.extend({
 export type RuntimeRefreshPreview = z.infer<typeof runtimeRefreshPreviewSchema>;
 export type ApplyRuntimeRefresh = z.infer<typeof applyRuntimeRefreshSchema>;
 export const runtimeEvidenceViewSchema = z.strictObject({
+  architectureDecisions: z
+    .object({
+      checkpoints: z.array(
+        z.object({
+          id: name,
+          title: z.string(),
+          requirements: z.array(z.string()),
+          sourceReferences: z.string(),
+        }),
+      ),
+      slices: z.array(z.object({ id: name, title: z.string(), checkpoints: z.array(name) })),
+      designRuns: z.array(
+        z.object({
+          id: z.string(),
+          checkpointIds: z.array(name),
+          title: z.string(),
+          report: z.string(),
+        }),
+      ),
+    })
+    .optional(),
   pinStatus: z.array(runtimePinStatusSchema).optional(),
   nativeVerification: z
     .strictObject({

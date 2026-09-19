@@ -71,6 +71,8 @@ export interface GeneratedPlanEvidence {
   readonly snapshotDigest: string;
 }
 export interface EvidenceSubmission {
+  /** A proposal is not authority until separately accepted by the authenticated operator. */
+  readonly architectureDecision?: ArchitectureDecision;
   /** Daemon-collected setup facts; the separate operator decision supplies plan review. */
   readonly generatedPlan?: GeneratedPlanEvidence;
   readonly id: string;
@@ -123,12 +125,28 @@ export interface EvidenceDecision {
   readonly decidedByUserId: UserId;
 }
 export interface RunEnvironment {
+  readonly architectureDecisionDigest?: string;
   readonly nativeApprovalId?: string;
   readonly runId: string;
   readonly workspaceId: WorkspaceId;
   readonly runtimeId: string;
   readonly manifestPath: string;
   readonly manifestDigest: string;
+}
+
+export interface ArchitectureDecision {
+  readonly kind: 'architecture-decision-v1';
+  readonly bindingDigest: string;
+  readonly coverage: 'full' | 'clauses';
+  readonly proposal: string;
+  readonly sourceReferences: string;
+  readonly retainedObligations: string;
+  /** Clause staging changes only these named slices; the full checkpoint remains open. */
+  readonly consumers: readonly {
+    readonly sliceId: string;
+    readonly phase: 'start' | 'merge';
+    readonly replacesFullCheckpoint: boolean;
+  }[];
 }
 
 export interface RunBuildRecord {

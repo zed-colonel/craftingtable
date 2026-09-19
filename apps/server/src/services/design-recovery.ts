@@ -1,3 +1,5 @@
+import { parseDesignReport } from '@craftingtable/contracts';
+import { architectureDecisionPacket } from './architecture-decision-policy.js';
 import { buildVerificationPolicy } from './build-verification-policy.js';
 import { createHash } from 'node:crypto';
 import type { AgentRunId, DesignRecoverySource, WorkCycle } from '@craftingtable/domain';
@@ -183,6 +185,7 @@ export function collectDesignRecovery(
           ? buildVerificationPolicy(tx.imports.definition(ws, scope.definitionId)!, scope)
           : undefined,
       scope,
+      architectureDecisions: scope ? architectureDecisionPacket(tx, ws, scope) : [],
       mapDigest: scope ? tx.imports.definition(ws, scope.definitionId)?.digest : undefined,
       binding,
       runtime: runtime
@@ -201,7 +204,13 @@ export function collectDesignRecovery(
   );
   if (facts.length > 128000)
     throw new ExecutionRequestError('conflict', 'Recovery context exceeds its bounded size.');
+  const classification = parseDesignReport(report);
   return {
+    ...(classification.status === 'complete'
+      ? { classifications: classification.report }
+      : classification.status === 'invalid'
+        ? { classificationIssue: classification.reason }
+        : {}),
     expectedVersion: cycle.version,
     sourceRunId,
     questions,

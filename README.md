@@ -509,6 +509,26 @@ approve checkpoints, invent measurements, create/publish tags, change branch pro
 merge. Repository administration and genuinely missing historical evidence remain explicit
 requirements. Manual handoffs and their subsequent adoption through Resume remain available.
 
+Shared ADR approvals live in **Roadmaps → Dependency environments and evidence → Shared
+architecture decisions**. Prepare a proposal with exact decision text and source references;
+optionally attach a completed design. Saving never approves it. Pause scheduling, finish live
+runs, open **Review decision packet**, review the artifacts and record your authenticated
+repository-maintainer approval. Relevant subsequent runs receive the approved choice.
+
+For an ADR with early definition clauses, choose **Early clauses for named slices**, state the
+remaining obligations, and name each consumer and its start/merge gate. The preview explicitly
+identifies full-checkpoint substitutions and new prerequisites. A later full-checkpoint consumer
+must remain. Approval requires fresh saved-plan acceptance before execution. Return to design
+recovery, refresh evidence, and choose **Continue design with evidence**. Architectural choices
+and clause staging always require your decision; no agent recommendation grants authority.
+
+New designs classify cited plan answers, mapped predecessor waits, operator decisions and
+planning conflicts. Exact mapped waits survive restart and may trigger at most two automatic
+design rechecks after prerequisites clear; they retain their worktree and roadmap reservation.
+Pausing the roadmap prevents these rechecks. An unrecognized dependency is a planning question,
+and an explicit bounded investigation still stops for review. Approved choices invalidate only
+relevant review provenance when changed; existing unrelated predecessor receipts remain usable.
+
 ## Managed native verification
 
 In **Roadmaps → Dependency environments and evidence → Verification environments**, use

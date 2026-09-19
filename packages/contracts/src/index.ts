@@ -22,3 +22,5 @@ export * from './execution-scope.js';
 export * from './runtime-evidence.js';
 
 export * from './repository-policy.js';
+
+export * from './design-report.js';

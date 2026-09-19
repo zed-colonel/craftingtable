@@ -1,3 +1,10 @@
+import { worktreePlan } from './repository-policy.js';
+import {
+  architectureDecisionIssues,
+  architectureDecisionDigest,
+  decisionBindingDigest,
+  supportsArchitectureDecision,
+} from './architecture-decision-policy.js';
 import {
   nativeApproval,
   needsNativeVerification,
@@ -28,6 +35,8 @@ import {
   type PinnedCargoManifest,
 } from '@craftingtable/agents';
 import {
+  proposeArchitectureDecisionSchema,
+  type ProposeArchitectureDecision,
   configureRuntimeSchema,
   evidenceSubmissionRequestSchema,
   type ConfigureRuntime,
@@ -778,6 +787,7 @@ export class RuntimeEvidenceService {
     s: EvidenceSubmission,
     knownFreshness?: readonly RuntimePinStatus[],
   ) {
+    if (s.architectureDecision) return architectureDecisionIssues(this.storage, d, s);
     const aliases = relevantPinAliases(runtime, evidenceInputs(d, s.subject));
     const issues = (knownFreshness ?? (await this.pinStatus(d.workspaceId, runtime, aliases)))
       .filter((p) => aliases.includes(p.alias))
@@ -935,6 +945,8 @@ export class RuntimeEvidenceService {
         );
       if (input.outcome === 'accepted' && this.current(ws, id)?.id !== runtime?.id)
         conflict('Runtime changed during review.');
+      if (input.outcome === 'accepted' && s.architectureDecision)
+        this.assertDecisionCanChange(tx, ws, id, s);
       if (input.outcome === 'accepted' && s.generatedPlan) {
         const issues = generatedPlanIssues(tx, d, this.current(ws, id), s);
         if (issues.length) conflict(issues.join(' '));
@@ -958,6 +970,151 @@ export class RuntimeEvidenceService {
     });
     this.notifier.notify();
     return this.view(context, ws, id);
+  }
+  async proposeArchitectureDecision(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    raw: ProposeArchitectureDecision,
+  ) {
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    const input = proposeArchitectureDecisionSchema.parse(raw);
+    this.storage.transaction((tx) => {
+      const d = this.definition(ws, id),
+        runtime = this.current(ws, id);
+      if (!runtime || runtime.bindingRevision !== input.bindingRevision)
+        conflict('Refresh the exact plan binding first.');
+      if (!supportsArchitectureDecision(d, input.checkpointId))
+        conflict(
+          'This checkpoint requires independent evidence outside the supported decision-owner workflow.',
+        );
+      const subject = { kind: 'checkpoint' as const, sourceId: input.checkpointId };
+      const spec = subjectRequirements(d, subject);
+      const artifacts: EvidenceSubmission['artifacts'][number][] = [];
+      let sourceRunDigest: string | undefined;
+      if (input.sourceRunId) {
+        const run = tx.execution.runs.find(ws, asAgentRunId(input.sourceRunId));
+        const tree = run && tx.execution.worktrees.find(ws, run.worktreeId);
+        const binding = this.binding(ws, id, input.bindingRevision).bindings.find(
+          (b) => b.alias === spec.checkpoint?.owner,
+        );
+        if (
+          !run ||
+          run.status !== 'finished' ||
+          run.role !== 'design' ||
+          !tree ||
+          tree.executionScope?.definitionId !== id ||
+          tree.executionScope.bindingRevision !== input.bindingRevision ||
+          worktreePlan(tx, tree) !== binding?.planVersionId ||
+          tree.repositoryId !== binding?.repositoryId
+        )
+          conflict('Choose a finished design from this exact bound repository plan.');
+        const event = tx.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
+        if (
+          event?.kind !== 'turn-completed' ||
+          event.payload.truncated ||
+          !event.payload.resultText
+        )
+          conflict('The selected design lacks a complete final report.');
+        const content = event.payload.resultText;
+        if (Buffer.byteLength(content) > 512 * 1024)
+          conflict('The source report exceeds the evidence limit.');
+        sourceRunDigest = hash(content);
+        artifacts.push({
+          name: 'source-design-proposal-not-approval',
+          content,
+          digest: sourceRunDigest,
+        });
+      }
+      const {
+        checkpointId: _checkpointId,
+        bindingRevision: _revision,
+        sourceRunId: _sourceRunId,
+        ...proposal
+      } = input;
+      const architectureDecision: NonNullable<EvidenceSubmission['architectureDecision']> = {
+        ...proposal,
+        kind: 'architecture-decision-v1',
+        bindingDigest: decisionBindingDigest(tx, d, input.bindingRevision),
+      };
+      const content = JSON.stringify(
+        {
+          checkpoint: spec.checkpoint,
+          sourceFiles: d.source.source_files,
+          boundDecision: architectureDecision,
+          authority:
+            'Proposal only. Separate authenticated repository-maintainer approval is required. Clause approval never passes the full checkpoint or supplies test evidence.',
+        },
+        null,
+        2,
+      );
+      artifacts.unshift({ name: 'decision-review-packet', content, digest: hash(content) });
+      const at = this.now().toISOString();
+      const submission: EvidenceSubmission = {
+        id: randomUUID(),
+        workspaceId: ws,
+        definitionId: id,
+        bindingRevision: input.bindingRevision,
+        runtimeId: runtime.id,
+        environmentId: runtime.environments[0]!.id,
+        subject,
+        architectureDecision,
+        executedBy: 'CraftingTable decision packet collector',
+        executedAt: at,
+        requirements: spec.requirements.map((requirement) => ({
+          requirement,
+          artifact: 'decision-review-packet',
+        })),
+        reviewers: [],
+        cases: [],
+        artifacts,
+        createdAt: at,
+        createdByUserId: context.user.id,
+        ...(input.sourceRunId ? { sourceRunId: input.sourceRunId, sourceRunDigest } : {}),
+      };
+      const issues = architectureDecisionIssues(tx, d, submission);
+      if (issues.length) conflict(issues.join('\n'));
+      tx.runtimeEvidence.addSubmission(submission);
+      this.changed(
+        tx,
+        context,
+        ws,
+        id,
+        'evidence.submitted',
+        `${input.checkpointId} ${input.coverage} proposal saved for operator review.`,
+        at,
+      );
+    });
+    this.notifier.notify();
+    return this.view(context, ws, id);
+  }
+  private assertDecisionCanChange(
+    tx: StorageRepositories,
+    ws: WorkspaceId,
+    id: string,
+    s: EvidenceSubmission,
+  ) {
+    const issues = architectureDecisionIssues(tx, this.definition(ws, id), s);
+    if (issues.length) conflict(issues.join('\n'));
+    // Approval changes run inputs and, for staging, scheduling. Require a stable operator checkpoint.
+    if (
+      tx.roadmaps
+        .list(ws)
+        .some((r) => r.definition.crossProject?.definitionId === id && r.status === 'running')
+    )
+      conflict(
+        'Pause roadmap scheduling before approving an architecture decision. Existing work and history are retained.',
+      );
+    if (
+      tx.execution.runs
+        .listLive()
+        .some(
+          (r) =>
+            r.workspaceId === ws &&
+            tx.execution.worktrees.find(ws, r.worktreeId)?.executionScope?.definitionId === id,
+        )
+    )
+      conflict('Wait for live runs on this map to finish before changing architecture decisions.');
   }
   async generatePlanEvidence(
     context: AuthContext,
@@ -1200,7 +1357,72 @@ export class RuntimeEvidenceService {
         ...prerequisiteIssues(snapshot, d, s.bindingRevision, s.subject),
       ],
     }));
+    const architectureCheckpoints = d.source.checkpoints.filter((c) =>
+      supportsArchitectureDecision(d, c.id),
+    );
+    const designRuns = snapshot.execution.runs
+      .listRecent(ws, 200)
+      .filter((run) => {
+        if (run.role !== 'design' || run.status !== 'finished') return false;
+        const tree = snapshot.execution.worktrees.find(ws, run.worktreeId);
+        return (
+          tree?.executionScope?.definitionId === id &&
+          tree.executionScope.bindingRevision === binding?.revision
+        );
+      })
+      .slice(0, 20)
+      .flatMap((run) => {
+        const event = snapshot.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
+        const report =
+          event?.kind === 'turn-completed' && !event.payload.truncated
+            ? event.payload.resultText
+            : undefined;
+        if (!report || report.length > 65536) return [];
+        const tree = snapshot.execution.worktrees.find(ws, run.worktreeId);
+        const slice = d.source.slices.find((s) => s.id === tree?.executionScope?.sourceId);
+        const required = new Set(
+          slice
+            ? [...slice.start_requires, ...slice.merge_requires, ...slice.verify_requires]
+                .filter((r) => r.kind === 'checkpoint')
+                .map((r) => r.id)
+            : [],
+        );
+        const plan = tree && worktreePlan(snapshot, tree);
+        const owner = binding?.bindings.find(
+          (b) => b.planVersionId === plan && b.repositoryId === tree?.repositoryId,
+        )?.alias;
+        return [
+          {
+            id: run.id,
+            title: `${tree?.executionScope?.sourceId ?? 'Design'} · ${run.finishedAt ?? run.createdAt}`,
+            checkpointIds: architectureCheckpoints
+              .filter((c) => c.owner === owner && (report.includes(c.id) || required.has(c.id)))
+              .map((c) => c.id),
+            report,
+          },
+        ];
+      });
     return {
+      architectureDecisions: {
+        checkpoints: architectureCheckpoints.map((c) => ({
+          id: c.id,
+          title: c.title,
+          requirements: subjectRequirements(d, { kind: 'checkpoint', sourceId: c.id }).requirements,
+          sourceReferences: JSON.stringify(c, null, 2),
+        })),
+        slices: d.source.slices.map((s) => ({
+          id: s.id,
+          title: s.title,
+          checkpoints: [
+            ...new Set(
+              [...s.start_requires, ...s.merge_requires, ...s.verify_requires]
+                .filter((r) => r.kind === 'checkpoint')
+                .map((r) => r.id),
+            ),
+          ],
+        })),
+        designRuns,
+      },
       nativeVerification: {
         approval: binding
           ? snapshot.runtimeEvidence.nativeApprovals(ws, id, binding.revision)[0]
@@ -1489,12 +1711,16 @@ export class RuntimeEvidenceService {
       localCi: manifest.localCi,
       nativeVerification,
       nativeApprovalId: authority?.id,
+      architectureDecisionDigest:
+        'finalization' in scope
+          ? undefined
+          : architectureDecisionDigest(this.storage, tree.workspaceId, scope),
       runtimeId: runtime.id,
       definitionId: scope.definitionId,
       bindingRevision: scope.bindingRevision,
     };
   }
-  assertPrepared(tree: Worktree, runtimeId: string) {
+  assertPrepared(tree: Worktree, runtimeId: string, decisionDigest?: string) {
     const scope = this.treeContext(tree);
     if (
       !scope ||
@@ -1502,6 +1728,13 @@ export class RuntimeEvidenceService {
         ?.id !== runtimeId
     )
       conflict('Dependency generation changed during run preparation.');
+    if (
+      !('finalization' in scope) &&
+      decisionDigest !== architectureDecisionDigest(this.storage, tree.workspaceId, scope)
+    )
+      conflict(
+        'Architecture decisions changed during run preparation. Retry with current evidence.',
+      );
   }
   assertRun(tree: Worktree, runId: string) {
     const scope = this.treeContext(tree);
@@ -1514,6 +1747,14 @@ export class RuntimeEvidenceService {
     );
     if (!runtime) return;
     const env = this.storage.runtimeEvidence.run(tree.workspaceId, runId);
+    if (
+      !('finalization' in scope) &&
+      env?.architectureDecisionDigest !==
+        architectureDecisionDigest(this.storage, tree.workspaceId, scope)
+    )
+      conflict(
+        'Approved architecture decisions changed. Run a fresh review using the current decision packet.',
+      );
     const alias = this.binding(
       tree.workspaceId,
       scope.definitionId,

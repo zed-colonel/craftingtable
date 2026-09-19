@@ -1,6 +1,7 @@
+import { ArchitectureDecisionPanel } from './ArchitectureDecisionPanel.js';
 import { NativeVerificationPanel } from './NativeVerificationPanel.js';
 import { DependencyRefreshPanel } from './DependencyRefreshPanel.js';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActionBar } from '../../components/ActionBar.js';
 import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
@@ -48,6 +49,14 @@ export function RuntimeEvidencePanel({
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
   const [savedConfig, setSavedConfig] = useState('');
+  const revealedDecisionLink = useRef(false);
+  useEffect(() => {
+    const id = `architecture-decisions-${definitionId}`;
+    if (view && !revealedDecisionLink.current && window.location.hash === `#${id}`) {
+      revealedDecisionLink.current = true;
+      revealElement(id);
+    }
+  }, [view, definitionId]);
   const [refs, setRefs] = useState<Record<string, string>>({}),
     [subject, setSubject] = useState(''),
     [evidence, setEvidence] = useState(''),
@@ -278,6 +287,28 @@ export function RuntimeEvidencePanel({
             ))}
         </section>
       )}
+      <div id={`architecture-decisions-${definitionId}`}>
+        <ArchitectureDecisionPanel
+          view={view}
+          busy={busy}
+          disabled={!canMutate || unsavedSetup}
+          onReview={(id) => revealElement(`${panelId}-submission-${id}`)}
+          onSave={(input) =>
+            void act(async () => {
+              const next = await post('propose-decision', input);
+              adopt(next);
+              setNotice('Proposal saved. Review the packet and record your decision below.');
+              const saved = next.submissions.find(
+                (s) =>
+                  s.submission.architectureDecision &&
+                  s.submission.subject.sourceId === input.checkpointId &&
+                  !s.decision,
+              );
+              if (saved) revealElement(`${panelId}-submission-${saved.submission.id}`);
+            })
+          }
+        />
+      </div>
       <details id={`${panelId}-setup`}>
         <summary>Configure pinned dependencies and environments</summary>
         <fieldset disabled={busy || !canMutate || !bindingRevision}>
@@ -804,10 +835,19 @@ export function RuntimeEvidencePanel({
             {issues.length ? ' · blocked or stale' : ''}
           </summary>
           <p>
-            Environment {s.environmentId} · tested {s.executedAt} · executor {s.executedBy}
+            {s.architectureDecision
+              ? 'Prepared decision packet'
+              : `Environment ${s.environmentId} · tested`}{' '}
+            {s.executedAt} · {s.executedBy}
           </p>
           <p>
-            {s.generatedPlan ? (
+            {s.architectureDecision ? (
+              decision ? (
+                `Architecture decision recorded by ${decision.decidedByUserId} as repository-maintainer.`
+              ) : (
+                'Your authenticated acceptance records decision-owner review. The source design remains a proposal until you approve.'
+              )
+            ) : s.generatedPlan ? (
               decision ? (
                 `Plan review recorded by ${decision.decidedByUserId} as stack-integration-owner.`
               ) : (
@@ -820,12 +860,51 @@ export function RuntimeEvidencePanel({
               </>
             )}
           </p>
-          <p>
-            Code:{' '}
-            <code className="import-digest">
-              {s.subjectCommit ?? 'upstream pins in recorded generation'}
-            </code>
-          </p>
+          {s.architectureDecision && (
+            <section aria-label="Decision text for review">
+              <h4>
+                {s.architectureDecision.coverage === 'clauses'
+                  ? 'Early clauses to approve'
+                  : 'Decision to approve'}
+              </h4>
+              <p style={{ whiteSpace: 'pre-wrap' }}>{s.architectureDecision.proposal}</p>
+              <h4>Source references</h4>
+              <p style={{ whiteSpace: 'pre-wrap' }}>{s.architectureDecision.sourceReferences}</p>
+              {s.architectureDecision.consumers.length > 0 && (
+                <ul>
+                  {s.architectureDecision.consumers.map((c) => (
+                    <li key={c.sliceId}>
+                      {c.sliceId}: required before {c.phase};{' '}
+                      {c.replacesFullCheckpoint
+                        ? 'replaces this slice’s full-checkpoint gate'
+                        : 'adds a definition prerequisite'}
+                      .
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {s.architectureDecision.retainedObligations && (
+                <>
+                  <h4>Full obligations retained</h4>
+                  <p style={{ whiteSpace: 'pre-wrap' }}>
+                    {s.architectureDecision.retainedObligations}
+                  </p>
+                </>
+              )}
+              <p>
+                This packet records a proposed decision, not test execution or a passing
+                verification result.
+              </p>
+            </section>
+          )}
+          {!s.architectureDecision && (
+            <p>
+              Code:{' '}
+              <code className="import-digest">
+                {s.subjectCommit ?? 'upstream pins in recorded generation'}
+              </code>
+            </p>
+          )}
           {s.testedCode?.map((c) => (
             <p key={c.alias}>
               Tested {c.alias}: <code className="import-digest">{c.commitSha}</code>
@@ -851,7 +930,7 @@ export function RuntimeEvidencePanel({
             </p>
           ) : (
             <fieldset disabled={busy || !canMutate}>
-              {s.generatedPlan && (
+              {(s.generatedPlan || s.architectureDecision) && (
                 <label className="field">
                   <span>
                     <input
@@ -861,8 +940,9 @@ export function RuntimeEvidencePanel({
                         setPlanReviewed({ ...planReviewed, [s.id]: e.target.checked })
                       }
                     />{' '}
-                    I reviewed the saved plan, bindings, decisions, reviewer assignments and
-                    resources as stack-integration-owner.
+                    {s.architectureDecision
+                      ? 'I reviewed the exact proposal, source references, scope and retained obligations as repository-maintainer. I authorize these decisions and any stated clause staging.'
+                      : 'I reviewed the saved plan, bindings, decisions, reviewer assignments and resources as stack-integration-owner.'}
                   </span>
                 </label>
               )}
@@ -882,7 +962,8 @@ export function RuntimeEvidencePanel({
                     !rationale[s.id]?.trim() ||
                     (outcome === 'accepted' &&
                       (issues.length > 0 ||
-                        (!!s.generatedPlan && (!planReviewed[s.id] || unsavedSetup))))
+                        (!!(s.generatedPlan || s.architectureDecision) &&
+                          (!planReviewed[s.id] || unsavedSetup))))
                   }
                   onClick={() =>
                     void act(async () => {
@@ -894,9 +975,13 @@ export function RuntimeEvidencePanel({
                         }),
                       );
                       setNotice(
-                        s.generatedPlan && outcome === 'accepted'
-                          ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'
-                          : `Evidence ${outcome}.`,
+                        s.architectureDecision && outcome === 'accepted'
+                          ? s.architectureDecision.coverage === 'clauses'
+                            ? 'Early clauses approved. Generate and review updated saved-plan evidence, then continue affected designs with the new decision packet.'
+                            : 'Decision approved. Continue affected designs with the updated decision packet.'
+                          : s.generatedPlan && outcome === 'accepted'
+                            ? 'Plan evidence accepted. Start or Resume the roadmap when ready.'
+                            : `Evidence ${outcome}.`,
                       );
                       window.dispatchEvent(
                         new CustomEvent('craftingtable:runtime-saved', { detail: definitionId }),

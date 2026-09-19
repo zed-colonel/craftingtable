@@ -1,4 +1,5 @@
 import {
+  proposeArchitectureDecisionSchema,
   nativeAuditSchema,
   nativeApprovalRequestSchema,
   configureRuntimeSchema,
@@ -59,6 +60,7 @@ export function registerRuntimeEvidenceRoutes(
     'refresh',
     'inspect',
     'discover',
+    'propose-decision',
     'generate-plan',
     'submit',
     'decide',
@@ -71,6 +73,21 @@ export function registerRuntimeEvidenceRoutes(
           ws = workspaceIdSchema.safeParse(request.params.workspaceId);
         if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
         const id = request.params.id;
+        if (action === 'propose-decision') {
+          const body = proposeArchitectureDecisionSchema.safeParse(request.body);
+          if (!body.success)
+            return sendApiError(
+              reply,
+              400,
+              'invalid-request',
+              'Provide a complete architecture decision proposal.',
+            );
+          return noStore(reply).send(
+            runtimeEvidenceViewSchema.parse(
+              await service.proposeArchitectureDecision(context, ws.data, id, body.data),
+            ),
+          );
+        }
         if (action === 'preview-refresh') {
           const b = runtimeRefreshRequestSchema.safeParse(request.body);
           if (!b.success)

@@ -1,3 +1,4 @@
+import { scopeArchitectureDecisions } from './architecture-decision-policy.js';
 import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
 import { bindingIssues } from './map-binding-policy.js';
 export { bindingIssues } from './map-binding-policy.js';
@@ -111,7 +112,29 @@ export function crossProjectState(
     const id = binding?.bindings
       .flatMap((b) => b.workItems)
       .find((w) => w.sourceId === (n.parentId ?? r.id))?.workItemId;
-    let blockers = n.requires.filter((k) => !states.get(k));
+    const decisionCoverage =
+      r.kind === 'slice'
+        ? scopeArchitectureDecisions(tx, ws, {
+            kind: 'slice',
+            definitionId: d.id,
+            bindingRevision: revision,
+            sourceId: r.id,
+          }).flatMap((s) => {
+            const consumer =
+              s.architectureDecision?.coverage === 'clauses' &&
+              s.architectureDecision.consumers.find((c) => c.sliceId === r.id);
+            return consumer && (r.state !== 'started' || consumer.phase === 'start')
+              ? [{ checkpoint: s.subject.sourceId, submissionId: s.id, phase: consumer.phase }]
+              : [];
+          })
+        : [];
+    const requirements = n.requires.filter(
+      (key) =>
+        !decisionCoverage.some(
+          (c) => key === milestoneKey({ kind: 'checkpoint', id: c.checkpoint, state: 'passed' }),
+        ),
+    );
+    let blockers = requirements.filter((k) => !states.get(k));
     if (id && !satisfied) {
       try {
         const phase =
@@ -206,7 +229,10 @@ export function crossProjectState(
                 : undefined),
         )?.reviewer_roles ?? []),
       ],
-      requirements: [...n.requires],
+      ...(decisionCoverage.length
+        ? { decisionCoverage, originalRequirements: [...n.requires] }
+        : {}),
+      requirements,
       blockers,
       action: satisfied
         ? 'none'

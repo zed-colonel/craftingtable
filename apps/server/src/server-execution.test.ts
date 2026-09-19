@@ -11799,3 +11799,255 @@ it('reports the shared workstation limits and admits four scoped runs when confi
   expect(response.statusCode, response.body).toBe(200);
   expect(response.json().roadmaps[0].hostCapacity).toEqual(view.hostCapacity);
 });
+
+it('records explicit architecture approval, stages named consumers without passing the full ADR, and binds future reviews', async () => {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    decisions: [],
+    planning_targets: [
+      { id: 'LOCAL', checkpoint: 'LOCAL-ADR-01', scope: 'Local proof', is_release: false },
+    ],
+    terminal_checkpoint: 'LOCAL-ADR-01',
+    repositories: [{ ...source.repositories[0]!, id: 'local' }],
+    checkpoints: [
+      {
+        ...source.checkpoints[0]!,
+        id: 'LOCAL-ADR-01',
+        decision_refs: [],
+        owner: 'local',
+        kind: 'architecture_decision',
+        requires: [],
+        pass_criteria: ['Approve the complete transport contract.'],
+        evidence_profile: 'decision-review',
+      },
+    ],
+    evidence_profiles: [
+      ...source.evidence_profiles,
+      {
+        id: 'decision-review',
+        required_evidence: [
+          'accepted decision artifact digest and revision',
+          'source contract and affected schema or protocol references',
+          'decision owner approval and applicability to the active plan generation',
+        ],
+        reviewer_roles: ['repository-maintainer'],
+        independence_required: true,
+      },
+    ],
+    slices: source.slices.map((slice) => ({
+      ...slice,
+      merge_requires: [{ kind: 'checkpoint', id: 'LOCAL-ADR-01', state: 'passed' }],
+    })),
+  }));
+  const { context, workspaceId: ws } = f.state,
+    tx = context.storage,
+    id = f.parentScope.definitionId;
+  const svc = context.services.runtimeEvidenceService;
+  context.services.crossProjectService.adopt(f.auth, ws, id, {
+    bindingRevision: 1,
+    decisionIds: [],
+    rationale: 'Adopt the exact fixture map.',
+  });
+  await svc.configure(f.auth, ws, id, {
+    bindingRevision: 1,
+    expectedGeneration: 0,
+    pins: [],
+    consumers: [{ alias: 'local', upstreams: [] }],
+    environments: [
+      {
+        id: 'local',
+        kind: 'local-development',
+        identityDigest: '1'.repeat(64),
+        fixtureDigest: '2'.repeat(64),
+        toolchainDigest: '3'.repeat(64),
+        authorization: 'Local fixtures',
+      },
+    ],
+  });
+  const designTree = await scopeTree(f, f.scopes[0]!);
+  f.backend.replyForRequest = () => ({
+    resultText: 'ADR-01 recommends identifiers first.\n## Open questions\nApprove the decision?',
+  });
+  const sourceRunId = await runToFinish(f.state, designTree.id, { role: 'design' });
+  const discovered = await svc.view(f.auth, ws, id);
+  expect(
+    discovered.architectureDecisions.designRuns.find((r) => r.id === sourceRunId)?.checkpointIds,
+  ).toContain('LOCAL-ADR-01');
+  const base = `/api/workspaces/${ws}/concurrency-definitions/${id}/runtime`;
+  const input = {
+    sourceRunId,
+    checkpointId: 'LOCAL-ADR-01',
+    bindingRevision: 1,
+    coverage: 'clauses' as const,
+    proposal: 'Approve identifiers for the domain slice only.',
+    sourceReferences: 'source-plan.md §4 early definitions',
+    retainedObligations:
+      'The later slice still requires transport, credential and live-provider decisions.',
+    consumers: [{ sliceId: 'AQ-01.A', phase: 'merge' as const, replacesFullCheckpoint: true }],
+  };
+  const forbidden = await context.app.inject({
+    method: 'POST',
+    url: `${base}/propose-decision`,
+    headers: { cookie: f.state.cookie },
+    payload: input,
+  });
+  expect(forbidden.statusCode).toBe(403);
+  const response = await context.app.inject({
+    method: 'POST',
+    url: `${base}/propose-decision`,
+    headers: mutationHeaders(f.state),
+    payload: input,
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const submission = response.json().submissions[0].submission;
+  expect(tx.runtimeEvidence.decisions(ws)).toHaveLength(0);
+  expect(
+    submission.artifacts.some(
+      (a: { name: string }) => a.name === 'source-design-proposal-not-approval',
+    ),
+  ).toBe(true);
+  expect(acceptedEvidence(tx, ws, id, 1, submission.subject)).toBeUndefined();
+  const { stagedDecision, architectureDecisionDigest } = await import(
+    './services/architecture-decision-policy.js'
+  );
+  expect(stagedDecision(tx, ws, f.scopes[0]!, 'LOCAL-ADR-01')).toBeUndefined();
+  const before = architectureDecisionDigest(tx, ws, f.scopes[0]!);
+  await svc.decide(f.auth, ws, id, {
+    submissionId: submission.id,
+    outcome: 'accepted',
+    rationale: 'I approve these exact early clauses as repository maintainer.',
+  });
+  expect(stagedDecision(tx, ws, f.scopes[0]!, 'LOCAL-ADR-01')?.id).toBe(submission.id);
+  expect(stagedDecision(tx, ws, f.scopes[1]!, 'LOCAL-ADR-01')).toBeUndefined();
+  expect(stagedDecision(tx, ws, f.parentScope, 'LOCAL-ADR-01')).toBeUndefined();
+  expect(acceptedEvidence(tx, ws, id, 1, submission.subject)).toBeUndefined();
+  expect(architectureDecisionDigest(tx, ws, f.scopes[0]!)).not.toBe(before);
+  const { crossProjectState } = await import('./services/cross-project-service.js');
+  const projected = crossProjectState(tx, ws, {
+    definitionId: id,
+    bindingRevision: 1,
+    targetId: 'LOCAL',
+    selection: 'prioritize-full',
+  });
+  const early = projected.nodes.find((n) => n.sourceId === 'AQ-01.A' && n.state === 'merged')!;
+  expect(early.decisionCoverage?.[0]?.checkpoint).toBe('LOCAL-ADR-01');
+  expect(early.requirements).not.toContain('checkpoint:LOCAL-ADR-01:passed');
+  expect(early.originalRequirements).toContain('checkpoint:LOCAL-ADR-01:passed');
+  expect(
+    projected.nodes
+      .find((n) => n.sourceId === 'AQ-01.B' && n.state === 'merged')
+      ?.blockers.join(' '),
+  ).toContain('LOCAL-ADR-01');
+
+  await expect(
+    svc.proposeArchitectureDecision(f.auth, ws, id, {
+      ...input,
+      consumers: [...input.consumers, { ...input.consumers[0]!, sliceId: 'AQ-01.B' }],
+    }),
+  ).rejects.toThrow('Retain at least one later slice');
+  const fullView = await svc.proposeArchitectureDecision(f.auth, ws, id, {
+    ...input,
+    coverage: 'full',
+    consumers: [],
+    retainedObligations: '',
+    proposal:
+      'Approve the full contract, including transport, credentials and provider representation.',
+  });
+  const full = fullView.submissions.find(
+    (s) => s.submission.architectureDecision?.coverage === 'full',
+  )!.submission;
+  expect(acceptedEvidence(tx, ws, id, 1, full.subject)).toBeUndefined();
+  await svc.decide(f.auth, ws, id, {
+    submissionId: full.id,
+    outcome: 'accepted',
+    rationale: 'Reviewed and approved the full contract.',
+  });
+  expect(acceptedEvidence(tx, ws, id, 1, full.subject)?.id).toBe(full.id);
+  await expect(
+    svc.decide(f.auth, ws, id, {
+      submissionId: full.id,
+      outcome: 'accepted',
+      rationale: 'Duplicate',
+    }),
+  ).rejects.toThrow('immutable decision');
+  const binding = tx.imports.bindings(ws, id)[0]!;
+  tx.imports.addBindings({ ...binding, revision: 2 });
+  expect(acceptedEvidence(tx, ws, id, 2, full.subject)).toBeUndefined();
+});
+
+it('does not implement a classified operator decision hidden behind Open questions none', async () => {
+  const text =
+    '```craftingtable-design\n' +
+    JSON.stringify({
+      version: 1,
+      items: [
+        {
+          kind: 'operator-decision',
+          question: 'Approve storage split?',
+          answer: 'Recommend separate stores.',
+          sources: ['plan §4'],
+        },
+      ],
+    }) +
+    '\n```\n## Open questions\nnone';
+  const { state, backend, worktree } = await cycleFixture([{ resultText: text }]);
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(
+    () => currentCycle(state, cycle).status === 'needs-attention',
+    'classified decision',
+  );
+  expect(currentCycle(state, cycle).reason).toContain('operator decision');
+  expect(backend.launches).toHaveLength(1);
+});
+
+it('waits for an exact mapped slice merge, survives recovery, then bounds automatic design rechecks', async () => {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    checkpoints: [],
+    slices: source.slices.map((slice, index) => ({
+      ...slice,
+      merge_requires: index === 1 ? [{ kind: 'slice', id: 'AQ-01.A', state: 'merged' }] : [],
+    })),
+  }));
+  const a = await scopeTree(f, f.scopes[0]!),
+    b = await scopeTree(f, f.scopes[1]!);
+  const report =
+    '```craftingtable-design\n' +
+    JSON.stringify({
+      version: 1,
+      items: [
+        {
+          kind: 'dependency',
+          question: 'Need the mapped predecessor result.',
+          answer: '',
+          sources: ['exact map merge requirement'],
+          dependency: { kind: 'slice', id: 'AQ-01.A', state: 'merged' },
+        },
+      ],
+    }) +
+    '\n```\n## Open questions\nWaiting for AQ-01.A merge.';
+  f.backend.replyForRequest = () => ({ resultText: report });
+  const cycle = await startCycle(f.state, b.id);
+  await waitFor(() => !!currentCycle(f.state, cycle).designWait, 'dependency wait');
+  expect(currentCycle(f.state, cycle).status).toBe('running');
+  const initial = f.backend.launches.length;
+  f.state.context.services.workCycleService.recoverInterrupted();
+  expect(currentCycle(f.state, cycle).status).toBe('running');
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(f.backend.launches).toHaveLength(initial);
+  commitFile(a.path, 'prerequisite.txt', 'Complete the independent predecessor.');
+  await reviewScope(f, a);
+  f.backend.replyForRequest = () => ({ resultText: report });
+  expect((await merge(f.state, a.id)).statusCode).toBe(200);
+  await waitFor(
+    () => currentCycle(f.state, cycle).status === 'needs-attention',
+    'bounded dependency rechecks',
+  );
+  expect(currentCycle(f.state, cycle).designDependencyContinuations).toBe(2);
+  expect(currentCycle(f.state, cycle).reason).toContain('Two automatic dependency continuations');
+  expect(
+    f.state.context.storage.execution.runs
+      .listForWorktree(f.state.workspaceId, b.id)
+      .map((r) => r.role),
+  ).toEqual(['design', 'design', 'design']);
+});

@@ -1,3 +1,8 @@
+import {
+  architectureDecisionIssues,
+  architectureDecisionDigest,
+  stagedDecision,
+} from './architecture-decision-policy.js';
 import { nativeApproval, needsNativeEvidence } from './native-verification-policy.js';
 import { generatedPlanIssues } from './plan-acceptance-policy.js';
 import { integratedSlice } from './scope-lineage.js';
@@ -210,6 +215,7 @@ export function submissionIssues(
   runtime: RuntimeGeneration | undefined,
   s: EvidenceSubmission,
 ): string[] {
+  if (s.architectureDecision) return architectureDecisionIssues(tx, d, s);
   const issues: string[] = [];
   if (
     !runtime ||
@@ -348,6 +354,7 @@ export function acceptedEvidence(
       (s) =>
         s.subject.kind === subject.kind &&
         s.subject.sourceId === subject.sourceId &&
+        s.architectureDecision?.coverage !== 'clauses' &&
         decisions.some((a) => a.submissionId === s.id && a.outcome === 'accepted') &&
         !submissionIssues(tx, d, runtime, s).length &&
         !prerequisiteIssues(tx, d, bindingRevision, subject, visiting).length,
@@ -424,6 +431,16 @@ export function prerequisiteIssues(
     .find((b) => b.revision === bindingRevision);
   for (const r of requirements) {
     if (r.kind === 'checkpoint') {
+      if (
+        spec.slice &&
+        stagedDecision(
+          tx,
+          d.workspaceId,
+          { kind: 'slice', definitionId: d.id, bindingRevision, sourceId: spec.slice.id },
+          r.id,
+        )
+      )
+        continue;
       if (
         !acceptedEvidence(
           tx,
@@ -516,9 +533,10 @@ export function currentScopeReceipt(
       policy.version
   )
     return false;
+  const run = tx.runtimeEvidence.run(ws, p.reviewRunId);
+  if (run?.architectureDecisionDigest !== architectureDecisionDigest(tx, ws, p.scope)) return false;
   const runtime = activeRuntime(tx, ws, p.scope.definitionId, p.scope.bindingRevision);
   if (!runtime) return true;
-  const run = tx.runtimeEvidence.run(ws, p.reviewRunId);
   const d = tx.imports.definition(ws, p.scope.definitionId);
   if (d && needsNativeEvidence(d, p.scope)) {
     const approval = nativeApproval(tx, ws, p.scope);

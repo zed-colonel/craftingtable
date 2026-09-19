@@ -1,3 +1,4 @@
+import { approvedArchitectureDecisions } from './architecture-decision-policy.js';
 import { snapshotCalculation } from './map-read-snapshot.js';
 import { createHash } from 'node:crypto';
 import type {
@@ -73,7 +74,14 @@ function collectSavedPlanSnapshot(
   const adoptions = tx.imports
     .adoptions(d.workspaceId, d.id)
     .filter((a) => a.bindingRevision === binding?.revision);
+  const stages = approvedArchitectureDecisions(
+    tx,
+    d.workspaceId,
+    d.id,
+    binding?.revision ?? 0,
+  ).filter((s) => s.architectureDecision?.coverage === 'clauses');
   const facts = {
+    ...(stages.length ? { architectureStaging: stages } : {}),
     map: {
       id: d.id,
       mapId: d.mapId,

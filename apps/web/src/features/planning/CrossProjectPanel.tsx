@@ -307,6 +307,28 @@ export function CrossProjectPanel({
         {n.status}
         {n.priority && selection === 'prioritize-full' ? ' · Target priority' : ''}
       </p>
+      {n.decisionCoverage?.map((coverage) => (
+        <p key={coverage.submissionId}>
+          {coverage.checkpoint}: approved early clauses satisfy this slice’s {coverage.phase} gate.
+          Full ADR obligations remain with later work.{' '}
+          <button
+            type="button"
+            onClick={() => revealElement(`${runtimePanelId}-submission-${coverage.submissionId}`)}
+          >
+            Review clause approval
+          </button>
+        </p>
+      ))}
+      {n.originalRequirements && (
+        <details>
+          <summary>Original imported prerequisites · preserved for audit</summary>
+          <ul>
+            {n.originalRequirements.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        </details>
+      )}
       <ActionBar label="Milestone actions">
         <button type="button" className="secondary-button" onClick={() => trace(n.key)}>
           Trace requirements
@@ -1052,6 +1074,20 @@ export function CrossProjectPanel({
                   {selected.sourceId} · required state: {selected.state}
                 </h4>
                 <p>{selected.status}</p>
+                {selected.decisionCoverage?.map((c) => (
+                  <p key={c.submissionId}>
+                    {c.checkpoint}: early clauses approved for this slice before {c.phase}; full ADR
+                    remains a later obligation.{' '}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        revealElement(`${runtimePanelId}-submission-${c.submissionId}`)
+                      }
+                    >
+                      Review clause approval
+                    </button>
+                  </p>
+                ))}
                 <h5>{phaseLabel(selected)}</h5>
                 <DependencyGraph
                   nodes={view.nodes}

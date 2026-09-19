@@ -1,3 +1,5 @@
+import { parseDesignReport } from '@craftingtable/contracts';
+import { designDependencyState } from './design-dependency-policy.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { ExecutionService } from './execution-service.js';
 import type { ScopeRepairRequest } from '@craftingtable/contracts';
@@ -405,6 +407,8 @@ export class WorkCycleService {
         currentRunId: runId,
         parentRunId: preview.sourceRunId,
         phaseWait: null,
+        designWait: null,
+        designDependencyContinuations: 0,
         resultContinuations: 0,
         runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
         designRecovery: {
@@ -1262,6 +1266,7 @@ export class WorkCycleService {
           currentRunId: run.id,
           runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
           reason: 'Resumed with the latest manual run.',
+          designWait: null,
         },
         action,
         context,
@@ -1309,7 +1314,7 @@ export class WorkCycleService {
           },
           'baseline-preparation-interrupted',
         );
-      if (cycle.status === 'running')
+      if (cycle.status === 'running' && !cycle.designWait)
         this.attention(
           cycle,
           'Daemon restarted. Inspect the interrupted step and resume explicitly; no process was relaunched.',
@@ -1454,6 +1459,37 @@ export class WorkCycleService {
       );
       if (blockers.length) throw new PhaseGateError(blockers);
     }
+    if (cycle.designWait) {
+      const state = designDependencyState(this.storage, cycle, cycle.designWait.requirements);
+      if (!state.supported) {
+        this.attention(cycle, state.pending.join(' '));
+        return;
+      }
+      if (state.pending.length) return;
+      const roadmap = this.storage.roadmaps
+        .list(cycle.workspaceId)
+        .find((r) => r.attempts.some((a) => a.cycleId === cycle.id));
+      if (roadmap && roadmap.status !== 'running') return;
+      const parent = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+      if (!parent || parent.status !== 'finished') {
+        this.attention(cycle, 'Inspect the completed design before continuing.');
+        return;
+      }
+      if ((cycle.designDependencyContinuations ?? 0) >= 2) {
+        this.attention(
+          cycle,
+          'Two automatic dependency continuations have been used. Review the latest design and authorize recovery.',
+        );
+        return;
+      }
+      await this.next(cycle, 'design', parent, undefined, {
+        designWait: null,
+        phaseWait: null,
+        designDependencyContinuations: (cycle.designDependencyContinuations ?? 0) + 1,
+        reason: 'Mapped predecessors are ready. Rechecking the design with current evidence.',
+      });
+      return;
+    }
     if (cycle.phaseWait) {
       const delay = !pendingRun ? this.now().getTime() - Date.parse(cycle.phaseWait.startedAt) : 0;
       this.change(cycle, {
@@ -1594,6 +1630,43 @@ export class WorkCycleService {
           'Design investigation finished. Review the evidence and answers, then use Resolve design questions to continue.',
         );
         return;
+      }
+      const classified = parseDesignReport(turn.payload.resultText);
+      if (classified.status === 'invalid') {
+        this.attention(cycle, classified.reason);
+        return;
+      }
+      if (classified.status === 'complete') {
+        const unresolved = classified.report.items.filter((i) => i.kind !== 'resolved');
+        if (unresolved.length && unresolved.every((i) => i.kind === 'dependency')) {
+          const requirements = unresolved.flatMap((i) => (i.dependency ? [i.dependency] : []));
+          const state = designDependencyState(this.storage, cycle, requirements);
+          if (state.supported && (cycle.designDependencyContinuations ?? 0) < 2) {
+            this.change(cycle, {
+              designWait: { startedAt: this.now().toISOString(), requirements },
+              reason: state.pending.length
+                ? `Design waiting for mapped predecessors: ${state.pending.join(', ')}. It will recheck automatically when ready.`
+                : 'Mapped predecessors are ready; scheduling a bounded design recheck.',
+            });
+            return;
+          }
+          this.attention(
+            cycle,
+            state.supported
+              ? 'Two automatic dependency continuations have been used. Review the latest design and authorize recovery.'
+              : state.pending.join(' '),
+          );
+          return;
+        }
+        if (unresolved.length) {
+          this.attention(
+            cycle,
+            unresolved.some((i) => i.kind === 'planning-conflict')
+              ? 'Design identified a planning conflict. Review its classification and proposed scope change before continuing.'
+              : 'Design needs an operator decision. Use Shared architecture decisions for reusable ADR approvals, then continue design recovery.',
+          );
+          return;
+        }
       }
       if (!designHasNoOpenQuestions(turn.payload.resultText)) {
         this.attention(
@@ -3059,6 +3132,8 @@ export class WorkCycleService {
         cycle,
         {
           housekeepingInstructions: '',
+          designWait: null,
+          ...(context ? { designDependencyContinuations: 0 } : {}),
           ...(step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
             ? { designRecovery: { ...cycle.designRecovery, runId: nextRunId } }
             : {}),

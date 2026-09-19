@@ -68,7 +68,7 @@ function fixture() {
         plan === 'wi-plan' ? [{ archiveId: archiveRecord.id }] : [],
       archive: () => archiveRecord,
     },
-    runtimeEvidence: { generations: () => [runtime] },
+    runtimeEvidence: { generations: () => [runtime], submissions: () => [], decisions: () => [] },
   } as unknown as StorageRepositories;
   return { tx, cycle, runtime, binding, contract, archiveRecord };
 }

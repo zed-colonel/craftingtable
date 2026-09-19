@@ -1014,13 +1014,19 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             'conflict',
             'Dependency generation changed during run preparation.',
           );
-        if (pinned) this.runtimeEvidence?.assertPrepared(prepared.worktree, pinned.runtimeId);
+        if (pinned)
+          this.runtimeEvidence?.assertPrepared(
+            prepared.worktree,
+            pinned.runtimeId,
+            pinned.architectureDecisionDigest,
+          );
         if (pinned)
           tx.runtimeEvidence.addRun({
             runId,
             workspaceId,
             runtimeId: pinned.runtimeId,
             nativeApprovalId: pinned.nativeApprovalId,
+            architectureDecisionDigest: pinned.architectureDecisionDigest,
             manifestPath: pinned.manifestPath,
             manifestDigest: pinned.manifestDigest,
           });

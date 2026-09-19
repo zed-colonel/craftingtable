@@ -95,6 +95,15 @@ export interface BaselinePreparation {
   readonly message: string;
 }
 export interface WorkCycle {
+  readonly designDependencyContinuations?: number;
+  readonly designWait?: {
+    readonly startedAt: string;
+    readonly requirements: readonly (
+      | { readonly kind: 'work_item'; readonly id: string; readonly state: 'accepted' }
+      | { readonly kind: 'slice'; readonly id: string; readonly state: 'merged' | 'verified' }
+    )[];
+  } | null;
+
   /** Read projection only: an older review waits for current prerequisite work. */
   readonly scopeReviewWait?: string;
   /** Explicit repair delegation, with immutable journal turns from related scope reviews. */

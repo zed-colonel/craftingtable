@@ -91,7 +91,32 @@ export function AgendaPage({
                         {item.sourceId}
                       </button>
                     </th>
-                    <td>{item.title}</td>
+                    <td>
+                      {item.title}
+                      {item.executionScopes?.map((scope) => (
+                        <details key={scope.worktreeId}>
+                          <summary>
+                            {scope.kind === 'slice'
+                              ? 'Development slice'
+                              : scope.kind === 'slice-verification'
+                                ? 'Slice verification'
+                                : 'Parent acceptance'}
+                            : {scope.title}
+                            {scope.earlyDevelopment && ' · Early development approved'}
+                          </summary>
+                          <p className="mono">{scope.sourceId}</p>
+                          {scope.startRequirements.length > 0 && (
+                            <p>Start requires: {scope.startRequirements.join('; ')}.</p>
+                          )}
+                          {scope.earlyDevelopment && (
+                            <p>
+                              Approval applies to this slice. The full work item retains its
+                              original acceptance prerequisites.
+                            </p>
+                          )}
+                        </details>
+                      ))}
+                    </td>
                     <td>
                       <button
                         type="button"
@@ -114,7 +139,12 @@ export function AgendaPage({
                     <td>
                       <span className={`risk risk-${item.risk}`}>{RISK_LABELS[item.risk]}</span>
                     </td>
-                    <td className="subtle">{blockerSummary(item)}</td>
+                    <td className="subtle">
+                      {item.executionScopes?.length && item.blockerSourceIds.length > 0
+                        ? 'Parent acceptance: '
+                        : ''}
+                      {blockerSummary(item)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

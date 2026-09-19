@@ -658,7 +658,7 @@ export function RoadmapsPage({
           No roadmaps yet. Create a sequence from your imported work items.
         </p>
       )}
-      {roadmaps.map(({ roadmap, progress }) => {
+      {roadmaps.map(({ roadmap, progress, hostCapacity }) => {
         const completed = progress.filter((p) => p.status === 'completed').length;
         const attention =
           ['needs-attention'].includes(roadmap.status) ||
@@ -712,6 +712,37 @@ export function RoadmapsPage({
                 },
               ]}
             />
+            {roadmap.definition.crossProject && hostCapacity && (
+              <>
+                <StatusStrip
+                  label="Shared workstation capacity"
+                  facts={[
+                    {
+                      label: 'Development slots in use',
+                      value: `${hostCapacity.development.inUse}/${hostCapacity.development.limit}`,
+                      mono: true,
+                    },
+                    {
+                      label: 'Verification slots in use',
+                      value: `${hostCapacity.verification.inUse}/${hostCapacity.verification.limit}`,
+                      mono: true,
+                    },
+                  ]}
+                />
+                <p className="subtle">
+                  These workstation slots are shared across projects. Roadmap limits include items
+                  waiting for review or merge; they do not increase workstation capacity.
+                </p>
+                {roadmap.definition.scheduling?.mode === 'parallel' &&
+                  roadmap.definition.scheduling.maxInFlight > hostCapacity.development.limit && (
+                    <p role="status">
+                      This roadmap permits {roadmap.definition.scheduling.maxInFlight} items in
+                      flight, but the workstation permits only {hostCapacity.development.limit}{' '}
+                      concurrent scoped development runs across all projects.
+                    </p>
+                  )}
+              </>
+            )}
             {(dirtyRoadmaps[roadmap.id] || dependencyDrafts[roadmap.id]) && (
               <p role="status">
                 Save the unsaved{' '}

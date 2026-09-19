@@ -17,6 +17,8 @@ import type { AuthContext } from './auth-service.js';
 import { NotFoundError } from './errors.js';
 import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceService } from './workspace-service.js';
+import { mapReadSnapshot } from './map-read-snapshot.js';
+import { resolveScope, scopeAllowsEarlyDevelopment } from './execution-scope.js';
 
 /**
  * Authorized planning reads.
@@ -177,6 +179,46 @@ export class PlanningQueryService {
     requestId?: string,
   ) {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
+    const snapshot = mapReadSnapshot(this.storage);
+    const trees = snapshot.execution.worktrees.listActive(workspaceId);
+    const scopes = (workItemId: WorkItemId) =>
+      trees.flatMap((tree) => {
+        const scope = tree.executionScope;
+        if (
+          tree.workItemId !== workItemId ||
+          tree.mergedAt ||
+          !scope ||
+          snapshot.amendments.retired(workspaceId, tree.id)
+        )
+          return [];
+        // Completed verification snapshots remain available for history, not current work.
+        if (
+          scope.kind !== 'slice' &&
+          !snapshot.execution.cycles.activeForWorktree(workspaceId, tree.id)
+        )
+          return [];
+        try {
+          const resolved = resolveScope(snapshot, workspaceId, workItemId, scope);
+          return [
+            {
+              worktreeId: tree.id,
+              sourceId: scope.sourceId,
+              title: resolved.slice?.title ?? resolved.parent.title,
+              kind: scope.kind,
+              earlyDevelopment: scopeAllowsEarlyDevelopment(
+                snapshot,
+                workspaceId,
+                workItemId,
+                scope,
+              ),
+              startRequirements:
+                resolved.slice?.start_requires.map((r) => `${r.id}: ${r.state}`) ?? [],
+            },
+          ];
+        } catch {
+          return [];
+        }
+      });
     return {
       filter,
       items: this.storage.planning.workItems
@@ -185,6 +227,7 @@ export class PlanningQueryService {
           ...workItemSummary(row),
           projectId: row.projectId,
           projectName: row.projectName,
+          ...(row.status === 'admitted' ? { executionScopes: scopes(row.id) } : {}),
         })),
     };
   }

@@ -4,6 +4,7 @@ import type { ScopeRepairRequest } from '@craftingtable/contracts';
 import { collectScopeRepair, scopeReviewWait } from './scope-repair.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
+import { prioritizeRoadmapCycles } from './cycle-priority.js';
 import type { PrepareBaselineRequest } from '@craftingtable/contracts';
 import { collectDesignRecovery } from './design-recovery.js';
 import type { RecoverDesignRequest } from '@craftingtable/contracts';
@@ -1328,8 +1329,11 @@ export class WorkCycleService {
   }
   private async loop(): Promise<void> {
     while (!this.abort.signal.aborted) {
-      const generation = this.notifier.generation;
-      for (const cycle of this.storage.execution.cycles.list()) {
+      const generation = this.notifier.workflowGeneration;
+      for (const cycle of prioritizeRoadmapCycles(
+        this.storage.execution.cycles.list(),
+        this.storage.roadmaps.list(),
+      )) {
         if (this.abort.signal.aborted) break;
         try {
           await this.reconcile(cycle);
@@ -1367,6 +1371,7 @@ export class WorkCycleService {
         }
       }
       await this.notifier.waitForChangeOrTimeout({
+        channel: 'workflow',
         generation,
         timeoutMs: 1000,
         signal: this.abort.signal,

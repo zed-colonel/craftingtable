@@ -6,8 +6,49 @@ import { DiagnosticList } from './DiagnosticList.js';
 import { SourceText } from './SourceText.js';
 import { WorkItemPage } from './WorkItemPage.js';
 import { WorkItemTable } from './WorkItemTable.js';
+import { AgendaPage } from './AgendaPage.js';
 
 afterEach(cleanup);
+
+it('shows an early development slice separately from blocked parent acceptance in the agenda', () => {
+  render(
+    <AgendaPage
+      filter="admitted"
+      listing={{
+        filter: 'admitted',
+        items: [
+          {
+            ...item({
+              status: 'admitted',
+              readiness: 'active',
+              blockerSourceIds: ['WI-06', 'WI-09'],
+            }),
+            projectId: 'project-1' as import('@craftingtable/domain').ProjectId,
+            projectName: 'WorldInterface',
+            executionScopes: [
+              {
+                worktreeId: 'tree-1' as import('@craftingtable/domain').WorktreeId,
+                sourceId: 'wi/WI-10/domain',
+                title: 'Connector disposition inventory',
+                kind: 'slice',
+                earlyDevelopment: true,
+                startRequirements: ['wi/WI-01: accepted'],
+              },
+            ],
+          },
+        ],
+      }}
+      onSelectFilter={vi.fn()}
+      onOpenProject={vi.fn()}
+      onOpenWorkItem={vi.fn()}
+    />,
+  );
+  expect(screen.getByText(/Development slice: Connector disposition inventory/)).toBeTruthy();
+  expect(screen.getByText(/Early development approved/)).toBeTruthy();
+  expect(screen.getByText(/Parent acceptance:/)).toBeTruthy();
+  fireEvent.click(screen.getByText(/Development slice: Connector disposition inventory/));
+  expect(screen.getByText('Start requires: wi/WI-01: accepted.')).toBeTruthy();
+});
 
 function item(overrides: Partial<WorkItemSummary> = {}): WorkItemSummary {
   return {

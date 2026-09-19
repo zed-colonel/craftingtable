@@ -180,13 +180,14 @@ export class NotificationService {
   }
   private async loop(): Promise<void> {
     while (!this.abort.signal.aborted) {
-      const generation = this.notifier.generation;
+      const generation = this.notifier.workflowGeneration;
       try {
         await this.tick();
       } catch {
         /* Durable leases remain recoverable after a storage failure. */
       }
       await this.notifier.waitForChangeOrTimeout({
+        channel: 'workflow',
         generation,
         timeoutMs: 5000,
         signal: this.abort.signal,
@@ -202,6 +203,7 @@ export class NotificationService {
     );
   }
   private attention(tx: StorageRepositories, settings: StoredNotificationSettings): Attention[] {
+    tx = mapReadSnapshot(tx);
     const workspaceId = settings.workspaceId;
     const cycles = tx.execution.cycles.list(workspaceId);
     const result: Attention[] = [];

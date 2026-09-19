@@ -182,7 +182,7 @@ repository model and are candidates for removal.
 
 ## Events
 
-Two journals, one notifier:
+Two journals, one notifier with separate activity and workflow wakeups:
 
 - `workspace_events` is the coarse workspace journal the browser follows to invalidate
   its queries. Execution adds `source-repository-registered`, `worktree-created`,
@@ -194,6 +194,11 @@ Two journals, one notifier:
 Every mutation writes state, audit rows, and events in one immediate SQLite transaction;
 the in-process notifier fires after commit and carries no data. Streams re-authenticate
 on every iteration and never touch the session's last-seen time.
+Run activity wakes streams immediately. Scheduler, cycle and notification workers wait on
+workflow changes: turn completion, run status and persisted commands still wake them promptly,
+while ordinary messages/tool output do not trigger full map evaluation. Periodic checks remain
+for deadlines and external changes. Map projections share memoized repository reads only within
+one synchronous read pass; no snapshot survives a mutation or asynchronous execution boundary.
 
 ## Browser
 
@@ -223,6 +228,10 @@ attempt attachment commit together. Branch targets and effective step settings a
 explicitly. The scheduler calls the shared merge command only under the effective policy
 from the attempt's immutable definition revision. See ADR-029 for admission, capacity, recovery,
 and manual takeover behavior; ADR-028 preserves the later slice and Studio boundaries.
+Before parallel selection the controller reconciles completed attempts, including manual merges
+and parent acceptance recorded while paused. Pending cycles within the same running parallel
+roadmap follow its saved entry priority rather than cycle creation order. Existing running agents
+are never preempted; unrelated/manual cycles retain their relative positions.
 
 Parallel settings and item holds are additive JSON fields in schema 12; older definitions
 retain sequential semantics. Attempts reserve capacity before Git creation. The single

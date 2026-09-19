@@ -134,4 +134,8 @@ export interface RoadmapEntryProgress {
 export interface RoadmapView {
   readonly roadmap: Roadmap;
   readonly progress: readonly RoadmapEntryProgress[];
+  readonly hostCapacity?: {
+    readonly development: { readonly limit: number; readonly inUse: number };
+    readonly verification: { readonly limit: number; readonly inUse: number };
+  };
 }

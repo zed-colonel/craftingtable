@@ -13,6 +13,7 @@ export function snapshotCalculation<T>(
 }
 /** Synchronous projection only. Never retain this snapshot across awaits or mutations. */
 export function mapReadSnapshot(source: StorageRepositories): StorageRepositories {
+  if (calculations.has(source)) return source;
   function memo<T extends object>(repo: T, names: readonly (keyof T)[]): T {
     const caches = new Map<PropertyKey, Map<string, unknown>>();
     return new Proxy(repo, {
@@ -31,6 +32,23 @@ export function mapReadSnapshot(source: StorageRepositories): StorageRepositorie
   }
   const snapshot = {
     ...source,
+    planning: {
+      ...source.planning,
+      workItems: memo(source.planning.workItems, ['find']),
+      projects: memo(source.planning.projects, ['find']),
+      dependencies: memo(source.planning.dependencies, ['listPredecessors']),
+    },
+    execution: {
+      ...source.execution,
+      worktrees: memo(source.execution.worktrees, ['find', 'listActive', 'listForWorkItem']),
+      cycles: memo(source.execution.cycles, ['find', 'list', 'activeForWorktree']),
+      runs: memo(source.execution.runs, ['find', 'listForWorktree']),
+      runEvents: memo(source.execution.runEvents, ['latestOfKind']),
+      branchSettings: memo(source.execution.branchSettings, ['find']),
+      sourceRepositories: memo(source.execution.sourceRepositories, ['find']),
+    },
+    scopeReceipts: memo(source.scopeReceipts, ['list']),
+    phaseScheduling: memo(source.phaseScheduling, ['capacity', 'active', 'authorized']),
     imports: memo(source.imports, [
       'definition',
       'bindings',

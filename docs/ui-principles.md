@@ -133,6 +133,10 @@ entry's exact waiting reason, and distinguish dependency, capacity, exclusion, a
 attention. In-flight counts include paused and merge-ready work; running-cycle counts do
 not. Individual pause/resume controls must not imply that sibling work will stop. Existing
 work-item links retain the review, diff, manual takeover, and explicit merge controls.
+Saved cross-project roadmaps also show occupied/total development and verification slots shared
+by the workstation. Explain when this limit is lower than the roadmap's in-flight allowance.
+Agenda rows name the active slice, its early-development approval and start requirements;
+parent acceptance blockers remain labelled separately.
 
 Integration conflict recovery belongs beside the cycle status. Show conflicting paths, exact
 item and incoming commits, agent attempt links and the selected resolution profile. Wrap paths

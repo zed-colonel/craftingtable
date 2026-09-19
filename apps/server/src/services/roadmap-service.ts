@@ -355,7 +355,17 @@ export class RoadmapService {
         }
       }
       // Explicit resume may adopt the owned cycle's manual handoff, using its normal guards.
-      for (const attempt of roadmap.attempts.filter((a) => a.status !== 'completed')) {
+      // Resume in priority order too: the cycle worker can wake while these async
+      // commands run, before the final roadmap status update has been persisted.
+      const resumeAttempts = roadmap.attempts.filter((a) => a.status !== 'completed');
+      if (roadmap.definition.scheduling?.mode === 'parallel') {
+        const priorities = new Map(roadmap.definition.entries.map((e, i) => [e.id, i]));
+        resumeAttempts.sort(
+          (a, b) =>
+            (priorities.get(a.entryId) ?? Infinity) - (priorities.get(b.entryId) ?? Infinity),
+        );
+      }
+      for (const attempt of resumeAttempts) {
         if (roadmap.entryHolds?.[attempt.entryId]?.status === 'paused') continue;
         const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
         // Recovery, not another review of unchanged source, owns these stopped checkpoints.
@@ -520,19 +530,16 @@ export class RoadmapService {
   }
   private async loop(): Promise<void> {
     while (!this.abort.signal.aborted) {
-      const generation = this.notifier.generation;
+      const generation = this.notifier.workflowGeneration;
       await this.tick();
       await this.notifier.waitForChangeOrTimeout({
+        channel: 'workflow',
         generation,
         // Persisted changes wake this immediately. A fully waiting roadmap does not
         // need to re-evaluate an unchanged map every second.
         timeoutMs: this.storage.roadmaps
           .list()
-          .some(
-            (r) =>
-              r.status === 'running' &&
-              (!r.definition.crossProject || r.attempts.some((a) => a.status !== 'completed')),
-          )
+          .some((r) => r.status === 'running' && !r.definition.crossProject)
           ? 1000
           : 5000,
         signal: this.abort.signal,
@@ -596,6 +603,9 @@ export class RoadmapService {
       if (issues.length) conflict(issues.join(' '));
     }
     if (roadmap.definition.scheduling?.mode === 'parallel') {
+      // Manual acceptance can finish while scheduling is paused. Reconcile every
+      // completed attempt before freezing this pass's priority/eligibility decisions.
+      roadmap = this.reconcileCompletedAttempts(roadmap);
       // Advisory deferral only. Read once synchronously, then discard the snapshot before
       // any await/mutation. Eligible entries still pass every fresh admission check below.
       const deferred = this.deferredEntries(roadmap);
@@ -1282,6 +1292,35 @@ export class RoadmapService {
     const tx = mapReadSnapshot(this.storage);
     return roadmap.definition.entries.every((entry) => this.complete(roadmap, entry, tx));
   }
+  private reconcileCompletedAttempts(roadmap: Roadmap): Roadmap {
+    const tx = mapReadSnapshot(this.storage);
+    let changed = false;
+    const entryHolds = { ...roadmap.entryHolds };
+    const attempts = roadmap.attempts.map((attempt) => {
+      if (attempt.recovery || attempt.status === 'completed') return attempt;
+      const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId);
+      if (!entry) return attempt;
+      const tree =
+        !entry.executionScope &&
+        tx.execution.worktrees.find(roadmap.workspaceId, attempt.worktreeId);
+      const mergedAt =
+        tree &&
+        !tree.executionScope &&
+        tree.repositoryId === entry.repositoryId &&
+        tree.integrationBranch === entry.integrationBranch
+          ? tree.mergedAt
+          : undefined;
+      if (!mergedAt && !this.complete(roadmap, entry, tx)) return attempt;
+      changed = true;
+      delete entryHolds[entry.id];
+      return {
+        ...attempt,
+        status: 'completed' as const,
+        completedAt: mergedAt ?? this.now().toISOString(),
+      };
+    });
+    return changed ? this.change(roadmap, { attempts, entryHolds }) : roadmap;
+  }
   private deferredEntries(roadmap: Roadmap): ReadonlySet<string> {
     const tx = mapReadSnapshot(this.storage);
     return new Set(
@@ -1511,8 +1550,16 @@ export class RoadmapService {
   }
   private view(roadmap: Roadmap): RoadmapView {
     const snapshot = mapReadSnapshot(this.storage);
+    const capacity = (key: string) => ({
+      limit: snapshot.phaseScheduling.capacity(key),
+      inUse: snapshot.phaseScheduling.active().filter((r) => r.resourceKey === key).length,
+    });
     return {
       roadmap,
+      hostCapacity: {
+        development: capacity('local-development'),
+        verification: capacity('local-verification'),
+      },
       progress: roadmap.definition.entries
         .map((entry): import('@craftingtable/domain').RoadmapEntryProgress => {
           if (this.complete(roadmap, entry, snapshot))
@@ -1589,7 +1636,7 @@ export class RoadmapService {
                     : 'needs-attention',
               reason: cycle.reason,
             };
-          const reason = this.blocker(roadmap, entry, attempt);
+          const reason = this.blocker(roadmap, entry, attempt, snapshot);
           return {
             entryId: entry.id,
             status: reason?.needsAttention ? 'needs-attention' : reason ? reason.kind : 'queued',

@@ -157,6 +157,18 @@ export const roadmapSchema = z.strictObject({
 });
 export const roadmapViewSchema = z.strictObject({
   roadmap: roadmapSchema,
+  hostCapacity: z
+    .strictObject({
+      development: z.strictObject({
+        limit: z.number().int().min(1).max(32),
+        inUse: z.number().int().nonnegative(),
+      }),
+      verification: z.strictObject({
+        limit: z.number().int().min(1).max(32),
+        inUse: z.number().int().nonnegative(),
+      }),
+    })
+    .optional(),
   progress: z.array(
     z.strictObject({
       phase: z.enum(['start', 'merge', 'verify', 'accept']).optional(),

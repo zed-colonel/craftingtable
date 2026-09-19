@@ -60,6 +60,11 @@ it is mergeable.
   Local scoped development defaults to 2 admission slots; verification/acceptance defaults to 1.
   Set `CRAFTINGTABLE_DEVELOPMENT_CAPACITY` and `CRAFTINGTABLE_VERIFICATION_CAPACITY` (1–32)
   in the daemon environment to tune them. These coordinate daemon work, not host CPU or isolation.
+  Saved cross-project roadmaps show occupied/total workstation slots beside their in-flight limits.
+  Workstation slots are shared across projects; setting four roadmap items and two per repository
+  does not override a two-slot workstation limit. Changing workstation capacity requires fresh
+  saved-plan acceptance. The agenda names each active slice and its approved early-development
+  exception separately from the full parent's remaining acceptance prerequisites.
 - **Pinned dependencies and evidence.** Open an imported map in **Roadmaps** and expand
   **Dependency environments and evidence**. Inspect bound Git refs and their Cargo package mappings,
   use **Set up dependencies → Discover local setup** to propose required upstream relationships,

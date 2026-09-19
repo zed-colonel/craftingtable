@@ -1474,7 +1474,11 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         ...(event.raw === undefined ? {} : { raw: event.raw }),
       } as Parameters<typeof tx.execution.runEvents.append>[0]);
     });
-    this.notifier.notify();
+    this.notifier.notify(
+      ['session-started', 'turn-completed', 'run-finished'].includes(event.kind)
+        ? 'workflow'
+        : 'activity',
+    );
   }
 
   /**

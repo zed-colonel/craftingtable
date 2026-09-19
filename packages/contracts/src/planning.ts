@@ -273,6 +273,18 @@ export const workspaceWorkItemListResponseSchema = z.strictObject({
       workItemSummarySchema.extend({
         projectId: projectIdSchema,
         projectName: z.string().min(1).max(120),
+        executionScopes: z
+          .array(
+            z.strictObject({
+              worktreeId: worktreeIdSchema,
+              sourceId: z.string(),
+              title: z.string(),
+              kind: z.enum(['slice', 'slice-verification', 'parent-acceptance']),
+              earlyDevelopment: z.boolean(),
+              startRequirements: z.array(z.string()),
+            }),
+          )
+          .optional(),
       }),
     )
     .max(500),

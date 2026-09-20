@@ -27,3 +27,12 @@ are frozen in run environments; changing them invalidates affected review receip
 rewriting history or invalidating unrelated predecessors. Predecessor receipts carry an
 explicit current/stale indication, and phase requirements are distinguished from observed
 readiness in the supplied evidence ledger.
+
+The shared decision inbox is a read-only projection of current bound design reports and
+immutable approval records, reused by roadmap supervision and work-item recovery. Optional
+structured decision briefs carry complete proposed text, alternatives, consequences and
+explicit full/limited coverage. Legacy summaries are never promoted into complete proposals
+automatically. Preparing from a brief pins its source report digest and supplies references;
+the existing proposal and authenticated approval commands remain separate. Discovery and
+clarification navigation grant no approval or execution authority. Approval visibility is
+scope-aware and does not rewrite the originating design's historical questions.

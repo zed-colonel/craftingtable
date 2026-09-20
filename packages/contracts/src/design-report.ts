@@ -1,4 +1,43 @@
 import { z } from 'zod';
+export const architectureRecommendationSchema = z
+  .strictObject({
+    checkpointId: z.string().trim().min(1).max(200),
+    decisionText: z.string().trim().min(1).max(16000),
+    why: z.string().trim().min(1).max(4000),
+    alternatives: z
+      .array(
+        z.strictObject({
+          option: z.string().trim().min(1).max(1000),
+          tradeoff: z.string().trim().min(1).max(2000),
+        }),
+      )
+      .min(1)
+      .max(6),
+    consequences: z.string().trim().min(1).max(4000),
+    coverage: z.enum(['full', 'clauses']),
+    consumers: z
+      .array(
+        z.strictObject({
+          sliceId: z.string().trim().min(1).max(200),
+          phase: z.enum(['start', 'merge']),
+          replacesFullCheckpoint: z.boolean(),
+        }),
+      )
+      .max(30),
+    retainedObligations: z.string().trim().max(16000),
+  })
+  .superRefine((v, c) => {
+    if (
+      v.coverage === 'full'
+        ? v.consumers.length || v.retainedObligations
+        : !v.consumers.length || !v.retainedObligations
+    )
+      c.addIssue({
+        code: 'custom',
+        message:
+          'Full decisions retain no partial scope; limited decisions need named consumers and remaining obligations.',
+      });
+  });
 export const designDependencySchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('work_item'),
@@ -22,8 +61,15 @@ export const designReportSchema = z.strictObject({
           answer: z.string().trim().max(8000),
           sources: z.array(z.string().trim().min(1).max(1000)).max(20),
           dependency: designDependencySchema.optional(),
+          decision: architectureRecommendationSchema.optional(),
         })
         .superRefine((item, ctx) => {
+          if (item.decision && (item.kind !== 'operator-decision' || !item.sources.length))
+            ctx.addIssue({
+              code: 'custom',
+              message:
+                'Decision recommendations require an operator question and source references.',
+            });
           if (item.kind === 'resolved' && (!item.answer || !item.sources.length))
             ctx.addIssue({
               code: 'custom',

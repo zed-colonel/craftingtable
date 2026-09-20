@@ -65,6 +65,9 @@ export function ArchitectureDecisionPanel({
                 value={checkpointId}
                 onChange={(e) => {
                   setCheckpointId(e.target.value);
+                  setSourceReferences(
+                    data.checkpoints.find((c) => c.id === e.target.value)?.sourceReferences ?? '',
+                  );
                   setSourceRunId('');
                   setConsumers([]);
                 }}

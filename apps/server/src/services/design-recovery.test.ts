@@ -44,14 +44,23 @@ function fixture() {
   } as WorkCycle;
   const tx = {
     planning: {
+      projects: { find: () => undefined },
+      dependencies: { listPredecessors: () => [] },
       workItems: { find: () => ({ id: 'exo', planVersionId: 'exo-plan', sourceId: 'EXO-01' }) },
       artifacts: { listForVersion: () => [], findWithContent: () => undefined },
     },
     execution: {
+      cycles: { list: () => [] },
+      branchSettings: {},
+      sourceRepositories: {},
       worktrees: {
         find: () => ({ id: 'tree', branchName: 'ct/exo', baseSha: 'base', repositoryId: 'repo' }),
       },
-      runs: { find: () => ({ id: 'design', worktreeId: 'tree', role: 'design' }) },
+      runs: {
+        find: () => ({ id: 'design', worktreeId: 'tree', role: 'design' }),
+        listRecent: () => [],
+        listLive: () => [],
+      },
       runEvents: {
         latestOfKind: () => ({
           kind: 'turn-completed',
@@ -63,12 +72,21 @@ function fixture() {
     },
     imports: {
       bindings: () => [binding],
-      definition: () => ({ digest: 'map-digest', source: { slices: [], work_items: [] } }),
+      definition: () => ({
+        id: 'map',
+        workspaceId: 'ws',
+        digest: 'map-digest',
+        source: { slices: [], work_items: [], checkpoints: [] },
+      }),
       planLinks: (_ws: string, plan: string) =>
         plan === 'wi-plan' ? [{ archiveId: archiveRecord.id }] : [],
       archive: () => archiveRecord,
     },
     runtimeEvidence: { generations: () => [runtime], submissions: () => [], decisions: () => [] },
+    roadmaps: { list: () => [] },
+    scopeReceipts: {},
+    phaseScheduling: {},
+    amendments: {},
   } as unknown as StorageRepositories;
   return { tx, cycle, runtime, binding, contract, archiveRecord };
 }

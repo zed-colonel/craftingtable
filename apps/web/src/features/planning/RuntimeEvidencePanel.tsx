@@ -1,4 +1,5 @@
 import { ArchitectureDecisionPanel } from './ArchitectureDecisionPanel.js';
+import { SharedDecisionInbox } from './SharedDecisionInbox.js';
 import { NativeVerificationPanel } from './NativeVerificationPanel.js';
 import { DependencyRefreshPanel } from './DependencyRefreshPanel.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -288,26 +289,40 @@ export function RuntimeEvidencePanel({
         </section>
       )}
       <div id={`architecture-decisions-${definitionId}`}>
-        <ArchitectureDecisionPanel
-          view={view}
-          busy={busy}
-          disabled={!canMutate || unsavedSetup}
-          onReview={(id) => revealElement(`${panelId}-submission-${id}`)}
-          onSave={(input) =>
-            void act(async () => {
-              const next = await post('propose-decision', input);
+        {view.decisionInbox && (
+          <SharedDecisionInbox
+            data={view.decisionInbox}
+            csrfToken={csrfToken}
+            disabled={busy || !canMutate || unsavedSetup}
+            onChanged={(next) => {
               adopt(next);
-              setNotice('Proposal saved. Review the packet and record your decision below.');
-              const saved = next.submissions.find(
-                (s) =>
-                  s.submission.architectureDecision &&
-                  s.submission.subject.sourceId === input.checkpointId &&
-                  !s.decision,
-              );
-              if (saved) revealElement(`${panelId}-submission-${saved.submission.id}`);
-            })
-          }
-        />
+              setNotice('Shared decision updated. Design continuation remains a separate action.');
+            }}
+          />
+        )}
+        <details>
+          <summary>Advanced manual decision preparation and clause staging</summary>
+          <ArchitectureDecisionPanel
+            view={view}
+            busy={busy}
+            disabled={!canMutate || unsavedSetup}
+            onReview={(id) => revealElement(`${panelId}-submission-${id}`)}
+            onSave={(input) =>
+              void act(async () => {
+                const next = await post('propose-decision', input);
+                adopt(next);
+                setNotice('Proposal saved. Review the packet and record your decision below.');
+                const saved = next.submissions.find(
+                  (s) =>
+                    s.submission.architectureDecision &&
+                    s.submission.subject.sourceId === input.checkpointId &&
+                    !s.decision,
+                );
+                if (saved) revealElement(`${panelId}-submission-${saved.submission.id}`);
+              })
+            }
+          />
+        </details>
       </div>
       <details id={`${panelId}-setup`}>
         <summary>Configure pinned dependencies and environments</summary>

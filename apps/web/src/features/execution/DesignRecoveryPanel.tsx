@@ -1,11 +1,13 @@
 import { BaselinePreparationPanel } from './BaselinePreparationPanel.js';
+import { SharedDecisionInbox } from '../planning/SharedDecisionInbox.js';
+import { revealElement } from '../../lib/reveal-element.js';
 import type {
   DesignRecoveryPreview,
   ExecutionStatusResponse,
   RecoverDesignRequest,
 } from '@craftingtable/contracts';
 import type { AgentBackendKind, WorkCycle } from '@craftingtable/domain';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
 import { ModelField } from './ModelField.js';
 
@@ -34,20 +36,42 @@ export function DesignRecoveryPanel({
   );
   const stale = preview !== undefined && preview.expectedVersion !== cycle.version;
   const available = backends.find((entry) => entry.kind === backend)?.available === true;
-  const discover = async () => {
+  const discover = async (clarifyCheckpoint?: string) => {
     setOpen(true);
     setBusy(true);
     setError(undefined);
     try {
-      setPreview(await previewDesignRecovery(cycle));
+      const next = await previewDesignRecovery(cycle);
+      setPreview(next);
+      if (
+        clarifyCheckpoint &&
+        next.decisionInbox?.decisions.some(
+          (c) => encodeURIComponent(c.checkpointId) === clarifyCheckpoint,
+        )
+      ) {
+        const card = next.decisionInbox.decisions.find(
+          (c) => encodeURIComponent(c.checkpointId) === clarifyCheckpoint,
+        )!;
+        setMode('investigate');
+        setInstructions(
+          `Clarify ${card.checkpointId}: provide a standalone decision brief with your recommendation, rationale, alternatives, consequences, source citations and explicit full or limited coverage. Do not approve or implement the decision.`,
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Evidence discovery failed.');
     } finally {
       setBusy(false);
     }
   };
+  // Navigation prepares a clarification draft only; starting an agent remains explicit.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: consume this navigation once for the selected cycle.
+  useEffect(() => {
+    const prefix = '#clarify-architecture-';
+    if (window.location.hash.startsWith(prefix))
+      void discover(window.location.hash.slice(prefix.length));
+  }, [cycle.id]);
   return (
-    <section aria-label="Resolve design questions" className="stack">
+    <section id="design-recovery" aria-label="Resolve design questions" className="stack">
       {!open ? (
         <button type="button" className="primary-button" onClick={() => void discover()}>
           Resolve design questions
@@ -74,6 +98,22 @@ export function DesignRecoveryPanel({
           )}
           {preview && (
             <>
+              {preview.decisionInbox && (
+                <SharedDecisionInbox
+                  data={preview.decisionInbox}
+                  csrfToken={csrfToken}
+                  disabled={busy || stale}
+                  onChanged={async () => {
+                    onChanged();
+                    await discover();
+                  }}
+                  onClarify={(guidance) => {
+                    setMode('investigate');
+                    setInstructions(guidance);
+                    revealElement('design-recovery-guidance');
+                  }}
+                />
+              )}
               <BaselinePreparationPanel
                 cycle={cycle}
                 csrfToken={csrfToken}
@@ -87,35 +127,58 @@ export function DesignRecoveryPanel({
                   <a
                     href={`/workspaces/${encodeURIComponent(cycle.workspaceId)}/roadmaps#architecture-decisions-${cycle.executionScope.definitionId}`}
                   >
-                    Open shared architecture decisions
+                    View all shared decisions on the roadmap
                   </a>{' '}
-                  to approve reusable ADR choices once. Return here and refresh evidence before
-                  continuing.
+                  . Decisions approved here are shared with the same applicable downstream work.
                 </p>
               )}
               {preview.classificationIssue && <p role="alert">{preview.classificationIssue}</p>}
               {preview.classifications && (
                 <div>
-                  <h4>Question disposition</h4>
-                  {preview.classifications.items.map((item) => (
-                    <div key={`${item.kind}-${item.question}`}>
-                      <strong>
-                        {item.kind} · {item.question}
-                      </strong>
-                      <p>{item.answer}</p>
-                      {item.sources.length > 0 && (
-                        <ul>
-                          {item.sources.map((source) => (
-                            <li key={source}>{source}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
+                  <h4>Recorded design questions and current approvals</h4>
+                  {preview.classifications.items.map((item) => {
+                    const decision = preview.decisionInbox?.decisions.find(
+                      (c) => c.recommendation?.question === item.question,
+                    );
+                    const accepted = decision?.records.some(
+                      (r) =>
+                        r.applicable &&
+                        !r.issues.length &&
+                        r.proposal.coverage === 'full' &&
+                        r.decision?.outcome === 'accepted',
+                    );
+                    return (
+                      <div key={`${item.kind}-${item.question}`}>
+                        <strong>
+                          {accepted
+                            ? 'Shared decision accepted; ready for design confirmation'
+                            : item.kind}{' '}
+                          · {item.question}
+                        </strong>
+                        {accepted ? (
+                          <p>
+                            This shared approval is available. Continue design to reconcile the
+                            recorded question with the accepted decision.
+                          </p>
+                        ) : (
+                          <p>{item.answer}</p>
+                        )}
+                        {item.sources.length > 0 && (
+                          <ul>
+                            {item.sources.map((source) => (
+                              <li key={source}>{source}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-              <h4>Questions from the latest design</h4>
-              <pre className="run-event-body">{preview.questions}</pre>
+              <details>
+                <summary>Original questions from the latest design</summary>
+                <pre className="run-event-body">{preview.questions}</pre>
+              </details>
               <details>
                 <summary>Collected facts and source identities</summary>
                 <pre className="run-event-body">{preview.facts}</pre>
@@ -184,7 +247,7 @@ export function DesignRecoveryPanel({
                     ? 'Investigation always stops for your review, even if all questions are resolved.'
                     : 'Implementation starts only after the design reports no open questions.'}
                 </p>
-                <label className="field">
+                <label className="field" id="design-recovery-guidance" tabIndex={-1}>
                   Answers and guidance
                   <textarea
                     rows={5}

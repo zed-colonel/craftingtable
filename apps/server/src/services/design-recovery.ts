@@ -1,5 +1,6 @@
 import { parseDesignReport } from '@craftingtable/contracts';
 import { architectureDecisionPacket } from './architecture-decision-policy.js';
+import { architectureDecisionInbox } from './architecture-decision-inbox.js';
 import { buildVerificationPolicy } from './build-verification-policy.js';
 import { createHash } from 'node:crypto';
 import type { AgentRunId, DesignRecoverySource, WorkCycle } from '@craftingtable/domain';
@@ -205,7 +206,9 @@ export function collectDesignRecovery(
   if (facts.length > 128000)
     throw new ExecutionRequestError('conflict', 'Recovery context exceeds its bounded size.');
   const classification = parseDesignReport(report);
+  const definition = scope && tx.imports.definition(ws, scope.definitionId);
   return {
+    ...(definition ? { decisionInbox: architectureDecisionInbox(tx, definition, scope) } : {}),
     ...(classification.status === 'complete'
       ? { classifications: classification.report }
       : classification.status === 'invalid'

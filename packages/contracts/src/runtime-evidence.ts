@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { architectureRecommendationSchema } from './design-report.js';
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const name = z.string().trim().min(1).max(200);
 const text = z.string().trim().min(1).max(16000);
@@ -159,7 +160,7 @@ export const generatePlanEvidenceRequestSchema = z.strictObject({
 export const architectureDecisionInputSchema = z.strictObject({
   coverage: z.enum(['full', 'clauses']),
   proposal: text,
-  sourceReferences: text,
+  sourceReferences: z.string().trim().min(1).max(65536),
   retainedObligations: z.string().trim().max(16000),
   consumers: z
     .array(
@@ -171,11 +172,17 @@ export const architectureDecisionInputSchema = z.strictObject({
     )
     .max(30),
 });
-export const proposeArchitectureDecisionSchema = architectureDecisionInputSchema.extend({
-  checkpointId: name,
-  bindingRevision: z.number().int().positive(),
-  sourceRunId: z.uuid().optional(),
-});
+export const proposeArchitectureDecisionSchema = architectureDecisionInputSchema
+  .extend({
+    checkpointId: name,
+    bindingRevision: z.number().int().positive(),
+    sourceRunId: z.uuid().optional(),
+    sourceReportDigest: digest.optional(),
+  })
+  .refine(
+    (v) => !v.sourceReportDigest || !!v.sourceRunId,
+    'A report digest requires its source run.',
+  );
 export type ProposeArchitectureDecision = z.infer<typeof proposeArchitectureDecisionSchema>;
 export const architectureDecisionSchema = architectureDecisionInputSchema.extend({
   kind: z.literal('architecture-decision-v1'),
@@ -207,6 +214,46 @@ export const evidenceDecisionSchema = z.strictObject({
   decidedAt: z.iso.datetime(),
   decidedByUserId: z.string(),
 });
+export const architectureDecisionInboxSchema = z.strictObject({
+  workspaceId: z.string(),
+  definitionId: z.uuid(),
+  bindingRevision: z.number().int().nonnegative(),
+  blockers: z.array(z.string()),
+  decisions: z.array(
+    z.strictObject({
+      checkpointId: name,
+      title: z.string(),
+      requirements: z.array(z.string()),
+      blockers: z.array(z.string()),
+      sourceReferences: z.string(),
+      consumers: z.array(
+        z.strictObject({ sliceId: name, phase: z.enum(['start', 'merge', 'verify']) }),
+      ),
+      recommendation: z
+        .strictObject({
+          sourceRunId: z.string(),
+          sourceReportDigest: digest,
+          workItemId: z.string().optional(),
+          sliceId: name,
+          question: z.string(),
+          answer: z.string(),
+          sources: z.array(z.string()),
+          brief: architectureRecommendationSchema.optional(),
+        })
+        .optional(),
+      records: z.array(
+        z.strictObject({
+          id: z.uuid(),
+          proposal: architectureDecisionSchema,
+          decision: evidenceDecisionSchema.optional(),
+          issues: z.array(z.string()),
+          applicable: z.boolean(),
+        }),
+      ),
+    }),
+  ),
+});
+export type ArchitectureDecisionInbox = z.infer<typeof architectureDecisionInboxSchema>;
 export const nativeAuditSchema = z.strictObject({
   hostDigest: digest,
   auditDigest: digest,
@@ -285,6 +332,7 @@ export const runtimeRefreshPreviewSchema = runtimeRefreshRequestSchema.extend({
 export type RuntimeRefreshPreview = z.infer<typeof runtimeRefreshPreviewSchema>;
 export type ApplyRuntimeRefresh = z.infer<typeof applyRuntimeRefreshSchema>;
 export const runtimeEvidenceViewSchema = z.strictObject({
+  decisionInbox: architectureDecisionInboxSchema.optional(),
   architectureDecisions: z
     .object({
       checkpoints: z.array(

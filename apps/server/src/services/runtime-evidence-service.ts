@@ -1,4 +1,5 @@
 import { worktreePlan } from './repository-policy.js';
+import { architectureDecisionInbox } from './architecture-decision-inbox.js';
 import {
   architectureDecisionIssues,
   architectureDecisionDigest,
@@ -1020,6 +1021,8 @@ export class RuntimeEvidenceService {
         if (Buffer.byteLength(content) > 512 * 1024)
           conflict('The source report exceeds the evidence limit.');
         sourceRunDigest = hash(content);
+        if (input.sourceReportDigest && input.sourceReportDigest !== sourceRunDigest)
+          conflict('The design recommendation changed. Refresh before preparing approval.');
         artifacts.push({
           name: 'source-design-proposal-not-approval',
           content,
@@ -1030,6 +1033,7 @@ export class RuntimeEvidenceService {
         checkpointId: _checkpointId,
         bindingRevision: _revision,
         sourceRunId: _sourceRunId,
+        sourceReportDigest: _sourceReportDigest,
         ...proposal
       } = input;
       const architectureDecision: NonNullable<EvidenceSubmission['architectureDecision']> = {
@@ -1403,6 +1407,7 @@ export class RuntimeEvidenceService {
         ];
       });
     return {
+      decisionInbox: architectureDecisionInbox(snapshot, d),
       architectureDecisions: {
         checkpoints: architectureCheckpoints.map((c) => ({
           id: c.id,

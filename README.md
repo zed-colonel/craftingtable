@@ -11,6 +11,14 @@ it is mergeable.
 
 ## What works today
 
+- **Shared decision review.** Roadmaps and work-item design recovery show pending architecture
+  questions and applicable approvals together. New designs supply a standalone recommendation,
+  rationale, alternatives, consequences and source citations. Review the recommendation or edit
+  it, save the exact proposal, then explicitly approve it as repository maintainer. References
+  and source-report identities are collected automatically. Limited approval names its slices
+  and retained obligations; implementation, test and parent gates remain separate. Older reports
+  without complete briefs offer clarification or a manual decision. Design recovery shows approval
+  times and coverage after **Refresh available evidence**; approval never resumes a run.
 - **Plans and work items.** Import an implementation plan plus work breakdown as a plan
   bundle; browse projects, plan versions, and work items with their dependencies. Items
   move `Proposed → In agenda → Completed`; completing one unblocks its dependents.

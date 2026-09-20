@@ -115,3 +115,77 @@ it('disables a preview when the cycle changes until discovery is refreshed', asy
   expect(screen.getByRole('alert').textContent).toContain('cycle changed');
   expect(recoverDesign).not.toHaveBeenCalled();
 });
+it('shows accepted shared decisions after discovery without resuming or requiring a repeated answer', async () => {
+  const question = 'Approve WI-ADR-012?';
+  vi.mocked(previewDesignRecovery).mockResolvedValue({
+    ...preview,
+    classifications: {
+      version: 1,
+      items: [
+        {
+          kind: 'operator-decision',
+          question,
+          answer: 'Approval pending in the original report.',
+          sources: ['plan §4'],
+        },
+      ],
+    },
+    decisionInbox: {
+      workspaceId: 'ws',
+      definitionId: '00000000-0000-4000-8000-000000000001',
+      bindingRevision: 4,
+      blockers: [],
+      decisions: [
+        {
+          checkpointId: 'WI-ADR-012',
+          title: 'Ingress policy',
+          requirements: [],
+          blockers: [],
+          sourceReferences: 'plan §4',
+          consumers: [{ sliceId: 'wi/WI-03/domain', phase: 'merge' }],
+          recommendation: {
+            sourceRunId: 'run',
+            sourceReportDigest: 'a'.repeat(64),
+            sliceId: 'wi/WI-03/domain',
+            question,
+            answer: 'Original recommendation',
+            sources: ['plan §4'],
+          },
+          records: [
+            {
+              id: 'proposal',
+              applicable: true,
+              issues: [],
+              proposal: {
+                kind: 'architecture-decision-v1',
+                bindingDigest: 'b'.repeat(64),
+                coverage: 'full',
+                proposal: 'Use stable identities.',
+                sourceReferences: 'plan §4',
+                consumers: [],
+                retainedObligations: '',
+              },
+              decision: {
+                id: 'approval',
+                workspaceId: 'ws',
+                submissionId: 'proposal',
+                outcome: 'accepted',
+                rationale: 'Meets my requirements.',
+                decidedAt: '2026-09-20T00:00:00Z',
+                decidedByUserId: 'owner',
+              },
+            },
+          ],
+        },
+      ],
+    },
+  });
+  render(
+    <DesignRecoveryPanel cycle={cycle} backends={backends} csrfToken="csrf" onChanged={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Resolve design questions' }));
+  await screen.findByText('Accepted · full architectural decision');
+  expect(screen.getByText(/Shared decision accepted; ready for design confirmation/)).toBeTruthy();
+  expect(screen.queryByText('Approval pending in the original report.')).toBeNull();
+  expect(recoverDesign).not.toHaveBeenCalled();
+});

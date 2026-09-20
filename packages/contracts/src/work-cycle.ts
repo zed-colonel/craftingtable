@@ -1,4 +1,5 @@
 import { designDependencySchema, designReportSchema } from './design-report.js';
+import { architectureDecisionInboxSchema } from './runtime-evidence.js';
 import { phaseBlockerSchema } from './execution-scope.js';
 import { executionScopeSchema } from './execution-scope.js';
 import {
@@ -97,6 +98,7 @@ export const recoverDesignRequestSchema = z.strictObject({
 });
 export type RecoverDesignRequest = z.infer<typeof recoverDesignRequestSchema>;
 export const designRecoveryPreviewSchema = z.strictObject({
+  decisionInbox: architectureDecisionInboxSchema.optional(),
   expectedVersion: z.number().int().positive(),
   sourceRunId: agentRunIdSchema,
   classifications: designReportSchema.optional(),

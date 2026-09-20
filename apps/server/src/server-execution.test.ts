@@ -11890,8 +11890,32 @@ it('records explicit architecture approval, stages named consumers without passi
     ],
   });
   const designTree = await scopeTree(f, f.scopes[0]!);
+  const decisionBrief = {
+    checkpointId: 'LOCAL-ADR-01',
+    decisionText: 'Use stable identifiers and the complete transport contract.',
+    why: 'Preserves identity across replay.',
+    alternatives: [{ option: 'Ephemeral identifiers', tradeoff: 'Loses replay identity' }],
+    consequences: 'Implementation and independent verification remain required.',
+    coverage: 'full',
+    consumers: [],
+    retainedObligations: '',
+  };
   f.backend.replyForRequest = () => ({
-    resultText: 'ADR-01 recommends identifiers first.\n## Open questions\nApprove the decision?',
+    resultText:
+      'ADR-01 recommends identifiers first.\n```craftingtable-design\n' +
+      JSON.stringify({
+        version: 1,
+        items: [
+          {
+            kind: 'operator-decision',
+            question: 'Approve LOCAL-ADR-01?',
+            answer: 'Recommend stable identifiers.',
+            sources: ['source-plan.md §4'],
+            decision: decisionBrief,
+          },
+        ],
+      }) +
+      '\n```\n## Open questions\nApprove the decision?',
   });
   const sourceRunId = await runToFinish(f.state, designTree.id, { role: 'design' });
   const discovered = await svc.view(f.auth, ws, id);
@@ -11899,8 +11923,14 @@ it('records explicit architecture approval, stages named consumers without passi
     discovered.architectureDecisions.designRuns.find((r) => r.id === sourceRunId)?.checkpointIds,
   ).toContain('LOCAL-ADR-01');
   const base = `/api/workspaces/${ws}/concurrency-definitions/${id}/runtime`;
+  const inbox = discovered.decisionInbox;
+  expect(inbox.decisions[0]?.recommendation?.brief).toEqual(decisionBrief);
+  expect(inbox.decisions[0]?.sourceReferences).toContain('source-plan.md §4');
+  expect(inbox.decisions[0]?.records).toEqual([]);
+  const { architectureDecisionInbox } = await import('./services/architecture-decision-inbox.js');
   const input = {
     sourceRunId,
+    sourceReportDigest: inbox.decisions[0]!.recommendation!.sourceReportDigest,
     checkpointId: 'LOCAL-ADR-01',
     bindingRevision: 1,
     coverage: 'clauses' as const,
@@ -11910,6 +11940,13 @@ it('records explicit architecture approval, stages named consumers without passi
       'The later slice still requires transport, credential and live-provider decisions.',
     consumers: [{ sliceId: 'AQ-01.A', phase: 'merge' as const, replacesFullCheckpoint: true }],
   };
+  await expect(
+    svc.proposeArchitectureDecision(f.auth, ws, id, {
+      ...input,
+      sourceReportDigest: '0'.repeat(64),
+    }),
+  ).rejects.toThrow('recommendation changed');
+  expect(tx.runtimeEvidence.submissions(ws, id)).toHaveLength(0);
   const forbidden = await context.app.inject({
     method: 'POST',
     url: `${base}/propose-decision`,
@@ -11948,6 +11985,18 @@ it('records explicit architecture approval, stages named consumers without passi
   expect(stagedDecision(tx, ws, f.scopes[0]!, 'LOCAL-ADR-01')?.id).toBe(submission.id);
   expect(stagedDecision(tx, ws, f.scopes[1]!, 'LOCAL-ADR-01')).toBeUndefined();
   expect(stagedDecision(tx, ws, f.parentScope, 'LOCAL-ADR-01')).toBeUndefined();
+  const definition = tx.imports.definition(ws, id)!;
+  expect(
+    architectureDecisionInbox(tx, definition, f.scopes[0]).decisions[0]?.records[0],
+  ).toMatchObject({
+    applicable: true,
+    issues: [],
+    decision: { outcome: 'accepted' },
+    proposal: { coverage: 'clauses' },
+  });
+  expect(
+    architectureDecisionInbox(tx, definition, f.scopes[1]).decisions[0]?.records[0]?.applicable,
+  ).toBe(false);
   expect(acceptedEvidence(tx, ws, id, 1, submission.subject)).toBeUndefined();
   expect(architectureDecisionDigest(tx, ws, f.scopes[0]!)).not.toBe(before);
   const afterApproval = mapReadSnapshot(tx);
@@ -11993,6 +12042,25 @@ it('records explicit architecture approval, stages named consumers without passi
     rationale: 'Reviewed and approved the full contract.',
   });
   expect(acceptedEvidence(tx, ws, id, 1, full.subject)?.id).toBe(full.id);
+  expect(
+    architectureDecisionInbox(tx, definition, f.scopes[1]).decisions[0]?.records.find(
+      (r) => r.id === full.id,
+    ),
+  ).toMatchObject({
+    applicable: true,
+    issues: [],
+    decision: { outcome: 'accepted' },
+    proposal: { coverage: 'full' },
+  });
+  const inboxResponse = await context.app.inject({
+    method: 'GET',
+    url: base,
+    headers: { cookie: f.state.cookie },
+  });
+  expect(inboxResponse.statusCode, inboxResponse.body).toBe(200);
+  expect(inboxResponse.json().decisionInbox.decisions[0].records[0].decision.outcome).toBe(
+    'accepted',
+  );
   await expect(
     svc.decide(f.auth, ws, id, {
       submissionId: full.id,
@@ -12004,6 +12072,9 @@ it('records explicit architecture approval, stages named consumers without passi
   tx.imports.addBindings({ ...binding, revision: 2 });
   expect(acceptedEvidence(tx, ws, id, 2, full.subject)).toBeUndefined();
   expect(architectureDecisionDigest(mapReadSnapshot(tx), ws, f.scopes[0]!)).toBeUndefined();
+  expect(
+    architectureDecisionInbox(tx, definition).decisions[0]?.records[0]?.issues.join(' '),
+  ).toContain('binding changed');
 });
 
 it('does not implement a classified operator decision hidden behind Open questions none', async () => {

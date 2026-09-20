@@ -538,6 +538,22 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       .fill('Disposable walkthrough fixtures only.');
     await runtime.getByRole('button', { name: 'Save dependency environment', exact: true }).click();
     await expect(runtime.getByText('Generation 1 · binding 1', { exact: true })).toBeVisible();
+    await runtime
+      .getByText('Advanced manual decision preparation and clause staging', { exact: true })
+      .click();
+    await runtime.getByText('Prepare a decision or stage early clauses', { exact: true }).click();
+    await runtime
+      .getByRole('combobox', { name: 'Architecture checkpoint', exact: true })
+      .selectOption('WI-ADR-012');
+    await runtime
+      .getByLabel('Exact decision to approve', { exact: true })
+      .fill(
+        'Use stable provider identities and retain ordering evidence. Verify replay and duplicate handling independently.',
+      );
+    await runtime.getByRole('button', { name: 'Save proposal for review', exact: true }).click();
+    await expect(
+      runtime.getByText('Proposal saved · awaiting your approval', { exact: true }),
+    ).toBeVisible();
     writeFileSync(join(upstream, 'POLICY.md'), 'Updated fixture policy.\n');
     git(['add', 'POLICY.md'], upstream);
     git(['commit', '--no-gpg-sign', '-m', 'Update provider fixture'], upstream);
@@ -558,6 +574,17 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       await expect(region.getByText(/selected milestones/)).toBeVisible();
     };
     await selectTarget(page);
+    await walk.capture(
+      'roadmaps-shared-decision-review',
+      'Roadmaps · shared decision, automatic references and explicit approval',
+      async (p: Page) => {
+        await selectTarget(p);
+        const card = p.getByRole('region', { name: 'WI-ADR-012', exact: true });
+        await card.getByRole('button', { name: 'Review saved proposal', exact: true }).click();
+        await expect(card.getByText('Review the saved decision', { exact: true })).toBeVisible();
+        await card.scrollIntoViewIfNeeded();
+      },
+    );
     await walk.capture(
       'roadmaps-dependency-refresh',
       'Roadmaps · explicit dependency refresh preview',

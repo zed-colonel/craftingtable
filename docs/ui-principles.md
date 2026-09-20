@@ -266,3 +266,12 @@ unchanged saves; unsaved edits block generation/acceptance of plan evidence and 
 Reviewer responsibilities use independent checkboxes with source-scope context and direct focus
 links to the controls. Existing assignments stay visible; no assignment is made implicitly.
 Amendment maintenance follows routine supervision and starts collapsed unless a proposal is pending.
+
+Shared architecture decisions appear as actionable cards on both the roadmap and design recovery.
+Show current full or limited approval, scope and approval time beside the recorded question.
+Recommendations explain the proposed choice, rationale, alternatives and consequences in ordinary
+language. Collect source references automatically and keep provenance in disclosures. Preparing
+an exact decision and explicitly approving it remain separate; neither starts a run. Limited
+approval identifies consumers and retained obligations, with the saved-plan review consequence.
+Historical questions remain readable but do not hide newer approvals. Keep draft edits and
+expanded evidence stable during background refreshes.

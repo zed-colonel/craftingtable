@@ -18,10 +18,11 @@ export function ScopeReviewRecovery({
   const [choices, setChoices] = useState<ExecutionScopeChoice[]>();
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
+  const [refreshing, setRefreshing] = useState(true);
   // biome-ignore lint/correctness/useExhaustiveDependencies: daemon events refresh current phase gates.
   useEffect(() => {
     let alive = true;
-    setChoices(undefined);
+    setRefreshing(true);
     setError(undefined);
     if (cycle.workItemId)
       void loadExecutionScopes(cycle.workspaceId, cycle.workItemId)
@@ -31,6 +32,9 @@ export function ScopeReviewRecovery({
         .catch((e) => {
           if (alive)
             setError(e instanceof Error ? e.message : 'Could not load review requirements.');
+        })
+        .finally(() => {
+          if (alive) setRefreshing(false);
         });
     return () => {
       alive = false;
@@ -55,7 +59,7 @@ export function ScopeReviewRecovery({
       className="stack-form"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!disabled && phase && !blockers.length) onResume(instructions);
+        if (!disabled && !refreshing && !error && phase && !blockers.length) onResume(instructions);
       }}
     >
       <h3>
@@ -75,7 +79,7 @@ export function ScopeReviewRecovery({
           {error}
         </p>
       )}
-      {!choices && !error && <p role="status">Checking current review requirements…</p>}
+      {refreshing && !error && <p role="status">Checking current review requirements…</p>}
       {choices && !phase && (
         <p className="warning-state">
           The bound scope is unavailable. Review its exact plan binding before resuming.
@@ -116,7 +120,7 @@ export function ScopeReviewRecovery({
       <button
         type="submit"
         className="primary-button"
-        disabled={disabled || !phase || !!blockers.length}
+        disabled={disabled || refreshing || !!error || !phase || !!blockers.length}
       >
         {repeat ? 'Start fresh scope review' : 'Resume scope review'}
       </button>

@@ -296,6 +296,7 @@ export async function createServices(
       config.publicOrigin,
       now,
       () => storageService.alerts(),
+      (id) => workCycleService.isTransitioning(id),
     ),
     packageImportService: new PackageImportService(
       storage,

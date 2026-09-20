@@ -218,6 +218,18 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
     expect(refreshed.lastSequence).toBe(4);
     expect(refreshed.events).toHaveLength(2);
   });
+  it('does not skip detail invalidations when a background snapshot is ahead of the stream', () => {
+    const refreshed = reduceWorkspaceProjection(hydrate(), {
+      type: 'snapshot-loaded',
+      snapshot: { ...snapshot, asOfSequence: 10 },
+    });
+    const advanced = reduceWorkspaceProjection(refreshed, {
+      type: 'event-received',
+      event: { ...event, sequence: 2, id: asEventId('event-2') },
+    });
+    expect(advanced.lastSequence).toBe(2);
+    expect(advanced.stale.workspaceSummary).toBe(true);
+  });
 });
 
 describe('repository event invalidation', () => {

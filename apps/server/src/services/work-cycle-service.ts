@@ -65,6 +65,29 @@ export class WorkCycleService {
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
   private readonly ending = new Set<string>();
+  private readonly transitioning = new Set<string>();
+
+  isTransitioning(id: string): boolean {
+    return this.transitioning.has(id);
+  }
+
+  /** A command already owns this recovery. No scheduler takeover or stale alert
+   * may race its asynchronous Git preparation. Restart releases the guard and
+   * leaves the durable checkpoint available for explicit recovery. */
+  private async duringTransition<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    if (this.transitioning.has(id))
+      throw new ExecutionRequestError('conflict', 'Recovery is already being prepared.');
+    this.transitioning.add(id);
+    this.notifier.notify('activity');
+    try {
+      return await operation();
+    } finally {
+      this.transitioning.delete(id);
+      // Real state mutations already wake workflow workers. A transient resource
+      // failure must not wake its own retry loop without a durable state change.
+      this.notifier.notify('activity');
+    }
+  }
 
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -83,7 +106,9 @@ export class WorkCycleService {
     this.workspaceService.requireAuthorized(context, workspaceId);
     const tx = mapReadSnapshot(this.storage);
     return this.storage.execution.cycles.list(workspaceId).map((c) => {
-      const wait = automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c);
+      const wait = this.isTransitioning(c.id)
+        ? 'Preparing the requested recovery. Existing findings remain available.'
+        : (automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c));
       return wait ? { ...c, scopeReviewWait: wait } : c;
     });
   }
@@ -167,83 +192,88 @@ export class WorkCycleService {
     const key = `${workspaceId}:${source.workItemId}:${input.sourceId}`;
     if (this.repairing.has(key))
       throw new ExecutionRequestError('conflict', 'Slice repair is already being prepared.');
-    this.repairing.add(key);
-    try {
-      this.validateSettings({ profiles: delegation?.profiles ?? selected.profiles });
-      const resolved = requireScope(
-        this.storage,
-        workspaceId,
-        source.workItemId,
-        selected.scope,
-        'start',
-      );
-      let tree =
-        selected.worktreeId &&
-        this.storage.execution.worktrees.find(workspaceId, selected.worktreeId);
-      if (delegation && tree && tree.id !== delegation.worktreeId)
-        throw new ExecutionRequestError('conflict', 'Another slice attempt needs manual recovery.');
-      if (!tree)
-        tree = await this.execution.createWorktree(
-          context,
-          workspaceId,
-          source.workItemId,
-          { repositoryId: resolved.binding.repositoryId!, executionScope: selected.scope },
-          undefined,
-          delegation ? { id: delegation.worktreeId, check } : undefined,
-        );
-      check();
-      // Recheck source journals after Git, but allow the newly prepared (empty) worktree.
-      const fresh = collectScopeRepair(mapReadSnapshot(this.storage), source);
-      const freshOwner = fresh.candidates.find((c) => c.scope.sourceId === input.sourceId);
-      if (
-        JSON.stringify(fresh.sources) !== JSON.stringify(preview.sources) ||
-        !freshOwner ||
-        freshOwner.blockers.length ||
-        freshOwner.cycleId
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'Source findings changed during preparation; refresh recovery.',
-        );
-      return this.storage.transaction(() => {
-        check();
-        const started = this.start(
-          context,
+    return this.duringTransition(id, async () => {
+      this.repairing.add(key);
+      try {
+        this.validateSettings({ profiles: delegation?.profiles ?? selected.profiles! });
+        const resolved = requireScope(
+          this.storage,
           workspaceId,
           source.workItemId!,
-          {
-            worktreeId: tree.id,
-            profiles: delegation?.profiles ?? selected.profiles!,
-            policy: delegation?.policy ?? {
-              ...selected.policy!,
-              maxRemediationRounds: input.maxRemediationRounds,
+          selected.scope,
+          'start',
+        );
+        let tree =
+          selected.worktreeId &&
+          this.storage.execution.worktrees.find(workspaceId, selected.worktreeId);
+        if (delegation && tree && tree.id !== delegation.worktreeId)
+          throw new ExecutionRequestError(
+            'conflict',
+            'Another slice attempt needs manual recovery.',
+          );
+        if (!tree)
+          tree = await this.execution!.createWorktree(
+            context,
+            workspaceId,
+            source.workItemId!,
+            { repositoryId: resolved.binding.repositoryId!, executionScope: selected.scope },
+            undefined,
+            delegation ? { id: delegation.worktreeId, check } : undefined,
+          );
+        check();
+        // Recheck source journals after Git, but allow the newly prepared (empty) worktree.
+        const fresh = collectScopeRepair(mapReadSnapshot(this.storage), source);
+        const freshOwner = fresh.candidates.find((c) => c.scope.sourceId === input.sourceId);
+        if (
+          JSON.stringify(fresh.sources) !== JSON.stringify(preview.sources) ||
+          !freshOwner ||
+          freshOwner.blockers.length ||
+          freshOwner.cycleId
+        )
+          throw new ExecutionRequestError(
+            'conflict',
+            'Source findings changed during preparation; refresh recovery.',
+          );
+        return this.storage.transaction(() => {
+          check();
+          const started = this.start(
+            context,
+            workspaceId,
+            source.workItemId!,
+            {
+              worktreeId: tree.id,
+              profiles: delegation?.profiles ?? selected.profiles!,
+              policy: delegation?.policy ?? {
+                ...selected.policy!,
+                maxRemediationRounds: input.maxRemediationRounds,
+              },
+              instructions: input.instructions,
             },
-            instructions: input.instructions,
-          },
-          delegation?.cycleId,
-        );
-        const sources = selectedSources.map((s) => ({
-          runId: s.runId,
-          sequence: s.sequence,
-          label: s.label,
-        }));
-        const repaired = this.change(
-          started,
-          {
-            step: 'remediate',
-            scopeRepair: { sourceCycleId: id, sources },
-            reason:
-              'Implementing the pinned independent-review findings in the owning slice. Integration follows its recorded merge policy.',
-          },
-          'delegate-scope-repair',
-          context,
-        );
-        delegation?.attach();
-        return repaired;
-      });
-    } finally {
-      this.repairing.delete(key);
-    }
+            delegation?.cycleId,
+          );
+          const sources = selectedSources.map((s) => ({
+            runId: s.runId,
+            sequence: s.sequence,
+            label: s.label,
+          }));
+          const repaired = this.change(
+            started,
+            {
+              step: 'remediate',
+              scopeRepair: { sourceCycleId: id, sources },
+              reason:
+                'Implementing the pinned independent-review findings in the owning slice. Integration follows its recorded merge policy.',
+            },
+            'delegate-scope-repair',
+            context,
+          );
+          delegation?.attach();
+          return repaired;
+        });
+      } finally {
+        this.repairing.delete(key);
+      }
+    });
   }
 
   private requireDesignRecovery(context: CommandContext, workspaceId: WorkspaceId, id: string) {
@@ -1065,28 +1095,30 @@ export class WorkCycleService {
       throw new ExecutionRequestError('unavailable', 'Branch operations are unavailable.');
     // Existing branch authority rejects dirty, diverged, retired or busy snapshots. It only
     // fast-forwards review worktrees, and invalidates older branch-context evidence first.
-    await this.branches.changeWorktree(
-      context,
-      workspaceId,
-      tree.id,
-      { expectedVersion: tree.version },
-      true,
-      { cycleId: id, check },
-    );
-    return this.mutations.during(tree.id, async () => {
-      check();
-      return this.next(
-        cycle,
-        'review',
-        this.storage.execution.runs.find(workspaceId, cycle.currentRunId),
+    return this.duringTransition(id, async () => {
+      await this.branches!.changeWorktree(
         context,
-        {
-          instructions,
-          reason: 'Starting a fresh independent review with the existing reviewer assignment.',
-        },
-        'review-again',
-        { check: delegationCheck, attach: onReviewReserved },
+        workspaceId,
+        tree.id,
+        { expectedVersion: tree.version },
+        true,
+        { cycleId: id, check },
       );
+      return this.mutations.during(tree.id, async () => {
+        check();
+        return this.next(
+          cycle,
+          'review',
+          this.storage.execution.runs.find(workspaceId, cycle.currentRunId),
+          context,
+          {
+            instructions,
+            reason: 'Starting a fresh independent review with the existing reviewer assignment.',
+          },
+          'review-again',
+          { check: delegationCheck, attach: onReviewReserved },
+        );
+      });
     });
   }
 
@@ -1210,19 +1242,21 @@ export class WorkCycleService {
           throw new ExecutionRequestError('conflict', 'Cycle changed; refresh before resuming.');
         this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
       };
-      await this.branches.changeWorktree(
-        context,
-        workspaceId,
-        tree.id,
-        { expectedVersion: tree.version },
-        true,
-        { cycleId: id, check },
-      );
-      return this.mutations.during(tree.id, async () => {
-        check();
-        return this.next(cycle, 'review', run, context, { instructions }, 'resume', {
-          check: delegationCheck,
-          attach: onReviewReserved,
+      return this.duringTransition(id, async () => {
+        await this.branches!.changeWorktree(
+          context,
+          workspaceId,
+          tree.id,
+          { expectedVersion: tree.version },
+          true,
+          { cycleId: id, check },
+        );
+        return this.mutations.during(tree.id, async () => {
+          check();
+          return this.next(cycle, 'review', run, context, { instructions }, 'resume', {
+            check: delegationCheck,
+            attach: onReviewReserved,
+          });
         });
       });
     }

@@ -11030,8 +11030,33 @@ it('repeats completed verification in its existing worktree with the assigned ro
   expect(dirty.statusCode, dirty.body).toBe(409);
   expect(readFileSync(join(tree.path, 'operator-note.txt'), 'utf8')).toBe('preserve this');
   expect(currentCycle(state, cycle)).toEqual(cycle);
+  expect(state.context.services.workCycleService.isTransitioning(cycle.id)).toBe(false);
   rmSync(join(tree.path, 'operator-note.txt'));
-  const result = await command();
+  const branches = state.context.services.executionService.branches;
+  const changeWorktree = branches.changeWorktree.bind(branches);
+  let release!: () => void;
+  const preparation = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const delayed = vi.spyOn(branches, 'changeWorktree').mockImplementationOnce(async (...args) => {
+    await preparation;
+    return changeWorktree(...args);
+  });
+  const pending = command().then((response) => response);
+  await waitFor(
+    () => state.context.services.workCycleService.isTransitioning(cycle.id),
+    'review preparation guard',
+  );
+  expect(
+    state.context.services.workCycleService.list(f.auth, ws).find((c) => c.id === cycle.id)
+      ?.scopeReviewWait,
+  ).toContain('Preparing the requested recovery');
+  const duplicate = await command();
+  expect(duplicate.statusCode, duplicate.body).toBe(409);
+  release();
+  const result = await pending;
+  delayed.mockRestore();
+  expect(state.context.services.workCycleService.isTransitioning(cycle.id)).toBe(false);
   expect(result.statusCode, result.body).toBe(200);
   expect(git(['rev-parse', 'HEAD'], tree.path).trim()).toBe(head);
   const repeated = currentCycle(state, cycle);
@@ -11910,6 +11935,9 @@ it('records explicit architecture approval, stages named consumers without passi
   const { stagedDecision, architectureDecisionDigest } = await import(
     './services/architecture-decision-policy.js'
   );
+  const { mapReadSnapshot } = await import('./services/map-read-snapshot.js');
+  const beforeApproval = mapReadSnapshot(tx);
+  expect(architectureDecisionDigest(beforeApproval, ws, f.scopes[0]!)).toBeUndefined();
   expect(stagedDecision(tx, ws, f.scopes[0]!, 'LOCAL-ADR-01')).toBeUndefined();
   const before = architectureDecisionDigest(tx, ws, f.scopes[0]!);
   await svc.decide(f.auth, ws, id, {
@@ -11922,6 +11950,8 @@ it('records explicit architecture approval, stages named consumers without passi
   expect(stagedDecision(tx, ws, f.parentScope, 'LOCAL-ADR-01')).toBeUndefined();
   expect(acceptedEvidence(tx, ws, id, 1, submission.subject)).toBeUndefined();
   expect(architectureDecisionDigest(tx, ws, f.scopes[0]!)).not.toBe(before);
+  const afterApproval = mapReadSnapshot(tx);
+  expect(architectureDecisionDigest(afterApproval, ws, f.scopes[0]!)).not.toBe(before);
   const { crossProjectState } = await import('./services/cross-project-service.js');
   const projected = crossProjectState(tx, ws, {
     definitionId: id,
@@ -11973,6 +12003,7 @@ it('records explicit architecture approval, stages named consumers without passi
   const binding = tx.imports.bindings(ws, id)[0]!;
   tx.imports.addBindings({ ...binding, revision: 2 });
   expect(acceptedEvidence(tx, ws, id, 2, full.subject)).toBeUndefined();
+  expect(architectureDecisionDigest(mapReadSnapshot(tx), ws, f.scopes[0]!)).toBeUndefined();
 });
 
 it('does not implement a classified operator decision hidden behind Open questions none', async () => {

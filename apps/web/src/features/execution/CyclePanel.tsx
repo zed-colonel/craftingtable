@@ -86,7 +86,8 @@ export function CyclePanel({
     ) ??
     activeWorktrees.find((t) => !t.executionScope || t.executionScope.kind === 'slice') ??
     activeWorktrees[0];
-  const [worktreeId, setWorktreeId] = useState('');
+  // Once visible, keep the inspected worktree selected while siblings change state.
+  const [worktreeId, setWorktreeId] = useState(() => preferred?.id ?? '');
   const selected =
     activeWorktrees.find((worktree) => worktree.id === (selectedWorktreeId ?? worktreeId))?.id ??
     preferred?.id ??

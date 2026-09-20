@@ -1,6 +1,6 @@
 import type { ScopeRepairPreview } from '@craftingtable/contracts';
 import { asAgentRunId, type WorkCycle } from '@craftingtable/domain';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { delegateScopeRepair, previewScopeRepair } from '../../lib/work-cycle-api.js';
 import { attentionCycles } from '../../components/AttentionStrip.js';
@@ -168,4 +168,59 @@ it('keeps current attention but omits prerequisite waits without mutating histor
   };
   expect(attentionCycles([waiting, cycle])).toEqual([cycle]);
   expect(waiting.reason).toBe('Old policy question');
+});
+
+it('preserves expanded findings and draft guidance through slow, failed and newer background previews', async () => {
+  vi.mocked(previewScopeRepair).mockResolvedValue(preview);
+  const props = {
+    cycle,
+    disabled: false,
+    csrfToken: 'csrf',
+    refreshToken: 0,
+    onStarted: vi.fn(),
+    onOpen: vi.fn(),
+  };
+  const { rerender } = render(<ScopeRepairPanel {...props} />);
+  const finding = await screen.findByText('R2.F-003 · major · Semantic inventory');
+  const disclosure = finding.closest('details')!;
+  disclosure.open = true;
+  fireEvent.change(screen.getByLabelText('Additional repair guidance'), {
+    target: { value: 'Keep this draft.' },
+  });
+  let reject!: (e: Error) => void;
+  vi.mocked(previewScopeRepair).mockReturnValueOnce(
+    new Promise((_resolve, fail) => {
+      reject = fail;
+    }),
+  );
+  rerender(<ScopeRepairPanel {...props} refreshToken={1} cycle={{ ...cycle, version: 6 }} />);
+  await screen.findByText('Refreshing source recovery… Existing findings remain visible.');
+  expect(screen.getByText('R2.F-003 · major · Semantic inventory').closest('details')).toBe(
+    disclosure,
+  );
+  expect(disclosure.open).toBe(true);
+  fireEvent.submit(screen.getByRole('form', { name: 'Delegate source fixes' }));
+  expect(delegateScopeRepair).not.toHaveBeenCalled();
+  await act(async () => reject(new Error('Temporary refresh failure')));
+  await screen.findByRole('alert');
+  expect(disclosure.open).toBe(true);
+  expect(
+    (screen.getByRole('button', { name: 'Delegate fixes to owning slice' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  vi.mocked(previewScopeRepair).mockResolvedValue({ ...preview, cycleVersion: 6 });
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh source recovery' }));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Delegate fixes to owning slice' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false),
+  );
+  expect(screen.getByText('R2.F-003 · major · Semantic inventory').closest('details')).toBe(
+    disclosure,
+  );
+  expect(disclosure.open).toBe(true);
+  expect((screen.getByLabelText('Additional repair guidance') as HTMLTextAreaElement).value).toBe(
+    'Keep this draft.',
+  );
 });

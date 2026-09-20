@@ -199,6 +199,8 @@ workflow changes: turn completion, run status and persisted commands still wake 
 while ordinary messages/tool output do not trigger full map evaluation. Periodic checks remain
 for deadlines and external changes. Map projections share memoized repository reads only within
 one synchronous read pass; no snapshot survives a mutation or asynchronous execution boundary.
+Decision-binding hashes, approved decisions and evidence prerequisite results share that same
+read-pass lifetime. Notification delivery wakes browser streams without waking workflow workers.
 
 ## Browser
 
@@ -209,6 +211,13 @@ them all, and every workspace page hangs off `/workspaces/:id`. The run page loa
 committed events once and then follows the live stream from the last sequence inside
 its own scroll pane. No agent output is ever rendered as markup. The visual language is
 in `docs/ui-principles.md`.
+
+Background invalidations are batched in a bounded window. Same-workspace snapshots do not move
+the stream cursor past unread detail invalidations. Recovery panels retain their disclosures and
+draft guidance while refreshing; commands wait for current checks and still use daemon versions.
+An in-flight recovery command owns its preparation until completion or failure. Scheduling and
+notification delivery defer to it; a failed preparation restores the original attention and reminder
+schedule. Restart releases this transient ownership without replaying the command.
 
 The notification service reconciles durable work-item attention into a SQLite outbox,
 claims deliveries with expiring leases, and schedules retries and local-time reminders.

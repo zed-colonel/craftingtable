@@ -44,7 +44,7 @@ export function mapReadSnapshot(source: StorageRepositories): StorageRepositorie
       cycles: memo(source.execution.cycles, ['find', 'list', 'activeForWorktree']),
       runs: memo(source.execution.runs, ['find', 'listForWorktree']),
       runEvents: memo(source.execution.runEvents, ['latestOfKind']),
-      branchSettings: memo(source.execution.branchSettings, ['find']),
+      branchSettings: memo(source.execution.branchSettings, ['find', 'policy']),
       sourceRepositories: memo(source.execution.sourceRepositories, ['find']),
     },
     scopeReceipts: memo(source.scopeReceipts, ['list']),

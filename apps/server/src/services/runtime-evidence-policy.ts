@@ -344,21 +344,36 @@ export function acceptedEvidence(
   subject: EvidenceSubject,
   visiting = new Set<string>(),
 ): EvidenceSubmission | undefined {
-  const d = tx.imports.definition(ws, definitionId),
-    runtime = activeRuntime(tx, ws, definitionId, bindingRevision);
-  if (!d || !runtime) return;
-  const decisions = tx.runtimeEvidence.decisions(ws);
-  return tx.runtimeEvidence
-    .submissions(ws, definitionId)
-    .find(
-      (s) =>
-        s.subject.kind === subject.kind &&
-        s.subject.sourceId === subject.sourceId &&
-        s.architectureDecision?.coverage !== 'clauses' &&
-        decisions.some((a) => a.submissionId === s.id && a.outcome === 'accepted') &&
-        !submissionIssues(tx, d, runtime, s).length &&
-        !prerequisiteIssues(tx, d, bindingRevision, subject, visiting).length,
-    );
+  // Preserve the recursion path in the key: a cached success must never bypass
+  // circular-prerequisite detection. This cache lives only for this read pass.
+  return snapshotCalculation(
+    tx,
+    JSON.stringify([
+      'accepted-evidence',
+      ws,
+      definitionId,
+      bindingRevision,
+      subject,
+      [...visiting].sort(),
+    ]),
+    () => {
+      const d = tx.imports.definition(ws, definitionId),
+        runtime = activeRuntime(tx, ws, definitionId, bindingRevision);
+      if (!d || !runtime) return;
+      const decisions = tx.runtimeEvidence.decisions(ws);
+      return tx.runtimeEvidence
+        .submissions(ws, definitionId)
+        .find(
+          (s) =>
+            s.subject.kind === subject.kind &&
+            s.subject.sourceId === subject.sourceId &&
+            s.architectureDecision?.coverage !== 'clauses' &&
+            decisions.some((a) => a.submissionId === s.id && a.outcome === 'accepted') &&
+            !submissionIssues(tx, d, runtime, s).length &&
+            !prerequisiteIssues(tx, d, bindingRevision, subject, visiting).length,
+        );
+    },
+  );
 }
 export function runtimeScopeBlockers(
   tx: StorageRepositories,
@@ -389,7 +404,11 @@ export function runtimeScopeBlockers(
   const consumer = runtime.consumers.find((c) => c.alias === consumerAlias);
   if (!consumer)
     return [{ kind: 'evidence', message: `Configure supplied dependencies for ${consumerAlias}.` }];
-  return requiredUpstreams(d, consumerAlias)
+  return snapshotCalculation(
+    tx,
+    `required-upstreams:${ws}:${d.id}:${d.digest}:${consumerAlias}`,
+    () => requiredUpstreams(d, consumerAlias),
+  )
     .filter(
       (alias) =>
         !consumer.upstreams.includes(alias) || !runtime.pins.some((p) => p.alias === alias),

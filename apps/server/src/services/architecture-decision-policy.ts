@@ -6,6 +6,7 @@ import type {
   WorkspaceId,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
+import { snapshotCalculation } from './map-read-snapshot.js';
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const requirements = [
@@ -35,10 +36,15 @@ export function decisionBindingDigest(
   d: ConcurrencyDefinition,
   revision: number,
 ) {
-  return hash({
-    map: d.digest,
-    binding: tx.imports.bindings(d.workspaceId, d.id).find((b) => b.revision === revision),
-  });
+  return snapshotCalculation(
+    tx,
+    `decision-binding:${d.workspaceId}:${d.id}:${d.digest}:${revision}`,
+    () =>
+      hash({
+        map: d.digest,
+        binding: tx.imports.bindings(d.workspaceId, d.id).find((b) => b.revision === revision),
+      }),
+  );
 }
 export function architectureDecisionIssues(
   tx: StorageRepositories,
@@ -108,22 +114,24 @@ export function approvedArchitectureDecisions(
   id: string,
   revision: number,
 ) {
-  const d = tx.imports.definition(ws, id);
-  if (!d) return [];
-  const decisions = tx.runtimeEvidence.decisions(ws);
-  const seen = new Set<string>();
-  return tx.runtimeEvidence.submissions(ws, id).filter((s) => {
-    if (
-      !s.architectureDecision ||
-      s.bindingRevision !== revision ||
-      architectureDecisionIssues(tx, d, s).length ||
-      !decisions.some((a) => a.submissionId === s.id && a.outcome === 'accepted')
-    )
-      return false;
-    const key = `${s.subject.sourceId}:${s.architectureDecision.coverage}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+  return snapshotCalculation(tx, `approved-decisions:${ws}:${id}:${revision}`, () => {
+    const d = tx.imports.definition(ws, id);
+    if (!d) return [];
+    const decisions = tx.runtimeEvidence.decisions(ws);
+    const seen = new Set<string>();
+    return tx.runtimeEvidence.submissions(ws, id).filter((s) => {
+      if (
+        !s.architectureDecision ||
+        s.bindingRevision !== revision ||
+        !decisions.some((a) => a.submissionId === s.id && a.outcome === 'accepted') ||
+        architectureDecisionIssues(tx, d, s).length
+      )
+        return false;
+      const key = `${s.subject.sourceId}:${s.architectureDecision.coverage}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   });
 }
 export function scopeArchitectureDecisions(

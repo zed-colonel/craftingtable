@@ -238,9 +238,7 @@ export function reduceWorkspaceProjection(
         statusSummary: action.snapshot.statusSummary,
         planningSummary: action.snapshot.planningSummary,
         projects: action.snapshot.projects,
-        lastSequence: sameWorkspace
-          ? Math.max(state.lastSequence, action.snapshot.asOfSequence)
-          : action.snapshot.asOfSequence,
+        lastSequence: sameWorkspace ? state.lastSequence : action.snapshot.asOfSequence,
         events: sameWorkspace ? state.events : action.snapshot.recentActivity,
         invalidPayloadCount: sameWorkspace ? state.invalidPayloadCount : 0,
         foreignWorkspaceEventCount: sameWorkspace ? state.foreignWorkspaceEventCount : 0,

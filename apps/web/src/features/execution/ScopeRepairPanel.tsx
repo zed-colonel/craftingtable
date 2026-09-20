@@ -26,10 +26,13 @@ export function ScopeRepairPanel({
   const [instructions, setInstructions] = useState('');
   const [rounds, setRounds] = useState(3);
   const [retry, setRetry] = useState(0);
+  const [refreshing, setRefreshing] = useState(true);
   // biome-ignore lint/correctness/useExhaustiveDependencies: current phase events refresh the preview.
   useEffect(() => {
     let alive = true;
-    setPreview(undefined);
+    // Keep the findings mounted while revalidating. Unmounting collapses native
+    // disclosures and interrupts the operator's reading on every workspace event.
+    setRefreshing(true);
     setError(undefined);
     void previewScopeRepair(cycle)
       .then((p) => {
@@ -37,6 +40,9 @@ export function ScopeRepairPanel({
       })
       .catch((e) => {
         if (alive) setError(e instanceof Error ? e.message : 'Could not load source recovery.');
+      })
+      .finally(() => {
+        if (alive) setRefreshing(false);
       });
     return () => {
       alive = false;
@@ -69,6 +75,8 @@ export function ScopeRepairPanel({
         if (
           !owner ||
           busy ||
+          refreshing ||
+          error ||
           disabled ||
           owner.blockers.length ||
           owner.cycleId ||
@@ -101,6 +109,9 @@ export function ScopeRepairPanel({
         <p role="alert" className="error-state">
           {error}
         </p>
+      )}
+      {refreshing && (
+        <p role="status">Refreshing source recovery… Existing findings remain visible.</p>
       )}
       <button type="button" disabled={busy || disabled} onClick={() => setRetry((n) => n + 1)}>
         Refresh source recovery
@@ -207,6 +218,8 @@ export function ScopeRepairPanel({
             className="primary-button"
             disabled={
               busy ||
+              refreshing ||
+              !!error ||
               disabled ||
               !owner?.profiles ||
               !sources.length ||

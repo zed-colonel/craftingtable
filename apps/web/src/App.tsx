@@ -196,6 +196,24 @@ export function App() {
   const [itemBusy, setItemBusy] = useState(false);
   const [itemError, setItemError] = useState<string>();
   const [refreshToken, setRefreshToken] = useState(0);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const scheduleRefresh = useCallback(() => {
+    // A fixed window batches a transition's journal events without postponing
+    // refresh indefinitely when another run keeps producing events.
+    if (refreshTimer.current !== undefined) return;
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = undefined;
+      setRefreshToken((value) => value + 1);
+    }, 200);
+  }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: discard pending refreshes on workspace changes.
+  useEffect(
+    () => () => {
+      clearTimeout(refreshTimer.current);
+      refreshTimer.current = undefined;
+    },
+    [activeWorkspaceId],
+  );
   const [cycleState, setCycleState] = useState<{
     workspaceId: WorkspaceId;
     cycles: readonly WorkCycle[];
@@ -373,7 +391,9 @@ export function App() {
         if (canceled) {
           return;
         }
-        setStreamAfter((current) => Math.max(current, snapshot.asOfSequence));
+        // Seed the stream once. Background snapshots must not reconnect it or skip
+        // invalidations that arrived while their requests were in flight.
+        if (projection.snapshotStatus !== 'ready') setStreamAfter(snapshot.asOfSequence);
         setAudit(auditPage.records);
         setWorkspaces(workspaceList.workspaces);
         dispatch({ type: 'snapshot-loaded', snapshot });
@@ -396,7 +416,7 @@ export function App() {
       canceled = true;
     };
     // `refreshToken` re-runs this effect when an event invalidates the summary.
-  }, [authenticationStatus, activeWorkspaceId, refreshToken, projection.snapshotStatus]);
+  }, [authenticationStatus, activeWorkspaceId, refreshToken]);
 
   /**
    * Relevant events mark scopes stale; the app then refetches the authoritative
@@ -424,8 +444,8 @@ export function App() {
           : { workItemIds: projection.stale.workItemIds }),
       },
     });
-    setRefreshToken((current) => current + 1);
-  }, [projection.stale]);
+    scheduleRefresh();
+  }, [projection.stale, scheduleRefresh]);
 
   const workspaceId = activeWorkspaceId;
   const cycles =
@@ -615,20 +635,23 @@ export function App() {
   const onRunStreamError = useCallback((sourceClosed: boolean) => {
     setRunConnection(sourceClosed ? 'disconnected' : 'reconnecting');
   }, []);
-  const receiveRunEvent = useCallback((event: RunEventEnvelope) => {
-    setRunEvents((current) =>
-      current.some((existing) => existing.sequence >= event.sequence)
-        ? current
-        : [...current, event],
-    );
-    if (
-      event.kind === 'run-finished' ||
-      event.kind === 'turn-completed' ||
-      event.kind === 'session-started'
-    ) {
-      setRefreshToken((current) => current + 1);
-    }
-  }, []);
+  const receiveRunEvent = useCallback(
+    (event: RunEventEnvelope) => {
+      setRunEvents((current) =>
+        current.some((existing) => existing.sequence >= event.sequence)
+          ? current
+          : [...current, event],
+      );
+      if (
+        event.kind === 'run-finished' ||
+        event.kind === 'turn-completed' ||
+        event.kind === 'session-started'
+      ) {
+        scheduleRefresh();
+      }
+    },
+    [scheduleRefresh],
+  );
   const onRunStreamInvalid = useCallback(() => undefined, []);
   const onRunAuthenticationExpired = useCallback(() => {
     setAuthenticated(undefined);
@@ -1410,7 +1433,7 @@ export function App() {
                     <>
                       {['paused', 'needs-attention'].includes(cycle.status) && (
                         <ScopeRepairPanel
-                          key={`repair-${cycle.id}:${cycle.version}`}
+                          key={`repair-${cycle.id}`}
                           cycle={cycle}
                           disabled={executionBusy || !canMutate || liveRun}
                           csrfToken={authenticated.csrfToken}
@@ -1423,7 +1446,7 @@ export function App() {
                         />
                       )}
                       <ScopeReviewRecovery
-                        key={`${cycle.id}:${cycle.version}`}
+                        key={cycle.id}
                         cycle={cycle}
                         disabled={executionBusy || !canMutate || liveRun}
                         refreshToken={refreshToken}

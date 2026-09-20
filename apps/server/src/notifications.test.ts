@@ -30,7 +30,7 @@ afterEach(async () => {
 const token = 'a'.repeat(30);
 const key = 'u'.repeat(30);
 const preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, enabled: true };
-async function fixture() {
+async function fixture(cycleTransitioning: (id: string) => boolean = () => false) {
   let time = Date.parse('2026-09-10T15:00:00Z');
   const now = () => new Date(time);
   const context = await createTestContext({ now });
@@ -160,6 +160,8 @@ async function fixture() {
     { send },
     'https://craft.example',
     now,
+    undefined,
+    cycleTransitioning,
   );
   service.save(auth, workspaceId, {
     preferences,
@@ -196,6 +198,41 @@ async function fixture() {
   };
 }
 describe('persistent notifications', () => {
+  it('holds sends during recovery preparation without resetting reminders after a failed command', async () => {
+    let transitioning = false;
+    const f = await fixture(() => transitioning);
+    await f.service.tick();
+    const first = f.context.storage.notifications.records(f.workspaceId)[0]!;
+    const generation = f.context.services.workspaceEventNotifier.workflowGeneration;
+    transitioning = true;
+    f.advance(30);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+    expect(f.context.storage.notifications.records(f.workspaceId)[0]).toMatchObject({
+      state: 'active',
+      firstSentAt: first.firstSentAt,
+      deliveredCount: 1,
+    });
+    transitioning = false; // Preparation failed; the original incident is still actionable.
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(2);
+    expect(f.send.mock.calls[1]?.[0].message).toMatch(/^Reminder:/);
+    expect(f.context.services.workspaceEventNotifier.workflowGeneration).toBe(generation);
+    f.setCycle('running');
+    await f.service.tick();
+    expect(f.context.storage.notifications.records(f.workspaceId)[0]?.state).toBe('resolved');
+  });
+  it('does not create attention for a stop already being recovered, but reports a failed recovery immediately', async () => {
+    let transitioning = true;
+    const f = await fixture(() => transitioning);
+    f.setCycle('needs-attention');
+    await f.service.tick();
+    expect(f.send).not.toHaveBeenCalled();
+    expect(f.context.storage.notifications.records(f.workspaceId)).toHaveLength(0);
+    transitioning = false;
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+  });
   it('sends the agreed schedule once per phase with project, branches, reason, and private HTTPS link', async () => {
     const f = await fixture();
     await f.service.tick();
@@ -832,6 +869,35 @@ it('retains parallel item reminder timing while siblings progress and resolves a
       entryHolds: { [entryId]: { status: 'paused', reason: 'Operator paused this item.' } },
     },
     2,
+  );
+  f.advance(60);
+  await f.service.tick();
+  expect(f.send).toHaveBeenCalledTimes(2);
+  expect(
+    f.context.storage.notifications
+      .records(f.workspaceId)
+      .filter((r) => r.sourceKey.startsWith('roadmap:'))
+      .every((r) => r.state === 'resolved'),
+  ).toBe(true);
+  // A resumed manual cycle supersedes this old preparation alert while work is in flight.
+  f.setCycle('running');
+  f.context.storage.roadmaps.save(
+    {
+      ...roadmap,
+      version: 4,
+      attempts: [
+        {
+          id: 'attempt',
+          entryId,
+          definitionRevision: 1,
+          cycleId: cycle.id,
+          worktreeId: f.worktreeId,
+          status: 'active',
+          createdAt: f.now().toISOString(),
+        },
+      ],
+    },
+    3,
   );
   f.advance(60);
   await f.service.tick();

@@ -722,6 +722,7 @@ export class RoadmapService {
     const parallel = roadmap.definition.scheduling?.mode === 'parallel';
     let attempt =
       recoveryAttempt ?? roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
+    if (attempt && this.cycles.isTransitioning(attempt.cycleId)) return;
     if (attempt) {
       const worktree = this.storage.execution.worktrees.find(
         roadmap.workspaceId,
@@ -1363,7 +1364,12 @@ export class RoadmapService {
     let changed = false;
     const entryHolds = { ...roadmap.entryHolds };
     const attempts = roadmap.attempts.map((attempt) => {
-      if (attempt.recovery || attempt.status === 'completed') return attempt;
+      if (
+        attempt.recovery ||
+        this.cycles.isTransitioning(attempt.cycleId) ||
+        (attempt.status === 'completed' && !entryHolds[attempt.entryId])
+      )
+        return attempt;
       const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId);
       if (!entry) return attempt;
       const tree =
@@ -1631,7 +1637,20 @@ export class RoadmapService {
           if (this.complete(roadmap, entry, snapshot))
             return { entryId: entry.id, status: 'completed', reason: 'Completed.' };
           const hold = roadmap.entryHolds?.[entry.id];
-          if (hold) return { entryId: entry.id, status: hold.status, reason: hold.reason };
+          const currentAttempt = roadmap.attempts.find(
+            (a) => a.entryId === entry.id && !a.recovery,
+          );
+          const currentCycle =
+            currentAttempt &&
+            snapshot.execution.cycles.find(roadmap.workspaceId, currentAttempt.cycleId);
+          if (currentCycle && this.cycles.isTransitioning(currentCycle.id))
+            return {
+              entryId: entry.id,
+              status: 'running',
+              reason: 'Preparing the requested recovery.',
+            };
+          if (hold && currentCycle?.status !== 'running')
+            return { entryId: entry.id, status: hold.status, reason: hold.reason };
           const recovery = this.recoveryFor(roadmap, entry);
           if (
             roadmap.scopeRecovery?.enabled &&

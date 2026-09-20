@@ -18,6 +18,7 @@ import {
   type Worktree,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
+import { mapReadSnapshot } from './map-read-snapshot.js';
 import {
   prerequisiteIssues,
   acceptedEvidence,
@@ -92,6 +93,7 @@ export function scopePhaseBlockers(
   phase: ExecutionPhase,
   options: { resources?: boolean; ownerId?: string } = {},
 ): PhaseBlocker[] {
+  tx = mapReadSnapshot(tx);
   const r = resolveScope(tx, workspaceId, workItemId, scope);
   const issues: PhaseBlocker[] = [];
   const add = (kind: PhaseBlocker['kind'], message: string) => issues.push({ kind, message });

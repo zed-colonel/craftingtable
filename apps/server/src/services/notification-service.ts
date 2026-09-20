@@ -2,7 +2,7 @@ import { scopePhaseBlockers } from './execution-scope.js';
 import { scopeReviewWait } from './scope-repair.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
-import { crossProjectState } from './cross-project-service.js';
+import { crossProjectState, milestoneSatisfied } from './cross-project-service.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { NotificationStatus, SaveNotificationsRequest } from '@craftingtable/contracts';
 import {
@@ -12,6 +12,8 @@ import {
   nextReminderAt,
   notificationText,
   type WorkspaceId,
+  type Roadmap,
+  type RoadmapEntry,
 } from '@craftingtable/domain';
 import type {
   CraftingTableStorage,
@@ -38,6 +40,7 @@ export class NotificationService {
     private readonly publicOrigin: string,
     private readonly now: () => Date = () => new Date(),
     private readonly storageAttention?: () => readonly { key: string; message: string }[],
+    private readonly cycleTransitioning: (id: string) => boolean = () => false,
   ) {}
 
   get(context: AuthContext, workspaceId: WorkspaceId): NotificationStatus {
@@ -117,7 +120,7 @@ export class NotificationService {
       }
       this.journal(tx, workspaceId, 'settings', context);
     });
-    this.notifier.notify();
+    this.notifier.notify('activity');
     return this.get(context, workspaceId);
   }
   test(context: AuthContext, workspaceId: WorkspaceId): NotificationStatus {
@@ -159,7 +162,7 @@ export class NotificationService {
       );
       this.journal(tx, workspaceId, 'test', context);
     });
-    this.notifier.notify();
+    this.notifier.notify('activity');
     return this.get(context, workspaceId);
   }
   startWorker(): void {
@@ -232,6 +235,7 @@ export class NotificationService {
       if (item === undefined || item.status === 'completed') continue;
       const project = tx.planning.projects.find(workspaceId, tree.projectId);
       const cycle = cycles.find((candidate) => candidate.worktreeId === tree.id);
+      if (cycle && this.cycleTransitioning(cycle.id)) continue;
       const run = tx.execution.runs.listForWorktree(workspaceId, tree.id)[0];
       let kind: 'merge' | 'attention';
       let reason: string;
@@ -396,6 +400,11 @@ export class NotificationService {
             if (!entry) continue;
             const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
             const cycle = attempt && cycles.find((c) => c.id === attempt.cycleId);
+            // A manual recovery has taken over this checkpoint. The saved hold
+            // remains historical until reconciliation; it is not a second task.
+            if (cycle && (cycle.status === 'running' || this.cycleTransitioning(cycle.id)))
+              continue;
+            if (entry.executionScope && this.scopeComplete(tx, roadmap, entry)) continue;
             if (
               cycle &&
               result.some((source) => source.sourceKey === `cycle:${cycle.id}:${cycle.version}`)
@@ -447,6 +456,38 @@ export class NotificationService {
       leaseUntil: null,
     };
   }
+  private scopeComplete(tx: StorageRepositories, roadmap: Roadmap, entry: RoadmapEntry): boolean {
+    const scope = entry.executionScope;
+    const d = scope && tx.imports.definition(roadmap.workspaceId, scope.definitionId);
+    return (
+      !!scope &&
+      !!d &&
+      milestoneSatisfied(
+        tx,
+        roadmap.workspaceId,
+        d,
+        scope.bindingRevision,
+        scope.kind === 'parent-acceptance'
+          ? { kind: 'work_item', id: scope.sourceId, state: 'accepted' }
+          : {
+              kind: 'slice',
+              id: scope.sourceId,
+              state: scope.kind === 'slice' ? 'merged' : 'verified',
+            },
+      )
+    );
+  }
+  private transitioningRecord(tx: StorageRepositories, record: NotificationRecord): boolean {
+    const parts = record.sourceKey.split(':');
+    if (parts[0] === 'cycle') return this.cycleTransitioning(parts[1]!);
+    if (parts[0] === 'roadmap' && parts[2] === 'entry') {
+      const roadmap = tx.roadmaps.find(record.workspaceId, parts[1]!);
+      return !!roadmap?.attempts.some(
+        (a) => a.entryId === parts[3] && this.cycleTransitioning(a.cycleId),
+      );
+    }
+    return false;
+  }
   private reconcile(tx: StorageRepositories, settings: StoredNotificationSettings): void {
     const desired = this.attention(tx, settings);
     const records = tx.notifications.records(settings.workspaceId);
@@ -455,6 +496,7 @@ export class NotificationService {
       if (
         record.state === 'active' &&
         record.kind !== 'test' &&
+        !this.transitioningRecord(tx, record) &&
         !desired.some((source) => source.sourceKey === record.sourceKey)
       ) {
         tx.notifications.saveRecord({
@@ -484,12 +526,10 @@ export class NotificationService {
   private async deliverDue(): Promise<void> {
     for (const initial of this.storage.notifications.listSettings()) {
       if (this.abort.signal.aborted) return;
-      this.storage.transaction((tx) =>
-        this.reconcile(tx, tx.notifications.settings(initial.workspaceId) ?? initial),
-      );
       for (let count = 0; count < 20 && !this.abort.signal.aborted; count += 1) {
         const claim = this.storage.transaction((tx) => {
           const settings = tx.notifications.settings(initial.workspaceId);
+          if (settings) this.reconcile(tx, settings);
           if (
             !settings ||
             !this.authorized(tx, settings) ||
@@ -499,13 +539,13 @@ export class NotificationService {
             (settings.retryAt !== null && settings.retryAt > this.now().toISOString())
           )
             return undefined;
-          this.reconcile(tx, settings);
           const now = this.now().toISOString();
           const record = tx.notifications
             .records(settings.workspaceId, true)
             .filter(
               (row) =>
                 (settings.preferences.enabled || row.kind === 'test') &&
+                !this.transitioningRecord(tx, row) &&
                 row.nextAttemptAt <= now &&
                 (row.leaseUntil === null || row.leaseUntil <= now),
             )
@@ -594,7 +634,7 @@ export class NotificationService {
           }
           this.journal(tx, settings.workspaceId, 'delivery');
         });
-        this.notifier.notify();
+        this.notifier.notify('activity');
       }
     }
   }

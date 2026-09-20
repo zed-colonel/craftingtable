@@ -6,6 +6,8 @@ import type {
 } from '@craftingtable/contracts';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
+import { asEventId } from '@craftingtable/domain';
 
 /**
  * CT03-RR4 regression cover.
@@ -255,7 +257,7 @@ vi.mock('./lib/api-client.js', () => ({
 
 // The event streams are irrelevant to this transition; keep them inert.
 vi.mock('./lib/use-workspace-event-stream.js', () => ({
-  useWorkspaceEventStream: () => undefined,
+  useWorkspaceEventStream: vi.fn(),
 }));
 vi.mock('./lib/use-run-event-stream.js', () => ({
   useRunEventStream: () => undefined,
@@ -371,6 +373,7 @@ async function settle(): Promise<void> {
 }
 
 beforeEach(() => {
+  vi.mocked(useWorkspaceEventStream).mockClear();
   // The remembered-workspace bookmark must not leak between tests.
   window.localStorage.clear();
   snapshotCalls.length = 0;
@@ -382,6 +385,39 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+it('batches transition events into one background refresh and retains the stream cursor', async () => {
+  renderApp();
+  await screen.findByText('Alpha Project');
+  const initialCalls = snapshotCalls.length;
+  expect(initialCalls).toBe(1);
+  const stream = vi.mocked(useWorkspaceEventStream).mock.lastCall!;
+  const cursor = stream[1];
+  vi.useFakeTimers();
+  try {
+    for (let sequence = 6; sequence <= 8; sequence++) {
+      act(() =>
+        stream[2].onEvent({
+          ...SNAPSHOT_A.recentActivity[0]!,
+          sequence,
+          id: asEventId(`event-${sequence}`),
+        }),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+    }
+    expect(snapshotCalls.length).toBe(initialCalls);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(snapshotCalls.length).toBe(initialCalls + 1);
+    expect(vi.mocked(useWorkspaceEventStream).mock.lastCall?.[1]).toBe(cursor);
+    expect(screen.getByText('Alpha Project')).toBeDefined();
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 describe('workspace switching in the app (CT03-RR4)', () => {
   it('never renders the previous workspace projection under the new selection', async () => {

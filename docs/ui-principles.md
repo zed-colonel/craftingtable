@@ -138,6 +138,12 @@ by the workstation. Explain when this limit is lower than the roadmap's in-fligh
 Agenda rows name the active slice, its early-development approval and start requirements;
 parent acceptance blockers remain labelled separately.
 
+An implementation or review question, or a stalled review with attempts remaining, exposes
+**Continue with guidance** beside the cycle status. Show the remaining allowance, retain an
+unsent answer across state refreshes, and require explicit guidance before continuing. This action
+does not increase the budget or resume the roadmap. Exhausted reviews use the additional-attempt
+form, where answers can accompany the explicit grant.
+
 Integration conflict recovery belongs beside the cycle status. Show conflicting paths, exact
 item and incoming commits, agent attempt links and the selected resolution profile. Wrap paths
 and commit IDs on phones. Keep completion of the integration update distinct from final merge

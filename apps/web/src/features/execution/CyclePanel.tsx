@@ -2,6 +2,7 @@ import {
   CycleRemediationRecovery,
   type CycleRemediationGrant,
 } from './CycleRemediationRecovery.js';
+import { CycleGuidanceRecovery } from './CycleGuidanceRecovery.js';
 import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
 import { CycleSettingsFields } from './CycleSettingsFields.js';
@@ -63,7 +64,7 @@ export function CyclePanel({
   busy: boolean;
   admitted: boolean;
   onStart: (input: StartWorkCycleRequest) => void;
-  onControl: (cycle: WorkCycle, action: 'pause' | 'resume' | 'stop') => void;
+  onControl: (cycle: WorkCycle, action: 'pause' | 'resume' | 'stop', instructions?: string) => void;
   onOpenRun: (id: AgentRunId) => void;
   onAuthorizeRemediation?: (cycle: WorkCycle, input: CycleRemediationGrant) => void;
   onResolution?: (
@@ -149,6 +150,13 @@ export function CyclePanel({
     (!active.integrationResolution ||
       ['completed', 'abandoned'].includes(active.integrationResolution.status));
   const previous = cycles.filter((cycle) => ['stopped', 'completed'].includes(cycle.status));
+  const guidedRecovery =
+    active &&
+    !readOnly &&
+    !exhaustedReview &&
+    ['paused', 'needs-attention'].includes(active.status) &&
+    (active.reason.startsWith('Two remediation rounds') ||
+      /^(Implementation|Review) needs your input\./.test(active.reason));
   const attention =
     active !== undefined &&
     !active.scopeReviewWait &&
@@ -238,6 +246,7 @@ export function CyclePanel({
             )}
             {['paused', 'needs-attention'].includes(active.status) &&
               !exhaustedReview &&
+              !guidedRecovery &&
               !(readOnly && renderReviewRecovery) &&
               active.integrationResolution?.status !== 'detected' &&
               !(
@@ -282,6 +291,14 @@ export function CyclePanel({
               cycle={active}
               disabled={disabled || liveRun}
               onAuthorize={(input) => onAuthorizeRemediation(active, input)}
+            />
+          )}
+          {guidedRecovery && (
+            <CycleGuidanceRecovery
+              key={active.id}
+              cycle={active}
+              disabled={disabled || liveRun}
+              onContinue={(guidance) => onControl(active, 'resume', guidance)}
             />
           )}
           {renderDesignRecovery &&

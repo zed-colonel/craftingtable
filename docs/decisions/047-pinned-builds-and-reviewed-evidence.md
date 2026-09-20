@@ -16,6 +16,12 @@ graph for mismatched sources/versions, and records execution provenance. Incompa
 consumer constraints fail visibly rather than using older registry crates. The adapter
 coordinates cooperative builds under the existing OS-user trust model; it is not a sandbox.
 
+An integration run may also execute independent crates through the same launcher. Successful
+commands whose resolved graph uses none of the configured upstream packages record a
+`supplementary-check` receipt. Source/config integrity and wrong-source checks still apply.
+These receipts preserve useful domain/contract checks without satisfying the pinned integration
+build requirement; a successful build that actually resolves the supplied upstream is still required.
+
 Evidence submissions are immutable, bounded artifact packages, scoped to a definition,
 binding, runtime generation, tested commits, environment/fixture/toolchain identities,
 requirements and source-case hashes. Checkpoint ownership does not identify its tested code:

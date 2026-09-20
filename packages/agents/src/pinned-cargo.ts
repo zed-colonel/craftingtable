@@ -199,8 +199,6 @@ export function runPinnedCargo(path: string, expectedDigest: string, args: strin
         throw new Error(`Refusing unpinned ${pkg.name}: ${pkg.manifest_path}`);
       resolvedPackages.push({ name: pkg.name, path: pin.path });
     }
-    if (m.verification?.mode !== 'scoped-checks' && m.packages.length && !resolvedPackages.length)
-      throw new Error('The resolved build graph uses none of the configured upstream packages.');
   }
   const separator = args.indexOf('--');
   const actual =
@@ -219,6 +217,13 @@ export function runPinnedCargo(path: string, expectedDigest: string, args: strin
     appendFileSync(
       m.receiptPath,
       JSON.stringify({
+        // Supplementary checks may legitimately have no upstream dependency. They
+        // remain pinned and auditable, but cannot establish integration evidence.
+        ...(m.verification?.mode !== 'scoped-checks' &&
+        m.packages.length &&
+        !resolvedPackages.length
+          ? { kind: 'supplementary-check' }
+          : {}),
         runtimeId: m.runtimeId,
         runId: m.runId,
         ...(m.verification

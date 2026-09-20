@@ -1864,6 +1864,7 @@ export class RuntimeEvidenceService {
               ? r.verificationMode === 'scoped-checks' &&
                 r.policyDigest === hash(JSON.stringify(verification))
               : r.kind !== 'scoped-check' &&
+                r.kind !== 'supplementary-check' &&
                 r.kind !== 'native-check' &&
                 r.kind !== 'local-ci' &&
                 r.verificationMode !== 'scoped-checks'),

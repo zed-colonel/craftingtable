@@ -2443,6 +2443,12 @@ describe('single work-item automation', () => {
       review,
       implementationDone,
       review,
+      implementationDone,
+      {
+        resultText: reviewText([
+          { ...structuredFinding, status: 'resolved', disposition: 'Verified after guidance.' },
+        ]),
+      },
     ]);
     const cycle = await startCycle(state, worktree.id, {
       policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 10 },
@@ -2450,7 +2456,112 @@ describe('single work-item automation', () => {
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'stalled reviews');
     expect(currentCycle(state, cycle).reason).toContain('Two remediation rounds');
     expect(backend.launches).toHaveLength(7);
+    const before = currentCycle(state, cycle);
+    const payload = {
+      action: 'resume',
+      expectedVersion: before.version,
+      instructions: 'Use the supported controller launcher for supplementary checks.',
+    };
+    const recover = () =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+        headers: mutationHeaders(state),
+        payload,
+      });
+    const response = await recover();
+    expect(response.statusCode, response.body).toBe(200);
+    expect((await recover()).statusCode).toBe(409);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'awaiting-merge',
+      'guided stalled recovery',
+    );
+    const after = currentCycle(state, cycle);
+    expect(after.remediationRounds).toBe(before.remediationRounds + 1);
+    expect(after.additionalRemediationRounds ?? 0).toBe(0);
+    expect(after.policy).toEqual(before.policy);
+    expect(backend.launches[7]?.prompt).toContain(payload.instructions);
   });
+
+  it.each([0, 3])(
+    'stops operator questions until explicit guidance with initial allowance %s',
+    async (allowance) => {
+      const { state, backend, worktree } = await cycleFixture([
+        designDone,
+        {
+          resultText: 'Prepared the change.\n\n## Open questions\nApprove the verification policy?',
+        },
+        implementationDone,
+        {
+          resultText: `## Open questions\nWhich boundary should the fix preserve?\n\n## Review report\n${reviewText([structuredFinding])}`,
+        },
+        implementationDone,
+        {
+          resultText: reviewText([
+            {
+              ...structuredFinding,
+              status: 'resolved',
+              disposition: 'Verified fix within approved boundary.',
+            },
+          ]),
+        },
+      ]);
+      const cycle = await startCycle(state, worktree.id, {
+        policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: allowance },
+      });
+      const resume = (instructions?: string) =>
+        state.context.app.inject({
+          method: 'POST',
+          url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+          headers: mutationHeaders(state),
+          payload: {
+            action: 'resume',
+            expectedVersion: currentCycle(state, cycle).version,
+            ...(instructions === undefined ? {} : { instructions }),
+          },
+        });
+      await waitFor(
+        () => currentCycle(state, cycle).status === 'needs-attention',
+        'implementation question',
+      );
+      expect(currentCycle(state, cycle).step).toBe('implement');
+      expect(backend.launches).toHaveLength(2);
+      expect((await resume()).statusCode).toBe(409);
+      expect(
+        (await resume('Use the controller policy and preserve required checks.')).statusCode,
+      ).toBe(200);
+      await waitFor(
+        () => currentCycle(state, cycle).status === 'needs-attention',
+        'review question',
+      );
+      expect(currentCycle(state, cycle).step).toBe('review');
+      expect(currentCycle(state, cycle).remediationRounds).toBe(0);
+      expect(backend.launches).toHaveLength(4);
+      expect((await resume()).statusCode).toBe(409);
+      const guidance = 'Preserve the approved API boundary.';
+      if (allowance === 0) {
+        expect(currentCycle(state, cycle).reason).toContain('Remediation limit reached.');
+        const grant = await state.context.app.inject({
+          method: 'POST',
+          url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+          headers: mutationHeaders(state),
+          payload: {
+            action: 'authorize-remediation',
+            expectedVersion: currentCycle(state, cycle).version,
+            additionalRounds: 1,
+            instructions: guidance,
+          },
+        });
+        expect(grant.statusCode, grant.body).toBe(200);
+      } else expect((await resume(guidance)).statusCode).toBe(200);
+      await waitFor(
+        () => currentCycle(state, cycle).status === 'awaiting-merge',
+        'answered review',
+      );
+      expect(currentCycle(state, cycle).remediationRounds).toBe(1);
+      expect(backend.launches[4]?.prompt).toContain('Preserve the approved API boundary.');
+    },
+  );
 
   it('does not treat disappearing finding IDs as resolution', async () => {
     const { state, worktree } = await cycleFixture([
@@ -8730,6 +8841,26 @@ it.each(['integration', 'implementation'] as const)(
     );
     git(['add', '.'], f.root);
     git(['commit', '-m', 'consumer'], f.root);
+    mkdirSync(join(f.root, 'contract'));
+    writeFileSync(
+      join(f.root, 'contract/Cargo.toml'),
+      '[package]\nname="ct_supplementary"\nversion="0.1.0"\nedition="2021"\n[workspace]\n[lib]\npath="lib.rs"\n',
+    );
+    writeFileSync(join(f.root, 'contract/lib.rs'), '#[test] fn contract(){assert_eq!(2+2,4); }');
+    execFileSync(
+      cargo,
+      [
+        'generate-lockfile',
+        '--offline',
+        '--manifest-path',
+        'contract/Cargo.toml',
+        '--config',
+        `patch.crates-io.ct_runtime_provider.path=${JSON.stringify(provider)}`,
+      ],
+      { cwd: f.root },
+    );
+    git(['add', '.'], f.root);
+    git(['commit', '-m', 'supplementary contract fixture'], f.root);
     const registered = await f.state.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${f.state.workspaceId}/repositories`,
@@ -8827,6 +8958,19 @@ it.each(['integration', 'implementation'] as const)(
       };
       const scopedOnly = await runToFinish(f.state, tree.id, { role: 'review' });
       expect(() => svc.assertRun(tree, scopedOnly)).toThrow('successful pinned Cargo');
+      f.backend.replyForRequest = (request) => {
+        execFileSync(
+          join(request.buildEnvironment!.binDirectory, 'cargo'),
+          ['test', '--offline', '--locked', '--manifest-path', 'contract/Cargo.toml'],
+          { cwd: request.cwd, stdio: 'pipe' },
+        );
+        return { resultText: scopeReport(f.state, scope) };
+      };
+      const supplementaryOnly = await runToFinish(f.state, tree.id, { role: 'review' });
+      expect(storage.runtimeEvidence.build(ws, supplementaryOnly)?.receipts).toContain(
+        'supplementary-check',
+      );
+      expect(() => svc.assertRun(tree, supplementaryOnly)).toThrow('successful pinned Cargo');
       f.backend.replyForRequest = original;
     }
     const run = await runToFinish(f.state, tree.id, { role: 'review' });
@@ -9781,6 +9925,96 @@ it('queues affected completed scope reviews across restart and resumes them with
     tx.scopeReceipts.list(ws, state.workItemId).filter((r) => r.scope.kind === 'parent-acceptance'),
   ).toHaveLength(2);
 });
+
+it.each(['manual', 'roadmap'] as const)(
+  'recovers an unstarted parent review through %s without losing its assignment',
+  { timeout: 30000 },
+  async (mode) => {
+    const f = await supervisedMapFixture(false, 'automatic', false, false, true);
+    const { state } = f,
+      ws = state.workspaceId,
+      tx = state.context.storage;
+    const runtime = state.context.services.runtimeEvidenceService;
+    const original = runtime.prepare.bind(runtime);
+    const fault = vi.spyOn(runtime, 'prepare').mockImplementation(async (...args) => {
+      if (args[0].executionScope?.kind === 'parent-acceptance')
+        throw new Error('Provider integration changed before launch.');
+      return original(...args);
+    });
+    f.service.save(f.auth, ws, f.input);
+    await adoptSupervisedMap(f);
+    const policy = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/scope-recovery`,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: storedRoadmap(state).version,
+        enabled: true,
+        maxRoundsPerParent: 3,
+      },
+    });
+    expect(policy.statusCode, policy.body).toBe(200);
+    await roadmapControl(state, 'start');
+    const parent = () =>
+      tx.execution.cycles.list(ws).find((c) => c.executionScope?.kind === 'parent-acceptance');
+    await waitFor(
+      () => parent()?.status === 'needs-attention',
+      'unstarted parent preflight',
+      15000,
+    );
+    await roadmapControl(state, 'pause');
+    fault.mockRestore();
+    const before = parent()!;
+    expect(tx.execution.runs.find(ws, before.currentRunId)).toBeUndefined();
+    expect(tx.runtimeEvidence.run(ws, before.currentRunId)).toBeUndefined();
+    const implementations = tx.execution.runs
+      .listRecent(ws, 500)
+      .filter((r) => r.role === 'implement')
+      .map((r) => r.id);
+    if (mode === 'roadmap') {
+      await runtime.configure(f.auth, ws, f.parentScope.definitionId, {
+        bindingRevision: 1,
+        expectedGeneration: 1,
+        pins: [],
+        consumers: [{ alias: 'local', upstreams: [] }],
+        environments: [...f.runtime.current!.environments],
+      });
+      expect(
+        storedRoadmap(state).attempts.find((a) => a.cycleId === before.id)?.dependencyRefresh,
+      ).toBeTruthy();
+      state.context.services.workCycleService.recoverInterrupted();
+      state.context.services.roadmapService.recoverInterrupted();
+      await roadmapControl(state, 'resume');
+      await waitFor(
+        () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
+        'unstarted parent after refresh',
+        15000,
+      );
+    } else {
+      const response = await state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/cycles/${before.id}/control`,
+        headers: mutationHeaders(state),
+        payload: {
+          action: 'resume',
+          expectedVersion: before.version,
+          instructions: 'Use refreshed controller evidence and retain all parent gates.',
+        },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      await waitFor(() => parent()?.status === 'awaiting-merge', 'first parent review');
+    }
+    expect(parent()?.worktreeId).toBe(before.worktreeId);
+    expect(parent()?.profiles).toEqual(before.profiles);
+    expect(parent()?.remediationRounds).toBe(0);
+    expect(
+      tx.execution.runs
+        .listRecent(ws, 500)
+        .filter((r) => r.role === 'implement')
+        .map((r) => r.id),
+    ).toEqual(implementations);
+  },
+);
 
 it('refreshes a positive review awaiting manual parent acceptance without granting acceptance', {
   timeout: 30000,

@@ -84,13 +84,16 @@ it is mergeable.
   Each scoped run receives its own source snapshots and Cargo launcher. The launcher rejects
   dependency fallback and records clean-commit builds. Independent contract/domain scopes require
   successful scoped checks; integration/conformance/release scopes retain current upstream builds. Frozen build records survive cleanup and are downloadable from the map.
+  Independent Cargo checks in an integration run use that same launcher and produce supplementary
+  receipts; they do not replace a successful build against the pinned upstream packages.
   Use the subject-specific JSON template or upload an evidence package with real logs, exact case
   hashes and independent reviewer attestations. Inspect its readable artifacts and explicitly
   accept or reject it with a rationale. After a provider advances, pause scheduling and use
   **Preview dependency refresh**. Review the exact commits, retained evidence and required fresh
   reviews, then explicitly apply. Unchanged consumer inputs preserve applicable evidence and
   unchanged host/environment inputs preserve workstation approval. Accept new saved-plan evidence
-  before Resume; affected completed reviews are queued automatically, and an existing owning-slice
+  before Resume; affected completed reviews and first reviews blocked before launch are queued
+  automatically with their original reviewer and worktree, and an existing owning-slice
   recovery keeps its repair round. Historical receipts retain their original generation. Native
   results cannot satisfy actual-Kata requirements. External host execution
   is not dispatched by this version; checkpoint decisions and final promotion remain separate.
@@ -250,7 +253,10 @@ it is mergeable.
   additional attempts, optionally add cycle guidance, and select **Authorize more remediation**.
   This immediately delegates the next remediation, preserving the initial policy, findings,
   worktree, agent settings, and round history; it does not resume a paused roadmap. A valid,
-  completed review is required, and recovery cannot bypass questions or conflicts.
+  completed review is required; answer open questions in the guidance before authorizing recovery.
+  Implementation and review questions stop immediately. With allowance remaining, questions and
+  stalled reviews show **Continue with guidance**: supply answers or a changed approach to continue
+  without increasing the budget. Recovery preserves report, conflict and independent-review gates.
   Other cycle settings stay fixed after start. Workspace notices persist
   across reloads, and daemon restart requires explicit resume. Review and merge check
   the reviewed source and target commits. Standalone cycles stop for your merge approval;

@@ -1059,11 +1059,65 @@ describe('automated cycle controls', () => {
       (screen.getByRole('button', { name: 'Authorize more remediation' }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+    view.rerender(
+      <CyclePanel
+        {...recoveryProps}
+        cycles={[
+          {
+            ...exhausted,
+            status: 'paused',
+            reason:
+              'Automation paused by operator. The current session remains available for manual work.',
+          },
+        ]}
+        runs={[run({ status: 'finished', role: 'review', verdict: 'mergeable' })]}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Resume automation' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Authorize more remediation' })).toBeNull();
     const siblingTree = {
       ...worktree,
       id: 'wt-2' as WorktreeSummary['id'],
       branchName: 'ct/sibling',
     };
+    const stalled = {
+      ...cycle,
+      status: 'needs-attention' as const,
+      remediationRounds: 5,
+      additionalRemediationRounds: 4,
+      reason:
+        'Two remediation rounds left the same open findings and gate result. Operator attention is required.',
+    };
+    view.rerender(
+      <CyclePanel
+        {...recoveryProps}
+        cycles={[stalled]}
+        runs={[run({ status: 'finished', role: 'review' })]}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Authorize more remediation' })).toBeNull();
+    expect(screen.getByText(/2 remediation attempts remain/)).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Continue with guidance' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText('Answers and recovery guidance'), {
+      target: { value: 'Use the corrected controller launcher; retain the checks.' },
+    });
+    view.rerender(
+      <CyclePanel
+        {...recoveryProps}
+        cycles={[{ ...stalled, version: stalled.version + 1 }]}
+        runs={[run({ status: 'finished', role: 'review' })]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with guidance' }));
+    expect(onControl).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: stalled.id }),
+      'resume',
+      'Use the corrected controller launcher; retain the checks.',
+    );
     const sibling = {
       ...cycle,
       id: 'second-cycle',

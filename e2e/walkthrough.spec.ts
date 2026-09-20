@@ -376,8 +376,19 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     );
     await cycle
       .getByLabel('Additional cycle guidance (optional)')
-      .fill('E2E-AUTHORIZED-RECOVERY: Address the remaining regression.');
+      .fill('E2E-AUTHORIZED-RECOVERY E2E-OPERATOR-QUESTION: Address the remaining regression.');
     await cycle.getByRole('button', { name: 'Authorize more remediation' }).click();
+    await expect(cycle.getByLabel('Answers and recovery guidance')).toBeVisible({
+      timeout: 30_000,
+    });
+    await walk.capture(
+      'work-item-guided-recovery',
+      'Work item · answer implementation questions using the remaining allowance',
+    );
+    await cycle
+      .getByLabel('Answers and recovery guidance')
+      .fill('E2E-ANSWERED-QUESTION: Use the approved pinned baseline and retain every check.');
+    await cycle.getByRole('button', { name: 'Continue with guidance', exact: true }).click();
 
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
       timeout: 30_000,

@@ -32,4 +32,8 @@ atomically. It does not accept the plan or launch agents. After plan acceptance 
 phase gates dispatch a fresh review with the same assignment; integrated implementation is retained.
 Existing owning-slice recovery keeps its repair budget and completes re-verification through its
 existing state machine. Unfinished reviews retain their questions/findings and recovery controls.
+An independent review stopped by preflight before its first agent run is also queued by explicit
+refresh. Resume retries it with its original worktree and reviewer assignment through the usual
+phase gates. With no prior run, it has no findings or evidence to carry forward; a partially
+prepared environment is not evidence. The operator can also retry that unstarted review directly.
 The queue survives restart and never grants protected-promotion authority.

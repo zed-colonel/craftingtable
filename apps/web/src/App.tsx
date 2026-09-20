@@ -1481,9 +1481,9 @@ export function App() {
                       await authorizeWorkCycleRemediation(cycle, input, csrfToken);
                     })
                   }
-                  onControl={(cycle, action) =>
+                  onControl={(cycle, action, instructions) =>
                     executionCommand(async (csrfToken) => {
-                      await controlWorkCycle(cycle, action, csrfToken);
+                      await controlWorkCycle(cycle, action, csrfToken, instructions);
                     })
                   }
                   onResolution={(cycle, input) =>

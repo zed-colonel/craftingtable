@@ -58,8 +58,9 @@ export function CycleRemediationRecovery({
         />
       </label>
       <p className="muted">
-        Guidance is added to the existing cycle instructions. A valid completed review is required;
-        unanswered questions, invalid reports, and integration conflicts must be resolved first.
+        Guidance is added to the existing cycle instructions. A valid completed review is required.
+        Answer any open questions in the guidance. Invalid reports and integration conflicts require
+        their existing recovery controls.
       </p>
       {valid && (
         <p>New total allowance: {remediationAllowance(cycle) + additionalRounds} attempts.</p>

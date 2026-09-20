@@ -867,7 +867,7 @@ export class WorkCycleService {
     return this.remediationBlocker(cycle);
   }
 
-  private remediationBlocker(cycle: WorkCycle): string | undefined {
+  private remediationBlocker(cycle: WorkCycle, guidedContinuation = false): string | undefined {
     if (!['paused', 'needs-attention'].includes(cycle.status) || cycle.step !== 'review')
       return 'Additional remediation requires a paused review.';
     if (cycle.executionScope && cycle.executionScope.kind !== 'slice')
@@ -886,7 +886,7 @@ export class WorkCycleService {
       return 'Select this stage’s improvement batch before authorizing remediation.';
     if (cycle.finalizationProgress?.obligations.some((o) => o.status === 'change-requested'))
       return 'Decide the proposed plan change or resume with guidance before authorizing remediation.';
-    if (remediationUsed(cycle) < remediationAllowance(cycle))
+    if (!guidedContinuation && remediationUsed(cycle) < remediationAllowance(cycle))
       return 'The remediation allowance is not exhausted; use Resume.';
     const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
     const run = runs[0];
@@ -906,7 +906,8 @@ export class WorkCycleService {
       turn?.kind !== 'turn-completed' ||
       turn.payload.outcome !== 'success' ||
       turn.payload.truncated ||
-      ((cycle.finalizationId || /^## Open questions[ \t]*$/m.test(turn.payload.resultText)) &&
+      (!guidedContinuation &&
+        (cycle.finalizationId || /^## Open questions[ \t]*$/m.test(turn.payload.resultText)) &&
         !finalizationHasNoQuestions(turn.payload.resultText))
     )
       return 'Resolve the questions or incomplete outcome before authorizing remediation.';
@@ -960,7 +961,7 @@ export class WorkCycleService {
         'conflict',
         'Combined cycle guidance exceeds 16000 characters; shorten the additional guidance.',
       );
-    const blocker = this.remediationBlocker(cycle);
+    const blocker = this.remediationBlocker(cycle, !!input.instructions.trim());
     if (blocker) throw new ExecutionRequestError('conflict', blocker);
     const run = this.storage.execution.runs.find(workspaceId, cycle.currentRunId);
     if (!run) throw new NotFoundError();
@@ -1041,8 +1042,12 @@ export class WorkCycleService {
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
     const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
+    const unstarted =
+      ['paused', 'needs-attention'].includes(cycle.status) &&
+      !this.storage.execution.runs.find(workspaceId, cycle.currentRunId) &&
+      this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId).length === 0;
     if (
-      !['completed', 'awaiting-merge'].includes(cycle.status) ||
+      (!['completed', 'awaiting-merge'].includes(cycle.status) && !unstarted) ||
       cycle.step !== 'review' ||
       !cycle.workItemId ||
       !cycle.executionScope ||
@@ -1052,7 +1057,7 @@ export class WorkCycleService {
     )
       throw new ExecutionRequestError(
         'conflict',
-        'Only a completed independent scope review can be reviewed again.',
+        'Only a completed or unstarted independent scope review can be reviewed again.',
       );
     const instructions = [cycle.instructions, guidance.trim()].filter(Boolean).join('\n\n');
     if (instructions.length > 16000)
@@ -1076,7 +1081,7 @@ export class WorkCycleService {
       this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
       const runs = this.storage.execution.runs.listForWorktree(workspaceId, tree.id);
       if (
-        runs[0]?.id !== cycle.currentRunId ||
+        (unstarted ? runs.length !== 0 : runs[0]?.id !== cycle.currentRunId) ||
         runs.some((r) => !isTerminalAgentRunStatus(r.status))
       )
         throw new ExecutionRequestError(
@@ -1209,6 +1214,66 @@ export class WorkCycleService {
     else finalizationForCycle(this.storage, cycle);
     const allRuns = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
     const run = allRuns[0];
+    const currentTurn =
+      run && this.storage.execution.runEvents.latestOfKind(workspaceId, run.id, 'turn-completed');
+    if (
+      reviewGuidance === undefined &&
+      !cycle.finalizationId &&
+      (!cycle.executionScope || cycle.executionScope.kind === 'slice') &&
+      ['implement', 'remediate', 'review'].includes(cycle.step) &&
+      currentTurn?.kind === 'turn-completed' &&
+      /^## Open questions[ \t]*$/m.test(currentTurn.payload.resultText) &&
+      !finalizationHasNoQuestions(currentTurn.payload.resultText)
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'This step has open questions. Use Continue with guidance to supply answers before resuming.',
+      );
+    if (
+      reviewGuidance !== undefined &&
+      !cycle.finalizationId &&
+      (!cycle.executionScope || cycle.executionScope.kind === 'slice')
+    ) {
+      if (
+        !reviewGuidance.trim() ||
+        !['implement', 'remediate', 'review'].includes(cycle.step) ||
+        !run ||
+        run.id !== cycle.currentRunId ||
+        run.status !== 'finished' ||
+        allRuns.some((r) => !isTerminalAgentRunStatus(r.status))
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Guided continuation requires answers or guidance and the finished current implementation or review.',
+        );
+      const instructions = [cycle.instructions, reviewGuidance.trim()].filter(Boolean).join('\n\n');
+      if (instructions.length > 16000)
+        throw new ExecutionRequestError(
+          'conflict',
+          'Combined cycle guidance exceeds 16000 characters.',
+        );
+      if (cycle.step === 'review') {
+        const assessment = latestReviewReport(this.storage.execution, run);
+        if (
+          assessment?.status === 'complete' &&
+          evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
+        )
+          return this.reviewRemediation(cycle, run, context, { additionalRounds: 0, instructions });
+      }
+      return this.next(
+        cycle,
+        cycle.step,
+        run,
+        context,
+        {
+          instructions,
+          stalledReviews: 0,
+          reason:
+            'Continuing the current step with operator guidance; existing allowance retained.',
+        },
+        'resume-with-guidance',
+      );
+    }
     if (
       reviewGuidance !== undefined ||
       (cycle.step === 'review' && cycle.executionScope && cycle.executionScope.kind !== 'slice')
@@ -1217,8 +1282,7 @@ export class WorkCycleService {
         cycle.step !== 'review' ||
         !cycle.executionScope ||
         cycle.executionScope.kind === 'slice' ||
-        !run ||
-        run.id !== cycle.currentRunId ||
+        (run ? run.id !== cycle.currentRunId : allRuns.length !== 0) ||
         allRuns.some((r) => !isTerminalAgentRunStatus(r.status))
       )
         throw new ExecutionRequestError(
@@ -1713,6 +1777,16 @@ export class WorkCycleService {
       return;
     }
     if (cycle.step === 'implement' || cycle.step === 'remediate') {
+      if (
+        /^## Open questions[ \t]*$/m.test(turn.payload.resultText) &&
+        !finalizationHasNoQuestions(turn.payload.resultText)
+      ) {
+        this.attention(
+          cycle,
+          'Implementation needs your input. Answer the Open questions using Continue with guidance before another review or remediation.',
+        );
+        return;
+      }
       const finalized = await this.finalizeImplementation(cycle, run);
       if (!finalized) return;
       if (await this.refreshIntegration(finalized, run)) return;
@@ -1733,6 +1807,20 @@ export class WorkCycleService {
       scopeIssue ? { status: 'invalid', issues: [scopeIssue] } : assessment,
       run.reviewBranchContext,
     );
+    if (
+      !finalization &&
+      !reviewOnly &&
+      /^## Open questions[ \t]*$/m.test(turn.payload.resultText) &&
+      !finalizationHasNoQuestions(turn.payload.resultText)
+    ) {
+      this.attention(
+        cycle,
+        decision.action === 'remediate' && remediationUsed(cycle) >= remediationAllowance(cycle)
+          ? 'Remediation limit reached. Review needs your input. Answer the Open questions when authorizing more remediation.'
+          : 'Review needs your input. Answer the Open questions using Continue with guidance before another remediation.',
+      );
+      return;
+    }
     if (finalization && assessment?.status === 'invalid') {
       this.attention(
         cycle,
@@ -2324,7 +2412,10 @@ export class WorkCycleService {
           'conflict',
           'Cycle changed; refresh before authorizing more remediation.',
         );
-      const blocker = this.remediationBlocker(cycle);
+      const blocker = this.remediationBlocker(
+        cycle,
+        grant.additionalRounds === 0 || (!cycle.finalizationId && !!grant.instructions.trim()),
+      );
       if (blocker) throw new ExecutionRequestError('conflict', blocker);
     }
     const assessment = latestReviewReport(this.storage.execution, run);
@@ -2383,7 +2474,10 @@ export class WorkCycleService {
                 ? {}
                 : { finalizationAgentOverride: grant.agentOverride }),
               instructions: grant.instructions,
-              reason: `Authorized ${grant.additionalRounds} additional remediation attempt(s); starting remediation.`,
+              reason:
+                grant.additionalRounds === 0
+                  ? 'Starting remediation with operator guidance using the existing allowance.'
+                  : `Authorized ${grant.additionalRounds} additional remediation attempt(s); starting remediation.`,
             }
           : {}),
       },

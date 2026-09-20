@@ -29,6 +29,15 @@ with the same open IDs/severities and gate/verdict stop for attention. Limits ne
 quality policy. Reviewer evidence remains an assertion; the controller does not independently
 run or prove the project's acceptance checks.
 
+Explicit unanswered `## Open questions` in successful implementation, remediation, or review
+outcomes stop the ordinary cycle before another step. Legacy results without that section remain
+valid. The browser provides **Continue with guidance** for questions and stalled reviews. An
+authenticated answer or changed approach is retained in cycle instructions, resets the bounded
+stall window, and uses the existing allowance. It never grants extra rounds or approves a finding.
+If the allowance is exhausted, the separate explicit additional-round authorization can carry
+answers alongside its grant. Invalid reports, conflicts, and independent-review scope boundaries
+retain their existing guards.
+
 Before review, the daemon requires a clean managed branch and records its commit. It checks
 that identity after review and again at operator merge. Automated merge approval pins Git's
 source operand to that reviewed commit. A daemon guard prevents launches and resumes during

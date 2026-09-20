@@ -123,6 +123,7 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
     'After all verification, inspect git status including untracked files. Commit intended source changes; explicitly stage any intended new source files even if you cannot finish the commit. Never stage generated test output, scratch files, credentials, or unrelated files. Report remaining paths and why they remain.',
     'Finish with a summary of what changed, how you verified it, and anything left undone',
     'or worth the operator’s attention.',
+    'End with a section headed `## Open questions`, containing only `none` when no operator answer is needed. Put every unresolved approval, exception or policy decision there, with a concrete question and proposed resolution; do not bury a request only in a finding disposition or verification summary. An unanswered operator decision must not be treated as another implementation task.',
   ].join(' '),
   review: [
     'You are an independent reviewer for this work item.',
@@ -136,6 +137,7 @@ const ROLE_INSTRUCTIONS: Readonly<Record<AgentRunRole, string>> = {
     '`VERDICT: changes-requested` if anything blocking or major remains. CraftingTable',
     'reads that line; a merge is only offered after a mergeable verdict.',
     REVIEW_REPORT_INSTRUCTIONS,
+    'Include `## Open questions` followed by `## Review report` and the structured report/final VERDICT line. The questions section contains only `none` when no operator answer is needed. Put unresolved operator approvals, exceptions and policy choices there as concrete questions, even when also recorded as findings. Do not repeatedly delegate an unanswered approval as a code repair.',
   ].join(' '),
   design: [
     'You are exploring and designing this work item before implementation.',

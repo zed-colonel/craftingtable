@@ -212,6 +212,28 @@ lines.on('line', (line) => {
     });
     return;
   }
+  if (
+    automated &&
+    text.includes('E2E-OPERATOR-QUESTION') &&
+    !text.includes('E2E-ANSWERED-QUESTION')
+  ) {
+    const result = '## Open questions\nWhich approved baseline should the regression check use?';
+    emit({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: result }] },
+    });
+    emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result,
+      num_turns: turns,
+      duration_ms: 25,
+      total_cost_usd: 0.01,
+      session_id: 'fake-session-0001',
+    });
+    return;
+  }
   const itemSuffix = text.includes('PARALLEL-ROADMAP')
     ? `-${/^# Work item ([A-Z0-9-]+)/m.exec(text)?.[1] ?? 'fixture'}`
     : '';

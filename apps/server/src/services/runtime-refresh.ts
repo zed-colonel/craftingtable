@@ -130,7 +130,19 @@ export function runtimeRefreshImpact(
       if (a.recovery || !entry || !scope || scope.kind === 'slice') continue;
       const cycle = tx.execution.cycles.find(ws, a.cycleId);
       const env = cycle && tx.runtimeEvidence.run(ws, cycle.currentRunId);
-      if (!cycle || !env || !scopeRuntimeChanges(tx, ws, scope, env.runtimeId, candidate).length)
+      if (!cycle) continue;
+      // Preflight can fail before either the agent or its environment is recorded.
+      // Explicit refresh queues a guarded first review; it never fabricates evidence.
+      const unstarted =
+        ['paused', 'needs-attention'].includes(cycle.status) &&
+        cycle.step === 'review' &&
+        !tx.execution.runs.find(ws, cycle.currentRunId) &&
+        tx.execution.worktrees.find(ws, cycle.worktreeId)?.status === 'active' &&
+        tx.execution.runs.listForWorktree(ws, cycle.worktreeId).length === 0;
+      if (
+        !unstarted &&
+        (!env || !scopeRuntimeChanges(tx, ws, scope, env.runtimeId, candidate).length)
+      )
         continue;
       const recovery =
         r.scopeRecovery?.enabled &&
@@ -143,7 +155,7 @@ export function runtimeRefreshImpact(
         );
       const action = recovery
         ? 'existing-recovery'
-        : ['completed', 'awaiting-merge'].includes(cycle.status)
+        : unstarted || ['completed', 'awaiting-merge'].includes(cycle.status)
           ? 'queue'
           : 'manual';
       reviews.push({
@@ -151,8 +163,9 @@ export function runtimeRefreshImpact(
         attemptId: a.id,
         sourceId: scope.sourceId,
         action,
-        reason:
-          action === 'queue'
+        reason: unstarted
+          ? 'The first independent review never launched. It will retry with refreshed dependencies after plan acceptance and Resume.'
+          : action === 'queue'
             ? 'Fresh independent review will run after plan acceptance and Resume; integrated source is retained.'
             : action === 'existing-recovery'
               ? 'The existing owning-slice recovery will verify with the refreshed dependencies; its repair round is retained.'

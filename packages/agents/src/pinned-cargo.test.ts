@@ -107,6 +107,29 @@ it('rejects path fallback to another copy even if the crate name and version mat
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('Refusing unpinned ct_pin_fixture');
 });
+it('runs upstream-free supplementary checks without representing them as integration builds', () => {
+  const f = fixture();
+  const independent = join(f.consumer, 'contract');
+  mkdirSync(independent);
+  writeFileSync(
+    join(independent, 'Cargo.toml'),
+    '[package]\nname="ct_contract"\nversion="0.1.0"\nedition="2021"\n[workspace]\n[lib]\npath="lib.rs"\n',
+  );
+  writeFileSync(join(independent, 'lib.rs'), '#[test] fn check_contract(){assert_eq!(2+2,4); }');
+  const result = f.execute(['test', '--manifest-path', 'contract/Cargo.toml', '--offline']);
+  expect(result.status, result.stderr).toBe(0);
+  const receipt = JSON.parse(readFileSync(f.manifest.receiptPath, 'utf8').trim());
+  expect(receipt).toMatchObject({
+    kind: 'supplementary-check',
+    success: true,
+    packages: [],
+    runId: 'run',
+  });
+  writeFileSync(join(f.provider, 'src/lib.rs'), 'changed');
+  expect(
+    f.execute(['test', '--manifest-path', 'contract/Cargo.toml', '--offline']).stderr,
+  ).toContain('Pinned source changed');
+});
 it('fails incompatible version constraints and does not emit a passing receipt', () => {
   const f = fixture();
   const file = join(f.consumer, 'Cargo.toml');

@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { About } from '../../components/About.js';
 import { Reasons } from '../../components/Reasons.js';
 import { Section } from '../../components/Section.js';
+import { CheckpointRecoveryPanel } from './CheckpointRecoveryPanel.js';
 import { createWorktree } from '../../lib/execution-api.js';
 import {
   authorizeScopeScheduling,
@@ -191,6 +192,24 @@ export function ExecutionScopesPanel({
                 </div>
               ))}
             </details>
+            {existing &&
+              choice.scope.kind === 'slice' &&
+              choice.phases.some(
+                (p) =>
+                  p.phase === 'merge' &&
+                  p.blockers.some(
+                    (b) => b.kind === 'evidence' && b.message.startsWith('Checkpoint '),
+                  ),
+              ) && (
+                <CheckpointRecoveryPanel
+                  workspaceId={workspaceId}
+                  definitionId={choice.scope.definitionId}
+                  worktreeId={existing.id}
+                  csrfToken={csrfToken}
+                  canMutate={canMutate}
+                  onChanged={onChanged}
+                />
+              )}
             {choice.earlyDevelopment && (
               <p className="hint">
                 {choice.earlyDevelopmentAuthorized

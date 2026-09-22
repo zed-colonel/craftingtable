@@ -107,6 +107,14 @@ it is mergeable.
   recovery keeps its repair round. Historical receipts retain their original generation. Native
   results cannot satisfy actual-Kata requirements. External host execution
   is not dispatched by this version; checkpoint decisions and final promotion remain separate.
+  A reviewed slice blocked on a contract checkpoint offers **Review checkpoint evidence**
+  under **Execution slices and parent acceptance**. Inspect the saved candidate review,
+  controller receipts, checkpoint requirements and retained later case obligations; then
+  **Prepare checkpoint evidence**. Confirm the checkpoint reviewer responsibilities, give
+  a rationale and **Accept checkpoint evidence**. Preparation launches no agent and grants
+  no approval. Candidate acceptance permits only this exact slice's merge; fresh merged-slice
+  verification and parent acceptance remain required. Changed code, integration or relevant
+  dependency inputs require fresh evidence. See ADR-060.
 - **Cross-project supervision.** In **Roadmaps**, open an imported map, explicitly choose a
   target, then select **Only target prerequisites** or **Full roadmap; prioritize this target**.
   Inspect **Selected work by project** (ownership groups, not scheduling order). Each parent

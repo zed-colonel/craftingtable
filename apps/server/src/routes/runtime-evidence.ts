@@ -1,4 +1,6 @@
 import {
+  checkpointRecoverySchema,
+  prepareCheckpointRequestSchema,
   proposeArchitectureDecisionSchema,
   nativeAuditSchema,
   nativeApprovalRequestSchema,
@@ -29,6 +31,24 @@ export function registerRuntimeEvidenceRoutes(
   config: ServerConfig,
 ) {
   const base = '/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime';
+  app.get<{ Params: { workspaceId: string; id: string; worktreeId: string } }>(
+    `${base}/checkpoint-recovery/:worktreeId`,
+    async (request, reply) => {
+      const context = authenticate(request, auth),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      return noStore(reply).send(
+        checkpointRecoverySchema.parse(
+          await service.checkpointRecovery(
+            context,
+            ws.data,
+            request.params.id,
+            request.params.worktreeId,
+          ),
+        ),
+      );
+    },
+  );
   app.get<{ Params: { workspaceId: string; id: string } }>(base, async (request, reply) => {
     const context = authenticate(request, auth),
       ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -62,6 +82,7 @@ export function registerRuntimeEvidenceRoutes(
     'discover',
     'propose-decision',
     'generate-plan',
+    'prepare-checkpoint',
     'submit',
     'decide',
   ] as const)
@@ -73,6 +94,21 @@ export function registerRuntimeEvidenceRoutes(
           ws = workspaceIdSchema.safeParse(request.params.workspaceId);
         if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
         const id = request.params.id;
+        if (action === 'prepare-checkpoint') {
+          const body = prepareCheckpointRequestSchema.safeParse(request.body);
+          if (!body.success)
+            return sendApiError(
+              reply,
+              400,
+              'invalid-request',
+              'Select the exact checkpoint candidate preview.',
+            );
+          return noStore(reply).send(
+            checkpointRecoverySchema.parse(
+              await service.prepareCheckpoint(context, ws.data, id, body.data),
+            ),
+          );
+        }
         if (action === 'propose-decision') {
           const body = proposeArchitectureDecisionSchema.safeParse(request.body);
           if (!body.success)

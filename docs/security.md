@@ -308,6 +308,16 @@ Selecting an external environment grants no credentials, host provisioning or lo
 rights. Native/Kata process dispatch remains closed; reviewed external evidence can satisfy a
 verification milestone. Map decision adoption and protected final promotion remain separate.
 
+Candidate checkpoint preparation (ADR-060) reads only the registered slice's latest successful
+scoped review and frozen controller receipts. Its provenance marker is server-only; uploads
+cannot manufacture it. Explicit authenticated acceptance records the operator's attestation for
+every required checkpoint reviewer responsibility, separately from the supporting agent review.
+Before merge, acceptance is usable only for the originating slice's exact candidate and target.
+After merge, Git must confirm the reviewed tree at the recorded integration merge. Changed
+relevant inputs, policy, source or review expire the evidence. Future baseline cases remain
+required at their assigned slice verification; no case, native/Kata qualification, parent
+acceptance or final-promotion authority is inferred from preparing this packet.
+
 
 Map adoption requires an authenticated owner/editor, exact current bindings, every declared proposal ID
 and a rationale; immutable records preserve attribution. It only authorizes source-declared scheduling

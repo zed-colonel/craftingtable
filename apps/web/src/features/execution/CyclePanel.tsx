@@ -168,11 +168,13 @@ export function CyclePanel({
     ['needs-attention', 'awaiting-merge'].includes(active.status);
   const statusLabel = active?.scopeReviewWait
     ? 'Waiting for prerequisite work'
-    : active && readOnly && active.status === 'awaiting-merge'
-      ? 'Ready for scope acceptance'
-      : active
-        ? CYCLE_STATUS_LABELS[active.status]
-        : '';
+    : active?.mergeRequirementsWait
+      ? 'Merge blocked by requirements'
+      : active && readOnly && active.status === 'awaiting-merge'
+        ? 'Ready for scope acceptance'
+        : active
+          ? CYCLE_STATUS_LABELS[active.status]
+          : '';
   return (
     <Section
       id="automation"
@@ -207,7 +209,12 @@ export function CyclePanel({
       )}
       {active ? (
         <>
-          <p role="status">{active.scopeReviewWait ?? active.reason}</p>
+          <p role="status">
+            {active.scopeReviewWait ?? active.mergeRequirementsWait ?? active.reason}
+          </p>
+          {active.mergeRequirementsWait && (
+            <a href="#slices">Resolve checkpoint evidence for this slice</a>
+          )}
           <ProviderRecovery
             cycle={active}
             disabled={disabled}

@@ -3,7 +3,7 @@ import { designDependencyState } from './design-dependency-policy.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { ExecutionService } from './execution-service.js';
 import type { ScopeRepairRequest } from '@craftingtable/contracts';
-import { collectScopeRepair, scopeReviewWait } from './scope-repair.js';
+import { collectScopeRepair, scopeReviewWait, scopeMergeWait } from './scope-repair.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { prioritizeRoadmapCycles } from './cycle-priority.js';
@@ -109,7 +109,12 @@ export class WorkCycleService {
       const wait = this.isTransitioning(c.id)
         ? 'Preparing the requested recovery. Existing findings remain available.'
         : (automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c));
-      return wait ? { ...c, scopeReviewWait: wait } : c;
+      const mergeWait = scopeMergeWait(tx, c);
+      return {
+        ...c,
+        ...(wait ? { scopeReviewWait: wait } : {}),
+        ...(mergeWait ? { mergeRequirementsWait: mergeWait } : {}),
+      };
     });
   }
 

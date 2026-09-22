@@ -145,6 +145,24 @@ export const evidenceDecisionRequestSchema = z.strictObject({
   submissionId: z.uuid(),
   outcome: z.enum(['accepted', 'rejected']),
   rationale: text,
+  checkpointReviewRoles: z.array(name).min(1).max(20).optional(),
+});
+export const candidateCheckpointSchema = z.strictObject({
+  kind: z.literal('reviewed-candidate-v1'),
+  worktreeId: z.uuid(),
+  sliceId: name,
+  runId: z.uuid(),
+  reportDigest: digest,
+  buildDigest: digest,
+  headSha: z.string().regex(/^[a-f0-9]{40,64}$/),
+  treeSha: z.string().regex(/^[a-f0-9]{40,64}$/),
+  integrationSha: z.string().regex(/^[a-f0-9]{40,64}$/),
+  snapshotDigest: digest,
+});
+export const prepareCheckpointRequestSchema = z.strictObject({
+  worktreeId: z.uuid(),
+  checkpointId: name,
+  snapshotDigest: digest,
 });
 export const generatedPlanEvidenceSchema = z.strictObject({
   kind: z.literal('saved-plan-v1'),
@@ -189,6 +207,7 @@ export const architectureDecisionSchema = architectureDecisionInputSchema.extend
   bindingDigest: digest,
 });
 export const evidenceSubmissionSchema = evidenceSubmissionRequestSchema.safeExtend({
+  candidateCheckpoint: candidateCheckpointSchema.optional(),
   architectureDecision: architectureDecisionSchema.optional(),
   generatedPlan: generatedPlanEvidenceSchema.optional(),
   reviewers: z
@@ -206,6 +225,7 @@ export const evidenceSubmissionSchema = evidenceSubmissionRequestSchema.safeExte
   sliceMergeSha: name.optional(),
 });
 export const evidenceDecisionSchema = z.strictObject({
+  checkpointReviewRoles: z.array(name).readonly().optional(),
   id: z.uuid(),
   workspaceId: z.string(),
   submissionId: z.uuid(),
@@ -214,6 +234,29 @@ export const evidenceDecisionSchema = z.strictObject({
   decidedAt: z.iso.datetime(),
   decidedByUserId: z.string(),
 });
+export const checkpointRecoverySchema = z.strictObject({
+  worktreeId: z.uuid(),
+  candidates: z.array(
+    z.strictObject({
+      checkpointId: name,
+      title: z.string(),
+      requirements: z.array(z.string()),
+      reviewerRoles: z.array(z.string()),
+      cases: z.array(z.strictObject({ id: name, sourceRecordDigest: digest })),
+      laterCases: z.array(z.strictObject({ id: name, sliceId: name })),
+      issues: z.array(z.string()),
+      snapshotDigest: digest,
+      runId: z.string().optional(),
+      headSha: z.string().optional(),
+      integrationSha: z.string().optional(),
+      report: z.string(),
+      buildReceipts: z.string(),
+      submission: evidenceSubmissionSchema.optional(),
+      decision: evidenceDecisionSchema.optional(),
+    }),
+  ),
+});
+export type CheckpointRecovery = z.infer<typeof checkpointRecoverySchema>;
 export const architectureDecisionInboxSchema = z.strictObject({
   workspaceId: z.string(),
   definitionId: z.uuid(),

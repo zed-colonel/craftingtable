@@ -71,6 +71,19 @@ export interface GeneratedPlanEvidence {
   readonly snapshotDigest: string;
 }
 export interface EvidenceSubmission {
+  /** Saved review of a pre-merge candidate; never authorizes another unmerged slice. */
+  readonly candidateCheckpoint?: {
+    readonly kind: 'reviewed-candidate-v1';
+    readonly worktreeId: string;
+    readonly sliceId: string;
+    readonly runId: string;
+    readonly reportDigest: string;
+    readonly buildDigest: string;
+    readonly headSha: string;
+    readonly treeSha: string;
+    readonly integrationSha: string;
+    readonly snapshotDigest: string;
+  };
   /** A proposal is not authority until separately accepted by the authenticated operator. */
   readonly architectureDecision?: ArchitectureDecision;
   /** Daemon-collected setup facts; the separate operator decision supplies plan review. */
@@ -116,6 +129,8 @@ export interface EvidenceSubmission {
   readonly createdByUserId: UserId;
 }
 export interface EvidenceDecision {
+  /** Explicit operator attestation after reviewing a generated technical checkpoint packet. */
+  readonly checkpointReviewRoles?: readonly string[];
   readonly id: string;
   readonly workspaceId: WorkspaceId;
   readonly submissionId: string;

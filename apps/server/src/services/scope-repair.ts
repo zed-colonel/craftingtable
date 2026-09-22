@@ -9,6 +9,25 @@ function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
 
+export function scopeMergeWait(tx: StorageRepositories, cycle: WorkCycle): string | undefined {
+  if (
+    cycle.status !== 'awaiting-merge' ||
+    cycle.executionScope?.kind !== 'slice' ||
+    !cycle.workItemId
+  )
+    return;
+  const blockers = scopePhaseBlockers(
+    tx,
+    cycle.workspaceId,
+    cycle.workItemId,
+    cycle.executionScope,
+    'merge',
+    { resources: false },
+  );
+  if (blockers.length)
+    return `Merge blocked: ${blockers.map((b) => b.message).join(' ')} Open Execution slices and parent acceptance to resolve checkpoint evidence.`;
+}
+
 /** Current dependency waits are a projection; historical review reasons remain untouched. */
 export function scopeReviewWait(tx: StorageRepositories, cycle: WorkCycle): string | undefined {
   if (

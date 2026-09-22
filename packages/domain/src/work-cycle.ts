@@ -106,6 +106,7 @@ export interface WorkCycle {
 
   /** Read projection only: an older review waits for current prerequisite work. */
   readonly scopeReviewWait?: string;
+  readonly mergeRequirementsWait?: string;
   /** Explicit repair delegation, with immutable journal turns from related scope reviews. */
   readonly scopeRepair?: {
     readonly sourceCycleId: string;

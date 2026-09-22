@@ -1,5 +1,5 @@
 import { scopePhaseBlockers } from './execution-scope.js';
-import { scopeReviewWait } from './scope-repair.js';
+import { scopeReviewWait, scopeMergeWait } from './scope-repair.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { crossProjectState, milestoneSatisfied } from './cross-project-service.js';
@@ -272,13 +272,15 @@ export class NotificationService {
               automation?.integrationConflicts === 'automatic'))
         )
           continue;
+        const mergeWait = scopeMergeWait(tx, cycle);
         kind =
           cycle.status === 'awaiting-merge' &&
+          !mergeWait &&
           (!tree.executionScope || tree.executionScope.kind === 'slice')
             ? 'merge'
             : 'attention';
-        reason = `${cycle.step}: ${cycle.reason}`;
-        sourceKey = `cycle:${cycle.id}:${cycle.version}`;
+        reason = mergeWait ?? `${cycle.step}: ${cycle.reason}`;
+        sourceKey = `cycle:${cycle.id}:${cycle.version}${mergeWait ? ':merge-requirements' : ''}`;
       } else {
         if (run === undefined || cycle?.currentRunId === run.id) continue;
         const turn = tx.execution.runEvents.latestOfKind(workspaceId, run.id, 'turn-completed');

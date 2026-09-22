@@ -213,10 +213,18 @@ export function scopePhaseBlockers(
     if (requirement.kind === 'checkpoint') {
       if (stagedDecision(tx, workspaceId, scope, requirement.id)) continue;
       if (
-        !acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
-          kind: 'checkpoint',
-          sourceId: requirement.id,
-        })
+        !acceptedEvidence(
+          tx,
+          workspaceId,
+          scope.definitionId,
+          scope.bindingRevision,
+          {
+            kind: 'checkpoint',
+            sourceId: requirement.id,
+          },
+          new Set(),
+          phase === 'merge' ? scope : undefined,
+        )
       )
         add(
           'evidence',

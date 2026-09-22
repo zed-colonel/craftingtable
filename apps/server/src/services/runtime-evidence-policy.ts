@@ -6,6 +6,7 @@ import {
 import { nativeApproval, needsNativeEvidence } from './native-verification-policy.js';
 import { generatedPlanIssues } from './plan-acceptance-policy.js';
 import { integratedSlice } from './scope-lineage.js';
+import { candidateApplies, candidateCheckpointIssues } from './checkpoint-candidate-policy.js';
 import { runtimeInputChanges } from './runtime-input-policy.js';
 import { snapshotCalculation } from './map-read-snapshot.js';
 import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
@@ -29,7 +30,11 @@ export function activeRuntime(
     ? tx.runtimeEvidence.generations(ws, definitionId, bindingRevision)[0]
     : undefined;
 }
-export function subjectRequirements(d: ConcurrencyDefinition, subject: EvidenceSubject) {
+export function subjectRequirements(
+  d: ConcurrencyDefinition,
+  subject: EvidenceSubject,
+  candidateSliceId?: string,
+) {
   const slice =
     subject.kind === 'slice' ? d.source.slices.find((s) => s.id === subject.sourceId) : undefined;
   const parent =
@@ -67,7 +72,7 @@ export function subjectRequirements(d: ConcurrencyDefinition, subject: EvidenceS
     ...d.source.baseline_acceptance_coverage
       .filter((c) =>
         subject.kind === 'checkpoint'
-          ? c.capability_gate === subject.sourceId
+          ? c.capability_gate === subject.sourceId && c.producing_slice === candidateSliceId
           : subject.kind === 'slice'
             ? c.producing_slice === subject.sourceId
             : c.owner_work_item === subject.sourceId,
@@ -109,6 +114,12 @@ export function testedRepositories(d: ConcurrencyDefinition, subject: EvidenceSu
   add(spec.parent?.repository);
   add(spec.slice && d.source.work_items.find((w) => w.id === spec.slice?.work_item)?.repository);
   add(spec.checkpoint?.owner);
+  // Capability labels identify the consumers, not when every future slice case is due.
+  if (spec.checkpoint)
+    for (const c of d.source.baseline_acceptance_coverage.filter(
+      (c) => c.capability_gate === subject.sourceId,
+    ))
+      add(d.source.work_items.find((w) => w.id === c.owner_work_item)?.repository);
   for (const id of spec.cases.map((c) => c.id)) {
     const c =
       d.source.acceptance_coverage.find((c) => c.id === id) ??
@@ -119,6 +130,9 @@ export function testedRepositories(d: ConcurrencyDefinition, subject: EvidenceSu
 }
 /** Qualification uses its tested consumers; an unclassified/stack subject freezes all pins. */
 export function evidenceInputs(d: ConcurrencyDefinition, subject: EvidenceSubject) {
+  const baseline = d.source.aq_baseline_binding;
+  if (subject.kind === 'checkpoint' && subject.sourceId === baseline?.acceptance_checkpoint)
+    return { consumers: [], pins: [baseline.repository] };
   const consumers = testedRepositories(d, subject);
   const owner = subjectRequirements(d, subject).checkpoint?.owner;
   return consumers.length
@@ -232,7 +246,8 @@ export function submissionIssues(
       environmentId: s.environmentId,
     }),
   );
-  const spec = subjectRequirements(d, s.subject);
+  const spec = subjectRequirements(d, s.subject, s.candidateCheckpoint?.sliceId);
+  issues.push(...candidateCheckpointIssues(tx, s));
   const b = tx.imports.bindings(d.workspaceId, d.id).find((b) => b.revision === s.bindingRevision);
   const requiredCode = testedRepositories(d, s.subject),
     code = s.testedCode ?? [];
@@ -252,7 +267,14 @@ export function submissionIssues(
     if (
       newest?.mergeSha &&
       (newest.mergedAt ?? '') > s.createdAt &&
-      tested.commitSha !== newest.mergeSha
+      tested.commitSha !== newest.mergeSha &&
+      !(
+        s.candidateCheckpoint &&
+        tx.execution.worktrees.find(
+          d.workspaceId,
+          s.candidateCheckpoint.worktreeId as import('@craftingtable/domain').WorktreeId,
+        )?.mergeSha === newest.mergeSha
+      )
     )
       issues.push(
         `The tested ${tested.alias} integration changed after this evidence was collected.`,
@@ -283,10 +305,25 @@ export function submissionIssues(
     )
       issues.push(`Case ${expected.id} needs a passing artifact for its exact source record.`);
   }
-  if (s.cases.some((c) => !spec.cases.some((e) => e.id === c.id)))
+  if (
+    s.cases.some(
+      (c) =>
+        !spec.cases.some((e) => e.id === c.id) &&
+        !(
+          s.subject.kind === 'checkpoint' &&
+          !s.candidateCheckpoint &&
+          d.source.baseline_acceptance_coverage.some(
+            (e) =>
+              e.capability_gate === s.subject.sourceId &&
+              e.id === c.id &&
+              e.source_record_sha256 === c.sourceRecordDigest,
+          )
+        ),
+    )
+  )
     issues.push('Case evidence is assigned to another subject.');
   if (s.generatedPlan) issues.push(...generatedPlanIssues(tx, d, runtime, s));
-  for (const role of s.generatedPlan ? [] : spec.reviewerRoles)
+  for (const role of s.generatedPlan || s.candidateCheckpoint ? [] : spec.reviewerRoles)
     if (
       !s.reviewers.some(
         (r) =>
@@ -298,6 +335,7 @@ export function submissionIssues(
       issues.push(`Independent review evidence is missing role ${role}.`);
   if (
     !s.generatedPlan &&
+    !s.candidateCheckpoint &&
     !s.reviewers.some(
       (r) => r.identity.toLowerCase() !== s.executedBy.toLowerCase() && artifact(r.artifact),
     )
@@ -343,6 +381,7 @@ export function acceptedEvidence(
   bindingRevision: number,
   subject: EvidenceSubject,
   visiting = new Set<string>(),
+  candidateScope?: ExecutionScope,
 ): EvidenceSubmission | undefined {
   // Preserve the recursion path in the key: a cached success must never bypass
   // circular-prerequisite detection. This cache lives only for this read pass.
@@ -355,6 +394,7 @@ export function acceptedEvidence(
       bindingRevision,
       subject,
       [...visiting].sort(),
+      candidateScope,
     ]),
     () => {
       const d = tx.imports.definition(ws, definitionId),
@@ -368,7 +408,16 @@ export function acceptedEvidence(
             s.subject.kind === subject.kind &&
             s.subject.sourceId === subject.sourceId &&
             s.architectureDecision?.coverage !== 'clauses' &&
-            decisions.some((a) => a.submissionId === s.id && a.outcome === 'accepted') &&
+            candidateApplies(tx, s, candidateScope) &&
+            decisions.some(
+              (a) =>
+                a.submissionId === s.id &&
+                a.outcome === 'accepted' &&
+                (!s.candidateCheckpoint ||
+                  subjectRequirements(d, s.subject).reviewerRoles.every((role) =>
+                    a.checkpointReviewRoles?.includes(role),
+                  )),
+            ) &&
             !submissionIssues(tx, d, runtime, s).length &&
             !prerequisiteIssues(tx, d, bindingRevision, subject, visiting).length,
         );

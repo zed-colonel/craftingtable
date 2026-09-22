@@ -862,6 +862,12 @@ export function RuntimeEvidencePanel({
               ) : (
                 'Your authenticated acceptance records decision-owner review. The source design remains a proposal until you approve.'
               )
+            ) : s.candidateCheckpoint ? (
+              decision ? (
+                `Checkpoint review recorded by ${decision.decidedByUserId} (${decision.checkpointReviewRoles?.join(', ') ?? 'no roles recorded'}).`
+              ) : (
+                'Candidate checkpoint review pending. Inspect the retained review and receipts; accepting records your explicit checkpoint attestation.'
+              )
             ) : s.generatedPlan ? (
               decision ? (
                 `Plan review recorded by ${decision.decidedByUserId} as stack-integration-owner.`
@@ -945,7 +951,7 @@ export function RuntimeEvidencePanel({
             </p>
           ) : (
             <fieldset disabled={busy || !canMutate}>
-              {(s.generatedPlan || s.architectureDecision) && (
+              {(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint) && (
                 <label className="field">
                   <span>
                     <input
@@ -955,9 +961,11 @@ export function RuntimeEvidencePanel({
                         setPlanReviewed({ ...planReviewed, [s.id]: e.target.checked })
                       }
                     />{' '}
-                    {s.architectureDecision
-                      ? 'I reviewed the exact proposal, source references, scope and retained obligations as repository-maintainer. I authorize these decisions and any stated clause staging.'
-                      : 'I reviewed the saved plan, bindings, decisions, reviewer assignments and resources as stack-integration-owner.'}
+                    {s.candidateCheckpoint
+                      ? `I reviewed the candidate evidence against every checkpoint requirement as ${view.subjects.find((v) => v.subject.kind === s.subject.kind && v.subject.sourceId === s.subject.sourceId)?.reviewerRoles.join(', ')}.`
+                      : s.architectureDecision
+                        ? 'I reviewed the exact proposal, source references, scope and retained obligations as repository-maintainer. I authorize these decisions and any stated clause staging.'
+                        : 'I reviewed the saved plan, bindings, decisions, reviewer assignments and resources as stack-integration-owner.'}
                   </span>
                 </label>
               )}
@@ -977,7 +985,7 @@ export function RuntimeEvidencePanel({
                     !rationale[s.id]?.trim() ||
                     (outcome === 'accepted' &&
                       (issues.length > 0 ||
-                        (!!(s.generatedPlan || s.architectureDecision) &&
+                        (!!(s.generatedPlan || s.architectureDecision || s.candidateCheckpoint) &&
                           (!planReviewed[s.id] || unsavedSetup))))
                   }
                   onClick={() =>
@@ -987,6 +995,15 @@ export function RuntimeEvidencePanel({
                           submissionId: s.id,
                           outcome,
                           rationale: rationale[s.id],
+                          ...(s.candidateCheckpoint && outcome === 'accepted'
+                            ? {
+                                checkpointReviewRoles: view.subjects.find(
+                                  (v) =>
+                                    v.subject.kind === s.subject.kind &&
+                                    v.subject.sourceId === s.subject.sourceId,
+                                )?.reviewerRoles,
+                              }
+                            : {}),
                         }),
                       );
                       setNotice(

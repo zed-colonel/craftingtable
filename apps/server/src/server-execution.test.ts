@@ -8472,6 +8472,194 @@ it('phase started milestones require a launched run, not a cycle queued for reso
   ).toEqual([]);
 });
 
+async function checkpointCandidateFixture() {
+  const f = await slicedFixture((source) => ({
+    ...source,
+    repositories: source.repositories.map((r) => ({ ...r, id: 'local' })),
+    work_items: source.work_items.map((w) => ({
+      ...w,
+      repository: 'local',
+      aq_baseline_case_ids: ['BASE-A', 'BASE-B'],
+    })),
+    checkpoints: [
+      {
+        ...source.checkpoints[0]!,
+        id: 'CORE-G1',
+        kind: 'contract',
+        owner: 'local',
+        requires: [],
+        decision_refs: [],
+        evidence_profile: 'contract-checkpoint',
+        pass_criteria: ['Core replay passes'],
+      },
+    ],
+    evidence_profiles: [
+      ...source.evidence_profiles,
+      {
+        id: 'contract-checkpoint',
+        required_evidence: ['Exact core tests'],
+        reviewer_roles: ['provider-maintainer', 'consumer-maintainer'],
+        independence_required: true,
+      },
+    ],
+    baseline_acceptance_coverage: source.slices.map((slice, index) => ({
+      id: index === 0 ? 'BASE-A' : 'BASE-B',
+      source_id: 'local',
+      source_record_sha256: (index === 0 ? 'a' : 'b').repeat(64),
+      owner_work_item: 'AQ-01',
+      producing_slice: slice.id,
+      capability_gate: 'CORE-G1',
+      status_on_import: 'unresolved',
+    })),
+    slices: source.slices.map((slice, index) => ({
+      ...slice,
+      mode: 'implementation',
+      aq_baseline_case_ids: [index === 0 ? 'BASE-A' : 'BASE-B'],
+      merge_requires: [{ kind: 'checkpoint', id: 'CORE-G1', state: 'passed' }],
+    })),
+  }));
+  const svc = f.state.context.services.runtimeEvidenceService;
+  const config = {
+    bindingRevision: 1,
+    expectedGeneration: 0,
+    pins: [],
+    consumers: [{ alias: 'local', upstreams: [] }],
+    environments: [
+      {
+        id: 'local',
+        kind: 'local-development' as const,
+        identityDigest: '1'.repeat(64),
+        fixtureDigest: '2'.repeat(64),
+        toolchainDigest: '3'.repeat(64),
+        authorization: 'Local development checks',
+      },
+    ],
+  };
+  await svc.configure(f.auth, f.state.workspaceId, f.parentScope.definitionId, config);
+  const tree = await scopeTree(f, f.scopes[0]!);
+  commitFile(tree.path, 'candidate.txt', 'reviewed core');
+  f.backend.replyForRequest = (request) => {
+    execFileSync(
+      join(request.buildEnvironment!.binDirectory, 'ct-check'),
+      ['--', '/usr/bin/git', 'diff', '--check', 'HEAD'],
+      { cwd: request.cwd },
+    );
+    return {
+      resultText:
+        '## Open questions\nnone\n\n## Review report\n' +
+        scopeReport(f.state, tree.executionScope!),
+    };
+  };
+  const run = await runToFinish(f.state, tree.id, { role: 'review' });
+  expect(
+    f.state.context.storage.runtimeEvidence.build(f.state.workspaceId, run)?.error,
+  ).toBeUndefined();
+  const base = `/api/workspaces/${f.state.workspaceId}/concurrency-definitions/${f.parentScope.definitionId}/runtime`;
+  return { ...f, svc, tree, run, base, config };
+}
+it('prepares candidate checkpoint evidence, retains later slice cases and permits only its reviewed merge', async () => {
+  const f = await checkpointCandidateFixture(),
+    ws = f.state.workspaceId,
+    id = f.parentScope.definitionId;
+  const { acceptedEvidence } = await import('./services/runtime-evidence-policy.js');
+  const { checkpointRecoverySchema } = await import('@craftingtable/contracts');
+  const tx = f.state.context.storage;
+  expect((await merge(f.state, f.tree.id)).statusCode).toBe(409);
+  const previewResponse = await f.state.context.app.inject({
+    method: 'GET',
+    url: `${f.base}/checkpoint-recovery/${f.tree.id}`,
+    headers: { cookie: f.state.cookie },
+  });
+  expect(previewResponse.statusCode, previewResponse.body).toBe(200);
+  const preview = checkpointRecoverySchema.parse(previewResponse.json()).candidates[0]!;
+  expect(preview.issues).toEqual([]);
+  expect(preview.cases.map((c) => c.id)).toEqual(['BASE-A']);
+  expect(preview.laterCases).toEqual([{ id: 'BASE-B', sliceId: 'AQ-01.B' }]);
+  const input = {
+    worktreeId: f.tree.id,
+    checkpointId: 'CORE-G1',
+    snapshotDigest: preview.snapshotDigest,
+  };
+  expect(
+    (
+      await f.state.context.app.inject({
+        method: 'POST',
+        url: `${f.base}/prepare-checkpoint`,
+        headers: { cookie: f.state.cookie },
+        payload: input,
+      })
+    ).statusCode,
+  ).toBe(403);
+  const prepared = await f.svc.prepareCheckpoint(f.auth, ws, id, input);
+  const submission = prepared.candidates[0]!.submission!;
+  expect(submission.candidateCheckpoint?.headSha).toBe(
+    git(['rev-parse', 'HEAD'], f.tree.path).trim(),
+  );
+  expect(submission.reviewers).toEqual([]);
+  expect(tx.runtimeEvidence.decisions(ws)).toHaveLength(0);
+  const acceptance = {
+    submissionId: submission.id,
+    outcome: 'accepted' as const,
+    rationale: 'Reviewed the saved tests and core obligations.',
+  };
+  await expect(f.svc.decide(f.auth, ws, id, acceptance)).rejects.toThrow(
+    'every required reviewer responsibility',
+  );
+  await f.svc.decide(f.auth, ws, id, {
+    ...acceptance,
+    checkpointReviewRoles: preview.reviewerRoles,
+  });
+  const subject = { kind: 'checkpoint' as const, sourceId: 'CORE-G1' };
+  expect(acceptedEvidence(tx, ws, id, 1, subject)).toBeUndefined();
+  expect(acceptedEvidence(tx, ws, id, 1, subject, new Set(), f.scopes[0])).toBeDefined();
+  expect(acceptedEvidence(tx, ws, id, 1, subject, new Set(), f.scopes[1])).toBeUndefined();
+  const landed = await merge(f.state, f.tree.id);
+  expect(landed.statusCode, landed.body).toBe(200);
+  expect(acceptedEvidence(tx, ws, id, 1, subject)).toBeDefined();
+  await expect(f.svc.assertSubjectsCurrent(ws, id, 1, [subject])).resolves.toBeUndefined();
+  expect(tx.scopeReceipts.list(ws, f.state.workItemId)).toHaveLength(0);
+  expect(tx.planning.workItems.find(ws, f.state.workItemId)?.status).toBe('admitted');
+  const resolvedB = resolveScope(tx, ws, f.state.workItemId, f.scopes[1]!);
+  expect(scopeCases(resolvedB)).toContain('BASE-B');
+  commitFile(f.root, 'later-integration.txt', 'a changed integration candidate');
+  await expect(f.svc.assertSubjectsCurrent(ws, id, 1, [subject])).rejects.toThrow(
+    'Integration changed',
+  );
+});
+it.each(['candidate', 'integration', 'dirty', 'run', 'runtime'] as const)(
+  'rejects checkpoint acceptance after %s drift',
+  async (change) => {
+    const f = await checkpointCandidateFixture(),
+      ws = f.state.workspaceId,
+      id = f.parentScope.definitionId;
+    const p = (await f.svc.checkpointRecovery(f.auth, ws, id, f.tree.id)).candidates[0]!;
+    const prepared = await f.svc.prepareCheckpoint(f.auth, ws, id, {
+      worktreeId: f.tree.id,
+      checkpointId: p.checkpointId,
+      snapshotDigest: p.snapshotDigest,
+    });
+    if (change === 'candidate') commitFile(f.tree.path, 'changed.txt', 'after review');
+    if (change === 'integration') commitFile(f.root, 'changed.txt', 'after review');
+    if (change === 'dirty') writeFileSync(join(f.tree.path, 'untracked.txt'), 'after review');
+    if (change === 'run') await runToFinish(f.state, f.tree.id, { role: 'review' });
+    if (change === 'runtime')
+      await f.svc.configure(f.auth, ws, id, {
+        ...f.config,
+        expectedGeneration: 1,
+        environments: f.config.environments.map((e) => ({ ...e, fixtureDigest: 'f'.repeat(64) })),
+      });
+    await expect(
+      f.svc.decide(f.auth, ws, id, {
+        submissionId: prepared.candidates[0]!.submission!.id,
+        outcome: 'accepted',
+        rationale: 'Reviewed',
+        checkpointReviewRoles: p.reviewerRoles,
+      }),
+    ).rejects.toThrow();
+    expect(f.state.context.storage.runtimeEvidence.decisions(ws)).toHaveLength(0);
+  },
+);
+
 async function evidenceFixture(checkpointOwner = 'local') {
   const f = await slicedFixture((source) => ({
     ...source,

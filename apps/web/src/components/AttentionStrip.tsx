@@ -34,9 +34,12 @@ export function AttentionStrip({
   const rows = attention.map((cycle) => (
     <li key={cycle.id} className="attention-row">
       <button type="button" className="text-button" onClick={() => onOpen(cycle)}>
-        {cycle.workItemSourceId}: {CYCLE_STATUS_LABELS[cycle.status]}
+        {cycle.workItemSourceId}:{' '}
+        {cycle.mergeRequirementsWait
+          ? 'Merge blocked by requirements'
+          : CYCLE_STATUS_LABELS[cycle.status]}
       </button>
-      <span className="attention-reason">{cycle.reason}</span>
+      <span className="attention-reason">{cycle.mergeRequirementsWait ?? cycle.reason}</span>
     </li>
   ));
   if (variant === 'section') {

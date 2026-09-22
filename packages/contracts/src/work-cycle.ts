@@ -193,6 +193,7 @@ export type PrepareBaselineRequest = z.infer<typeof prepareBaselineRequestSchema
 export const workCycleSchema = z
   .strictObject({
     scopeReviewWait: z.string().optional(),
+    mergeRequirementsWait: z.string().optional(),
     scopeRepair: z
       .strictObject({
         sourceCycleId: z.uuid(),

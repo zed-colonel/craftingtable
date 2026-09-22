@@ -1,4 +1,7 @@
-import { worktreePlan } from './repository-policy.js';
+import { worktreePlan, repositoryPolicyEvidence } from './repository-policy.js';
+import { checkpointDigest, candidateCheckpointIssues } from './checkpoint-candidate-policy.js';
+import { resolveScope, scopeEvidenceIssues } from './execution-scope.js';
+import { finalizationHasNoQuestions } from './finalization-policy.js';
 import { architectureDecisionInbox } from './architecture-decision-inbox.js';
 import {
   architectureDecisionIssues,
@@ -37,6 +40,7 @@ import {
 } from '@craftingtable/agents';
 import {
   proposeArchitectureDecisionSchema,
+  checkpointRecoverySchema,
   type ProposeArchitectureDecision,
   configureRuntimeSchema,
   evidenceSubmissionRequestSchema,
@@ -45,9 +49,11 @@ import {
   type RuntimePinStatus,
   type RuntimeRefreshPreview,
   type ApplyRuntimeRefresh,
+  type CheckpointRecovery,
 } from '@craftingtable/contracts';
 import {
   asAgentRunId,
+  asWorktreeId,
   asAuditEventId,
   asEventId,
   canonicalDefinition,
@@ -795,6 +801,10 @@ export class RuntimeEvidenceService {
       .flatMap((p) => (p.issue ? [p.issue] : []));
     const binding = this.binding(d.workspaceId, d.id, s.bindingRevision);
     for (const code of s.testedCode ?? []) {
+      if (s.candidateCheckpoint) {
+        issues.push(...(await this.candidateFreshness(s)));
+        continue;
+      }
       const b = binding.bindings.find((b) => b.alias === code.alias);
       const repo =
         b?.repositoryId &&
@@ -814,6 +824,374 @@ export class RuntimeEvidenceService {
     if (!s.generatedPlan && !s.testedCode?.length && !runtime.pins.length)
       issues.push('Identify the tested code with consumer commits or upstream pins.');
     return issues;
+  }
+  private async candidateFreshness(s: EvidenceSubmission): Promise<string[]> {
+    const c = s.candidateCheckpoint;
+    if (!c) return [];
+    const issues = candidateCheckpointIssues(this.storage, s);
+    const tree = this.storage.execution.worktrees.find(s.workspaceId, asWorktreeId(c.worktreeId));
+    const repo =
+      tree && this.storage.execution.sourceRepositories.find(s.workspaceId, tree.repositoryId);
+    if (!tree || !repo || repo.status !== 'active' || !tree.integrationBranch)
+      return [...issues, 'The candidate repository or integration branch is unavailable.'];
+    const git = this.requireGit();
+    const target = await git.resolveCommit(repo.rootPath, tree.integrationBranch);
+    if (tree.mergeSha) {
+      if (
+        !target.ok ||
+        target.value.commitSha !== tree.mergeSha ||
+        target.value.treeSha !== c.treeSha
+      )
+        issues.push(
+          'Integration changed after this candidate was merged. Prepare fresh checkpoint evidence.',
+        );
+    } else {
+      const source = await git.inspectRepository(tree.path);
+      if (
+        !source.ok ||
+        source.value.headSha !== c.headSha ||
+        !source.value.clean ||
+        source.value.branch !== tree.branchName
+      )
+        issues.push('The candidate must remain clean at its exact reviewed commit.');
+      if (!target.ok || target.value.commitSha !== c.integrationSha)
+        issues.push(
+          'Integration advanced after this review. Update the slice and obtain a fresh review.',
+        );
+      const ancestor = await git.isAncestor(repo.rootPath, c.integrationSha, c.headSha);
+      if (!ancestor.ok || !ancestor.value)
+        issues.push('The candidate must include its reviewed integration baseline.');
+    }
+    const plan = worktreePlan(this.storage, tree);
+    if (plan && this.storage.execution.branchSettings.find(s.workspaceId, plan))
+      issues.push(
+        ...(
+          await repositoryPolicyEvidence(
+            this.storage,
+            git,
+            s.workspaceId,
+            plan,
+            this.now().toISOString(),
+          )
+        ).issues,
+      );
+    try {
+      this.assertRun(tree, c.runId);
+    } catch (error) {
+      issues.push(error instanceof Error ? error.message : 'Candidate build evidence is stale.');
+    }
+    // A launch/retarget during asynchronous inspection cannot retain the older approval.
+    issues.push(...candidateCheckpointIssues(this.storage, s));
+    return [...new Set(issues)];
+  }
+
+  async checkpointRecovery(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    worktreeId: string,
+  ): Promise<CheckpointRecovery> {
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    const d = this.definition(ws, id),
+      runtime = this.current(ws, id);
+    const tree = this.storage.execution.worktrees.find(ws, asWorktreeId(worktreeId));
+    if (
+      !tree ||
+      tree.executionScope?.definitionId !== id ||
+      tree.executionScope.kind !== 'slice' ||
+      !tree.workItemId
+    )
+      throw new NotFoundError();
+    const scope = resolveScope(this.storage, ws, tree.workItemId, tree.executionScope);
+    const ids = new Set(
+      scope.slice?.merge_requires.filter((r) => r.kind === 'checkpoint').map((r) => r.id),
+    );
+    const checkpoints = d.source.checkpoints.filter(
+      (c) => ids.has(c.id) && c.kind === 'contract' && c.evidence_profile === 'contract-checkpoint',
+    );
+    const run = this.storage.execution.runs.listForWorktree(ws, tree.id)[0];
+    const turn = run && this.storage.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
+    const report = turn?.kind === 'turn-completed' ? turn.payload.resultText : '';
+    const assessment = turn?.kind === 'turn-completed' ? turn.payload.reviewReport : undefined;
+    const build = run && this.storage.runtimeEvidence.build(ws, run.id);
+    const binding = this.binding(ws, id, tree.executionScope.bindingRevision);
+    const alias = binding.bindings.find((b) => b.repositoryId === tree.repositoryId)?.alias;
+    const repo = this.storage.execution.sourceRepositories.find(ws, tree.repositoryId);
+    const commit =
+      run?.reviewBranchContext && repo
+        ? await this.requireGit().resolveCommit(repo.rootPath, run.reviewBranchContext.headSha)
+        : undefined;
+    const commonIssues: string[] = [];
+    if (!runtime || runtime.bindingRevision !== tree.executionScope.bindingRevision)
+      commonIssues.push('Configure the current dependency environment first.');
+    if (tree.mergeSha)
+      commonIssues.push('This candidate has already merged; use its retained checkpoint evidence.');
+    if (
+      !run ||
+      run.role !== 'review' ||
+      run.status !== 'finished' ||
+      run.verdict !== 'mergeable' ||
+      !run.reviewBranchContext ||
+      turn?.kind !== 'turn-completed' ||
+      turn.payload.outcome !== 'success' ||
+      turn.payload.truncated ||
+      assessment?.status !== 'complete' ||
+      !assessment.report.exitGate.met ||
+      assessment.report.findings.some((f) => f.status === 'open' && f.severity !== 'nit') ||
+      !finalizationHasNoQuestions(report)
+    )
+      commonIssues.push(
+        'Finish a successful, question-free review with no unresolved blocking, major or minor findings.',
+      );
+    if (assessment?.status === 'complete')
+      commonIssues.push(...scopeEvidenceIssues(scope, assessment.report.scopeEvidence));
+    if (!build || build.error || !commit?.ok || !alias)
+      commonIssues.push('The exact reviewed commit and frozen build evidence are required.');
+    if ([report, build?.receipts ?? ''].some((text) => Buffer.byteLength(text) > 512 * 1024))
+      commonIssues.push(
+        'The retained report or receipts exceed the checkpoint packet limit; use a bounded external evidence package.',
+      );
+    const candidates: unknown[] = [];
+    for (const checkpoint of checkpoints) {
+      const subject = { kind: 'checkpoint' as const, sourceId: checkpoint.id };
+      const spec = subjectRequirements(d, subject, scope.scope.sourceId);
+      const issues = [
+        ...commonIssues,
+        ...prerequisiteIssues(this.storage, d, scope.scope.bindingRevision, subject),
+      ];
+      if (spec.cases.some((c) => c.requiresKata))
+        issues.push('This checkpoint requires separately qualified external evidence.');
+      const requiredCode = testedRepositories(d, subject);
+      if (requiredCode.length !== 1 || requiredCode[0] !== alias)
+        issues.push(
+          'This checkpoint requires evidence from multiple or different consumer repositories.',
+        );
+      for (const c of spec.cases)
+        if (
+          assessment?.status !== 'complete' ||
+          !assessment.report.scopeEvidence?.caseIds.includes(c.id)
+        )
+          issues.push(`The review must explicitly cover case ${c.id}.`);
+      const laterCases = d.source.baseline_acceptance_coverage
+        .filter(
+          (c) => c.capability_gate === checkpoint.id && c.producing_slice !== scope.scope.sourceId,
+        )
+        .map((c) => ({ id: c.id, sliceId: c.producing_slice }));
+      const snapshotDigest = checkpointDigest({
+        definition: d.digest,
+        binding: binding.revision,
+        runtime: runtime?.digest,
+        worktree: tree.id,
+        version: tree.version,
+        checkpoint: checkpoint.id,
+        run: run?.id,
+        report: turn?.kind === 'turn-completed' ? turn.payload : undefined,
+        build: build?.digest,
+        head: run?.reviewBranchContext,
+        tree: commit?.ok ? commit.value.treeSha : undefined,
+      });
+      const saved = this.storage.runtimeEvidence
+        .submissions(ws, id)
+        .find(
+          (s) =>
+            s.subject.sourceId === checkpoint.id &&
+            s.candidateCheckpoint?.snapshotDigest === snapshotDigest,
+        );
+      const draft =
+        runtime &&
+        run?.reviewBranchContext &&
+        turn?.kind === 'turn-completed' &&
+        build &&
+        commit?.ok &&
+        alias
+          ? this.checkpointPacket(
+              context,
+              d,
+              runtime,
+              tree,
+              checkpoint.id,
+              snapshotDigest,
+              run.id,
+              turn.payload,
+              build,
+              commit.value.treeSha,
+              alias,
+            )
+          : undefined;
+      if (draft)
+        issues.push(
+          ...submissionIssues(this.storage, d, runtime, draft),
+          ...(await this.evidenceFreshness(d, runtime!, draft)),
+        );
+      candidates.push({
+        checkpointId: checkpoint.id,
+        title: checkpoint.title,
+        requirements: spec.requirements,
+        reviewerRoles: spec.reviewerRoles,
+        cases: spec.cases.map((c) => ({ id: c.id, sourceRecordDigest: c.sourceRecordDigest })),
+        laterCases,
+        issues: [...new Set(issues)],
+        snapshotDigest,
+        ...(run ? { runId: run.id } : {}),
+        ...(run?.reviewBranchContext
+          ? {
+              headSha: run.reviewBranchContext.headSha,
+              integrationSha: run.reviewBranchContext.targetSha,
+            }
+          : {}),
+        report,
+        buildReceipts: build?.receipts ?? '',
+        ...(saved
+          ? {
+              submission: saved,
+              decision: this.storage.runtimeEvidence
+                .decisions(ws)
+                .find((x) => x.submissionId === saved.id),
+            }
+          : {}),
+      });
+    }
+    return checkpointRecoverySchema.parse({ worktreeId, candidates });
+  }
+
+  private checkpointPacket(
+    context: AuthContext,
+    d: ConcurrencyDefinition,
+    runtime: RuntimeGeneration,
+    tree: Worktree,
+    checkpointId: string,
+    snapshotDigest: string,
+    runId: string,
+    payload: import('@craftingtable/domain').AgentRunEventPayloads['turn-completed'],
+    build: import('@craftingtable/domain').RunBuildRecord,
+    treeSha: string,
+    alias: string,
+  ): EvidenceSubmission {
+    const run = this.storage.execution.runs.find(d.workspaceId, asAgentRunId(runId))!;
+    const branch = run.reviewBranchContext!;
+    const spec = subjectRequirements(
+      d,
+      { kind: 'checkpoint', sourceId: checkpointId },
+      tree.executionScope!.sourceId,
+    );
+    const artifacts = [
+      { name: 'independent-review', content: payload.resultText },
+      { name: 'controller-build-receipts', content: build.receipts },
+      {
+        name: 'checkpoint-requirements',
+        content: JSON.stringify(
+          {
+            requirements: spec.requirements,
+            cases: spec.cases,
+            explanation:
+              'The retained review and build receipts are evidence for operator assessment, not automatic checkpoint approval. Later baseline cases remain required in their assigned slice verification.',
+          },
+          null,
+          2,
+        ),
+      },
+    ].map((a) => ({ ...a, digest: hash(a.content) }));
+    return {
+      id: randomUUID(),
+      workspaceId: d.workspaceId,
+      definitionId: d.id,
+      bindingRevision: tree.executionScope!.bindingRevision,
+      runtimeId: runtime.id,
+      subject: { kind: 'checkpoint', sourceId: checkpointId },
+      testedCode: [{ alias, commitSha: branch.headSha }],
+      subjectCommit: branch.headSha,
+      environmentId: runtime.environments.find((e) => e.kind === 'local-development')?.id ?? '',
+      executedBy: `review-run:${runId}`,
+      executedAt: run.finishedAt!,
+      reviewers: [],
+      requirements: spec.requirements.map((requirement) => ({
+        requirement,
+        artifact: 'independent-review',
+      })),
+      cases: spec.cases.map((c) => ({
+        id: c.id,
+        sourceRecordDigest: c.sourceRecordDigest,
+        result: 'passed',
+        artifact: 'independent-review',
+      })),
+      artifacts,
+      candidateCheckpoint: {
+        kind: 'reviewed-candidate-v1',
+        worktreeId: tree.id,
+        sliceId: tree.executionScope!.sourceId,
+        runId,
+        reportDigest: checkpointDigest(payload),
+        buildDigest: build.digest,
+        headSha: branch.headSha,
+        treeSha,
+        integrationSha: branch.targetSha,
+        snapshotDigest,
+      },
+      createdAt: this.now().toISOString(),
+      createdByUserId: context.user.id,
+    };
+  }
+
+  async prepareCheckpoint(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    input: { worktreeId: string; checkpointId: string; snapshotDigest: string },
+  ) {
+    const preview = await this.checkpointRecovery(context, ws, id, input.worktreeId);
+    const candidate = preview.candidates.find((c) => c.checkpointId === input.checkpointId);
+    if (!candidate || candidate.snapshotDigest !== input.snapshotDigest)
+      conflict('Checkpoint evidence changed. Refresh and review the current candidate.');
+    if (candidate.issues.length) conflict(candidate.issues.join('\n'));
+    if (candidate.submission && candidate.decision?.outcome !== 'rejected') return preview;
+    const d = this.definition(ws, id),
+      runtime = this.current(ws, id)!;
+    const tree = this.storage.execution.worktrees.find(ws, asWorktreeId(input.worktreeId))!;
+    const run = this.storage.execution.runs.find(ws, asAgentRunId(candidate.runId!))!;
+    const turn = this.storage.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
+    if (turn?.kind !== 'turn-completed') conflict('The completed review is unavailable.');
+    const build = this.storage.runtimeEvidence.build(ws, run.id)!;
+    const commit = await this.requireGit().resolveCommit(
+      tree.path,
+      run.reviewBranchContext!.headSha,
+    );
+    if (!commit.ok) conflict('The reviewed candidate is unavailable.');
+    const alias = this.binding(ws, id, tree.executionScope!.bindingRevision).bindings.find(
+      (b) => b.repositoryId === tree.repositoryId,
+    )!.alias;
+    const submission = this.checkpointPacket(
+      context,
+      d,
+      runtime,
+      tree,
+      input.checkpointId,
+      input.snapshotDigest,
+      run.id,
+      turn.payload,
+      build,
+      commit.value.treeSha,
+      alias,
+    );
+    const issues = await this.evidenceFreshness(d, runtime, submission);
+    if (issues.length) conflict(issues.join('\n'));
+    this.storage.transaction((tx) => {
+      this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+      if (this.current(ws, id)?.id !== runtime.id) conflict('Runtime changed during preparation.');
+      const issues = submissionIssues(tx, d, runtime, submission);
+      if (issues.length) conflict(issues.join('\n'));
+      tx.runtimeEvidence.addSubmission(submission);
+      this.changed(
+        tx,
+        context,
+        ws,
+        id,
+        'evidence.submitted',
+        `Prepared ${input.checkpointId} from retained candidate review.`,
+        submission.createdAt,
+      );
+    });
+    this.notifier.notify();
+    return this.checkpointRecovery(context, ws, id, input.worktreeId);
   }
   async submit(context: AuthContext, ws: WorkspaceId, id: string, raw: EvidenceSubmissionRequest) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
@@ -921,7 +1299,12 @@ export class RuntimeEvidenceService {
     context: AuthContext,
     ws: WorkspaceId,
     id: string,
-    input: { submissionId: string; outcome: 'accepted' | 'rejected'; rationale: string },
+    input: {
+      submissionId: string;
+      outcome: 'accepted' | 'rejected';
+      rationale: string;
+      checkpointReviewRoles?: readonly string[];
+    },
   ) {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const d = this.definition(ws, id),
@@ -930,6 +1313,18 @@ export class RuntimeEvidenceService {
     if (!s) throw new NotFoundError();
     if (input.outcome === 'accepted') {
       if (!runtime) conflict('Configure a runtime first.');
+      if (s.candidateCheckpoint) {
+        const roles = subjectRequirements(d, s.subject).reviewerRoles;
+        if (
+          !input.checkpointReviewRoles ||
+          input.checkpointReviewRoles.length !== roles.length ||
+          new Set(input.checkpointReviewRoles).size !== roles.length ||
+          roles.some((role) => !input.checkpointReviewRoles!.includes(role))
+        )
+          conflict(
+            'Explicitly confirm checkpoint review for every required reviewer responsibility.',
+          );
+      }
       const issues = [
         ...submissionIssues(this.storage, d, runtime, s),
         ...prerequisiteIssues(this.storage, d, s.bindingRevision, s.subject),
@@ -946,6 +1341,10 @@ export class RuntimeEvidenceService {
         );
       if (input.outcome === 'accepted' && this.current(ws, id)?.id !== runtime?.id)
         conflict('Runtime changed during review.');
+      if (input.outcome === 'accepted' && s.candidateCheckpoint) {
+        const issues = submissionIssues(tx, d, runtime, s);
+        if (issues.length) conflict(issues.join(' '));
+      }
       if (input.outcome === 'accepted' && s.architectureDecision)
         this.assertDecisionCanChange(tx, ws, id, s);
       if (input.outcome === 'accepted' && s.generatedPlan) {
@@ -1977,6 +2376,8 @@ export class RuntimeEvidenceService {
         d.id,
         scope.bindingRevision,
         subject,
+        new Set(),
+        phase === 'merge' ? scope : undefined,
       );
       if (evidence && (!root || phase === 'verify' || phase === 'accept'))
         issues.push(

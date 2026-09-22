@@ -1,11 +1,15 @@
 import { expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { analyzeConcurrencyArchive } from '@craftingtable/planning';
 import {
   asWorkspaceId,
   asSourceRepositoryId,
   asUserId,
   type RuntimeGeneration,
+  type ConcurrencyDefinition,
 } from '@craftingtable/domain';
 import { runtimeInputChanges, sameRuntimeEnvironments } from './runtime-input-policy.js';
+import { evidenceInputs } from './runtime-evidence-policy.js';
 
 function generation(): RuntimeGeneration {
   return {
@@ -42,6 +46,39 @@ function generation(): RuntimeGeneration {
     ],
   };
 }
+it('retains completed upstream baseline proof across consumer pin changes, but not provider or environment changes', () => {
+  const source = analyzeConcurrencyArchive(
+    readFileSync(
+      new URL(
+        '../../../../fixtures/concurrency/cross-stack-concurrency-draft-v0.3.0-aq-baseline-alignment.zip',
+        import.meta.url,
+      ),
+    ),
+  ).source!;
+  const inputs = evidenceInputs({ source } as ConcurrencyDefinition, {
+    kind: 'checkpoint',
+    sourceId: 'AQ-BASELINE-ACCEPTED',
+  });
+  const before = generation();
+  const changedPin = (alias: string) => ({
+    ...before,
+    pins: before.pins.map((p) => (p.alias === alias ? { ...p, commitSha: 'c'.repeat(40) } : p)),
+  });
+  expect(runtimeInputChanges(before, changedPin('wi'), inputs)).toEqual([]);
+  expect(runtimeInputChanges(before, changedPin('aq'), inputs)).toEqual([
+    expect.stringContaining('aq dependency commit'),
+  ]);
+  expect(
+    runtimeInputChanges(
+      before,
+      {
+        ...before,
+        environments: before.environments.map((e) => ({ ...e, toolchainDigest: 'd'.repeat(64) })),
+      },
+      inputs,
+    ),
+  ).toEqual([expect.stringContaining('toolchain')]);
+});
 it('retains WI evidence but requires EXO re-verification when the WI pin advances', () => {
   const before = generation();
   const after = {

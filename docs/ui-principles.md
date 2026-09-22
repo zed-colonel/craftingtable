@@ -281,3 +281,12 @@ an exact decision and explicitly approving it remain separate; neither starts a 
 approval identifies consumers and retained obligations, with the saved-plan review consequence.
 Historical questions remain readable but do not hide newer approvals. Keep draft edits and
 expanded evidence stable during background refreshes.
+
+
+Host verification capacity lives in Settings with a direct link beside roadmap capacity counters.
+Show verification separately from development limits, explain installation-wide ownership and
+persistence, and put editing behind a named action. Name occupied runs and link to their work items.
+Label recorded capacity waits separately from roadmap work not yet dispatched; paused scheduling
+requires explicit resumption. Refresh occupancy on request without losing unsaved edits. Changing
+capacity requires paused scheduling and renewed saved-plan acceptance; do not resume or approve
+anything implicitly.

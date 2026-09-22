@@ -1,14 +1,7 @@
-import { ScopeRecoveryPanel } from './ScopeRecoveryPanel.js';
-import { RoadmapAttention, roadmapStatusLabel } from './RoadmapAttention.js';
-import { revealElement } from '../../lib/reveal-element.js';
-import { MapAmendmentPanel } from './MapAmendmentPanel.js';
-import { CrossProjectPanel } from './CrossProjectPanel.js';
-import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
-import type { RuntimeEvidenceView, ExecutionScopeChoice } from '@craftingtable/contracts';
-import { executionScopeKey } from '@craftingtable/domain';
-import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import type {
+  ExecutionScopeChoice,
   ExecutionStatusResponse,
+  RuntimeEvidenceView,
   SaveRoadmapRequest,
   WorkspaceWorkItemListResponse,
 } from '@craftingtable/contracts';
@@ -17,6 +10,7 @@ import {
   type CycleProfiles,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_SCHEDULING,
+  executionScopeKey,
   type Roadmap,
   type RoadmapDefinition,
   type RoadmapStatus,
@@ -31,7 +25,9 @@ import { PageHeader } from '../../components/PageHeader.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
+import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
+import { revealElement } from '../../lib/reveal-element.js';
 import {
   controlRoadmap,
   loadRoadmapHistory,
@@ -41,7 +37,12 @@ import {
 import { buildPath } from '../../lib/route.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { ConcurrencyImports } from './ConcurrencyImports.js';
+import { CrossProjectPanel } from './CrossProjectPanel.js';
+import { MapAmendmentPanel } from './MapAmendmentPanel.js';
+import { RoadmapAttention, roadmapStatusLabel } from './RoadmapAttention.js';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
+import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
+import { ScopeRecoveryPanel } from './ScopeRecoveryPanel.js';
 
 const labels: Record<RoadmapStatus, string> = {
   draft: 'Draft',
@@ -732,6 +733,13 @@ export function RoadmapsPage({
                 <p className="subtle">
                   These workstation slots are shared across projects. Roadmap limits include items
                   waiting for review or merge; they do not increase workstation capacity.
+                </p>
+                <p>
+                  <a
+                    href={`/workspaces/${encodeURIComponent(workspaceId)}/settings#host-scheduling`}
+                  >
+                    View verification capacity and reservations
+                  </a>
                 </p>
                 {roadmap.definition.scheduling?.mode === 'parallel' &&
                   roadmap.definition.scheduling.maxInFlight > hostCapacity.development.limit && (

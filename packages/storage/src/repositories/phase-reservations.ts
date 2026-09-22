@@ -2,6 +2,15 @@ import type { PhaseReservation } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 export interface PhaseSchedulingRepository {
   capacity(key: string): number;
+  setting(key: string): { capacity: number; version: number; updatedAt: string | null };
+  initializeCapacity(key: string, capacity: number): void;
+  saveCapacity(
+    key: string,
+    capacity: number,
+    expectedVersion: number,
+    userId: string,
+    at: string,
+  ): boolean;
   setCapacity(key: string, capacity: number): void;
   active(): readonly PhaseReservation[];
   acquire(reservation: PhaseReservation): void;
@@ -30,9 +39,39 @@ export class SqlitePhaseSchedulingRepository implements PhaseSchedulingRepositor
   setCapacity(key: string, capacity: number): void {
     this.db
       .prepare(
-        'INSERT INTO phase_resource_limits VALUES (?, ?) ON CONFLICT(resource_key) DO UPDATE SET capacity=excluded.capacity',
+        'INSERT INTO phase_resource_limits(resource_key, capacity) VALUES (?, ?) ON CONFLICT(resource_key) DO UPDATE SET capacity=excluded.capacity, version=phase_resource_limits.version+1',
       )
       .run(key, capacity);
+  }
+  setting(key: string) {
+    const row = this.db
+      .prepare(
+        'SELECT capacity, version, updated_at AS updatedAt FROM phase_resource_limits WHERE resource_key=?',
+      )
+      .get(key) as { capacity: number; version: number; updatedAt: string | null } | undefined;
+    if (!row) throw new Error('Host capacity has not been initialized');
+    return row;
+  }
+  initializeCapacity(key: string, capacity: number): void {
+    this.db
+      .prepare(`INSERT INTO phase_resource_limits(resource_key, capacity) VALUES (?, ?)
+      ON CONFLICT(resource_key) DO UPDATE SET capacity=excluded.capacity, version=phase_resource_limits.version+1
+      WHERE phase_resource_limits.updated_by_user_id IS NULL AND phase_resource_limits.capacity != excluded.capacity`)
+      .run(key, capacity);
+  }
+  saveCapacity(
+    key: string,
+    capacity: number,
+    expectedVersion: number,
+    userId: string,
+    at: string,
+  ): boolean {
+    return (
+      this.db
+        .prepare(`UPDATE phase_resource_limits SET capacity=?, version=version+1, updated_by_user_id=?, updated_at=?
+      WHERE resource_key=? AND version=?`)
+        .run(capacity, userId, at, key, expectedVersion).changes === 1
+    );
   }
   active(): readonly PhaseReservation[] {
     return this.db

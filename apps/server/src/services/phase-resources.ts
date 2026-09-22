@@ -1,9 +1,9 @@
-import { nativeApproval } from './native-verification-policy.js';
 import { randomUUID } from 'node:crypto';
 import type { ExecutionPhase, PhaseBlocker, Worktree } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { ExecutionRequestError } from './errors.js';
 import type { ResolvedScope } from './execution-scope.js';
+import { nativeApproval } from './native-verification-policy.js';
 
 export class PhaseGateError extends ExecutionRequestError {
   constructor(readonly blockers: readonly PhaseBlocker[]) {
@@ -83,7 +83,10 @@ export function resourceBlockers(
   const active = tx.phaseScheduling.active();
   for (const resource of resources) {
     const claims = active.filter((c) => c.resourceKey === resource.key && c.ownerId !== ownerId);
-    const capacity = Math.min(resource.capacity, ...claims.map((c) => c.capacity));
+    const capacity =
+      resource.key === 'local-verification'
+        ? resource.capacity
+        : Math.min(resource.capacity, ...claims.map((c) => c.capacity));
     if (claims.length >= capacity)
       blockers.push({
         kind: 'resource',

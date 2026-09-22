@@ -354,16 +354,35 @@ No production work, map decisions or baseline/publication gates were authorized 
 
 ## UI settings backlog
 
-- [ ] **Host verification capacity** (requested 2026-09-21). Expose the installation-wide
-  `local-verification` limit as a visible, editable setting, clearly distinguished from
-  roadmap/project development concurrency. Today it is configured only through
-  `CRAFTINGTABLE_VERIFICATION_CAPACITY` (default 1, range 1–32) and is shared by slice
-  verification and parent-acceptance reviews. Show capacity, occupied reservations,
-  the runs holding them, and waiting reviews with an explanation of automatic retry.
-  Increasing capacity permits independent eligible reviews to overlap; dependency,
-  evidence, authorization and merge gates must still pass. A parent acceptance review
-  must continue to wait for its required slice verifications. Lowering capacity must
-  preserve active runs and delay new reservations until usage permits them. Define
-  persistence and environment-override behavior when implementing the setting.
+- [x] **Host verification capacity** (requested 2026-09-21; delivered 2026-09-22).
+  Settings exposes the installation-wide `local-verification` limit (1–32), current slot
+  holders with run/work-item links, and recorded cycle capacity waits. Roadmaps link to it;
+  reviews not yet dispatched remain visible in roadmap supervision. Development capacity
+  stays separate. Saved values survive restarts and override the verification environment
+  default. Lowering the limit preserves active runs; increasing it admits only eligible work.
+  Owner authorization, version checks and audit apply. Pause roadmap scheduling before saving,
+  then generate and accept updated saved-plan evidence. Dependencies and all evidence/merge
+  gates remain enforced. See [ADR-061](decisions/ADR-061-host-verification-settings.md).
 
-This backlog records future UI work; adding an item does not change live capacity.
+- [ ] **Provider-failure recovery** (investigated 2026-09-22). Distinguish transport/provider
+  failures from invalid reports and source findings. EXO-02's parent review ended on Codex's
+  structured `serverOverloaded` error with `willRetry: false`; current recovery starts another
+  same-step run with handoff in the existing worktree, without consuming a remediation round.
+  Proposed next increment: bounded, durable same-model retries with backoff and a separate
+  service-retry allowance; show provider reason, next retry, attempts, Retry now and Pause.
+  Preserve partial work and run lineage; require terminal process/child cleanup, fresh phase
+  gates and an explicit complete successful report. Respect roadmap pauses and restart holds.
+  Investigate safe same-session continuation with current run paths, sandbox and build receipt
+  identity before using the adapter's thread-resume support; ordinary retries currently create
+  a fresh session. Never switch models silently. Authentication, exhausted allowances, unknown
+  failures and ambiguous tool completion require operator review. Automatic retries and model
+  switching are not delivered by the settings increment.
+
+- [ ] **Parent build applicability** (discovered during provider-failure investigation,
+  2026-09-22). EXO-02 is imported as independent, has only a domain slice and no AQ
+  baseline cases, but its same-repository EXO-01 acceptance prerequisite makes the build
+  classifier fall back to current-upstream builds. Reconcile ordinary accepted predecessor
+  requirements with independent parent build applicability, preserving every acceptance gate.
+  Its interrupted parent review also reports lock metadata changes under the supplied current
+  patches; reassess that finding after the environment policy is corrected, before delegating
+  a source repair. Do not accept the interrupted report file as a successful review.

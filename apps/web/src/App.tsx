@@ -1,4 +1,3 @@
-import { ExecutionScopesPanel } from './features/execution/ExecutionScopesPanel.js';
 import type {
   AgentRunDetailResponse,
   AuditRecordSummary,
@@ -41,17 +40,18 @@ import { Section } from './components/Section.js';
 import { StatusCards } from './components/StatusCards.js';
 import { WorkspaceShell } from './components/WorkspaceShell.js';
 import { AccountPage } from './features/account/AccountPage.js';
-import { DesignRecoveryPanel } from './features/execution/DesignRecoveryPanel.js';
-import { ScopeReviewRecovery } from './features/execution/ScopeReviewRecovery.js';
-import { ScopeRepairPanel } from './features/execution/ScopeRepairPanel.js';
 import { CyclePanel } from './features/execution/CyclePanel.js';
 import { DelegationPanel, type LaunchInput } from './features/execution/DelegationPanel.js';
+import { DesignRecoveryPanel } from './features/execution/DesignRecoveryPanel.js';
 import { DiffView } from './features/execution/DiffView.js';
+import { ExecutionScopesPanel } from './features/execution/ExecutionScopesPanel.js';
 import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
 import { PlanBranchPanel } from './features/execution/PlanBranchPanel.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
 import { RunPage } from './features/execution/RunPage.js';
 import { RunList, RunsPage } from './features/execution/RunsPage.js';
+import { ScopeRepairPanel } from './features/execution/ScopeRepairPanel.js';
+import { ScopeReviewRecovery } from './features/execution/ScopeReviewRecovery.js';
 import { WorktreeBranchPanel } from './features/execution/WorktreeBranchPanel.js';
 import { WorkspacesPage } from './features/home/WorkspacesPage.js';
 import { AgendaPage } from './features/planning/AgendaPage.js';
@@ -62,6 +62,7 @@ import { ProjectPage } from './features/planning/ProjectPage.js';
 import { RoadmapsPage } from './features/planning/RoadmapsPage.js';
 import { SourceText } from './features/planning/SourceText.js';
 import { WorkItemPage } from './features/planning/WorkItemPage.js';
+import { HostSchedulingPanel } from './features/workspace/HostSchedulingPanel.js';
 import { NotificationPanel } from './features/workspace/NotificationPanel.js';
 import { SettingsPage } from './features/workspace/SettingsPage.js';
 import { StoragePanel } from './features/workspace/StoragePanel.js';
@@ -1234,6 +1235,14 @@ export function App() {
             busy={workspaceBusy}
             {...(workspaceError === undefined ? {} : { error: workspaceError })}
             {...(workspaceNotice === undefined ? {} : { notice: workspaceNotice })}
+            hostScheduling={
+              activeWorkspace.role === 'owner' ? (
+                <HostSchedulingPanel
+                  workspaceId={activeWorkspace.id}
+                  csrfToken={authenticated.csrfToken}
+                />
+              ) : undefined
+            }
             storage={
               activeWorkspace.role === 'owner' ? (
                 <StoragePanel

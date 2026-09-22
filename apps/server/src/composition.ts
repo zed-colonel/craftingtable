@@ -1,6 +1,3 @@
-import { BaselinePreparationService } from './services/baseline-preparation.js';
-import { MapAmendmentService } from './services/map-amendment-service.js';
-import { CrossProjectService } from './services/cross-project-service.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -15,17 +12,20 @@ import { AGENT_BACKEND_LABELS, AGENT_BACKENDS, type AgentBackendKind } from '@cr
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { type CraftingTableStorage, openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
-import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import type { ServerConfig } from './config.js';
 import { Argon2PasswordHasher, type PasswordHasher } from './security/password-hasher.js';
 import { SessionTokenService } from './security/session-tokens.js';
 import { buildServer } from './server.js';
 import { AgentRunService, type RunLog } from './services/agent-run-service.js';
 import { AuthService } from './services/auth-service.js';
+import { BaselinePreparationService } from './services/baseline-preparation.js';
 import { BootstrapService } from './services/bootstrap-service.js';
+import { CrossProjectService } from './services/cross-project-service.js';
 import { resolveExecutable } from './services/executables.js';
 import { ExecutionService, type ExecutionStatus } from './services/execution-service.js';
 import { FinalizationService } from './services/finalization-service.js';
+import { HostSchedulingService } from './services/host-scheduling-service.js';
+import { MapAmendmentService } from './services/map-amendment-service.js';
 import { NotificationService } from './services/notification-service.js';
 import {
   type NotificationTransport,
@@ -43,6 +43,7 @@ import {
 import { createRepositoryObservationPort } from './services/repository-observation-adapter.js';
 import { RoadmapService } from './services/roadmap-service.js';
 import { RunEventStreamService } from './services/run-event-stream-service.js';
+import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import { StorageService } from './services/storage-service.js';
 import { WorkCycleService } from './services/work-cycle-service.js';
 import { WorkItemService } from './services/work-item-service.js';
@@ -60,6 +61,7 @@ export interface ServiceSet {
   readonly runtimeEvidenceService: RuntimeEvidenceService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
+  readonly hostSchedulingService: HostSchedulingService;
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
@@ -213,8 +215,11 @@ export async function createServices(
     baselineService,
   );
   storage.transaction((tx) => {
-    tx.phaseScheduling.setCapacity('local-development', config.execution.developmentCapacity ?? 2);
-    tx.phaseScheduling.setCapacity(
+    tx.phaseScheduling.initializeCapacity(
+      'local-development',
+      config.execution.developmentCapacity ?? 2,
+    );
+    tx.phaseScheduling.initializeCapacity(
       'local-verification',
       config.execution.verificationCapacity ?? 1,
     );
@@ -278,6 +283,7 @@ export async function createServices(
     ),
     runtimeEvidenceService,
     storageService,
+    hostSchedulingService: new HostSchedulingService(storage, workspaceService, notifier, now),
     finalizationService: new FinalizationService(
       storage,
       workspaceService,
@@ -355,6 +361,7 @@ export async function createRuntime(
         runtimeEvidenceService: services.runtimeEvidenceService,
         packageImportService: services.packageImportService,
         storageService: services.storageService,
+        hostSchedulingService: services.hostSchedulingService,
         authService: services.authService,
         workspaceService: services.workspaceService,
         planImportService: services.planImportService,

@@ -389,6 +389,7 @@ describe('migration 0002 journal preservation', () => {
       'map-amendments',
       'native-verification',
       'repository-policy',
+      'host-verification-settings',
     ]);
     // The recorded checksum of 0001 is what every already-migrated installation
     // validates against; changing that file would lock operators out.

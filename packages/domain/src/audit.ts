@@ -60,6 +60,7 @@ export const AUDIT_ACTIONS = [
   'roadmap.updated',
   'finalization.updated',
   'storage.updated',
+  'host-scheduling.updated',
   'storage.cleaned',
   'storage.backup',
   'package.import',
@@ -115,6 +116,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'notifications.updated': 11,
   'roadmap.updated': 12,
   'finalization.updated': 14,
+  'host-scheduling.updated': 25,
   'storage.updated': 15,
   'storage.cleaned': 15,
   'storage.backup': 15,
@@ -131,7 +133,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
 } as const satisfies Readonly<
   Record<
     AuditAction,
-    1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22
+    1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 25
   >
 >;
 

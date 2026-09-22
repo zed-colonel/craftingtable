@@ -66,8 +66,13 @@ it is mergeable.
   explicit authorization for the exact bound slice and does not relax parent acceptance.
   Native/Kata qualification, current upstream pins and unresolved map decisions remain visible gates.
   Local scoped development defaults to 2 admission slots; verification/acceptance defaults to 1.
-  Set `CRAFTINGTABLE_DEVELOPMENT_CAPACITY` and `CRAFTINGTABLE_VERIFICATION_CAPACITY` (1–32)
-  in the daemon environment to tune them. These coordinate daemon work, not host CPU or isolation.
+  **Settings → Host verification capacity** shows the current limit, occupied runs and recorded
+  capacity waits, with links from Roadmaps. Pause scheduling before changing verification capacity
+  (1–32). Only an owner of every active workspace can save this installation-wide setting.
+  The saved value survives restart and overrides `CRAFTINGTABLE_VERIFICATION_CAPACITY`; otherwise
+  that environment value supplies the default. `CRAFTINGTABLE_DEVELOPMENT_CAPACITY` still configures
+  the separate development pool. Lower limits retain active runs and delay new reservations.
+  These coordinate daemon work, not host CPU or isolation.
   Saved cross-project roadmaps show occupied/total workstation slots beside their in-flight limits.
   Workstation slots are shared across projects; setting four roadmap items and two per repository
   does not override a two-slot workstation limit. Changing workstation capacity requires fresh

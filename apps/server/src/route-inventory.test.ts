@@ -7,6 +7,8 @@ import { createTestContext } from './test-support.js';
  */
 
 const EXPECTED_ROUTES = [
+  'GET /api/workspaces/:workspaceId/host-scheduling',
+  'POST /api/workspaces/:workspaceId/host-scheduling',
   'GET /api/workspaces/:workspaceId/cycles/:cycleId/baseline-evidence',
   'GET /api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',
   'POST /api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',

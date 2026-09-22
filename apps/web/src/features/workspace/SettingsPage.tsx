@@ -30,6 +30,7 @@ export function SettingsPage({
   onRename,
   notifications,
   storage,
+  hostScheduling,
   backends,
   profiles,
   profilesBusy,
@@ -39,6 +40,7 @@ export function SettingsPage({
 }: {
   notifications?: ReactNode;
   storage?: ReactNode;
+  hostScheduling?: ReactNode;
   workspace: WorkspaceOverview;
   canEdit: boolean;
   busy: boolean;
@@ -126,6 +128,7 @@ export function SettingsPage({
         />
       )}
 
+      {hostScheduling}
       {notifications}
       {storage}
     </div>

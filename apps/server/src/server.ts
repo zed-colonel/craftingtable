@@ -1,23 +1,21 @@
-import { registerMapAmendmentRoutes } from './routes/map-amendments.js';
-import { MapAmendmentService } from './services/map-amendment-service.js';
-import { registerCrossProjectRoutes } from './routes/cross-project.js';
-import type { CrossProjectService } from './services/cross-project-service.js';
 import { readFileSync } from 'node:fs';
 import cookie from '@fastify/cookie';
 import { type FastifyInstance, fastify } from 'fastify';
-import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import type { ServerConfig } from './config.js';
 import { registerAgentRunRoutes } from './routes/agent-runs.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerCrossProjectRoutes } from './routes/cross-project.js';
 import { registerExecutionRoutes } from './routes/execution.js';
 import { registerFinalizationRoutes } from './routes/finalizations.js';
 import { registerHealthRoute } from './routes/health.js';
+import { registerHostSchedulingRoutes } from './routes/host-scheduling.js';
 import { sendApiError } from './routes/http.js';
+import { registerMapAmendmentRoutes } from './routes/map-amendments.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
-import { registerRuntimeEvidenceRoutes } from './routes/runtime-evidence.js';
 import { registerPackageImportRoutes } from './routes/package-imports.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerRoadmapRoutes } from './routes/roadmaps.js';
+import { registerRuntimeEvidenceRoutes } from './routes/runtime-evidence.js';
 import { registerStaticWebRoutes } from './routes/static-web.js';
 import { registerStorageRoutes } from './routes/storage.js';
 import { registerWorkCycleRoutes } from './routes/work-cycles.js';
@@ -25,6 +23,7 @@ import { registerWorkspaceEventRoute } from './routes/workspace-events.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import type { AgentRunService } from './services/agent-run-service.js';
 import type { AuthService } from './services/auth-service.js';
+import type { CrossProjectService } from './services/cross-project-service.js';
 import {
   AuthenticationError,
   ExecutionRequestError,
@@ -34,12 +33,15 @@ import {
 } from './services/errors.js';
 import type { ExecutionService, ExecutionStatus } from './services/execution-service.js';
 import type { FinalizationService } from './services/finalization-service.js';
+import type { HostSchedulingService } from './services/host-scheduling-service.js';
+import type { MapAmendmentService } from './services/map-amendment-service.js';
 import type { NotificationService } from './services/notification-service.js';
 import type { PackageImportService } from './services/package-import-service.js';
 import type { PlanImportService } from './services/plan-import-service.js';
 import type { PlanningQueryService } from './services/planning-query-service.js';
 import type { RoadmapService } from './services/roadmap-service.js';
 import type { RunEventStreamService } from './services/run-event-stream-service.js';
+import type { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import type { StorageService } from './services/storage-service.js';
 import type { WorkCycleService } from './services/work-cycle-service.js';
 import type { WorkItemService } from './services/work-item-service.js';
@@ -52,6 +54,7 @@ export interface ServerDependencies {
   readonly runtimeEvidenceService: RuntimeEvidenceService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
+  readonly hostSchedulingService: HostSchedulingService;
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
@@ -126,6 +129,7 @@ export function buildServer(
   registerMapAmendmentRoutes(app, deps.authService, deps.mapAmendmentService, config);
   registerRuntimeEvidenceRoutes(app, deps.authService, deps.runtimeEvidenceService, config);
   registerStorageRoutes(app, deps.authService, deps.storageService, config);
+  registerHostSchedulingRoutes(app, deps.authService, deps.hostSchedulingService, config);
   registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);
   registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);
   registerNotificationRoutes(app, deps.authService, deps.notificationService, config);

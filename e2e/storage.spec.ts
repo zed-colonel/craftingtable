@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+
 test('storage settings, cleanup preview and private backups work on desktop and phone', async ({
   page,
 }, info) => {
@@ -10,6 +11,18 @@ test('storage settings, cleanup preview and private backups work on desktop and 
   if (info.project.name === 'mobile-chromium')
     await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  const host = page.getByRole('region', { name: 'Host verification capacity', exact: true });
+  await expect(host.getByRole('button', { name: 'Change verification capacity' })).toBeEnabled();
+  await host.getByRole('button', { name: 'Change verification capacity' }).click();
+  const capacity = host.getByLabel('Concurrent verification reviews');
+  await capacity.fill('0');
+  await expect(host.getByRole('button', { name: 'Save verification capacity' })).toBeDisabled();
+  await host.getByRole('button', { name: 'Refresh reservations' }).click();
+  await expect(host.getByRole('status')).toContainText('Reservations and settings refreshed.');
+  await expect(capacity).toHaveValue('0');
+  await capacity.fill('2');
+  await host.screenshot({ path: info.outputPath('host-verification-settings.png') });
+  await host.getByRole('button', { name: 'Cancel capacity edit' }).click();
   const panel = page.getByRole('region', { name: 'Storage', exact: true });
   await expect(panel.getByText('Database and history', { exact: true })).toBeVisible();
   await panel.getByText('Locations and retention', { exact: true }).click();

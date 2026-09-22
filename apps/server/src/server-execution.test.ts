@@ -4521,51 +4521,128 @@ async function resolutionFixture(gitOperations?: GitOperations) {
   return { ...fixture, cycle, target };
 }
 
-it('delegates a pinned conflict resolution from the browser and requires fresh review without moving integration', {
+function completeResolutionPredecessor(state: Ready, mergeSha: string) {
+  const prerequisite = asWorkItemId('resolution-prior');
+  state.context.storage.transaction((tx) => {
+    tx.planning.workItems.insertMany([
+      {
+        id: prerequisite,
+        workspaceId: state.workspaceId,
+        projectId: asProjectId('project-1'),
+        planVersionId: asPlanVersionId('version-1'),
+        sourceId: 'AQ-00',
+        ordinal: 2,
+        title: 'Late-completing prerequisite',
+        risk: 'low',
+        primaryAreas: [],
+        exitGate: 'done',
+        sourceFields: {},
+      },
+    ]);
+    tx.planning.workItems.complete({
+      workspaceId: state.workspaceId,
+      workItemId: prerequisite,
+      projectId: asProjectId('project-1'),
+      completedAt: new Date().toISOString(),
+      completedByUserId: state.userId,
+      mergeSha,
+    });
+    tx.planning.dependencies.insertMany([
+      {
+        id: asWorkItemDependencyId('resolution-prior-edge'),
+        workspaceId: state.workspaceId,
+        planVersionId: asPlanVersionId('version-1'),
+        predecessorWorkItemId: prerequisite,
+        successorWorkItemId: state.workItemId,
+        kind: 'required',
+        ordinal: 0,
+      },
+    ]);
+  });
+}
+
+it.each([false, true])(
+  'delegates a pinned conflict resolution and requires fresh review without moving integration (incoming predecessor: %s)',
+  {
+    timeout: 15000,
+  },
+  async (incomingPredecessor) => {
+    const { state, backend, worktree, root, cycle, target } = await resolutionFixture();
+    if (incomingPredecessor) completeResolutionPredecessor(state, target.trim());
+    const beforeRounds = currentCycle(state, cycle).remediationRounds;
+    backend.replyForRequest = (request) =>
+      request.model === 'resolution-model'
+        ? { resultText: 'Combined checks passed.\n\n## Resolution status\nready' }
+        : { resultText: reviewText([]) };
+    backend.onLaunch = (request) => {
+      if (request.model === 'resolution-model') {
+        expect(request.prompt).toContain('Do not commit');
+        expect(request.prompt).toContain(target.trim());
+        expect(request.prompt).toContain('Preserve both behaviors');
+        expect(request.prompt).not.toContain('commit your work on this branch');
+        expect(git(['rev-parse', 'MERGE_HEAD'], worktree.path).trim()).toBe(target.trim());
+        writeFileSync(join(worktree.path, 'README.md'), 'both behaviors\n');
+        git(['add', 'README.md'], worktree.path);
+      }
+    };
+    const started = await resolutionCommand(state, currentCycle(state, cycle), {
+      action: 'start',
+      profile: { ...cycleProfiles.remediate, model: 'resolution-model' },
+      instructions: 'Preserve both behaviors',
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'awaiting-merge',
+      'resolved fresh review',
+      6000,
+    );
+    const final = currentCycle(state, cycle);
+    expect(final.integrationResolution?.status).toBe('completed');
+    expect(final.integrationResolution?.commitSha).toBe(final.reviewHeadSha);
+    expect(final.remediationRounds).toBe(beforeRounds);
+    expect(backend.launches.slice(-2).map((request) => request.model)).toEqual([
+      'resolution-model',
+      'review-model',
+    ]);
+    expect(git(['rev-parse', 'main'], root).trim()).toBe(target.trim());
+    expect(git(['log', '-1', '--format=%P'], worktree.path).trim().split(' ')).toEqual([
+      final.integrationResolution?.headSha,
+      target.trim(),
+    ]);
+    expect(git(['status', '--porcelain'], worktree.path)).toBe('');
+  },
+);
+
+it('refuses resolution launch when a completed predecessor is only in the advanced integration branch, not the pinned merge', {
   timeout: 15000,
 }, async () => {
-  const { state, backend, worktree, root, cycle, target } = await resolutionFixture();
-  const beforeRounds = currentCycle(state, cycle).remediationRounds;
-  backend.replyForRequest = (request) =>
-    request.model === 'resolution-model'
-      ? { resultText: 'Combined checks passed.\n\n## Resolution status\nready' }
-      : { resultText: reviewText([]) };
-  backend.onLaunch = (request) => {
-    if (request.model === 'resolution-model') {
-      expect(request.prompt).toContain('Do not commit');
-      expect(request.prompt).toContain(target.trim());
-      expect(request.prompt).toContain('Preserve both behaviors');
-      expect(request.prompt).not.toContain('commit your work on this branch');
-      expect(git(['rev-parse', 'MERGE_HEAD'], worktree.path).trim()).toBe(target.trim());
-      writeFileSync(join(worktree.path, 'README.md'), 'both behaviors\n');
-      git(['add', 'README.md'], worktree.path);
-    }
-  };
-  const started = await resolutionCommand(state, currentCycle(state, cycle), {
-    action: 'start',
-    profile: { ...cycleProfiles.remediate, model: 'resolution-model' },
-    instructions: 'Preserve both behaviors',
+  const realGit = createGitOperations({ gitExecutable: 'git' });
+  const fixture = await resolutionFixture({
+    ...realGit,
+    prepareIntegrationResolution: async (input) => {
+      const prepared = await realGit.prepareIntegrationResolution(input);
+      if (prepared.ok) {
+        const newerTarget = commitFile(fixture.root, 'predecessor.txt', 'later prerequisite');
+        completeResolutionPredecessor(fixture.state, newerTarget.trim());
+      }
+      return prepared;
+    },
   });
+  const { state, backend, worktree, cycle, target } = fixture;
+  const beforeLaunches = backend.launches.length;
+  const started = await resolutionCommand(state, currentCycle(state, cycle), { action: 'start' });
   expect(started.statusCode, started.body).toBe(200);
   await waitFor(
-    () => currentCycle(state, cycle).status === 'awaiting-merge',
-    'resolved fresh review',
-    6000,
+    () => currentCycle(state, cycle).status === 'needs-attention',
+    'missing pinned predecessor',
   );
-  const final = currentCycle(state, cycle);
-  expect(final.integrationResolution?.status).toBe('completed');
-  expect(final.integrationResolution?.commitSha).toBe(final.reviewHeadSha);
-  expect(final.remediationRounds).toBe(beforeRounds);
-  expect(backend.launches.slice(-2).map((request) => request.model)).toEqual([
-    'resolution-model',
-    'review-model',
-  ]);
-  expect(git(['rev-parse', 'main'], root).trim()).toBe(target.trim());
-  expect(git(['log', '-1', '--format=%P'], worktree.path).trim().split(' ')).toEqual([
-    final.integrationResolution?.headSha,
-    target.trim(),
-  ]);
-  expect(git(['status', '--porcelain'], worktree.path)).toBe('');
+  const blocked = currentCycle(state, cycle);
+  expect(blocked.reason).toContain('Required predecessor AQ-00');
+  expect(backend.launches).toHaveLength(beforeLaunches);
+  expect(
+    state.context.storage.execution.runs.find(state.workspaceId, blocked.currentRunId),
+  ).toBeUndefined();
+  expect(git(['rev-parse', 'MERGE_HEAD'], worktree.path).trim()).toBe(target.trim());
 });
 
 it('keeps blocked resolution edits for guided retries and safely abandons from the browser', {

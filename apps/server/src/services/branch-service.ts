@@ -431,7 +431,31 @@ export class BranchService {
     );
     if (state.headSha !== resolution.headSha || state.mergeHeadSha !== resolution.targetSha)
       conflict('The pinned resolution merge is no longer pending');
-    await this.validateLaunch(worktree);
+    const repo = this.repository(worktree.workspaceId, worktree.repositoryId);
+    const target = value(
+      await this.requireGit().resolveBranch(repo.rootPath, resolution.targetBranch),
+    );
+    if (worktree.workItemId) {
+      // The pending merge brings newly completed predecessors into the item branch.
+      // Validate its pinned incoming commit, not the deliberately pre-merge HEAD.
+      await this.requirePredecessors(
+        worktree.workspaceId,
+        worktree.workItemId,
+        repo.rootPath,
+        resolution.targetSha,
+        repo.id,
+        worktree.executionScope,
+      );
+      if (target !== resolution.targetSha)
+        await this.requirePredecessors(
+          worktree.workspaceId,
+          worktree.workItemId,
+          repo.rootPath,
+          target,
+          repo.id,
+          worktree.executionScope,
+        );
+    }
   }
 
   async validateLaunch(worktree: Worktree): Promise<void> {

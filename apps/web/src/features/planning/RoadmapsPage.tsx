@@ -343,10 +343,21 @@ export function RoadmapsPage({
                   Items awaiting merge or attention retain their capacity and exclusion groups.
                   Refresh limits are fixed for each item when it starts.
                 </p>
+                <p>
+                  In-flight limits: {draft.scheduling?.maxInFlight ?? 2} total ·{' '}
+                  {draft.scheduling?.maxPerRepository ?? 2} per repository.{' '}
+                  {current ? (
+                    <a
+                      href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${current.id}#execution-capacity`}
+                    >
+                      Manage capacity in Settings
+                    </a>
+                  ) : (
+                    'Save this draft, then configure capacity in Workspace Settings before starting.'
+                  )}
+                </p>
                 {(
                   [
-                    ['maxInFlight', 'Maximum in-flight items', 16],
-                    ['maxPerRepository', 'Maximum in-flight items per repository', 16],
                     ['maxIntegrationRefreshes', 'Maximum integration refreshes per item', 20],
                   ] as const
                 ).map(([key, label, max]) => (
@@ -713,18 +724,18 @@ export function RoadmapsPage({
                 },
               ]}
             />
-            {roadmap.definition.crossProject && hostCapacity && (
+            {hostCapacity && (
               <>
                 <StatusStrip
                   label="Shared workstation capacity"
                   facts={[
                     {
-                      label: 'Development slots in use',
+                      label: 'Development/work-item review slots',
                       value: `${hostCapacity.development.inUse}/${hostCapacity.development.limit}`,
                       mono: true,
                     },
                     {
-                      label: 'Verification slots in use',
+                      label: 'Independent verification slots',
                       value: `${hostCapacity.verification.inUse}/${hostCapacity.verification.limit}`,
                       mono: true,
                     },
@@ -736,9 +747,9 @@ export function RoadmapsPage({
                 </p>
                 <p>
                   <a
-                    href={`/workspaces/${encodeURIComponent(workspaceId)}/settings#host-scheduling`}
+                    href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#execution-capacity`}
                   >
-                    View verification capacity and reservations
+                    Manage capacity
                   </a>
                 </p>
                 {roadmap.definition.scheduling?.mode === 'parallel' &&

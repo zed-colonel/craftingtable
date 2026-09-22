@@ -1,35 +1,35 @@
-import { ReviewerResponsibilities } from './ReviewerResponsibilities.js';
-import { useCallback, useEffect, useState } from 'react';
-import { ActionBar } from '../../components/ActionBar.js';
-import { Reasons } from '../../components/Reasons.js';
-import { Section } from '../../components/Section.js';
-import { StatusStrip } from '../../components/StatusStrip.js';
 import type {
   CrossProjectView,
   ExecutionStatusResponse,
   RuntimeEvidenceView,
 } from '@craftingtable/contracts';
 import {
+  type CrossProjectConfiguration,
   CYCLE_STEPS,
+  type CycleProfiles,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_AUTOMATION,
-  type CrossProjectConfiguration,
-  type CycleProfiles,
   type MapActivitySettings,
   type Roadmap,
   type WorkspaceId,
 } from '@craftingtable/domain';
+import { useCallback, useEffect, useState } from 'react';
+import { ActionBar } from '../../components/ActionBar.js';
+import { Reasons } from '../../components/Reasons.js';
+import { Section } from '../../components/Section.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import {
   adoptCrossProject,
   previewCrossProject,
   saveCrossProject,
 } from '../../lib/cross-project-api.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
+import { revealElement } from '../../lib/reveal-element.js';
 import { buildPath } from '../../lib/route.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
-import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
-import { revealElement } from '../../lib/reveal-element.js';
 import { DependencyGraph, PhaseRequirements, phaseLabel } from './DependencyRequirements.js';
+import { ReviewerResponsibilities } from './ReviewerResponsibilities.js';
+import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
 export function CrossProjectPanel({
   workspaceId,
   definitionId,
@@ -80,11 +80,11 @@ export function CrossProjectPanel({
   );
   const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
   const [name, setName] = useState(roadmap?.definition.name ?? 'Cross-project roadmap');
-  const [limit, setLimit] = useState(roadmap?.definition.scheduling?.maxInFlight ?? 2),
-    [repoLimit, setRepoLimit] = useState(roadmap?.definition.scheduling?.maxPerRepository ?? 2),
-    [refreshLimit, setRefreshLimit] = useState(
-      roadmap?.definition.scheduling?.maxIntegrationRefreshes ?? 3,
-    );
+  const limit = roadmap?.definition.scheduling?.maxInFlight ?? 2;
+  const repoLimit = roadmap?.definition.scheduling?.maxPerRepository ?? 2;
+  const [refreshLimit, setRefreshLimit] = useState(
+    roadmap?.definition.scheduling?.maxIntegrationRefreshes ?? 3,
+  );
   const [rationale, setRationale] = useState(''),
     [approved, setApproved] = useState(false),
     [focus, setFocus] = useState('');
@@ -766,15 +766,20 @@ export function CrossProjectPanel({
                     maxLength={120}
                   />
                 </label>
+                <p>
+                  In-flight limits: {limit} total · {repoLimit} per repository.{' '}
+                  {roadmap ? (
+                    <a
+                      href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#execution-capacity`}
+                    >
+                      Manage capacity in Settings
+                    </a>
+                  ) : (
+                    'Save this roadmap draft, then configure capacity in Workspace Settings before starting.'
+                  )}
+                </p>
                 <div className="cycle-settings-grid">
                   {[
-                    { label: 'Development in-flight limit', value: limit, set: setLimit, max: 16 },
-                    {
-                      label: 'Per-repository development limit',
-                      value: repoLimit,
-                      set: setRepoLimit,
-                      max: 16,
-                    },
                     {
                       label: 'Integration refresh allowance',
                       value: refreshLimit,

@@ -127,8 +127,8 @@ A bare "Ready", "Blocked", "Approved", or "Verified" never appears.
 
 ## Roadmaps
 
-Keep sequential execution the default. Parallel mode exposes in-flight and per-repository
-limits plus a bounded integration-refresh allowance. Label order as priority, show each
+Keep sequential execution the default. Parallel mode shows its in-flight and per-repository
+limits with a link to Settings, plus a bounded integration-refresh allowance. Label order as priority, show each
 entry's exact waiting reason, and distinguish dependency, capacity, exclusion, and operator
 attention. In-flight counts include paused and merge-ready work; running-cycle counts do
 not. Individual pause/resume controls must not imply that sibling work will stop. Existing
@@ -283,10 +283,13 @@ Historical questions remain readable but do not hide newer approvals. Keep draft
 expanded evidence stable during background refreshes.
 
 
-Host verification capacity lives in Settings with a direct link beside roadmap capacity counters.
-Show verification separately from development limits, explain installation-wide ownership and
-persistence, and put editing behind a named action. Name occupied runs and link to their work items.
-Label recorded capacity waits separately from roadmap work not yet dispatched; paused scheduling
-requires explicit resumption. Refresh occupancy on request without losing unsaved edits. Changing
-capacity requires paused scheduling and renewed saved-plan acceptance; do not resume or approve
-anything implicitly.
+Execution capacity lives in Workspace Settings with shared workstation pools and a selected-roadmap
+editor in one section. Roadmaps show occupied/total development and independent verification slots,
+in-flight allowances and a Manage capacity link that selects the roadmap. Avoid duplicate capacity
+forms in roadmap setup; new drafts keep existing defaults and link to Settings before Start.
+Explain ordinary work-item reviews versus independent verification/parent acceptance, installation
+ownership versus workspace authority, and persistence. Name occupied runs and in-flight work with
+links. Label recorded cycle waits separately from undispatched roadmap work. Put edits behind named
+actions; explicit refresh preserves drafts and their original versions, and stale drafts cannot save.
+Changing capacity requires paused scheduling and renewed applicable saved-plan acceptance; show
+which roadmaps need review. Do not resume, repin dependencies or approve anything implicitly.

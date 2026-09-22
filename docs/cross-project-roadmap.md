@@ -358,11 +358,17 @@ No production work, map decisions or baseline/publication gates were authorized 
   Settings exposes the installation-wide `local-verification` limit (1–32), current slot
   holders with run/work-item links, and recorded cycle capacity waits. Roadmaps link to it;
   reviews not yet dispatched remain visible in roadmap supervision. Development capacity
-  stays separate. Saved values survive restarts and override the verification environment
-  default. Lowering the limit preserves active runs; increasing it admits only eligible work.
+  uses a separate pool. Saved values survive restarts and override environment defaults. Lowering the limit preserves active runs; increasing it admits only eligible work.
   Owner authorization, version checks and audit apply. Pause roadmap scheduling before saving,
   then generate and accept updated saved-plan evidence. Dependencies and all evidence/merge
   gates remain enforced. See [ADR-061](decisions/ADR-061-host-verification-settings.md).
+
+- [x] **Unified execution capacity** (delivered 2026-09-22). Workspace Settings groups both
+  editable workstation pools with a selected-roadmap editor for total/per-repository in-flight
+  ceilings. Roadmaps retain usage summaries and deep links. Existing capacity, scheduling mode,
+  attempt settings and authority are preserved; no automatic resumption. Both host pools persist
+  browser overrides, and roadmap ceiling changes create a new immutable definition. Capacity reads
+  use recorded claims/attempts without graph evaluation. Fresh plan acceptance remains explicit.
 
 - [ ] **Provider-failure recovery** (investigated 2026-09-22). Distinguish transport/provider
   failures from invalid reports and source findings. EXO-02's parent review ended on Codex's

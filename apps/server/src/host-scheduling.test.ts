@@ -39,7 +39,12 @@ async function fixture() {
       method: 'POST',
       url,
       headers,
-      payload: { expectedVersion, verificationCapacity },
+      payload: {
+        expectedVersion,
+        verificationCapacity,
+        expectedDevelopmentVersion: c.storage.phaseScheduling.setting('local-development').version,
+        developmentCapacity: 4,
+      },
     });
   return { c, auth, workspaceId, headers, url, get, save };
 }
@@ -182,4 +187,78 @@ it('uses the current verification limit for new claims while retaining occupied 
   expect(resourceBlockers(tx, r, 'accept')).toHaveLength(1);
   claims.splice(0, 1);
   expect(resourceBlockers(tx, r, 'accept')).toEqual([]);
+});
+
+it('saves both pools atomically, rejects either stale version, and preserves both overrides on restart', async () => {
+  const s = await fixture();
+  const first = await s.get();
+  const payload = {
+    expectedVersion: first.version,
+    expectedDevelopmentVersion: first.developmentVersion,
+    verificationCapacity: 3,
+    developmentCapacity: 6,
+  };
+  expect(
+    (
+      await s.c.app.inject({
+        method: 'POST',
+        url: s.url,
+        headers: s.headers,
+        payload: { ...payload, expectedDevelopmentVersion: 99 },
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(await s.get()).toMatchObject({ verificationCapacity: 2, developmentCapacity: 4 });
+  expect(
+    (await s.c.app.inject({ method: 'POST', url: s.url, headers: s.headers, payload })).statusCode,
+  ).toBe(200);
+  s.c.storage.phaseScheduling.initializeCapacity('local-development', 2);
+  s.c.storage.phaseScheduling.initializeCapacity('local-verification', 1);
+  expect(await s.get()).toMatchObject({
+    verificationCapacity: 3,
+    developmentCapacity: 6,
+    developmentVersion: first.developmentVersion + 1,
+    developmentSource: 'saved-setting',
+  });
+  for (const value of [0, 33, 1.5])
+    expect(
+      (
+        await s.c.app.inject({
+          method: 'POST',
+          url: s.url,
+          headers: s.headers,
+          payload: { ...payload, developmentCapacity: value },
+        })
+      ).statusCode,
+    ).toBe(400);
+});
+it('applies raised and lowered development limits to existing claims without ending them', () => {
+  let capacity = 1;
+  const claims = [{ resourceKey: 'local-development', ownerId: 'one', capacity: 1 }];
+  const tx = {
+    phaseScheduling: { capacity: () => capacity, active: () => claims },
+  } as unknown as StorageRepositories;
+  const r = {
+    slice: { resources_by_phase: { start: ['isolated-development-workspace'] } },
+    definition: {
+      source: {
+        resource_profiles: [
+          {
+            id: 'isolated-development-workspace',
+            requires_hardware_virtualization: false,
+            fixture_authorization_required: false,
+          },
+        ],
+      },
+    },
+  } as unknown as ResolvedScope;
+  expect(resourceBlockers(tx, r, 'start')).toHaveLength(1);
+  capacity = 2;
+  expect(resourceBlockers(tx, r, 'start')).toEqual([]);
+  claims.push({ resourceKey: 'local-development', ownerId: 'two', capacity: 2 });
+  capacity = 1;
+  expect(resourceBlockers(tx, r, 'start')).toMatchObject([
+    { message: expect.stringContaining('2/1') },
+  ]);
+  expect(claims).toHaveLength(2);
 });

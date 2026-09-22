@@ -729,7 +729,11 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await walk.capturePhoneOnly('menu-open', 'Phone navigation menu');
     await navigate(page, 'Settings');
     await expect(page.getByRole('heading', { name: 'Workspace settings' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Change workstation capacity' })).toBeEnabled();
     await walk.capture('settings', 'Workspace settings');
+    await walk.capture('execution-capacity', 'Unified execution capacity controls', async (p) => {
+      await p.getByRole('button', { name: 'Change workstation capacity' }).click();
+    });
     await navigate(page, `Account · ${USERNAME}`);
     await expect(page.getByRole('heading', { name: 'Account', exact: true })).toBeVisible();
     await walk.capture('account', 'Account');

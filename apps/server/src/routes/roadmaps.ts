@@ -1,12 +1,14 @@
 import {
-  roadmapIdSchema,
-  saveRoadmapRequestSchema,
   controlRoadmapRequestSchema,
+  roadmapCapacitiesSchema,
+  roadmapHistoryResponseSchema,
+  roadmapIdSchema,
   roadmapsResponseSchema,
   roadmapViewSchema,
-  roadmapHistoryResponseSchema,
-  workspaceIdSchema,
+  saveRoadmapCapacitySchema,
+  saveRoadmapRequestSchema,
   scopeRecoveryPolicyRequestSchema,
+  workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from '../config.js';
@@ -20,6 +22,40 @@ export function registerRoadmapRoutes(
   roadmaps: RoadmapService,
   config: ServerConfig,
 ): void {
+  app.get<{ Params: { workspaceId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/capacities',
+    async (request, reply) => {
+      const context = authenticate(request, auth);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      return noStore(reply).send(
+        roadmapCapacitiesSchema.parse(roadmaps.capacities(context, workspace.data)),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/capacity',
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      const input = saveRoadmapCapacitySchema.safeParse(request.body);
+      if (!workspace.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      if (!input.success)
+        return sendApiError(
+          reply,
+          400,
+          'invalid-request',
+          'Roadmap capacities must be integers from 1 to 16 with the current roadmap version.',
+        );
+      return noStore(reply).send(
+        roadmapCapacitiesSchema.parse(
+          roadmaps.saveCapacity(context, workspace.data, id.data, input.data),
+        ),
+      );
+    },
+  );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps',
     async (request, reply) => {

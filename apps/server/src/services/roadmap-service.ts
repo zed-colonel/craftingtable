@@ -1,42 +1,48 @@
-import { acceptedEvidence } from './runtime-evidence-policy.js';
-import { collectScopeRepair } from './scope-repair.js';
-import { scopeRecoveryDecision } from './scope-recovery-policy.js';
-import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
-import { mapReadSnapshot } from './map-read-snapshot.js';
-import { crossProjectState, bindingIssues, milestoneSatisfied } from './cross-project-service.js';
-import { PhaseGateError } from './phase-resources.js';
-import { scopePhaseBlockers, scopeAllowsEarlyDevelopment } from './execution-scope.js';
-import { sameExecutionScope } from '@craftingtable/domain';
-import {
-  resolveScope,
-  scopeBlockers,
-  requireScopeOwnership,
-  unsupportedScopeCapabilities,
-} from './execution-scope.js';
 import { randomUUID } from 'node:crypto';
-import type { SaveRoadmapRequest, ScopeRecoveryPolicyRequest } from '@craftingtable/contracts';
+import type {
+  RoadmapCapacities,
+  SaveRoadmapCapacity,
+  SaveRoadmapRequest,
+  ScopeRecoveryPolicyRequest,
+} from '@craftingtable/contracts';
 import {
-  DEFAULT_ROADMAP_SCHEDULING,
-  DEFAULT_ROADMAP_AUTOMATION,
   asAuditEventId,
   asEventId,
   asWorktreeId,
+  DEFAULT_ROADMAP_AUTOMATION,
+  DEFAULT_ROADMAP_SCHEDULING,
   type Roadmap,
-  type RoadmapEntry,
   type RoadmapAttempt,
+  type RoadmapEntry,
   type RoadmapView,
+  sameExecutionScope,
   type WorkspaceId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext, CommandContext } from './auth-service.js';
-import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
-import { RepositoryMutationBusyError, IntegrationHeldError } from './branch-service.js';
+import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
+import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-project-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import {
+  requireScopeOwnership,
+  resolveScope,
+  scopeAllowsEarlyDevelopment,
+  scopeBlockers,
+  scopePhaseBlockers,
+  unsupportedScopeCapabilities,
+} from './execution-scope.js';
 import type { ExecutionService } from './execution-service.js';
-import type { WorkItemService } from './work-item-service.js';
+import { mapReadSnapshot } from './map-read-snapshot.js';
+import { PhaseGateError } from './phase-resources.js';
+import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
+import { acceptedEvidence } from './runtime-evidence-policy.js';
+import { scopeRecoveryDecision } from './scope-recovery-policy.js';
+import { collectScopeRepair } from './scope-repair.js';
 import type { WorkCycleService } from './work-cycle-service.js';
-import type { WorkspaceService } from './workspace-service.js';
+import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
+import type { WorkspaceService } from './workspace-service.js';
+import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
 
 class SupersededRoadmapOperation extends Error {}
 
@@ -65,6 +71,86 @@ export class RoadmapService {
   list(context: AuthContext, workspaceId: WorkspaceId): readonly RoadmapView[] {
     this.workspaces.requireAuthorized(context, workspaceId);
     return this.storage.roadmaps.list(workspaceId).map((roadmap) => this.view(roadmap));
+  }
+  /** Capacity settings need no Git inspection or dependency-graph evaluation. */
+  capacities(context: AuthContext, workspaceId: WorkspaceId): RoadmapCapacities {
+    this.workspaces.requireAuthorized(context, workspaceId);
+    return {
+      roadmaps: this.storage.roadmaps
+        .list(workspaceId)
+        .filter((r) => !ended(r))
+        .map((r) => ({
+          id: r.id,
+          version: r.version,
+          name: r.definition.name,
+          status: r.status,
+          crossProject: !!r.definition.crossProject,
+          revision: r.definition.revision,
+          scheduling: r.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING,
+          editBlocker: this.controlling.has(r.id)
+            ? 'A roadmap command is in progress.'
+            : r.status === 'running'
+              ? 'Pause this roadmap before changing its limits.'
+              : this.storage.amendments.pending(workspaceId, r.id)
+                ? 'Decide the pending planning amendment first.'
+                : (r.definition.scheduling?.mode ?? 'sequential') !== 'parallel'
+                  ? 'This roadmap is sequential: one item at a time. Change scheduling mode on the roadmap before configuring parallel limits.'
+                  : null,
+          inFlight: r.attempts.flatMap((a) => {
+            const entry = r.definition.entries.find((e) => e.id === a.entryId);
+            return a.status !== 'completed' &&
+              entry &&
+              (!entry.executionScope || entry.executionScope.kind === 'slice')
+              ? [{ workItemId: entry.workItemId, label: entry.sourceId, attemptId: a.id }]
+              : [];
+          }),
+        })),
+    };
+  }
+  saveCapacity(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: SaveRoadmapCapacity,
+  ): RoadmapCapacities {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    const old = this.find(workspaceId, id);
+    if (this.controlling.has(id) || old.version !== input.expectedVersion)
+      conflict('Roadmap changed; refresh before saving capacity.');
+    if (!['draft', 'paused', 'needs-attention'].includes(old.status))
+      conflict('Pause the roadmap before changing capacity. Ended roadmaps retain their history.');
+    if (this.storage.amendments.pending(workspaceId, id))
+      conflict('Decide the pending planning amendment first.');
+    const scheduling = old.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
+    if (scheduling.mode !== 'parallel')
+      conflict(
+        'Sequential roadmaps run one item at a time. Change scheduling mode on the roadmap first.',
+      );
+    if (
+      scheduling.maxInFlight === input.maxInFlight &&
+      scheduling.maxPerRepository === input.maxPerRepository
+    )
+      return this.capacities(context, workspaceId);
+    const at = this.now().toISOString();
+    // Only admission ceilings change. Scope, adoption, profiles, attempts and authority remain frozen.
+    const definition = {
+      ...old.definition,
+      revision: old.definition.revision + 1,
+      scheduling: {
+        ...scheduling,
+        maxInFlight: input.maxInFlight,
+        maxPerRepository: input.maxPerRepository,
+      },
+      createdAt: at,
+      createdByUserId: context.user.id,
+    };
+    const updated = { ...old, definition, version: old.version + 1, updatedAt: at };
+    this.storage.transaction((tx) => {
+      this.persist(tx, updated, input.expectedVersion, 'configure-capacity', context);
+      tx.roadmaps.addDefinition(definition);
+    });
+    this.notifier.notify();
+    return this.capacities(context, workspaceId);
   }
   history(context: AuthContext, workspaceId: WorkspaceId, id: string) {
     this.workspaces.requireAuthorized(context, workspaceId);

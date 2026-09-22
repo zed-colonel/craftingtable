@@ -91,7 +91,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
       await editor.getByLabel('Roadmap name').fill(`AQ ${mode}`);
       await editor.getByLabel('Scheduling mode').selectOption(mode);
       if (mode === 'parallel')
-        await editor.getByLabel('Maximum in-flight items', { exact: true }).fill('2');
+        await expect(editor.getByText(/Save this draft, then configure capacity/)).toBeVisible();
       const sourceIds = mode === 'parallel' ? ['AQ-01', 'AQ-02', 'AQ-03'] : ['AQ-01', 'AQ-02'];
       for (const sourceId of sourceIds) {
         const option = await editor
@@ -130,7 +130,25 @@ for (const mode of ['sequential', 'parallel'] as const) {
       const roadmap = page.getByRole('region', { name: `AQ ${mode}`, exact: true });
       await expect(roadmap.getByText('Draft', { exact: true })).toBeVisible();
       await expect(roadmap.getByText(/outside this roadmap/)).toHaveCount(0);
-      await page.reload();
+      if (mode === 'parallel') {
+        await roadmap.getByRole('link', { name: 'Manage capacity', exact: true }).click();
+        const capacity = page.getByRole('region', {
+          name: 'Roadmap in-flight limits',
+          exact: true,
+        });
+        await expect(capacity.getByRole('combobox', { name: 'Roadmap', exact: true })).toHaveValue(
+          new URL(page.url()).searchParams.get('roadmap')!,
+        );
+        await capacity.getByRole('button', { name: 'Change roadmap limits' }).click();
+        await capacity.getByLabel('Maximum in-flight items', { exact: true }).fill('3');
+        await capacity.getByRole('button', { name: 'Save roadmap limits' }).click();
+        await expect(capacity.getByRole('status')).toContainText('Roadmap limits saved.');
+        await page.reload();
+        await expect(capacity.getByText('0/3', { exact: true })).toBeVisible();
+        await capacity
+          .getByRole('link', { name: 'Open roadmap supervision and saved-plan acceptance' })
+          .click();
+      } else await page.reload();
       await expect(roadmap.getByText('Draft', { exact: true })).toBeVisible();
       await roadmap.getByRole('button', { name: 'Start roadmap', exact: true }).click();
       await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toBeVisible({

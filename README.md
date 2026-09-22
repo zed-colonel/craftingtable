@@ -66,12 +66,17 @@ it is mergeable.
   explicit authorization for the exact bound slice and does not relax parent acceptance.
   Native/Kata qualification, current upstream pins and unresolved map decisions remain visible gates.
   Local scoped development defaults to 2 admission slots; verification/acceptance defaults to 1.
-  **Settings → Host verification capacity** shows the current limit, occupied runs and recorded
-  capacity waits, with links from Roadmaps. Pause scheduling before changing verification capacity
-  (1–32). Only an owner of every active workspace can save this installation-wide setting.
-  The saved value survives restart and overrides `CRAFTINGTABLE_VERIFICATION_CAPACITY`; otherwise
-  that environment value supplies the default. `CRAFTINGTABLE_DEVELOPMENT_CAPACITY` still configures
-  the separate development pool. Lower limits retain active runs and delay new reservations.
+  **Settings → Execution capacity** groups development/work-item review and independent
+  verification/parent-acceptance pools with each saved roadmap’s total and per-repository in-flight
+  limits. Roadmaps show usage and link to the selected settings. Save a new roadmap draft before
+  configuring its capacity. Workstation pools (1–32) require an owner of every active workspace;
+  roadmap ceilings (1–16) retain workspace owner/editor authority. Pause affected scheduling before
+  saving. Both workstation overrides survive restart and take precedence over
+  `CRAFTINGTABLE_DEVELOPMENT_CAPACITY` and `CRAFTINGTABLE_VERIFICATION_CAPACITY`; otherwise those
+  environment values supply defaults. Occupied runs, recorded waits and in-flight work link to
+  their details. Explicit refresh preserves unsaved drafts and rejects stale saves. Lower limits
+  retain active work and delay new admissions. Roadmap capacity saves create a new definition
+  without changing started attempts, profiles, recovery budgets or scope.
   These coordinate daemon work, not host CPU or isolation.
   Saved cross-project roadmaps show occupied/total workstation slots beside their in-flight limits.
   Workstation slots are shared across projects; setting four roadmap items and two per repository

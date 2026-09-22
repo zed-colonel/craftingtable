@@ -83,10 +83,9 @@ export function resourceBlockers(
   const active = tx.phaseScheduling.active();
   for (const resource of resources) {
     const claims = active.filter((c) => c.resourceKey === resource.key && c.ownerId !== ownerId);
-    const capacity =
-      resource.key === 'local-verification'
-        ? resource.capacity
-        : Math.min(resource.capacity, ...claims.map((c) => c.capacity));
+    const capacity = ['local-development', 'local-verification'].includes(resource.key)
+      ? resource.capacity
+      : Math.min(resource.capacity, ...claims.map((c) => c.capacity));
     if (claims.length >= capacity)
       blockers.push({
         kind: 'resource',

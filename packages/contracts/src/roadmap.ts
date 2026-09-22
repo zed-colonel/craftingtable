@@ -1,19 +1,18 @@
-import { crossProjectConfigurationSchema } from './cross-project.js';
-import { phaseBlockerSchema } from './execution-scope.js';
-import { executionScopeSchema } from './execution-scope.js';
 import { ROADMAP_STATUSES } from '@craftingtable/domain';
 import { z } from 'zod';
+import { crossProjectConfigurationSchema } from './cross-project.js';
+import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
 import {
-  workspaceIdSchema,
-  workItemIdSchema,
-  projectIdSchema,
+  agentRunIdSchema,
   planVersionIdSchema,
+  projectIdSchema,
   sourceRepositoryIdSchema,
   userIdSchema,
+  workItemIdSchema,
+  workspaceIdSchema,
   worktreeIdSchema,
-  agentRunIdSchema,
 } from './ids.js';
-import { cycleProfilesSchema, completionPolicySchema } from './work-cycle.js';
+import { completionPolicySchema, cycleProfilesSchema } from './work-cycle.js';
 export const roadmapAutomationSchema = z.strictObject({
   integrationMerge: z.enum(['manual', 'automatic']),
   integrationConflicts: z.enum(['manual', 'automatic']),
@@ -201,3 +200,32 @@ export const roadmapsResponseSchema = z.strictObject({ roadmaps: z.array(roadmap
 export const roadmapHistoryResponseSchema = z.strictObject({
   definitions: z.array(roadmapDefinitionSchema),
 });
+
+export const saveRoadmapCapacitySchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  maxInFlight: roadmapSchedulingSchema.shape.maxInFlight,
+  maxPerRepository: roadmapSchedulingSchema.shape.maxPerRepository,
+});
+export type SaveRoadmapCapacity = z.infer<typeof saveRoadmapCapacitySchema>;
+export const roadmapCapacitiesSchema = z.strictObject({
+  roadmaps: z.array(
+    z.strictObject({
+      id: roadmapIdSchema,
+      version: z.number().int().positive(),
+      name: z.string(),
+      status: z.enum(ROADMAP_STATUSES),
+      crossProject: z.boolean(),
+      revision: z.number().int().positive(),
+      scheduling: roadmapSchedulingSchema,
+      editBlocker: z.string().nullable(),
+      inFlight: z.array(
+        z.strictObject({
+          workItemId: workItemIdSchema,
+          label: z.string(),
+          attemptId: z.string(),
+        }),
+      ),
+    }),
+  ),
+});
+export type RoadmapCapacities = z.infer<typeof roadmapCapacitiesSchema>;

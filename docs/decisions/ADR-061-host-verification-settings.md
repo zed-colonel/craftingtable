@@ -24,3 +24,21 @@ Settings reads use existing reservation and cycle records rather than recomputin
 cross-project graph. Recorded waits are labelled accordingly; undispatched work and dependency
 reasons remain in Roadmaps. An explicit refresh preserves unsaved capacity edits. The browser
 never auto-refreshes the page or launches recovery from this control.
+
+## Consolidated execution capacity (2026-09-22)
+
+Settings now groups both workstation pools and the selected roadmap's admission ceilings.
+Both pool values are saved atomically with independent expected versions and retain the same
+installation ownership, pause and persistence rules. Current development capacity, like
+verification, governs new reservations even while older claims remain occupied.
+
+A separate narrow roadmap capacity command requires workspace owner/editor authority,
+paused/draft/attention state, the current roadmap version and no pending amendment. It changes
+only total/per-repository admission ceilings in a new immutable definition. Existing attempts,
+entry profiles, scope, adoption, integration policy and refresh/recovery allowances are retained.
+Sequential mode remains one item at a time; mode changes stay on the roadmap. New roadmap drafts
+use the existing defaults, then link to Settings for capacity configuration before Start.
+
+Both workstation and roadmap changes continue to invalidate the applicable saved-plan evidence;
+explicit generation, review and Resume remain required. Capacity reads use stored claims and
+attempts, never full graph evaluation. Roadmaps show usage and deep-link to the selected editor.

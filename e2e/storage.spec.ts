@@ -11,12 +11,12 @@ test('storage settings, cleanup preview and private backups work on desktop and 
   if (info.project.name === 'mobile-chromium')
     await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
-  const host = page.getByRole('region', { name: 'Host verification capacity', exact: true });
-  await expect(host.getByRole('button', { name: 'Change verification capacity' })).toBeEnabled();
-  await host.getByRole('button', { name: 'Change verification capacity' }).click();
-  const capacity = host.getByLabel('Concurrent verification reviews');
+  const host = page.getByRole('region', { name: 'Execution capacity', exact: true });
+  await expect(host.getByRole('button', { name: 'Change workstation capacity' })).toBeEnabled();
+  await host.getByRole('button', { name: 'Change workstation capacity' }).click();
+  const capacity = host.getByLabel('Concurrent verification/parent acceptance reviews');
   await capacity.fill('0');
-  await expect(host.getByRole('button', { name: 'Save verification capacity' })).toBeDisabled();
+  await expect(host.getByRole('button', { name: 'Save workstation capacity' })).toBeDisabled();
   await host.getByRole('button', { name: 'Refresh reservations' }).click();
   await expect(host.getByRole('status')).toContainText('Reservations and settings refreshed.');
   await expect(capacity).toHaveValue('0');

@@ -21,17 +21,20 @@ export class HostSchedulingService {
   get(context: AuthContext, workspaceId: WorkspaceId): HostSchedulingStatus {
     this.authorize(context, workspaceId);
     const setting = this.storage.phaseScheduling.setting('local-verification');
+    const development = this.storage.phaseScheduling.setting('local-development');
     const cycles = this.storage.execution.cycles.list();
     const reservations = this.storage.phaseScheduling
       .active()
-      .filter((r) => r.resourceKey === 'local-verification');
+      .filter((r) => ['local-development', 'local-verification'].includes(r.resourceKey));
     const roadmaps = this.storage.roadmaps
       .list()
       .filter((r) => !['stopped', 'completed'].includes(r.status));
     return {
       version: setting.version,
       verificationCapacity: setting.capacity,
-      developmentCapacity: this.storage.phaseScheduling.capacity('local-development'),
+      developmentCapacity: development.capacity,
+      developmentVersion: development.version,
+      developmentSource: development.updatedAt ? 'saved-setting' : 'daemon-environment',
       source: setting.updatedAt ? 'saved-setting' : 'daemon-environment',
       updatedAt: setting.updatedAt,
       reservations: reservations.map((r) => {
@@ -55,36 +58,48 @@ export class HostSchedulingService {
             cycle?.workItemSourceId ??
             tree?.executionScope?.sourceId ??
             tree?.branchName ??
-            'Verification operation',
+            'Workstation operation',
           phase: r.phase,
+          resourceKey: r.resourceKey as 'local-development' | 'local-verification',
           acquiredAt: r.acquiredAt,
         };
       }),
       // Durable waits only: avoid recomputing the entire dependency graph on a settings read.
-      waiting: cycles
-        .filter((c) =>
-          c.phaseWait?.blockers.some(
-            (b) => b.kind === 'resource' && b.message.includes('local-verification'),
-          ),
-        )
-        .map((c) => ({
-          id: c.id,
-          workspaceId: c.workspaceId,
-          workItemId: c.workItemId ?? null,
-          runId: null,
-          label: c.workItemSourceId,
-          phase: c.executionScope?.kind ?? c.step,
-          reason:
-            reservations.length < setting.capacity
-              ? 'Capacity is available; automation will recheck remaining requirements before starting.'
-              : `Waiting for a verification slot (${reservations.length}/${setting.capacity} occupied).`,
-          paused: c.status !== 'running',
-        })),
+      waiting: cycles.flatMap((c) =>
+        (['local-development', 'local-verification'] as const).flatMap((resourceKey) => {
+          if (
+            !c.phaseWait?.blockers.some(
+              (b) => b.kind === 'resource' && b.message.includes(resourceKey),
+            )
+          )
+            return [];
+          const used = reservations.filter((r) => r.resourceKey === resourceKey).length;
+          const capacity =
+            resourceKey === 'local-development' ? development.capacity : setting.capacity;
+          return [
+            {
+              id: `${c.id}:${resourceKey}`,
+              workspaceId: c.workspaceId,
+              workItemId: c.workItemId ?? null,
+              runId: null,
+              label: c.workItemSourceId,
+              phase: c.executionScope?.kind ?? c.step,
+              resourceKey,
+              reason:
+                used < capacity
+                  ? 'Capacity is available; automation will recheck remaining requirements before starting.'
+                  : `Waiting for a slot (${used}/${capacity} occupied).`,
+              paused: c.status !== 'running',
+            },
+          ];
+        }),
+      ),
       roadmaps: roadmaps.map((r) => ({
         id: r.id,
         workspaceId: r.workspaceId,
         name: r.definition.name,
         status: r.status,
+        crossProject: !!r.definition.crossProject,
       })),
     };
   }
@@ -95,7 +110,19 @@ export class HostSchedulingService {
   ): HostSchedulingStatus {
     this.authorize(context, workspaceId);
     this.storage.transaction((tx) => {
-      if (tx.phaseScheduling.setting('local-verification').version !== input.expectedVersion)
+      const changes = [
+        {
+          key: 'local-development',
+          capacity: input.developmentCapacity,
+          version: input.expectedDevelopmentVersion,
+        },
+        {
+          key: 'local-verification',
+          capacity: input.verificationCapacity,
+          version: input.expectedVersion,
+        },
+      ];
+      if (changes.some((c) => tx.phaseScheduling.setting(c.key).version !== c.version))
         throw new ExecutionRequestError(
           'conflict',
           'Host settings changed. Reload settings before saving.',
@@ -105,33 +132,36 @@ export class HostSchedulingService {
           'conflict',
           'Pause roadmap scheduling in every workspace before changing host capacity.',
         );
-      if (tx.phaseScheduling.capacity('local-verification') === input.verificationCapacity) return;
-      if (
-        !tx.phaseScheduling.saveCapacity(
-          'local-verification',
-          input.verificationCapacity,
-          input.expectedVersion,
-          context.user.id,
-          this.now().toISOString(),
+      const at = this.now().toISOString();
+      for (const change of changes) {
+        if (tx.phaseScheduling.capacity(change.key) === change.capacity) continue;
+        if (
+          !tx.phaseScheduling.saveCapacity(
+            change.key,
+            change.capacity,
+            change.version,
+            context.user.id,
+            at,
+          )
         )
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'Host settings changed. Reload settings before saving.',
-        );
-      tx.audit.append({
-        id: randomUUID(),
-        occurredAt: this.now().toISOString(),
-        actorKind: 'user',
-        actorUserId: context.user.id,
-        sessionId: context.session.id,
-        workspaceId,
-        action: 'host-scheduling.updated',
-        outcome: 'succeeded',
-        priorVersion: input.expectedVersion,
-        resultingVersion: input.expectedVersion + 1,
-        metadata: { verificationCapacity: input.verificationCapacity },
-      });
+          throw new ExecutionRequestError(
+            'conflict',
+            'Host settings changed. Reload settings before saving.',
+          );
+        tx.audit.append({
+          id: randomUUID(),
+          occurredAt: at,
+          actorKind: 'user',
+          actorUserId: context.user.id,
+          sessionId: context.session.id,
+          workspaceId,
+          action: 'host-scheduling.updated',
+          outcome: 'succeeded',
+          priorVersion: change.version,
+          resultingVersion: change.version + 1,
+          metadata: { resourceKey: change.key, capacity: change.capacity },
+        });
+      }
     });
     this.notifier.notify();
     return this.get(context, workspaceId);

@@ -1236,8 +1236,9 @@ export function App() {
             {...(workspaceError === undefined ? {} : { error: workspaceError })}
             {...(workspaceNotice === undefined ? {} : { notice: workspaceNotice })}
             hostScheduling={
-              activeWorkspace.role === 'owner' ? (
+              activeWorkspace.role !== 'viewer' ? (
                 <HostSchedulingPanel
+                  canManageHost={activeWorkspace.role === 'owner'}
                   workspaceId={activeWorkspace.id}
                   csrfToken={authenticated.csrfToken}
                 />

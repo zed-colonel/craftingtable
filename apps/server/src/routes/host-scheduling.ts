@@ -36,7 +36,7 @@ export function registerHostSchedulingRoutes(
           reply,
           400,
           'invalid-request',
-          'Verification capacity must be an integer from 1 to 32 with the current settings version.',
+          'Each workstation capacity must be an integer from 1 to 32 with its current settings version.',
         );
       return noStore(reply).send(
         hostSchedulingSchema.parse(service.save(context, id.data, input.data)),

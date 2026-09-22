@@ -236,6 +236,7 @@ export async function createServices(
     executionService.branches,
     baselineService,
     executionService,
+    runtimeEvidenceService,
   );
   workCycleService.recoverInterrupted();
   const roadmapService = new RoadmapService(

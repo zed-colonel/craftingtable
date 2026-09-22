@@ -1,3 +1,4 @@
+import { WorkflowStatus } from './WorkflowStatus.js';
 import { ProviderRecovery } from './ProviderRecovery.js';
 import {
   CycleRemediationRecovery,
@@ -158,9 +159,11 @@ export function CyclePanel({
   const guidedRecovery =
     active &&
     !readOnly &&
+    active.step !== 'design' &&
     !exhaustedReview &&
     ['paused', 'needs-attention'].includes(active.status) &&
-    (active.reason.startsWith('Two remediation rounds') ||
+    (!!active.workflow?.questions.length ||
+      active.reason.startsWith('Two remediation rounds') ||
       /^(Implementation|Review) needs your input\./.test(active.reason));
   const attention =
     active !== undefined &&
@@ -212,9 +215,10 @@ export function CyclePanel({
           <p role="status">
             {active.scopeReviewWait ?? active.mergeRequirementsWait ?? active.reason}
           </p>
-          {active.mergeRequirementsWait && (
+          {active.mergeRequirementsWait && !active.workflow?.waiting && (
             <a href="#slices">Resolve checkpoint evidence for this slice</a>
           )}
+          <WorkflowStatus cycle={active} />
           <ProviderRecovery
             cycle={active}
             disabled={disabled}
@@ -304,12 +308,14 @@ export function CyclePanel({
             ['paused', 'needs-attention', 'completed'].includes(active.status) &&
             renderReviewRecovery(active, liveRun)}
           {exhaustedReview && onAuthorizeRemediation && (
-            <CycleRemediationRecovery
-              key={`${active.id}:${active.version}`}
-              cycle={active}
-              disabled={disabled || liveRun}
-              onAuthorize={(input) => onAuthorizeRemediation(active, input)}
-            />
+            <div id={`cycle-guidance-${active.id}`}>
+              <CycleRemediationRecovery
+                key={`${active.id}:${active.version}`}
+                cycle={active}
+                disabled={disabled || liveRun}
+                onAuthorize={(input) => onAuthorizeRemediation(active, input)}
+              />
+            </div>
           )}
           {guidedRecovery && (
             <CycleGuidanceRecovery
@@ -322,8 +328,9 @@ export function CyclePanel({
           {renderDesignRecovery &&
             canMutate &&
             recoverableDesign &&
-            ['paused', 'needs-attention'].includes(active.status) &&
-            renderDesignRecovery(active)}
+            ['paused', 'needs-attention'].includes(active.status) && (
+              <div id={`cycle-design-${active.id}`}>{renderDesignRecovery(active)}</div>
+            )}
           {active.baselinePreparation && <HistoricalEvidencePanel cycle={active} />}
           {onResolution && !readOnly && (
             <IntegrationResolutionPanel

@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
-import { parseDesignReport, type ArchitectureDecisionInbox } from '@craftingtable/contracts';
+import {
+  parseDesignReport,
+  parseWorkflowReport,
+  type ArchitectureDecisionInbox,
+} from '@craftingtable/contracts';
 import type { ConcurrencyDefinition, ExecutionScope } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import {
@@ -51,7 +55,7 @@ export function architectureDecisionInbox(
   const runs = [
     ...tx.execution.cycles
       .list(ws)
-      .filter((c) => c.step === 'design' && c.executionScope?.definitionId === d.id)
+      .filter((c) => c.executionScope?.definitionId === d.id)
       .flatMap((c) => {
         const r = tx.execution.runs.find(ws, c.currentRunId);
         return r ? [r] : [];
@@ -60,7 +64,6 @@ export function architectureDecisionInbox(
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const seenTrees = new Set<string>();
   for (const run of runs) {
-    if (run.role !== 'design') continue;
     if (seenTrees.has(run.worktreeId)) continue;
     seenTrees.add(run.worktreeId);
     if (run.status !== 'finished') continue;
@@ -78,8 +81,46 @@ export function architectureDecisionInbox(
       continue;
     const report = event.payload.resultText;
     const parsed = parseDesignReport(report);
-    if (parsed.status !== 'complete') continue;
-    for (const question of parsed.report.items.filter((q) => q.kind === 'operator-decision')) {
+    const workflow = parseWorkflowReport(report);
+    const legacyQuestions = report
+      .match(/^## Open questions[ \t]*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]
+      ?.trim();
+    const questions = [
+      ...(parsed.status !== 'complete' &&
+      workflow.status !== 'complete' &&
+      legacyQuestions &&
+      checkpoints.some((c) => legacyQuestions.includes(c.id))
+        ? [
+            {
+              kind: 'operator-decision' as const,
+              question: legacyQuestions.slice(0, 4000),
+              answer: '',
+              sources: [
+                `Run ${run.id}: original questions; structured classification is unavailable`,
+              ],
+              decision: undefined,
+            },
+          ]
+        : []),
+      ...(parsed.status === 'complete'
+        ? parsed.report.items.filter((q) => q.kind === 'operator-decision')
+        : []),
+      ...(workflow.status === 'complete'
+        ? workflow.report.questions
+            .filter((q) => q.destination === 'shared-decision')
+            .map((q) => ({
+              kind: 'operator-decision' as const,
+              question: q.question,
+              answer: '',
+              sources: [
+                q.checkpointId ?? '',
+                `Run ${run.id}: classified shared architecture question`,
+              ],
+              decision: undefined,
+            }))
+        : []),
+    ];
+    for (const question of questions) {
       const tokens = new Set(
         [question.question, ...question.sources]
           .join('\n')
@@ -153,7 +194,7 @@ export function architectureDecisionInbox(
       ...(recommendation?.sources ?? []),
       ...(recommendation
         ? [
-            `Attached design run ${recommendation.sourceRunId}; SHA-256 ${recommendation.sourceReportDigest}.`,
+            `Attached source run ${recommendation.sourceRunId}; SHA-256 ${recommendation.sourceReportDigest}.`,
           ]
         : []),
     ].join('\n');

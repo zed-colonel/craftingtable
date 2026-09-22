@@ -149,6 +149,14 @@ export const evidenceDecisionRequestSchema = z.strictObject({
 });
 export const candidateCheckpointSchema = z.strictObject({
   kind: z.literal('reviewed-candidate-v1'),
+  delegatedReview: z
+    .strictObject({
+      cycleId: z.uuid(),
+      roadmapId: z.uuid(),
+      definitionRevision: z.number().int().positive(),
+      roles: z.array(name).max(30),
+    })
+    .optional(),
   worktreeId: z.uuid(),
   sliceId: name,
   runId: z.uuid(),

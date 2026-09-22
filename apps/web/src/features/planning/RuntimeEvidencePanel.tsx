@@ -863,7 +863,18 @@ export function RuntimeEvidencePanel({
                 'Your authenticated acceptance records decision-owner review. The source design remains a proposal until you approve.'
               )
             ) : s.candidateCheckpoint ? (
-              decision ? (
+              s.candidateCheckpoint.delegatedReview ? (
+                <>
+                  Independent agent checkpoint review recorded under saved roadmap responsibilities
+                  ({s.candidateCheckpoint.delegatedReview.roles.join(', ')}).{' '}
+                  <a
+                    href={`/workspaces/${encodeURIComponent(workspaceId)}/runs/${encodeURIComponent(s.candidateCheckpoint.runId)}`}
+                  >
+                    Read the checkpoint review
+                  </a>
+                  . This is delegated evidence, not a claim of personal operator review.
+                </>
+              ) : decision ? (
                 `Checkpoint review recorded by ${decision.decidedByUserId} (${decision.checkpointReviewRoles?.join(', ') ?? 'no roles recorded'}).`
               ) : (
                 'Candidate checkpoint review pending. Inspect the retained review and receipts; accepting records your explicit checkpoint attestation.'

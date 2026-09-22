@@ -1,3 +1,5 @@
+import { securityReviewCurrent } from './workflow-policy.js';
+import { asAgentRunId } from '@craftingtable/domain';
 import { needsNativeVerification } from './native-verification-policy.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { acceptedEvidence } from './runtime-evidence-policy.js';
@@ -1286,6 +1288,26 @@ export class ExecutionService {
               );
             const review = this.storage.execution.runs.find(workspaceId, gate.reviewRunId);
             const reviewed = await this.branches.assertReview(worktree, review);
+            const securityCycle = this.storage.execution.cycles
+              .list(workspaceId)
+              .find((c) => c.worktreeId === worktree.id && c.workflow?.securityRequired);
+            if (securityCycle) {
+              const receipt = securityCycle.workflow?.securityReceipt;
+              const security =
+                receipt &&
+                this.storage.execution.runs.find(workspaceId, asAgentRunId(receipt.runId));
+              if (
+                !review ||
+                !security ||
+                !securityReviewCurrent(this.storage, securityCycle, review)
+              )
+                throw new ExecutionRequestError(
+                  'conflict',
+                  'The required separate security review must pass on this exact candidate and integration target before merge.',
+                );
+              await this.branches.assertReview(worktree, security);
+            }
+
             if (
               worktree.executionScope &&
               (!review ||

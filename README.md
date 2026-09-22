@@ -11,6 +11,16 @@ it is mergeable.
 
 ## What works today
 
+- **Controller obligations and clear decisions.** Scoped roadmaps distinguish code defects,
+  pending dependencies, technical checkpoints and source-required security reviews from
+  genuine operator questions. Separate agent reviews use the saved reviewer responsibilities;
+  supported local technical checkpoints retain exact candidate reports and controller receipts.
+  Dependency waits retry automatically. Architecture questions link to **Shared architecture
+  decisions**; local questions link to **Continue with guidance** on the work item. Older
+  unclassified stopped runs get bounded read-only reassessment under active scheduling.
+  Genuine decisions, unsupported qualification and exhausted recovery still need the operator;
+  protected final promotion remains explicit. See ADR-063.
+
 - **Shared decision review.** Roadmaps and work-item design recovery show pending architecture
   questions and applicable approvals together. New designs supply a standalone recommendation,
   rationale, alternatives, consequences and source citations. Review the recommendation or edit

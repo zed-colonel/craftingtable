@@ -1,3 +1,4 @@
+import { cycleWorkflowSchema } from './workflow.js';
 import { providerFailureSchema } from './provider-failure.js';
 import { designDependencySchema, designReportSchema } from './design-report.js';
 import { architectureDecisionInboxSchema } from './runtime-evidence.js';
@@ -223,6 +224,7 @@ export const workCycleSchema = z
         attachments: z.array(designAttachmentSchema).max(4),
       })
       .optional(),
+    workflow: cycleWorkflowSchema.optional(),
     executionScope: executionScopeSchema.optional(),
     id: z.string().uuid(),
     workspaceId: workspaceIdSchema,

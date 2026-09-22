@@ -1,3 +1,4 @@
+import { subjectRequirements as requireSubjectRequirements } from './services/runtime-evidence-policy.js';
 import { operatorDecisions } from './services/operator-decisions.js';
 import { PLAN_REQUIREMENTS, PLAN_CRITERIA } from './services/plan-acceptance-policy.js';
 import { acceptedEvidence } from './services/runtime-evidence-policy.js';
@@ -9330,103 +9331,107 @@ async function supervisedMapFixture(
   wholePlan = false,
   planApproval = false,
   singleOwner = false,
+  amend: (
+    source: import('@craftingtable/domain').ConcurrencySource,
+  ) => import('@craftingtable/domain').ConcurrencySource = (source) => source,
 ) {
   const f = await slicedFixture(
-    (s) => ({
-      ...s,
-      repositories: s.repositories.map((r) => ({ ...r, id: 'local' })),
-      decisions: [s.decisions[0]!],
-      evidence_profiles: [
-        ...(planApproval
-          ? [
-              {
-                id: 'plan-approval',
-                required_evidence: [...PLAN_REQUIREMENTS],
-                reviewer_roles: ['stack-integration-owner'],
-                independence_required: true as const,
-              },
-            ]
-          : []),
-        ...s.evidence_profiles.map((p) => ({
-          ...p,
-          reviewer_roles: [
-            'repository-maintainer',
-            'independent-security-reviewer-if-required-by-source',
-          ],
-        })),
-      ],
-      work_items: s.work_items.flatMap((p) => [
-        {
-          ...p,
-          repository: 'local',
-          source_profile_case_ids: [],
-          required_slices: singleOwner ? p.required_slices.slice(0, 1) : p.required_slices,
-        },
-        ...(wholePlan
-          ? [
-              {
-                ...p,
-                id: 'AQ-02',
-                source_item_id: 'AQ-02',
-                source_exit_gate: 'Done',
-                repository: 'local',
-                source_profile_case_ids: [],
-                required_slices: [],
-                depends_on: ['AQ-01'],
-              },
-            ]
-          : []),
-      ]),
-      slices: (singleOwner ? s.slices.slice(0, 1) : s.slices).map((s) => ({
+    (s) =>
+      amend({
         ...s,
-        start_requires: planApproval
-          ? [{ kind: 'checkpoint' as const, id: 'STACK-PLAN-ACCEPTED', state: 'passed' as const }]
-          : s.start_requires,
-        decision_refs: ['CS-D01'],
-      })),
-      checkpoints: [
-        ...(planApproval
-          ? [
-              {
-                ...s.checkpoints[0]!,
-                id: 'STACK-PLAN-ACCEPTED',
-                owner: 'stack',
-                kind: 'plan_approval' as const,
-                requires: [],
-                decision_refs: ['CS-D01'],
-                evidence_profile: 'plan-approval',
-                pass_criteria: [...PLAN_CRITERIA],
-              },
-            ]
-          : []),
-        {
-          ...s.checkpoints[0]!,
-          id: 'LOCAL-TARGET',
-          owner: 'local',
-          kind: 'semantic_review',
-          title: 'Local target',
-          requires: [
-            partial
-              ? { kind: 'slice', id: 'AQ-01.A', state: 'verified' }
-              : { kind: 'work_item', id: 'AQ-01', state: 'accepted' },
-          ],
-          decision_refs: [],
-          evidence_profile: 'scope-review',
-          pass_criteria: ['Target inspected'],
-          evidence_owners: [],
-          historical_producer_work_items: [],
-        },
-      ],
-      planning_targets: [
-        {
-          id: 'LOCAL',
-          checkpoint: 'LOCAL-TARGET',
-          scope: 'Selected local proof',
-          is_release: false,
-        },
-      ],
-      terminal_checkpoint: 'LOCAL-TARGET',
-    }),
+        repositories: s.repositories.map((r) => ({ ...r, id: 'local' })),
+        decisions: [s.decisions[0]!],
+        evidence_profiles: [
+          ...(planApproval
+            ? [
+                {
+                  id: 'plan-approval',
+                  required_evidence: [...PLAN_REQUIREMENTS],
+                  reviewer_roles: ['stack-integration-owner'],
+                  independence_required: true as const,
+                },
+              ]
+            : []),
+          ...s.evidence_profiles.map((p) => ({
+            ...p,
+            reviewer_roles: [
+              'repository-maintainer',
+              'independent-security-reviewer-if-required-by-source',
+            ],
+          })),
+        ],
+        work_items: s.work_items.flatMap((p) => [
+          {
+            ...p,
+            repository: 'local',
+            source_profile_case_ids: [],
+            required_slices: singleOwner ? p.required_slices.slice(0, 1) : p.required_slices,
+          },
+          ...(wholePlan
+            ? [
+                {
+                  ...p,
+                  id: 'AQ-02',
+                  source_item_id: 'AQ-02',
+                  source_exit_gate: 'Done',
+                  repository: 'local',
+                  source_profile_case_ids: [],
+                  required_slices: [],
+                  depends_on: ['AQ-01'],
+                },
+              ]
+            : []),
+        ]),
+        slices: (singleOwner ? s.slices.slice(0, 1) : s.slices).map((s) => ({
+          ...s,
+          start_requires: planApproval
+            ? [{ kind: 'checkpoint' as const, id: 'STACK-PLAN-ACCEPTED', state: 'passed' as const }]
+            : s.start_requires,
+          decision_refs: ['CS-D01'],
+        })),
+        checkpoints: [
+          ...(planApproval
+            ? [
+                {
+                  ...s.checkpoints[0]!,
+                  id: 'STACK-PLAN-ACCEPTED',
+                  owner: 'stack',
+                  kind: 'plan_approval' as const,
+                  requires: [],
+                  decision_refs: ['CS-D01'],
+                  evidence_profile: 'plan-approval',
+                  pass_criteria: [...PLAN_CRITERIA],
+                },
+              ]
+            : []),
+          {
+            ...s.checkpoints[0]!,
+            id: 'LOCAL-TARGET',
+            owner: 'local',
+            kind: 'semantic_review',
+            title: 'Local target',
+            requires: [
+              partial
+                ? { kind: 'slice', id: 'AQ-01.A', state: 'verified' }
+                : { kind: 'work_item', id: 'AQ-01', state: 'accepted' },
+            ],
+            decision_refs: [],
+            evidence_profile: 'scope-review',
+            pass_criteria: ['Target inspected'],
+            evidence_owners: [],
+            historical_producer_work_items: [],
+          },
+        ],
+        planning_targets: [
+          {
+            id: 'LOCAL',
+            checkpoint: 'LOCAL-TARGET',
+            scope: 'Selected local proof',
+            is_release: false,
+          },
+        ],
+        terminal_checkpoint: 'LOCAL-TARGET',
+      }),
     true,
   );
   const ws = f.state.workspaceId,
@@ -12941,4 +12946,525 @@ it('retries an interrupted review on its pinned snapshot but never adopts its fa
   expect(fresh.reviewBranchContext).toEqual(failed.reviewBranchContext);
   expect(fresh.parentRunId).toBe(failed.id);
   expect(currentCycle(state, cycle).remediationRounds).toBe(0);
+});
+
+function withWorkflowReport(text: string, options: Record<string, unknown> = {}) {
+  return (
+    '```craftingtable-workflow\n' +
+    JSON.stringify({
+      version: 1,
+      questions: [],
+      resolved: [],
+      securityReview: { required: false, sources: [] },
+      ...options,
+    }) +
+    '\n```\n' +
+    text
+  );
+}
+
+it('schedules a distinct security review after a source-required review and retains exact candidate evidence', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(true);
+  const original = f.backend.replyForRequest!;
+  const security: AgentLaunchRequest[] = [];
+  f.backend.replyForRequest = (request) => {
+    const reply = original(request);
+    if (request.model !== 'review-model') return reply;
+    if (request.prompt.includes('This is a separate security review.')) security.push(request);
+    return {
+      ...reply,
+      resultText: withWorkflowReport(reply.resultText!, {
+        securityReview: { required: true, sources: ['Approved plan review policy'] },
+      }),
+    };
+  };
+  await adoptSupervisedMap(f);
+  f.service.save(f.auth, f.state.workspaceId, f.input);
+  await roadmapControl(f.state, 'start');
+  await waitFor(
+    () =>
+      f.state.context.storage.execution.cycles
+        .list(f.state.workspaceId)
+        .some((c) => c.executionScope?.kind === 'slice' && c.status === 'completed'),
+    'specialist-reviewed integration',
+    12000,
+  );
+  expect(security).toHaveLength(1);
+  const cycle = f.state.context.storage.execution.cycles
+    .list(f.state.workspaceId)
+    .find((c) => c.executionScope?.kind === 'slice')!;
+  expect(cycle.workflow?.securityReceipt?.runId).toBeTruthy();
+  expect(cycle.remediationRounds).toBe(0);
+  expect(
+    f.backend.launches.filter((r) => r.model === 'review-model').length,
+  ).toBeGreaterThanOrEqual(2);
+});
+
+it.each([
+  { kind: 'contract', valid: true },
+  { kind: 'profile', valid: true },
+  { kind: 'semantic_review', valid: true },
+  { kind: 'contract', valid: false },
+] as const)(
+  'delegated $kind checkpoint requires complete attestation: $valid',
+  { timeout: 20000 },
+  async ({ kind, valid }) => {
+    const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
+      ...source,
+      checkpoints: [
+        ...source.checkpoints,
+        {
+          ...source.checkpoints[0]!,
+          id: 'LOCAL-REVIEW',
+          kind,
+          owner: kind === 'semantic_review' ? 'stack' : 'local',
+          requires: [],
+          pass_criteria: ['Candidate boundary is sound'],
+          evidence_profile: 'scope-review',
+        },
+      ],
+      slices: source.slices.map((s, i) =>
+        i
+          ? s
+          : {
+              ...s,
+              mode: 'domain',
+              merge_requires: [{ kind: 'checkpoint', id: 'LOCAL-REVIEW', state: 'passed' }],
+            },
+      ),
+    }));
+    const original = f.backend.replyForRequest!;
+    let independent = 0;
+    f.backend.replyForRequest = (request) => {
+      const reply = original(request);
+      if (request.model !== 'review-model') return reply;
+      const checkpoint = request.prompt.includes('This is a separate checkpoint review.');
+      if (checkpoint) independent++;
+      const def = f.state.context.storage.imports.definition(
+        f.state.workspaceId,
+        f.parentScope.definitionId,
+      )!;
+      const spec = requireSubjectRequirements(
+        def,
+        { kind: 'checkpoint', sourceId: 'LOCAL-REVIEW' },
+        f.scopes[0]!.sourceId,
+      );
+      return {
+        ...reply,
+        resultText: withWorkflowReport(
+          reply.resultText!,
+          checkpoint
+            ? {
+                checkpoint: {
+                  id: 'LOCAL-REVIEW',
+                  passed: true,
+                  requirements: (valid ? spec.requirements : []).map((requirement) => ({
+                    requirement,
+                    evidence: 'Independent exact-candidate check and fixture receipts',
+                  })),
+                  caseIds: spec.cases.map((c) => c.id),
+                },
+              }
+            : {},
+        ),
+      };
+    };
+    await adoptSupervisedMap(f);
+    f.service.save(f.auth, f.state.workspaceId, f.input);
+    await roadmapControl(f.state, 'start');
+    await waitFor(
+      () =>
+        f.state.context.storage.execution.cycles
+          .list(f.state.workspaceId)
+          .some(
+            (c) =>
+              c.executionScope?.kind === 'slice' &&
+              c.status === (valid ? 'completed' : 'needs-attention'),
+          ),
+      'checkpoint-reviewed integration',
+      12000,
+    ).catch((error) => {
+      throw new Error(
+        `${error.message}: ${JSON.stringify(f.state.context.storage.execution.cycles.list(f.state.workspaceId).map((c) => ({ status: c.status, reason: c.reason, workflow: c.workflow })))}`,
+      );
+    });
+    expect(independent).toBe(1);
+    if (!valid) {
+      const cycle = f.state.context.storage.execution.cycles
+        .list(f.state.workspaceId)
+        .find((c) => c.status === 'needs-attention')!;
+      expect(cycle.reason).toContain('attestation');
+      expect(
+        f.state.context.storage.runtimeEvidence
+          .submissions(f.state.workspaceId, f.parentScope.definitionId)
+          .some((s) => s.subject.sourceId === 'LOCAL-REVIEW'),
+      ).toBe(false);
+      expect(
+        f.state.context.storage.execution.worktrees.find(f.state.workspaceId, cycle.worktreeId)
+          ?.mergedAt,
+      ).toBeUndefined();
+      return;
+    }
+    const evidence = f.state.context.storage.runtimeEvidence
+      .submissions(f.state.workspaceId, f.parentScope.definitionId)
+      .find((s) => s.subject.sourceId === 'LOCAL-REVIEW')!;
+    expect(evidence.candidateCheckpoint?.delegatedReview?.roles).toContain('repository-maintainer');
+    expect(evidence.executedBy).toMatch(/^review-run:/);
+    expect(
+      f.state.context.storage.runtimeEvidence
+        .decisions(f.state.workspaceId)
+        .find((d) => d.submissionId === evidence.id)?.outcome,
+    ).toBe('accepted');
+  },
+);
+
+it('reassesses an older implementation question read-only and leaves a genuine operator question at its named destination', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(true);
+  const original = f.backend.replyForRequest!;
+  f.backend.replyForRequest = (request) => {
+    const reply = original(request);
+    if (request.model === 'implement-model')
+      return {
+        ...reply,
+        resultText:
+          'Implementation complete.\n## Open questions\nShould the controller obtain the remaining checkpoint?',
+      };
+    if (request.model !== 'review-model') return reply;
+    return {
+      ...reply,
+      resultText: withWorkflowReport(
+        reply.resultText!.replace(
+          '## Open questions\nnone',
+          '## Open questions\nChoose the new data-retention policy.',
+        ),
+        {
+          questions: [
+            { question: 'Choose the new data-retention policy.', destination: 'work-item' },
+          ],
+        },
+      ),
+    };
+  };
+  await adoptSupervisedMap(f);
+  f.service.save(f.auth, f.state.workspaceId, f.input);
+  await roadmapControl(f.state, 'start');
+  await waitFor(
+    () =>
+      f.state.context.storage.execution.cycles
+        .list(f.state.workspaceId)
+        .some((c) => c.workflow?.questions.length === 1 && c.status === 'needs-attention'),
+    'genuine question',
+    12000,
+  );
+  const cycle = f.state.context.storage.execution.cycles
+    .list(f.state.workspaceId)
+    .find((c) => c.workflow?.questions.length)!;
+  expect(cycle.workflow?.reassessments).toBe(1);
+  expect(cycle.workflow?.questions[0]?.destination).toBe('work-item');
+  expect(cycle.remediationRounds).toBe(0);
+  expect(f.backend.launches.filter((r) => r.model === 'implement-model')).toHaveLength(1);
+  expect(f.backend.launches.filter((r) => r.model === 'review-model')).toHaveLength(1);
+});
+
+it('repairs code findings before the separate security review without spending remediation on the review obligation', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(true);
+  const original = f.backend.replyForRequest!;
+  let fixed = false,
+    securityRuns = 0;
+  f.backend.replyForRequest = (request) => {
+    if (request.model === 'remediate-model') {
+      fixed = true;
+      commitFile(request.cwd, 'guard.txt', 'Recovery guard fixed');
+      return implementationDone;
+    }
+    const reply = original(request);
+    if (request.model !== 'review-model') return reply;
+    const specialist = request.prompt.includes('This is a separate security review.');
+    if (specialist) {
+      securityRuns++;
+      expect(fixed).toBe(true);
+    }
+    const raw = reply.resultText!;
+    const body = JSON.parse(raw.match(/```craftingtable-review\n([\s\S]*?)\n```/)![1]!);
+    body.verdict = fixed ? 'mergeable' : 'changes-requested';
+    body.exitGate.met = fixed;
+    body.findings = [
+      {
+        id: 'RECOVERY-1',
+        severity: 'major',
+        status: fixed ? 'resolved' : 'open',
+        title: 'Recovery guard bypass',
+        explanation: 'A restricted state can reenter through an intermediate state.',
+        recommendation: 'Apply the recovery guard to every operational path.',
+        ...(fixed
+          ? {
+              disposition: 'Independent negative-path regression passed on the repaired candidate.',
+            }
+          : {}),
+      },
+    ];
+    return {
+      ...reply,
+      resultText: withWorkflowReport(
+        '## Open questions\nnone\n## Review report\n```craftingtable-review\n' +
+          JSON.stringify(body) +
+          '\n```\nVERDICT: ' +
+          body.verdict,
+        { securityReview: { required: true, sources: ['Approved security-sensitive PR policy'] } },
+      ),
+    };
+  };
+  await adoptSupervisedMap(f);
+  f.service.save(f.auth, f.state.workspaceId, f.input);
+  await roadmapControl(f.state, 'start');
+  await waitFor(
+    () =>
+      f.state.context.storage.execution.cycles
+        .list(f.state.workspaceId)
+        .some((c) => c.executionScope?.kind === 'slice' && c.status === 'completed'),
+    'repair then security review',
+    12000,
+  );
+  const cycle = f.state.context.storage.execution.cycles
+    .list(f.state.workspaceId)
+    .find((c) => c.executionScope?.kind === 'slice')!;
+  expect(cycle.remediationRounds).toBe(1);
+  expect(securityRuns).toBe(1);
+});
+
+it('holds a technical checkpoint for its mapped prerequisite without launching repeated reviews', {
+  timeout: 15000,
+}, async () => {
+  const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
+    ...source,
+    checkpoints: [
+      ...source.checkpoints,
+      {
+        ...source.checkpoints[0]!,
+        id: 'LOCAL-ADR-01',
+        kind: 'architecture_decision',
+        owner: 'local',
+        requires: [],
+      },
+      {
+        ...source.checkpoints[0]!,
+        id: 'LOCAL-PROFILE',
+        kind: 'profile',
+        owner: 'local',
+        requires: [{ kind: 'checkpoint', id: 'LOCAL-ADR-01', state: 'passed' }],
+      },
+    ],
+    slices: source.slices.map((s, i) =>
+      i
+        ? s
+        : {
+            ...s,
+            mode: 'domain',
+            merge_requires: [{ kind: 'checkpoint', id: 'LOCAL-PROFILE', state: 'passed' }],
+          },
+    ),
+  }));
+  const original = f.backend.replyForRequest!;
+  f.backend.replyForRequest = (request) => {
+    const reply = original(request);
+    return request.model === 'review-model'
+      ? { ...reply, resultText: withWorkflowReport(reply.resultText!) }
+      : reply;
+  };
+  await adoptSupervisedMap(f);
+  f.service.save(f.auth, f.state.workspaceId, f.input);
+  await roadmapControl(f.state, 'start');
+  await waitFor(
+    () =>
+      f.state.context.storage.execution.cycles
+        .list(f.state.workspaceId)
+        .some((c) => !!c.workflow?.waiting),
+    'checkpoint dependency wait',
+    6000,
+  );
+  const cycle = f.state.context.storage.execution.cycles
+    .list(f.state.workspaceId)
+    .find((c) => c.workflow?.waiting)!;
+  expect(cycle.status).toBe('awaiting-merge');
+  expect(cycle.workflow?.waiting).toContain('LOCAL-ADR-01');
+  expect(cycle.remediationRounds).toBe(0);
+  expect(f.backend.launches.filter((r) => r.model === 'review-model')).toHaveLength(1);
+  expect(cycle.workflow?.activeReview).toBeUndefined();
+});
+
+it('holds specialist review while scheduling is paused and invalidates its receipt when policy or dependency inputs change', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(true);
+  const original = f.backend.replyForRequest!;
+  let paused = false;
+  f.backend.replyForRequest = (request) => {
+    const reply = original(request);
+    if (request.model !== 'review-model') return reply;
+    if (!paused) {
+      paused = true;
+      const r = storedRoadmap(f.state);
+      f.state.context.storage.roadmaps.save(
+        { ...r, status: 'paused', version: r.version + 1 },
+        r.version,
+      );
+    }
+    return {
+      ...reply,
+      resultText: withWorkflowReport(reply.resultText!, {
+        securityReview: { required: true, sources: ['Approved source review policy'] },
+      }),
+    };
+  };
+  await adoptSupervisedMap(f);
+  f.service.save(f.auth, f.state.workspaceId, f.input);
+  await roadmapControl(f.state, 'start');
+  const cycles = () => f.state.context.storage.execution.cycles.list(f.state.workspaceId);
+  await waitFor(
+    () => cycles().some((c) => c.status === 'awaiting-merge'),
+    'paused specialist review',
+    8000,
+  );
+  expect(f.backend.launches.filter((r) => r.model === 'review-model')).toHaveLength(1);
+  expect(
+    cycles().find((c) => c.status === 'awaiting-merge')?.workflow?.securityReceipt,
+  ).toBeUndefined();
+  await roadmapControl(f.state, 'resume');
+  await waitFor(
+    () => cycles().some((c) => c.status === 'completed'),
+    'resumed specialist review',
+    8000,
+  );
+  const cycle = cycles().find((c) => c.workflow?.securityReceipt)!;
+  const run = f.state.context.storage.execution.runs.find(f.state.workspaceId, cycle.currentRunId)!;
+  const { securityReviewCurrent } = await import('./services/workflow-policy.js');
+  expect(securityReviewCurrent(f.state.context.storage, cycle, run)).toBe(true);
+  expect(
+    securityReviewCurrent(f.state.context.storage, cycle, {
+      ...run,
+      reviewBranchContext: {
+        ...run.reviewBranchContext!,
+        repositoryPolicyVersion: 999,
+      },
+    }),
+  ).toBe(false);
+  expect(
+    securityReviewCurrent(
+      {
+        ...f.state.context.storage,
+        runtimeEvidence: Object.assign(Object.create(f.state.context.storage.runtimeEvidence), {
+          run: () => undefined,
+        }),
+      },
+      cycle,
+      run,
+    ),
+  ).toBe(false);
+});
+
+it('routes a classified review question into the shared ADR inbox without approving it', {
+  timeout: 15000,
+}, async () => {
+  const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
+    ...source,
+    evidence_profiles: [
+      ...source.evidence_profiles,
+      {
+        id: 'architecture-approval',
+        independence_required: true,
+        reviewer_roles: ['repository-maintainer'],
+        required_evidence: [
+          'accepted decision artifact digest and revision',
+          'source contract and affected schema or protocol references',
+          'decision owner approval and applicability to the active plan generation',
+        ],
+      },
+    ],
+    checkpoints: [
+      ...source.checkpoints,
+      {
+        ...source.checkpoints[0]!,
+        id: 'LOCAL-ADR-01',
+        evidence_profile: 'architecture-approval',
+        kind: 'architecture_decision',
+        owner: 'local',
+        requires: [],
+      },
+    ],
+  }));
+  const original = f.backend.replyForRequest!;
+  f.backend.replyForRequest = (request) => {
+    const reply = original(request);
+    return request.model !== 'review-model'
+      ? reply
+      : {
+          ...reply,
+          resultText: withWorkflowReport(
+            reply.resultText!.replace(
+              '## Open questions\nnone',
+              '## Open questions\nApprove LOCAL-ADR-01?',
+            ),
+            {
+              questions: [
+                {
+                  question: 'Approve LOCAL-ADR-01?',
+                  destination: 'shared-decision',
+                  checkpointId: 'LOCAL-ADR-01',
+                },
+              ],
+            },
+          ),
+        };
+  };
+  await adoptSupervisedMap(f);
+  f.service.save(f.auth, f.state.workspaceId, f.input);
+  await roadmapControl(f.state, 'start');
+  const tx = f.state.context.storage;
+  await waitFor(
+    () => tx.execution.cycles.list(f.state.workspaceId).some((c) => c.workflow?.questions.length),
+    'shared question',
+    8000,
+  );
+  const cycle = tx.execution.cycles
+    .list(f.state.workspaceId)
+    .find((c) => c.workflow?.questions.length)!;
+  expect(cycle.status).toBe('needs-attention');
+  const { architectureDecisionInbox } = await import('./services/architecture-decision-inbox.js');
+  const inbox = architectureDecisionInbox(
+    tx,
+    tx.imports.definition(f.state.workspaceId, f.parentScope.definitionId)!,
+  );
+  const adr = inbox.decisions.find((d) => d.checkpointId === 'LOCAL-ADR-01')!;
+  expect(adr.recommendation?.sourceRunId).toBe(cycle.currentRunId);
+  expect(adr.records).toHaveLength(0);
+  expect(cycle.reason).toContain('Shared architecture decisions');
+  await roadmapControl(f.state, 'pause');
+  const view = await f.state.context.services.runtimeEvidenceService.proposeArchitectureDecision(
+    f.auth,
+    f.state.workspaceId,
+    f.parentScope.definitionId,
+    {
+      bindingRevision: f.scopes[0]!.bindingRevision,
+      checkpointId: 'LOCAL-ADR-01',
+      sourceRunId: cycle.currentRunId,
+      sourceReportDigest: adr.recommendation!.sourceReportDigest,
+      coverage: 'full',
+      proposal: 'Use the operator-approved boundary.',
+      sourceReferences: adr.sourceReferences,
+      consumers: [],
+      retainedObligations: '',
+    },
+  );
+  const proposal = view.submissions.find((s) => s.submission.subject.sourceId === 'LOCAL-ADR-01')!;
+  expect(proposal.submission.sourceRunId).toBe(cycle.currentRunId);
+  expect(
+    proposal.submission.artifacts.some((a) => a.name === 'source-run-proposal-not-approval'),
+  ).toBe(true);
+  expect(proposal.decision).toBeUndefined();
 });

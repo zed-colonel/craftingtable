@@ -421,3 +421,13 @@ environment/fixture/toolchain/authorization inputs, with no intervening revocati
 separately compares each consumer's exact upstream inputs; unknown scopes compare conservatively.
 Old runs, manifests and receipts are never rewritten. Saved-plan acceptance always binds the new
 generation, and finalization retains its strict generation gate. See ADR-058.
+
+
+Controller obligation reviews (ADR-063) use the running roadmap attempt's saved responsibilities
+and review profile. Technical checkpoint acceptance is attributed to the delegated agent review,
+with immutable run/role/definition provenance; it is not operator architecture approval. The
+server validates every checkpoint requirement/case, frozen build and current candidate, rejects
+unqualified or unsupported evidence, and rechecks delegation after asynchronous inspection.
+Shared decisions and final promotion retain explicit operator authority. Required security
+review receipts remain merge gates even after a cycle is stopped. Unclassified questions can
+cause bounded read-only reassessment, never silent approval or source mutation.

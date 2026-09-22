@@ -27,3 +27,4 @@ export * from './runtime-evidence.js';
 export * from './concurrency-graph.js';
 
 export * from './repository-policy.js';
+export * from './workflow.js';

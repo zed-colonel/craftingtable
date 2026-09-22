@@ -293,3 +293,11 @@ links. Label recorded cycle waits separately from undispatched roadmap work. Put
 actions; explicit refresh preserves drafts and their original versions, and stale drafts cannot save.
 Changing capacity requires paused scheduling and renewed applicable saved-plan acceptance; show
 which roadmaps need review. Do not resume, repin dependencies or approve anything implicitly.
+
+Controller obligations and operator questions have separate presentation. Show a dependency
+wait with its named prerequisites and roadmap link; do not invite an implementation repair
+for an administrative checkpoint. Show pending separate security/checkpoint reviews and their
+real run provenance. Every operator question names either Shared architecture decisions (with
+the mapped checkpoint) or this work item's Continue with guidance form. Shared questions from
+implementation and review must appear in that inbox. Agent checkpoint attestations must not
+be labelled as a human approval.

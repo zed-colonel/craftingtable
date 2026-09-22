@@ -92,7 +92,7 @@ export function ArchitectureDecisionPanel({
               </details>
             )}
             <label className="field">
-              Finished design proposal to attach (optional)
+              Finished source report to attach (optional)
               <select value={sourceRunId} onChange={(e) => setSourceRunId(e.target.value)}>
                 <option value="">Write a decision directly</option>
                 {data.designRuns

@@ -95,6 +95,7 @@ export interface BaselinePreparation {
   readonly message: string;
 }
 export interface WorkCycle {
+  readonly workflow?: import('./workflow.js').CycleWorkflow;
   readonly designDependencyContinuations?: number;
   readonly designWait?: {
     readonly startedAt: string;

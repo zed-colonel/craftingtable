@@ -270,7 +270,7 @@ function DecisionCard({
         <pre className="run-event-body">{card.sourceReferences}</pre>
         {recommendation && (
           <a href={`/workspaces/${data.workspaceId}/runs/${recommendation.sourceRunId}`}>
-            Read source design report
+            Read source run report
           </a>
         )}
       </details>
@@ -418,7 +418,7 @@ function DecisionCard({
                 ))}
             </>
           )}
-          <p>Source references and the exact design report are included automatically.</p>
+          <p>Source references and the exact source run report are included automatically.</p>
           <ActionBar label="Prepare decision approval">
             <button
               type="submit"

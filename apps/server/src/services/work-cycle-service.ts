@@ -1,3 +1,12 @@
+import { parseWorkflowReport } from '@craftingtable/contracts';
+import {
+  securityReviewCurrent,
+  workflowContext,
+  workflowDelegation,
+  workflowQuestions,
+  operatorQuestionRoutes,
+} from './workflow-policy.js';
+import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { parseDesignReport } from '@craftingtable/contracts';
 import { designDependencyState } from './design-dependency-policy.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
@@ -100,6 +109,7 @@ export class WorkCycleService {
     private readonly branches?: BranchService,
     private readonly baselines?: BaselinePreparationService,
     private readonly execution?: ExecutionService,
+    private readonly runtimeEvidence?: RuntimeEvidenceService,
   ) {}
 
   list(context: CommandContext, workspaceId: WorkspaceId): readonly WorkCycle[] {
@@ -110,8 +120,22 @@ export class WorkCycleService {
         ? 'Preparing the requested recovery. Existing findings remain available.'
         : (automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c));
       const mergeWait = scopeMergeWait(tx, c);
+      const currentRun = tx.execution.runs.find(workspaceId, c.currentRunId);
+      const turn =
+        currentRun &&
+        tx.execution.runEvents.latestOfKind(workspaceId, currentRun.id, 'turn-completed');
+      const routes =
+        c.status === 'needs-attention' &&
+        c.executionScope?.kind === 'slice' &&
+        turn?.kind === 'turn-completed'
+          ? operatorQuestionRoutes(tx, c, turn.payload.resultText)
+          : [];
+
       return {
         ...c,
+        ...(routes.length
+          ? { workflow: { ...(c.workflow ?? { reassessments: 0 }), questions: routes } }
+          : {}),
         ...(wait ? { scopeReviewWait: wait } : {}),
         ...(mergeWait ? { mergeRequirementsWait: mergeWait } : {}),
       };
@@ -1575,6 +1599,57 @@ export class WorkCycleService {
       });
       return;
     }
+    if (
+      cycle.status === 'needs-attention' &&
+      cycle.workflow?.questions.length &&
+      cycle.workflow.questions.every((q) => q.destination === 'shared-decision') &&
+      workflowDelegation(this.storage, cycle)?.runnable &&
+      cycle.workflow.reassessments < 2
+    ) {
+      const context = workflowContext(this.storage, cycle);
+      if (
+        cycle.workflow.questions.every((q) =>
+          context?.checkpoints.some((c) => c.id === q.checkpointId && c.accepted),
+        )
+      ) {
+        const source = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+        if (source?.status === 'finished')
+          await this.startWorkflowReview(cycle, source, 'reassessment');
+        return;
+      }
+    }
+    if (
+      cycle.status === 'needs-attention' &&
+      cycle.executionScope?.kind === 'slice' &&
+      ['implement', 'review', 'remediate'].includes(cycle.step) &&
+      /needs your input|Workflow report/.test(cycle.reason) &&
+      !ownsIntegrationResolution(cycle)
+    ) {
+      const prior = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+      const turn =
+        prior &&
+        this.storage.execution.runEvents.latestOfKind(
+          cycle.workspaceId,
+          prior.id,
+          'turn-completed',
+        );
+      if (
+        prior?.status === 'finished' &&
+        turn?.kind === 'turn-completed' &&
+        !turn.payload.truncated &&
+        parseWorkflowReport(turn.payload.resultText).status !== 'complete' &&
+        workflowDelegation(this.storage, cycle)?.runnable === true &&
+        (cycle.workflow?.reassessments ?? 0) < 2
+      ) {
+        try {
+          await this.startWorkflowReview(cycle, prior, 'reassessment');
+        } catch (error) {
+          if (!(error instanceof ExecutionRequestError)) throw error;
+          this.attention(cycle, `Controller reassessment could not be prepared: ${error.message}`);
+        }
+      }
+      return;
+    }
     if (!['running', 'awaiting-merge'].includes(cycle.status)) return;
     if (worktree?.status !== 'active') {
       this.attention(cycle, 'Worktree is no longer active.');
@@ -1611,10 +1686,28 @@ export class WorkCycleService {
       return;
     if (cycle.status === 'awaiting-merge') {
       const review = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+      if (review && (await this.advanceWorkflow(cycle, review))) return;
       await this.refreshIntegration(cycle, review);
       return;
     }
     const pendingRun = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+    if (
+      !pendingRun &&
+      cycle.workflow?.activeReview &&
+      !workflowDelegation(this.storage, cycle)?.runnable
+    ) {
+      if (!cycle.phaseWait)
+        this.change(cycle, {
+          phaseWait: {
+            startedAt: this.now().toISOString(),
+            blockers: [
+              { kind: 'authorization', message: 'Roadmap scheduling or this entry is paused.' },
+            ],
+          },
+          reason: 'Controller review reserved; waiting for scheduling to resume.',
+        });
+      return;
+    }
     if (!pendingRun && worktree.executionScope && worktree.workItemId) {
       const blockers = scopePhaseBlockers(
         this.storage,
@@ -1889,6 +1982,46 @@ export class WorkCycleService {
       await this.advanceResolution(cycle);
       return;
     }
+    if (cycle.executionScope?.kind === 'slice' && cycle.step !== 'design') {
+      const classified = parseWorkflowReport(turn.payload.resultText);
+      if (
+        classified.status === 'invalid' ||
+        (cycle.workflow?.activeReview && classified.status !== 'complete')
+      ) {
+        this.attention(
+          cycle,
+          'Workflow report needs correction. The controller cannot safely classify these questions or accept specialist evidence.',
+        );
+        return;
+      }
+      if (classified.status === 'complete') {
+        const questions = workflowQuestions(this.storage, cycle, turn.payload.resultText);
+        if ((questions.length === 0) !== finalizationHasNoQuestions(turn.payload.resultText)) {
+          this.attention(
+            cycle,
+            'Workflow report and Open questions disagree. Inspect the unanswered questions before continuing.',
+          );
+          return;
+        }
+        const workflow = {
+          ...(cycle.workflow ?? { reassessments: 0 }),
+          questions,
+          securityRequired:
+            cycle.workflow?.securityRequired || classified.report.securityReview.required,
+        };
+        if (JSON.stringify(workflow) !== JSON.stringify(cycle.workflow))
+          cycle = this.change(cycle, { workflow });
+        if (questions.length) {
+          this.attention(
+            cycle,
+            questions.some((q) => q.destination === 'shared-decision')
+              ? 'Operator decision required. Open Shared architecture decisions for the named ADR; answer any work-item questions in Continue with guidance.'
+              : 'Operator input required. Answer the work-item questions in Continue with guidance.',
+          );
+          return;
+        }
+      }
+    }
     const finalization = finalizationForCycle(this.storage, cycle);
     if (
       finalization &&
@@ -2038,6 +2171,10 @@ export class WorkCycleService {
     }
     // Findings can request more work without granting approval to the reviewed state.
     if (decision.action === 'remediate') {
+      if (cycle.workflow?.activeReview)
+        cycle = this.change(cycle, {
+          workflow: { ...cycle.workflow, activeReview: null, waiting: null },
+        });
       await this.reviewRemediation(cycle, run);
       return;
     }
@@ -2078,6 +2215,7 @@ export class WorkCycleService {
     );
     if (reviewedWorktree === undefined) throw new NotFoundError();
     await this.branches?.assertReview(reviewedWorktree, run);
+    if (await this.advanceWorkflow(cycle, run)) return;
     if (finalization && cycle.polishPhase !== 'final-review') {
       const nextRound = (cycle.polishRound ?? 0) + 1;
       await this.next(cycle, 'review', run, undefined, {
@@ -2095,6 +2233,182 @@ export class WorkCycleService {
           ? 'Final independent review meets the completion policy. Inspect the conformance assessment, changes and verification; only you can approve promotion.'
           : decision.reason,
     });
+  }
+
+  private async startWorkflowReview(
+    cycle: WorkCycle,
+    source: AgentRun,
+    kind: 'reassessment' | 'security' | 'checkpoint',
+    checkpointId?: string,
+  ): Promise<void> {
+    const context = workflowContext(this.storage, cycle);
+    const delegation = workflowDelegation(this.storage, cycle);
+    if (!context || delegation?.runnable !== true) return;
+    this.requireReady(cycle.workspaceId, cycle.workItemId!, cycle.executionScope);
+    const checkpoint = context.checkpoints.find((c) => c.id === checkpointId);
+    if (
+      kind === 'checkpoint' &&
+      (!checkpoint?.supported || !checkpoint.assigned || checkpoint.pending.length)
+    )
+      throw new ExecutionRequestError('conflict', 'Checkpoint review requirements are not ready.');
+    if (
+      kind === 'security' &&
+      !delegation.roles.includes('independent-security-reviewer-if-required-by-source')
+    ) {
+      this.attention(
+        cycle,
+        'The plan requires a separate security review. Assign its reviewer responsibility in the roadmap before continuing.',
+      );
+      return;
+    }
+    const user = this.storage.users.findById(cycle.createdByUserId);
+    if (!user || user.status !== 'active')
+      throw new ExecutionRequestError('conflict', 'Delegating user is no longer active.');
+    this.workspaceService.requireRole({ user }, cycle.workspaceId, ['owner', 'editor']);
+    const workflow = cycle.workflow ?? { reassessments: 0, questions: [] };
+    await this.next(
+      cycle,
+      'review',
+      source,
+      undefined,
+      {
+        workflow: {
+          ...workflow,
+          questions: [],
+          waiting: null,
+          reassessments: workflow.reassessments + (kind === 'reassessment' ? 1 : 0),
+          activeReview: {
+            kind,
+            ...(checkpointId ? { checkpointId } : {}),
+            sourceRunId: source.id,
+            requirements: checkpoint?.requirements ?? [],
+            caseIds: checkpoint?.caseIds ?? [],
+            roles:
+              checkpoint?.roles ??
+              (kind === 'security'
+                ? ['independent-security-reviewer-if-required-by-source']
+                : ['repository-maintainer']),
+            contextDigest: context.contextDigest,
+          },
+        },
+        reason:
+          kind === 'reassessment'
+            ? 'Classifying prior questions against the saved plan in a bounded read-only review.'
+            : kind === 'security'
+              ? 'Starting the separate source-required security review.'
+              : `Starting independent checkpoint review: ${checkpointId}.`,
+      },
+      'workflow-review',
+    );
+  }
+
+  private async advanceWorkflow(cycle: WorkCycle, run: AgentRun): Promise<boolean> {
+    if (cycle.executionScope?.kind !== 'slice' || !cycle.workflow) return false;
+    const initialVersion = cycle.version;
+    const context = workflowContext(this.storage, cycle);
+    const delegation = workflowDelegation(this.storage, cycle);
+    if (!context || !delegation) return false;
+    if (!delegation.runnable) {
+      if (cycle.status !== 'awaiting-merge')
+        this.change(cycle, {
+          status: 'awaiting-merge',
+          reason:
+            'Technical review finished. Further controller reviews are held until scheduling resumes.',
+        });
+      return true;
+    }
+    const branch = run.reviewBranchContext;
+    if (!branch) return false;
+    const active = cycle.workflow.activeReview;
+    if (active) {
+      if (active.kind === 'checkpoint') {
+        if (!this.runtimeEvidence)
+          throw new ExecutionRequestError(
+            'unavailable',
+            'Checkpoint review service is unavailable.',
+          );
+        await this.runtimeEvidence.acceptWorkflowCheckpoint(cycle);
+      }
+      cycle = this.change(
+        cycle,
+        {
+          workflow: {
+            ...cycle.workflow,
+            activeReview: null,
+            ...(active.kind === 'security'
+              ? {
+                  securityReceipt: {
+                    runId: run.id,
+                    headSha: branch.headSha,
+                    targetSha: branch.targetSha,
+                  },
+                }
+              : {}),
+          },
+        },
+        'workflow-review-completed',
+      );
+    }
+    if (cycle.workflow!.securityRequired && !securityReviewCurrent(this.storage, cycle, run)) {
+      await this.startWorkflowReview(cycle, run, 'security');
+      return true;
+    }
+    const current = workflowContext(this.storage, cycle)!;
+    const missing = current.checkpoints.filter((c) => !c.accepted);
+    const ready = missing.find((c) => c.supported && c.assigned && !c.pending.length);
+    if (ready) {
+      await this.startWorkflowReview(cycle, run, 'checkpoint', ready.id);
+      return true;
+    }
+    const exception = missing.find((c) => !c.pending.length && (!c.supported || !c.assigned));
+    if (exception) {
+      cycle = this.change(cycle, {
+        workflow: {
+          ...cycle.workflow!,
+          questions: exception.sharedDecision
+            ? [
+                {
+                  question: `Approve the required architecture decision ${exception.id} in Shared architecture decisions.`,
+                  destination: 'shared-decision',
+                  checkpointId: exception.id,
+                },
+              ]
+            : [],
+          waiting: `${exception.id}: ${!exception.assigned ? 'Saved reviewer responsibilities do not authorize this checkpoint review.' : 'This checkpoint requires evidence outside the supported controller review adapter.'} Open roadmap requirements to resolve this obligation.`,
+        },
+      });
+      this.attention(
+        cycle,
+        exception.sharedDecision
+          ? `Operator approval required for ${exception.id}. Open Shared architecture decisions in the roadmap.`
+          : cycle.workflow!.waiting!,
+      );
+      return true;
+    }
+    if (missing.length) {
+      const waiting = missing
+        .map(
+          (c) =>
+            `${c.id}: ${c.pending.length ? c.pending.join(' ') : !c.supported ? 'Independent evidence or operator architecture approval is required in the roadmap.' : !c.assigned ? 'Assign checkpoint reviewer responsibilities in the roadmap.' : 'Waiting for checkpoint evidence.'}`,
+        )
+        .join(' ')
+        .slice(0, 4000);
+      if (cycle.workflow!.waiting !== waiting || cycle.status !== 'awaiting-merge')
+        this.change(
+          cycle,
+          {
+            status: 'awaiting-merge',
+            workflow: { ...cycle.workflow!, waiting },
+            reason: waiting,
+          },
+          'workflow-wait',
+        );
+      return true;
+    }
+    if (cycle.workflow!.waiting)
+      cycle = this.change(cycle, { workflow: { ...cycle.workflow!, waiting: null } });
+    // Return after a durable update so callers never write over its newer version.
+    return cycle.version !== initialVersion;
   }
 
   private async advanceFinalizationStage(

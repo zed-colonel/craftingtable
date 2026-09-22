@@ -74,6 +74,12 @@ export interface EvidenceSubmission {
   /** Saved review of a pre-merge candidate; never authorizes another unmerged slice. */
   readonly candidateCheckpoint?: {
     readonly kind: 'reviewed-candidate-v1';
+    readonly delegatedReview?: {
+      readonly cycleId: string;
+      readonly roadmapId: string;
+      readonly definitionRevision: number;
+      readonly roles: readonly string[];
+    };
     readonly worktreeId: string;
     readonly sliceId: string;
     readonly runId: string;
@@ -129,7 +135,7 @@ export interface EvidenceSubmission {
   readonly createdByUserId: UserId;
 }
 export interface EvidenceDecision {
-  /** Explicit operator attestation after reviewing a generated technical checkpoint packet. */
+  /** Recorded checkpoint reviewer roles; candidate provenance distinguishes operator and delegated agent review. */
   readonly checkpointReviewRoles?: readonly string[];
   readonly id: string;
   readonly workspaceId: WorkspaceId;

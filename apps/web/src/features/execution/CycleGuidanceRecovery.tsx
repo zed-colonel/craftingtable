@@ -14,6 +14,7 @@ export function CycleGuidanceRecovery({
   const remaining = Math.max(0, remediationAllowance(cycle) - cycle.remediationRounds);
   return (
     <form
+      id={`cycle-guidance-${cycle.id}`}
       className="stack-form"
       aria-label="Continue with guidance"
       onSubmit={(event) => {

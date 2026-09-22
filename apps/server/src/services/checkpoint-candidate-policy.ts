@@ -15,10 +15,45 @@ export function candidateCheckpointIssues(
   if (!c) return [];
   const tree = tx.execution.worktrees.find(s.workspaceId, asWorktreeId(c.worktreeId));
   const runs = tree ? tx.execution.runs.listForWorktree(s.workspaceId, tree.id) : [];
-  const run = runs[0];
+  const run = c.delegatedReview ? runs.find((r) => r.id === c.runId) : runs[0];
   const turn = run && tx.execution.runEvents.latestOfKind(s.workspaceId, run.id, 'turn-completed');
   const build = run && tx.runtimeEvidence.build(s.workspaceId, run.id);
   const issues: string[] = [];
+  if (c.delegatedReview) {
+    const a = c.delegatedReview;
+    const saved = tx.roadmaps
+      .history(s.workspaceId, a.roadmapId)
+      .find((d) => d.revision === a.definitionRevision);
+    const roadmap = tx.roadmaps.find(s.workspaceId, a.roadmapId);
+    const attempt = roadmap?.attempts.find((x) => x.cycleId === a.cycleId);
+    const entry = saved?.entries.find((e) => e.id === attempt?.entryId);
+    if (
+      !entry ||
+      entry.executionScope?.sourceId !== c.sliceId ||
+      a.roles.some((r) => !entry.reviewerRoles?.includes(r)) ||
+      run?.backend !== entry.profiles.review.backend ||
+      run?.model !== entry.profiles.review.model ||
+      run?.permissionMode !== entry.profiles.review.permissionMode
+    )
+      issues.push('Checkpoint review no longer matches its saved delegation.');
+    const newer = run
+      ? runs.slice(
+          0,
+          runs.findIndex((r) => r.id === run.id),
+        )
+      : runs;
+    if (
+      newer.some(
+        (r) =>
+          r.role !== 'review' ||
+          r.status !== 'finished' ||
+          r.verdict !== 'mergeable' ||
+          r.reviewBranchContext?.headSha !== c.headSha ||
+          r.reviewBranchContext.targetSha !== c.integrationSha,
+      )
+    )
+      issues.push('A later run changed or invalidated the checkpoint candidate review.');
+  }
 
   if (
     !tree ||

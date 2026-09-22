@@ -1,3 +1,4 @@
+import { securityReviewCurrent } from './workflow-policy.js';
 import { randomUUID } from 'node:crypto';
 import type {
   RoadmapCapacities,
@@ -1028,6 +1029,20 @@ export class RoadmapService {
           (cycle.status === 'awaiting-merge' || pending?.status === 'reserved')
         ) {
           check();
+          // A paused roadmap may have a technically approved candidate with controller
+          // reviews still queued. Let the cycle reserve those before attempting a merge.
+          if (pending?.status !== 'reserved' && cycle.workflow) {
+            const review = this.storage.execution.runs.find(
+              roadmap.workspaceId,
+              cycle.currentRunId,
+            );
+            if (
+              cycle.workflow.activeReview ||
+              (cycle.workflow.securityRequired &&
+                (!review || !securityReviewCurrent(this.storage, cycle, review)))
+            )
+              return;
+          }
           if (entry.executionScope && pending?.status !== 'reserved') {
             const blockers = scopePhaseBlockers(
               this.storage,

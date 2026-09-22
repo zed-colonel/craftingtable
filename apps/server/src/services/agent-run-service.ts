@@ -1,3 +1,4 @@
+import { workflowPrompt, workflowDelegation } from './workflow-policy.js';
 import { operatorDecisions } from './operator-decisions.js';
 import { worktreePlan, REPOSITORY_POLICY_GUIDANCE } from './repository-policy.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
@@ -271,6 +272,11 @@ export class AgentRunService {
         'Cycle no longer has authority to launch this step',
       );
     }
+    if (cycle.workflow?.activeReview && !workflowDelegation(this.storage, cycle)?.runnable)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Controller review is held by paused scheduling or an entry hold.',
+      );
     if (
       cycle.providerRecovery &&
       this.storage.roadmaps
@@ -291,6 +297,11 @@ export class AgentRunService {
 
   async startForCycle(cycle: WorkCycle): Promise<AgentRun> {
     this.requireCycleLaunchAuthority(cycle);
+    if (cycle.workflow?.activeReview && workflowDelegation(this.storage, cycle)?.runnable !== true)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Roadmap scheduling is paused; controller review launch is held.',
+      );
     const existing = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
     if (existing !== undefined) return existing;
     const resolution = ownsIntegrationResolution(cycle) ? cycle.integrationResolution : undefined;
@@ -315,6 +326,7 @@ export class AgentRunService {
         role: cycle.step === 'remediate' ? 'implement' : cycle.step,
         ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
         instructions: [
+          ownsIntegrationResolution(cycle) ? '' : workflowPrompt(this.storage, cycle),
           cycle.instructions,
           cycle.providerRecovery
             ? `This is service retry ${cycle.providerRecovery.attempts} of 3 for the SAME step after a model-service failure, in a fresh session on the same backend/model. Read the prior handoff and partial scratch records; preserve completed work and unresolved findings. Inspect the current worktree and evidence before continuing. Do not assume an interrupted check passed, repeat completed side effects blindly, or treat a draft report as accepted. Complete every required check and the final report. Report genuine decisions in ## Open questions; never decide them for the operator. The original step deadline still applies.`

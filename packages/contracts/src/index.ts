@@ -22,3 +22,4 @@ export * from './storage-policy.js';
 export * from './work-cycle.js';
 export * from './workspace.js';
 export * from './workspace-event.js';
+export * from './workflow.js';

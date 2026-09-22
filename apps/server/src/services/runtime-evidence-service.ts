@@ -1,3 +1,6 @@
+import { workflowContext, workflowDelegation } from './workflow-policy.js';
+import { parseWorkflowReport } from '@craftingtable/contracts';
+import type { WorkCycle } from '@craftingtable/domain';
 import { worktreePlan, repositoryPolicyEvidence } from './repository-policy.js';
 import { checkpointDigest, candidateCheckpointIssues } from './checkpoint-candidate-policy.js';
 import { resolveScope, scopeEvidenceIssues } from './execution-scope.js';
@@ -66,7 +69,7 @@ import {
 } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
-import type { AuthContext } from './auth-service.js';
+import type { AuthContext, CommandContext } from './auth-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { resolveExecutable } from './executables.js';
 import {
@@ -800,11 +803,9 @@ export class RuntimeEvidenceService {
       .filter((p) => aliases.includes(p.alias))
       .flatMap((p) => (p.issue ? [p.issue] : []));
     const binding = this.binding(d.workspaceId, d.id, s.bindingRevision);
+    if (s.candidateCheckpoint) issues.push(...(await this.candidateFreshness(s)));
     for (const code of s.testedCode ?? []) {
-      if (s.candidateCheckpoint) {
-        issues.push(...(await this.candidateFreshness(s)));
-        continue;
-      }
+      if (s.candidateCheckpoint) continue;
       const b = binding.bindings.find((b) => b.alias === code.alias);
       const repo =
         b?.repositoryId &&
@@ -821,7 +822,7 @@ export class RuntimeEvidenceService {
           `Evidence must identify the current integration commit for its subject (${code.alias}).`,
         );
     }
-    if (!s.generatedPlan && !s.testedCode?.length && !runtime.pins.length)
+    if (!s.generatedPlan && !s.candidateCheckpoint && !s.testedCode?.length && !runtime.pins.length)
       issues.push('Identify the tested code with consumer commits or upstream pins.');
     return issues;
   }
@@ -886,10 +887,11 @@ export class RuntimeEvidenceService {
   }
 
   async checkpointRecovery(
-    context: AuthContext,
+    context: CommandContext,
     ws: WorkspaceId,
     id: string,
     worktreeId: string,
+    delegated = false,
   ): Promise<CheckpointRecovery> {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const d = this.definition(ws, id),
@@ -907,7 +909,11 @@ export class RuntimeEvidenceService {
       scope.slice?.merge_requires.filter((r) => r.kind === 'checkpoint').map((r) => r.id),
     );
     const checkpoints = d.source.checkpoints.filter(
-      (c) => ids.has(c.id) && c.kind === 'contract' && c.evidence_profile === 'contract-checkpoint',
+      (c) =>
+        ids.has(c.id) &&
+        (delegated
+          ? ['contract', 'profile', 'semantic_review'].includes(c.kind)
+          : c.kind === 'contract' && c.evidence_profile === 'contract-checkpoint'),
     );
     const run = this.storage.execution.runs.listForWorktree(ws, tree.id)[0];
     const turn = run && this.storage.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
@@ -962,14 +968,40 @@ export class RuntimeEvidenceService {
       if (spec.cases.some((c) => c.requiresKata))
         issues.push('This checkpoint requires separately qualified external evidence.');
       const requiredCode = testedRepositories(d, subject);
-      if (requiredCode.length !== 1 || requiredCode[0] !== alias)
+      if (
+        !(
+          (requiredCode.length === 1 && requiredCode[0] === alias) ||
+          (delegated && checkpoint.kind === 'semantic_review' && requiredCode.length === 0)
+        )
+      )
         issues.push(
           'This checkpoint requires evidence from multiple or different consumer repositories.',
         );
+      const workflow = parseWorkflowReport(report);
+      if (delegated) {
+        const attestation = workflow.status === 'complete' ? workflow.report.checkpoint : undefined;
+        if (
+          !attestation ||
+          attestation.id !== checkpoint.id ||
+          !attestation.passed ||
+          spec.requirements.some(
+            (r) => !attestation.requirements.some((a) => a.requirement === r && a.evidence.trim()),
+          ) ||
+          attestation.requirements.some((a) => !spec.requirements.includes(a.requirement)) ||
+          spec.cases.some((c) => !attestation.caseIds.includes(c.id))
+        )
+          issues.push(
+            'A complete, passing independent checkpoint attestation is required for every exact requirement and case.',
+          );
+      }
       for (const c of spec.cases)
         if (
           assessment?.status !== 'complete' ||
-          !assessment.report.scopeEvidence?.caseIds.includes(c.id)
+          !(
+            delegated && workflow.status === 'complete'
+              ? workflow.report.checkpoint?.caseIds
+              : assessment.report.scopeEvidence?.caseIds
+          )?.includes(c.id)
         )
           issues.push(`The review must explicitly cover case ${c.id}.`);
       const laterCases = d.source.baseline_acceptance_coverage
@@ -1055,7 +1087,7 @@ export class RuntimeEvidenceService {
   }
 
   private checkpointPacket(
-    context: AuthContext,
+    context: CommandContext,
     d: ConcurrencyDefinition,
     runtime: RuntimeGeneration,
     tree: Worktree,
@@ -1098,7 +1130,11 @@ export class RuntimeEvidenceService {
       bindingRevision: tree.executionScope!.bindingRevision,
       runtimeId: runtime.id,
       subject: { kind: 'checkpoint', sourceId: checkpointId },
-      testedCode: [{ alias, commitSha: branch.headSha }],
+      testedCode: testedRepositories(d, { kind: 'checkpoint', sourceId: checkpointId }).includes(
+        alias,
+      )
+        ? [{ alias, commitSha: branch.headSha }]
+        : [],
       subjectCommit: branch.headSha,
       environmentId: runtime.environments.find((e) => e.kind === 'local-development')?.id ?? '',
       executedBy: `review-run:${runId}`,
@@ -1130,6 +1166,133 @@ export class RuntimeEvidenceService {
       createdAt: this.now().toISOString(),
       createdByUserId: context.user.id,
     };
+  }
+
+  async acceptWorkflowCheckpoint(cycle: WorkCycle): Promise<void> {
+    const active = cycle.workflow?.activeReview;
+    const delegation = workflowDelegation(this.storage, cycle);
+    const candidateContext = workflowContext(this.storage, cycle);
+    const checkpoint = candidateContext?.checkpoints.find((c) => c.id === active?.checkpointId);
+    const user = this.storage.users.findById(cycle.createdByUserId);
+    if (
+      !user ||
+      user.status !== 'active' ||
+      !cycle.executionScope ||
+      !delegation ||
+      !delegation.runnable ||
+      active?.kind !== 'checkpoint' ||
+      !checkpoint?.supported ||
+      !checkpoint.assigned ||
+      checkpoint.pending.length
+    )
+      conflict(
+        'Checkpoint delegation or prerequisites changed. Review the current roadmap obligations.',
+      );
+    const context: CommandContext = { user };
+    const ws = cycle.workspaceId,
+      id = cycle.executionScope.definitionId;
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    const check = () => {
+      this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+      const current = this.storage.execution.cycles.find(ws, cycle.id);
+      const currentDelegation = workflowDelegation(this.storage, cycle);
+      const currentCheckpoint = workflowContext(this.storage, cycle)?.checkpoints.find(
+        (c) => c.id === checkpoint.id,
+      );
+      if (
+        current?.version !== cycle.version ||
+        current.currentRunId !== cycle.currentRunId ||
+        currentDelegation?.runnable !== true ||
+        !currentCheckpoint?.assigned ||
+        currentCheckpoint.pending.length
+      )
+        conflict('Checkpoint delegation changed during review.');
+    };
+    const preview = await this.checkpointRecovery(context, ws, id, cycle.worktreeId, true);
+    const candidate = preview.candidates.find((c) => c.checkpointId === checkpoint.id);
+    if (!candidate || candidate.issues.length)
+      conflict(candidate?.issues.join(' ') || 'Checkpoint candidate is unavailable.');
+    const tree = this.storage.execution.worktrees.find(ws, cycle.worktreeId)!;
+    const run = this.storage.execution.runs.find(ws, cycle.currentRunId)!;
+    if (candidate.runId !== run.id || active.sourceRunId === run.id)
+      conflict('A separate exact-candidate checkpoint review is required.');
+    const turn = this.storage.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
+    const build = this.storage.runtimeEvidence.build(ws, run.id);
+    const runtime = this.current(ws, id);
+    if (turn?.kind !== 'turn-completed' || !build || !runtime || !run.reviewBranchContext)
+      conflict('Checkpoint review evidence is incomplete.');
+    const commit = await this.requireGit().resolveCommit(
+      tree.path,
+      run.reviewBranchContext.headSha,
+    );
+    if (!commit.ok) conflict('Checkpoint candidate is unavailable.');
+    const d = this.definition(ws, id);
+    const alias = this.binding(ws, id, cycle.executionScope.bindingRevision).bindings.find(
+      (b) => b.repositoryId === tree.repositoryId,
+    )!.alias;
+    const packet = this.checkpointPacket(
+      context,
+      d,
+      runtime,
+      tree,
+      checkpoint.id,
+      candidate.snapshotDigest,
+      run.id,
+      turn.payload,
+      build,
+      commit.value.treeSha,
+      alias,
+    );
+    const submission: EvidenceSubmission = {
+      ...packet,
+      reviewers: [
+        {
+          identity: `agent-review:${run.id}`,
+          roles: checkpoint.roles,
+          artifact: 'independent-review',
+        },
+      ],
+      candidateCheckpoint: {
+        ...packet.candidateCheckpoint!,
+        delegatedReview: {
+          cycleId: cycle.id,
+          roadmapId: delegation.roadmap.id,
+          definitionRevision: delegation.roadmap.attempts.find((a) => a.cycleId === cycle.id)!
+            .definitionRevision,
+          roles: checkpoint.roles,
+        },
+      },
+    };
+    const issues = [
+      ...submissionIssues(this.storage, d, runtime, submission),
+      ...(await this.evidenceFreshness(d, runtime, submission)),
+    ];
+    if (issues.length) conflict(issues.join(' '));
+    check();
+    this.storage.transaction((tx) => {
+      check();
+      tx.runtimeEvidence.addSubmission(submission);
+      this.changed(
+        tx,
+        context,
+        ws,
+        id,
+        'evidence.decided',
+        `Delegated checkpoint review accepted ${checkpoint.id}.`,
+        this.now().toISOString(),
+      );
+      tx.runtimeEvidence.addDecision({
+        id: randomUUID(),
+        workspaceId: ws,
+        submissionId: submission.id,
+        outcome: 'accepted',
+        rationale: `Delegated technical checkpoint review ${run.id}, under saved roadmap reviewer responsibilities. No human review or architecture approval is claimed.`,
+        checkpointReviewRoles: checkpoint.roles,
+        decidedAt: this.now().toISOString(),
+        decidedByUserId: cycle.createdByUserId,
+      });
+    });
+    this.notifier.notify();
   }
 
   async prepareCheckpoint(
@@ -1401,29 +1564,31 @@ export class RuntimeEvidenceService {
         if (
           !run ||
           run.status !== 'finished' ||
-          run.role !== 'design' ||
           !tree ||
           tree.executionScope?.definitionId !== id ||
           tree.executionScope.bindingRevision !== input.bindingRevision ||
           worktreePlan(tx, tree) !== binding?.planVersionId ||
           tree.repositoryId !== binding?.repositoryId
         )
-          conflict('Choose a finished design from this exact bound repository plan.');
+          conflict('Choose a finished source run from this exact bound repository plan.');
         const event = tx.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
         if (
           event?.kind !== 'turn-completed' ||
           event.payload.truncated ||
           !event.payload.resultText
         )
-          conflict('The selected design lacks a complete final report.');
+          conflict('The selected source run lacks a complete final report.');
         const content = event.payload.resultText;
         if (Buffer.byteLength(content) > 512 * 1024)
           conflict('The source report exceeds the evidence limit.');
         sourceRunDigest = hash(content);
         if (input.sourceReportDigest && input.sourceReportDigest !== sourceRunDigest)
-          conflict('The design recommendation changed. Refresh before preparing approval.');
+          conflict('The source recommendation changed. Refresh before preparing approval.');
         artifacts.push({
-          name: 'source-design-proposal-not-approval',
+          name:
+            run.role === 'design'
+              ? 'source-design-proposal-not-approval'
+              : 'source-run-proposal-not-approval',
           content,
           digest: sourceRunDigest,
         });
@@ -1766,7 +1931,7 @@ export class RuntimeEvidenceService {
     const designRuns = snapshot.execution.runs
       .listRecent(ws, 200)
       .filter((run) => {
-        if (run.role !== 'design' || run.status !== 'finished') return false;
+        if (run.status !== 'finished') return false;
         const tree = snapshot.execution.worktrees.find(ws, run.worktreeId);
         return (
           tree?.executionScope?.definitionId === id &&
@@ -2422,7 +2587,7 @@ export class RuntimeEvidenceService {
   }
   private changed(
     tx: StorageRepositories,
-    context: AuthContext,
+    context: CommandContext,
     ws: WorkspaceId,
     id: string,
     action: 'runtime.configured' | 'evidence.submitted' | 'evidence.decided',
@@ -2433,7 +2598,7 @@ export class RuntimeEvidenceService {
     tx.audit.append({
       id: asAuditEventId(randomUUID()),
       occurredAt: at,
-      actorKind: 'user',
+      actorKind: context.session ? 'user' : 'system',
       actorUserId: context.user.id,
       workspaceId: ws,
       action,

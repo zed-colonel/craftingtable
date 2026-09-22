@@ -2,8 +2,8 @@ import type { DesignRecoveryPreview } from '@craftingtable/contracts';
 import { CYCLE_STEPS, DEFAULT_COMPLETION_POLICY, type WorkCycle } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { DesignRecoveryPanel } from './DesignRecoveryPanel.js';
 import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
+import { DesignRecoveryPanel } from './DesignRecoveryPanel.js';
 
 vi.mock('../../lib/work-cycle-api.js', () => ({
   previewDesignRecovery: vi.fn(),
@@ -29,7 +29,7 @@ const cycle = {
       { backend: 'claude-code', permissionMode: 'auto', model: 'prior-model' },
     ]),
   ),
-} as WorkCycle;
+} as unknown as WorkCycle;
 const preview: DesignRecoveryPreview = {
   expectedVersion: 2,
   sourceRunId: cycle.currentRunId,

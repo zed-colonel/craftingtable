@@ -37,3 +37,21 @@ it.each(['auto', 'edit-only', 'unrestricted'] as const)(
     expect(JSON.stringify(thread)).not.toContain('private brief');
   },
 );
+
+it('sets explicit effort on thread creation and every turn without changing the model or permissions', () => {
+  const request = {
+    cwd: '/work/x',
+    prompt: 'Check',
+    permissionMode: 'auto' as const,
+    model: 'gpt-6-sol',
+    reasoningEffort: 'medium' as const,
+  };
+  expect(codexThreadParams(request)).toMatchObject({
+    model: 'gpt-6-sol',
+    config: { model_reasoning_effort: 'medium' },
+  });
+  expect(codexTurnParams(request)).toMatchObject({ model: 'gpt-6-sol', effort: 'medium' });
+  const { reasoningEffort: _effort, ...inherit } = request;
+  expect(codexTurnParams(inherit)).not.toHaveProperty('effort');
+  expect(codexThreadParams(inherit).config).not.toHaveProperty('model_reasoning_effort');
+});

@@ -982,7 +982,7 @@ describe('automated cycle controls', () => {
       policy: DEFAULT_COMPLETION_POLICY,
       profiles: Object.fromEntries(
         CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
-      ) as CycleProfiles,
+      ) as unknown as CycleProfiles,
       instructions: '',
       currentRunId: run().id,
       runDeadlineAt: worktree.createdAt,

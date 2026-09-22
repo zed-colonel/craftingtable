@@ -183,6 +183,7 @@ export type AgentRunVerdict = (typeof AGENT_RUN_VERDICTS)[number];
  * default backend with the `auto` posture.
  */
 export interface AgentRunProfile {
+  readonly reasoningEffort?: import('./agent-profiles.js').AgentReasoningEffort;
   readonly role: AgentRunRole;
   readonly backend: AgentBackendKind;
   readonly model?: string;
@@ -190,6 +191,12 @@ export interface AgentRunProfile {
 }
 
 export interface AgentRun {
+  readonly reasoningEffort?: import('./agent-profiles.js').AgentReasoningEffort;
+  /** Frozen controller selection; public launch requests cannot provide this provenance. */
+  readonly profileSelection?: {
+    readonly purpose: import('./agent-profiles.js').AgentProfilePurpose;
+    readonly assignmentId?: string;
+  };
   readonly id: AgentRunId;
   readonly workspaceId: WorkspaceId;
   readonly worktreeId: WorktreeId;

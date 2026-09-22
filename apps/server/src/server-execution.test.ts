@@ -1,3 +1,4 @@
+import { AGENT_PROFILE_PURPOSES, agentSelections } from '@craftingtable/domain';
 import { subjectRequirements as requireSubjectRequirements } from './services/runtime-evidence-policy.js';
 import { operatorDecisions } from './services/operator-decisions.js';
 import { PLAN_REQUIREMENTS, PLAN_CRITERIA } from './services/plan-acceptance-policy.js';
@@ -1384,11 +1385,12 @@ describe('run profiles', () => {
     });
     expect(initial.statusCode, initial.body).toBe(200);
     expect(runProfilesResponseSchema.parse(initial.json())).toEqual({
-      profiles: [
-        { role: 'design', backend: 'claude-code', permissionMode: 'auto', stored: false },
-        { role: 'implement', backend: 'claude-code', permissionMode: 'auto', stored: false },
-        { role: 'review', backend: 'claude-code', permissionMode: 'auto', stored: false },
-      ],
+      profiles: AGENT_PROFILE_PURPOSES.map((role) => ({
+        role,
+        backend: 'claude-code',
+        permissionMode: 'auto',
+        stored: false,
+      })),
     });
 
     const saved = await state.context.app.inject({
@@ -1404,7 +1406,9 @@ describe('run profiles', () => {
     });
     expect(saved.statusCode, saved.body).toBe(200);
     const after = runProfilesResponseSchema.parse(saved.json());
-    expect(after.profiles).toEqual([
+    expect(
+      after.profiles.filter((p) => ['design', 'implement', 'review'].includes(p.role)),
+    ).toEqual([
       { role: 'design', backend: 'claude-code', permissionMode: 'auto', stored: false },
       { role: 'implement', backend: 'codex', model: 'gpt-5', permissionMode: 'auto', stored: true },
       {
@@ -1415,6 +1419,16 @@ describe('run profiles', () => {
         stored: true,
       },
     ]);
+    expect(after.profiles.find((p) => p.role === 'remediate')).toMatchObject({
+      backend: 'codex',
+      model: 'gpt-5',
+      stored: false,
+    });
+    expect(after.profiles.find((p) => p.role === 'security')).toMatchObject({
+      backend: 'claude-code',
+      model: 'opus',
+      stored: false,
+    });
     const reread = await state.context.app.inject({
       method: 'GET',
       url,
@@ -1770,7 +1784,7 @@ const cycleProfiles = Object.fromEntries(
     step,
     { backend: 'claude-code', model: `${step}-model`, permissionMode: 'auto' },
   ]),
-) as CycleProfiles;
+) as unknown as CycleProfiles;
 async function startCycle(
   state: Ready,
   worktreeId: WorktreeId,
@@ -13126,14 +13140,15 @@ it('reassesses an older implementation question read-only and leaves a genuine o
   const f = await supervisedMapFixture(true);
   const original = f.backend.replyForRequest!;
   f.backend.replyForRequest = (request) => {
-    const reply = original(request);
+    const reassessment = request.prompt.includes('This is a separate reassessment review.');
+    const reply = original(reassessment ? { ...request, model: 'review-model' } : request);
     if (request.model === 'implement-model')
       return {
         ...reply,
         resultText:
           'Implementation complete.\n## Open questions\nShould the controller obtain the remaining checkpoint?',
       };
-    if (request.model !== 'review-model') return reply;
+    if (!reassessment) return reply;
     return {
       ...reply,
       resultText: withWorkflowReport(
@@ -13167,7 +13182,15 @@ it('reassesses an older implementation question read-only and leaves a genuine o
   expect(cycle.workflow?.questions[0]?.destination).toBe('work-item');
   expect(cycle.remediationRounds).toBe(0);
   expect(f.backend.launches.filter((r) => r.model === 'implement-model')).toHaveLength(1);
-  expect(f.backend.launches.filter((r) => r.model === 'review-model')).toHaveLength(1);
+  const investigation = f.backend.launches.find((r) =>
+    r.prompt.includes('This is a separate reassessment review.'),
+  )!;
+  expect(investigation.model).toBe('design-model');
+  expect(investigation.permissionMode).toBe(cycle.profiles.review.permissionMode);
+  expect(
+    f.state.context.storage.execution.runs.find(f.state.workspaceId, cycle.currentRunId)
+      ?.profileSelection?.purpose,
+  ).toBe('investigation');
 });
 
 it('repairs code findings before the separate security review without spending remediation on the review obligation', {
@@ -13468,3 +13491,200 @@ it('routes a classified review question into the shared ADR inbox without approv
   ).toBe(true);
   expect(proposal.decision).toBeUndefined();
 });
+
+it('applies model-only roadmap choices without expiring accepted saved-plan evidence or changing delegation', async () => {
+  const f = await supervisedMapFixture(false, 'automatic', false, true);
+  const { context, workspaceId: ws } = f.state;
+  const svc = context.services.runtimeEvidenceService,
+    id = f.parentScope.definitionId;
+  await adoptSupervisedMap(f);
+  const saved = f.service.save(f.auth, ws, f.input).roadmap;
+  const ready = (await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!;
+  const generated = await svc.generatePlanEvidence(f.auth, ws, id, {
+    roadmapId: saved.id,
+    definitionRevision: ready.definitionRevision,
+    snapshotDigest: ready.snapshotDigest,
+  });
+  const evidence = generated.submissions[0]!.submission;
+  await svc.decide(f.auth, ws, id, {
+    submissionId: evidence.id,
+    outcome: 'accepted',
+    rationale: 'Reviewed exact saved plan',
+  });
+  const selections = agentSelections(saved.definition.entries[0]!.profiles);
+  const result = context.services.roadmapService.applyAgentSettings(f.auth, ws, saved.id, {
+    expectedVersion: saved.version,
+    entryIds: saved.definition.entries.map((e) => e.id),
+    selections: {
+      ...selections,
+      implement: { backend: 'claude-code', model: 'new-implement-model' },
+      remediate: { backend: 'claude-code', model: 'new-remediate-model' },
+      security: { backend: 'claude-code', model: 'security-model' },
+    },
+  });
+  const current = context.storage.roadmaps.find(ws, saved.id)!;
+  expect(current.definition).toEqual(saved.definition);
+  expect(current.attempts).toEqual(saved.attempts);
+  expect(current.status).toBe('draft');
+  expect(result.roadmaps[0]!.entries[0]!.selections.remediate.model).toBe('new-remediate-model');
+  expect(acceptedEvidence(context.storage, ws, id, 1, evidence.subject)?.id).toBe(evidence.id);
+  expect((await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!.snapshotDigest).toBe(
+    ready.snapshotDigest,
+  );
+  expect(context.storage.runtimeEvidence.submissions(ws, id)).toHaveLength(1);
+  expect(context.storage.roadmaps.history(ws, saved.id)).toHaveLength(1);
+  const url = `/api/workspaces/${ws}/roadmaps/${saved.id}/agent-profiles`;
+  const payload = {
+    expectedVersion: current.version,
+    entryIds: [saved.definition.entries[0]!.id],
+    selections,
+  };
+  expect((await context.app.inject({ method: 'POST', url, payload })).statusCode).toBe(401);
+  expect(
+    (
+      await context.app.inject({
+        method: 'POST',
+        url,
+        headers: { cookie: f.state.cookie },
+        payload,
+      })
+    ).statusCode,
+  ).toBe(403);
+  expect(
+    (
+      await context.app.inject({
+        method: 'POST',
+        url,
+        headers: mutationHeaders(f.state),
+        payload: {
+          ...payload,
+          selections: {
+            ...selections,
+            review: { ...selections.review, permissionMode: 'unrestricted' },
+          },
+        },
+      })
+    ).statusCode,
+  ).toBe(400);
+  expect(
+    (
+      await context.app.inject({
+        method: 'POST',
+        url,
+        headers: mutationHeaders(f.state),
+        payload: { ...payload, expectedVersion: saved.version },
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(
+    (
+      await context.app.inject({
+        method: 'POST',
+        url,
+        headers: mutationHeaders(f.state),
+        payload: { ...payload, entryIds: [randomUUID()] },
+      })
+    ).statusCode,
+  ).toBe(409);
+});
+
+it('changes future remediation and review models of a started roadmap cycle without rewriting its earlier runs or budget', async () => {
+  const codex = new CycleBackend(
+    [
+      implementationDone,
+      {
+        resultText: reviewText([
+          {
+            ...structuredFinding,
+            status: 'resolved',
+            disposition: 'Verified the boundary regression fix.',
+          },
+        ]),
+      },
+    ],
+    'codex',
+  );
+  const { state, backend } = await roadmapFixture(
+    [designDone, implementationDone, { resultText: reviewText([structuredFinding]) }],
+    { alternateBackend: codex },
+  );
+  const input = roadmapInput(state, [state.workItemId]);
+  input.entries[0]!.policy = { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 };
+  expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  await waitFor(() => {
+    const a = storedRoadmap(state).attempts[0];
+    return (
+      !!a &&
+      state.context.storage.execution.cycles.find(state.workspaceId, a.cycleId)?.status ===
+        'needs-attention'
+    );
+  }, 'exhausted remediation');
+  await roadmapControl(state, 'pause');
+  const roadmap = storedRoadmap(state),
+    attempt = roadmap.attempts[0]!;
+  const oldRuns = state.context.storage.execution.runs.listForWorktree(
+    state.workspaceId,
+    attempt.worktreeId,
+  );
+  const selection = {
+    backend: 'codex' as const,
+    model: 'gpt-6-sol',
+    reasoningEffort: 'medium' as const,
+  };
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmap.id}/agent-profiles`,
+    headers: mutationHeaders(state),
+    payload: {
+      expectedVersion: roadmap.version,
+      entryIds: [attempt.entryId],
+      selections: {
+        ...agentSelections(input.entries[0]!.profiles),
+        remediate: selection,
+        review: { ...selection, model: 'gpt-6-astra', reasoningEffort: 'high' },
+      },
+    },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  expect(backend.launches).toHaveLength(3);
+  expect(codex.launches).toHaveLength(0);
+  expect(
+    state.context.storage.execution.runs.listForWorktree(state.workspaceId, attempt.worktreeId),
+  ).toEqual(oldRuns);
+  let cycle = state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId)!;
+  expect(cycle.policy.maxRemediationRounds).toBe(0);
+  const grant = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+    headers: mutationHeaders(state),
+    payload: {
+      action: 'authorize-remediation',
+      expectedVersion: cycle.version,
+      additionalRounds: 1,
+      instructions: 'Address the recorded finding.',
+    },
+  });
+  expect(grant.statusCode, grant.body).toBe(200);
+  await roadmapControl(state, 'resume');
+  await awaitRoadmapMerge(state, 0);
+  cycle = state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId)!;
+  expect(codex.launches.map((p) => [p.model, p.reasoningEffort])).toEqual([
+    ['gpt-6-sol', 'medium'],
+    ['gpt-6-astra', 'high'],
+  ]);
+  const runs = state.context.storage.execution.runs.listForWorktree(
+    state.workspaceId,
+    attempt.worktreeId,
+  );
+  expect(
+    runs
+      .slice(0, 2)
+      .every(
+        (r) => r.profileSelection?.assignmentId === storedRoadmap(state).agentAssignments![0]!.id,
+      ),
+  ).toBe(true);
+  expect(runs.slice(2)).toEqual(oldRuns);
+  expect(cycle.remediationRounds).toBe(1);
+  expect(cycle.additionalRemediationRounds).toBe(1);
+}, 15000);

@@ -1,5 +1,7 @@
 import {
+  applyRoadmapAgentsSchema,
   controlRoadmapRequestSchema,
+  roadmapAgentsSchema,
   roadmapCapacitiesSchema,
   roadmapHistoryResponseSchema,
   roadmapIdSchema,
@@ -22,6 +24,40 @@ export function registerRoadmapRoutes(
   roadmaps: RoadmapService,
   config: ServerConfig,
 ): void {
+  app.get<{ Params: { workspaceId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/agent-profiles',
+    async (request, reply) => {
+      const context = authenticate(request, auth),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      return noStore(reply).send(
+        roadmapAgentsSchema.parse(roadmaps.agentSettings(context, ws.data)),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles',
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        id = roadmapIdSchema.safeParse(request.params.roadmapId),
+        body = applyRoadmapAgentsSchema.safeParse(request.body);
+      if (!ws.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      if (!body.success)
+        return sendApiError(
+          reply,
+          400,
+          'invalid-request',
+          'Choose valid model profiles and current roadmap entries; permissions and policy cannot be changed here.',
+        );
+      return noStore(reply).send(
+        roadmapAgentsSchema.parse(
+          roadmaps.applyAgentSettings(context, ws.data, id.data, body.data),
+        ),
+      );
+    },
+  );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/capacities',
     async (request, reply) => {

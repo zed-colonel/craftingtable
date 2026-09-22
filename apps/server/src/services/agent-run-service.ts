@@ -1,17 +1,3 @@
-import { workflowPrompt, workflowDelegation } from './workflow-policy.js';
-import { operatorDecisions } from './operator-decisions.js';
-import { worktreePlan, REPOSITORY_POLICY_GUIDANCE } from './repository-policy.js';
-import type { BaselinePreparationService } from './baseline-preparation.js';
-import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
-import { scopeReviewerRoles } from './map-adoption-policy.js';
-import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
-import { reservePhase } from './phase-resources.js';
-import {
-  requireTreeScope,
-  resolveScope,
-  scopeBrief,
-  scopeEvidenceLedger,
-} from './execution-scope.js';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,7 +10,7 @@ import type {
 import {
   AGENT_BACKEND_LABELS,
   AGENT_BACKENDS,
-  AGENT_RUN_ROLES,
+  AGENT_PROFILE_PURPOSES,
   type AgentBackendKind,
   type AgentBillingSource,
   type AgentExitReason,
@@ -32,7 +18,6 @@ import {
   type AgentRun,
   type AgentRunEvent,
   type AgentRunId,
-  type AgentRunProfile,
   type AgentRunRole,
   type AgentRunStatus,
   type AgentRunVerdict,
@@ -43,28 +28,46 @@ import {
   finalizationProfile,
   isTerminalAgentRunStatus,
   ownsIntegrationResolution,
+  PROFILE_INHERITANCE,
   type ReviewReportAssessment,
   type SessionId,
+  type SpecialistProfile,
   type UserId,
   type WorkCycle,
   type WorkItemId,
+  type WorkspaceAgentProfile,
   type WorkspaceId,
   type Worktree,
   type WorktreeId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
+import { cycleAgentSelection } from './agent-profile-policy.js';
 import type { AuthContext } from './auth-service.js';
+import type { BaselinePreparationService } from './baseline-preparation.js';
 import { truncateUtf8Bytes } from './bounded-text.js';
 import type { BranchService } from './branch-service.js';
 import { composeBrief } from './brief.js';
+import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import {
+  requireTreeScope,
+  resolveScope,
+  scopeBrief,
+  scopeEvidenceLedger,
+} from './execution-scope.js';
 import { finalizationForCycle, finalizationInstructions } from './finalization-policy.js';
 import { assessStageReport } from './finalization-stage-policy.js';
+import { scopeReviewerRoles } from './map-adoption-policy.js';
+import { operatorDecisions } from './operator-decisions.js';
+import { reservePhase } from './phase-resources.js';
+import { REPOSITORY_POLICY_GUIDANCE, worktreePlan } from './repository-policy.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
 import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-handoff.js';
+import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { scopeRepairPacket } from './scope-repair.js';
 import type { StorageService } from './storage-service.js';
+import { workflowDelegation, workflowPrompt } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -75,6 +78,7 @@ export interface StartRunInput {
   readonly role: AgentRunRole;
   readonly permissionMode: AgentPermissionMode;
   readonly model?: string;
+  readonly reasoningEffort?: AgentRun['reasoningEffort'];
   readonly instructions?: string;
   readonly parentRunId?: AgentRunId;
 }
@@ -104,7 +108,6 @@ const OUTCOME_SUMMARY_LIMIT_BYTES = 4000;
 /** A parent run's findings are reproduced in the brief up to this size. */
 const PARENT_MESSAGE_LIMIT_BYTES = 256 * 1024;
 /** The order roles occur in the development loop, for profile listings. */
-const ROLE_ORDER: readonly AgentRunRole[] = ['design', 'implement', 'review'];
 const SHUTDOWN_GRACE_MS = 10_000;
 
 function summarise(text: string): string {
@@ -163,7 +166,7 @@ export class AgentRunService {
     context: AuthContext,
     workspaceId: WorkspaceId,
     requestId?: string,
-  ): readonly (AgentRunProfile & { readonly stored: boolean })[] {
+  ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
     return this.resolveProfiles(workspaceId);
   }
@@ -171,12 +174,17 @@ export class AgentRunService {
   saveRunProfiles(
     context: AuthContext,
     workspaceId: WorkspaceId,
-    profiles: readonly AgentRunProfile[],
+    profiles: readonly WorkspaceAgentProfile[],
     requestId?: string,
-  ): readonly (AgentRunProfile & { readonly stored: boolean })[] {
+  ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
+    if (profiles.some((p) => p.backend !== 'codex' && p.reasoningEffort))
+      throw new ExecutionRequestError(
+        'conflict',
+        'Reasoning effort is supported for Codex profiles only.',
+      );
     const occurredAt = this.now().toISOString();
     this.storage.transaction((tx) => {
       tx.execution.runProfiles.replace({
@@ -203,6 +211,7 @@ export class AgentRunService {
             backend: profile.backend,
             model: profile.model ?? null,
             permissionMode: profile.permissionMode,
+            reasoningEffort: profile.reasoningEffort ?? null,
           })),
         },
       });
@@ -212,21 +221,26 @@ export class AgentRunService {
 
   private resolveProfiles(
     workspaceId: WorkspaceId,
-  ): readonly (AgentRunProfile & { readonly stored: boolean })[] {
+  ): readonly (WorkspaceAgentProfile & { readonly stored: boolean })[] {
     const stored = new Map(
       this.storage.execution.runProfiles
         .list(workspaceId)
         .map((profile) => [profile.role, profile]),
     );
     const fallbackBackend = this.defaultBackend() ?? AGENT_BACKENDS[0];
-    return [...AGENT_RUN_ROLES]
-      .sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b))
-      .map((role) => {
-        const profile = stored.get(role);
-        return profile === undefined
-          ? { role, backend: fallbackBackend, permissionMode: 'auto' as const, stored: false }
-          : { ...profile, stored: true };
-      });
+    return AGENT_PROFILE_PURPOSES.map((role) => {
+      const parent =
+        role === 'remediate' ? 'implement' : PROFILE_INHERITANCE[role as SpecialistProfile];
+      const inherited = parent
+        ? (stored.get(parent) ?? (parent === 'remediate' ? stored.get('implement') : undefined))
+        : undefined;
+      const profile = stored.get(role) ?? inherited;
+      return {
+        ...(profile ?? { backend: fallbackBackend, permissionMode: 'auto' as const }),
+        role,
+        stored: stored.has(role),
+      };
+    });
   }
 
   /* ---------------------------------------------------------------------- */
@@ -310,13 +324,15 @@ export class AgentRunService {
       cycle.step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
         ? cycle.designRecovery
         : undefined;
+    const selected = cycleAgentSelection(this.storage, cycle);
     const profile =
-      cycle.providerRecovery?.profile ??
       (recovery
         ? { permissionMode: cycle.profiles.design.permissionMode, ...recovery.profile }
         : undefined) ??
+      (finalization ? finalizationProfile(finalization, cycle) : undefined) ??
       resolution?.profile ??
-      (finalization ? finalizationProfile(finalization, cycle) : cycle.profiles[cycle.step]);
+      (selected.provenance.assignmentId ? selected.profile : cycle.providerRecovery?.profile) ??
+      selected.profile;
     return this.launchAuthorized(
       cycle.workspaceId,
       cycle.workItemId,
@@ -329,7 +345,7 @@ export class AgentRunService {
           ownsIntegrationResolution(cycle) ? '' : workflowPrompt(this.storage, cycle),
           cycle.instructions,
           cycle.providerRecovery
-            ? `This is service retry ${cycle.providerRecovery.attempts} of 3 for the SAME step after a model-service failure, in a fresh session on the same backend/model. Read the prior handoff and partial scratch records; preserve completed work and unresolved findings. Inspect the current worktree and evidence before continuing. Do not assume an interrupted check passed, repeat completed side effects blindly, or treat a draft report as accepted. Complete every required check and the final report. Report genuine decisions in ## Open questions; never decide them for the operator. The original step deadline still applies.`
+            ? `This is service retry ${cycle.providerRecovery.attempts} of 3 for the SAME step after a model-service failure, in a fresh session with the configured retry backend/model. Read the prior handoff and partial scratch records; preserve completed work and unresolved findings. Inspect the current worktree and evidence before continuing. Do not assume an interrupted check passed, repeat completed side effects blindly, or treat a draft report as accepted. Complete every required check and the final report. Report genuine decisions in ## Open questions; never decide them for the operator. The original step deadline still applies.`
             : '',
           cycle.scopeRepair
             ? 'Read craftingtable-scope-repair.json in the supplied plan documents. It contains pinned findings from independent slice and parent reviews. Address every namespaced finding ID, including findings from older parent reviews; identical original IDs from different runs are separate obligations. Reviewers must include every namespaced finding with a supported disposition. Current adopted policy answers superseded administrative questions; do not invent a new policy. Source changes belong only to this owning slice. When a finding identifies a broad or recurring family, audit that family systematically in bounded batches, including analogous producers, consumers, assertions and evidence. Explain coverage, actual corrections, remaining gaps and reproducible checks; do not merely patch cited examples or weaken acceptance checks. Ask for genuinely new decisions without expanding scope. Commit intended changes; do not merge.'
@@ -387,6 +403,15 @@ export class AgentRunService {
       { userId: cycle.createdByUserId },
       undefined,
       cycle,
+      {
+        purpose: selected.provenance.purpose,
+        ...(profile.backend === selected.profile.backend &&
+        profile.model === selected.profile.model &&
+        profile.reasoningEffort === selected.profile.reasoningEffort &&
+        selected.provenance.assignmentId
+          ? { assignmentId: selected.provenance.assignmentId }
+          : {}),
+      },
     );
   }
 
@@ -452,6 +477,7 @@ export class AgentRunService {
     actor: { readonly userId: UserId; readonly sessionId?: SessionId },
     requestId?: string,
     cycle?: WorkCycle,
+    profileSelection?: AgentRun['profileSelection'],
   ): Promise<AgentRun> {
     await this.storageService?.waitForRunCleanup(input.worktreeId);
     if (this.storage.execution.merges.latest(workspaceId, input.worktreeId)?.status === 'reserved')
@@ -460,6 +486,11 @@ export class AgentRunService {
         'Recover the reserved integration merge before launching another run',
       );
     const kind = input.backend ?? this.defaultBackend();
+    if (kind !== 'codex' && input.reasoningEffort)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Reasoning effort is supported for Codex profiles only.',
+      );
     const backend = kind === undefined ? undefined : this.backends.get(kind);
     if (backend === undefined) {
       throw new ExecutionRequestError(
@@ -994,6 +1025,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           role: input.role,
           permissionMode: input.permissionMode,
           ...(input.model === undefined ? {} : { model: input.model }),
+          ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+          ...(profileSelection ? { profileSelection } : {}),
           brief,
           ...(reviewBranchContext === undefined ? {} : { reviewBranchContext }),
           createdAt,
@@ -1084,6 +1117,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         prompt: brief,
         permissionMode: input.permissionMode,
         ...(input.model === undefined ? {} : { model: input.model }),
+        ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
         additionalDirectories: [
           runDirectory,
           ...(historical ? [historical.cargoHome] : []),

@@ -5,8 +5,7 @@ import type {
 } from '@craftingtable/contracts';
 import {
   type CrossProjectConfiguration,
-  CYCLE_STEPS,
-  type CycleProfiles,
+  cycleProfilesFromDefaults,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_AUTOMATION,
   type MapActivitySettings,
@@ -142,21 +141,10 @@ export function CrossProjectPanel({
         setSettings(
           (old) =>
             old ?? {
-              profiles: Object.fromEntries(
-                CYCLE_STEPS.map((step) => {
-                  const profile = p.profiles.find(
-                    (p) => p.role === (step === 'remediate' ? 'implement' : step),
-                  )!;
-                  return [
-                    step,
-                    {
-                      backend: profile.backend,
-                      permissionMode: profile.permissionMode,
-                      ...(profile.model ? { model: profile.model } : {}),
-                    },
-                  ];
-                }),
-              ) as CycleProfiles,
+              profiles: cycleProfilesFromDefaults(p.profiles, {
+                backend: s.backends.find((b) => b.available)?.kind ?? 'claude-code',
+                permissionMode: 'auto',
+              }),
               policy: DEFAULT_COMPLETION_POLICY,
               instructions: '',
               automation: DEFAULT_ROADMAP_AUTOMATION,
@@ -730,6 +718,18 @@ export function CrossProjectPanel({
             )}
             {settings && (
               <>
+                {roadmap && (
+                  <p>
+                    Models for future runs are managed in{' '}
+                    <a
+                      href={`/workspaces/${workspaceId}/settings?roadmap=${roadmap.id}#roadmap-agent-profiles`}
+                    >
+                      Roadmap agent profiles
+                    </a>
+                    . That action preserves plan acceptance. Permissions, responsibilities and
+                    policy below remain plan settings.
+                  </p>
+                )}
                 <div id={`map-reviewers-${panelKey}`}>
                   <ReviewerResponsibilities
                     label="Independent reviewer responsibilities"
@@ -801,6 +801,7 @@ export function CrossProjectPanel({
                   ))}
                 </div>
                 <CycleSettingsFields
+                  profilesLocked={!!roadmap}
                   policy={settings.policy}
                   setPolicy={(policy) => setSettings({ ...settings, policy })}
                   choices={settings.profiles}
@@ -900,6 +901,7 @@ export function CrossProjectPanel({
                           {o.level}: {o.key}
                         </summary>
                         <CycleSettingsFields
+                          profilesLocked={!!roadmap}
                           policy={o.settings.policy}
                           setPolicy={(policy) => update({ ...o.settings, policy })}
                           choices={o.settings.profiles}

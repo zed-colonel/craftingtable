@@ -11,6 +11,7 @@ export function codexThreadParams(request: AgentLaunchRequest): Record<string, u
       ? {}
       : { developerInstructions: request.appendSystemPrompt }),
     config: {
+      ...(request.reasoningEffort ? { model_reasoning_effort: request.reasoningEffort } : {}),
       'sandbox_workspace_write.writable_roots': request.additionalDirectories ?? [],
       'sandbox_workspace_write.network_access': false,
     },
@@ -25,6 +26,7 @@ function codexApprovalParams(request: AgentLaunchRequest): Record<string, unknow
 
 export function codexTurnParams(request: AgentLaunchRequest): Record<string, unknown> {
   return {
+    ...(request.reasoningEffort ? { effort: request.reasoningEffort } : {}),
     cwd: request.cwd,
     ...codexApprovalParams(request),
     sandboxPolicy:

@@ -7,6 +7,8 @@ import { createTestContext } from './test-support.js';
  */
 
 const EXPECTED_ROUTES = [
+  'GET /api/workspaces/:workspaceId/roadmaps/agent-profiles',
+  'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles',
   'GET /api/workspaces/:workspaceId/roadmaps/capacities',
   'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/capacity',
   'GET /api/workspaces/:workspaceId/host-scheduling',

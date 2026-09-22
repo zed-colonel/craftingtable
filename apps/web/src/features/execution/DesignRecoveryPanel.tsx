@@ -1,6 +1,4 @@
-import { BaselinePreparationPanel } from './BaselinePreparationPanel.js';
-import { SharedDecisionInbox } from '../planning/SharedDecisionInbox.js';
-import { revealElement } from '../../lib/reveal-element.js';
+import { agentSelections, selectionsForPurpose } from '@craftingtable/domain';
 import type {
   DesignRecoveryPreview,
   ExecutionStatusResponse,
@@ -8,8 +6,12 @@ import type {
 } from '@craftingtable/contracts';
 import type { AgentBackendKind, WorkCycle } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
+import { revealElement } from '../../lib/reveal-element.js';
 import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
+import { SharedDecisionInbox } from '../planning/SharedDecisionInbox.js';
+import { BaselinePreparationPanel } from './BaselinePreparationPanel.js';
 import { ModelField } from './ModelField.js';
+import { ReasoningEffortField } from './ReasoningEffortField.js';
 
 export function DesignRecoveryPanel({
   cycle,
@@ -28,9 +30,15 @@ export function DesignRecoveryPanel({
   const [error, setError] = useState<string>();
   const [instructions, setInstructions] = useState('');
   const [mode, setMode] = useState<'investigate' | 'continue'>('investigate');
-  const previousProfile = cycle.designRecovery?.profile ?? cycle.profiles.design;
+  const future = cycle.nextAgentSelections ?? agentSelections(cycle.profiles);
+  const previousProfile = cycle.nextAgentSelections
+    ? selectionsForPurpose(future, 'investigation')
+    : (cycle.designRecovery?.profile ?? selectionsForPurpose(future, 'investigation'));
   const [backend, setBackend] = useState<AgentBackendKind>(previousProfile.backend);
   const [model, setModel] = useState(previousProfile.model ?? '');
+  const [reasoningEffort, setReasoningEffort] = useState<
+    import('@craftingtable/domain').AgentReasoningEffort | undefined
+  >(previousProfile?.reasoningEffort);
   const [attachments, setAttachments] = useState<RecoverDesignRequest['attachments']>(
     () => cycle.designRecovery?.attachments.map((file) => ({ ...file })) ?? [],
   );
@@ -220,7 +228,11 @@ export function DesignRecoveryPanel({
                       mode,
                       instructions,
                       attachments,
-                      profile: { backend, ...(model.trim() ? { model: model.trim() } : {}) },
+                      profile: {
+                        backend,
+                        ...(model.trim() ? { model: model.trim() } : {}),
+                        ...(backend === 'codex' && reasoningEffort ? { reasoningEffort } : {}),
+                      },
                     },
                     csrfToken,
                   )
@@ -236,7 +248,17 @@ export function DesignRecoveryPanel({
                   <select
                     value={mode}
                     disabled={busy}
-                    onChange={(e) => setMode(e.target.value as typeof mode)}
+                    onChange={(e) => {
+                      const next = e.target.value as typeof mode;
+                      setMode(next);
+                      const p = selectionsForPurpose(
+                        future,
+                        next === 'investigate' ? 'investigation' : 'design',
+                      );
+                      setBackend(p.backend);
+                      setModel(p.model ?? '');
+                      setReasoningEffort(p.reasoningEffort);
+                    }}
                   >
                     <option value="investigate">Investigate and stop for review</option>
                     <option value="continue">Continue design</option>
@@ -313,6 +335,7 @@ export function DesignRecoveryPanel({
                     onChange={(e) => {
                       setBackend(e.target.value as AgentBackendKind);
                       setModel('');
+                      setReasoningEffort(undefined);
                     }}
                   >
                     {backends.map((entry) => (
@@ -330,6 +353,13 @@ export function DesignRecoveryPanel({
                   onChange={setModel}
                   disabled={busy}
                 />
+                {backend === 'codex' && (
+                  <ReasoningEffortField
+                    value={reasoningEffort}
+                    onChange={setReasoningEffort}
+                    disabled={busy}
+                  />
+                )}
                 <p className="hint">
                   One design attempt, up to {cycle.policy.maxRunMinutes} minutes. Permissions remain{' '}
                   {cycle.profiles.design.permissionMode}. No remediation allowance is consumed.

@@ -53,6 +53,7 @@ export function FinalizationCheckpoint({
     return {
       backend: profile?.backend ?? 'claude-code',
       ...(profile?.model ? { model: profile.model } : {}),
+      ...(profile?.reasoningEffort ? { reasoningEffort: profile.reasoningEffort } : {}),
     };
   });
   const focused = action === 'remediate-findings';

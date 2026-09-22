@@ -1,5 +1,6 @@
 import { ROADMAP_STATUSES } from '@craftingtable/domain';
 import { z } from 'zod';
+import { agentSelectionsSchema } from './agent-profiles.js';
 import { crossProjectConfigurationSchema } from './cross-project.js';
 import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
 import {
@@ -103,6 +104,17 @@ export const roadmapDefinitionSchema = z.strictObject({
   createdByUserId: userIdSchema,
 });
 export const roadmapSchema = z.strictObject({
+  agentAssignments: z
+    .array(
+      z.strictObject({
+        id: z.uuid(),
+        entryIds: z.array(z.uuid()),
+        selections: agentSelectionsSchema,
+        appliedAt: z.iso.datetime(),
+        appliedByUserId: userIdSchema,
+      }),
+    )
+    .optional(),
   scopeRecovery: z
     .strictObject({
       enabled: z.boolean(),

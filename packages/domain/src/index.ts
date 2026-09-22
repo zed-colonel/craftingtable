@@ -28,3 +28,5 @@ export * from './concurrency-graph.js';
 
 export * from './repository-policy.js';
 export * from './workflow.js';
+
+export * from './agent-profiles.js';

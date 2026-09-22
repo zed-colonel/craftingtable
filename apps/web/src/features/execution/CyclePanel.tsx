@@ -1,37 +1,42 @@
-import { WorkflowStatus } from './WorkflowStatus.js';
-import { ProviderRecovery } from './ProviderRecovery.js';
-import {
-  CycleRemediationRecovery,
-  type CycleRemediationGrant,
-} from './CycleRemediationRecovery.js';
-import { CycleGuidanceRecovery } from './CycleGuidanceRecovery.js';
-import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
-import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
-import { CycleSettingsFields } from './CycleSettingsFields.js';
 import type {
   AgentRunSummary,
-  IntegrationResolutionRequest,
   ExecutionStatusResponse,
+  IntegrationResolutionRequest,
   StartWorkCycleRequest,
   WorktreeSummary,
 } from '@craftingtable/contracts';
 import {
   AGENT_BACKEND_LABELS,
+  agentSelections,
+  PROFILE_LABELS,
+  SPECIALIST_PROFILES,
+  selectionsForPurpose,
   type AgentRunId,
   CYCLE_STEPS,
   type CycleProfiles,
+  cycleProfilesFromDefaults,
   DEFAULT_COMPLETION_POLICY,
   remediationAllowance,
   type WorkCycle,
   type WorktreeId,
 } from '@craftingtable/domain';
-import { useState, type ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { CYCLE_STATUS_LABELS, PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
+import { CycleGuidanceRecovery } from './CycleGuidanceRecovery.js';
+import {
+  type CycleRemediationGrant,
+  CycleRemediationRecovery,
+} from './CycleRemediationRecovery.js';
+import { CycleSettingsFields } from './CycleSettingsFields.js';
+import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 import type { ProfileEntry } from './handoff.js';
+import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
+import { ProviderRecovery } from './ProviderRecovery.js';
+import { WorkflowStatus } from './WorkflowStatus.js';
 
 export { CYCLE_STATUS_LABELS } from '../../lib/execution-labels.js';
 export function CyclePanel({
@@ -117,26 +122,11 @@ export function CyclePanel({
     (!runs.some((run) => run.id === active.currentRunId) || latestRun?.id === active.currentRunId);
   const [policy, setPolicy] = useState(DEFAULT_COMPLETION_POLICY);
   const [instructions, setInstructions] = useState('');
-  const [choices, setChoices] = useState<CycleProfiles>(
-    () =>
-      Object.fromEntries(
-        CYCLE_STEPS.map((step) => {
-          const profile = profiles.find(
-            (entry) => entry.role === (step === 'remediate' ? 'implement' : step),
-          );
-          return [
-            step,
-            {
-              backend:
-                profile?.backend ??
-                backends.find((backend) => backend.available)?.kind ??
-                'claude-code',
-              permissionMode: profile?.permissionMode ?? 'auto',
-              ...(profile?.model === undefined ? {} : { model: profile.model }),
-            },
-          ];
-        }),
-      ) as CycleProfiles,
+  const [choices, setChoices] = useState<CycleProfiles>(() =>
+    cycleProfilesFromDefaults(profiles, {
+      backend: backends.find((b) => b.available)?.kind ?? 'claude-code',
+      permissionMode: 'auto',
+    }),
   );
   const disabled = busy || !canMutate;
   const unavailable = CYCLE_STEPS.some(
@@ -344,16 +334,49 @@ export function CyclePanel({
             />
           )}
           <details>
-            <summary>Cycle settings</summary>
+            <summary>Cycle settings and future agents</summary>
+            <p>
+              <a href={`/workspaces/${active.workspaceId}/settings#roadmap-agent-profiles`}>
+                Manage roadmap agent profiles
+              </a>
+              . Running sessions retain the model shown on their run page.
+            </p>
             <ul>
               {(readOnly ? (['review'] as const) : CYCLE_STEPS).map((step) => (
                 <li key={step}>
-                  {step}: {AGENT_BACKEND_LABELS[active.profiles[step].backend]} ·{' '}
-                  {active.profiles[step].model ?? 'Backend default'} ·{' '}
-                  {PERMISSION_MODE_LABELS[active.profiles[step].permissionMode]}
+                  {PROFILE_LABELS[step]}:{' '}
+                  {
+                    AGENT_BACKEND_LABELS[
+                      (active.nextAgentSelections ?? active.profiles)[step].backend
+                    ]
+                  }{' '}
+                  ·{' '}
+                  {(active.nextAgentSelections ?? active.profiles)[step].model ?? 'Backend default'}{' '}
+                  ·{' '}
+                  {(active.nextAgentSelections ?? active.profiles)[step].reasoningEffort ??
+                    'Local effort'}{' '}
+                  · {PERMISSION_MODE_LABELS[active.profiles[step].permissionMode]}
                 </li>
               ))}
             </ul>
+            <details>
+              <summary>Future specialist agents</summary>
+              <ul>
+                {SPECIALIST_PROFILES.map((purpose) => {
+                  const selection = selectionsForPurpose(
+                    active.nextAgentSelections ?? agentSelections(active.profiles),
+                    purpose,
+                  );
+                  return (
+                    <li key={purpose}>
+                      {PROFILE_LABELS[purpose]}: {AGENT_BACKEND_LABELS[selection.backend]} ·{' '}
+                      {selection.model ?? 'Backend default'}
+                      {selection.reasoningEffort ? ` · ${selection.reasoningEffort}` : ''}
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
             {active.instructions && <pre>{active.instructions}</pre>}
           </details>
           <About label="About cycle controls">

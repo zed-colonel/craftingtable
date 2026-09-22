@@ -1,6 +1,7 @@
-import { securityReviewCurrent } from './workflow-policy.js';
 import { randomUUID } from 'node:crypto';
 import type {
+  ApplyRoadmapAgents,
+  RoadmapAgents,
   RoadmapCapacities,
   SaveRoadmapCapacity,
   SaveRoadmapRequest,
@@ -20,6 +21,7 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
+import { cycleAgentSelection, entryAgentSelections } from './agent-profile-policy.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
 import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-project-service.js';
@@ -41,6 +43,7 @@ import { scopeRecoveryDecision } from './scope-recovery-policy.js';
 import { collectScopeRepair } from './scope-repair.js';
 import type { WorkCycleService } from './work-cycle-service.js';
 import type { WorkItemService } from './work-item-service.js';
+import { securityReviewCurrent } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
@@ -72,6 +75,77 @@ export class RoadmapService {
   list(context: AuthContext, workspaceId: WorkspaceId): readonly RoadmapView[] {
     this.workspaces.requireAuthorized(context, workspaceId);
     return this.storage.roadmaps.list(workspaceId).map((roadmap) => this.view(roadmap));
+  }
+  agentSettings(context: AuthContext, workspaceId: WorkspaceId): RoadmapAgents {
+    this.workspaces.requireAuthorized(context, workspaceId);
+    return {
+      roadmaps: this.storage.roadmaps
+        .list(workspaceId)
+        .filter((r) => !ended(r))
+        .map((r) => ({
+          id: r.id,
+          name: r.definition.name,
+          version: r.version,
+          status: r.status,
+          editBlocker: this.controlling.has(r.id)
+            ? 'A roadmap command is in progress.'
+            : r.status === 'running'
+              ? 'Pause scheduling before applying agent profiles. Running agents may finish normally.'
+              : this.storage.amendments.pending(workspaceId, r.id)
+                ? 'Decide the pending planning amendment first.'
+                : null,
+          entries: r.definition.entries.map((e) => {
+            const { selections, assignment } = entryAgentSelections(r, e);
+            return {
+              id: e.id,
+              label: e.sourceId + (e.executionScope ? ` · ${e.executionScope.kind}` : ''),
+              projectId: e.projectId,
+              projectName:
+                this.storage.planning.projects.find(workspaceId, e.projectId)?.name ?? e.projectId,
+              selections,
+              ...(assignment ? { appliedAt: assignment.appliedAt } : {}),
+              started: r.attempts.some((a) => a.entryId === e.id),
+            };
+          }),
+        })),
+    };
+  }
+  applyAgentSettings(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: ApplyRoadmapAgents,
+  ): RoadmapAgents {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    const old = this.find(workspaceId, id);
+    if (old.version !== input.expectedVersion || this.controlling.has(id))
+      conflict(
+        'Roadmap changed. Refresh agent settings and review the current selection before applying.',
+      );
+    if (!['draft', 'paused', 'needs-attention'].includes(old.status))
+      conflict('Pause roadmap scheduling before applying agent profiles.');
+    if (this.storage.amendments.pending(workspaceId, id))
+      conflict('Decide the pending planning amendment first.');
+    if (
+      new Set(input.entryIds).size !== input.entryIds.length ||
+      input.entryIds.some((id) => !old.definition.entries.some((e) => e.id === id))
+    )
+      conflict('Select current entries from this roadmap.');
+    this.cycles.validateAgentSelections(input.selections);
+    const assignment = {
+      id: randomUUID(),
+      entryIds: input.entryIds,
+      selections: input.selections,
+      appliedAt: this.now().toISOString(),
+      appliedByUserId: context.user.id,
+    };
+    this.change(
+      old,
+      { agentAssignments: [...(old.agentAssignments ?? []), assignment] },
+      'apply-agent-profiles',
+      context,
+    );
+    return this.agentSettings(context, workspaceId);
   }
   /** Capacity settings need no Git inspection or dependency-graph evaluation. */
   capacities(context: AuthContext, workspaceId: WorkspaceId): RoadmapCapacities {
@@ -1014,7 +1088,12 @@ export class RoadmapService {
             {
               action: 'start',
               expectedVersion: cycle.version,
-              profile: automation.resolutionProfile ?? entry.profiles.remediate,
+              profile: (() => {
+                const selected = cycleAgentSelection(this.storage, cycle, 'conflict');
+                return selected.provenance.assignmentId || cycle.profiles.conflict
+                  ? selected.profile
+                  : (automation.resolutionProfile ?? selected.profile);
+              })(),
             },
             check,
           );
@@ -1905,6 +1984,12 @@ export class RoadmapService {
         status: roadmap.status,
         revision: roadmap.definition.revision,
         reason: roadmap.reason,
+        ...(action === 'apply-agent-profiles'
+          ? {
+              assignmentId: roadmap.agentAssignments?.at(-1)?.id,
+              entryCount: roadmap.agentAssignments?.at(-1)?.entryIds.length,
+            }
+          : {}),
         ...(action === 'configure-scope-recovery' && roadmap.scopeRecovery
           ? {
               recoveryEnabled: roadmap.scopeRecovery.enabled,

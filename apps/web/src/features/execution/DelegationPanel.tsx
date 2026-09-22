@@ -44,6 +44,7 @@ import {
   profileChoice,
 } from './handoff.js';
 import { ModelField } from './ModelField.js';
+import { ReasoningEffortField } from './ReasoningEffortField.js';
 
 export type { LaunchInput } from './handoff.js';
 export { ModelField, type ModelOption } from './ModelField.js';
@@ -146,6 +147,9 @@ export function DelegationPanel({
     initialChoice?.permissionMode ?? 'auto',
   );
   const [model, setModel] = useState(initialChoice?.model ?? '');
+  const [reasoningEffort, setReasoningEffort] = useState<
+    import('@craftingtable/domain').AgentReasoningEffort | undefined
+  >(initialChoice?.reasoningEffort);
   const [instructions, setInstructions] = useState('');
   const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
   const [mergeOpen, setMergeOpen] = useState<string>();
@@ -161,6 +165,7 @@ export function DelegationPanel({
     if (choice !== undefined) {
       setBackendKind(choice.backend);
       setModel(choice.model ?? '');
+      setReasoningEffort(choice.reasoningEffort);
       setPermissionMode(choice.permissionMode);
     }
   };
@@ -197,6 +202,7 @@ export function DelegationPanel({
       role: effectiveRole,
       permissionMode,
       ...(trimmedModel.length === 0 ? {} : { model: trimmedModel }),
+      ...(selectedBackend.kind === 'codex' && reasoningEffort ? { reasoningEffort } : {}),
       ...(trimmedInstructions.length === 0 ? {} : { instructions: trimmedInstructions }),
       ...(effectiveRole === 'review' && latestFinished !== undefined
         ? { parentRunId: latestFinished.id }
@@ -520,6 +526,7 @@ export function DelegationPanel({
                   onChange={(event) => {
                     setBackendKind(event.target.value as AgentBackendKind);
                     setModel('');
+                    setReasoningEffort(undefined);
                   }}
                   disabled={busy}
                 >
@@ -553,6 +560,13 @@ export function DelegationPanel({
               onChange={setModel}
               disabled={busy}
             />
+            {selectedBackend?.kind === 'codex' && (
+              <ReasoningEffortField
+                value={reasoningEffort}
+                onChange={setReasoningEffort}
+                disabled={busy}
+              />
+            )}
           </div>
           <p className="hint">{RUN_ROLE_DESCRIPTIONS[role]}</p>
           <label className="field">
@@ -735,6 +749,9 @@ export function DelegationPanel({
                                   role: target.role,
                                   permissionMode: choice.permissionMode,
                                   ...(choice.model === undefined ? {} : { model: choice.model }),
+                                  ...(choice.reasoningEffort
+                                    ? { reasoningEffort: choice.reasoningEffort }
+                                    : {}),
                                   ...(choice.instructions === undefined
                                     ? {}
                                     : { instructions: choice.instructions }),

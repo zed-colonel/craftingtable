@@ -455,6 +455,16 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     const roadmap = page.getByRole('region', { name: 'AQ sequential', exact: true });
     await expect(roadmap.getByText('Draft', { exact: true })).toBeVisible();
     await walk.capture('roadmap-draft', 'Roadmaps · saved draft');
+    const roadmapUrl = page.url();
+    await navigate(page, 'Settings');
+    await walk.capture('roadmap-agent-profiles', 'Future roadmap agent profiles', async (p) => {
+      await p.getByRole('button', { name: 'Edit future run profiles' }).click();
+      await p
+        .getByRole('region', { name: 'Roadmap agent profiles' })
+        .getByText(/Specialist overrides ·/)
+        .click();
+    });
+    await page.goto(roadmapUrl);
     await roadmap.getByRole('button', { name: 'Start roadmap', exact: true }).click();
     await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
       timeout: 30_000,
@@ -744,6 +754,29 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await expect(page.getByRole('heading', { name: 'Workspace settings' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Change workstation capacity' })).toBeEnabled();
     await walk.capture('settings', 'Workspace settings');
+    await walk.capture(
+      'workspace-agent-profiles',
+      'Workspace defaults and specialist inheritance',
+      async (p) => {
+        await p.getByRole('button', { name: 'Edit workspace defaults' }).click();
+        await p
+          .getByRole('region', { name: 'Agent profiles' })
+          .getByText(/Specialist overrides ·/)
+          .click();
+      },
+    );
+    await page
+      .getByRole('region', { name: 'Agent profiles' })
+      .getByRole('button', { name: 'Close editor' })
+      .click();
+    await walk.capture(
+      'agent-recommendations',
+      'Model recommendations mapped to UI fields',
+      async (p) => {
+        await p.getByText('Suggested models and where to set them').click();
+      },
+    );
+    await page.getByText('Suggested models and where to set them').click();
     await walk.capture('execution-capacity', 'Unified execution capacity controls', async (p) => {
       await p.getByRole('button', { name: 'Change workstation capacity' }).click();
     });

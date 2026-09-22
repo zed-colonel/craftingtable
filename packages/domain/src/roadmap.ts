@@ -100,6 +100,14 @@ export interface RoadmapAttempt {
   readonly completedAt?: string;
 }
 export interface Roadmap {
+  /** Append-only model choices, independent of plan authority and definition revisions. */
+  readonly agentAssignments?: readonly {
+    readonly id: string;
+    readonly entryIds: readonly string[];
+    readonly selections: import('./agent-profiles.js').AgentSelections;
+    readonly appliedAt: string;
+    readonly appliedByUserId: UserId;
+  }[];
   /** Separate, explicit execution delegation. Changing it never changes the accepted plan. */
   readonly scopeRecovery?: {
     readonly enabled: boolean;

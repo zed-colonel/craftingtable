@@ -177,13 +177,15 @@ it('switches the recovery backend/model without carrying the old model or changi
     target: { value: 'Fix the required defect.' },
   });
   fireEvent.change(screen.getByLabelText('Agent settings'), { target: { value: 'switch' } });
-  fireEvent.change(screen.getByLabelText('Backend'), { target: { value: 'codex' } });
+  fireEvent.change(screen.getByLabelText('Agent'), { target: { value: 'codex' } });
   expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe('');
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'astra-fixture' } });
+  fireEvent.change(screen.getByLabelText('Reasoning effort'), { target: { value: 'high' } });
   fireEvent.click(screen.getByRole('button', { name: 'Authorize focused remediation' }));
   expect(onDecide.mock.calls[0]?.[0].agentOverride).toEqual({
     backend: 'codex',
     model: 'astra-fixture',
+    reasoningEffort: 'high',
   });
 });
 

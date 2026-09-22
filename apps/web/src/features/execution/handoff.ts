@@ -3,9 +3,11 @@ import {
   AGENT_BACKEND_LABELS,
   type AgentBackendKind,
   type AgentPermissionMode,
+  type AgentProfilePurpose,
+  type AgentReasoningEffort,
   type AgentRunId,
-  type AgentRunProfile,
   type AgentRunRole,
+  type WorkspaceAgentProfile,
   type WorktreeId,
 } from '@craftingtable/domain';
 
@@ -23,6 +25,7 @@ export interface LaunchInput {
   readonly role: AgentRunRole;
   readonly permissionMode: AgentPermissionMode;
   readonly model?: string;
+  readonly reasoningEffort?: AgentReasoningEffort;
   readonly instructions?: string;
   readonly parentRunId?: AgentRunId;
 }
@@ -31,6 +34,7 @@ export interface LaunchInput {
 export interface HandoffChoice {
   readonly backend: AgentBackendKind;
   readonly model?: string;
+  readonly reasoningEffort?: AgentReasoningEffort;
   readonly permissionMode: AgentPermissionMode;
   /** Free-form guidance appended to the child's brief as operator instructions. */
   readonly instructions?: string;
@@ -42,7 +46,7 @@ export function runModel(run: AgentRunSummary): string | undefined {
 }
 
 /** A profile as the daemon lists it: every role, flagged when it is only the default. */
-export type ProfileEntry = AgentRunProfile & { readonly stored?: boolean };
+export type ProfileEntry = WorkspaceAgentProfile & { readonly stored?: boolean };
 
 /**
  * The operator's stated choice for a role. An entry the daemon marks as
@@ -50,7 +54,7 @@ export type ProfileEntry = AgentRunProfile & { readonly stored?: boolean };
  * the operator or the previous run already chose.
  */
 export function profileChoice(
-  role: AgentRunRole,
+  role: AgentProfilePurpose,
   profiles: readonly ProfileEntry[],
 ): HandoffChoice | undefined {
   const profile = profiles.find((candidate) => candidate.role === role);
@@ -61,6 +65,7 @@ export function profileChoice(
     backend: profile.backend,
     ...(profile.model === undefined ? {} : { model: profile.model }),
     permissionMode: profile.permissionMode,
+    ...(profile.reasoningEffort ? { reasoningEffort: profile.reasoningEffort } : {}),
   };
 }
 
@@ -75,7 +80,10 @@ export function handoffDefaults(
   parent: AgentRunSummary,
   runs: readonly AgentRunSummary[] = [],
 ): HandoffChoice {
-  const fromProfile = profileChoice(role, profiles);
+  const fromProfile =
+    (role === 'implement' && parent.role === 'review'
+      ? profileChoice('remediate', profiles)
+      : undefined) ?? profileChoice(role, profiles);
   if (fromProfile !== undefined) {
     return fromProfile;
   }
@@ -88,6 +96,7 @@ export function handoffDefaults(
     backend: source.backend,
     ...(model === undefined ? {} : { model }),
     permissionMode: 'auto',
+    ...(source.reasoningEffort ? { reasoningEffort: source.reasoningEffort } : {}),
   };
 }
 

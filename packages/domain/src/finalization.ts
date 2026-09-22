@@ -58,7 +58,10 @@ export interface Finalization {
 }
 
 /** Recovery changes the agent/model while retaining each configured step's permissions. */
-export type FinalizationAgentSelection = Pick<AgentRunProfile, 'backend' | 'model'>;
+export type FinalizationAgentSelection = Pick<
+  AgentRunProfile,
+  'backend' | 'model' | 'reasoningEffort'
+>;
 export function finalizationProfile(
   value: Pick<Finalization, 'rounds' | 'finalReview' | 'stages'>,
   cycle: Pick<

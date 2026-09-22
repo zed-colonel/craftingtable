@@ -1,6 +1,6 @@
 import type { ExecutionStatusResponse } from '@craftingtable/contracts';
 import { AGENT_BACKEND_LABELS, type FinalizationAgentSelection } from '@craftingtable/domain';
-import { ModelField } from './ModelField.js';
+import { AgentSelectionFields } from './AgentSelectionFields.js';
 
 export function FinalizationRecoveryAgent({
   mode,
@@ -36,33 +36,12 @@ export function FinalizationRecoveryAgent({
         </select>
       </label>
       {mode === 'switch' && (
-        <>
-          <label className="field">
-            Backend
-            <select
-              value={value.backend}
-              onChange={(e) =>
-                onChange({ backend: e.target.value as FinalizationAgentSelection['backend'] })
-              }
-            >
-              {backends.map((b) => (
-                <option key={b.kind} value={b.kind} disabled={!b.available}>
-                  {AGENT_BACKEND_LABELS[b.kind]}
-                  {b.available ? '' : ' (unavailable)'}
-                </option>
-              ))}
-            </select>
-          </label>
-          <ModelField
-            key={value.backend}
-            models={backends.find((b) => b.kind === value.backend)?.models ?? []}
-            value={value.model ?? ''}
-            disabled={disabled}
-            onChange={(model) =>
-              onChange({ backend: value.backend, ...(model.trim() ? { model } : {}) })
-            }
-          />
-        </>
+        <AgentSelectionFields
+          value={value}
+          onChange={onChange}
+          backends={backends}
+          disabled={disabled}
+        />
       )}
       {mode !== 'keep' && (
         <p>

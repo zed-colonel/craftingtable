@@ -301,3 +301,14 @@ real run provenance. Every operator question names either Shared architecture de
 the mapped checkpoint) or this work item's Continue with guidance form. Shared questions from
 implementation and review must appear in that inbox. Agent checkpoint attestations must not
 be labelled as a human approval.
+
+## Agent profile settings
+
+Workspace settings present four defaults (Design, Implementation, Review, Remediation), then
+optional specialist overrides with their effective inherited selection visible. Codex effort
+is explicit or labeled as using local configuration. Recommendations map to the actual field
+names in an About disclosure and never silently set preferences. Separate workspace-default
+saving from applying selections to existing roadmaps; the latter names the selected scopes,
+includes future steps of started cycles, and explains that plan evidence remains valid.
+Retain unsaved edits on refresh and reject stale saves. Link directly from a roadmap into its
+settings selection. Keep finalization's per-stage controls and recovery override distinct.

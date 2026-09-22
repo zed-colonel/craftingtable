@@ -29,7 +29,15 @@ export const DEFAULT_COMPLETION_POLICY: CompletionPolicy = {
   maxRemediationRounds: 3,
   maxRunMinutes: 120,
 };
-export type CycleProfiles = Readonly<Record<CycleStep, Omit<AgentRunProfile, 'role'>>>;
+export type CycleProfiles = Readonly<
+  Record<CycleStep, Omit<AgentRunProfile, 'role'>> &
+    Partial<
+      Record<
+        import('./agent-profiles.js').SpecialistProfile,
+        import('./agent-profiles.js').AgentSelection
+      >
+    >
+>;
 export interface IntegrationResolution {
   readonly runIds?: readonly AgentRunId[];
   readonly id: string;
@@ -95,6 +103,8 @@ export interface BaselinePreparation {
   readonly message: string;
 }
 export interface WorkCycle {
+  /** Read projection: future model selections, never persisted as original settings. */
+  readonly nextAgentSelections?: import('./agent-profiles.js').AgentSelections;
   readonly workflow?: import('./workflow.js').CycleWorkflow;
   readonly designDependencyContinuations?: number;
   readonly designWait?: {

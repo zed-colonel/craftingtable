@@ -1,11 +1,10 @@
-import { providerFailureSchema } from './provider-failure.js';
-import { executionScopeSchema } from './execution-scope.js';
 import {
   AGENT_BACKENDS,
   AGENT_BILLING_SOURCES,
   AGENT_EXIT_REASONS,
   AGENT_NOTICE_CATEGORIES,
   AGENT_PERMISSION_MODES,
+  AGENT_PROFILE_PURPOSES,
   AGENT_RUN_ROLES,
   AGENT_RUN_STATUSES,
   AGENT_RUN_VERDICTS,
@@ -13,6 +12,8 @@ import {
   WORKTREE_STATUSES,
 } from '@craftingtable/domain';
 import { z } from 'zod';
+import { profileSelectionSchema, reasoningEffortSchema } from './agent-profiles.js';
+import { executionScopeSchema } from './execution-scope.js';
 import {
   agentRunEventIdSchema,
   agentRunIdSchema,
@@ -24,6 +25,7 @@ import {
   workspaceIdSchema,
   worktreeIdSchema,
 } from './ids.js';
+import { providerFailureSchema } from './provider-failure.js';
 import { reviewReportAssessmentSchema } from './review.js';
 
 export const SSE_RUN_EVENT_NAME = 'run-event';
@@ -289,6 +291,8 @@ export const agentRunSummarySchema = z
     role: z.enum(AGENT_RUN_ROLES),
     status: z.enum(AGENT_RUN_STATUSES),
     permissionMode: z.enum(AGENT_PERMISSION_MODES),
+    reasoningEffort: reasoningEffortSchema.optional(),
+    profileSelection: profileSelectionSchema.optional(),
     model: z.string().min(1).max(100).optional(),
     resolvedModel: z.string().min(1).max(100).optional(),
     billing: z.enum(AGENT_BILLING_SOURCES).optional(),
@@ -338,6 +342,7 @@ export const agentRunDetailResponseSchema = z.strictObject({
 });
 
 export const startAgentRunRequestSchema = z.strictObject({
+  reasoningEffort: reasoningEffortSchema.optional(),
   backend: z.enum(AGENT_BACKENDS).optional(),
   worktreeId: worktreeIdSchema,
   role: z.enum(AGENT_RUN_ROLES).default('implement'),
@@ -354,7 +359,8 @@ export const startAgentRunRequestSchema = z.strictObject({
  * carries only the roles to store, each at most once.
  */
 export const agentRunProfileSchema = z.strictObject({
-  role: z.enum(AGENT_RUN_ROLES),
+  reasoningEffort: reasoningEffortSchema.optional(),
+  role: z.enum(AGENT_PROFILE_PURPOSES),
   backend: z.enum(AGENT_BACKENDS),
   model: z.string().min(1).max(100).optional(),
   permissionMode: z.enum(AGENT_PERMISSION_MODES),
@@ -363,13 +369,13 @@ export const agentRunProfileSchema = z.strictObject({
 export const runProfilesResponseSchema = z.strictObject({
   profiles: z
     .array(agentRunProfileSchema.extend({ stored: z.boolean() }))
-    .length(AGENT_RUN_ROLES.length),
+    .max(AGENT_PROFILE_PURPOSES.length),
 });
 
 export const saveRunProfilesRequestSchema = z.strictObject({
   profiles: z
     .array(agentRunProfileSchema)
-    .max(AGENT_RUN_ROLES.length)
+    .max(AGENT_PROFILE_PURPOSES.length)
     .refine(
       (profiles) => new Set(profiles.map((profile) => profile.role)).size === profiles.length,
       {

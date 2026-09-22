@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { asWorktreeId, type EvidenceSubmission, type ExecutionScope } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
+import { assignedReviewMatches } from './agent-profile-policy.js';
 import { worktreePlan } from './repository-policy.js';
 
 export const checkpointDigest = (value: unknown) =>
@@ -31,9 +32,9 @@ export function candidateCheckpointIssues(
       !entry ||
       entry.executionScope?.sourceId !== c.sliceId ||
       a.roles.some((r) => !entry.reviewerRoles?.includes(r)) ||
-      run?.backend !== entry.profiles.review.backend ||
-      run?.model !== entry.profiles.review.model ||
-      run?.permissionMode !== entry.profiles.review.permissionMode
+      !run ||
+      !roadmap ||
+      !assignedReviewMatches(roadmap, entry, run)
     )
       issues.push('Checkpoint review no longer matches its saved delegation.');
     const newer = run

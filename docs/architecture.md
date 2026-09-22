@@ -84,12 +84,22 @@ cycle accepts it only when its explicit final Open questions section says `none`
 Those edges plus implement-then-review give every step of the loop the same shape.
 
 Which agent runs each step is a workspace setting, not a property of the previous run.
-`workspace_run_profiles` holds one profile per role (backend, model, permission
-posture); `GET/POST /api/workspaces/:id/run-profiles` reads and replaces the set, filling
-unsaved roles with the daemon's default backend. The launch form applies the profile of
-the selected role, and a handoff opens the same inline form pre-filled from the target
-role's profile so the operator can override it per launch. The cycle form seeds its
-four step choices from these profiles and stores the operator's chosen settings at start.
+`workspace_run_profiles` holds four default steps and optional specialist overrides (backend,
+model and optional Codex effort). Permission postures remain attached to the original step.
+`GET/POST /api/workspaces/:id/run-profiles` reads and replaces workspace defaults; legacy
+remediation inherits implementation, and absent specialists inherit their base selection.
+Launch forms and handoffs pre-fill the target profile. Cycle setup persists its original
+profiles, while finalization retains explicit per-stage profiles.
+
+For existing roadmaps, `GET /api/workspaces/:id/roadmaps/agent-profiles` projects current
+selections without Git or graph scans. `POST /api/workspaces/:id/roadmaps/:roadmapId/agent-profiles`
+appends a version-checked model assignment to roadmap operational state. It requires paused,
+draft or needs-attention scheduling and carries entry IDs, backend/model/effort only. It does
+not modify the saved definition or acceptance fingerprint. At launch, the daemon resolves the
+latest assignment for the owning attempt (including repair attempts), keeps the original step
+permissions, and records the purpose and assignment identity on the immutable run. Previously
+accepted reviews continue to match their original launch assignment. Browser cycle projections
+show future selections without rewriting the durable cycle profiles. See ADR-064.
 
 Review turns also carry a daemon-validated, versioned findings assessment in their
 `turn-completed` event. It is reconstructed from the journal after restart without a

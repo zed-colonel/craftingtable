@@ -1,14 +1,16 @@
 import type { ExecutionStatusResponse } from '@craftingtable/contracts';
 import {
   AGENT_PERMISSION_MODES,
-  CYCLE_STEPS,
-  type AgentBackendKind,
   type AgentPermissionMode,
+  agentSelections,
   type CompletionPolicy,
+  CYCLE_STEPS,
   type CycleProfiles,
+  PROFILE_LABELS,
 } from '@craftingtable/domain';
-import { ModelField } from './ModelField.js';
 import { PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
+import { AgentSelectionFields } from './AgentSelectionFields.js';
+import { AgentSelectionsEditor } from './AgentSelectionsEditor.js';
 export function CycleSettingsFields({
   policy,
   setPolicy,
@@ -18,6 +20,7 @@ export function CycleSettingsFields({
   setInstructions,
   backends,
   disabled,
+  profilesLocked = false,
 }: {
   policy: CompletionPolicy;
   setPolicy: (policy: CompletionPolicy) => void;
@@ -27,6 +30,7 @@ export function CycleSettingsFields({
   setInstructions: (instructions: string) => void;
   backends: ExecutionStatusResponse['backends'];
   disabled: boolean;
+  profilesLocked?: boolean;
 }) {
   return (
     <>
@@ -79,46 +83,17 @@ export function CycleSettingsFields({
       <div className="cycle-settings-grid">
         {CYCLE_STEPS.map((step) => (
           <fieldset key={step} disabled={disabled}>
-            <legend>
-              {step[0]?.toUpperCase()}
-              {step.slice(1)}
-            </legend>
-            <label className="field">
-              Agent
-              <select
-                value={choices[step].backend}
-                onChange={(event) =>
-                  setChoices({
-                    ...choices,
-                    [step]: {
-                      backend: event.target.value as AgentBackendKind,
-                      permissionMode: choices[step].permissionMode,
-                    },
-                  })
-                }
-              >
-                {backends.map((backend) => (
-                  <option key={backend.kind} value={backend.kind} disabled={!backend.available}>
-                    {backend.label}
-                    {backend.available ? '' : ' (unavailable)'}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <ModelField
-              key={choices[step].backend}
-              models={
-                backends.find((backend) => backend.kind === choices[step].backend)?.models ?? []
-              }
-              value={choices[step].model ?? ''}
-              disabled={disabled}
-              onChange={(model) => {
-                const { model: _old, ...choice } = choices[step];
+            <legend>{PROFILE_LABELS[step]}</legend>
+            <AgentSelectionFields
+              value={choices[step]}
+              onChange={(value) =>
                 setChoices({
                   ...choices,
-                  [step]: { ...choice, ...(model.trim() === '' ? {} : { model }) },
-                });
-              }}
+                  [step]: { ...value, permissionMode: choices[step].permissionMode },
+                })
+              }
+              backends={backends}
+              disabled={disabled || profilesLocked}
             />
             <label className="field">
               Permissions
@@ -145,6 +120,23 @@ export function CycleSettingsFields({
           </fieldset>
         ))}
       </div>
+      <AgentSelectionsEditor
+        base={false}
+        value={agentSelections(choices)}
+        onChange={(value) =>
+          setChoices({
+            ...value,
+            ...Object.fromEntries(
+              CYCLE_STEPS.map((step) => [
+                step,
+                { ...value[step], permissionMode: choices[step].permissionMode },
+              ]),
+            ),
+          } as CycleProfiles)
+        }
+        backends={backends}
+        disabled={disabled || profilesLocked}
+      />
       <label className="field">
         Instructions for every step
         <textarea

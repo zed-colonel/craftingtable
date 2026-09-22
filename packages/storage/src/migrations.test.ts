@@ -32,8 +32,8 @@ describe('ordered SQL migrations', () => {
     const database = openDatabase(path);
     const migrations = discoverMigrations();
     expect(runMigrations(database, migrations)).toEqual({
-      currentVersion: 25,
-      supportedVersion: 25,
+      currentVersion: 26,
+      supportedVersion: 26,
       pendingVersions: [],
     });
     const rows = database
@@ -65,6 +65,7 @@ describe('ordered SQL migrations', () => {
       { version: 23, name: 'native-verification', checksum: migrations[22]?.checksum },
       { version: 24, name: 'repository-policy', checksum: migrations[23]?.checksum },
       { version: 25, name: 'host-verification-settings', checksum: migrations[24]?.checksum },
+      { version: 26, name: 'agent-profiles', checksum: migrations[25]?.checksum },
     ]);
     database.close();
   });
@@ -102,7 +103,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(25);
+    ).toBe(26);
     second.close();
   });
 
@@ -124,7 +125,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(25);
+    ).toBe(26);
     database.close();
   });
 
@@ -135,7 +136,7 @@ describe('ordered SQL migrations', () => {
     database
       .prepare(
         `INSERT INTO schema_migrations (version, name, checksum, applied_at)
-         VALUES (26, 'future', ?, ?)`,
+         VALUES (27, 'future', ?, ?)`,
       )
       .run('f'.repeat(64), new Date().toISOString());
     expect(() => migrationStatus(database)).toThrow(/newer than or unknown/);
@@ -184,9 +185,10 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 25,
+      supportedVersion: 26,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        26,
       ],
     });
 
@@ -202,9 +204,10 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 25,
+      supportedVersion: 26,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        26,
       ],
     });
     expect(existsSync(path)).toBe(false);
@@ -224,4 +227,23 @@ describe('ordered SQL migrations', () => {
       }),
     );
   });
+});
+
+it('upgrades legacy workspace profiles without changing models or permissions', () => {
+  const database = openDatabase(databasePath());
+  const migrations = discoverMigrations();
+  runMigrations(
+    database,
+    migrations.filter((m) => m.version <= 25),
+  );
+  database.exec(`INSERT INTO users(id,username,username_normalized,password_hash,status,created_at,updated_at) VALUES ('owner','owner','owner','$argon2id$fixture','active','2026-09-21','2026-09-21');
+ INSERT INTO workspaces(id,name,slug,status,created_by_user_id,created_at,updated_at) VALUES ('workspace','Workspace','workspace','active','owner','2026-09-21','2026-09-21');
+ INSERT INTO workspace_run_profiles VALUES ('workspace','implement','codex','gpt-6-astra','auto','2026-09-21','owner'),('workspace','review','claude-code','fable','edit-only','2026-09-21','owner');`);
+  const prior = database.prepare('SELECT * FROM workspace_run_profiles ORDER BY role').all();
+  runMigrations(database, migrations);
+  expect(database.prepare('SELECT * FROM workspace_run_profiles ORDER BY role').all()).toEqual(
+    prior.map((p) => ({ ...(p as object), reasoning_effort: null })),
+  );
+  expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  database.close();
 });

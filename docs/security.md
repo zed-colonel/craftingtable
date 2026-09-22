@@ -431,3 +431,14 @@ unqualified or unsupported evidence, and rechecks delegation after asynchronous 
 Shared decisions and final promotion retain explicit operator authority. Required security
 review receipts remain merge gates even after a cycle is stopped. Unclassified questions can
 cause bounded read-only reassessment, never silent approval or source mutation.
+
+## Operational agent selections
+
+A model-only roadmap update requires owner/editor authority, CSRF protection and the current
+roadmap version. It accepts only backend, model and bounded Codex effort values for named
+entries, rejects unavailable backends and running scheduling, and writes audit/event records
+atomically. It cannot edit permission postures, reviewer responsibilities, budgets, dependency
+pins, gates or merge authority. Existing runs retain their launch selection and assignment ID;
+review evidence matches that historical assignment rather than the latest preference. An
+operator may switch the model delegated to future reviews without re-accepting unchanged plan
+requirements. Final promotion still requires explicit operator approval. See ADR-064.

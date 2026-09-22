@@ -8,6 +8,7 @@ import type {
 import {
   CYCLE_STEPS,
   type CycleProfiles,
+  cycleProfilesFromDefaults,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_SCHEDULING,
   executionScopeKey,
@@ -154,24 +155,10 @@ export function RoadmapsPage({
         setItems(listing.items);
         setBackends(status.backends);
         setDefaults(
-          Object.fromEntries(
-            CYCLE_STEPS.map((step) => {
-              const profile = profiles.profiles.find(
-                (p) => p.role === (step === 'remediate' ? 'implement' : step),
-              );
-              return [
-                step,
-                {
-                  backend:
-                    profile?.backend ??
-                    status.backends.find((b) => b.available)?.kind ??
-                    'claude-code',
-                  permissionMode: profile?.permissionMode ?? 'auto',
-                  ...(profile?.model ? { model: profile.model } : {}),
-                },
-              ];
-            }),
-          ) as CycleProfiles,
+          cycleProfilesFromDefaults(profiles.profiles, {
+            backend: status.backends.find((b) => b.available)?.kind ?? 'claude-code',
+            permissionMode: 'auto',
+          }),
         );
       })
       .catch((e) => {
@@ -272,6 +259,11 @@ export function RoadmapsPage({
           ) : undefined
         }
       />
+      <p>
+        <a href={`/workspaces/${workspaceId}/settings#roadmap-agent-profiles`}>
+          Manage agent profiles for future runs
+        </a>
+      </p>
       <About label="About roadmaps">
         <p>
           One delegated roadmap per workspace. Sequential mode follows list order; parallel mode
@@ -612,6 +604,7 @@ export function RoadmapsPage({
                     <details>
                       <summary>Agents, models, and completion policy</summary>
                       <CycleSettingsFields
+                        profilesLocked={draft.expectedVersion > 0}
                         policy={entry.policy}
                         setPolicy={(policy) => updateEntry(index, { policy })}
                         choices={entry.profiles}
@@ -750,6 +743,12 @@ export function RoadmapsPage({
                     href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#execution-capacity`}
                   >
                     Manage capacity
+                  </a>{' '}
+                  ·{' '}
+                  <a
+                    href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#roadmap-agent-profiles`}
+                  >
+                    Manage agent profiles
                   </a>
                 </p>
                 {roadmap.definition.scheduling?.mode === 'parallel' &&

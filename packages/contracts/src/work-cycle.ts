@@ -1,9 +1,3 @@
-import { cycleWorkflowSchema } from './workflow.js';
-import { providerFailureSchema } from './provider-failure.js';
-import { designDependencySchema, designReportSchema } from './design-report.js';
-import { architectureDecisionInboxSchema } from './runtime-evidence.js';
-import { phaseBlockerSchema } from './execution-scope.js';
-import { executionScopeSchema } from './execution-scope.js';
 import {
   AGENT_BACKENDS,
   AGENT_PERMISSION_MODES,
@@ -11,6 +5,13 @@ import {
   CYCLE_STEPS,
 } from '@craftingtable/domain';
 import { z } from 'zod';
+import {
+  agentSelectionsSchema,
+  reasoningEffortSchema,
+  specialistSelectionsShape,
+} from './agent-profiles.js';
+import { designDependencySchema, designReportSchema } from './design-report.js';
+import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
 import { finalizationProgressSchema } from './finalization-progress.js';
 import {
   agentRunIdSchema,
@@ -23,7 +24,10 @@ import {
   workspaceIdSchema,
   worktreeIdSchema,
 } from './ids.js';
+import { providerFailureSchema } from './provider-failure.js';
 import { reviewFindingSchema } from './review.js';
+import { architectureDecisionInboxSchema } from './runtime-evidence.js';
+import { cycleWorkflowSchema } from './workflow.js';
 
 export const completionPolicySchema = z.strictObject({
   maxNits: z.number().int().min(0).max(100),
@@ -31,6 +35,7 @@ export const completionPolicySchema = z.strictObject({
   maxRunMinutes: z.number().int().min(1).max(1440),
 });
 const cycleProfileSchema = z.strictObject({
+  reasoningEffort: reasoningEffortSchema.optional(),
   backend: z.enum(AGENT_BACKENDS),
   permissionMode: z.enum(AGENT_PERMISSION_MODES),
   model: z.string().trim().min(1).max(100).optional(),
@@ -38,8 +43,10 @@ const cycleProfileSchema = z.strictObject({
 export const finalizationAgentSelectionSchema = cycleProfileSchema.pick({
   backend: true,
   model: true,
+  reasoningEffort: true,
 });
 export const cycleProfilesSchema = z.strictObject({
+  ...specialistSelectionsShape,
   design: cycleProfileSchema,
   implement: cycleProfileSchema,
   review: cycleProfileSchema,
@@ -193,6 +200,7 @@ export type BaselinePreview = z.infer<typeof baselinePreviewSchema>;
 export type PrepareBaselineRequest = z.infer<typeof prepareBaselineRequestSchema>;
 export const workCycleSchema = z
   .strictObject({
+    nextAgentSelections: agentSelectionsSchema.optional(),
     scopeReviewWait: z.string().optional(),
     mergeRequirementsWait: z.string().optional(),
     scopeRepair: z

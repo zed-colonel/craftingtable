@@ -8,6 +8,7 @@ import { type FormEvent, useState } from 'react';
 import { PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
 import type { HandoffChoice } from './handoff.js';
 import { ModelField } from './ModelField.js';
+import { ReasoningEffortField } from './ReasoningEffortField.js';
 
 /**
  * The one form every handoff uses: agent, model, and permissions pre-filled
@@ -39,6 +40,9 @@ export function HandoffForm({
 }) {
   const [backend, setBackend] = useState<AgentBackendKind>(defaults.backend);
   const [model, setModel] = useState(defaults.model ?? '');
+  const [reasoningEffort, setReasoningEffort] = useState<
+    import('@craftingtable/domain').AgentReasoningEffort | undefined
+  >(defaults?.reasoningEffort);
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>(
     defaults.permissionMode,
   );
@@ -56,6 +60,7 @@ export function HandoffForm({
     onLaunch({
       backend,
       ...(trimmedModel.length === 0 ? {} : { model: trimmedModel }),
+      ...(backend === 'codex' && reasoningEffort ? { reasoningEffort } : {}),
       permissionMode,
       ...(trimmedInstructions.length === 0 ? {} : { instructions: trimmedInstructions }),
     });
@@ -72,6 +77,7 @@ export function HandoffForm({
             onChange={(event) => {
               setBackend(event.target.value as AgentBackendKind);
               setModel('');
+              setReasoningEffort(undefined);
             }}
             disabled={busy}
           >
@@ -91,6 +97,13 @@ export function HandoffForm({
         onChange={setModel}
         disabled={busy}
       />
+      {backend === 'codex' && (
+        <ReasoningEffortField
+          value={reasoningEffort}
+          onChange={setReasoningEffort}
+          disabled={busy}
+        />
+      )}
       <label className="field">
         Permissions
         <select

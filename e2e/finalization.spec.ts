@@ -242,9 +242,7 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
           .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
         await recovery.getByLabel('Agent settings').selectOption('switch');
-        await recovery
-          .getByRole('combobox', { name: 'Backend', exact: true })
-          .selectOption('codex');
+        await recovery.getByRole('combobox', { name: 'Agent', exact: true }).selectOption('codex');
         await recovery
           .getByRole('combobox', { name: 'Model', exact: true })
           .selectOption('__custom__');

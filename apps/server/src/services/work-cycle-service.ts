@@ -1,35 +1,16 @@
-import { parseWorkflowReport } from '@craftingtable/contracts';
-import {
-  securityReviewCurrent,
-  workflowContext,
-  workflowDelegation,
-  workflowQuestions,
-  operatorQuestionRoutes,
-} from './workflow-policy.js';
-import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
-import { parseDesignReport } from '@craftingtable/contracts';
-import { designDependencyState } from './design-dependency-policy.js';
-import type { BaselinePreparationService } from './baseline-preparation.js';
-import type { ExecutionService } from './execution-service.js';
-import type { ScopeRepairRequest } from '@craftingtable/contracts';
-import { collectScopeRepair, scopeReviewWait, scopeMergeWait } from './scope-repair.js';
-import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
-import { mapReadSnapshot } from './map-read-snapshot.js';
-import { prioritizeRoadmapCycles } from './cycle-priority.js';
-import type { PrepareBaselineRequest } from '@craftingtable/contracts';
-import { collectDesignRecovery } from './design-recovery.js';
-import type { RecoverDesignRequest } from '@craftingtable/contracts';
-import { PhaseGateError } from './phase-resources.js';
-import { scopePhaseBlockers, scopeAllowsEarlyDevelopment } from './execution-scope.js';
-import { sameExecutionScope } from '@craftingtable/domain';
-import { requireScope, requireTreeScope, scopedReviewIssue } from './execution-scope.js';
+import { effectiveCycleProfiles } from './agent-profile-policy.js';
+import { agentSelections } from '@craftingtable/domain';
 import { createHash, randomUUID } from 'node:crypto';
 import type {
   AuthorizeWorkCycleRemediationRequest,
   ControlFinalizationRequest,
   IntegrationResolutionRequest,
+  PrepareBaselineRequest,
+  RecoverDesignRequest,
+  ScopeRepairRequest,
   StartWorkCycleRequest,
 } from '@craftingtable/contracts';
+import { parseDesignReport, parseWorkflowReport } from '@craftingtable/contracts';
 import {
   type AgentRun,
   asAgentRunId,
@@ -48,6 +29,7 @@ import {
   ownsIntegrationResolution,
   remediationAllowance,
   remediationUsed,
+  sameExecutionScope,
   type WorkCycle,
   type WorkItemId,
   type WorkspaceId,
@@ -56,21 +38,59 @@ import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
 import type { CommandContext } from './auth-service.js';
+import type { BaselinePreparationService } from './baseline-preparation.js';
 import {
   type BranchService,
   IntegrationUpdateConflict,
   RepositoryMutationBusyError,
 } from './branch-service.js';
+import { prioritizeRoadmapCycles } from './cycle-priority.js';
+import { designDependencyState } from './design-dependency-policy.js';
+import { collectDesignRecovery } from './design-recovery.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import {
+  requireScope,
+  requireTreeScope,
+  scopeAllowsEarlyDevelopment,
+  scopedReviewIssue,
+  scopePhaseBlockers,
+} from './execution-scope.js';
+import type { ExecutionService } from './execution-service.js';
 import { finalizationForCycle, finalizationHasNoQuestions } from './finalization-policy.js';
 import { assessStageReport, recordStageEvidence } from './finalization-stage-policy.js';
+import { mapReadSnapshot } from './map-read-snapshot.js';
+import { PhaseGateError } from './phase-resources.js';
 import { latestReviewReport, runEvents, runLineage } from './run-handoff.js';
+import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
+import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
+import { collectScopeRepair, scopeMergeWait, scopeReviewWait } from './scope-repair.js';
+import {
+  operatorQuestionRoutes,
+  securityReviewCurrent,
+  workflowContext,
+  workflowDelegation,
+  workflowQuestions,
+} from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError, WorktreeMutationGuard } from './worktree-mutation-guard.js';
 
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
 export class WorkCycleService {
+  validateAgentSelections(profiles: import('@craftingtable/domain').AgentSelections): void {
+    for (const profile of Object.values(profiles)) {
+      if (!this.runs.hasBackend(profile.backend))
+        throw new ExecutionRequestError(
+          'unavailable',
+          `Agent backend ${profile.backend} is unavailable.`,
+        );
+      if (profile.backend !== 'codex' && profile.reasoningEffort)
+        throw new ExecutionRequestError(
+          'conflict',
+          'Reasoning effort is supported for Codex profiles only.',
+        );
+    }
+  }
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
   private readonly ending = new Set<string>();
@@ -133,6 +153,7 @@ export class WorkCycleService {
 
       return {
         ...c,
+        nextAgentSelections: agentSelections(effectiveCycleProfiles(tx, c)),
         ...(routes.length
           ? { workflow: { ...(c.workflow ?? { reassessments: 0 }), questions: routes } }
           : {}),
@@ -492,11 +513,7 @@ export class WorkCycleService {
   }
 
   validateSettings(input: Pick<StartWorkCycleRequest, 'profiles'>): void {
-    if (Object.values(input.profiles).some((profile) => !this.runs.hasBackend(profile.backend)))
-      throw new ExecutionRequestError(
-        'unavailable',
-        'Every cycle step must use an available agent backend',
-      );
+    this.validateAgentSelections(input.profiles);
     if (this.git === undefined)
       throw new ExecutionRequestError('unavailable', 'Git is required for an automated cycle');
   }
@@ -1902,6 +1919,7 @@ export class WorkCycleService {
             profile: cycle.providerRecovery?.profile ?? {
               backend: run.backend,
               permissionMode: run.permissionMode,
+              ...(run.reasoningEffort ? { reasoningEffort: run.reasoningEffort } : {}),
               model,
             },
             nextRetryAt,

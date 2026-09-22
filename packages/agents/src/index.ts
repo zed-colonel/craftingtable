@@ -40,6 +40,7 @@ export interface AgentLaunchRequest {
   /** The first user message. */
   readonly prompt: string;
   readonly permissionMode: AgentPermissionMode;
+  readonly reasoningEffort?: import('@craftingtable/domain').AgentReasoningEffort;
   readonly model?: string;
   readonly appendSystemPrompt?: string;
   /** Additional directories the agent may read, such as a run's brief directory. */

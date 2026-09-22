@@ -1,5 +1,6 @@
 import type { WorkspaceId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
+import { assignedReviewMatches } from './agent-profile-policy.js';
 export function adoptedDecisions(
   tx: StorageRepositories,
   ws: WorkspaceId,
@@ -66,9 +67,8 @@ export function scopeReviewerRoles(
           cycle.currentRunId !== run.id ||
           run.worktreeId !== attempt?.worktreeId ||
           run.role !== 'review' ||
-          run.backend !== bound?.profiles.review.backend ||
-          run.model !== bound?.profiles.review.model ||
-          run.permissionMode !== bound?.profiles.review.permissionMode
+          !bound ||
+          !assignedReviewMatches(roadmap, bound, run)
         )
           continue;
       }

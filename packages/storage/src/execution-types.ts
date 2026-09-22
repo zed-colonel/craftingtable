@@ -8,7 +8,7 @@ import type {
   AgentRunEventKind,
   AgentRunEventPayload,
   AgentRunId,
-  AgentRunProfile,
+  WorkspaceAgentProfile,
   AgentRunRole,
   AgentRunStatus,
   AgentRunVerdict,
@@ -67,6 +67,8 @@ export interface CreateAgentRunInput {
   readonly role: AgentRunRole;
   readonly permissionMode: AgentPermissionMode;
   readonly model?: string;
+  readonly reasoningEffort?: AgentRun['reasoningEffort'];
+  readonly profileSelection?: AgentRun['profileSelection'];
   readonly reviewBranchContext?: AgentRun['reviewBranchContext'];
   readonly brief: string;
   readonly createdAt: string;
@@ -182,14 +184,14 @@ export interface AgentRunEventRepository {
 
 export interface ReplaceRunProfilesInput {
   readonly workspaceId: WorkspaceId;
-  readonly profiles: readonly AgentRunProfile[];
+  readonly profiles: readonly WorkspaceAgentProfile[];
   readonly occurredAt: string;
   readonly updatedByUserId: UserId;
 }
 
 export interface RunProfileRepository {
   /** Stored profiles in role order; roles without a stored profile are absent. */
-  list(workspaceId: WorkspaceId): readonly AgentRunProfile[];
+  list(workspaceId: WorkspaceId): readonly WorkspaceAgentProfile[];
   /** Replaces the workspace's whole set: roles not in `profiles` revert to the default. */
   replace(input: ReplaceRunProfilesInput): void;
 }

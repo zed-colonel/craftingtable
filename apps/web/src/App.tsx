@@ -1,4 +1,3 @@
-import { ProviderRecovery } from './features/execution/ProviderRecovery.js';
 import type {
   AgentRunDetailResponse,
   AuditRecordSummary,
@@ -22,12 +21,12 @@ import type {
 } from '@craftingtable/contracts';
 import type {
   AgentRunId,
-  AgentRunProfile,
   PlanArtifactId,
   SessionId,
   SourceRepositoryId,
   WorkCycle,
   WorkItemId,
+  WorkspaceAgentProfile,
   WorkspaceId,
   WorktreeId,
 } from '@craftingtable/domain';
@@ -48,6 +47,7 @@ import { DiffView } from './features/execution/DiffView.js';
 import { ExecutionScopesPanel } from './features/execution/ExecutionScopesPanel.js';
 import { FinalizationPanel } from './features/execution/FinalizationPanel.js';
 import { PlanBranchPanel } from './features/execution/PlanBranchPanel.js';
+import { ProviderRecovery } from './features/execution/ProviderRecovery.js';
 import { RepositoriesPage } from './features/execution/RepositoriesPage.js';
 import { RunPage } from './features/execution/RunPage.js';
 import { RunList, RunsPage } from './features/execution/RunsPage.js';
@@ -65,6 +65,7 @@ import { SourceText } from './features/planning/SourceText.js';
 import { WorkItemPage } from './features/planning/WorkItemPage.js';
 import { HostSchedulingPanel } from './features/workspace/HostSchedulingPanel.js';
 import { NotificationPanel } from './features/workspace/NotificationPanel.js';
+import { RoadmapAgentProfilesPanel } from './features/workspace/RoadmapAgentProfilesPanel.js';
 import { SettingsPage } from './features/workspace/SettingsPage.js';
 import { StoragePanel } from './features/workspace/StoragePanel.js';
 import {
@@ -889,7 +890,7 @@ export function App() {
       })
       .catch(() => undefined);
   };
-  const handleSaveProfiles = (profiles: readonly AgentRunProfile[]): void => {
+  const handleSaveProfiles = (profiles: readonly WorkspaceAgentProfile[]): void => {
     if (authenticated === undefined || workspaceId === undefined) {
       return;
     }
@@ -1236,6 +1237,15 @@ export function App() {
             busy={workspaceBusy}
             {...(workspaceError === undefined ? {} : { error: workspaceError })}
             {...(workspaceNotice === undefined ? {} : { notice: workspaceNotice })}
+            roadmapProfiles={
+              <RoadmapAgentProfilesPanel
+                workspaceId={activeWorkspace.id}
+                csrfToken={authenticated.csrfToken}
+                profiles={runProfiles?.profiles ?? []}
+                backends={executionStatus?.backends ?? []}
+                canEdit={activeWorkspace.role !== 'viewer'}
+              />
+            }
             hostScheduling={
               activeWorkspace.role !== 'viewer' ? (
                 <HostSchedulingPanel

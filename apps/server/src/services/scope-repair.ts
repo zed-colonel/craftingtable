@@ -1,3 +1,4 @@
+import { effectiveCycleProfiles } from './agent-profile-policy.js';
 import { createHash } from 'node:crypto';
 import type { WorkCycle, ExecutionScope } from '@craftingtable/domain';
 import { isTerminalAgentRunStatus, sameExecutionScope } from '@craftingtable/domain';
@@ -174,7 +175,7 @@ export function collectScopeRepair(tx: StorageRepositories, cycle: WorkCycle) {
         scope: ownerScope,
         title: s.title,
         blockers,
-        ...(prior ? { profiles: prior.profiles, policy: prior.policy } : {}),
+        ...(prior ? { profiles: effectiveCycleProfiles(tx, prior), policy: prior.policy } : {}),
         ...(existing ? { worktreeId: existing.id } : {}),
         ...(existingCycle ? { cycleId: existingCycle.id } : {}),
       };

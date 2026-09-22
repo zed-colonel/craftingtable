@@ -1,8 +1,9 @@
+import { agentSelections, selectionsForPurpose } from '@craftingtable/domain';
 import type {
   ExecutionStatusResponse,
   IntegrationResolutionRequest,
 } from '@craftingtable/contracts';
-import { ownsIntegrationResolution, type AgentRunId, type WorkCycle } from '@craftingtable/domain';
+import { type AgentRunId, ownsIntegrationResolution, type WorkCycle } from '@craftingtable/domain';
 import { useState } from 'react';
 import { HandoffForm } from './HandoffForm.js';
 
@@ -102,7 +103,13 @@ export function IntegrationResolutionPanel({
               label="Resolve with agent"
               maxInstructionsLength={16000}
               backends={backends}
-              defaults={resolution.profile ?? cycle.profiles.remediate}
+              defaults={{
+                ...(cycle.nextAgentSelections
+                  ? selectionsForPurpose(cycle.nextAgentSelections, 'conflict')
+                  : (resolution?.profile ??
+                    selectionsForPurpose(agentSelections(cycle.profiles), 'conflict'))),
+                permissionMode: cycle.profiles.remediate.permissionMode,
+              }}
               busy={busy}
               hint="The agent resolves and verifies files. CraftingTable completes the integration update and requires a fresh review. Final merge remains yours."
               onCancel={() => setForm(false)}

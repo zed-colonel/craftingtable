@@ -257,10 +257,12 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     // Agent profiles: a stored implement profile pre-fills the launch form for that role.
     await page.getByRole('link', { name: 'Settings' }).click();
     const profiles = page.getByRole('region', { name: 'Agent profiles' });
-    const implementProfile = profiles.getByRole('group', { name: 'Implement' });
+    await profiles.getByRole('button', { name: 'Edit workspace defaults' }).click();
+    const implementProfile = profiles.getByRole('group', { name: 'Implementation' });
     await implementProfile.getByRole('combobox', { name: /^Agent/ }).selectOption('codex');
-    await implementProfile.getByLabel('Permissions').selectOption('edit-only');
-    await profiles.getByRole('button', { name: 'Save profiles' }).click();
+    await profiles.getByText('Permissions for new work', { exact: true }).click();
+    await profiles.getByLabel('Implementation permissions').selectOption('edit-only');
+    await profiles.getByRole('button', { name: 'Save workspace defaults' }).click();
     await expect(profiles.getByRole('status')).toHaveText('Profiles saved.');
     await page.getByRole('link', { name: 'Dashboard' }).click();
     await page.getByRole('button', { name: 'ActionQueue', exact: true }).click();
@@ -273,7 +275,7 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     // The same admitted, unblocked item can now run the complete cycle from the browser.
     const cyclePanel = page.getByRole('region', { name: 'Automated cycle', exact: true });
     await cyclePanel.getByText('Set up a cycle').click();
-    for (const step of ['Design', 'Implement', 'Review', 'Remediate']) {
+    for (const step of ['Design', 'Implementation', 'Review', 'Remediation']) {
       await cyclePanel
         .getByRole('group', { name: step, exact: true })
         .getByRole('combobox', { name: 'Agent', exact: true })

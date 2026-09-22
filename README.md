@@ -360,12 +360,19 @@ it is mergeable.
 - **Design handoff.** A finished design run can be accepted with one click: the implement
   run that follows gets the proposal as its plan. Design runs end with their open
   questions so the operator sees what still needs a decision before accepting.
-- **Agent profiles.** Workspace settings hold the agent, model, and permissions each run
-  role starts with, so design and review can live on one agent and implementation on
-  another. The launch form and every handoff pre-fill from the profile for the target
-  role and let each launch override it. Every edge of the loop has a handoff button:
-  Implement on a finished design, Review on a finished implementation, Remediate on a
-  review with a verdict.
+- **Agent profiles.** Workspace settings offer separate **Design**, **Implementation**,
+  **Review**, and **Remediation** defaults, with optional specialist overrides for security,
+  technical checkpoints, parent acceptance, integration conflicts and evidence investigation.
+  Codex profiles include reasoning effort; unset effort preserves local Codex configuration.
+  The inline **Suggested models and where to set them** table maps recommendations to these fields.
+  New cycles and handoffs use workspace defaults; saving defaults does not change existing roadmaps.
+  To switch future runs in an existing roadmap, pause scheduling, open **Settings → Roadmap agent
+  profiles**, select all scopes, a project or one scope, and choose **Edit future run profiles**.
+  Edit the selections (or **Copy workspace defaults**) and **Apply to future runs**, then resume
+  scheduling when ready. Later steps of started cycles use the new selection; active sessions
+  and historical run records remain unchanged. Model-only changes do not regenerate plan acceptance,
+  dependency pins or reviewer responsibilities, and do not grant retries or remediation rounds.
+  Finalization retains its separate stage selections and recovery override. See ADR-064.
 - **Phone supervision.** A compact navigation menu, larger touch controls, wrapping
   findings and branch names, and contained table/diff scrolling support checking
   cycles, steering runs, and explicitly approving merges from a phone browser.

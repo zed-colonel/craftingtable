@@ -3,7 +3,7 @@ import {
   type AgentRunEvent,
   type AgentRunEventKind,
   type AgentRunId,
-  type AgentRunProfile,
+  type WorkspaceAgentProfile,
   isAgentRunEventKind,
   isTerminalAgentRunStatus,
   type SourceRepository,
@@ -115,6 +115,8 @@ function mapWorktree(row: WorktreeRow): Worktree {
 }
 
 interface AgentRunRow {
+  reasoning_effort: AgentRun['reasoningEffort'] | null;
+  profile_selection_json: string | null;
   id: string;
   workspace_id: string;
   worktree_id: string;
@@ -147,6 +149,10 @@ interface AgentRunRow {
 
 function mapAgentRun(row: AgentRunRow): AgentRun {
   return {
+    ...(row.reasoning_effort ? { reasoningEffort: row.reasoning_effort } : {}),
+    ...(row.profile_selection_json
+      ? { profileSelection: JSON.parse(row.profile_selection_json) }
+      : {}),
     id: row.id as AgentRun['id'],
     workspaceId: row.workspace_id as AgentRun['workspaceId'],
     worktreeId: row.worktree_id as AgentRun['worktreeId'],
@@ -427,9 +433,9 @@ class SqliteAgentRunRepository implements AgentRunRepository {
       .prepare(
         `INSERT INTO agent_runs (
           id, workspace_id, worktree_id, repository_id, project_id, work_item_id, plan_version_id,
-          parent_run_id, backend, role, status, permission_mode, model, brief,
+          parent_run_id, backend, role, status, permission_mode, model, reasoning_effort, profile_selection_json, brief,
           created_at, created_by_user_id, review_branch_context_json, turn_count, version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, 0, 1)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`,
       )
       .run(
         input.id,
@@ -444,6 +450,8 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         input.role,
         input.permissionMode,
         input.model ?? null,
+        input.reasoningEffort ?? null,
+        input.profileSelection ? JSON.stringify(input.profileSelection) : null,
         input.brief,
         input.createdAt,
         input.createdByUserId,
@@ -653,19 +661,21 @@ const ROLE_ORDER = `CASE role WHEN 'design' THEN 0 WHEN 'implement' THEN 1 ELSE 
 class SqliteRunProfileRepository implements RunProfileRepository {
   constructor(private readonly database: Database.Database) {}
 
-  list(workspaceId: WorkspaceId): readonly AgentRunProfile[] {
+  list(workspaceId: WorkspaceId): readonly WorkspaceAgentProfile[] {
     const rows = this.database
       .prepare(
-        `SELECT role, backend, model, permission_mode
+        `SELECT role, backend, model, permission_mode, reasoning_effort
          FROM workspace_run_profiles WHERE workspace_id = ? ORDER BY ${ROLE_ORDER}`,
       )
       .all(workspaceId) as {
-      role: AgentRunProfile['role'];
-      backend: AgentRunProfile['backend'];
+      reasoning_effort: WorkspaceAgentProfile['reasoningEffort'] | null;
+      role: WorkspaceAgentProfile['role'];
+      backend: WorkspaceAgentProfile['backend'];
       model: string | null;
-      permission_mode: AgentRunProfile['permissionMode'];
+      permission_mode: WorkspaceAgentProfile['permissionMode'];
     }[];
     return rows.map((row) => ({
+      ...(row.reasoning_effort ? { reasoningEffort: row.reasoning_effort } : {}),
       role: row.role,
       backend: row.backend,
       ...(row.model === null ? {} : { model: row.model }),
@@ -679,8 +689,8 @@ class SqliteRunProfileRepository implements RunProfileRepository {
       .run(input.workspaceId);
     const insert = this.database.prepare(
       `INSERT INTO workspace_run_profiles
-         (workspace_id, role, backend, model, permission_mode, updated_at, updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (workspace_id, role, backend, model, permission_mode, reasoning_effort, updated_at, updated_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const profile of input.profiles) {
       insert.run(
@@ -689,6 +699,7 @@ class SqliteRunProfileRepository implements RunProfileRepository {
         profile.backend,
         profile.model ?? null,
         profile.permissionMode,
+        profile.reasoningEffort ?? null,
         input.occurredAt,
         input.updatedByUserId,
       );

@@ -49,3 +49,39 @@ describe('run profiles', () => {
     expect(storage.execution.runProfiles.list(seedWorkspace(storage, 'b').workspaceId)).toEqual([]);
   });
 });
+
+it('persists independent remediation and specialist reasoning effort without modifying ordinary defaults', () => {
+  const fixture = temporaryStorage();
+  fixtures.push(fixture);
+  const { storage } = fixture;
+  const seed = seedWorkspace(storage);
+  const profiles = [
+    {
+      role: 'implement' as const,
+      backend: 'codex' as const,
+      model: 'gpt-6-sol',
+      permissionMode: 'auto' as const,
+    },
+    {
+      role: 'remediate' as const,
+      backend: 'codex' as const,
+      model: 'gpt-6-sol',
+      reasoningEffort: 'high' as const,
+      permissionMode: 'auto' as const,
+    },
+    {
+      role: 'security' as const,
+      backend: 'codex' as const,
+      model: 'gpt-6-astra',
+      reasoningEffort: 'xhigh' as const,
+      permissionMode: 'edit-only' as const,
+    },
+  ];
+  storage.execution.runProfiles.replace({
+    workspaceId: seed.workspaceId,
+    profiles,
+    occurredAt: '2026-09-22T00:00:00Z',
+    updatedByUserId: seed.userId,
+  });
+  expect(storage.execution.runProfiles.list(seed.workspaceId)).toEqual(profiles);
+});

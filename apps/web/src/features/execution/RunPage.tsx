@@ -5,17 +5,21 @@ import type {
   RunEventEnvelope,
   WorktreeDiffResponse,
 } from '@craftingtable/contracts';
-import { AGENT_BACKEND_LABELS } from '@craftingtable/domain';
+import { AGENT_BACKEND_LABELS, PROFILE_LABELS } from '@craftingtable/domain';
 import {
-  type ReactNode,
   type CSSProperties,
   type FormEvent,
+  type ReactNode,
   type UIEvent,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
+import { ActionBar } from '../../components/ActionBar.js';
+import { PageHeader } from '../../components/PageHeader.js';
+import { Section } from '../../components/Section.js';
+import { StatusStrip } from '../../components/StatusStrip.js';
 import {
   BILLING_LABELS,
   formatCost,
@@ -29,10 +33,6 @@ import {
   VERDICT_LABELS,
 } from '../../lib/execution-labels.js';
 import type { ConnectionState } from '../../lib/workspace-projection.js';
-import { ActionBar } from '../../components/ActionBar.js';
-import { PageHeader } from '../../components/PageHeader.js';
-import { Section } from '../../components/Section.js';
-import { StatusStrip } from '../../components/StatusStrip.js';
 import { DiffView } from './DiffView.js';
 import { HandoffForm } from './HandoffForm.js';
 import {
@@ -42,8 +42,8 @@ import {
   type ProfileEntry,
   previousImplementerHint,
 } from './handoff.js';
-import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
 import { ReviewFindings } from './ReviewFindings.js';
+import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
 
 type EventGroup = 'messages' | 'tools' | 'notices' | 'system';
 
@@ -325,6 +325,10 @@ export function RunPage({
                 mono: worktree.integrationBranch !== undefined,
               },
               { label: 'Model', value: model ?? 'default', mono: true },
+              { label: 'Reasoning effort', value: run.reasoningEffort ?? 'Local configuration' },
+              ...(run.profileSelection
+                ? [{ label: 'Profile', value: PROFILE_LABELS[run.profileSelection.purpose] }]
+                : []),
               { label: 'Turns', value: run.turnCount, mono: true },
               { label: 'Cost', value: formatCost(run.costUsd, run.billing), mono: true },
               ...(run.verdict === undefined
@@ -405,6 +409,7 @@ export function RunPage({
                   role: target.role,
                   permissionMode: choice.permissionMode,
                   ...(choice.model === undefined ? {} : { model: choice.model }),
+                  ...(choice.reasoningEffort ? { reasoningEffort: choice.reasoningEffort } : {}),
                   ...(choice.instructions === undefined
                     ? {}
                     : { instructions: choice.instructions }),

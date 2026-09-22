@@ -30,7 +30,7 @@ it('lets the actual WI/EXO independent opening slices and their parent acceptanc
     expect(policy(id).mode, id).toBe('scoped-checks');
     expect(policy(id, 'slice-verification').mode, id).toBe('scoped-checks');
   }
-  for (const id of ['wi/WI-01', 'exo/EXO-01'])
+  for (const id of ['wi/WI-01', 'exo/EXO-01', 'exo/EXO-02'])
     expect(policy(id, 'parent-acceptance').mode, id).toBe('scoped-checks');
 });
 it('keeps integration, conformance, release, mixed parent and finalization on current upstream verification', () => {
@@ -58,4 +58,47 @@ it('does not waive explicit AQ case obligations under a domain label', () => {
       bindingRevision: 4,
     }).mode,
   ).toBe('current-upstream-build');
+});
+
+it('keeps nonlocal, unknown, unaccepted and explicit runtime obligations on current upstream checks', () => {
+  const scope: ExecutionScope = {
+    kind: 'parent-acceptance',
+    sourceId: 'exo/EXO-02',
+    definitionId: 'definition',
+    bindingRevision: 4,
+  };
+  const parent = source.work_items.find((w) => w.id === scope.sourceId)!;
+  for (const patch of [
+    { source_maturity: 'integration' },
+    { aq_baseline_case_ids: ['case'] },
+    {
+      acceptance_requires: [
+        { kind: 'work_item' as const, id: 'wi/WI-01', state: 'accepted' as const },
+      ],
+    },
+    {
+      acceptance_requires: [
+        { kind: 'work_item' as const, id: 'exo/missing', state: 'accepted' as const },
+      ],
+    },
+    {
+      acceptance_requires: [
+        { kind: 'work_item' as const, id: parent.id, state: 'accepted' as const },
+      ],
+    },
+    {
+      acceptance_requires: [
+        { kind: 'checkpoint' as const, id: 'unknown', state: 'passed' as const },
+      ],
+    },
+  ]) {
+    const d = {
+      ...definition,
+      source: {
+        ...source,
+        work_items: source.work_items.map((w) => (w.id === parent.id ? { ...w, ...patch } : w)),
+      },
+    };
+    expect(buildVerificationPolicy(d, scope).mode).toBe('current-upstream-build');
+  }
 });

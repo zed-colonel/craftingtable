@@ -36,11 +36,19 @@ export function buildVerificationPolicy(d: ConcurrencyDefinition, scope?: Execut
     const slices = p && [...new Set([...p.required_slices, ...p.profile_evidence_slices])];
     scoped =
       !!p &&
+      /^independent\b/i.test(p.source_maturity) &&
       !p.aq_baseline_case_ids.length &&
       !!slices?.length &&
       slices.every(scopedSlice) &&
       p.acceptance_requires.every((r) => {
         if (r.kind === 'slice') return slices.includes(r.id) && scopedSlice(r.id);
+        if (r.kind === 'work_item') {
+          const predecessor = d.source.work_items.find((w) => w.id === r.id);
+          // Accepted local predecessors sequence work; they do not imply an upstream build.
+          return (
+            r.state === 'accepted' && r.id !== p.id && predecessor?.repository === p.repository
+          );
+        }
         if (r.kind !== 'checkpoint') return false;
         const c = d.source.checkpoints.find((c) => c.id === r.id);
         return !!c && ['plan_approval', 'architecture_decision'].includes(c.kind);

@@ -44,3 +44,9 @@ uses mounted local artifacts rather than GitHub cache/artifact servers or extern
 
 Evidence and native approval applicability across dependency generations are refined by
 [ADR-058](ADR-058-reviewed-dependency-refresh.md); original run/receipt provenance remains immutable.
+
+Independent parent acceptance (2026-09-22 clarification): an explicitly independent parent with
+only eligible slices, no assigned AQ cases and an accepted predecessor in the same repository
+retains scoped checks. That predecessor is a sequencing/acceptance gate, not implicit runtime
+coupling. Cross-repository, self, missing or unclassified requirements and explicit upstream
+obligations retain current-upstream checks. No acceptance requirement is removed by classification.

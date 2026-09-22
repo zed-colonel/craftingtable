@@ -7,6 +7,7 @@ import type {
 } from '@craftingtable/contracts';
 import { AGENT_BACKEND_LABELS } from '@craftingtable/domain';
 import {
+  type ReactNode,
   type CSSProperties,
   type FormEvent,
   type UIEvent,
@@ -180,7 +181,9 @@ export function RunPage({
   runs,
   onHandoff,
   onResolveDesign,
+  providerRecovery,
 }: {
+  providerRecovery?: ReactNode;
   detail: AgentRunDetailResponse;
   events: readonly RunEventEnvelope[];
   connection: ConnectionState;
@@ -216,6 +219,9 @@ export function RunPage({
           sequence: latestTurn.sequence,
           occurredAt: latestTurn.occurredAt,
           text: latestTurn.payload.resultText,
+          ...(latestTurn.payload.providerFailure
+            ? { providerFailure: latestTurn.payload.providerFailure }
+            : {}),
           outcome: latestTurn.payload.outcome,
           truncated: latestTurn.payload.truncated ?? false,
         }
@@ -417,6 +423,7 @@ export function RunPage({
         </p>
       )}
 
+      {providerRecovery}
       <RunCompletionIssue issue={detail.completionIssue} />
       {outcome && (
         <RunOutcome

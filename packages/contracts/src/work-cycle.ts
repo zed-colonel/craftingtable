@@ -1,3 +1,4 @@
+import { providerFailureSchema } from './provider-failure.js';
 import { designDependencySchema, designReportSchema } from './design-report.js';
 import { architectureDecisionInboxSchema } from './runtime-evidence.js';
 import { phaseBlockerSchema } from './execution-scope.js';
@@ -259,6 +260,16 @@ export const workCycleSchema = z
       .optional(),
     designDependencyContinuations: z.number().int().min(0).max(2).optional(),
     resultContinuations: z.number().int().min(0).max(2).optional(),
+    providerRecovery: z
+      .strictObject({
+        attempts: z.number().int().min(0).max(3),
+        sourceRunId: agentRunIdSchema,
+        failure: providerFailureSchema,
+        profile: cycleProfileSchema,
+        nextRetryAt: z.iso.datetime().optional(),
+      })
+      .nullable()
+      .optional(),
     remediationRounds: z.number().int().nonnegative(),
     additionalRemediationRounds: z
       .number()
@@ -355,7 +366,7 @@ export type ScopeRepairRequest = z.infer<typeof scopeRepairRequestSchema>;
 export type ScopeRepairPreview = z.infer<typeof scopeRepairPreviewSchema>;
 export const controlWorkCycleRequestSchema = z.discriminatedUnion('action', [
   z.strictObject({
-    action: z.enum(['pause', 'stop']),
+    action: z.enum(['pause', 'stop', 'retry-provider']),
     expectedVersion: z.number().int().positive(),
   }),
   z.strictObject({

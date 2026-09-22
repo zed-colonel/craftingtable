@@ -1,3 +1,4 @@
+import { ProviderRecovery } from './ProviderRecovery.js';
 import {
   CycleRemediationRecovery,
   type CycleRemediationGrant,
@@ -64,7 +65,11 @@ export function CyclePanel({
   busy: boolean;
   admitted: boolean;
   onStart: (input: StartWorkCycleRequest) => void;
-  onControl: (cycle: WorkCycle, action: 'pause' | 'resume' | 'stop', instructions?: string) => void;
+  onControl: (
+    cycle: WorkCycle,
+    action: 'pause' | 'resume' | 'stop' | 'retry-provider',
+    instructions?: string,
+  ) => void;
   onOpenRun: (id: AgentRunId) => void;
   onAuthorizeRemediation?: (cycle: WorkCycle, input: CycleRemediationGrant) => void;
   onResolution?: (
@@ -203,6 +208,12 @@ export function CyclePanel({
       {active ? (
         <>
           <p role="status">{active.scopeReviewWait ?? active.reason}</p>
+          <ProviderRecovery
+            cycle={active}
+            disabled={disabled}
+            onRetry={() => onControl(active, 'retry-provider')}
+            onPause={() => onControl(active, 'pause')}
+          />
           <StatusStrip
             label="Cycle status"
             facts={[

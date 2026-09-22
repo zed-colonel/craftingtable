@@ -150,6 +150,14 @@ export interface WorkCycle {
   } | null;
   /** Automatic recovery attempts within the current step, independent of remediation. */
   readonly resultContinuations?: number;
+  /** Same-step service retries, separate from remediation and background-result continuations. */
+  readonly providerRecovery?: {
+    readonly attempts: number;
+    readonly sourceRunId: AgentRunId;
+    readonly failure: import('./execution.js').ProviderFailure;
+    readonly profile: Omit<AgentRunProfile, 'role'>;
+    readonly nextRetryAt?: string;
+  } | null;
   readonly remediationRounds: number;
   /** Extra attempts explicitly authorized after a cycle exhausts its initial allowance. */
   readonly additionalRemediationRounds?: number;

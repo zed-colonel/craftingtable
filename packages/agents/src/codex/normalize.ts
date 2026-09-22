@@ -1,4 +1,5 @@
-import type { AgentRunEventPayloads } from '@craftingtable/domain';
+import { codexProviderFailure } from './provider-failure.js';
+import type { ProviderFailure, AgentRunEventPayloads } from '@craftingtable/domain';
 import {
   boundedJson,
   boundedRaw,
@@ -15,6 +16,12 @@ import type { NormalizedAgentEvent } from '../index.js';
 /** Only the selected thread's notifications reach this adapter-local normalizer. */
 export class CodexStreamNormalizer {
   private turns = 0;
+  private failure: ProviderFailure | undefined;
+  private unsafeContinuation = false;
+  private readonly pendingTools = new Set<string>();
+  requireOperator(): void {
+    this.unsafeContinuation = true;
+  }
   private startedAt = Date.now();
   private lastMessage = '';
   private lastMessageTruncated = false;
@@ -34,6 +41,9 @@ export class CodexStreamNormalizer {
       };
   }
   beginTurn(): void {
+    this.failure = undefined;
+    this.unsafeContinuation = false;
+    this.pendingTools.clear();
     this.lastMessage = '';
     this.lastMessageTruncated = false;
     this.usage = undefined;
@@ -103,6 +113,10 @@ export class CodexStreamNormalizer {
       return this.item(params.item, completed, raw);
     }
     if (method === 'error') {
+      const failure = codexProviderFailure(
+        isRecord(params.error) ? params.error.codexErrorInfo : undefined,
+      );
+      this.failure = { ...failure, safeToRetry: failure.safeToRetry && params.willRetry === false };
       return [
         this.notice(isRecord(params.error) ? stringOf(params.error.message) : 'Codex error', raw),
       ];
@@ -127,6 +141,26 @@ export class CodexStreamNormalizer {
       kind: 'turn-completed',
       payload: {
         outcome: failed ? 'error' : 'success',
+        ...(failed
+          ? {
+              providerFailure: {
+                ...(this.failure ??
+                  codexProviderFailure(
+                    isRecord(turn.error) ? turn.error.codexErrorInfo : undefined,
+                  )),
+                safeToRetry:
+                  turn.status === 'failed' &&
+                  (
+                    this.failure ??
+                    codexProviderFailure(
+                      isRecord(turn.error) ? turn.error.codexErrorInfo : undefined,
+                    )
+                  ).safeToRetry &&
+                  !this.unsafeContinuation &&
+                  this.pendingTools.size === 0,
+              },
+            }
+          : {}),
         resultText: result.text,
         ...(result.truncated ? { truncated: true } : {}),
         turns: this.turns,
@@ -212,6 +246,9 @@ export class CodexStreamNormalizer {
         break;
       case 'dynamicToolCall':
       case 'collabAgentToolCall':
+        // Delegated work can outlive a completed spawn/wait call. Require an operator
+        // until this adapter can prove every delegated agent has reached a terminal state.
+        if (type === 'collabAgentToolCall') this.unsafeContinuation = true;
         name = stringOf(item.tool) || type;
         input = item.arguments ?? item.prompt ?? null;
         summary = name;
@@ -226,11 +263,13 @@ export class CodexStreamNormalizer {
         summary = firstLine(stringOf(item.query));
         break;
       default:
+        this.unsafeContinuation = true;
         return completed ? [this.notice(`Backend item: ${firstLine(type || 'unknown')}`, raw)] : [];
     }
     const events: NormalizedAgentEvent[] = [];
     if (!this.calls.has(toolUseId)) {
       this.calls.add(toolUseId);
+      this.pendingTools.add(toolUseId);
       events.push({
         kind: 'tool-call',
         payload: { toolUseId, name, input: boundedJson(input, TOOL_INPUT_LIMIT_BYTES), summary },
@@ -238,6 +277,7 @@ export class CodexStreamNormalizer {
       });
     }
     if (completed) {
+      this.pendingTools.delete(toolUseId);
       const bounded = truncateUtf8(output, TOOL_RESULT_LIMIT_BYTES);
       events.push({
         kind: 'tool-result',

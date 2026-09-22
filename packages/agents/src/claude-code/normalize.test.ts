@@ -264,3 +264,29 @@ it('marks oversized assistant messages and final results as truncated', () => {
   );
   expect(final[0]).toMatchObject({ kind: 'turn-completed', payload: { truncated: true } });
 });
+
+it('normalizes Claude service errors conservatively and requires settled tool results', () => {
+  const n = normalizer();
+  const send = (message: unknown) => n.normalizeLine(JSON.stringify(message));
+  const result = () => send({ type: 'result', subtype: 'error_during_execution', is_error: true });
+  send({ type: 'assistant', error: 'server_error', message: { content: [] } });
+  expect(result()[0]?.payload).toMatchObject({
+    providerFailure: { kind: 'unavailable', safeToRetry: true },
+  });
+  send({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't', name: 'Bash' }] } });
+  send({ type: 'assistant', error: 'server_error', message: { content: [] } });
+  expect(result()[0]?.payload).toMatchObject({ providerFailure: { safeToRetry: false } });
+  send({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: 't', content: 'done' }] },
+  });
+  send({ type: 'assistant', error: 'server_error', message: { content: [] } });
+  expect(result()[0]?.payload).toMatchObject({ providerFailure: { safeToRetry: true } });
+  expect(result()[0]?.payload).not.toHaveProperty('providerFailure');
+  for (const error of ['authentication_failed', 'billing_error', 'rate_limit', 'unknown']) {
+    send({ type: 'assistant', error, message: { content: [] } });
+    expect(result()[0]?.payload).toMatchObject({ providerFailure: { safeToRetry: false } });
+  }
+  send({ type: 'assistant', message: { content: [{ type: 'text', text: 'server_error' }] } });
+  expect(result()[0]?.payload).not.toHaveProperty('providerFailure');
+});

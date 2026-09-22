@@ -60,6 +60,32 @@ lines.on('line', (line) => {
     designing = /^Role: design$/m.test(text);
     finalizing = /^# Plan finalization:/m.test(text);
   }
+  if (
+    automated &&
+    designing &&
+    text.includes('SERVICE-RETRY') &&
+    !text.includes('This is service retry') &&
+    !text.includes('This is a bounded design-question recovery')
+  ) {
+    emit({
+      type: 'assistant',
+      error: 'server_error',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Temporary service failure.' }],
+      },
+    });
+    emit({
+      type: 'result',
+      subtype: 'error_during_execution',
+      is_error: true,
+      result: 'Temporary service failure.',
+      num_turns: turns,
+      duration_ms: 25,
+      session_id: 'fake-session-0001',
+    });
+    return;
+  }
   if (automated && designing) {
     const result =
       text.includes('DESIGN-QUESTIONS') &&

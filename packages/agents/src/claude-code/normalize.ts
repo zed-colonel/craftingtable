@@ -12,7 +12,11 @@ import {
 
 export { RAW_LINE_LIMIT_BYTES, TOOL_RESULT_LIMIT_BYTES } from '../bounded.js';
 
-import type { AgentBillingSource, AgentPermissionMode } from '@craftingtable/domain';
+import type {
+  ProviderFailure,
+  AgentBillingSource,
+  AgentPermissionMode,
+} from '@craftingtable/domain';
 import type { NormalizedAgentEvent } from '../index.js';
 
 /**
@@ -105,6 +109,9 @@ export interface ClaudeNormalizerOptions {
  */
 export class ClaudeStreamNormalizer {
   private sessionStarted = false;
+  private providerFailure: ProviderFailure | undefined;
+  private interactiveRequest = false;
+  private readonly pendingTools = new Set<string>();
   private readonly backgroundTasks = new Set<string>();
   private backgroundAfterResult = false;
   private untrackedBackgroundTasks = false;
@@ -280,6 +287,33 @@ export class ClaudeStreamNormalizer {
     message: Record<string, unknown>,
     raw: string,
   ): readonly NormalizedAgentEvent[] {
+    if (!message.parent_tool_use_id && typeof message.error === 'string') {
+      this.providerFailure =
+        message.error === 'server_error'
+          ? {
+              kind: 'unavailable',
+              message: 'The model service reported a server failure.',
+              safeToRetry: true,
+            }
+          : message.error === 'authentication_failed'
+            ? {
+                kind: 'authentication',
+                message: 'The model service requires authentication.',
+                safeToRetry: false,
+              }
+            : ['billing_error', 'rate_limit'].includes(message.error)
+              ? {
+                  kind: 'quota',
+                  message: 'The model service reported an allowance or rate limit.',
+                  safeToRetry: false,
+                }
+              : {
+                  kind: 'unknown',
+                  message: 'The backend reported an unclassified error.',
+                  safeToRetry: false,
+                };
+    } else this.providerFailure = undefined;
+
     const inner = isRecord(message.message) ? message.message : {};
     const content = Array.isArray(inner.content) ? inner.content : [];
     const events: NormalizedAgentEvent[] = [];
@@ -295,7 +329,9 @@ export class ClaudeStreamNormalizer {
           raw,
         });
       } else if (block.type === 'tool_use') {
+        this.pendingTools.add(stringOf(block.id) || 'unknown');
         const name = stringOf(block.name) || 'unknown';
+        if (['AskUserQuestion', 'ExitPlanMode'].includes(name)) this.interactiveRequest = true;
         events.push({
           kind: 'tool-call',
           payload: {
@@ -321,6 +357,7 @@ export class ClaudeStreamNormalizer {
     for (const block of content) {
       if (!isRecord(block)) continue;
       if (block.type === 'tool_result') {
+        this.pendingTools.delete(stringOf(block.tool_use_id));
         const bounded = truncateUtf8(toolResultText(block.content), TOOL_RESULT_LIMIT_BYTES);
         events.push({
           kind: 'tool-result',
@@ -342,6 +379,9 @@ export class ClaudeStreamNormalizer {
     message: Record<string, unknown>,
     raw: string,
   ): readonly NormalizedAgentEvent[] {
+    const failure = this.providerFailure;
+    this.providerFailure = undefined;
+    const pendingBackground = this.hasUncollectedBackgroundWork;
     this.backgroundAfterResult = false;
     const isError = message.is_error === true || message.subtype !== 'success';
     const cost = typeof message.total_cost_usd === 'number' ? message.total_cost_usd : undefined;
@@ -358,6 +398,22 @@ export class ClaudeStreamNormalizer {
         kind: 'turn-completed',
         payload: {
           outcome: isError ? 'error' : 'success',
+          ...(isError && failure
+            ? {
+                providerFailure: {
+                  ...failure,
+                  safeToRetry:
+                    failure.safeToRetry &&
+                    message.subtype === 'error_during_execution' &&
+                    !this.interactiveRequest &&
+                    !(
+                      Array.isArray(message.permission_denials) && message.permission_denials.length
+                    ) &&
+                    this.pendingTools.size === 0 &&
+                    !pendingBackground,
+                },
+              }
+            : {}),
           resultText: bounded.text,
           ...(bounded.truncated ? { truncated: true } : {}),
           ...(cost === undefined ? {} : { costUsd: cost }),

@@ -58,6 +58,13 @@ export function RunOutcome({
         {new Date(outcome.occurredAt).toLocaleString()} ·{' '}
         {outcome.outcome === 'success' ? 'Agent turn completed' : 'Agent turn reported an error'}
       </p>
+      {outcome.providerFailure && (
+        <p role="status">
+          Model service failure: {outcome.providerFailure.message} This is not a source finding or
+          an accepted review.
+          {!outcome.providerFailure.safeToRetry && ' Inspect the outcome before retrying.'}
+        </p>
+      )}
       {outcome.truncated && (
         <p role="alert">
           The recorded final message was truncated by the backend. It may be incomplete.

@@ -55,7 +55,7 @@ import {
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { finalizationForCycle, finalizationHasNoQuestions } from './finalization-policy.js';
 import { assessStageReport, recordStageEvidence } from './finalization-stage-policy.js';
-import { latestReviewReport, runLineage } from './run-handoff.js';
+import { latestReviewReport, runEvents, runLineage } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError, WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -1131,7 +1131,7 @@ export class WorkCycleService {
     context: CommandContext,
     workspaceId: WorkspaceId,
     id: string,
-    action: 'pause' | 'resume' | 'stop',
+    action: 'pause' | 'resume' | 'stop' | 'retry-provider',
     expectedVersion: number,
     reviewGuidance?: string,
     delegationCheck?: () => void,
@@ -1187,6 +1187,67 @@ export class WorkCycleService {
           status: 'paused',
           reason:
             'Automation paused by operator. The current session remains available for manual work.',
+        },
+        action,
+        context,
+      );
+    }
+    if (
+      action === 'retry-provider' ||
+      (action === 'resume' &&
+        cycle.providerRecovery?.nextRetryAt &&
+        this.now().getTime() < Date.parse(cycle.runDeadlineAt))
+    ) {
+      if (
+        !cycle.providerRecovery?.nextRetryAt ||
+        !['running', 'paused', 'needs-attention'].includes(cycle.status) ||
+        cycle.providerRecovery.attempts >= 3 ||
+        this.now().getTime() >= Date.parse(cycle.runDeadlineAt)
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'No bounded provider retry is available. Inspect the outcome and explicitly resume for a new step window.',
+        );
+      if (action === 'retry-provider' && this.providerRoadmapPaused(cycle))
+        throw new ExecutionRequestError(
+          'conflict',
+          'Resume roadmap scheduling before retrying this provider failure.',
+        );
+      if (
+        this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId)[0]?.id !==
+        cycle.currentRunId
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'The worktree has a newer run. Inspect it before resuming.',
+        );
+      if (this.storage.amendments.retired(workspaceId, cycle.worktreeId))
+        throw new ExecutionRequestError(
+          'conflict',
+          'This attempt was retired by a planning amendment.',
+        );
+      const instructions = [cycle.instructions, reviewGuidance?.trim()]
+        .filter(Boolean)
+        .join('\n\n');
+      if (instructions.length > 16000)
+        throw new ExecutionRequestError(
+          'invalid-request',
+          'Combined cycle guidance exceeds 16000 characters.',
+        );
+      return this.change(
+        cycle,
+        {
+          status: 'running',
+          instructions,
+          providerRecovery: {
+            ...cycle.providerRecovery,
+            nextRetryAt:
+              action === 'retry-provider'
+                ? this.now().toISOString()
+                : cycle.providerRecovery.nextRetryAt,
+          },
+          reason:
+            'Provider retry authorized; current phase gates, process cleanup and the original deadline still apply.',
         },
         action,
         context,
@@ -1483,6 +1544,12 @@ export class WorkCycleService {
     }
   }
 
+  private providerRoadmapPaused(cycle: WorkCycle): boolean {
+    return this.storage.roadmaps
+      .list(cycle.workspaceId)
+      .some((r) => r.status !== 'running' && r.attempts.some((a) => a.cycleId === cycle.id));
+  }
+
   private async reconcile(cycle: WorkCycle): Promise<void> {
     if (this.refreshing.has(cycle.id)) return;
     if (this.runs.isCleaningRun(cycle.worktreeId)) return;
@@ -1589,7 +1656,10 @@ export class WorkCycleService {
       return;
     }
     if (cycle.phaseWait) {
-      const delay = !pendingRun ? this.now().getTime() - Date.parse(cycle.phaseWait.startedAt) : 0;
+      const delay =
+        !pendingRun && !cycle.providerRecovery
+          ? this.now().getTime() - Date.parse(cycle.phaseWait.startedAt)
+          : 0;
       this.change(cycle, {
         phaseWait: null,
         runDeadlineAt: new Date(Date.parse(cycle.runDeadlineAt) + Math.max(0, delay)).toISOString(),
@@ -1605,6 +1675,47 @@ export class WorkCycleService {
       );
       return;
     }
+    if (cycle.providerRecovery?.nextRetryAt) {
+      if (
+        this.providerRoadmapPaused(cycle) ||
+        this.now().getTime() < Date.parse(cycle.providerRecovery.nextRetryAt)
+      )
+        return;
+      const parent = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+      if (
+        !parent ||
+        parent.id !== cycle.providerRecovery.sourceRunId ||
+        parent.status !== 'failed' ||
+        this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId)[0]?.id !==
+          parent.id
+      ) {
+        this.attention(
+          cycle,
+          'Provider recovery no longer matches the latest failed run. Inspect the worktree before resuming.',
+        );
+        return;
+      }
+      if (cycle.workItemId)
+        this.requireReady(cycle.workspaceId, cycle.workItemId, cycle.executionScope);
+      const { nextRetryAt: _due, ...recovery } = cycle.providerRecovery;
+      await this.next(
+        cycle,
+        cycle.step,
+        parent,
+        undefined,
+        {
+          providerRecovery: { ...recovery, attempts: recovery.attempts + 1 },
+          runDeadlineAt: cycle.runDeadlineAt,
+          resultContinuations: cycle.resultContinuations ?? 0,
+          instructions: cycle.instructions,
+          housekeepingInstructions: cycle.housekeepingInstructions,
+          reason: `Starting service retry ${recovery.attempts + 1} of 3 on the same backend/model; no remediation round consumed.`,
+        },
+        'retry-provider',
+      );
+      return;
+    }
+    if (cycle.providerRecovery && !pendingRun && this.providerRoadmapPaused(cycle)) return;
     if (ownsIntegrationResolution(cycle) && cycle.integrationResolution?.status !== 'resolving') {
       await this.advanceResolution(cycle);
       return;
@@ -1640,6 +1751,69 @@ export class WorkCycleService {
       run.id,
       'run-finished',
     );
+    const failure = turn?.kind === 'turn-completed' ? turn.payload.providerFailure : undefined;
+    if (
+      failure &&
+      run.status === 'failed' &&
+      ended?.kind === 'run-finished' &&
+      !ended.payload.reason
+    ) {
+      const attempts = cycle.providerRecovery?.attempts ?? 0;
+      // A backend error message can follow the actual partial outcome. Any unanswered
+      // question or clipped assistant message requires a person, never a service retry.
+      const questions = [...runEvents(this.storage.execution, run)].some(
+        (event) =>
+          event.kind === 'assistant-message' &&
+          (event.payload.truncated ||
+            (/^## Open questions[ \t]*$/m.test(event.payload.text) &&
+              !finalizationHasNoQuestions(event.payload.text))),
+      );
+      const model = cycle.providerRecovery?.profile.model ?? run.model ?? run.resolvedModel;
+      const retryable =
+        failure.safeToRetry &&
+        ['capacity', 'unavailable', 'transport'].includes(failure.kind) &&
+        ended?.kind === 'run-finished' &&
+        turn?.kind === 'turn-completed' &&
+        turn.payload.outcome === 'error' &&
+        !turn.payload.truncated &&
+        !questions &&
+        !ownsIntegrationResolution(cycle) &&
+        !!model &&
+        model !== 'default';
+      if (!retryable || attempts >= 3) {
+        this.attention(
+          cycle,
+          `${failure.message} ${
+            attempts >= 3
+              ? 'The three service retries are exhausted. Inspect the outcome; an explicit resume grants a new step window.'
+              : 'Automatic retry is not safe or applicable. Inspect the outcome and provide any required guidance before resuming.'
+          }`,
+        );
+        return;
+      }
+      const nextRetryAt = new Date(
+        this.now().getTime() + [60_000, 300_000, 900_000][attempts]!,
+      ).toISOString();
+      this.change(
+        cycle,
+        {
+          providerRecovery: {
+            attempts,
+            sourceRunId: run.id,
+            failure,
+            profile: cycle.providerRecovery?.profile ?? {
+              backend: run.backend,
+              permissionMode: run.permissionMode,
+              model,
+            },
+            nextRetryAt,
+          },
+          reason: `${failure.message} Service retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}. Roadmap pauses hold retries.`,
+        },
+        'provider-backoff',
+      );
+      return;
+    }
     if (ended?.kind === 'run-finished' && ended.payload.reason) {
       const attempts = cycle.resultContinuations ?? 0;
       const explicitQuestions =
@@ -1676,6 +1850,7 @@ export class WorkCycleService {
         undefined,
         {
           resultContinuations: attempts + 1,
+          providerRecovery: cycle.providerRecovery ?? null,
           runDeadlineAt: cycle.runDeadlineAt,
           instructions: cycle.instructions,
           housekeepingInstructions: cycle.housekeepingInstructions,
@@ -3216,8 +3391,11 @@ export class WorkCycleService {
       parent.status === 'failed' &&
       !ownsIntegrationResolution(cycle) &&
       ended?.kind === 'run-finished' &&
-      ended.payload.reason === 'background-work-incomplete' &&
-      (!!context || (changes.resultContinuations ?? 0) > 0);
+      ((ended.payload.reason === 'background-work-incomplete' &&
+        (!!context || (changes.resultContinuations ?? 0) > 0)) ||
+        (changes.providerRecovery?.sourceRunId === parent.id &&
+          changes.providerRecovery.failure.safeToRetry &&
+          (changes.providerRecovery.attempts ?? 0) > 0));
     let reviewHeadSha: string | undefined;
     if (collectingReview) {
       const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
@@ -3267,6 +3445,7 @@ export class WorkCycleService {
             : {}),
           // An explicit resume grants a fresh recovery window; automatic attempts retain their count/deadline.
           resultContinuations: collectingReview && context ? 1 : 0,
+          providerRecovery: null,
           // Resume guidance belongs to that attempt; its answers remain in the handoff journal.
           ...(cycle.finalizationId && parent?.id === cycle.currentRunId
             ? { instructions: '' }

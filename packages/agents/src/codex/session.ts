@@ -65,6 +65,9 @@ export class CodexSession implements AgentSession {
             }
           : {}),
       },
+      ...(request.deadlineAt
+        ? { backgroundWorkDeadlineMs: Date.parse(request.deadlineAt) }
+        : { backgroundWorkTimeoutMs: 30 * 60_000 }),
       terminationGraceMs: options.terminationGraceMs ?? 5000,
       maxLineBytes: 4 * 1024 * 1024,
     });
@@ -305,6 +308,7 @@ export class CodexSession implements AgentSession {
     for (const event of this.normalizer.normalize(method, params)) this.emit(event);
   }
   private serverRequest(value: Record<string, unknown>): void {
+    this.normalizer.requireOperator();
     const method = stringOf(value.method);
     let result: unknown;
     if (
@@ -338,6 +342,11 @@ export class CodexSession implements AgentSession {
           this.notice('Codex app-server exited before the session was ended');
         this.output.push({
           type: 'exited',
+          ...(item.backgroundWorkTimedOut
+            ? { reason: 'background-work-timeout' as const }
+            : item.backgroundWorkIncomplete
+              ? { reason: 'background-work-incomplete' as const }
+              : {}),
           exitCode:
             this.failed || unexpected
               ? item.exitCode || 1

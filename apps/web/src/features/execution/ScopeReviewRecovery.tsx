@@ -63,11 +63,13 @@ export function ScopeReviewRecovery({
       }}
     >
       <h3>
-        {repeat
-          ? 'Review again'
-          : scope?.kind === 'parent-acceptance'
-            ? 'Recover parent acceptance'
-            : 'Recover slice verification'}
+        {cycle.providerRecovery?.nextRetryAt
+          ? 'Resume preserves the interrupted review snapshot, service-retry allowance and original deadline, with your additional guidance. Roadmap pauses hold dispatch; current branch and phase gates are rechecked before launch.'
+          : repeat
+            ? 'Review again'
+            : scope?.kind === 'parent-acceptance'
+              ? 'Recover parent acceptance'
+              : 'Recover slice verification'}
       </h3>
       <p>
         {repeat

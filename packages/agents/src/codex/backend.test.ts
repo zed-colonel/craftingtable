@@ -21,6 +21,7 @@ function finish(status = 'completed') {
   if (!active) return;
   clearTimeout(timer);
   const id = active;
+  if (mode === 'overloaded') notify('error', { turnId: id, willRetry: false, error: { message: 'At capacity', codexErrorInfo: 'serverOverloaded' } });
   notify('item/completed', {turnId: id, item: {id: 'message-' + id, type: 'agentMessage', text: texts.join(' | ')}});
   notify('thread/tokenUsage/updated', {turnId: id, tokenUsage: {total: {inputTokens: 10 * turns, cachedInputTokens: 5 * turns, outputTokens: 2 * turns, reasoningOutputTokens: turns, totalTokens: 12 * turns}, last: {inputTokens: 10, cachedInputTokens: 5, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 12}}});
   notify('model/rerouted', {turnId: id, fromModel: 'resolved', toModel: 'effective'});
@@ -68,7 +69,7 @@ lines.on('line', line => {
     if (mode === 'complete-before-reply') {finish(); setTimeout(() => reply({turn: {id, status: 'completed'}}), 20); return;}
     reply({turn: {id, status: 'inProgress'}});
     if (mode === 'hold' || mode === 'ignore-term') return;
-    timer = setTimeout(() => finish(mode === 'failed' ? 'failed' : 'completed'), 100);
+    timer = setTimeout(() => finish(['failed', 'overloaded'].includes(mode) ? 'failed' : 'completed'), 100);
     return;
   }
   if (msg.method === 'turn/steer') {
@@ -338,4 +339,15 @@ it('passes managed scratch space into the app-server child environment', async (
   expect(messages()).toContainEqual({
     temporaryPaths: [scratch, scratch, scratch, `${scratch}/target`],
   });
+});
+
+it('retains a structured temporary failure through terminal process cleanup', async () => {
+  const { session, items, done } = await launch('overloaded');
+  await done;
+  expect(turns(items)[0]).toMatchObject({
+    outcome: 'error',
+    providerFailure: { kind: 'capacity', safeToRetry: true },
+  });
+  expect(items.at(-1)).toMatchObject({ type: 'exited', exitCode: 1 });
+  expect(session.pid).toBeUndefined();
 });

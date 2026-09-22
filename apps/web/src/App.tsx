@@ -1,3 +1,4 @@
+import { ProviderRecovery } from './features/execution/ProviderRecovery.js';
 import type {
   AgentRunDetailResponse,
   AuditRecordSummary,
@@ -1594,6 +1595,30 @@ export function App() {
         {route.name === 'run' && run?.run.id === route.runId && (
           <RunPage
             detail={run}
+            providerRecovery={cycles
+              .filter(
+                (c) =>
+                  c.worktreeId === run.worktree.id &&
+                  c.currentRunId === run.run.id &&
+                  c.providerRecovery,
+              )
+              .map((cycle) => (
+                <ProviderRecovery
+                  key={cycle.id}
+                  cycle={cycle}
+                  disabled={!canMutate || executionBusy}
+                  onRetry={() =>
+                    void executionCommand(async (csrfToken) => {
+                      await controlWorkCycle(cycle, 'retry-provider', csrfToken);
+                    })
+                  }
+                  onPause={() =>
+                    void executionCommand(async (csrfToken) => {
+                      await controlWorkCycle(cycle, 'pause', csrfToken);
+                    })
+                  }
+                />
+              ))}
             events={runEvents}
             connection={runConnection}
             {...(diff?.worktree.id === run.worktree.id ? { diff } : {})}

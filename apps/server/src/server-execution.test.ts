@@ -153,6 +153,7 @@ class ScriptedBackend implements AgentBackend {
 }
 
 interface ScriptedReply {
+  readonly providerFailure?: import('@craftingtable/domain').ProviderFailure;
   readonly backgroundWorkPending?: boolean;
   readonly exitReason?: AgentExitReason;
   readonly messages?: readonly string[];
@@ -259,7 +260,8 @@ class ScriptedSession implements AgentSession {
       event: {
         kind: 'turn-completed',
         payload: {
-          outcome: 'success',
+          outcome: reply?.providerFailure ? 'error' : 'success',
+          ...(reply?.providerFailure ? { providerFailure: reply.providerFailure } : {}),
           resultText: reply?.resultText ?? this.resultText(text),
           ...(reply?.truncated === undefined ? {} : { truncated: reply.truncated }),
           costUsd: 0.5 * this.turns,
@@ -12386,4 +12388,292 @@ it('waits for an exact mapped slice merge, survives recovery, then bounds automa
       .listForWorktree(f.state.workspaceId, b.id)
       .map((r) => r.role),
   ).toEqual(['design', 'design', 'design']);
+});
+
+describe('bounded model service recovery', () => {
+  const overloaded: ScriptedReply = {
+    resultText: 'Service temporarily unavailable.',
+    providerFailure: {
+      kind: 'capacity',
+      message: 'The selected model is at capacity.',
+      safeToRetry: true,
+    },
+  };
+  async function command(
+    state: Awaited<ReturnType<typeof cycleFixture>>['state'],
+    cycle: WorkCycle,
+    action: string,
+    version = currentCycle(state, cycle).version,
+  ) {
+    return state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: { action, expectedVersion: version },
+    });
+  }
+  it('waits durably, retries the same model with partial handoff, then requires a complete review', async () => {
+    let now = new Date('2026-09-22T12:00:00Z');
+    const { state, backend, worktree } = await cycleFixture(
+      [
+        designDone,
+        { ...overloaded, messages: ['Partial implementation saved; verification remains.'] },
+        implementationDone,
+        { resultText: reviewText([]) },
+      ],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id, { instructions: 'Keep the scope.' });
+    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'backoff');
+    const waiting = currentCycle(state, cycle);
+    expect(waiting.status).toBe('running');
+    expect(waiting.providerRecovery).toMatchObject({
+      attempts: 0,
+      nextRetryAt: '2026-09-22T12:01:00.000Z',
+    });
+    expect(backend.launches).toHaveLength(2);
+    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    try {
+      expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)?.providerRecovery).toEqual(
+        waiting.providerRecovery,
+      );
+    } finally {
+      reopened.close();
+    }
+    now = new Date('2026-09-22T12:01:01Z');
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'service recovery');
+    expect(backend.launches.map((r) => r.model)).toEqual([
+      'design-model',
+      'implement-model',
+      'implement-model',
+      'review-model',
+    ]);
+    expect(backend.launches[2]?.deadlineAt).toBe(backend.launches[1]?.deadlineAt);
+    expect(backend.launches[2]?.resumeSessionId).toBeUndefined();
+    expect(backend.launches[2]?.prompt).toContain('service retry 1 of 3');
+    expect(
+      readFileSync(
+        join(
+          present(backend.launches[2]?.temporaryDirectory),
+          '..',
+          'handoff',
+          '0000-conversation.md',
+        ),
+        'utf8',
+      ),
+    ).toContain('Partial implementation saved');
+    expect(backend.launches[2]?.prompt).toContain('Keep the scope.');
+    expect(currentCycle(state, cycle)).toMatchObject({
+      remediationRounds: 0,
+      providerRecovery: null,
+    });
+    const runs = [
+      ...state.context.storage.execution.runs.listForWorktree(state.workspaceId, worktree.id),
+    ].reverse();
+    expect(runs[2]?.parentRunId).toBe(runs[1]?.id);
+  });
+
+  it('bounds retries at three with 1/5/15 minute backoff and no remediation debit', {
+    timeout: 15000,
+  }, async () => {
+    let now = new Date('2026-09-22T12:00:00Z');
+    const { state, backend, worktree } = await cycleFixture(
+      [overloaded, overloaded, overloaded, overloaded],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id);
+    for (const [attempt, minutes] of [1, 5, 15].entries()) {
+      await waitFor(
+        () =>
+          currentCycle(state, cycle).providerRecovery?.attempts === attempt &&
+          !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+        'retry backoff',
+      );
+      const recovery = currentCycle(state, cycle).providerRecovery!;
+      expect(Date.parse(recovery.nextRetryAt!) - now.getTime()).toBe(minutes * 60_000);
+      now = new Date(recovery.nextRetryAt!);
+    }
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'retry exhaustion',
+    );
+    expect(backend.launches).toHaveLength(4);
+    expect(new Set(backend.launches.map((r) => r.deadlineAt)).size).toBe(1);
+    expect(currentCycle(state, cycle)).toMatchObject({
+      remediationRounds: 0,
+      providerRecovery: { attempts: 3 },
+    });
+    expect(currentCycle(state, cycle).reason).toContain('three service retries are exhausted');
+    expect((await command(state, cycle, 'retry-provider')).statusCode).toBe(409);
+  });
+
+  it('supports version-checked Retry now and Pause without resetting allowances', async () => {
+    const { state, backend, worktree } = await cycleFixture([overloaded, overloaded]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'backoff');
+    const version = currentCycle(state, cycle).version;
+    expect((await command(state, cycle, 'pause')).statusCode).toBe(200);
+    const before = currentCycle(state, cycle);
+    const resumed = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: {
+        action: 'resume',
+        expectedVersion: before.version,
+        instructions: 'Keep the saved scope.',
+      },
+    });
+    expect(resumed.statusCode, resumed.body).toBe(200);
+    expect(currentCycle(state, cycle).instructions).toContain('Keep the saved scope.');
+    expect(currentCycle(state, cycle).runDeadlineAt).toBe(before.runDeadlineAt);
+    expect(currentCycle(state, cycle).providerRecovery).toEqual(before.providerRecovery);
+    expect((await command(state, cycle, 'pause')).statusCode).toBe(200);
+    expect((await command(state, cycle, 'retry-provider', version)).statusCode).toBe(409);
+    expect(backend.launches).toHaveLength(1);
+    expect((await command(state, cycle, 'retry-provider')).statusCode).toBe(200);
+    await waitFor(
+      () =>
+        currentCycle(state, cycle).providerRecovery?.attempts === 1 &&
+        !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+      'second backoff',
+    );
+    expect(backend.launches).toHaveLength(2);
+    expect(currentCycle(state, cycle).remediationRounds).toBe(0);
+  });
+
+  it.each([
+    {
+      ...overloaded,
+      providerFailure: {
+        kind: 'authentication' as const,
+        message: 'Log in again.',
+        safeToRetry: false,
+      },
+    },
+    {
+      ...overloaded,
+      providerFailure: {
+        kind: 'quota' as const,
+        message: 'Allowance exhausted.',
+        safeToRetry: false,
+      },
+    },
+    { ...overloaded, providerFailure: { ...overloaded.providerFailure!, safeToRetry: false } },
+    { ...overloaded, messages: ['## Open questions\nWhich contract should apply?'] },
+    { ...overloaded, truncated: true },
+    { ...overloaded, exitReason: 'background-work-timeout' as const },
+  ])('requires operator input for unsafe or nonretryable failures: $resultText', async (reply) => {
+    const { state, backend, worktree } = await cycleFixture([reply]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'safe hold');
+    expect(backend.launches).toHaveLength(1);
+    expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
+  });
+
+  it('does not extend the deadline for a provider retry', async () => {
+    let now = new Date('2026-09-22T12:00:00Z');
+    const { state, backend, worktree } = await cycleFixture([overloaded], () => now);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'backoff');
+    now = new Date(Date.parse(currentCycle(state, cycle).runDeadlineAt) + 1);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'deadline');
+    expect(backend.launches).toHaveLength(1);
+    expect(currentCycle(state, cycle).reason).toContain('Step time limit');
+    expect((await command(state, cycle, 'retry-provider')).statusCode).toBe(409);
+  });
+});
+
+it('holds provider backoff after a daemon restart and while its roadmap is paused', async () => {
+  const reply: ScriptedReply = {
+    resultText: 'At capacity.',
+    providerFailure: { kind: 'capacity', message: 'At capacity.', safeToRetry: true },
+  };
+  const { state, backend } = await roadmapFixture([reply, reply]);
+  expect((await saveRoadmapRequest(state)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  await waitFor(
+    () =>
+      state.context.storage.execution.cycles
+        .list(state.workspaceId)
+        .some((c) => c.providerRecovery?.nextRetryAt),
+    'roadmap service backoff',
+  );
+  const cycle = state.context.storage.execution.cycles
+    .list(state.workspaceId)
+    .find((c) => c.providerRecovery)!;
+  state.context.services.workCycleService.recoverInterrupted();
+  expect(currentCycle(state, cycle).status).toBe('needs-attention');
+  await waitFor(
+    () => storedRoadmap(state).status === 'needs-attention',
+    'restart supervision hold',
+  );
+  await roadmapControl(state, 'pause');
+  const command = async () =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: { action: 'retry-provider', expectedVersion: currentCycle(state, cycle).version },
+    });
+  const blocked = await command();
+  expect(blocked.statusCode, blocked.body).toBe(409);
+  expect(blocked.body).toContain('Resume roadmap scheduling');
+  expect(backend.launches).toHaveLength(1);
+  await roadmapControl(state, 'resume');
+  expect(backend.launches).toHaveLength(1);
+  expect((await command()).statusCode).toBe(200);
+  await waitFor(
+    () =>
+      currentCycle(state, cycle).providerRecovery?.attempts === 1 &&
+      !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+    'operator resumed service recovery',
+  );
+  expect(backend.launches).toHaveLength(2);
+});
+
+it('retries an interrupted review on its pinned snapshot but never adopts its failed draft', async () => {
+  const reply: ScriptedReply = {
+    resultText: reviewText([]),
+    providerFailure: { kind: 'capacity', message: 'At capacity.', safeToRetry: true },
+  };
+  const { state, backend, worktree } = await cycleFixture([
+    designDone,
+    implementationDone,
+    reply,
+    { resultText: reviewText([]) },
+  ]);
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'review backoff');
+  expect((await merge(state, worktree.id)).statusCode).toBe(409);
+  const failed = state.context.storage.execution.runs.find(
+    state.workspaceId,
+    currentCycle(state, cycle).currentRunId,
+  )!;
+  expect(failed.status).toBe('failed');
+  expect(failed.verdict).toBeUndefined();
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+    headers: mutationHeaders(state),
+    payload: { action: 'retry-provider', expectedVersion: currentCycle(state, cycle).version },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  await waitFor(
+    () => currentCycle(state, cycle).status === 'awaiting-merge',
+    'fresh complete review',
+  );
+  expect(backend.launches.map((r) => r.model)).toEqual([
+    'design-model',
+    'implement-model',
+    'review-model',
+    'review-model',
+  ]);
+  const fresh = state.context.storage.execution.runs.find(
+    state.workspaceId,
+    currentCycle(state, cycle).currentRunId,
+  )!;
+  expect(fresh.reviewBranchContext).toEqual(failed.reviewBranchContext);
+  expect(fresh.parentRunId).toBe(failed.id);
+  expect(currentCycle(state, cycle).remediationRounds).toBe(0);
 });

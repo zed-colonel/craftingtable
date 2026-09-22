@@ -271,6 +271,16 @@ export class AgentRunService {
         'Cycle no longer has authority to launch this step',
       );
     }
+    if (
+      cycle.providerRecovery &&
+      this.storage.roadmaps
+        .list(cycle.workspaceId)
+        .some((r) => r.status !== 'running' && r.attempts.some((a) => a.cycleId === cycle.id))
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'Roadmap scheduling is paused; service retry is held.',
+      );
     if (this.now().getTime() >= Date.parse(cycle.runDeadlineAt))
       throw new ExecutionRequestError('conflict', 'Step time limit reached during Git preflight');
   }
@@ -290,6 +300,7 @@ export class AgentRunService {
         ? cycle.designRecovery
         : undefined;
     const profile =
+      cycle.providerRecovery?.profile ??
       (recovery
         ? { permissionMode: cycle.profiles.design.permissionMode, ...recovery.profile }
         : undefined) ??
@@ -305,6 +316,9 @@ export class AgentRunService {
         ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
         instructions: [
           cycle.instructions,
+          cycle.providerRecovery
+            ? `This is service retry ${cycle.providerRecovery.attempts} of 3 for the SAME step after a model-service failure, in a fresh session on the same backend/model. Read the prior handoff and partial scratch records; preserve completed work and unresolved findings. Inspect the current worktree and evidence before continuing. Do not assume an interrupted check passed, repeat completed side effects blindly, or treat a draft report as accepted. Complete every required check and the final report. Report genuine decisions in ## Open questions; never decide them for the operator. The original step deadline still applies.`
+            : '',
           cycle.scopeRepair
             ? 'Read craftingtable-scope-repair.json in the supplied plan documents. It contains pinned findings from independent slice and parent reviews. Address every namespaced finding ID, including findings from older parent reviews; identical original IDs from different runs are separate obligations. Reviewers must include every namespaced finding with a supported disposition. Current adopted policy answers superseded administrative questions; do not invent a new policy. Source changes belong only to this owning slice. When a finding identifies a broad or recurring family, audit that family systematically in bounded batches, including analogous producers, consumers, assertions and evidence. Explain coverage, actual corrections, remaining gaps and reproducible checks; do not merely patch cited examples or weaken acceptance checks. Ask for genuinely new decisions without expanding scope. Commit intended changes; do not merge.'
             : '',
@@ -553,7 +567,10 @@ export class AgentRunService {
             cycle.integrationResolution,
           );
         else if (input.role !== 'review') await this.branches?.validateLaunch(prepared.worktree);
-        if (input.role === 'review' && (cycle?.resultContinuations ?? 0) > 0) {
+        if (
+          input.role === 'review' &&
+          ((cycle?.resultContinuations ?? 0) > 0 || !!cycle?.providerRecovery)
+        ) {
           const baseline = prepared.parentRun?.reviewBranchContext;
           const ended =
             prepared.parentRun &&
@@ -566,7 +583,11 @@ export class AgentRunService {
             !baseline ||
             prepared.parentRun?.status !== 'failed' ||
             ended?.kind !== 'run-finished' ||
-            ended.payload.reason !== 'background-work-incomplete' ||
+            (ended.payload.reason !== 'background-work-incomplete' &&
+              !(
+                cycle?.providerRecovery?.sourceRunId === prepared.parentRun.id &&
+                cycle.providerRecovery.failure.safeToRetry
+              )) ||
             !this.branches
           )
             throw new ExecutionRequestError(
@@ -834,7 +855,7 @@ export class AgentRunService {
         ...(scope ? { executionScope: scopeBrief(scope) } : {}),
         ...(prepared.worktree.planVersionId &&
         input.role === 'review' &&
-        !(cycle && (cycle.resultContinuations ?? 0) > 0) &&
+        !(cycle && ((cycle.resultContinuations ?? 0) > 0 || cycle.providerRecovery)) &&
         parentAssessment?.status === 'invalid'
           ? {
               reviewReportRetry: {
@@ -1251,6 +1272,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     readonly eventCount: number;
     readonly completionIssue?: { reason: AgentExitReason; message: string };
     readonly latestOutcome?: {
+      providerFailure?: import('@craftingtable/domain').ProviderFailure;
       sequence: number;
       occurredAt: string;
       text: string;
@@ -1284,6 +1306,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         ...(lastTurn?.kind === 'turn-completed'
           ? {
               latestOutcome: {
+                ...(lastTurn.payload.providerFailure
+                  ? { providerFailure: lastTurn.payload.providerFailure }
+                  : {}),
                 sequence: lastTurn.sequence,
                 occurredAt: lastTurn.occurredAt,
                 text: lastTurn.payload.resultText,
@@ -1365,9 +1390,18 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     const { workspaceId, runId } = liveRun;
     for await (const item of liveRun.session.items) {
       if (item.type === 'exited') {
+        const lastTurn = this.storage.execution.runEvents.latestOfKind(
+          workspaceId,
+          runId,
+          'turn-completed',
+        );
+        const serviceFailed =
+          lastTurn?.kind === 'turn-completed' &&
+          lastTurn.payload.outcome === 'error' &&
+          !!lastTurn.payload.providerFailure;
         const status: AgentRunStatus = liveRun.cancelRequested
           ? 'cancelled'
-          : item.exitCode === 0 && !item.reason
+          : item.exitCode === 0 && !item.reason && !serviceFailed
             ? 'finished'
             : 'failed';
         this.finalize(workspaceId, runId, status, {

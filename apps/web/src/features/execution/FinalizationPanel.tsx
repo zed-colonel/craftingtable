@@ -1,3 +1,4 @@
+import { ProviderRecovery } from './ProviderRecovery.js';
 import type {
   AgentRunDetailResponse,
   ControlFinalizationRequest,
@@ -31,7 +32,7 @@ import {
   loadFinalizations,
   startFinalization,
 } from '../../lib/finalization-api.js';
-import { resolveIntegration } from '../../lib/work-cycle-api.js';
+import { controlWorkCycle, resolveIntegration } from '../../lib/work-cycle-api.js';
 import { AgentProfileFields } from './AgentProfileFields.js';
 import { CYCLE_STATUS_LABELS } from './CyclePanel.js';
 import { DiffView } from './DiffView.js';
@@ -492,6 +493,17 @@ export function FinalizationPanel({
               </p>
             )}
             <FinalizationStageProgress view={view} />
+            {cycle && (
+              <ProviderRecovery
+                cycle={cycle}
+                disabled={busy || !canMutate}
+                onRetry={() =>
+                  void perform(() => controlWorkCycle(cycle, 'retry-provider', csrfToken))
+                }
+                onPause={() => void command(view, 'pause')}
+              />
+            )}
+
             {cycle?.finalizationAgentOverride && (
               <p>
                 Remaining finalization runs:{' '}

@@ -319,8 +319,21 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await cycle.getByLabel('Maximum remediation rounds').fill('0');
     await cycle
       .getByLabel(/Instructions/)
-      .fill('MOBILE-FINDINGS DESIGN-QUESTIONS CYCLE-EXTRA-REMEDIATION');
+      .fill('MOBILE-FINDINGS DESIGN-QUESTIONS CYCLE-EXTRA-REMEDIATION SERVICE-RETRY');
     await cycle.getByRole('button', { name: 'Start automated cycle' }).click();
+    await expect(cycle.getByRole('region', { name: 'Model service recovery' })).toBeVisible({
+      timeout: 30_000,
+    });
+    await walk.capture('work-item-provider-recovery', 'Work item · bounded model service retry');
+    await cycle.getByRole('button', { name: 'Open current run' }).click();
+    await expect(page.getByRole('region', { name: 'Model service recovery' })).toBeVisible();
+    await walk.capture(
+      'run-provider-recovery',
+      'Run · model service failure and recovery controls',
+    );
+    await page.getByRole('button', { name: 'Work item', exact: true }).click();
+    await cycle.getByRole('button', { name: 'Retry now', exact: true }).click();
+
     await expect(
       cycle.getByRole('button', { name: 'Resolve design questions', exact: true }),
     ).toBeVisible({ timeout: 30_000 });

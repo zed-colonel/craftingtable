@@ -182,3 +182,65 @@ it('marks oversized assistant and final messages so downstream reports cannot ap
     'truncated',
   );
 });
+
+it('classifies terminal service errors from structured fields, never assistant prose', () => {
+  const n = new CodexStreamNormalizer();
+  n.beginTurn();
+  n.normalize('item/completed', {
+    item: { type: 'agentMessage', id: 'a', text: 'serverOverloaded: retry me' },
+  });
+  expect(
+    n.complete({ status: 'failed', error: { message: 'serverOverloaded' } }, 'model').payload,
+  ).toMatchObject({ providerFailure: { kind: 'unknown', safeToRetry: false } });
+  n.normalize('error', { error: { codexErrorInfo: 'serverOverloaded' }, willRetry: false });
+  expect(n.complete({ status: 'failed' }, 'model').payload).toMatchObject({
+    providerFailure: { kind: 'capacity', safeToRetry: true },
+  });
+  n.normalize('error', { error: { codexErrorInfo: 'serverOverloaded' }, willRetry: true });
+  expect(n.complete({ status: 'failed' }, 'model').payload).toMatchObject({
+    providerFailure: { safeToRetry: false },
+  });
+});
+
+it('does not retry ambiguous tools, interactive requests, auth, quotas or unknown failures', () => {
+  const n = new CodexStreamNormalizer();
+  const error = { codexErrorInfo: 'serverOverloaded' };
+  n.beginTurn();
+  const item = { type: 'commandExecution', id: 'cmd', command: 'do work' };
+  n.normalize('item/started', { item });
+  expect(n.complete({ status: 'failed', error }, 'model').payload).toMatchObject({
+    providerFailure: { safeToRetry: false },
+  });
+  n.beginTurn();
+  n.normalize('item/started', { item });
+  n.normalize('item/completed', { item: { ...item, exitCode: 1, status: 'completed' } });
+  expect(n.complete({ status: 'failed', error }, 'model').payload).toMatchObject({
+    providerFailure: { safeToRetry: true },
+  });
+  n.requireOperator();
+  expect(n.complete({ status: 'failed', error }, 'model').payload).toMatchObject({
+    providerFailure: { safeToRetry: false },
+  });
+  for (const codexErrorInfo of [
+    'unauthorized',
+    'usageLimitExceeded',
+    'rateLimitExceeded',
+    'badRequest',
+    { httpConnectionFailed: { httpStatusCode: 429 } },
+  ]) {
+    n.beginTurn();
+    expect(
+      n.complete({ status: 'failed', error: { codexErrorInfo } }, 'model').payload,
+    ).toMatchObject({ providerFailure: { safeToRetry: false } });
+  }
+  for (const codexErrorInfo of [
+    'internalServerError',
+    { responseStreamDisconnected: { httpStatusCode: null } },
+    { httpConnectionFailed: { httpStatusCode: 503 } },
+  ]) {
+    n.beginTurn();
+    expect(
+      n.complete({ status: 'failed', error: { codexErrorInfo } }, 'model').payload,
+    ).toMatchObject({ providerFailure: { safeToRetry: true } });
+  }
+});

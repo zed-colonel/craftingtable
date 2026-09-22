@@ -261,6 +261,14 @@ export interface RunHandoffSource {
   readonly throughSequence: number;
 }
 
+/** Adapter-classified service failure; assistant text is never a retry authorization. */
+export interface ProviderFailure {
+  readonly kind: 'capacity' | 'unavailable' | 'transport' | 'authentication' | 'quota' | 'unknown';
+  readonly message: string;
+  /** False for outstanding tools, interactive requests, or an unconfirmed terminal failure. */
+  readonly safeToRetry: boolean;
+}
+
 export interface AgentRunEventPayloads {
   readonly 'session-started': {
     readonly backend: AgentBackendKind;
@@ -290,6 +298,7 @@ export interface AgentRunEventPayloads {
     readonly truncated: boolean;
   };
   readonly 'turn-completed': {
+    readonly providerFailure?: ProviderFailure;
     readonly outcome: 'success' | 'error';
     readonly resultText: string;
     readonly truncated?: boolean;

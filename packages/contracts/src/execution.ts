@@ -1,3 +1,4 @@
+import { providerFailureSchema } from './provider-failure.js';
 import { executionScopeSchema } from './execution-scope.js';
 import {
   AGENT_BACKENDS,
@@ -317,6 +318,7 @@ export const agentRunSummarySchema = z
   });
 
 export const runOutcomeSchema = z.strictObject({
+  providerFailure: providerFailureSchema.optional(),
   sequence: nonNegativeSafeInteger,
   occurredAt: z.iso.datetime(),
   text: z.string(),
@@ -474,6 +476,7 @@ export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
   runEventBaseSchema.extend({
     kind: z.literal('turn-completed'),
     payload: z.strictObject({
+      providerFailure: providerFailureSchema.optional(),
       outcome: z.enum(['success', 'error']),
       resultText: z.string(),
       truncated: z.boolean().optional(),

@@ -351,3 +351,19 @@ The six-increment implementation sequence is complete. Planning Studio authoring
 qualification adapters remain future capabilities. Production adoption, configuration and Start remain
 explicit operator actions.
 No production work, map decisions or baseline/publication gates were authorized by increment 4.
+
+## UI settings backlog
+
+- [ ] **Host verification capacity** (requested 2026-09-21). Expose the installation-wide
+  `local-verification` limit as a visible, editable setting, clearly distinguished from
+  roadmap/project development concurrency. Today it is configured only through
+  `CRAFTINGTABLE_VERIFICATION_CAPACITY` (default 1, range 1–32) and is shared by slice
+  verification and parent-acceptance reviews. Show capacity, occupied reservations,
+  the runs holding them, and waiting reviews with an explanation of automatic retry.
+  Increasing capacity permits independent eligible reviews to overlap; dependency,
+  evidence, authorization and merge gates must still pass. A parent acceptance review
+  must continue to wait for its required slice verifications. Lowering capacity must
+  preserve active runs and delay new reservations until usage permits them. Define
+  persistence and environment-override behavior when implementing the setting.
+
+This backlog records future UI work; adding an item does not change live capacity.

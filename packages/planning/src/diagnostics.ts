@@ -42,6 +42,7 @@ export const PLAN_DIAGNOSTIC_CODES = [
   'unknown-recommended-dependency',
   'unrecognized-risk',
   'checksum-unmatched-entry',
+  'field-truncated',
 ] as const;
 
 export type PlanDiagnosticCode = (typeof PLAN_DIAGNOSTIC_CODES)[number];

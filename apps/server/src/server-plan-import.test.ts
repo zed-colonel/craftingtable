@@ -270,6 +270,28 @@ describe('plan import over HTTP', () => {
     expect(ready.context.storage.planning.versions.count()).toBe(0);
   });
 
+  it('reports an over-long work-item phase as a diagnostic, not a storage failure (FMT-08)', async () => {
+    const ready = await signedIn();
+    const breakdown: MultipartFilePart = {
+      fieldName: 'work-breakdown',
+      filename: 'breakdown.yaml',
+      contentType: 'application/yaml',
+      bytes: new TextEncoder().encode(
+        `document: X\npull_requests:\n- id: WI-01\n  title: T\n  depends_on: []\n  risk: low\n  primary_areas: []\n  exit_gate: G\n  phase: ${'p'.repeat(65)}\n`,
+      ),
+    };
+    const response = await postImport(ready, { files: [MINIMAL_PLAN, breakdown] });
+    expect(response.statusCode).toBe(200);
+    const parsed = planImportResponseSchema.parse(response.json());
+    if (parsed.outcome !== 'failed-validation') {
+      throw new Error(`Expected a validation failure, got ${parsed.outcome}`);
+    }
+    expect(parsed.diagnostics.map((d) => [d.code, d.path])).toEqual([
+      ['invalid-work-item-field', 'pull_requests[0].phase'],
+    ]);
+    expect(ready.context.storage.planning.versions.count()).toBe(0);
+  });
+
   it('rejects a missing required artifact role (CT03-A13)', async () => {
     const ready = await signedIn();
     const parsed = planImportResponseSchema.parse(

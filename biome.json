@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!pnpm-lock.yaml"]
+    "includes": ["**", "!**/dist", "!pnpm-lock.yaml", "!packages/planning/golden"]
   },
   "formatter": {
     "enabled": true,

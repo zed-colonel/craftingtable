@@ -1,0 +1,971 @@
+{
+  "archive": {
+    "archiveDigest": "151dd46ca8c295964de5e82da6d6f01797c663a22b50f01df6ff9fb2db1a5e69",
+    "entryCount": 73,
+    "implementationPlans": [
+      "wi-fabric-2-foundational/wi-fabric-2-foundational-implementation-plan.md"
+    ],
+    "workBreakdowns": [
+      "wi-fabric-2-foundational/wi-fabric-2-foundational-work-breakdown.yaml"
+    ],
+    "selectedPaths": [
+      "wi-fabric-2-foundational/AQ-ALIGNMENT-REVISION-NOTES.md",
+      "wi-fabric-2-foundational/AQ-BASELINE-ALIGNMENT.md",
+      "wi-fabric-2-foundational/IMPORT-COMPATIBILITY-NOTES.md",
+      "wi-fabric-2-foundational/README.md",
+      "wi-fabric-2-foundational/WI-EXO-WORKER-HANDOFF.md",
+      "wi-fabric-2-foundational/WORKER-CONCURRENCY-REBINDING.md",
+      "wi-fabric-2-foundational/WORKER-PROVIDER-QUALIFICATION.md",
+      "wi-fabric-2-foundational/WORKER-PROVIDER-REVISION-NOTES.md",
+      "wi-fabric-2-foundational/aq-baseline-integration-acceptance-matrix.yaml",
+      "wi-fabric-2-foundational/aq-baseline.lock.json",
+      "wi-fabric-2-foundational/constitutional-stack-foundational-contracts.yaml",
+      "wi-fabric-2-foundational/developmental-diagnostics-cross-stack-profile.yaml",
+      "wi-fabric-2-foundational/foundational-completeness-coherence-report.md",
+      "wi-fabric-2-foundational/regression-tests.json",
+      "wi-fabric-2-foundational/static-regression-tests.txt",
+      "wi-fabric-2-foundational/wi-fabric-2-aq-assumption-ledger-foundational.yaml",
+      "wi-fabric-2-foundational/wi-fabric-2-developmental-experiment-acceptance-matrix.yaml",
+      "wi-fabric-2-foundational/wi-fabric-2-developmental-experiment-evidence-profile.md",
+      "wi-fabric-2-foundational/wi-fabric-2-foundational-implementation-plan.md",
+      "wi-fabric-2-foundational/wi-fabric-2-foundational-validation.json",
+      "wi-fabric-2-foundational/wi-fabric-2-foundational-work-breakdown.yaml",
+      "wi-fabric-2-foundational/wi-fabric-2-import-validation.json",
+      "wi-fabric-2-foundational/wi-fabric-2-worker-boundary-assumption-ledger.yaml",
+      "wi-fabric-2-foundational/wi-fabric-2-worker-execution-acceptance-matrix.yaml",
+      "wi-fabric-2-foundational/wi-fabric-2-worker-execution-profile.md",
+      "wi-fabric-2-foundational/wi-fabric-2-worker-execution-profile.yaml",
+      "wi-fabric-2-foundational/worldinterface-v2-foundational-design.md"
+    ]
+  },
+  "digest": {
+    "hex": "9c1f180ae4c1853388449b8acecfb69fbf2cdbc307b99d4c41805eb16e5a976c",
+    "algorithm": "sha-256",
+    "formatVersion": 1
+  },
+  "fatal": false,
+  "errorCount": 0,
+  "warningCount": 0,
+  "diagnostics": [],
+  "totalByteLength": 591198,
+  "artifacts": [
+    {
+      "role": "supporting",
+      "logicalFilename": "AQ-ALIGNMENT-REVISION-NOTES.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 694,
+      "sha256": "129e01a97b945a3302f315884a15f52cd18eb73bf2b2a0ebed97d144e32bbf48"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "AQ-BASELINE-ALIGNMENT.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 12055,
+      "sha256": "cd013232a0a9cbca2c625d31c3fc75e053f7948d37b8a6de2f08ff5cdc7e4656"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "IMPORT-COMPATIBILITY-NOTES.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 1585,
+      "sha256": "99b10ed1291ac73f33f20d980f10902830f360b2bead8861c7da40aee321b2cd"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "README.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 2499,
+      "sha256": "cc4b245c63159dd0b5d0b0d6b8e179473d203dfdb04090cdf9f38eb59be82431"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "WI-EXO-WORKER-HANDOFF.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 3200,
+      "sha256": "6c57c478f7e20cced8525e2fd4730888db82eff825308aa60d573d218f82b374"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "WORKER-CONCURRENCY-REBINDING.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 1278,
+      "sha256": "1c21f8f0759395f76e14d3bda615d0e15e43fe7a65e0fa419906b47d8385f303"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "WORKER-PROVIDER-QUALIFICATION.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 4129,
+      "sha256": "1e466fd540feb30c51cd676a9e2461fe7861a36fb333e4ee50d601eb0dda8c65"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "WORKER-PROVIDER-REVISION-NOTES.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 949,
+      "sha256": "96b00ef28ad783cb2cdff989b03d0b5e0e13250b03908742cff9d35775600dc2"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "aq-baseline-integration-acceptance-matrix.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 13575,
+      "sha256": "3ed55cff70cbc603e6a44591b0f73aabf58b19d81cff28cf95baa08429ad6f4a"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "aq-baseline.lock.json",
+      "mediaType": "application/json",
+      "sourceClass": "json",
+      "byteLength": 6168,
+      "sha256": "1907d0a157628511c2419f84fd6b7820e09c160699505ee986cc46f3bcf78c7a"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "constitutional-stack-foundational-contracts.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 7729,
+      "sha256": "de11587dcbfecde5a33fcb9a193a97a5c0b38a227d4dfb0dad8cffd4bf627302"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "developmental-diagnostics-cross-stack-profile.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 5179,
+      "sha256": "5214651327d1aa0c688eb20a404de5a5f692387b193ee747ac79d3e4e1380f2d"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "foundational-completeness-coherence-report.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 1441,
+      "sha256": "9850d93663f44c037bcc5bbb97cffdac91516ce2e2d5393eae8f747765219aae"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "regression-tests.json",
+      "mediaType": "application/json",
+      "sourceClass": "json",
+      "byteLength": 278,
+      "sha256": "b7e41632be1282b59408fba21382468be522915bff3f6daf9fb7e00e7f768fa2"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "static-regression-tests.txt",
+      "mediaType": "text/plain",
+      "sourceClass": "text",
+      "byteLength": 8336,
+      "sha256": "faed2be96eedab2219e862b6f686c4535648481dc96c88375bc4cebf03644236"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "wi-fabric-2-aq-assumption-ledger-foundational.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 16716,
+      "sha256": "943d9f263afeee5c56cc6c65a3c6dfca6fca8c871ff070aed2cd0c77f1437415"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "wi-fabric-2-developmental-experiment-acceptance-matrix.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 6160,
+      "sha256": "2713a1b07fe5148cb9898202a3218ae91030d6459f6315d4816da1d2e20d1f35"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "wi-fabric-2-developmental-experiment-evidence-profile.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 14244,
+      "sha256": "3cd88484871e258393af2f71a7ecd1b7d668012aa8417206e03f8148d86c79d6"
+    },
+    {
+      "role": "implementation-plan",
+      "logicalFilename": "wi-fabric-2-foundational-implementation-plan.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 140300,
+      "sha256": "32564920d4cb1fa43fcecf996ef7897aa38b5c70fe4c04ca89adbedde86e608e"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "wi-fabric-2-foundational-validation.json",
+      "mediaType": "application/json",
+      "sourceClass": "json",
+      "byteLength": 15652,
+      "sha256": "73e22f6ac8493f64434894aff85db1dcd440610446dba461ef27a4f988554a52"
+    },
+    {
+      "role": "work-breakdown",
+      "logicalFilename": "wi-fabric-2-foundational-work-breakdown.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 15077,
+      "sha256": "39adb49f1ebc0a5b11650315417857286bd3a34cb7bc6f7d0ad6f4a34c1d3ec4"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "wi-fabric-2-import-validation.json",
+      "mediaType": "application/json",
+      "sourceClass": "json",
+      "byteLength": 31499,
+      "sha256": "456aba6eaa7cdb96f57f6846d8f524860a07993e7bbbffa6bb9a83088d65cdae"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "wi-fabric-2-worker-boundary-assumption-ledger.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 2828,
+      "sha256": "65bd7ca0b4fc1c4d116157b9ee05ac575e3da6bba0618dc35284303c5cd92d05"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "wi-fabric-2-worker-execution-acceptance-matrix.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 21715,
+      "sha256": "9c11d92d056b0411ed4af00a8f076182d95c500acd6e360f42a3a0bdd8aec2eb"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "wi-fabric-2-worker-execution-profile.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 17552,
+      "sha256": "9f597cffb7117dc679e9f001c25c7d54f2a6157f6ead563b0c7cbd11f45a04f9"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "wi-fabric-2-worker-execution-profile.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 9612,
+      "sha256": "6523baf56d14dafa4b199c7493dc030461cc061754c180b4c83006308e633986"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "worldinterface-v2-foundational-design.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 230748,
+      "sha256": "45e8ad3e5cc9618cbb951c0062cbd5daa49e7f57a0955d38e1172f6603e7b4bb"
+    }
+  ],
+  "plan": {
+    "sourceProfile": "exo-work-breakdown-v1",
+    "document": "WI-FABRIC-2 Foundational Implementation Plan",
+    "repository": "zed-colonel/worldinterface",
+    "baselineCommit": "f48df82e98203fa94c86eecae60425205c3e00e9",
+    "contract": "WI-FABRIC-2",
+    "status": "foundational-plan-aligned-to-implemented-aq-source",
+    "metadata": {
+      "keys": [
+        "document",
+        "version",
+        "status",
+        "date",
+        "plan_revision",
+        "contract",
+        "stack_contract",
+        "repository",
+        "baseline_commit",
+        "upstream_contract",
+        "downstream_contract",
+        "implementation_branch",
+        "clean_break",
+        "maturity_labels",
+        "aq_gates",
+        "critical_path",
+        "pull_requests",
+        "foundational_amendment",
+        "downstream_handoff_extensions",
+        "cross_stack_profile",
+        "normative_protocol_change",
+        "worker_execution_profile",
+        "worker_proof_milestone",
+        "aq_baseline_alignment"
+      ],
+      "canonicalSha256": "f070c9d5e69048182cb4db66a574affa5a93e9d31706ecd091e462866604fd08"
+    },
+    "workItems": [
+      {
+        "sourceId": "WI-01",
+        "ordinal": 0,
+        "title": "Freeze evidence and establish the target development contract",
+        "risk": "medium",
+        "primaryAreas": [
+          "root",
+          "ci",
+          "contracts",
+          "conformance",
+          "fixtures",
+          "inventory"
+        ],
+        "exitGate": "Frozen baseline, complete inventory/disposition, conformance skeleton, ADR queue, and clean-break checks exist.",
+        "requiredDependencies": [],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions"
+        ],
+        "sourceFieldsSha256": "abff02a7dae80b3ecc31c21366f2cf9d75312a98e7c41da8b49ac83057c67e3c"
+      },
+      {
+        "sourceId": "WI-02",
+        "ordinal": 1,
+        "title": "Introduce target protocol vocabulary and fresh persistence skeleton",
+        "risk": "critical",
+        "primaryAreas": [
+          "protocol",
+          "capability",
+          "storage",
+          "contextstore",
+          "canonicalization"
+        ],
+        "exitGate": "Target protocol/state machines compile; fresh stores replay; canonical digests are fixed; no legacy readers exist.",
+        "requiredDependencies": [
+          "WI-01"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "worker_execution_scope",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "54e8976d7e8f0209810e13db049724811462d05e896f1ce123eb1f074abab5a5"
+      },
+      {
+        "sourceId": "WI-03",
+        "ordinal": 2,
+        "title": "Build accountable ingress, observation delivery, and acknowledgment",
+        "risk": "high",
+        "primaryAreas": [
+          "ingress",
+          "http-trigger-replacement",
+          "streaming",
+          "delivery-outbox"
+        ],
+        "exitGate": "Ingress transports use store-before-wake observation/delivery semantics; real AQ wake adapter is isolated and gated.",
+        "requiredDependencies": [
+          "WI-02"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "4563198eed97eec58cca50205ff79aa2485aca6d0d19be89901a3e5620ca16ff"
+      },
+      {
+        "sourceId": "WI-04",
+        "ordinal": 3,
+        "title": "Implement intent-first egress, canonical resource resolution, and final authorization",
+        "risk": "critical",
+        "primaryAreas": [
+          "effect-admission",
+          "agency",
+          "resource-resolution",
+          "authorization",
+          "dispatch-outbox"
+        ],
+        "exitGate": "Every outbound operation has durable intent, exact server-owned authorization, and idempotent AQ admission.",
+        "requiredDependencies": [
+          "WI-02"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "worker_execution_scope",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "b1316d3335ab2ebbdde26498f6586e28d4d3fce76f56e4f09815bc12f3a91d6d"
+      },
+      {
+        "sourceId": "WI-05",
+        "ordinal": 4,
+        "title": "Implement boundary receipts, evidence classes, developmental comparison evidence, and completion publication",
+        "risk": "critical",
+        "primaryAreas": [
+          "receipts",
+          "evidence",
+          "contextstore",
+          "proof-seams",
+          "crash-testing"
+        ],
+        "exitGate": "One target receipt/evidence model exists; artifact publication and completion converge after crash.",
+        "requiredDependencies": [
+          "WI-02"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "worker_execution_scope"
+        ],
+        "sourceFieldsSha256": "9644e6df577104902ebe4ad9a61f1d939cb7e73716ed934c456841e3863cef2f"
+      },
+      {
+        "sourceId": "WI-06",
+        "ordinal": 5,
+        "title": "Rebuild connector execution around resolve, invoke, commit observation, and reconcile",
+        "risk": "critical",
+        "primaryAreas": [
+          "connector-spi",
+          "executor",
+          "registry",
+          "reconciliation",
+          "reference-connectors",
+          "wasm"
+        ],
+        "exitGate": "New connector SPI and executor pass idempotency, ambiguity, and reconciliation conformance.",
+        "requiredDependencies": [
+          "WI-04",
+          "WI-05"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "worker_execution_scope",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "3f8cfc2ad1e16f57494cf43cdd3cf09bdfe24501fb223bb4800d2ce3c9a95027"
+      },
+      {
+        "sourceId": "WI-07",
+        "ordinal": 6,
+        "title": "Compile direct submissions and Flow into one ExecutionPlan",
+        "risk": "high",
+        "primaryAreas": [
+          "flow-model",
+          "flow-compiler",
+          "flow-coordinator",
+          "execution-plan",
+          "trace"
+        ],
+        "exitGate": "Direct and Flow paths share one plan/executor and Flow cannot widen authority.",
+        "requiredDependencies": [
+          "WI-04",
+          "WI-05",
+          "WI-06"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "c8e60d2f76d25b97c7b1f05ae731098491261afd095b8344455d99c3d5622e75"
+      },
+      {
+        "sourceId": "WI-08",
+        "ordinal": 7,
+        "title": "Delete invalid signal/delay machinery and lower waits to AQ-CONT-1 continuations",
+        "risk": "critical",
+        "primaryAreas": [
+          "legacy-deletion",
+          "wait-lowering",
+          "signal-outboxes",
+          "resume"
+        ],
+        "exitGate": "All waits use AQ-CONT-1; process-local signal registry and blocked executor delays are absent.",
+        "requiredDependencies": [
+          "WI-07"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "worker_execution_scope",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "7f9e956301367f952b288813869f6b39e68c6a76241b3c88fb1cf0259b3998fd"
+      },
+      {
+        "sourceId": "WI-09",
+        "ordinal": 8,
+        "title": "Add managed-worker, candidate-environment, and sandbox boundary capabilities",
+        "risk": "critical",
+        "primaryAreas": [
+          "worker-protocol",
+          "sandbox",
+          "agent-host",
+          "artifact-exchange",
+          "hierarchical-receipts"
+        ],
+        "exitGate": "Reference Agent Host passes isolation/lifecycle conformance without specialist-domain leakage.",
+        "requiredDependencies": [
+          "WI-06",
+          "WI-08"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "worker_execution_scope",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "bb97ee386c8e0c8862668ea9d2e6396fc5b004d6c19330f599b98c7d91ab2000"
+      },
+      {
+        "sourceId": "WI-10",
+        "ordinal": 9,
+        "title": "Complete connector rationalization and target capability catalog",
+        "risk": "high",
+        "primaryAreas": [
+          "connector-catalog",
+          "verifiers",
+          "sandbox-images",
+          "forbidden-symbols",
+          "developer-docs"
+        ],
+        "exitGate": "Small target catalog is fully admitted; coding-specific Fabric connectors are gone.",
+        "requiredDependencies": [
+          "WI-06",
+          "WI-09"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "worker_execution_scope"
+        ],
+        "sourceFieldsSha256": "3db1f85b3676bdc1a61b4e212393a13c714218467269f3d50ee6153482ffe404"
+      },
+      {
+        "sourceId": "WI-11",
+        "ordinal": 10,
+        "title": "Rebuild embedded, daemon, CLI, Platform, and developmental evidence inspection surfaces",
+        "risk": "critical",
+        "primaryAreas": [
+          "embedded",
+          "daemon",
+          "platform",
+          "cli",
+          "authentication",
+          "tenancy",
+          "secrets"
+        ],
+        "exitGate": "Embedded and authenticated remote profiles expose one semantic runtime and pass isolation tests.",
+        "requiredDependencies": [
+          "WI-03",
+          "WI-04",
+          "WI-05",
+          "WI-06",
+          "WI-07",
+          "WI-08",
+          "WI-09",
+          "WI-10"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "worker_execution_scope",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "20c8dec8c36b81cdb363affc7bb5439a322a5f9beb981a6f5548f036b2fdcca2"
+      },
+      {
+        "sourceId": "WI-12",
+        "ordinal": 11,
+        "title": "Add protocol-neutral portable identity and proof interfaces",
+        "risk": "high",
+        "primaryAreas": [
+          "identity-spi",
+          "proof",
+          "bindings",
+          "signing",
+          "disclosure",
+          "reference-adapters"
+        ],
+        "exitGate": "Portable identity/proof are optional, adapter-neutral, key-lifecycle aware, and cannot widen authority.",
+        "requiredDependencies": [
+          "WI-04",
+          "WI-05",
+          "WI-11"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions"
+        ],
+        "sourceFieldsSha256": "272e39527b0cdf06f326034e3cc6aed431b23e7806684555fab0a71db4eac424"
+      },
+      {
+        "sourceId": "WI-13",
+        "ordinal": 12,
+        "title": "Complete conformance, developmental evidence, crash, security, privacy, load, backup, and release hardening",
+        "risk": "critical",
+        "primaryAreas": [
+          "conformance",
+          "chaos",
+          "security",
+          "load",
+          "backup-restore",
+          "release-manifest"
+        ],
+        "exitGate": "All WI-FABRIC-2 invariants pass against exact AQ-CONT-1 RC; APIs and schemas are frozen.",
+        "requiredDependencies": [
+          "WI-01",
+          "WI-02",
+          "WI-03",
+          "WI-04",
+          "WI-05",
+          "WI-06",
+          "WI-07",
+          "WI-08",
+          "WI-09",
+          "WI-10",
+          "WI-11",
+          "WI-12"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "worker_execution_scope",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "e9aa29327547d3f03c87cf556402f28f40c3f8bb5ba3e3aee168b896f1d2eac0"
+      },
+      {
+        "sourceId": "WI-14",
+        "ordinal": 13,
+        "title": "Publish the clean-break release and exact Exoskeleton handoff",
+        "risk": "high",
+        "primaryAreas": [
+          "release",
+          "publication",
+          "docs",
+          "exo-handoff",
+          "support-policy"
+        ],
+        "exitGate": "Reproducible target release and EXO-V3 handoff package are published.",
+        "requiredDependencies": [
+          "WI-13"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "maturity",
+          "aq_gate",
+          "risk",
+          "primary_areas",
+          "exit_gate",
+          "implementation_plan_section",
+          "foundational_additions",
+          "worker_execution_scope"
+        ],
+        "sourceFieldsSha256": "8727ea749a201cc8c38e54494428dd63857c06071aecf8acfbc3ed0d8cf8cb3e"
+      }
+    ]
+  },
+  "graph": {
+    "requiredEdges": [
+      "WI-01 -> WI-02 #0",
+      "WI-02 -> WI-03 #0",
+      "WI-02 -> WI-04 #0",
+      "WI-02 -> WI-05 #0",
+      "WI-04 -> WI-06 #0",
+      "WI-05 -> WI-06 #1",
+      "WI-04 -> WI-07 #0",
+      "WI-05 -> WI-07 #1",
+      "WI-06 -> WI-07 #2",
+      "WI-07 -> WI-08 #0",
+      "WI-06 -> WI-09 #0",
+      "WI-08 -> WI-09 #1",
+      "WI-06 -> WI-10 #0",
+      "WI-09 -> WI-10 #1",
+      "WI-03 -> WI-11 #0",
+      "WI-04 -> WI-11 #1",
+      "WI-05 -> WI-11 #2",
+      "WI-06 -> WI-11 #3",
+      "WI-07 -> WI-11 #4",
+      "WI-08 -> WI-11 #5",
+      "WI-09 -> WI-11 #6",
+      "WI-10 -> WI-11 #7",
+      "WI-04 -> WI-12 #0",
+      "WI-05 -> WI-12 #1",
+      "WI-11 -> WI-12 #2",
+      "WI-01 -> WI-13 #0",
+      "WI-02 -> WI-13 #1",
+      "WI-03 -> WI-13 #2",
+      "WI-04 -> WI-13 #3",
+      "WI-05 -> WI-13 #4",
+      "WI-06 -> WI-13 #5",
+      "WI-07 -> WI-13 #6",
+      "WI-08 -> WI-13 #7",
+      "WI-09 -> WI-13 #8",
+      "WI-10 -> WI-13 #9",
+      "WI-11 -> WI-13 #10",
+      "WI-12 -> WI-13 #11",
+      "WI-13 -> WI-14 #0"
+    ],
+    "recommendedEdges": [],
+    "rootSourceIds": [
+      "WI-01"
+    ],
+    "planningReadySourceIds": [
+      "WI-01"
+    ],
+    "requiredPredecessors": {
+      "WI-01": [],
+      "WI-02": [
+        "WI-01"
+      ],
+      "WI-03": [
+        "WI-02"
+      ],
+      "WI-04": [
+        "WI-02"
+      ],
+      "WI-05": [
+        "WI-02"
+      ],
+      "WI-06": [
+        "WI-04",
+        "WI-05"
+      ],
+      "WI-07": [
+        "WI-04",
+        "WI-05",
+        "WI-06"
+      ],
+      "WI-08": [
+        "WI-07"
+      ],
+      "WI-09": [
+        "WI-06",
+        "WI-08"
+      ],
+      "WI-10": [
+        "WI-06",
+        "WI-09"
+      ],
+      "WI-11": [
+        "WI-03",
+        "WI-04",
+        "WI-05",
+        "WI-06",
+        "WI-07",
+        "WI-08",
+        "WI-09",
+        "WI-10"
+      ],
+      "WI-12": [
+        "WI-04",
+        "WI-05",
+        "WI-11"
+      ],
+      "WI-13": [
+        "WI-01",
+        "WI-02",
+        "WI-03",
+        "WI-04",
+        "WI-05",
+        "WI-06",
+        "WI-07",
+        "WI-08",
+        "WI-09",
+        "WI-10",
+        "WI-11",
+        "WI-12"
+      ],
+      "WI-14": [
+        "WI-13"
+      ]
+    },
+    "requiredSuccessors": {
+      "WI-01": [
+        "WI-02",
+        "WI-13"
+      ],
+      "WI-02": [
+        "WI-03",
+        "WI-04",
+        "WI-05",
+        "WI-13"
+      ],
+      "WI-03": [
+        "WI-11",
+        "WI-13"
+      ],
+      "WI-04": [
+        "WI-06",
+        "WI-07",
+        "WI-11",
+        "WI-12",
+        "WI-13"
+      ],
+      "WI-05": [
+        "WI-06",
+        "WI-07",
+        "WI-11",
+        "WI-12",
+        "WI-13"
+      ],
+      "WI-06": [
+        "WI-07",
+        "WI-09",
+        "WI-10",
+        "WI-11",
+        "WI-13"
+      ],
+      "WI-07": [
+        "WI-08",
+        "WI-11",
+        "WI-13"
+      ],
+      "WI-08": [
+        "WI-09",
+        "WI-11",
+        "WI-13"
+      ],
+      "WI-09": [
+        "WI-10",
+        "WI-11",
+        "WI-13"
+      ],
+      "WI-10": [
+        "WI-11",
+        "WI-13"
+      ],
+      "WI-11": [
+        "WI-12",
+        "WI-13"
+      ],
+      "WI-12": [
+        "WI-13"
+      ],
+      "WI-13": [
+        "WI-14"
+      ],
+      "WI-14": []
+    }
+  }
+}

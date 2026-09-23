@@ -1,0 +1,1189 @@
+{
+  "archive": {
+    "archiveDigest": "5e430bea7723785f70374e0aa377f5c0ab6731ab9c1d52a620b7a3cbfa976a5b",
+    "entryCount": 78,
+    "implementationPlans": [
+      "exo-v3-comprehensive/exo-v3-comprehensive-implementation-plan.md"
+    ],
+    "workBreakdowns": [
+      "exo-v3-comprehensive/exo-v3-comprehensive-work-breakdown.yaml"
+    ],
+    "selectedPaths": [
+      "exo-v3-comprehensive/AQ-ALIGNMENT-REVISION-NOTES.md",
+      "exo-v3-comprehensive/AQ-BASELINE-ALIGNMENT.md",
+      "exo-v3-comprehensive/EXECUTION-CONCURRENCY-REBINDING.md",
+      "exo-v3-comprehensive/EXECUTION-REVISION-NOTES.md",
+      "exo-v3-comprehensive/IMPORT-COMPATIBILITY-NOTES.md",
+      "exo-v3-comprehensive/KATA-INSTANCE-QUALIFICATION-RUNBOOK.md",
+      "exo-v3-comprehensive/README.md",
+      "exo-v3-comprehensive/WI-PROVIDER-ALIGNMENT.md",
+      "exo-v3-comprehensive/aq-baseline-integration-acceptance-matrix.yaml",
+      "exo-v3-comprehensive/aq-baseline.lock.json",
+      "exo-v3-comprehensive/developmental-diagnostics-cross-stack-profile.yaml",
+      "exo-v3-comprehensive/exo-v3-comprehensive-contract.yaml",
+      "exo-v3-comprehensive/exo-v3-comprehensive-implementation-plan.md",
+      "exo-v3-comprehensive/exo-v3-comprehensive-validation.json",
+      "exo-v3-comprehensive/exo-v3-comprehensive-work-breakdown.yaml",
+      "exo-v3-comprehensive/exo-v3-developmental-diagnostics-acceptance-matrix.yaml",
+      "exo-v3-comprehensive/exo-v3-execution-environment-acceptance-matrix.yaml",
+      "exo-v3-comprehensive/exo-v3-execution-environment.md",
+      "exo-v3-comprehensive/exo-v3-execution-profile.yaml",
+      "exo-v3-comprehensive/exo-v3-import-validation.json",
+      "exo-v3-comprehensive/exo-v3-instruction-integrity-acceptance-matrix.yaml",
+      "exo-v3-comprehensive/exo-v3-instruction-integrity-threat-model.md",
+      "exo-v3-comprehensive/exoskeleton-v3-comprehensive-design.md",
+      "exo-v3-comprehensive/kata-containerd-initial-target-and-digicorp.md",
+      "exo-v3-comprehensive/ohio-loop-developmental-diagnostics.md",
+      "exo-v3-comprehensive/regression-tests.json",
+      "exo-v3-comprehensive/static-regression-tests.txt",
+      "exo-v3-comprehensive/wi-worker-provider-reference.json"
+    ]
+  },
+  "digest": {
+    "hex": "5484d536444196bc6027df36f9e033bd36deda473e3a38c09167a1ae74c74bfd",
+    "algorithm": "sha-256",
+    "formatVersion": 1
+  },
+  "fatal": false,
+  "errorCount": 0,
+  "warningCount": 0,
+  "diagnostics": [],
+  "totalByteLength": 842308,
+  "artifacts": [
+    {
+      "role": "supporting",
+      "logicalFilename": "AQ-ALIGNMENT-REVISION-NOTES.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 1109,
+      "sha256": "126f9e30a9761348e62d6e74c996e22c82e7194374bbd019b593949e36f5690b"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "AQ-BASELINE-ALIGNMENT.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 12055,
+      "sha256": "cd013232a0a9cbca2c625d31c3fc75e053f7948d37b8a6de2f08ff5cdc7e4656"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "EXECUTION-CONCURRENCY-REBINDING.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 1482,
+      "sha256": "96bd8e9b7ae1e8d113a95a4a4233fb698a6e724f9b0b0e1fea4369e1fb545745"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "EXECUTION-REVISION-NOTES.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 1364,
+      "sha256": "93fb6720040c1e987ddffa3d07c20686f3acd5b2ccc7d1e8364e7848d017676f"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "IMPORT-COMPATIBILITY-NOTES.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 3078,
+      "sha256": "63edc4bfec902a6c9fefcc35fe1726a68bd7f315f6c4177c8f1d312d6a42c838"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "KATA-INSTANCE-QUALIFICATION-RUNBOOK.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 5759,
+      "sha256": "3fe4f645caccb1407aacd5c79a0704f971c7939a2a35e43c646e83c89ef0fc2c"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "README.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 3138,
+      "sha256": "21a15a63e1fba52dd44585ba6fc5fe376a955e74172e2869057e97d7bbc840d3"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "WI-PROVIDER-ALIGNMENT.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 1734,
+      "sha256": "fa2cca899765033220951e2f6c0ccb2d8355f796556040995bd51138c464a878"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "aq-baseline-integration-acceptance-matrix.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 13648,
+      "sha256": "4d3661ece23e58db4af6b42221b46c2b9c1687fff5308490e757d5068c95bb2a"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "aq-baseline.lock.json",
+      "mediaType": "application/json",
+      "sourceClass": "json",
+      "byteLength": 6168,
+      "sha256": "1907d0a157628511c2419f84fd6b7820e09c160699505ee986cc46f3bcf78c7a"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "developmental-diagnostics-cross-stack-profile.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 5179,
+      "sha256": "5214651327d1aa0c688eb20a404de5a5f692387b193ee747ac79d3e4e1380f2d"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "exo-v3-comprehensive-contract.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 4353,
+      "sha256": "a30d9f5c152ec2a67890d45ab3677db962b64cbd06e5b5d2246bb05bc82ea753"
+    },
+    {
+      "role": "implementation-plan",
+      "logicalFilename": "exo-v3-comprehensive-implementation-plan.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 152916,
+      "sha256": "bd92690d91f1af11991de811c12818c62569571ee32ce81ef3462597759eb40e"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "exo-v3-comprehensive-validation.json",
+      "mediaType": "application/json",
+      "sourceClass": "json",
+      "byteLength": 35933,
+      "sha256": "2c965404b89b63b5ab7832d99d1298454fe9238b5333868c0b749216acf2215e"
+    },
+    {
+      "role": "work-breakdown",
+      "logicalFilename": "exo-v3-comprehensive-work-breakdown.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 14170,
+      "sha256": "a8f05709f6d150adf26ce916ac84c555fd0cdfa829790bd18e69228ba9d32a60"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "exo-v3-developmental-diagnostics-acceptance-matrix.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 10298,
+      "sha256": "a4a63bc36aa5a685368e888616a765489d294aaea2b5f8341a0c2fd69a0079a6"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "exo-v3-execution-environment-acceptance-matrix.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 16645,
+      "sha256": "7a4bf0021be2bc666d9aca870e794f97fdb93d788446832743508ea47ad65e09"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "exo-v3-execution-environment.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 19428,
+      "sha256": "815b49979abeef0899809332334327de647eefea426d88b6867fa85bd3a091ef"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "exo-v3-execution-profile.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 7059,
+      "sha256": "b026ca5cc123907404007846a9f51eaa01e1dcc80c44303c92ea85640243df8a"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "exo-v3-import-validation.json",
+      "mediaType": "application/json",
+      "sourceClass": "json",
+      "byteLength": 46598,
+      "sha256": "57327b9f0c95ca0ffee7a4ee8b320fee502f354b03227afba0e368386cbdaf65"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "exo-v3-instruction-integrity-acceptance-matrix.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 42767,
+      "sha256": "2510c2f6e3d6212ae38a544c803dd63317ebc7c87ca2506c1607e08e16c71736"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "exo-v3-instruction-integrity-threat-model.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 16520,
+      "sha256": "664d61c73efb876af4b354ed6c1eb5327321658663bcace027769d2f7bc7b4ab"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "exoskeleton-v3-comprehensive-design.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 366826,
+      "sha256": "f56ebc147a95fb64e6a1d189de773d9c7dc31822ba52d32432301ceb95b929d7"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "kata-containerd-initial-target-and-digicorp.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 15563,
+      "sha256": "44757f8af98be1c44972bd2610f5cc01d3a0a8a73a00014e2d36d3985518663e"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "ohio-loop-developmental-diagnostics.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 26200,
+      "sha256": "2fc9662547c6336e1fb10583ad79dd9434d66435ce181af21417e3764a42405e"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "regression-tests.json",
+      "mediaType": "application/json",
+      "sourceClass": "json",
+      "byteLength": 278,
+      "sha256": "4d2117966d2af6cb100ac96d3cf458303929bb1ed2b0a4eff07b7139b56a54af"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "static-regression-tests.txt",
+      "mediaType": "text/plain",
+      "sourceClass": "text",
+      "byteLength": 9923,
+      "sha256": "b37459a88af2d64278982f2b538b2a371f688875740dab4088bac4e148587f29"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "wi-worker-provider-reference.json",
+      "mediaType": "application/json",
+      "sourceClass": "json",
+      "byteLength": 2117,
+      "sha256": "44ecf7cb708cc8266fd84b8b2f9b0a5d2a610fc5fbb43a77fa723621bfb54fad"
+    }
+  ],
+  "plan": {
+    "sourceProfile": "exo-work-breakdown-v1",
+    "document": "EXO-V3 Comprehensive Implementation Plan",
+    "metadata": {
+      "keys": [
+        "document",
+        "schema_version",
+        "profile",
+        "pull_requests",
+        "cross_stack_profile",
+        "revision_date",
+        "change_class",
+        "plan_revision",
+        "execution_environment_profile",
+        "aq_baseline_alignment"
+      ],
+      "canonicalSha256": "7e4c7f9a7832f9b0ee412ada90b1eeb8efa2dc96c229b08e52a47e39137c551d"
+    },
+    "workItems": [
+      {
+        "sourceId": "EXO-01",
+        "ordinal": 0,
+        "title": "Freeze evidence and target development contract",
+        "risk": "medium",
+        "primaryAreas": [
+          "development-contract",
+          "conformance/exo-v3",
+          "baseline-evidence-archive",
+          "ADR-and-disposition-ledgers"
+        ],
+        "exitGate": "frozen source posture, complete disposition ledger, ADR queue, schema inventory, lifecycle inventory, conformance skeleton, and clean-break checks exist.",
+        "requiredDependencies": [],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "execution_environment_scope"
+        ],
+        "sourceFieldsSha256": "2e01f7795c805090efbdb639b4f7286f009208eb29caaa065037e8a73c1ec36b"
+      },
+      {
+        "sourceId": "EXO-02",
+        "ordinal": 1,
+        "title": "Core records, domain journal, and fresh persistence",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-core",
+          "exoskeleton-store"
+        ],
+        "exitGate": "target records commit and replay atomically under a fresh schema; no pre-v3 runtime reader exists.",
+        "requiredDependencies": [
+          "EXO-01"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "primary_areas",
+          "risk",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "96f6e4b43e99277d9cd71ff4e0c908de02a9bac448a459a34179b712e3c3d0e7"
+      },
+      {
+        "sourceId": "EXO-03",
+        "ordinal": 2,
+        "title": "Blueprint, Genesis, commissioning, activation, roles, and lifecycle",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-instantiation",
+          "exoskeleton-identity",
+          "exoskeleton-host"
+        ],
+        "exitGate": "a target Vessel can be structurally instantiated, commissioned through a fake boundary, activated, enter quiescence, and be inspected without an LLM. Instance/environment references do not redefine Vessel identity or Genesis; the initial topology and external lifecycle owner are recorded under EXO-V3-EXECUTION-1.",
+        "requiredDependencies": [
+          "EXO-02"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "execution_environment_scope"
+        ],
+        "sourceFieldsSha256": "03db199b2e62b113eeaf564773f034d221df76807b5ea15604b5c62eb01d31f2"
+      },
+      {
+        "sourceId": "EXO-04",
+        "ordinal": 3,
+        "title": "Semantic time, schema governance, epistemic state, and task-distribution foundations",
+        "risk": "high",
+        "primaryAreas": [
+          "exoskeleton-core",
+          "exoskeleton-schema",
+          "exoskeleton-epistemics",
+          "exoskeleton-development"
+        ],
+        "exitGate": "the Vessel has a deterministic, replayable, evidence-linked current world model and semantic timeline.",
+        "requiredDependencies": [
+          "EXO-02"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "developmental_diagnostics_scope",
+          "primary_areas",
+          "risk",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "4f47cfc0d59fd36cf5b5c8c5dfff7b83f4ed2d06b7bbb9e023cab154946f8651"
+      },
+      {
+        "sourceId": "EXO-05",
+        "ordinal": 4,
+        "title": "Instruction authority, context manifests, representation-profile linkage, and information-flow integrity",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-integrity",
+          "context-manifest-compilation",
+          "exoskeleton-information"
+        ],
+        "exitGate": "an adversarial artifact may influence hypotheses and proposals but cannot become an instruction, protected-state transition, plan expansion, or authorized effect without explicit structural admission.",
+        "requiredDependencies": [
+          "EXO-02",
+          "EXO-04"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "developmental_diagnostics_scope",
+          "primary_areas",
+          "risk",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "76fecdd8ea636aa9e34178219fa4ccee973c6daf4ec2774c51d6239240e677f6"
+      },
+      {
+        "sourceId": "EXO-06",
+        "ordinal": 5,
+        "title": "Interaction, attention, response obligations, Mission Offers, and episode admission",
+        "risk": "high",
+        "primaryAreas": [
+          "exoskeleton-interaction",
+          "exoskeleton-constitution/attention",
+          "exoskeleton-host"
+        ],
+        "exitGate": "communication and other demands can recruit bounded cognition without becoming the Vessel's sole source of activity.",
+        "requiredDependencies": [
+          "EXO-03",
+          "EXO-04",
+          "EXO-05"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "primary_areas",
+          "risk",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "30af0eca0b4a36cb54d16871e348bb6a583773577da4fc9c2a00af8151395a8f"
+      },
+      {
+        "sourceId": "EXO-07",
+        "ordinal": 6,
+        "title": "Faculty contract, capability profiles, and Influence Constitution",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-faculty",
+          "exoskeleton-constitution/influence",
+          "exoskeleton-development"
+        ],
+        "exitGate": "typed faculties and pure constitutional arbitration replace prose-thread convergence.",
+        "requiredDependencies": [
+          "EXO-04",
+          "EXO-05",
+          "EXO-06"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "developmental_diagnostics_scope",
+          "primary_areas",
+          "risk",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "f215bc6c22c324c2c3d1615284f70b0520d389fe047e563f985205d9817060ea"
+      },
+      {
+        "sourceId": "EXO-08",
+        "ordinal": 7,
+        "title": "Commitment portfolio, Purpose Charter, plans, and governed initiative",
+        "risk": "high",
+        "primaryAreas": [
+          "exoskeleton-agenda",
+          "exoskeleton-constitution/initiative",
+          "exoskeleton-instantiation"
+        ],
+        "exitGate": "the Vessel can accept, reject, negotiate, continue, and retire work under explicit portfolio and initiative policy.",
+        "requiredDependencies": [
+          "EXO-03",
+          "EXO-04",
+          "EXO-06",
+          "EXO-07"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "primary_areas",
+          "risk",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "a6a56b9e6202f5be57cb896865fde395d41118abc093e922aa6bcf6a8259d5b6"
+      },
+      {
+        "sourceId": "EXO-09",
+        "ordinal": 8,
+        "title": "Relationships, memory, self-model, narrative, and information governance",
+        "risk": "high",
+        "primaryAreas": [
+          "exoskeleton-memory",
+          "exoskeleton-relationship",
+          "exoskeleton-narrative",
+          "exoskeleton-information",
+          "exoskeleton-identity"
+        ],
+        "exitGate": "continuity includes evidence-linked relationships, memory, self-model, narrative, and information obligations without fabricated autobiography.",
+        "requiredDependencies": [
+          "EXO-04",
+          "EXO-05",
+          "EXO-06",
+          "EXO-08"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "primary_areas",
+          "risk",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "2ceaeb302ad285d67448cfa0841e94c63f2116ea95d140af74a34e385f1441ae"
+      },
+      {
+        "sourceId": "EXO-10",
+        "ordinal": 9,
+        "title": "Local Capability Constitution, approvals, acting capacity, and personas",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-constitution/capability",
+          "exoskeleton-identity",
+          "exoskeleton-integrity"
+        ],
+        "exitGate": "Exoskeleton can produce bounded Agency Drafts and local decisions without pretending to own final WorldInterface authorization.",
+        "requiredDependencies": [
+          "EXO-03",
+          "EXO-05",
+          "EXO-08",
+          "EXO-09"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "primary_areas",
+          "risk",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "9c07d2915eb30202aef84b2cb2e430ecf1bc897fd196a49b4480dc8f6671be22"
+      },
+      {
+        "sourceId": "EXO-11",
+        "ordinal": 10,
+        "title": "AQ-CONT-1 and WI-FABRIC-2 integration",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-host",
+          "exoskeleton-store/outbox",
+          "AQ-CONT-1-adapter",
+          "WI-FABRIC-2-adapter"
+        ],
+        "exitGate": "real AQ/WI adapters satisfy pinned conformance with no compatibility path. The initial embedded proof runs inside the declared instance profile; it does not substitute for outstanding full daemon/platform conformance.",
+        "requiredDependencies": [
+          "EXO-06",
+          "EXO-08",
+          "EXO-10"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "execution_environment_scope",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "447e7e13b66492b23c5f63ce2844b86b6ff957c8efb7bd88126d5ef395066191"
+      },
+      {
+        "sourceId": "EXO-12",
+        "ordinal": 11,
+        "title": "Delegation management and Agent Host control",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-delegation",
+          "exoskeleton-host",
+          "Agent-Host-control"
+        ],
+        "exitGate": "Exoskeleton supervises specialist work without implementing specialist technique or binding directly to one framework. The process-managed-proof-1 backend passes its bounded lifecycle cases, rejects stronger unsupported isolation, and leaves externally provided workers a portable resource seam.",
+        "requiredDependencies": [
+          "EXO-08",
+          "EXO-10",
+          "EXO-11"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "execution_environment_scope",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "286e91dd0beab1cd440393c6c2617ee7271d1ef569d8b282db39b68cca110ce7"
+      },
+      {
+        "sourceId": "EXO-13",
+        "ordinal": 12,
+        "title": "Verification, developmental measurement, evidence admission, acceptance, and epistemic consequence",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-verification",
+          "exoskeleton-development",
+          "exoskeleton-epistemics",
+          "exoskeleton-agenda"
+        ],
+        "exitGate": "outcomes become accepted only through explicit evidence policy and version-bound verification/evaluation; developmental measurements are immutable, scoped, and distinguish facts from judgment. Process-worker lifecycle success and simulated external-provider results carry their actual assurance limits and cannot self-certify accepted work.",
+        "requiredDependencies": [
+          "EXO-04",
+          "EXO-08",
+          "EXO-09",
+          "EXO-11",
+          "EXO-12"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "developmental_diagnostics_scope",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "execution_environment_scope"
+        ],
+        "sourceFieldsSha256": "5362cc285f33e437202308e46076bf29c2c17256888f3c8082131d90e6da0ede"
+      },
+      {
+        "sourceId": "EXO-14",
+        "ordinal": 13,
+        "title": "Skills, capability and representation profiles, component fingerprints, and behavioral component registry",
+        "risk": "high",
+        "primaryAreas": [
+          "exoskeleton-delegation/skills",
+          "exoskeleton-faculty",
+          "exoskeleton-development",
+          "exoskeleton-schema"
+        ],
+        "exitGate": "skills and cognitive/representation components have explicit provenance, fingerprints, compatibility, lifecycle, competence, and authority boundaries. Instance and worker environment evidence remain distinct and relevant drift invalidates developmental comparisons.",
+        "requiredDependencies": [
+          "EXO-04",
+          "EXO-07",
+          "EXO-09",
+          "EXO-13"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "developmental_diagnostics_scope",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "execution_environment_scope"
+        ],
+        "sourceFieldsSha256": "33a54b596c9ac228a236d525a918f3d3f5aa5d30eaab97fe18adc766b4e60c8e"
+      },
+      {
+        "sourceId": "EXO-15",
+        "ordinal": 14,
+        "title": "Governed self-improvement, capability-frontier diagnosis, campaign control, and lifecycle supervisor",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-development",
+          "exoskeleton-host",
+          "exoskeleton-verification",
+          "lifecycle-supervisor-integration"
+        ],
+        "exitGate": "the Vessel can diagnose and participate in its own improvement without becoming the sole author of the diagnosis, judge, or activator of its replacement. The active guest has no raw runtime-management authority, the operator-owned supervisor remains external, and unreviewed executable candidates cannot run under the process proof profile.",
+        "requiredDependencies": [
+          "EXO-10",
+          "EXO-11",
+          "EXO-12",
+          "EXO-13",
+          "EXO-14"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "developmental_diagnostics_scope",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "execution_environment_scope"
+        ],
+        "sourceFieldsSha256": "8dce700e8148be9366dec6624694e995f224eedd8384dbee2989a31188fdd152"
+      },
+      {
+        "sourceId": "EXO-16",
+        "ordinal": 15,
+        "title": "Viability, degraded modes, campaign resource protection, maintenance, and recovery",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-viability",
+          "exoskeleton-store/recovery",
+          "exoskeleton-agenda",
+          "exoskeleton-host"
+        ],
+        "exitGate": "the Vessel can degrade safely, prioritize recovery, and preserve governance under partial failure. The selected Kata persistence path passes restart/recreate, one-writer restore, compatible rollback and worker/outbox reconciliation evidence.",
+        "requiredDependencies": [
+          "EXO-03",
+          "EXO-04",
+          "EXO-08",
+          "EXO-09",
+          "EXO-10",
+          "EXO-11",
+          "EXO-14",
+          "EXO-15"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "developmental_diagnostics_scope",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "execution_environment_scope",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "7f96881df08887ea242d1bb7aeaeea733fbb2cd4f6c83ecb377433199959fce4"
+      },
+      {
+        "sourceId": "EXO-17",
+        "ordinal": 16,
+        "title": "Delete and decontaminate experimental architecture",
+        "risk": "high",
+        "primaryAreas": [
+          "legacy-runtime-removal",
+          "clean-break-architecture-checks",
+          "conformance/exo-v3"
+        ],
+        "exitGate": "one target architecture remains, all forbidden symbols are absent, and the old runtime cannot be selected or read.",
+        "requiredDependencies": [
+          "EXO-06",
+          "EXO-07",
+          "EXO-08",
+          "EXO-09",
+          "EXO-10",
+          "EXO-11",
+          "EXO-12",
+          "EXO-13",
+          "EXO-14",
+          "EXO-15",
+          "EXO-16"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "aq_baseline_acceptance_cases"
+        ],
+        "sourceFieldsSha256": "128d5145cfe12c88e9f3cdc46832b58fb1d155d376c8ea2625e1db4430b2e1c8"
+      },
+      {
+        "sourceId": "EXO-18",
+        "ordinal": 17,
+        "title": "Identity/proof, evaluator integrity, privacy, security, and operational hardening",
+        "risk": "critical",
+        "primaryAreas": [
+          "exoskeleton-identity",
+          "exoskeleton-information",
+          "exoskeleton-host",
+          "exoskeleton-daemon",
+          "exoskeleton-cli",
+          "backup-and-restore",
+          "evaluator-integrity"
+        ],
+        "exitGate": "the full security and operational posture is documented, tested, recoverable, and uses no mandatory speculative identity foundation. One pinned Kata/containerd instance profile passes EXO-ENV-G1/G2 with protected host management and explicit process-worker limitations.",
+        "requiredDependencies": [
+          "EXO-11",
+          "EXO-13",
+          "EXO-15",
+          "EXO-16",
+          "EXO-17"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "developmental_diagnostics_scope",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "execution_environment_scope"
+        ],
+        "sourceFieldsSha256": "785f0e58589264c1ea45beb82c702929fcc6fb66f6f13f336792c9025e7a5ec3"
+      },
+      {
+        "sourceId": "EXO-19",
+        "ordinal": 18,
+        "title": "Cross-stack conformance, developmental reference campaign, and breaking release",
+        "risk": "critical",
+        "primaryAreas": [
+          "conformance/exo-v3",
+          "cross-stack-integration",
+          "developmental-reference-campaign",
+          "release-and-operator-runbooks"
+        ],
+        "exitGate": "all target-only conformance, crash, replay, security, developmental-diagnostic, performance, backup, and reference workloads pass; the clean-break EXO-V3 release is publishable. EXO-EMBEDDED-VIABILITY-1 and EXO-ENV-G1 through G5 are evidenced without inflating narrower proof into unimplemented platform or hostile-worker qualification.",
+        "requiredDependencies": [
+          "EXO-18"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "sequence",
+          "title",
+          "depends_on",
+          "status",
+          "developmental_diagnostics_scope",
+          "primary_areas",
+          "risk",
+          "exit_gate",
+          "execution_environment_scope"
+        ],
+        "sourceFieldsSha256": "b9476a6eb327ce83df7e9fd8541c416fbf03ec3863c933b1497936ae27aff9ea"
+      }
+    ]
+  },
+  "graph": {
+    "requiredEdges": [
+      "EXO-01 -> EXO-02 #0",
+      "EXO-02 -> EXO-03 #0",
+      "EXO-02 -> EXO-04 #0",
+      "EXO-02 -> EXO-05 #0",
+      "EXO-04 -> EXO-05 #1",
+      "EXO-03 -> EXO-06 #0",
+      "EXO-04 -> EXO-06 #1",
+      "EXO-05 -> EXO-06 #2",
+      "EXO-04 -> EXO-07 #0",
+      "EXO-05 -> EXO-07 #1",
+      "EXO-06 -> EXO-07 #2",
+      "EXO-03 -> EXO-08 #0",
+      "EXO-04 -> EXO-08 #1",
+      "EXO-06 -> EXO-08 #2",
+      "EXO-07 -> EXO-08 #3",
+      "EXO-04 -> EXO-09 #0",
+      "EXO-05 -> EXO-09 #1",
+      "EXO-06 -> EXO-09 #2",
+      "EXO-08 -> EXO-09 #3",
+      "EXO-03 -> EXO-10 #0",
+      "EXO-05 -> EXO-10 #1",
+      "EXO-08 -> EXO-10 #2",
+      "EXO-09 -> EXO-10 #3",
+      "EXO-06 -> EXO-11 #0",
+      "EXO-08 -> EXO-11 #1",
+      "EXO-10 -> EXO-11 #2",
+      "EXO-08 -> EXO-12 #0",
+      "EXO-10 -> EXO-12 #1",
+      "EXO-11 -> EXO-12 #2",
+      "EXO-04 -> EXO-13 #0",
+      "EXO-08 -> EXO-13 #1",
+      "EXO-09 -> EXO-13 #2",
+      "EXO-11 -> EXO-13 #3",
+      "EXO-12 -> EXO-13 #4",
+      "EXO-04 -> EXO-14 #0",
+      "EXO-07 -> EXO-14 #1",
+      "EXO-09 -> EXO-14 #2",
+      "EXO-13 -> EXO-14 #3",
+      "EXO-10 -> EXO-15 #0",
+      "EXO-11 -> EXO-15 #1",
+      "EXO-12 -> EXO-15 #2",
+      "EXO-13 -> EXO-15 #3",
+      "EXO-14 -> EXO-15 #4",
+      "EXO-03 -> EXO-16 #0",
+      "EXO-04 -> EXO-16 #1",
+      "EXO-08 -> EXO-16 #2",
+      "EXO-09 -> EXO-16 #3",
+      "EXO-10 -> EXO-16 #4",
+      "EXO-11 -> EXO-16 #5",
+      "EXO-14 -> EXO-16 #6",
+      "EXO-15 -> EXO-16 #7",
+      "EXO-06 -> EXO-17 #0",
+      "EXO-07 -> EXO-17 #1",
+      "EXO-08 -> EXO-17 #2",
+      "EXO-09 -> EXO-17 #3",
+      "EXO-10 -> EXO-17 #4",
+      "EXO-11 -> EXO-17 #5",
+      "EXO-12 -> EXO-17 #6",
+      "EXO-13 -> EXO-17 #7",
+      "EXO-14 -> EXO-17 #8",
+      "EXO-15 -> EXO-17 #9",
+      "EXO-16 -> EXO-17 #10",
+      "EXO-11 -> EXO-18 #0",
+      "EXO-13 -> EXO-18 #1",
+      "EXO-15 -> EXO-18 #2",
+      "EXO-16 -> EXO-18 #3",
+      "EXO-17 -> EXO-18 #4",
+      "EXO-18 -> EXO-19 #0"
+    ],
+    "recommendedEdges": [],
+    "rootSourceIds": [
+      "EXO-01"
+    ],
+    "planningReadySourceIds": [
+      "EXO-01"
+    ],
+    "requiredPredecessors": {
+      "EXO-01": [],
+      "EXO-02": [
+        "EXO-01"
+      ],
+      "EXO-03": [
+        "EXO-02"
+      ],
+      "EXO-04": [
+        "EXO-02"
+      ],
+      "EXO-05": [
+        "EXO-02",
+        "EXO-04"
+      ],
+      "EXO-06": [
+        "EXO-03",
+        "EXO-04",
+        "EXO-05"
+      ],
+      "EXO-07": [
+        "EXO-04",
+        "EXO-05",
+        "EXO-06"
+      ],
+      "EXO-08": [
+        "EXO-03",
+        "EXO-04",
+        "EXO-06",
+        "EXO-07"
+      ],
+      "EXO-09": [
+        "EXO-04",
+        "EXO-05",
+        "EXO-06",
+        "EXO-08"
+      ],
+      "EXO-10": [
+        "EXO-03",
+        "EXO-05",
+        "EXO-08",
+        "EXO-09"
+      ],
+      "EXO-11": [
+        "EXO-06",
+        "EXO-08",
+        "EXO-10"
+      ],
+      "EXO-12": [
+        "EXO-08",
+        "EXO-10",
+        "EXO-11"
+      ],
+      "EXO-13": [
+        "EXO-04",
+        "EXO-08",
+        "EXO-09",
+        "EXO-11",
+        "EXO-12"
+      ],
+      "EXO-14": [
+        "EXO-04",
+        "EXO-07",
+        "EXO-09",
+        "EXO-13"
+      ],
+      "EXO-15": [
+        "EXO-10",
+        "EXO-11",
+        "EXO-12",
+        "EXO-13",
+        "EXO-14"
+      ],
+      "EXO-16": [
+        "EXO-03",
+        "EXO-04",
+        "EXO-08",
+        "EXO-09",
+        "EXO-10",
+        "EXO-11",
+        "EXO-14",
+        "EXO-15"
+      ],
+      "EXO-17": [
+        "EXO-06",
+        "EXO-07",
+        "EXO-08",
+        "EXO-09",
+        "EXO-10",
+        "EXO-11",
+        "EXO-12",
+        "EXO-13",
+        "EXO-14",
+        "EXO-15",
+        "EXO-16"
+      ],
+      "EXO-18": [
+        "EXO-11",
+        "EXO-13",
+        "EXO-15",
+        "EXO-16",
+        "EXO-17"
+      ],
+      "EXO-19": [
+        "EXO-18"
+      ]
+    },
+    "requiredSuccessors": {
+      "EXO-01": [
+        "EXO-02"
+      ],
+      "EXO-02": [
+        "EXO-03",
+        "EXO-04",
+        "EXO-05"
+      ],
+      "EXO-03": [
+        "EXO-06",
+        "EXO-08",
+        "EXO-10",
+        "EXO-16"
+      ],
+      "EXO-04": [
+        "EXO-05",
+        "EXO-06",
+        "EXO-07",
+        "EXO-08",
+        "EXO-09",
+        "EXO-13",
+        "EXO-14",
+        "EXO-16"
+      ],
+      "EXO-05": [
+        "EXO-06",
+        "EXO-07",
+        "EXO-09",
+        "EXO-10"
+      ],
+      "EXO-06": [
+        "EXO-07",
+        "EXO-08",
+        "EXO-09",
+        "EXO-11",
+        "EXO-17"
+      ],
+      "EXO-07": [
+        "EXO-08",
+        "EXO-14",
+        "EXO-17"
+      ],
+      "EXO-08": [
+        "EXO-09",
+        "EXO-10",
+        "EXO-11",
+        "EXO-12",
+        "EXO-13",
+        "EXO-16",
+        "EXO-17"
+      ],
+      "EXO-09": [
+        "EXO-10",
+        "EXO-13",
+        "EXO-14",
+        "EXO-16",
+        "EXO-17"
+      ],
+      "EXO-10": [
+        "EXO-11",
+        "EXO-12",
+        "EXO-15",
+        "EXO-16",
+        "EXO-17"
+      ],
+      "EXO-11": [
+        "EXO-12",
+        "EXO-13",
+        "EXO-15",
+        "EXO-16",
+        "EXO-17",
+        "EXO-18"
+      ],
+      "EXO-12": [
+        "EXO-13",
+        "EXO-15",
+        "EXO-17"
+      ],
+      "EXO-13": [
+        "EXO-14",
+        "EXO-15",
+        "EXO-17",
+        "EXO-18"
+      ],
+      "EXO-14": [
+        "EXO-15",
+        "EXO-16",
+        "EXO-17"
+      ],
+      "EXO-15": [
+        "EXO-16",
+        "EXO-17",
+        "EXO-18"
+      ],
+      "EXO-16": [
+        "EXO-17",
+        "EXO-18"
+      ],
+      "EXO-17": [
+        "EXO-18"
+      ],
+      "EXO-18": [
+        "EXO-19"
+      ],
+      "EXO-19": []
+    }
+  }
+}

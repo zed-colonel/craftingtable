@@ -1,0 +1,93 @@
+{
+  "archiveSha256": "3df30b94de7dad830b67a2f6f67cc9d662023f8f36a307db10e915d2a24da335",
+  "digest": "51563f70c37bd7ca696f22833ec81d37acfa4918ba380dec679198c0a4f36cff",
+  "canonicalDefinitionSha256": "b9e3a9072c52b9253c4b9ba8693a38874989818cfbe1bb03fd0fd3c51f4146f7",
+  "diagnostics": [],
+  "graphNodeCount": 335,
+  "graphEdgeCount": 1221,
+  "identity": {
+    "mapId": "EXO-STACK-CONCURRENCY-DRAFT-1",
+    "revision": "0.3.0",
+    "terminalCheckpoint": "EXO-PUBLISHED"
+  },
+  "collectionSizes": {
+    "source_files": 30,
+    "repositories": 3,
+    "decisions": 18,
+    "evidence_profiles": 15,
+    "resource_locks": 2,
+    "checkpoints": 95,
+    "deferred_decisions": 0,
+    "work_items": 33,
+    "slices": 69,
+    "limitations": 11,
+    "source_archives": 3,
+    "resource_profiles": 3,
+    "acceptance_coverage": 76,
+    "planning_targets": 3,
+    "baseline_acceptance_coverage": 48
+  },
+  "repositories": [
+    {
+      "id": "aq",
+      "role": "implemented_upstream"
+    },
+    {
+      "id": "wi",
+      "role": "planned_application"
+    },
+    {
+      "id": "exo",
+      "role": "planned_application"
+    }
+  ],
+  "parentBindings": {
+    "wi/WI-01": "abff02a7dae80b3ecc31c21366f2cf9d75312a98e7c41da8b49ac83057c67e3c",
+    "wi/WI-02": "54e8976d7e8f0209810e13db049724811462d05e896f1ce123eb1f074abab5a5",
+    "wi/WI-03": "4563198eed97eec58cca50205ff79aa2485aca6d0d19be89901a3e5620ca16ff",
+    "wi/WI-04": "b1316d3335ab2ebbdde26498f6586e28d4d3fce76f56e4f09815bc12f3a91d6d",
+    "wi/WI-05": "9644e6df577104902ebe4ad9a61f1d939cb7e73716ed934c456841e3863cef2f",
+    "wi/WI-06": "3f8cfc2ad1e16f57494cf43cdd3cf09bdfe24501fb223bb4800d2ce3c9a95027",
+    "wi/WI-07": "c8e60d2f76d25b97c7b1f05ae731098491261afd095b8344455d99c3d5622e75",
+    "wi/WI-08": "7f9e956301367f952b288813869f6b39e68c6a76241b3c88fb1cf0259b3998fd",
+    "wi/WI-09": "bb97ee386c8e0c8862668ea9d2e6396fc5b004d6c19330f599b98c7d91ab2000",
+    "wi/WI-10": "3db1f85b3676bdc1a61b4e212393a13c714218467269f3d50ee6153482ffe404",
+    "wi/WI-11": "20c8dec8c36b81cdb363affc7bb5439a322a5f9beb981a6f5548f036b2fdcca2",
+    "wi/WI-12": "272e39527b0cdf06f326034e3cc6aed431b23e7806684555fab0a71db4eac424",
+    "wi/WI-13": "e9aa29327547d3f03c87cf556402f28f40c3f8bb5ba3e3aee168b896f1d2eac0",
+    "wi/WI-14": "8727ea749a201cc8c38e54494428dd63857c06071aecf8acfbc3ed0d8cf8cb3e",
+    "exo/EXO-01": "2e01f7795c805090efbdb639b4f7286f009208eb29caaa065037e8a73c1ec36b",
+    "exo/EXO-02": "96f6e4b43e99277d9cd71ff4e0c908de02a9bac448a459a34179b712e3c3d0e7",
+    "exo/EXO-03": "03db199b2e62b113eeaf564773f034d221df76807b5ea15604b5c62eb01d31f2",
+    "exo/EXO-04": "4f47cfc0d59fd36cf5b5c8c5dfff7b83f4ed2d06b7bbb9e023cab154946f8651",
+    "exo/EXO-05": "76fecdd8ea636aa9e34178219fa4ccee973c6daf4ec2774c51d6239240e677f6",
+    "exo/EXO-06": "30af0eca0b4a36cb54d16871e348bb6a583773577da4fc9c2a00af8151395a8f",
+    "exo/EXO-07": "f215bc6c22c324c2c3d1615284f70b0520d389fe047e563f985205d9817060ea",
+    "exo/EXO-08": "a6a56b9e6202f5be57cb896865fde395d41118abc093e922aa6bcf6a8259d5b6",
+    "exo/EXO-09": "2ceaeb302ad285d67448cfa0841e94c63f2116ea95d140af74a34e385f1441ae",
+    "exo/EXO-10": "9c07d2915eb30202aef84b2cb2e430ecf1bc897fd196a49b4480dc8f6671be22",
+    "exo/EXO-11": "447e7e13b66492b23c5f63ce2844b86b6ff957c8efb7bd88126d5ef395066191",
+    "exo/EXO-12": "286e91dd0beab1cd440393c6c2617ee7271d1ef569d8b282db39b68cca110ce7",
+    "exo/EXO-13": "5362cc285f33e437202308e46076bf29c2c17256888f3c8082131d90e6da0ede",
+    "exo/EXO-14": "33a54b596c9ac228a236d525a918f3d3f5aa5d30eaab97fe18adc766b4e60c8e",
+    "exo/EXO-15": "8dce700e8148be9366dec6624694e995f224eedd8384dbee2989a31188fdd152",
+    "exo/EXO-16": "7f96881df08887ea242d1bb7aeaeea733fbb2cd4f6c83ecb377433199959fce4",
+    "exo/EXO-17": "128d5145cfe12c88e9f3cdc46832b58fb1d155d376c8ea2625e1db4430b2e1c8",
+    "exo/EXO-18": "785f0e58589264c1ea45beb82c702929fcc6fb66f6f13f336792c9025e7a5ec3",
+    "exo/EXO-19": "b9476a6eb327ce83df7e9fd8541c416fbf03ec3863c933b1497936ae27aff9ea"
+  },
+  "planningTargets": [
+    {
+      "id": "WI-EMBEDDED-WORKER-PROOF-1",
+      "checkpoint": "WI-EMBEDDED-WORKER-PROOF-1"
+    },
+    {
+      "id": "EXO-EMBEDDED-VIABILITY-1",
+      "checkpoint": "EXO-EMBEDDED-VIABILITY-1"
+    },
+    {
+      "id": "FULL-STACK-RELEASE",
+      "checkpoint": "EXO-PUBLISHED"
+    }
+  ]
+}

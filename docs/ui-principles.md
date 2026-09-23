@@ -53,8 +53,9 @@ a form.
 
 The shared primitives live in `apps/web/src/components/` and are the only way to build
 these parts. Feature components keep their data props; the anatomy is a composition
-rule, not a data change. `docs/ui-walkthrough/` holds dated captures of every page on
-desktop and phone; take one before and after structural UI work.
+rule, not a data change. `pnpm ui:walkthrough` takes dated captures of every page on
+desktop and phone (indexed in `docs/ui-walkthrough/`); take one before and after
+structural UI work.
 
 ## Shell
 

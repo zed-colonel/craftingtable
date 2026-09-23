@@ -10,6 +10,7 @@ import { revealElement } from '../../lib/reveal-element.js';
 import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
 import { SharedDecisionInbox } from '../planning/SharedDecisionInbox.js';
 import { BaselinePreparationPanel } from './BaselinePreparationPanel.js';
+import { SourceRunReport } from './SourceRunReport.js';
 import { ModelField } from './ModelField.js';
 import { ReasoningEffortField } from './ReasoningEffortField.js';
 
@@ -80,6 +81,23 @@ export function DesignRecoveryPanel({
   }, [cycle.id]);
   return (
     <section id="design-recovery" aria-label="Resolve design questions" className="stack">
+      {cycle.designRecovery?.mode === 'investigate' &&
+        cycle.designRecovery.runId === cycle.currentRunId &&
+        cycle.status !== 'running' && (
+          <div className="panel stack">
+            <h3>Evidence investigation</h3>
+            <p>
+              Review the recorded results below, then resolve any shared decisions using Resolve
+              design questions.
+            </p>
+            <SourceRunReport
+              key={cycle.currentRunId}
+              workspaceId={cycle.workspaceId}
+              runId={cycle.currentRunId}
+              label="Investigation results and evidence"
+            />
+          </div>
+        )}
       {!open ? (
         <button type="button" className="primary-button" onClick={() => void discover()}>
           Resolve design questions

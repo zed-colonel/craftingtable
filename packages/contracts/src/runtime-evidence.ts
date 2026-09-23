@@ -284,6 +284,8 @@ export const architectureDecisionInboxSchema = z.strictObject({
         .strictObject({
           sourceRunId: z.string(),
           sourceReportDigest: digest,
+          investigation: z.boolean().optional(),
+          classificationIssue: z.string().optional(),
           workItemId: z.string().optional(),
           sliceId: name,
           question: z.string(),

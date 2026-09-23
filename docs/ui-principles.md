@@ -280,7 +280,9 @@ language. Collect source references automatically and keep provenance in disclos
 an exact decision and explicitly approving it remain separate; neither starts a run. Limited
 approval identifies consumers and retained obligations, with the saved-plan review consequence.
 Historical questions remain readable but do not hide newer approvals. Keep draft edits and
-expanded evidence stable during background refreshes.
+expanded evidence stable during background refreshes. Surface completed investigations beside
+the shared decision and on work-item recovery, with on-demand access to their original report.
+Show structured-report errors without hiding evidence or inventing a complete recommendation.
 
 
 Execution capacity lives in Workspace Settings with shared workstation pools and a selected-roadmap

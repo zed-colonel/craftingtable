@@ -12418,7 +12418,8 @@ it('records explicit architecture approval, stages named consumers without passi
     consequences: 'Implementation and independent verification remain required.',
     coverage: 'full',
     consumers: [],
-    retainedObligations: '',
+    retainedObligations:
+      'Independent implementation, qualification and release gates remain required.',
   };
   f.backend.replyForRequest = () => ({
     resultText:
@@ -12544,11 +12545,18 @@ it('records explicit architecture approval, stages named consumers without passi
       consumers: [...input.consumers, { ...input.consumers[0]!, sliceId: 'AQ-01.B' }],
     }),
   ).rejects.toThrow('Retain at least one later slice');
+  await expect(
+    svc.proposeArchitectureDecision(f.auth, ws, id, {
+      ...input,
+      coverage: 'full',
+    }),
+  ).rejects.toThrow('Full approval cannot also stage');
   const fullView = await svc.proposeArchitectureDecision(f.auth, ws, id, {
     ...input,
     coverage: 'full',
     consumers: [],
-    retainedObligations: '',
+    retainedObligations:
+      'Independent implementation, qualification and release gates remain required.',
     proposal:
       'Approve the full contract, including transport, credentials and provider representation.',
   });
@@ -12588,6 +12596,17 @@ it('records explicit architecture approval, stages named consumers without passi
       rationale: 'Duplicate',
     }),
   ).rejects.toThrow('immutable decision');
+  // Malformed agent output stays available through its source run, never a guessed brief.
+  f.backend.replyForRequest = () => ({
+    resultText:
+      'Investigation facts remain readable.\n```craftingtable-design\n{"version":1,"items":[{"kind":"operator-decision","question":"LOCAL-ADR-01?","answer":"Choice","sources":[],"decision":{"checkpointId":"LOCAL-ADR-01"}}]}\n```\n## Open questions\nApprove LOCAL-ADR-01?',
+  });
+  const malformedRunId = await runToFinish(f.state, designTree.id, { role: 'design' });
+  const malformed = architectureDecisionInbox(tx, definition, f.scopes[0]).decisions[0]
+    ?.recommendation;
+  expect(malformed?.sourceRunId).toBe(malformedRunId);
+  expect(malformed?.classificationIssue).toContain('items.0.decision');
+  expect(malformed?.brief).toBeUndefined();
   const binding = tx.imports.bindings(ws, id)[0]!;
   tx.imports.addBindings({ ...binding, revision: 2 });
   expect(acceptedEvidence(tx, ws, id, 2, full.subject)).toBeUndefined();

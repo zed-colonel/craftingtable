@@ -189,3 +189,25 @@ it('shows accepted shared decisions after discovery without resuming or requirin
   expect(screen.queryByText('Approval pending in the original report.')).toBeNull();
   expect(recoverDesign).not.toHaveBeenCalled();
 });
+
+it('surfaces a completed investigation without requiring evidence rediscovery', () => {
+  render(
+    <DesignRecoveryPanel
+      cycle={{
+        ...cycle,
+        designRecovery: {
+          runId: cycle.currentRunId,
+          mode: 'investigate',
+          profile: cycle.profiles.design,
+          attachments: [],
+        } as unknown as WorkCycle['designRecovery'],
+      }}
+      backends={backends}
+      csrfToken="csrf"
+      onChanged={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('Investigation results and evidence')).toBeTruthy();
+  expect(previewDesignRecovery).not.toHaveBeenCalled();
+  expect(recoverDesign).not.toHaveBeenCalled();
+});

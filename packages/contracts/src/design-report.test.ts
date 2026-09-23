@@ -17,13 +17,28 @@ describe('design question classification', () => {
         consequences: 'Implement and independently test replay.',
         coverage: 'full',
         consumers: [],
-        retainedObligations: '',
+        retainedObligations: 'Independent implementation tests and qualification remain required.',
       },
     };
     const parsed = parseDesignReport(block([item]));
     expect(parsed.status).toBe('complete');
     if (parsed.status === 'complete')
       expect(parsed.report.items[0]?.kind).toBe('operator-decision');
+    expect(
+      parseDesignReport(
+        block([
+          {
+            ...item,
+            decision: {
+              ...item.decision,
+              consumers: [
+                { sliceId: 'a/A-01/domain', phase: 'merge', replacesFullCheckpoint: true },
+              ],
+            },
+          },
+        ]),
+      ).status,
+    ).toBe('invalid');
     expect(parseDesignReport(block([{ ...item, kind: 'resolved' }])).status).toBe('invalid');
     expect(parseDesignReport(block([{ ...item, sources: [] }])).status).toBe('invalid');
     expect(

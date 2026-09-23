@@ -51,15 +51,15 @@ export function architectureDecisionInbox(
       sources: string[];
     }
   >();
+  const cycles = tx.execution.cycles
+    .list(ws)
+    .filter((c) => c.executionScope?.definitionId === d.id);
   // Include stopped designs even after substantial activity elsewhere pushes them off the recent list.
   const runs = [
-    ...tx.execution.cycles
-      .list(ws)
-      .filter((c) => c.executionScope?.definitionId === d.id)
-      .flatMap((c) => {
-        const r = tx.execution.runs.find(ws, c.currentRunId);
-        return r ? [r] : [];
-      }),
+    ...cycles.flatMap((c) => {
+      const r = tx.execution.runs.find(ws, c.currentRunId);
+      return r ? [r] : [];
+    }),
     ...tx.execution.runs.listRecent(ws, 200),
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const seenTrees = new Set<string>();
@@ -135,6 +135,12 @@ export function architectureDecisionInbox(
         if (recommendations.has(c.id)) continue;
         recommendations.set(c.id, {
           sourceRunId: run.id,
+          investigation:
+            run.profileSelection?.purpose === 'investigation' ||
+            cycles.some(
+              (c) => c.designRecovery?.runId === run.id && c.designRecovery.mode === 'investigate',
+            ),
+          ...(parsed.status === 'invalid' ? { classificationIssue: parsed.reason } : {}),
           sourceReportDigest: createHash('sha256').update(report).digest('hex'),
           ...(run.workItemId ? { workItemId: run.workItemId } : {}),
           sliceId: tree.executionScope.sourceId,

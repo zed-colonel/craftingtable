@@ -44,7 +44,7 @@ export const decisionInbox: ArchitectureDecisionInbox = {
           consequences: 'Independent tests remain required.',
           coverage: 'full',
           consumers: [],
-          retainedObligations: '',
+          retainedObligations: 'Independent implementation tests remain required.',
         },
       },
     },
@@ -61,7 +61,7 @@ export const decisionRecord: ArchitectureDecisionInbox['decisions'][number]['rec
     proposal: 'Use stable provider identities.',
     sourceReferences: decisionInbox.decisions[0]!.sourceReferences,
     consumers: [],
-    retainedObligations: '',
+    retainedObligations: 'Independent implementation tests remain required.',
   },
 };
 const view = (inbox: ArchitectureDecisionInbox) =>
@@ -116,6 +116,7 @@ it('collects references, reviews an immutable proposal, and requires explicit ap
     sourceReferences: decisionInbox.decisions[0]!.sourceReferences,
     sourceReportDigest: 'a'.repeat(64),
     coverage: 'full',
+    retainedObligations: 'Independent implementation tests remain required.',
   });
   fireEvent.click(screen.getByRole('checkbox', { name: /I reviewed this exact decision/ }));
   fireEvent.change(screen.getByLabelText('Approval rationale'), {
@@ -212,4 +213,27 @@ it('shows limited approval separately and keeps live scheduling blockers beside 
   render(<SharedDecisionInbox data={data} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />);
   expect(screen.getByText('Accepted · limited to named slices')).toBeTruthy();
   expect(screen.getByText(/Approval unavailable: Pause roadmap/)).toBeTruthy();
+});
+
+it('keeps investigation evidence accessible when its structured recommendation is invalid', () => {
+  const data: ArchitectureDecisionInbox = {
+    ...decisionInbox,
+    decisions: [
+      {
+        ...decisionInbox.decisions[0]!,
+        recommendation: {
+          ...decisionInbox.decisions[0]!.recommendation!,
+          brief: undefined,
+          investigation: true,
+          classificationIssue: 'items.0.decision: invalid coverage',
+        },
+      },
+    ],
+  };
+  render(<SharedDecisionInbox data={data} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />);
+  expect(screen.getByText('Evidence investigation available')).toBeTruthy();
+  expect(screen.getByText('Investigation results and evidence')).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toContain('invalid coverage');
+  expect(screen.queryByRole('button', { name: 'Review recommendation' })).toBeNull();
+  expect(request).not.toHaveBeenCalled();
 });

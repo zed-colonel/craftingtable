@@ -5,6 +5,7 @@ import {
   type ProposeArchitectureDecision,
   type RuntimeEvidenceView,
 } from '@craftingtable/contracts';
+import { SourceRunReport } from '../execution/SourceRunReport.js';
 import { Section } from '../../components/Section.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { About } from '../../components/About.js';
@@ -208,6 +209,32 @@ function DecisionCard({
           </details>
         </>
       )}
+      {recommendation && (
+        <>
+          {recommendation.investigation && (
+            <p>
+              <strong>Evidence investigation available</strong> · Review its recommendation and
+              supporting report before deciding.
+            </p>
+          )}
+          {recommendation.classificationIssue && (
+            <p className="warning-state" role="status">
+              The structured recommendation could not be read. The recorded evidence remains
+              available below. {recommendation.classificationIssue}
+            </p>
+          )}
+          <SourceRunReport
+            key={`${recommendation.sourceRunId}:${recommendation.sourceReportDigest}`}
+            workspaceId={data.workspaceId}
+            runId={recommendation.sourceRunId}
+            label={
+              recommendation.investigation
+                ? 'Investigation results and evidence'
+                : 'Source report and evidence'
+            }
+          />
+        </>
+      )}
       {!fullApproval && recommendation && (
         <>
           <p>{recommendation.question}</p>
@@ -221,6 +248,11 @@ function DecisionCard({
               <p>
                 <strong>Consequences:</strong> {brief.consequences}
               </p>
+              {brief.retainedObligations && (
+                <p>
+                  <strong>Still required:</strong> {brief.retainedObligations}
+                </p>
+              )}
               <details>
                 <summary>Alternatives and tradeoffs</summary>
                 <ul>
@@ -236,8 +268,8 @@ function DecisionCard({
             <>
               <p>{recommendation.answer}</p>
               <p className="warning-state">
-                This older report has no standalone decision brief. Request clarification or write
-                the exact decision using Approve with changes. Source references are already
+                This report has no validated standalone decision brief. Request clarification or
+                write the exact decision using Approve with changes. Source references are already
                 collected.
               </p>
             </>
@@ -363,19 +395,21 @@ function DecisionCard({
               ? 'Approves this complete architectural choice. It does not approve implementation, tests, parent acceptance or release.'
               : 'Approves only your stated clauses for selected slices. The full decision remains required elsewhere. Saving plan evidence must be repeated after approval.'}
           </p>
+          <label className="field">
+            {draft.coverage === 'clauses'
+              ? 'Full obligations retained for later work'
+              : 'Implementation, verification and release still required'}
+            <textarea
+              required={draft.coverage === 'clauses'}
+              value={draft.retainedObligations}
+              maxLength={16000}
+              rows={4}
+              disabled={locked}
+              onChange={(e) => setDraft({ ...draft, retainedObligations: e.target.value })}
+            />
+          </label>
           {draft.coverage === 'clauses' && (
             <>
-              <label className="field">
-                Full obligations retained for later work
-                <textarea
-                  required
-                  value={draft.retainedObligations}
-                  maxLength={16000}
-                  rows={4}
-                  disabled={locked}
-                  onChange={(e) => setDraft({ ...draft, retainedObligations: e.target.value })}
-                />
-              </label>
               <p>Select the affected slices and when these clauses are required.</p>
               {[...new Set(card.consumers.map((c) => c.sliceId))].map((sliceId) => {
                 const selected = draft.consumers.find((c) => c.sliceId === sliceId);

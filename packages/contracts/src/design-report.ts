@@ -27,15 +27,11 @@ export const architectureRecommendationSchema = z
     retainedObligations: z.string().trim().max(16000),
   })
   .superRefine((v, c) => {
-    if (
-      v.coverage === 'full'
-        ? v.consumers.length || v.retainedObligations
-        : !v.consumers.length || !v.retainedObligations
-    )
+    if (v.coverage === 'full' ? v.consumers.length : !v.consumers.length || !v.retainedObligations)
       c.addIssue({
         code: 'custom',
         message:
-          'Full decisions retain no partial scope; limited decisions need named consumers and remaining obligations.',
+          'Full decisions cannot stage named consumers; limited decisions need named consumers and remaining obligations.',
       });
   });
 export const designDependencySchema = z.discriminatedUnion('kind', [
@@ -104,8 +100,10 @@ export function parseDesignReport(
       ? { status: 'complete', report: report.data }
       : {
           status: 'invalid',
-          reason:
-            'Design classifications require valid kinds, dependency identities and cited answers.',
+          reason: `Design classification is invalid: ${report.error.issues
+            .slice(0, 3)
+            .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+            .join('; ')}`,
         };
   } catch {
     return { status: 'invalid', reason: 'Invalid JSON in design classification.' };

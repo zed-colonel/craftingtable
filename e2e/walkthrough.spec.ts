@@ -376,6 +376,24 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     );
     await page
       .getByLabel('Answers and guidance')
+      .fill('Investigate the available baseline evidence without approving it.');
+    await page.getByRole('button', { name: 'Start bounded investigation', exact: true }).click();
+    await expect(page.getByText('Investigation results and evidence', { exact: true })).toBeVisible(
+      { timeout: 30_000 },
+    );
+    await walk.capture(
+      'work-item-investigation-results',
+      'Work item · recorded investigation evidence',
+      async (p) => {
+        await p.getByText('Investigation results and evidence', { exact: true }).click();
+        await expect(p.getByRole('heading', { name: 'Final outcome', exact: true })).toBeVisible();
+      },
+    );
+    const resolve = page.getByRole('button', { name: 'Resolve design questions', exact: true });
+    if (await resolve.isVisible()) await resolve.click();
+    await page.getByRole('button', { name: 'Refresh available evidence', exact: true }).click();
+    await page
+      .getByLabel('Answers and guidance')
       .fill('I own the baseline decision. Use the pinned baseline.');
     await page.getByRole('combobox', { name: 'Next action', exact: true }).selectOption('continue');
     await page.getByRole('button', { name: 'Continue design with evidence', exact: true }).click();

@@ -65,7 +65,9 @@ export function architectureDecisionIssues(
     issues.push('The exact plan binding changed. Prepare a new decision proposal.');
   if (!a.proposal.trim() || !a.sourceReferences.trim())
     issues.push('Decision text and source references are required.');
-  if (a.coverage === 'full' && (a.consumers.length || a.retainedObligations))
+  // Full architecture approval can still name separate implementation/test obligations.
+  // Only partial coverage may substitute gates for named consumers.
+  if (a.coverage === 'full' && a.consumers.length)
     issues.push('Full approval cannot also stage or defer clauses.');
   if (a.coverage === 'clauses') {
     if (!a.consumers.length || !a.retainedObligations.trim())

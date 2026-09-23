@@ -36,3 +36,11 @@ automatically. Preparing from a brief pins its source report digest and supplies
 the existing proposal and authenticated approval commands remain separate. Discovery and
 clarification navigation grant no approval or execution authority. Approval visibility is
 scope-aware and does not rewrite the originating design's historical questions.
+
+Full decision coverage forbids named consumer substitutions, but may retain descriptive
+implementation, verification and release obligations. Those obligations are visible in the
+recommendation, saved proposal and explicit approval; they cannot waive any separate gate.
+The inbox includes report-validation errors and on-demand access to the original journaled
+report. Investigation evidence remains readable without a valid structured recommendation;
+it never becomes an approval by discovery. Existing reports are projected without rewriting
+the journal or requesting a replacement run.

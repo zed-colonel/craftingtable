@@ -26,7 +26,13 @@ export function PageHeader({
       <div className="page-header-main">
         {crumbs !== undefined && <div className="crumbs">{crumbs}</div>}
         <h1>{title}</h1>
-        {subtitle !== undefined && <p className="subtitle">{subtitle}</p>}
+        {/* Text subtitles are a paragraph; structured ones (a StatusStrip's <dl>) cannot sit in a <p>. */}
+        {subtitle !== undefined &&
+          (typeof subtitle === 'string' ? (
+            <p className="subtitle">{subtitle}</p>
+          ) : (
+            <div className="subtitle">{subtitle}</div>
+          ))}
       </div>
       {(status !== undefined || actions !== undefined) && (
         <div className="page-header-actions">

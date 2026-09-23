@@ -36,11 +36,13 @@ never required reading.
   produce planning documents, work contracts, acceptance matrices, or review
   dispositions; a short ADR is the only design document this repository wants, and
   only when a decision is material and hard to reverse.
-- The one artifact exception is `docs/ui-walkthrough/`: dated screenshot captures of
-  every page of the browser app, produced by `pnpm ui:walkthrough`. They record how the
-  UI looked at a commit so later UI work can be compared against earlier versions.
-  Capture a new version before and after any UI change that alters page structure;
-  never edit a captured version by hand. The captures describe, they do not
+- The one artifact exception is the UI walkthrough: dated screenshot captures of every
+  page of the browser app, produced by `pnpm ui:walkthrough`. They record how the UI
+  looked at a commit so later UI work can be compared against earlier versions. Capture
+  a new version before and after any UI change that alters page structure; never edit a
+  captured version by hand. The images are written to a store outside the repository
+  (see `docs/ui-walkthrough/README.md`) and must never be committed; commit only the row
+  the harness appends to `docs/ui-walkthrough/INDEX.md`. The captures describe, they do not
   prescribe: the code and `docs/ui-principles.md` remain the authority.
 - Keep changes coherent and self-describing. A different agent should be able to
   understand a change from the diff, the tests, and the commit message alone.

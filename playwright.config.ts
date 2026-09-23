@@ -50,7 +50,7 @@ export default defineConfig({
         browserName: 'chromium',
       },
     },
-    // The UI walkthrough photographs every page into docs/ui-walkthrough/. It is
+    // The UI walkthrough photographs every page into a store outside the repository. It is
     // opted into by `pnpm ui:walkthrough` and never part of the test gate.
     ...(process.env.CRAFTINGTABLE_WALKTHROUGH === '1'
       ? [

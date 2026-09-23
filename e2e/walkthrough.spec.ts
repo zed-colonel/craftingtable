@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Browser, devices, expect, type Page, test } from '@playwright/test';
@@ -10,15 +10,26 @@ import { type Browser, devices, expect, type Page, test } from '@playwright/test
  * show, then photograph each page on a desktop and a phone viewport.
  *
  * It is not a test of behavior (the other specs are); it is a record of how the
- * UI looked. `pnpm ui:walkthrough` writes one dated directory under
- * `docs/ui-walkthrough/` so later UI work can be compared against earlier
- * captures. Each capture is labeled by `WALKTHROUGH_LABEL` or the commit.
+ * UI looked. `pnpm ui:walkthrough` writes one dated directory of images into a
+ * store outside the repository (`CRAFTINGTABLE_WALKTHROUGH_DIR`, by default
+ * `$XDG_DATA_HOME/craftingtable-walkthrough`), so screenshots never enter Git
+ * history, and appends one row to the committed `docs/ui-walkthrough/INDEX.md`
+ * so later UI work can find and compare earlier captures. Each capture is
+ * labeled by `WALKTHROUGH_LABEL` or the commit.
  */
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 const CONCURRENCY = new URL('../fixtures/concurrency/', import.meta.url);
 const REPOSITORY_ROOT = fileURLToPath(new URL('..', import.meta.url));
-const OUTPUT_ROOT = join(REPOSITORY_ROOT, 'docs', 'ui-walkthrough');
+/** Images live outside the repository: a structural boundary, not an ignore pattern. */
+const OUTPUT_ROOT =
+  process.env.CRAFTINGTABLE_WALKTHROUGH_DIR ??
+  join(
+    process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'),
+    'craftingtable-walkthrough',
+  );
+/** The committed record of captures: one row per capture, text only. */
+const INDEX_FILE = join(REPOSITORY_ROOT, 'docs', 'ui-walkthrough', 'INDEX.md');
 const USERNAME = 'e2e-admin';
 const PASSWORD = 'correct horse battery staple';
 
@@ -77,7 +88,7 @@ async function newPhonePage(browser: Browser): Promise<Page> {
   const { defaultBrowserType: _browser, ...phone } = devices[
     'iPhone 13'
   ] as (typeof devices)[string];
-  // 1× keeps a capture small enough to keep many in git; WALKTHROUGH_SCALE=2 for crisp review.
+  // 1× keeps a capture small; WALKTHROUGH_SCALE=2 for crisp review.
   const deviceScaleFactor = process.env.WALKTHROUGH_SCALE === '2' ? 2 : 1;
   const context = await browser.newContext({ ...phone, deviceScaleFactor });
   context.setDefaultTimeout(20_000);
@@ -149,6 +160,13 @@ class Walkthrough {
         'Desktop captures are 1440×900; phone captures are iPhone 13 emulation (390×844) ' +
         `at ${process.env.WALKTHROUGH_SCALE === '2' ? '2×' : '1×'}. Every capture is the full page.\n\n` +
         `${sections.join('\n')}`,
+    );
+    const phoneOnly = this.shots.filter((shot) => shot.viewports === 'phone').length;
+    appendFileSync(
+      INDEX_FILE,
+      `| ${label} | \`${commit}\` | ${new Date().toISOString().slice(0, 10)} | ` +
+        `${this.shots.length}${phoneOnly ? ` (${phoneOnly} phone only)` : ''} | ` +
+        `${process.env.WALKTHROUGH_SCALE === '2' ? '2×' : '1×'} |\n`,
     );
   }
 }

@@ -1,6 +1,9 @@
 # CraftingTable system review, September 2026
 
-A whole-system review of CraftingTable at commit `bf08c0b` (2026-09-22). The operator requested
+A whole-system review of CraftingTable at commit `bf08c0b` (2026-09-22). On 2026-09-23 the
+walkthrough images were stripped from Git history, which renamed every commit after
+`d6d5dc6`: `bf08c0b` is now `6166384`. The findings keep the hashes they were written
+against; [commit-map-2026-09-23.txt](commit-map-2026-09-23.txt) maps old hashes to new. The operator requested
 it before building the Development Studio on top of the development automation. It is recorded
 here so each finding can be remediated independently, over many sessions, by agents without
 the review's conversation context.

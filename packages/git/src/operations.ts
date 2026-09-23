@@ -27,6 +27,10 @@ export type GitFailureKind =
   | 'not-top-level'
   | 'git-failed'
   | 'merge-conflict'
+  /** A merge is pending (MERGE_HEAD) in the checkout the operation needs. */
+  | 'merge-in-progress'
+  /** A non-forced worktree removal found uncommitted or untracked paths. */
+  | 'worktree-dirty'
   | 'timed-out'
   | 'spawn-failed'
   | 'output-overflow';
@@ -37,8 +41,14 @@ export interface GitFailure {
   readonly exitCode?: number;
   readonly stderr?: string;
   readonly conflictPaths?: readonly string[];
+  /** For `worktree-dirty`: up to CHANGED_PATH_LIMIT changed paths, and how many there are. */
+  readonly changedPaths?: readonly string[];
+  readonly changedPathCount?: number;
   readonly diagnostics?: string;
 }
+
+/** How many uncommitted paths a refused removal reports. */
+export const CHANGED_PATH_LIMIT = 50;
 
 export type GitResult<T> =
   | { readonly ok: true; readonly value: T }
@@ -570,11 +580,35 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     if (!isAbsolute(input.worktreePath) || input.worktreePath.includes('\0')) {
       return fail('invalid-path', 'Worktree path must be absolute');
     }
+    if (input.force !== true) {
+      // Git itself refuses a dirty non-forced removal; checking first names the
+      // paths at risk so the operator can decide whether to discard them.
+      const status = await run(
+        ['status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=all'],
+        input.worktreePath,
+      );
+      const overflowed = !status.ok && status.failure.kind === 'output-overflow';
+      const changed =
+        status.ok && status.value.exitCode === 0
+          ? splitNul(status.value.stdout).map((entry) => entry.slice(3))
+          : [];
+      if (overflowed || changed.length > 0)
+        return fail(
+          'worktree-dirty',
+          overflowed
+            ? 'The worktree has too many uncommitted or untracked paths to list'
+            : `The worktree has ${changed.length} uncommitted or untracked path${changed.length === 1 ? '' : 's'}`,
+          {
+            changedPaths: changed.slice(0, CHANGED_PATH_LIMIT),
+            ...(overflowed ? {} : { changedPathCount: changed.length }),
+          },
+        );
+    }
     const removed = await runOk(
       [
         'worktree',
         'remove',
-        ...(input.force === false ? [] : ['--force']),
+        ...(input.force === true ? ['--force'] : []),
         '--',
         input.worktreePath,
       ],
@@ -810,7 +844,35 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     };
   }
 
-  /** Runs the merge in `cwd`; on any failure the merge is aborted so `cwd` is left as it was. */
+  async function mergeInProgress(cwd: string): Promise<boolean> {
+    const pending = await run(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], cwd);
+    return pending.ok && pending.value.exitCode === 0;
+  }
+
+  /**
+   * Returns a checkout whose merge process was killed (timeout, output
+   * overflow) to its pre-merge commit. Depending on where Git was stopped it
+   * leaves MERGE_HEAD (abort it) or only a staged merge result (reset it).
+   * Callers only merge into a checkout they verified clean, so everything
+   * staged here belongs to the interrupted merge; `--merge` still keeps any
+   * unstaged edit instead of discarding it.
+   */
+  async function recoverInterruptedMerge(cwd: string): Promise<boolean> {
+    if (await mergeInProgress(cwd)) {
+      const aborted = await run(['merge', '--abort'], cwd);
+      return aborted.ok && aborted.value.exitCode === 0 && !(await mergeInProgress(cwd));
+    }
+    const staged = await run(['diff', '--cached', '--quiet', 'HEAD', '--'], cwd);
+    if (!staged.ok) return false;
+    if (staged.value.exitCode === 0) return true;
+    const reset = await run(['reset', '-q', '--merge', 'HEAD'], cwd);
+    return reset.ok && reset.value.exitCode === 0;
+  }
+
+  /**
+   * Runs the merge in `cwd`, which the caller has verified is clean; on any
+   * failure the merge is aborted so `cwd` is left as it was.
+   */
   async function mergeInto(
     cwd: string,
     input: {
@@ -843,7 +905,15 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       ],
       cwd,
     );
-    if (!merged.ok) return merged;
+    if (!merged.ok) {
+      // The process was killed or never ran: it may have stopped mid-merge.
+      if (!(await recoverInterruptedMerge(cwd)))
+        return fail(
+          'merge-in-progress',
+          `${merged.failure.message}; the interrupted merge could not be undone. Inspect the checkout (git merge --abort) before retrying.`,
+        );
+      return merged;
+    }
     if (merged.value.exitCode !== 0) {
       const stderr = merged.value.stderr.toString('utf8');
       const stdout = merged.value.stdout.toString('utf8');
@@ -965,6 +1035,11 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     if (!createdTarget && holder !== undefined && primary !== undefined && holder === primary) {
       // The target is what the primary checkout has checked out: merge there,
       // which needs it clean so the operator's working tree is never mixed in.
+      if (await mergeInProgress(cwd))
+        return fail(
+          'merge-in-progress',
+          `The primary checkout on ${input.targetBranch} has a merge in progress; finish it or run git merge --abort before merging`,
+        );
       const status = await runOk(['status', '--porcelain', '-z'], cwd);
       if (!status.ok) return status;
       if (status.value.stdout.byteLength > 0) {
@@ -1050,7 +1125,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       if (head.value !== input.expectedHeadSha)
         return fail(
           'git-failed',
-          `Branch ${input.branchName} changed after finalization; it was retained`,
+          `Branch ${input.branchName} changed after it was merged; it was retained`,
         );
     }
     const worktrees = await listWorktrees(repository.value);
@@ -1155,6 +1230,11 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
       return fail('invalid-path', 'Integration commit must be a Git object name');
     const identity = await inspectRepository(input.worktreePath);
     if (!identity.ok) return identity;
+    if (await mergeInProgress(identity.value.topLevel))
+      return fail(
+        'merge-in-progress',
+        'The worktree has a merge in progress; finish or abort it before updating',
+      );
     if (
       !identity.value.clean ||
       identity.value.branch !== input.branchName ||
@@ -1177,7 +1257,14 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         ['merge', '--ff-only', '--', input.targetSha],
         identity.value.topLevel,
       );
-      if (!merged.ok) return merged;
+      if (!merged.ok) {
+        if (!(await recoverInterruptedMerge(identity.value.topLevel)))
+          return fail(
+            'merge-in-progress',
+            `${merged.failure.message}; the interrupted update could not be undone. Inspect the worktree before retrying.`,
+          );
+        return merged;
+      }
       if (merged.value.exitCode !== 0)
         return fail(
           'git-failed',

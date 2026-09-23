@@ -320,7 +320,8 @@ export function registerExecutionRoutes(
       if (!workspaceId.success || !worktreeId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      if (!removeWorktreeRequestSchema.safeParse(request.body ?? {}).success) {
+      const body = removeWorktreeRequestSchema.safeParse(request.body ?? {});
+      if (!body.success) {
         return sendApiError(reply, 400, 'invalid-request', 'Invalid request');
       }
       const result = await executionService.removeWorktree(
@@ -328,6 +329,7 @@ export function registerExecutionRoutes(
         workspaceId.data,
         worktreeId.data,
         request.id,
+        { discardChanges: body.data.discardChanges === true },
       );
       return noStore(reply).send(removeWorktreeResponseSchema.parse(result));
     },

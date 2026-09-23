@@ -31,6 +31,7 @@ import type {
   AgentSessionItem,
 } from '@craftingtable/agents';
 import {
+  apiErrorResponseSchema,
   evidenceSubmissionRequestSchema,
   agentRunCommandResponseSchema,
   agentRunDetailResponseSchema,
@@ -55,6 +56,7 @@ import {
   type AgentBackendKind,
   type AgentExitReason,
   type AgentRunId,
+  asAgentRunEventId,
   asAgentRunId,
   asPlanBundleId,
   asPlanVersionId,
@@ -717,6 +719,47 @@ describe('worktrees and diffs', () => {
     expect(summary.worktrees).toHaveLength(1);
     expect(summary.runs).toHaveLength(0);
 
+    // Removing a worktree with uncommitted work is refused with the paths at
+    // risk until the operator explicitly chooses to discard them (GIT-02).
+    const refused = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/remove`,
+      headers: mutationHeaders(state),
+      payload: {},
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(apiErrorResponseSchema.parse(refused.json()).error).toMatchObject({
+      code: 'conflict',
+      reason: 'worktree-has-changes',
+      paths: ['new.txt'],
+      pathCount: 1,
+    });
+    expect(existsSync(join(worktree.path, 'new.txt'))).toBe(true);
+    expect(
+      state.context.storage.execution.worktrees.find(state.workspaceId, worktree.id)?.status,
+    ).toBe('active');
+
+    const removed = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/remove`,
+      headers: mutationHeaders(state),
+      payload: { discardChanges: true },
+    });
+    expect(removeWorktreeResponseSchema.parse(removed.json())).toMatchObject({
+      changed: true,
+      worktree: { status: 'removed' },
+    });
+    expect(git(['worktree', 'list'], repositoryPath)).not.toContain(worktree.path);
+    const audit = state.context.storage.audit
+      .listWorkspace({ workspaceId: state.workspaceId, limit: 50 })
+      .find((row) => row.action === 'worktree.remove');
+    expect(audit?.metadata).toMatchObject({ discardChanges: true });
+  });
+
+  it('removes a clean worktree without asking to discard anything', async () => {
+    const state = await ready();
+    const repositoryPath = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, repositoryPath);
     const removed = await state.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/remove`,
@@ -873,7 +916,7 @@ describe('agent runs', () => {
     // The first live run (2026-09-04) predates billing detection: its stored
     // session-started payload has no `billing` field at all.
     state.context.storage.execution.runEvents.append({
-      id: `legacy-${randomUUID()}`,
+      id: asAgentRunEventId(`legacy-${randomUUID()}`),
       workspaceId: state.workspaceId,
       runId: run.id,
       occurredAt: '2026-09-04T00:00:01.000Z',
@@ -1224,7 +1267,17 @@ async function merge(state: Ready, worktreeId: string, payload: Record<string, u
 
 describe('review-gated merge', () => {
   it('opens the gate only after the latest run is a mergeable review, then merges and completes', async () => {
-    const state = await ready();
+    const realGit = createGitOperations({ gitExecutable: 'git' });
+    const deletions: Parameters<GitOperations['deleteBranch']>[0][] = [];
+    const state = await ready({
+      gitOperations: {
+        ...realGit,
+        deleteBranch: (input) => {
+          deletions.push(input);
+          return realGit.deleteBranch(input);
+        },
+      },
+    });
     const repositoryPath = fixtureRepository();
     const { worktree } = await registerAndWorktree(state, repositoryPath);
     await admit(state);
@@ -1275,11 +1328,16 @@ describe('review-gated merge', () => {
     });
     expect((await mergeGate(state, worktree.id))?.reviewRunId).toBe(final);
 
+    const tip = git(['rev-parse', worktree.branchName], repositoryPath).trim();
     const merged = await merge(state, worktree.id);
     expect(merged.statusCode, merged.body).toBe(200);
     const result = mergeWorktreeResponseSchema.parse(merged.json());
     expect(result.targetBranch).toBe('main');
     expect(result.workItemCompleted).toBe(true);
+    // The merged branch is deleted only if it still points at the merged commit (GIT-09).
+    expect(deletions).toEqual([
+      expect.objectContaining({ branchName: worktree.branchName, expectedHeadSha: tip }),
+    ]);
     expect(result.worktree).toMatchObject({ status: 'removed', mergeSha: result.mergeSha });
     expect(git(['rev-parse', 'HEAD'], repositoryPath).trim()).toBe(result.mergeSha);
     expect(git(['log', '--oneline', '-3'], repositoryPath)).toContain('add feature');
@@ -1851,40 +1909,31 @@ describe('complete review handoffs', () => {
 it('validates a later review against the source snapshot delivered to its implementer', async () => {
   const state = await ready();
   const { worktree } = await registerAndWorktree(state, fixtureRepository());
-  state.backend.repliesForNextRun = [
-    { resultText: reviewText([structuredFinding]) },
-    {
-      resultText: reviewText([
-        { ...structuredFinding, status: 'resolved', disposition: 'Later verification closes it.' },
-        { ...structuredFinding, id: 'F-002', title: 'Later finding' },
-      ]),
-    },
-  ];
-  const started = await state.context.app.inject({
-    method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
-    headers: mutationHeaders(state),
-    payload: { worktreeId: worktree.id, role: 'review' },
-  });
-  const { run } = startAgentRunResponseSchema.parse(started.json());
-  await waitFor(
-    () => state.context.storage.execution.runs.find(state.workspaceId, run.id)?.turnCount === 1,
-    'source review',
-  );
+  state.backend.repliesForNextRun = [{ resultText: reviewText([structuredFinding]) }];
+  // The source review ends before the handoff: one live agent per worktree (AGT-13).
+  const run = { id: await runToFinish(state, worktree.id, { role: 'review' }) };
   const implement = await runToFinish(state, worktree.id, {
     role: 'implement',
     parentRunId: run.id,
   });
-  await state.context.app.inject({
-    method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/messages`,
-    headers: mutationHeaders(state),
-    payload: { text: 'Check another edge case.' },
+  // The source's journal grows after the implementer received it; its delivery
+  // must stay pinned to the sequence it was handed.
+  state.context.storage.execution.runEvents.append({
+    id: asAgentRunEventId(randomUUID()),
+    workspaceId: state.workspaceId,
+    runId: run.id,
+    occurredAt: new Date().toISOString(),
+    kind: 'turn-completed',
+    payload: {
+      outcome: 'success',
+      resultText: reviewText([
+        { ...structuredFinding, status: 'resolved', disposition: 'Later verification closes it.' },
+        { ...structuredFinding, id: 'F-002', title: 'Later finding' },
+      ]),
+      turns: 2,
+      durationMs: 1,
+    },
   });
-  await waitFor(
-    () => state.context.storage.execution.runs.find(state.workspaceId, run.id)?.turnCount === 2,
-    'later source revision',
-  );
   expect((await runDetail(state, run.id)).reviewReport).toMatchObject({
     status: 'complete',
     report: { findings: [expect.anything(), expect.objectContaining({ id: 'F-002' })] },

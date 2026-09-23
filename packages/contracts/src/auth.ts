@@ -13,10 +13,21 @@ export const apiErrorCodeSchema = z.enum([
   'internal-error',
 ]);
 
+/** Machine-readable refinements of an error code that the browser can act on. */
+export const apiErrorReasonSchema = z.enum([
+  /** A worktree removal was refused because it would discard uncommitted work. */
+  'worktree-has-changes',
+]);
+
 export const apiErrorResponseSchema = z.strictObject({
   error: z.strictObject({
     code: apiErrorCodeSchema,
     message: z.string().min(1),
+    reason: apiErrorReasonSchema.optional(),
+    /** A bounded sample of the paths the reason concerns. */
+    paths: z.array(z.string().min(1).max(4096)).max(50).optional(),
+    /** How many such paths exist, when known; may exceed `paths.length`. */
+    pathCount: z.number().int().nonnegative().optional(),
   }),
 });
 

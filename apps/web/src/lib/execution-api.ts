@@ -12,6 +12,7 @@ import {
   mergeWorktreeResponseSchema,
   type RegisterSourceRepositoryRequest,
   type RegisterSourceRepositoryResponse,
+  type RemoveWorktreeRequest,
   type RemoveWorktreeResponse,
   type RepositoryBranchesResponse,
   type RetireSourceRepositoryResponse,
@@ -116,11 +117,12 @@ export function removeWorktree(
   workspaceId: WorkspaceId,
   worktreeId: WorktreeId,
   csrfToken: string,
+  input: RemoveWorktreeRequest = {},
 ): Promise<RemoveWorktreeResponse> {
   return request(
     `/api/workspaces/${encode(workspaceId)}/worktrees/${encode(worktreeId)}/remove`,
     removeWorktreeResponseSchema,
-    mutation(csrfToken, {}),
+    mutation(csrfToken, input),
   );
 }
 

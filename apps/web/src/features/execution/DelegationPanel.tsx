@@ -45,6 +45,7 @@ import {
 } from './handoff.js';
 import { ModelField } from './ModelField.js';
 import { ReasoningEffortField } from './ReasoningEffortField.js';
+import { WorktreeChangesRefusal, type WorktreeChangesRefused } from './WorktreeChangesRefusal.js';
 
 export type { LaunchInput } from './handoff.js';
 export { ModelField, type ModelOption } from './ModelField.js';
@@ -93,6 +94,8 @@ export function DelegationPanel({
   error,
   onCreateWorktree,
   onRemoveWorktree,
+  removalRefused,
+  onKeepWorktree,
   onMergeWorktree,
   onLoadBranches,
   onLaunch,
@@ -116,7 +119,10 @@ export function DelegationPanel({
   busy: boolean;
   error?: string;
   onCreateWorktree: (repositoryId: SourceRepositoryId) => void;
-  onRemoveWorktree: (worktreeId: WorktreeId) => void;
+  onRemoveWorktree: (worktreeId: WorktreeId, input?: { readonly discardChanges: true }) => void;
+  /** A removal the daemon refused to protect uncommitted work, awaiting the operator's choice. */
+  removalRefused?: WorktreeChangesRefused & { readonly worktreeId: WorktreeId };
+  onKeepWorktree?: () => void;
   onMergeWorktree: (worktreeId: WorktreeId, targetBranch: string) => void;
   onLoadBranches: (repositoryId: SourceRepositoryId) => void;
   onLaunch: (input: LaunchInput) => void;
@@ -430,6 +436,14 @@ export function DelegationPanel({
                     Remove
                   </button>
                 </div>
+                {removalRefused?.worktreeId === worktree.id && canMutate && (
+                  <WorktreeChangesRefusal
+                    refused={removalRefused}
+                    busy={busy || hasLiveRun}
+                    onDiscard={() => onRemoveWorktree(worktree.id, { discardChanges: true })}
+                    onKeep={() => onKeepWorktree?.()}
+                  />
+                )}
               </li>
             );
           })}

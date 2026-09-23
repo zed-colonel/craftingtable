@@ -198,7 +198,7 @@ export function buildServer(
         case 'invalid-request':
           return sendApiError(reply, 400, 'invalid-request', error.message);
         case 'conflict':
-          return sendApiError(reply, 409, 'conflict', error.message);
+          return sendApiError(reply, 409, 'conflict', error.message, error.detail);
         case 'unavailable':
           return sendApiError(reply, 503, 'unavailable', error.message);
       }

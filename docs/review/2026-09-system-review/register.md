@@ -2,22 +2,22 @@
 
 The consolidated backlog for the 2026-09 system review. Each remediation item (`R-…`) groups the findings it resolves; findings keep their full evidence in [`findings/`](findings/). Work items in phase order (see [program.md](program.md)); within a phase, workstreams can proceed in parallel unless an item lists a dependency in its text.
 
-**Status values:** `open`, `in progress`, `done (<commit>)`, `won't do (<reason>)`. Update the status here in the same commit that resolves an item, and note partial progress in the item. When a finding turns out to be wrong, mark it in the finding index below rather than deleting it.
+**Status values:** `open`, `in progress`, `partial (<commits>)`, `done (<commit>)`, `won't do (<reason>)`. Update the status here in the same commit that resolves an item, and note partial progress in the item. When a finding turns out to be wrong, mark it in the finding index below rather than deleting it.
 
 ## Summary by workstream
 
 | Item | Phase | Effort | Status | Title |
 |---|---|---|---|---|
 | **A** | | | | **Attention, decisions and notifications (pain points 1 and 3)** |
-| [R-A1](#r-a1) | P0 | S | open | Stop notification noise without a redesign |
-| [R-A2](#r-a2) | P0 | S | open | Stop journaling notification delivery bookkeeping as workspace events |
+| [R-A1](#r-a1) | P0 | S | done (4d56013) | Stop notification noise without a redesign |
+| [R-A2](#r-a2) | P0 | S | done (4d56013, 9588c0c) | Stop journaling notification delivery bookkeeping as workspace events |
 | [R-A3](#r-a3) | P1 | M-L | open | Controller-declared, typed attention on every blocking transition |
 | [R-A4](#r-a4) | P2 | M-L | open | Durable attention items, delivery log, quiescence and presence |
 | [R-A5](#r-a5) | P2 | L | open | One "Needs you" inbox that every surface reads |
 | [R-A6](#r-a6) | P3 | L | open | Consolidate decision and recovery components; delete per-page hosts |
 | [R-A7](#r-a7) | P1 | M | open | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
-| [R-B1](#r-b1) | P0 | S | open | Controller quick fixes (no schema change) |
+| [R-B1](#r-b1) | P0 | S | done (f5ce3ac, 4d56013) | Controller quick fixes (no schema change) |
 | [R-B2](#r-b2) | P1 | M | open | Characterization harness for the cycle controller |
 | [R-B3](#r-b3) | P1 | M | open | Explicit cycle ownership; roadmap state references its definition |
 | [R-B4](#r-b4) | P4 | L | open | Pure cycle decision core with an explicit state machine |
@@ -36,9 +36,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | open | Schedule automatic retry for quota/session limits with a known reset time |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
-| [R-D1](#r-d1) | P0 | S-M | open | Cheap server-side read fixes |
-| [R-D2](#r-d2) | P0 | S-M | open | Cheap browser refresh fixes |
-| [R-D3](#r-d3) | P0 | S | open | Instrument read cost and event-loop delay |
+| [R-D1](#r-d1) | P0 | S-M | done (9588c0c) | Cheap server-side read fixes |
+| [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (9588c0c) | Cheap browser refresh fixes |
+| [R-D3](#r-d3) | P0 | S | partial (9588c0c) | Instrument read cost and event-loop delay |
 | [R-D4](#r-d4) | P2 | M-L | open | Keyed query store and App.tsx split |
 | [R-D5](#r-d5) | P2 | M-L | open | Server view models, compression and git-fact caching |
 | [R-D6](#r-d6) | P4 | L | open | Shared projections keyed by write generation (only if still needed) |
@@ -50,15 +50,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-E5](#r-e5) | P3 | M | open | Consolidate settings and agent selection |
 | [R-E6](#r-e6) | P1 | M | open | Operator vocabulary and copy |
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
-| [R-F1](#r-f1) | P1/P4 | S then L | open | One compiled map model and one requirement evaluator |
+| [R-F1](#r-f1) | P1/P4 | S then L | partial (90aef4a) | One compiled map model and one requirement evaluator |
 | [R-F2](#r-f2) | P3 | M | open | Typed feature recognition instead of prose and magic identifiers |
-| [R-F3](#r-f3) | P0/P1 | S-M | open | Format ingestion bugs and test honesty |
-| [R-F4](#r-f4) | P0 | S | open | Commit the format specification and golden conformance tests |
+| [R-F3](#r-f3) | P0/P1 | S-M | partial (fcbba5e, 823bf04) | Format ingestion bugs and test honesty |
+| [R-F4](#r-f4) | P0 | S | partial (56cb003) | Commit the format specification and golden conformance tests |
 | [R-F5](#r-f5) | P5 | L | open | (Last resort) format generalization for the Development Studio |
 | **G** | | | | **Agent execution integrity and security** |
-| [R-G1](#r-g1) | P0 | S-M | open | Execution safety fixes that can lose or corrupt work |
-| [R-G2](#r-g2) | P0 | S | open | Make automatic provider retry actually fire |
-| [R-G3](#r-g3) | P0 | S-M | open | Scope operator guidance to the step it was given for |
+| [R-G1](#r-g1) | P0 | S-M | done (2c195d5, f0518bb) | Execution safety fixes that can lose or corrupt work |
+| [R-G2](#r-g2) | P0 | S | done (a08eabb) | Make automatic provider retry actually fire |
+| [R-G3](#r-g3) | P0 | S-M | done (e598b83) | Scope operator guidance to the step it was given for |
 | [R-G4](#r-g4) | P2 | M-L | open | Daemon-owned verification receipts |
 | [R-G5](#r-g5) | P2 | M | open | Agent environment and configuration isolation |
 | [R-G6](#r-g6) | P2 | M | open | Redesign briefs around the task |
@@ -68,7 +68,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
 | **H** | | | | **Data lifecycle and integrity** |
-| [R-H1](#r-h1) | P0 | S | open | Fix the unreadable first run (live 500) |
+| [R-H1](#r-h1) | P0 | S | done (1ba9be7) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | open | Journal retention: stop storing raw vendor lines by default |
 | [R-H3](#r-h3) | P1 | M | open | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | open | Lighter evidence and definition storage |
@@ -87,19 +87,21 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A1
 
-**Stop notification noise without a redesign** · Phase P0 · Effort S · Status: open
+**Stop notification noise without a redesign** · Phase P0 · Effort S · Status: done (4d56013)
 
 - **Resolves:** [NOTIF-01](findings/NOTIF-attention-notifications.md#notif-01-no-settle-period--notifications-race-the-controllers-own-follow-up-transitions), [NOTIF-03](findings/NOTIF-attention-notifications.md#notif-03-occurrence-key-includes-cycleversion-and-content-hashes-so-unrelated-version-bumps-re-page), [NOTIF-05](findings/NOTIF-attention-notifications.md#notif-05-storage-alerts-flap-without-hysteresis-and-produce-bursts-of-pushes), [NOTIF-06](findings/NOTIF-attention-notifications.md#notif-06-daemon-restart-pages-the-operator-for-a-self-inflicted-known-state), [NOTIF-15](findings/NOTIF-attention-notifications.md#notif-15-tests-do-not-cover-the-race-and-churn-behaviours-that-cause-false-alarms), [NOTIF-16](findings/NOTIF-attention-notifications.md#notif-16-outbox-reliability--mostly-sound-with-coupled-cooldowns), [CTRL-02](findings/CTRL-controller.md#ctrl-02-notifications-fire-for-states-the-controller-is-about-to-leave-on-its-own), [CTRL-03](findings/CTRL-controller.md#ctrl-03-a-new-notification-per-cycle-version-produces-repeat-pushes-for-unchanged-situations), [HIST-05](findings/HIST-history-and-live-usage.md#hist-05-operator-facing-states-and-notifications-fire-during-automated-transitions-pain-point-3-confirmed-in-data), [DATA-06](findings/DATA-storage-domain-contracts.md#data-06-phone-notifications-are-delivered-for-attention-states-the-daemon-itself-resolves-seconds-later)
 - **Change:** Give new non-test notification records a settle delay (nextAttemptAt = createdAt + ~30 s; the claim transaction already re-derives attention, so anything resolved in the window is never sent). Key occurrences by condition, not by cycle.version (e.g. cycle:<id>:<status>[:merge-requirements]); set-valued roadmap alerts re-page only when the set grows. Add hysteresis and coalescing to storage alerts. Collapse restart-induced attention into one message per boot. Keep the provider cooldown for 429/blocked only and use per-record backoff for transport errors.
 - **Done when:** Deterministic notification tests (injectable now/transport) show: attention resolved by automation inside the settle window sends 0 pushes; a version bump with the same blocker sends 1 push and does not restart reminders; a flapping storage threshold sends at most 1 push per hysteresis window.
+- **Progress:** Settle delay (30 s), condition-keyed occurrences with a 10-minute flap window, set-valued alerts re-page only on growth, storage hysteresis and coalescing (StorageAlertGate), one restart message per boot, provider cooldown only for 429. Trade-off: a genuinely new blocker on the same cycle within 10 minutes of the previous one resolving does not re-page; it follows the reminder schedule. Old versioned keys resolve and re-create once after deploy. Still open for R-A4: quiescence gate and presence (NOTIF-01 proper fix, NOTIF-04).
 
 ### R-A2
 
-**Stop journaling notification delivery bookkeeping as workspace events** · Phase P0 · Effort S · Status: open
+**Stop journaling notification delivery bookkeeping as workspace events** · Phase P0 · Effort S · Status: done (4d56013, 9588c0c)
 
 - **Resolves:** [NOTIF-10](findings/NOTIF-attention-notifications.md#notif-10-notification-bookkeeping-floods-the-workspace-journal-and-the-browser), [HIST-17](findings/HIST-history-and-live-usage.md#hist-17-notification-delivery-volume-floods-the-workspace-event-stream), [DATA-08](findings/DATA-storage-domain-contracts.md#data-08-workspace-event-invalidation-is-coarse-and-every-invalidation-refetches-all-cycles-delivery-bookkeeping-is-journaled-as-a-workspace-event)
 - **Change:** Delivery attempts, reminders and failed sends update the outbox row (and audit, if wanted) but no longer append a notifications-changed workspace event or wake SSE streams. Only changes to the operator-visible attention set emit an event. Remove "Notifications: delivery updated" lines from the Activity feed.
 - **Done when:** A reminder delivery produces no workspace event; the browser performs no refetch for it; notifications tests assert the event count.
+- **Progress:** Delivery bookkeeping no longer appends workspace events or wakes streams; one audit row per accepted push keeps pages attributable. The web routes notifications-changed only to the notification panel.
 
 ### R-A3
 
@@ -145,11 +147,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B1
 
-**Controller quick fixes (no schema change)** · Phase P0 · Effort S · Status: open
+**Controller quick fixes (no schema change)** · Phase P0 · Effort S · Status: done (f5ce3ac, 4d56013)
 
 - **Resolves:** [CTRL-06](findings/CTRL-controller.md#ctrl-06-delegation-grants-are-ignored-by-integration-refresh-and-by-notifications), [FMT-07](findings/FMT-plan-and-roadmap-formats.md#fmt-07-effective-roadmap-automation-is-resolved-three-different-ways), [CTRL-16](findings/CTRL-controller.md#ctrl-16-error-handling-can-leave-cycles-stuck-or-silently-retrying), [NOTIF-13](findings/NOTIF-attention-notifications.md#notif-13-transient-controller-errors-can-become-durable-roadmap-attention), [PERF-18](findings/PERF-browser-and-read-performance.md#perf-18-controller-emits-many-small-spread-out-commits-per-transition-browser-cannot-coalesce-them), [CTRL-09](findings/CTRL-controller.md#ctrl-09-the-roadmap-control-row-embeds-the-whole-definition-and-history-is-parsed-on-hot-paths)
 - **Change:** Route every automation read (refreshOwner, notification suppression, conflict automation) through effectiveDelegation so ADR-065 grants apply everywhere. Give the first reassessment branch in reconcile its own catch and surface persistent failures. Treat optimistic-concurrency conflicts in the roadmap tick as retryable. Do not append a work-cycle-changed event when status/step/reason are unchanged, and drop the roadmap-wide "Parallel scheduling enabled" reason flip-flop. Compute workflowContext only when runnable and skip requireReady for idle awaiting-merge cycles.
 - **Done when:** A test applies a delegation grant and checks refresh, merge and notification behave consistently; idle daemon CPU with one awaiting-merge cycle drops measurably (record before/after).
+- **Progress:** attemptDelegation/attemptDefinition helpers; refresh and scheduler use them; notification suppression uses effectiveDelegation (could switch to attemptDelegation). Reassessment failures surface once; phase waits refresh on blocker change; ConcurrentModificationError retried by loops; no-op controller writes skipped (events still emitted for any stored change, since the browser renders the whole cycle); parallel reason flip-flop removed; idle awaiting-merge cycles skip gate/workflow projections (fixture: 1.7 ms -> 0.22 ms per reconcile). Live idle-CPU before/after not yet measured.
 
 ### R-B2
 
@@ -285,27 +288,30 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-D1
 
-**Cheap server-side read fixes** · Phase P0 · Effort S-M · Status: open
+**Cheap server-side read fixes** · Phase P0 · Effort S-M · Status: done (9588c0c)
 
 - **Resolves:** [PERF-04](findings/PERF-browser-and-read-performance.md#perf-04-execution-scopes-costs-405-ms-of-synchronous-cpu-and-is-fetched-twice-per-round), [PERF-05](findings/PERF-browser-and-read-performance.md#perf-05-cycles-sends-every-historical-cycle-with-its-design-recovery-blob-to-every-page-every-round), [PERF-08](findings/PERF-browser-and-read-performance.md#perf-08-map-evaluation-hot-spots-in-roadmap-view-cycles-list-and-cross-project-preview), [PERF-11](findings/PERF-browser-and-read-performance.md#perf-11-run-page-downloads-17-mb-for-a-large-run-55--unused-raw-and-renders-every-event-unvirtualised), [PERF-12](findings/PERF-browser-and-read-performance.md#perf-12-list-payloads-carry-data-the-pages-do-not-use), [PERF-15](findings/PERF-browser-and-read-performance.md#perf-15-non-owner-members-cannot-load-any-workspace-page-audit-load-is-owner-only-and-inside-the-snapshot-promiseall), [AGT-03](findings/AGT-GIT-SEC-agents-git-security.md#agt-03-raw-vendor-lines-take-about-half-the-database-and-are-shipped-to-the-browser-which-never-reads-them), [DATA-01](findings/DATA-storage-domain-contracts.md#data-01-agent_run_eventsraw_json-is-278-mb-of-never-read-data-that-is-also-shipped-to-the-browser)
 - **Change:** execution-scopes through mapReadSnapshot (measured 402 -> 42 ms); one snapshot for the whole roadmap list; /cycles returns non-terminal cycles without designRecovery by default (full detail per work item); /runs omits outcomeSummary and supports ?status=live; run event pages and the run SSE omit `raw` (diagnostics endpoint keeps it); load the owner-only audit page separately so non-owners can use the app.
 - **Done when:** Endpoint timings on a DB copy: execution-scopes <60 ms, /cycles <100 KB; a non-owner member can load every workspace page (test).
+- **Progress:** Timing targets on a live-DB copy not yet re-measured. Journal reads still select raw_json from disk (R-H2).
 
 ### R-D2
 
-**Cheap browser refresh fixes** · Phase P0 · Effort S-M · Status: open
+**Cheap browser refresh fixes** · Phase P0 · Effort S-M · Status: done, partial on "done when" (9588c0c)
 
 - **Resolves:** [PERF-02](findings/PERF-browser-and-read-performance.md#perf-02-batching-does-not-coalesce-transitions-no-single-flight-so-rounds-overlap-and-queue-server-work), [PERF-03](findings/PERF-browser-and-read-performance.md#perf-03-invalidation-map-is-wrong-in-both-directions-notifications-storms-stale-roadmapevidence-panels), [PERF-06](findings/PERF-browser-and-read-performance.md#perf-06-roadmaps-page-polls-900-kb-every-3-5-s-forever-77--of-the-daemon-15-mbmin-per-tab), [PERF-17](findings/PERF-browser-and-read-performance.md#perf-17-polling-continues-in-hidden-tabs-no-visibility-or-focus-awareness), [NOTIF-11](findings/NOTIF-attention-notifications.md#notif-11-browser-invalidation-is-coarse-and-the-200-ms-leading-window-splits-automated-cascades)
 - **Change:** Trailing debounce with max-wait (~400 ms / 2 s) and single-flight around the refresh; notifications-changed invalidates only the notification panel; roadmap-changed, runtime-evidence-changed and scope-evidence-recorded invalidate the roadmap/evidence panels (remove the 3 s and 5 s polls, keep a 60 s visible-tab safety refresh); pause polling and defer refetches on hidden tabs.
 - **Done when:** A test replaying a recorded transition (live seq 3248-3254) shows one refresh round; an idle hidden Roadmaps tab makes no requests.
+- **Progress:** Trailing debounce 400 ms / max 2 s, single-flight with one follow-up, hidden-tab deferral, event-driven panels with a 60 s visible-tab safety refresh. The seq 3248-3254 replay produces 6 rounds, not 1: its events span 11.4 s with gaps up to 6 s, so the remaining churn must be removed at the source (PERF-18 event coalescing in the controller).
 
 ### R-D3
 
-**Instrument read cost and event-loop delay** · Phase P0 · Effort S · Status: open
+**Instrument read cost and event-loop delay** · Phase P0 · Effort S · Status: partial (9588c0c)
 
 - **Resolves:** [PERF-07](findings/PERF-browser-and-read-performance.md#perf-07-browser-refetch-storms-run-on-the-controllers-event-loop-ui-load-slows-automation-and-vice-versa), [PERF-19](findings/PERF-browser-and-read-performance.md#perf-19-no-tests-or-instrumentation-guard-request-volume-or-read-cost)
 - **Change:** Log route, duration and bytes per request; expose an event-loop-delay histogram on a diagnostics endpoint; add read-budget tests over a large generated fixture (171-entry roadmap, 150 KB evidence records).
 - **Done when:** The operator can see p95 request time and event-loop delay for the live daemon.
+- **Progress:** Per-request log line (route, status, duration, bytes) and owner-only GET /api/workspaces/:id/diagnostics (route p50/p95/max, event-loop delay). Read-budget tests over a large generated fixture remain open.
 
 ### R-D4
 
@@ -385,11 +391,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-F1
 
-**One compiled map model and one requirement evaluator** · Phase P1/P4 · Effort S then L · Status: open
+**One compiled map model and one requirement evaluator** · Phase P1/P4 · Effort S then L · Status: partial (90aef4a)
 
 - **Resolves:** [FMT-01](findings/FMT-plan-and-roadmap-formats.md#fmt-01-no-compiled-format-model--22-services-re-interpret-raw-map-json), [FMT-02](findings/FMT-plan-and-roadmap-formats.md#fmt-02-requirement-satisfaction-is-implemented-three-times-with-drift), [FMT-03](findings/FMT-plan-and-roadmap-formats.md#fmt-03-validator-milestone-graph-differs-from-the-domain-milestone-model-demonstrated), [FMT-09](findings/FMT-plan-and-roadmap-formats.md#fmt-09-required-dependency-depends_on-enforcement-is-duplicated-in-six-places), [FMT-10](findings/FMT-plan-and-roadmap-formats.md#fmt-10-producer-sets-and-scope-requirementcase-sets-are-re-derived-in-several-places), [CTRL-14](findings/CTRL-controller.md#ctrl-14-the-same-gates-and-validations-are-duplicated-with-drift)
 - **Change:** Immediately: make the importer's cycle check use the same milestone graph as targetClosure (FMT-03 imports a map the supervisor then crashes on). Then: compile a map+binding once into an immutable model (nodes, edges, producer sets, requirement sets) cached by definition/binding revision, and implement requirement satisfaction and depends_on enforcement once; migrate the 22 services that read raw map JSON.
 - **Done when:** FMT-03 reproduction is rejected at import; one satisfaction implementation; golden conformance fixtures (R-F4) pass unchanged.
+- **Progress:** FMT-03 fixed: the import cycle check includes the implicit milestone edges targetClosure uses. The compiled map model and single evaluator remain.
 
 ### R-F2
 
@@ -401,19 +408,21 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-F3
 
-**Format ingestion bugs and test honesty** · Phase P0/P1 · Effort S-M · Status: open
+**Format ingestion bugs and test honesty** · Phase P0/P1 · Effort S-M · Status: partial (fcbba5e, 823bf04)
 
 - **Resolves:** [FMT-08](findings/FMT-plan-and-roadmap-formats.md#fmt-08-work-item-phase-is-unbounded-in-the-normalizer-but-64-in-the-database-and-wire-contract), [FMT-11](findings/FMT-plan-and-roadmap-formats.md#fmt-11-the-studio-seam-is-unused-and-produces-a-different-definition-digest), [FMT-13](findings/FMT-plan-and-roadmap-formats.md#fmt-13-the-same-plan-imported-by-discrete-upload-and-by-zip-gets-different-digests), [FMT-14](findings/FMT-plan-and-roadmap-formats.md#fmt-14-silent-truncation-of-plan-fields-that-agents-treat-as-the-contract), [FMT-15](findings/FMT-plan-and-roadmap-formats.md#fmt-15-execution-tests-bypass-the-importer-with-definitions-it-would-reject), [FMT-16](findings/FMT-plan-and-roadmap-formats.md#fmt-16-roadmap-entry-limits-are-inconsistent-and-settings-are-duplicated-in-every-entry-and-revision)
 - **Change:** Diagnose over-long phase at import instead of failing in storage; one digest for the same content regardless of transport (discrete vs ZIP, Studio seam vs ZIP); make truncation of agent-contract fields explicit; make execution tests build maps through the importer; align roadmap entry limits.
 - **Done when:** Each reproduction script from the FMT report fails before and passes after.
+- **Progress:** FMT-08 and FMT-14 fixed. FMT-13 cannot be fixed without changing existing digests (the live AQ-CONT-1 identity); needs a dual digest / digest v2, which is a schema decision; current behaviour pinned by tests. FMT-11, FMT-15, FMT-16 open.
 
 ### R-F4
 
-**Commit the format specification and golden conformance tests** · Phase P0 · Effort S · Status: open
+**Commit the format specification and golden conformance tests** · Phase P0 · Effort S · Status: partial (56cb003)
 
 - **Resolves:** [FMT-12](findings/FMT-plan-and-roadmap-formats.md#fmt-12-no-in-repo-format-specification-dead-and-misleading-format-codedocs), [FMT-18](findings/FMT-plan-and-roadmap-formats.md#fmt-18-canonical-json-for-source-record-fingerprints-is-an-undocumented-cross-language-contract)
 - **Change:** Promote the "Format specification" section of findings/FMT-plan-and-roadmap-formats.md to docs/formats.md after operator review; document the canonical-JSON contract; add golden tests that import every fixture and assert the normalized model and digests, so refactors cannot silently change the ground truth.
 - **Done when:** docs/formats.md exists and is referenced from AGENTS.md read order; golden tests run in pnpm check.
+- **Progress:** Golden conformance tests over every fixture (plan bundles, invalid breakdowns, v0.3 map: digests, normalized models, 335 nodes / 1,221 edges, target closures); regenerate only with CRAFTINGTABLE_UPDATE_GOLDEN=1. Live plan and map digests equal the golden values. docs/formats.md awaits operator review of the specification.
 
 ### R-F5
 
@@ -427,27 +436,30 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G1
 
-**Execution safety fixes that can lose or corrupt work** · Phase P0 · Effort S-M · Status: open
+**Execution safety fixes that can lose or corrupt work** · Phase P0 · Effort S-M · Status: done (2c195d5, f0518bb)
 
 - **Resolves:** [AGT-01](findings/AGT-GIT-SEC-agents-git-security.md#agt-01-a-supervision-failure-leaves-the-agent-process-running-while-the-run-is-marked-failed), [GIT-02](findings/AGT-GIT-SEC-agents-git-security.md#git-02-one-click-worktree-remove-force-deletes-uncommitted-and-untracked-work), [GIT-01](findings/AGT-GIT-SEC-agents-git-security.md#git-01-a-merge-that-times-out-in-the-primary-checkout-is-never-aborted), [AGT-09](findings/AGT-GIT-SEC-agents-git-security.md#agt-09-a-ct-check-or-ct-act-timeout-kills-only-the-direct-child-not-its-process-tree), [AGT-13](findings/AGT-GIT-SEC-agents-git-security.md#agt-13-manual-launches-allow-two-live-agents-in-the-same-worktree), [GIT-09](findings/AGT-GIT-SEC-agents-git-security.md#git-09-merge-cleanup-deletes-the-branch-without-pinning-its-commit)
 - **Change:** Kill the agent process group when the run consumer throws, and keep the worktree reserved until it exits. Worktree Remove defaults to non-force; the server refuses (409 with dirty paths) unless the operator explicitly discards changes. Abort a merge whose git process timed out (MERGE_HEAD present) and recover the primary checkout. ct-check/ct-act timeouts kill the process tree. Manual launches refuse a second live agent in the same worktree. Pin the branch tip before deleting a merged branch.
 - **Done when:** Tests: throwing consumer -> process group gone and new launch refused until exit; dirty worktree removal refused; merge-hook timeout leaves no MERGE_HEAD.
+- **Progress:** Follow-up: pinned-cargo.ts still uses spawnSync timeouts that kill only the direct child.
 
 ### R-G2
 
-**Make automatic provider retry actually fire** · Phase P0 · Effort S · Status: open
+**Make automatic provider retry actually fire** · Phase P0 · Effort S · Status: done (a08eabb)
 
 - **Resolves:** [AGT-06](findings/AGT-GIT-SEC-agents-git-security.md#agt-06-codex-sleep-items-and-any-unknown-item-type-silently-disable-adr-062-automatic-provider-retries), [AGT-59](findings/AGT-GIT-SEC-agents-git-security.md#agt-59-claude-transient-service-failures-never-qualify-for-adr-062-automatic-retry), [AGT-61](findings/AGT-GIT-SEC-agents-git-security.md#agt-61-failure-data-is-sparse-and-the-adr-062-path-has-never-run-on-live-data), [AGT-07](findings/AGT-GIT-SEC-agents-git-security.md#agt-07-unknown-vendor-messages-become-journal-events-with-raw-payloads-thousands-of-noise-notices)
 - **Change:** Codex `sleep` and other benign item types no longer mark a turn unsafe to continue; Claude results with is_error + an API error are classified as provider failures; unknown vendor messages stop producing raw notice events; add recorded vendor fixtures for each failure class.
 - **Done when:** Fixture tests for both backends show a transient provider failure scheduling an ADR-062 retry.
+- **Progress:** Decision: HTTP 429 from Claude is treated as quota (operator), consistent with ADR-062 and the Codex adapter, because a short rate limit cannot be told apart from a subscription session limit. Unknown Codex item types still block retry (conservative) but are reported once per type per run.
 
 ### R-G3
 
-**Scope operator guidance to the step it was given for** · Phase P0 · Effort S-M · Status: open
+**Scope operator guidance to the step it was given for** · Phase P0 · Effort S-M · Status: done (e598b83)
 
 - **Resolves:** [AGT-52](findings/AGT-GIT-SEC-agents-git-security.md#agt-52-one-shot-operator-guidance-persists-into-every-later-cycle-step-and-contradicts-them), [AGT-51](findings/AGT-GIT-SEC-agents-git-security.md#agt-51-controller-authored-text-is-presented-to-agents-as--operator-instructions)
 - **Change:** One-shot guidance applies to the next run only and is recorded on that run; it no longer accumulates in the cycle instructions that later implement and review steps inherit. Controller-authored text is labelled as controller instructions, not "Operator instructions".
 - **Done when:** Test: guidance given on a review retry is absent from the following implement brief.
+- **Progress:** New optional cycle field stepGuidance; legacy accumulated instructions are kept but no longer appended to. UI does not yet display pending step guidance; finalization operator text still sits in the controller rules section (R-G6).
 
 ### R-G4
 
@@ -517,11 +529,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H1
 
-**Fix the unreadable first run (live 500)** · Phase P0 · Effort S · Status: open
+**Fix the unreadable first run (live 500)** · Phase P0 · Effort S · Status: done (1ba9be7)
 
 - **Resolves:** [DATA-03](findings/DATA-storage-domain-contracts.md#data-03-a-strict-response-schema-combined-with-no-read-side-upgrade-makes-the-first-runs-events-unreadable-live-bug-and-all-persisted-json-is-read-with-bare-casts)
 - **Change:** Make `billing` optional (or default it to unknown) in the run-event envelope so the 2026-09-04 run's events load again.
 - **Done when:** All 46k live events validate against the response contract (verify script from R-H3).
+- **Progress:** Missing billing reads as unknown. Validating all live events awaits the R-H3 verify script.
 
 ### R-H2
 

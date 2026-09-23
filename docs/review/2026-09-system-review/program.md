@@ -42,6 +42,24 @@ are suitable for delegation to CraftingTable itself.
 | R-G2, R-G3 | Automatic provider retry that never fires; guidance that contaminates later steps. |
 | R-F3 (FMT-03 part of R-F1), R-F4 | Stop maps that import and then crash the supervisor; pin the format ground truth with golden tests before any refactor touches it. |
 
+**Progress (2026-09-22, branch `review/2026-09-system-review`).** Landed: R-A1, R-A2, R-B1,
+R-D1, R-G1, R-G2, R-G3 and R-H1. R-D2 landed, but its "done when" is only partly met. Partly
+done: R-D3, R-F1 (FMT-03 only), R-F3 and R-F4.
+
+`pnpm check` passes on the integrated branch:
+- 149 test files and 1,360 unit tests;
+- 22 e2e tests;
+- the scope check.
+
+Still open in P0:
+- **R-I1 (operator action):** push or back up the local commits; decide on the walkthrough
+  PNGs.
+- **R-D3:** read-budget tests.
+- **R-F3:** FMT-11, FMT-15 and FMT-16.
+- **R-F4:** promote the format specification to `docs/formats.md` after operator review.
+- **Re-measurement:** the P0 metrics below have not been re-measured against the live
+  daemon. That needs a deploy, which is the operator's call.
+
 Exit criteria:
 - No confirmed false-alarm sequence from the HIST and NOTIF reports reproduces in tests.
 - Idle daemon CPU is measurably lower.

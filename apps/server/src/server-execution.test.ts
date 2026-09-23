@@ -11569,8 +11569,9 @@ it('repeats completed verification in its existing worktree with the assigned ro
     'review preparation guard',
   );
   expect(
-    state.context.services.workCycleService.list(f.auth, ws).find((c) => c.id === cycle.id)
-      ?.scopeReviewWait,
+    state.context.services.workCycleService
+      .list(f.auth, ws, cycle.workItemId ? { workItemId: cycle.workItemId } : {})
+      .find((c) => c.id === cycle.id)?.scopeReviewWait,
   ).toContain('Preparing the requested recovery');
   const duplicate = await command();
   expect(duplicate.statusCode, duplicate.body).toBe(409);

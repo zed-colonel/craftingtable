@@ -19,7 +19,7 @@ import {
   type WorkItemId,
   type WorkspaceId,
 } from '@craftingtable/domain';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { PageHeader } from '../../components/PageHeader.js';
@@ -28,6 +28,7 @@ import { StatusStrip } from '../../components/StatusStrip.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
+import { useRefreshOn } from '../../lib/refresh-signals.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import {
   controlRoadmap,
@@ -126,25 +127,31 @@ export function RoadmapsPage({
     id: string;
     definitions: readonly RoadmapDefinition[];
   }>();
-  useEffect(() => {
-    let alive = true;
-    let refreshing = false;
-    const refresh = async () => {
-      if (refreshing) return;
-      refreshing = true;
-      try {
-        const result = await loadRoadmaps(workspaceId);
-        if (alive) {
-          setRoadmaps(result.roadmaps);
-          setLoaded(true);
-        }
-      } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : 'Could not load roadmaps.');
-      } finally {
-        refreshing = false;
+  // Roadmaps reload when a round says they changed (roadmap, cycle, evidence
+  // and merge events) and on the slow safety refresh, never on a fixed 3 s poll
+  // (PERF-06). One read at a time; a round during a read is caught by the next.
+  const mounted = useRef(true);
+  const refreshing = useRef(false);
+  const refreshRoadmaps = useCallback(async () => {
+    if (refreshing.current) return;
+    refreshing.current = true;
+    try {
+      const result = await loadRoadmaps(workspaceId);
+      if (mounted.current) {
+        setRoadmaps(result.roadmaps);
+        setLoaded(true);
       }
-    };
-    void refresh();
+    } catch (e) {
+      if (mounted.current) setError(e instanceof Error ? e.message : 'Could not load roadmaps.');
+    } finally {
+      refreshing.current = false;
+    }
+  }, [workspaceId]);
+  useRefreshOn('roadmaps', () => void refreshRoadmaps());
+  useEffect(() => {
+    mounted.current = true;
+    let alive = true;
+    void refreshRoadmaps();
     void Promise.all([
       loadWorkspaceWorkItems(workspaceId, 'all'),
       loadExecutionStatus(),
@@ -164,12 +171,11 @@ export function RoadmapsPage({
       .catch((e) => {
         if (alive) setError(e instanceof Error ? e.message : 'Could not load work items.');
       });
-    const timer = window.setInterval(() => void refresh(), 3000);
     return () => {
       alive = false;
-      window.clearInterval(timer);
+      mounted.current = false;
     };
-  }, [workspaceId]);
+  }, [workspaceId, refreshRoadmaps]);
   const apply = (view: RoadmapView) =>
     setRoadmaps((current) => [view, ...current.filter((r) => r.roadmap.id !== view.roadmap.id)]);
   const command = async (

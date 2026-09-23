@@ -32,6 +32,16 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 const EVENT_PAGE_LIMIT = 500;
 
 /**
+ * The browser never reads the retained vendor line, and it is more than half
+ * of a run's bytes (PERF-11, AGT-03, DATA-01). It stays in the journal for
+ * diagnostics and is sent only when explicitly requested.
+ */
+function withoutRaw<T extends { readonly raw?: string }>(event: T): Omit<T, 'raw'> {
+  const { raw: _raw, ...rest } = event;
+  return rest;
+}
+
+/**
  * Agent run routes: start, steer, stop, inspect, and follow live.
  *
  * The browser never sends a shell command. It sends a work item, a role, a
@@ -104,37 +114,42 @@ export function registerAgentRunRoutes(
     },
   );
 
-  app.get<{ Params: { workspaceId: string; runId: string }; Querystring: { after?: string } }>(
-    '/api/workspaces/:workspaceId/runs/:runId/event-page',
-    async (request, reply) => {
-      const context = authenticate(request, authService);
-      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-      const runId = agentRunIdSchema.safeParse(request.params.runId);
-      if (!workspaceId.success || !runId.success) {
-        return sendApiError(reply, 404, 'not-found', 'Resource not found');
-      }
-      let after: number;
-      try {
-        after = parseEventCursor(request.query.after, 'after') ?? 0;
-      } catch {
-        return sendApiError(reply, 400, 'invalid-request', 'Invalid event cursor');
-      }
-      const events = agentRunService.listEvents(
-        context,
-        workspaceId.data,
-        runId.data,
-        after,
-        EVENT_PAGE_LIMIT,
-        request.id,
-      );
-      return noStore(reply).send(
-        runEventPageResponseSchema.parse({
-          events,
-          nextAfter: events.at(-1)?.sequence ?? after,
-        }),
-      );
-    },
-  );
+  // `?includeRaw=true` is the explicit diagnostics read of the retained vendor lines.
+  app.get<{
+    Params: { workspaceId: string; runId: string };
+    Querystring: { after?: string; includeRaw?: string };
+  }>('/api/workspaces/:workspaceId/runs/:runId/event-page', async (request, reply) => {
+    const context = authenticate(request, authService);
+    const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+    const runId = agentRunIdSchema.safeParse(request.params.runId);
+    if (!workspaceId.success || !runId.success) {
+      return sendApiError(reply, 404, 'not-found', 'Resource not found');
+    }
+    let after: number;
+    try {
+      after = parseEventCursor(request.query.after, 'after') ?? 0;
+    } catch {
+      return sendApiError(reply, 400, 'invalid-request', 'Invalid event cursor');
+    }
+    const includeRaw = request.query.includeRaw;
+    if (includeRaw !== undefined && includeRaw !== 'true' && includeRaw !== 'false') {
+      return sendApiError(reply, 400, 'invalid-request', 'Invalid raw-line option');
+    }
+    const events = agentRunService.listEvents(
+      context,
+      workspaceId.data,
+      runId.data,
+      after,
+      EVENT_PAGE_LIMIT,
+      request.id,
+    );
+    return noStore(reply).send(
+      runEventPageResponseSchema.parse({
+        events: includeRaw === 'true' ? events : events.map(withoutRaw),
+        nextAfter: events.at(-1)?.sequence ?? after,
+      }),
+    );
+  });
 
   for (const [action, schema, handler] of [
     ['messages', sendAgentRunMessageRequestSchema, 'message'],
@@ -257,7 +272,7 @@ export function registerAgentRunRoutes(
               );
               return;
             }
-            const event = runEventEnvelopeSchema.parse(item.event);
+            const event = runEventEnvelopeSchema.parse(withoutRaw(item.event));
             const writable = reply.raw.write(
               `event: ${SSE_RUN_EVENT_NAME}\nid: ${event.sequence}\ndata: ${JSON.stringify(event)}\n\n`,
             );

@@ -447,10 +447,19 @@ export class ExecutionService {
   }
 
   /** Live runs first, then recent ones, with the context to list them anywhere. */
-  listRuns(context: AuthContext, workspaceId: WorkspaceId, requestId?: string) {
+  listRuns(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    requestId?: string,
+    filter: { readonly live?: boolean } = {},
+  ) {
     this.workspaceService.requireAuthorized(context, workspaceId, requestId);
     return this.storage.readTransaction((tx) => {
-      const runs = tx.execution.runs.listRecent(workspaceId, 50);
+      // Live runs sort first, so filtering the recent page keeps every live run it can hold.
+      const recent = tx.execution.runs.listRecent(workspaceId, 50);
+      const runs = filter.live
+        ? recent.filter((run) => ['starting', 'running', 'waiting'].includes(run.status))
+        : recent;
       const items = runs.flatMap((run) => {
         const item = run.workItemId
           ? tx.planning.workItems.find(workspaceId, run.workItemId)

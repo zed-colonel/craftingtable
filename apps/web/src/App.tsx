@@ -117,6 +117,16 @@ import {
   type PlanImportUpload,
   removeFromAgenda,
 } from './lib/planning-api.js';
+import {
+  ALL_REFRESH_TOPICS,
+  createRefreshScheduler,
+  type RefreshTopic,
+} from './lib/refresh-scheduler.js';
+import {
+  createRefreshSignals,
+  documentHidden,
+  RefreshSignalsProvider,
+} from './lib/refresh-signals.js';
 import { type Route, routeWorkspaceId } from './lib/route.js';
 import {
   currentTheme,
@@ -143,6 +153,20 @@ import {
 
 /** Pages the initial run-event load walks before handing over to the stream. */
 const RUN_EVENT_PAGE_LIMIT = 20;
+
+/**
+ * Background refresh pacing (PERF-02). A transition's events arrive 0.3-6 s
+ * apart; a round starts after 400 ms without events, or 2 s after the first
+ * one at the latest.
+ */
+const REFRESH_DEBOUNCE_MS = 400;
+const REFRESH_MAX_WAIT_MS = 2_000;
+/**
+ * Self-loading panels otherwise refresh only on events; this catches state no
+ * event announces (Git- and clock-derived), and only while the tab is visible.
+ */
+const SAFETY_REFRESH_MS = 60_000;
+const SAFETY_CHECK_MS = 15_000;
 
 export function App() {
   const [authenticationStatus, setAuthenticationStatus] =
@@ -198,30 +222,87 @@ export function App() {
   const [importError, setImportError] = useState<string>();
   const [itemBusy, setItemBusy] = useState(false);
   const [itemError, setItemError] = useState<string>();
+  /**
+   * One refresh round re-runs every App-level load keyed on this token. The
+   * round is in flight until those loads settle (`roundDone`), and the
+   * scheduler keeps at most one round in flight.
+   */
   const [refreshToken, setRefreshToken] = useState(0);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const scheduleRefresh = useCallback(() => {
-    // A fixed window batches a transition's journal events without postponing
-    // refresh indefinitely when another run keeps producing events.
-    if (refreshTimer.current !== undefined) return;
-    refreshTimer.current = setTimeout(() => {
-      refreshTimer.current = undefined;
-      setRefreshToken((value) => value + 1);
-    }, 200);
+  const roundLoads = useRef<Promise<unknown>[]>([]);
+  const roundDone = useRef<(() => void) | undefined>(undefined);
+  /** Registers an App-level load with the round that is being opened, if any. */
+  const trackLoad = useCallback((load: Promise<unknown>): void => {
+    if (roundDone.current !== undefined) roundLoads.current.push(load);
   }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: discard pending refreshes on workspace changes.
-  useEffect(
-    () => () => {
-      clearTimeout(refreshTimer.current);
-      refreshTimer.current = undefined;
+  const [signals] = useState(createRefreshSignals);
+  const lastSignalled = useRef<Record<RefreshTopic, number>>({
+    workspace: Date.now(),
+    roadmaps: Date.now(),
+    notifications: Date.now(),
+  });
+  const signalPanels = useCallback(
+    (topics: Iterable<RefreshTopic>): void => {
+      const list = [...topics];
+      for (const topic of list) lastSignalled.current[topic] = Date.now();
+      signals.emit(list);
     },
-    [activeWorkspaceId],
+    [signals],
   );
+  const [scheduler] = useState(() =>
+    createRefreshScheduler({
+      debounceMs: REFRESH_DEBOUNCE_MS,
+      maxWaitMs: REFRESH_MAX_WAIT_MS,
+      hidden: documentHidden,
+      run: (topics) =>
+        new Promise<void>((resolve) => {
+          signalPanels(topics);
+          if (!topics.has('workspace')) {
+            resolve();
+            return;
+          }
+          roundDone.current?.();
+          roundDone.current = resolve;
+          setRefreshToken((value) => value + 1);
+        }),
+    }),
+  );
+  /** After the operator's own command: refresh now rather than after the debounce. */
+  const refreshNow = useCallback(() => scheduler.refreshNow(), [scheduler]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: discard pending refreshes on workspace changes.
+  useEffect(() => () => scheduler.reset(), [activeWorkspaceId, scheduler]);
+  // Hidden tabs read nothing; becoming visible catches up once (PERF-17).
+  useEffect(() => {
+    const safetyRefresh = (): void => {
+      if (documentHidden()) return;
+      const now = Date.now();
+      const due = ALL_REFRESH_TOPICS.filter(
+        (topic) => now - lastSignalled.current[topic] >= SAFETY_REFRESH_MS,
+      );
+      if (due.length > 0) signalPanels(due);
+    };
+    const visibilityChanged = (): void => {
+      scheduler.visibilityChanged();
+      safetyRefresh();
+    };
+    document.addEventListener('visibilitychange', visibilityChanged);
+    const timer = setInterval(safetyRefresh, SAFETY_CHECK_MS);
+    return () => {
+      document.removeEventListener('visibilitychange', visibilityChanged);
+      clearInterval(timer);
+    };
+  }, [scheduler, signalPanels]);
   const [cycleState, setCycleState] = useState<{
     workspaceId: WorkspaceId;
     cycles: readonly WorkCycle[];
   }>();
   const [cycleLoadError, setCycleLoadError] = useState<WorkspaceId>();
+  /** The work-item page's own cycles, history and design recovery included. */
+  const [itemCycleState, setItemCycleState] = useState<{
+    workspaceId: WorkspaceId;
+    workItemId: WorkItemId;
+    cycles: readonly WorkCycle[];
+  }>();
+  const [itemCycleLoadError, setItemCycleLoadError] = useState<WorkItemId>();
 
   // Delegation state: repositories, the active work item's worktrees and runs,
   // one run being followed live, and one diff being inspected.
@@ -233,7 +314,11 @@ export function App() {
   const [profilesNotice, setProfilesNotice] = useState<string>();
   const [selectedCycleWorktreeId, setSelectedCycleWorktreeId] = useState<WorktreeId>();
   const [workItemExecution, setWorkItemExecution] = useState<WorkItemExecutionResponse>();
-  const [runsOverview, setRunsOverview] = useState<WorkspaceRunsResponse>();
+  /** The dashboard reads only live runs; the runs page reads the recent list. */
+  const [runsState, setRunsState] = useState<{
+    scope: 'live' | 'recent';
+    response: WorkspaceRunsResponse;
+  }>();
   const [branches, setBranches] = useState<RepositoryBranchesResponse>();
   const [agenda, setAgenda] = useState<WorkspaceWorkItemListResponse>();
   const [run, setRun] = useState<AgentRunDetailResponse>();
@@ -276,7 +361,7 @@ export function App() {
     setStreamAfter(0);
     setRepositories([]);
     setWorkItemExecution(undefined);
-    setRunsOverview(undefined);
+    setRunsState(undefined);
     setBranches(undefined);
     setAgenda(undefined);
     setRun(undefined);
@@ -331,9 +416,11 @@ export function App() {
     })();
   }, [establishSession]);
 
-  // Elapsed times on run rows tick without a stream event.
+  // Elapsed times on run rows tick without a stream event, while visible.
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    const timer = setInterval(() => {
+      if (!documentHidden()) setNow(Date.now());
+    }, 10_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -385,19 +472,16 @@ export function App() {
     if (projection.snapshotStatus === 'idle') {
       dispatch({ type: 'snapshot-requested' });
     }
-    void Promise.all([
-      loadWorkspaceSnapshot(activeWorkspaceId),
-      loadWorkspaceAudit(activeWorkspaceId),
-      loadWorkspaces(),
-    ])
-      .then(([snapshot, auditPage, workspaceList]) => {
+    // The owner-only audit page loads on its own below: a member who may not
+    // read it must still get the snapshot (PERF-15).
+    const load = Promise.all([loadWorkspaceSnapshot(activeWorkspaceId), loadWorkspaces()])
+      .then(([snapshot, workspaceList]) => {
         if (canceled) {
           return;
         }
         // Seed the stream once. Background snapshots must not reconnect it or skip
         // invalidations that arrived while their requests were in flight.
         if (projection.snapshotStatus !== 'ready') setStreamAfter(snapshot.asOfSequence);
-        setAudit(auditPage.records);
         setWorkspaces(workspaceList.workspaces);
         dispatch({ type: 'snapshot-loaded', snapshot });
       })
@@ -415,29 +499,58 @@ export function App() {
           dispatch({ type: 'snapshot-failed' });
         }
       });
+    trackLoad(load);
     return () => {
       canceled = true;
     };
     // `refreshToken` re-runs this effect when an event invalidates the summary.
   }, [authenticationStatus, activeWorkspaceId, refreshToken]);
 
+  // The audit log is owner-only and shown only on the dashboard (PERF-12, PERF-15).
+  const auditVisible =
+    route.name === 'dashboard' &&
+    workspaces.some(
+      (workspace) => workspace.id === activeWorkspaceId && workspace.role === 'owner',
+    );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: deliberate refetch trigger
+  useEffect(() => {
+    if (authenticationStatus !== 'authenticated' || activeWorkspaceId === undefined) return;
+    if (!auditVisible) return;
+    let canceled = false;
+    const requestedFor = activeWorkspaceId;
+    trackLoad(
+      loadWorkspaceAudit(requestedFor)
+        .then((page) => {
+          if (!canceled && activeWorkspaceIdRef.current === requestedFor) setAudit(page.records);
+        })
+        // A failed audit read keeps the last page; it never fails the workspace.
+        .catch(() => undefined),
+    );
+    return () => {
+      canceled = true;
+    };
+  }, [authenticationStatus, activeWorkspaceId, auditVisible, refreshToken]);
+
   /**
    * Relevant events mark scopes stale; the app then refetches the authoritative
    * queries. Event payloads are never treated as the planning model (CT03-A66).
    */
   useEffect(() => {
-    if (
-      !projection.stale.workspaceSummary &&
-      projection.stale.projectIds.length === 0 &&
-      projection.stale.workItemIds.length === 0 &&
-      !projection.stale.repositoryList
-    ) {
+    const stale = projection.stale;
+    const page =
+      stale.workspaceSummary ||
+      stale.projectIds.length > 0 ||
+      stale.workItemIds.length > 0 ||
+      stale.repositoryList;
+    if (!page && !stale.roadmaps && !stale.notifications) {
       return;
     }
     dispatch({
       type: 'stale-consumed',
       consumed: {
         ...(projection.stale.workspaceSummary ? { workspaceSummary: true } : {}),
+        ...(stale.roadmaps ? { roadmaps: true } : {}),
+        ...(stale.notifications ? { notifications: true } : {}),
         ...(projection.stale.repositoryList ? { repositoryList: true } : {}),
         ...(projection.stale.projectIds.length === 0
           ? {}
@@ -447,8 +560,12 @@ export function App() {
           : { workItemIds: projection.stale.workItemIds }),
       },
     });
-    scheduleRefresh();
-  }, [projection.stale, scheduleRefresh]);
+    scheduler.invalidate([
+      ...(page ? (['workspace'] as const) : []),
+      ...(stale.roadmaps ? (['roadmaps'] as const) : []),
+      ...(stale.notifications ? (['notifications'] as const) : []),
+    ]);
+  }, [projection.stale, scheduler]);
 
   const workspaceId = activeWorkspaceId;
   const cycles =
@@ -457,16 +574,18 @@ export function App() {
   useEffect(() => {
     if (authenticationStatus !== 'authenticated' || workspaceId === undefined) return;
     let cancelled = false;
-    void loadWorkCycles(workspaceId)
-      .then((result) => {
-        if (!cancelled && activeWorkspaceIdRef.current === workspaceId) {
-          setCycleState({ workspaceId, cycles: result.cycles });
-          setCycleLoadError(undefined);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setCycleLoadError(workspaceId);
-      });
+    trackLoad(
+      loadWorkCycles(workspaceId)
+        .then((result) => {
+          if (!cancelled && activeWorkspaceIdRef.current === workspaceId) {
+            setCycleState({ workspaceId, cycles: result.cycles });
+            setCycleLoadError(undefined);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setCycleLoadError(workspaceId);
+        }),
+    );
     return () => {
       cancelled = true;
     };
@@ -499,16 +618,19 @@ export function App() {
         dispatch({ type: 'refresh-failed' });
       }
     };
+    let load: Promise<unknown> | undefined;
     if (route.name === 'dashboard' || route.name === 'runs') {
-      void loadWorkspaceRuns(workspaceId)
+      // The dashboard shows only live runs; the runs page the recent list (PERF-12).
+      const scope = route.name === 'dashboard' ? 'live' : 'recent';
+      load = loadWorkspaceRuns(workspaceId, { live: scope === 'live' })
         .then((response) => {
           if (current()) {
-            setRunsOverview(response);
+            setRunsState({ scope, response });
           }
         })
         .catch(fail);
     } else if (route.name === 'agenda') {
-      void loadWorkspaceWorkItems(workspaceId, route.filter)
+      load = loadWorkspaceWorkItems(workspaceId, route.filter)
         .then((response) => {
           if (current()) {
             setAgenda(response);
@@ -516,7 +638,7 @@ export function App() {
         })
         .catch(fail);
     } else if (route.name === 'project') {
-      void loadProject(workspaceId, route.projectId)
+      load = loadProject(workspaceId, route.projectId)
         .then((detail) => {
           if (current()) {
             setProject(detail);
@@ -524,7 +646,7 @@ export function App() {
         })
         .catch(fail);
     } else if (route.name === 'plan-version') {
-      void loadPlanVersion(workspaceId, route.projectId, route.planVersionId)
+      load = loadPlanVersion(workspaceId, route.projectId, route.planVersionId)
         .then((detail) => {
           if (current()) {
             setPlanVersion(detail);
@@ -532,7 +654,19 @@ export function App() {
         })
         .catch(fail);
     } else if (route.name === 'work-item') {
-      void Promise.all([
+      const workItemId = route.workItemId;
+      // The item's own cycles, history and design recovery included (PERF-05).
+      const itemCycles = loadWorkCycles(workspaceId, workItemId)
+        .then((result) => {
+          if (current()) {
+            setItemCycleState({ workspaceId: requestedFor, workItemId, cycles: result.cycles });
+            setItemCycleLoadError(undefined);
+          }
+        })
+        .catch(() => {
+          if (current()) setItemCycleLoadError(workItemId);
+        });
+      const detail = Promise.all([
         loadWorkItem(workspaceId, route.workItemId),
         loadWorkItemExecution(workspaceId, route.workItemId),
         loadRepositories(workspaceId),
@@ -549,8 +683,9 @@ export function App() {
           }
         })
         .catch(fail);
+      load = Promise.all([itemCycles, detail]);
     } else if (route.name === 'settings') {
-      void Promise.all([loadExecutionStatus(), loadRunProfiles(workspaceId)])
+      load = Promise.all([loadExecutionStatus(), loadRunProfiles(workspaceId)])
         .then(([status, profiles]) => {
           if (current()) {
             setExecutionStatus(status);
@@ -559,7 +694,7 @@ export function App() {
         })
         .catch(fail);
     } else if (route.name === 'repositories') {
-      void Promise.all([loadRepositories(workspaceId), loadExecutionStatus()])
+      load = Promise.all([loadRepositories(workspaceId), loadExecutionStatus()])
         .then(([repositoryList, status]) => {
           if (current()) {
             setRepositories(repositoryList.repositories);
@@ -568,7 +703,7 @@ export function App() {
         })
         .catch(fail);
     } else if (route.name === 'run') {
-      void Promise.all([
+      load = Promise.all([
         loadRun(workspaceId, route.runId).then((detail) =>
           Promise.all([
             detail,
@@ -590,10 +725,21 @@ export function App() {
         })
         .catch(fail);
     }
+    if (load !== undefined) trackLoad(load);
     return () => {
       canceled = true;
     };
   }, [route, workspaceId, authenticationStatus, refreshToken]);
+
+  // Closes the round opened by this refresh token once every load registered
+  // above has settled, so the scheduler never starts a second round meanwhile.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per round
+  useEffect(() => {
+    const done = roundDone.current;
+    const loads = roundLoads.current.splice(0);
+    roundDone.current = undefined;
+    if (done !== undefined) void Promise.allSettled(loads).then(() => done());
+  }, [refreshToken]);
 
   // Following a run: load the committed events once per run, then stream the
   // tail from the last committed sequence. Leaving the run page drops both.
@@ -650,10 +796,10 @@ export function App() {
         event.kind === 'turn-completed' ||
         event.kind === 'session-started'
       ) {
-        scheduleRefresh();
+        scheduler.invalidate(['workspace']);
       }
     },
-    [scheduleRefresh],
+    [scheduler],
   );
   const onRunStreamInvalid = useCallback(() => undefined, []);
   const onRunAuthenticationExpired = useCallback(() => {
@@ -766,7 +912,7 @@ export function App() {
           return;
         }
         setImportResult(response);
-        setRefreshToken((current) => current + 1);
+        refreshNow();
         if (response.outcome === 'succeeded') {
           go({ name: 'project', workspaceId: requestedFor, projectId: response.projectId });
         }
@@ -800,7 +946,7 @@ export function App() {
     void operation(authenticated.csrfToken, requestedFor)
       .then(() => {
         if (activeWorkspaceIdRef.current === requestedFor) {
-          setRefreshToken((current) => current + 1);
+          refreshNow();
         }
       })
       .catch((error: unknown) => {
@@ -840,7 +986,7 @@ export function App() {
     void operation(authenticated.csrfToken, requestedFor)
       .then(() => {
         if (activeWorkspaceIdRef.current === requestedFor) {
-          setRefreshToken((current) => current + 1);
+          refreshNow();
         }
       })
       .catch((error: unknown) => {
@@ -994,7 +1140,7 @@ export function App() {
         const list = await loadWorkspaces();
         setWorkspaces(list.workspaces);
         setWorkspaceNotice('Workspace renamed.');
-        setRefreshToken((current) => current + 1);
+        refreshNow();
       })
       .catch((error: unknown) => {
         setWorkspaceError(
@@ -1068,7 +1214,15 @@ export function App() {
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const canMutate = activeWorkspace?.role !== 'viewer';
   const workspaceRoute = routeWorkspaceId(route) !== undefined;
-  const liveRuns = (runsOverview?.runs ?? []).filter((entry) => isLiveStatus(entry.status));
+  const liveRuns = (runsState?.response.runs ?? []).filter((entry) => isLiveStatus(entry.status));
+  const recentRuns = runsState?.scope === 'recent' ? runsState.response : undefined;
+  const itemCycles =
+    itemCycleState !== undefined &&
+    route.name === 'work-item' &&
+    itemCycleState.workspaceId === workspaceId &&
+    itemCycleState.workItemId === route.workItemId
+      ? itemCycleState.cycles
+      : undefined;
   const itemInProgress =
     route.name === 'work-item' &&
     workItemExecution?.workItemId === route.workItemId &&
@@ -1125,7 +1279,8 @@ export function App() {
           </p>
         )}
 
-        {cycleLoadError === workspaceId && (
+        {(cycleLoadError === workspaceId ||
+          (route.name === 'work-item' && itemCycleLoadError === route.workItemId)) && (
           <p className="warning-state" role="alert">
             Cycle status could not be loaded. Refresh before controlling automation.
           </p>
@@ -1201,8 +1356,8 @@ export function App() {
 
         {route.name === 'runs' && (
           <RunsPage
-            runs={runsOverview?.runs ?? []}
-            liveCount={runsOverview?.liveCount ?? 0}
+            runs={recentRuns?.runs ?? []}
+            liveCount={recentRuns?.liveCount ?? 0}
             now={now}
             onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
             onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
@@ -1298,7 +1453,7 @@ export function App() {
             key={workspaceId}
             workspaceId={workspaceId}
             csrfToken={authenticated.csrfToken}
-            onZipImported={() => setRefreshToken((value) => value + 1)}
+            onZipImported={() => refreshNow()}
             projects={projection.projects}
             onImport={handleImport}
             busy={importBusy}
@@ -1319,7 +1474,7 @@ export function App() {
                   csrfToken={authenticated.csrfToken}
                   editable={canMutate}
                   refreshToken={refreshToken}
-                  onChanged={() => setRefreshToken((v) => v + 1)}
+                  onChanged={() => refreshNow()}
                 />
               )
             }
@@ -1349,7 +1504,7 @@ export function App() {
                   csrfToken={authenticated.csrfToken}
                   editable={canMutate}
                   refreshToken={refreshToken}
-                  onChanged={() => setRefreshToken((v) => v + 1)}
+                  onChanged={() => refreshNow()}
                 />
                 <FinalizationPanel
                   key={`finalize-${planVersion.version.id}`}
@@ -1412,7 +1567,7 @@ export function App() {
               csrfToken={authenticated.csrfToken}
               editable={false}
               refreshToken={refreshToken}
-              onChanged={() => setRefreshToken((v) => v + 1)}
+              onChanged={() => refreshNow()}
               collapsible
               defaultOpen={!itemInProgress && workItem.workItem.status !== 'completed'}
               {...(canMutate &&
@@ -1433,88 +1588,87 @@ export function App() {
                 })
               }
             />
-            {workItemExecution?.workItemId === route.workItemId &&
-              cycleState?.workspaceId === workspaceId && (
-                <CyclePanel
-                  key={route.workItemId}
-                  {...(selectedCycleWorktreeId
-                    ? { selectedWorktreeId: selectedCycleWorktreeId }
-                    : {})}
-                  onSelectWorktree={setSelectedCycleWorktreeId}
-                  renderDesignRecovery={(cycle) => (
-                    <DesignRecoveryPanel
-                      key={`${cycle.id}-${cycle.currentRunId}`}
-                      cycle={cycle}
-                      backends={executionStatus?.backends ?? []}
-                      csrfToken={authenticated.csrfToken}
-                      onChanged={() => setRefreshToken((v) => v + 1)}
-                    />
-                  )}
-                  renderReviewRecovery={(cycle, liveRun) => (
-                    <>
-                      {['paused', 'needs-attention'].includes(cycle.status) && (
-                        <ScopeRepairPanel
-                          key={`repair-${cycle.id}`}
-                          cycle={cycle}
-                          disabled={executionBusy || !canMutate || liveRun}
-                          csrfToken={authenticated.csrfToken}
-                          refreshToken={refreshToken}
-                          onOpen={setSelectedCycleWorktreeId}
-                          onStarted={(repair) => {
-                            setSelectedCycleWorktreeId(repair.worktreeId);
-                            setRefreshToken((v) => v + 1);
-                          }}
-                        />
-                      )}
-                      <ScopeReviewRecovery
-                        key={cycle.id}
+            {workItemExecution?.workItemId === route.workItemId && itemCycles !== undefined && (
+              <CyclePanel
+                key={route.workItemId}
+                {...(selectedCycleWorktreeId
+                  ? { selectedWorktreeId: selectedCycleWorktreeId }
+                  : {})}
+                onSelectWorktree={setSelectedCycleWorktreeId}
+                renderDesignRecovery={(cycle) => (
+                  <DesignRecoveryPanel
+                    key={`${cycle.id}-${cycle.currentRunId}`}
+                    cycle={cycle}
+                    backends={executionStatus?.backends ?? []}
+                    csrfToken={authenticated.csrfToken}
+                    onChanged={() => refreshNow()}
+                  />
+                )}
+                renderReviewRecovery={(cycle, liveRun) => (
+                  <>
+                    {['paused', 'needs-attention'].includes(cycle.status) && (
+                      <ScopeRepairPanel
+                        key={`repair-${cycle.id}`}
                         cycle={cycle}
                         disabled={executionBusy || !canMutate || liveRun}
+                        csrfToken={authenticated.csrfToken}
                         refreshToken={refreshToken}
-                        onResume={(instructions) =>
-                          executionCommand(async (csrfToken) => {
-                            await controlWorkCycle(
-                              cycle,
-                              cycle.status === 'completed' ? 'review-again' : 'resume',
-                              csrfToken,
-                              instructions,
-                            );
-                          })
-                        }
+                        onOpen={setSelectedCycleWorktreeId}
+                        onStarted={(repair) => {
+                          setSelectedCycleWorktreeId(repair.worktreeId);
+                          refreshNow();
+                        }}
                       />
-                    </>
-                  )}
-                  cycles={cycles.filter((cycle) => cycle.workItemId === route.workItemId)}
-                  worktrees={workItemExecution.worktrees}
-                  runs={workItemExecution.runs}
-                  backends={executionStatus?.backends ?? []}
-                  profiles={runProfiles?.profiles ?? []}
-                  canMutate={canMutate}
-                  busy={executionBusy}
-                  admitted={workItem.workItem.status === 'admitted'}
-                  onStart={(input) =>
-                    executionCommand(async (csrfToken, forWorkspace) => {
-                      await startWorkCycle(forWorkspace, workItem.workItem.id, input, csrfToken);
-                    })
-                  }
-                  onAuthorizeRemediation={(cycle, input) =>
-                    executionCommand(async (csrfToken) => {
-                      await authorizeWorkCycleRemediation(cycle, input, csrfToken);
-                    })
-                  }
-                  onControl={(cycle, action, instructions) =>
-                    executionCommand(async (csrfToken) => {
-                      await controlWorkCycle(cycle, action, csrfToken, instructions);
-                    })
-                  }
-                  onResolution={(cycle, input) =>
-                    executionCommand(async (csrfToken) => {
-                      await resolveIntegration(cycle, input, csrfToken);
-                    })
-                  }
-                  onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
-                />
-              )}
+                    )}
+                    <ScopeReviewRecovery
+                      key={cycle.id}
+                      cycle={cycle}
+                      disabled={executionBusy || !canMutate || liveRun}
+                      refreshToken={refreshToken}
+                      onResume={(instructions) =>
+                        executionCommand(async (csrfToken) => {
+                          await controlWorkCycle(
+                            cycle,
+                            cycle.status === 'completed' ? 'review-again' : 'resume',
+                            csrfToken,
+                            instructions,
+                          );
+                        })
+                      }
+                    />
+                  </>
+                )}
+                cycles={itemCycles}
+                worktrees={workItemExecution.worktrees}
+                runs={workItemExecution.runs}
+                backends={executionStatus?.backends ?? []}
+                profiles={runProfiles?.profiles ?? []}
+                canMutate={canMutate}
+                busy={executionBusy}
+                admitted={workItem.workItem.status === 'admitted'}
+                onStart={(input) =>
+                  executionCommand(async (csrfToken, forWorkspace) => {
+                    await startWorkCycle(forWorkspace, workItem.workItem.id, input, csrfToken);
+                  })
+                }
+                onAuthorizeRemediation={(cycle, input) =>
+                  executionCommand(async (csrfToken) => {
+                    await authorizeWorkCycleRemediation(cycle, input, csrfToken);
+                  })
+                }
+                onControl={(cycle, action, instructions) =>
+                  executionCommand(async (csrfToken) => {
+                    await controlWorkCycle(cycle, action, csrfToken, instructions);
+                  })
+                }
+                onResolution={(cycle, input) =>
+                  executionCommand(async (csrfToken) => {
+                    await resolveIntegration(cycle, input, csrfToken);
+                  })
+                }
+                onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
+              />
+            )}
             {workItemExecution?.workItemId === route.workItemId && (
               <DelegationPanel
                 repositories={repositories}
@@ -1532,7 +1686,7 @@ export function App() {
                     csrfToken={authenticated.csrfToken}
                     canMutate={canMutate}
                     refreshToken={refreshToken}
-                    onChanged={() => setRefreshToken((v) => v + 1)}
+                    onChanged={() => refreshNow()}
                   />
                 )}
                 worktrees={workItemExecution.worktrees}
@@ -1558,7 +1712,7 @@ export function App() {
             )}
             <ExecutionScopesPanel
               key={`scopes-${workspaceId}-${route.workItemId}`}
-              cycles={cycles}
+              cycles={itemCycles ?? []}
               onOpenCycle={(id) => {
                 setSelectedCycleWorktreeId(id);
                 const element = document.getElementById('automation');
@@ -1579,7 +1733,7 @@ export function App() {
               canMutate={canMutate}
               admitted={workItem.workItem.status === 'admitted'}
               refreshToken={refreshToken}
-              onChanged={() => setRefreshToken((v) => v + 1)}
+              onChanged={() => refreshNow()}
             />
             {diff !== undefined &&
               workItemExecution?.worktrees.some((worktree) => worktree.id === diff.worktree.id) && (
@@ -1733,7 +1887,9 @@ export function App() {
         />
       )}
       {route.name === 'root' && <p className="empty-state">Opening your workspace…</p>}
-      {workspaceRoute && workspaceContent()}
+      <RefreshSignalsProvider value={signals}>
+        {workspaceRoute && workspaceContent()}
+      </RefreshSignalsProvider>
     </WorkspaceShell>
   );
 }

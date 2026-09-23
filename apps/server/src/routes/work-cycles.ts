@@ -61,14 +61,28 @@ export function registerWorkCycleRoutes(
       );
     },
   );
-  app.get<{ Params: { workspaceId: string } }>(
+  // Without `workItemId`: the cycles that have not ended, without design-recovery
+  // detail (the shell's attention list). With it: that work item's full cycles.
+  app.get<{ Params: { workspaceId: string }; Querystring: { workItemId?: string } }>(
     '/api/workspaces/:workspaceId/cycles',
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      const item =
+        request.query.workItemId === undefined
+          ? undefined
+          : workItemIdSchema.safeParse(request.query.workItemId);
+      if (item !== undefined && !item.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid work item');
       return noStore(reply).send(
-        workCyclesResponseSchema.parse({ cycles: cycles.list(context, workspace.data) }),
+        workCyclesResponseSchema.parse({
+          cycles: cycles.list(
+            context,
+            workspace.data,
+            item === undefined ? {} : { workItemId: item.data },
+          ),
+        }),
       );
     },
   );

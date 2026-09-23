@@ -75,6 +75,10 @@ import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError, WorktreeMutationGuard } from './worktree-mutation-guard.js';
 
+const PREPARING_RECOVERY = 'Preparing the requested recovery. Existing findings remain available.';
+/** Statuses in which a cycle has ended; the browser treats them as history. */
+const TERMINAL_CYCLE_STATUSES: ReadonlySet<WorkCycle['status']> = new Set(['completed', 'stopped']);
+
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
 export class WorkCycleService {
   validateAgentSelections(profiles: import('@craftingtable/domain').AgentSelections): void {
@@ -132,12 +136,41 @@ export class WorkCycleService {
     private readonly runtimeEvidence?: RuntimeEvidenceService,
   ) {}
 
-  list(context: CommandContext, workspaceId: WorkspaceId): readonly WorkCycle[] {
+  /**
+   * Cycles as the browser reads them.
+   *
+   * Without a work item this is the workspace-wide attention list: only cycles
+   * that have not ended, without the design-recovery blob. Ended cycles are
+   * history, and every page used to download all of them on every refresh
+   * (PERF-05). With a work item it is that item's full detail, history
+   * included. Derived waits and routes are computed only for cycles that have
+   * not ended; they never apply to an ended cycle, except the preparation
+   * notice of a completed cycle being reviewed again.
+   */
+  list(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    filter: { readonly workItemId?: WorkItemId } = {},
+  ): readonly WorkCycle[] {
     this.workspaceService.requireAuthorized(context, workspaceId);
     const tx = mapReadSnapshot(this.storage);
-    return this.storage.execution.cycles.list(workspaceId).map((c) => {
+    const stored = this.storage.execution.cycles.list(workspaceId);
+    const selected =
+      filter.workItemId === undefined
+        ? stored
+            .filter((c) => !TERMINAL_CYCLE_STATUSES.has(c.status))
+            .map(({ designRecovery: _omitted, ...c }): WorkCycle => c)
+        : stored.filter((c) => c.workItemId === filter.workItemId);
+    return selected.map((c) => {
+      if (TERMINAL_CYCLE_STATUSES.has(c.status))
+        return {
+          ...c,
+          nextAgentSelections: agentSelections(effectiveCycleProfiles(tx, c)),
+          // A completed cycle can be reviewed again; its preparation still shows.
+          ...(this.isTransitioning(c.id) ? { scopeReviewWait: PREPARING_RECOVERY } : {}),
+        };
       const wait = this.isTransitioning(c.id)
-        ? 'Preparing the requested recovery. Existing findings remain available.'
+        ? PREPARING_RECOVERY
         : (automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c));
       const mergeWait = scopeMergeWait(tx, c);
       const currentRun = tx.execution.runs.find(workspaceId, c.currentRunId);

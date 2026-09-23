@@ -159,6 +159,43 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
     expect(state.lastSequence).toBe(2);
   });
 
+  it('sends notification bookkeeping only to the notification panel (PERF-03)', () => {
+    const notifications = {
+      ...event,
+      id: asEventId('event-4'),
+      sequence: 4,
+      kind: 'notifications-changed',
+      payload: { action: 'delivery' },
+    } as unknown as WorkspaceEventEnvelope;
+    const state = reduceWorkspaceProjection(hydrate(), {
+      type: 'event-received',
+      event: notifications,
+    });
+    expect(state.stale).toMatchObject({
+      workspaceSummary: false,
+      roadmaps: false,
+      notifications: true,
+    });
+  });
+
+  it.each([
+    ['roadmap-changed', {}],
+    ['runtime-evidence-changed', {}],
+    ['scope-evidence-recorded', { payload: { workItemId: 'item-1' } }],
+  ])('sends %s to the roadmap and evidence panels as well as the page', (kind, extra) => {
+    const change = {
+      ...event,
+      id: asEventId('event-5'),
+      sequence: 5,
+      kind,
+      payload: {},
+      ...extra,
+    } as unknown as WorkspaceEventEnvelope;
+    const state = reduceWorkspaceProjection(hydrate(), { type: 'event-received', event: change });
+    expect(state.stale).toMatchObject({ workspaceSummary: true, roadmaps: true });
+    expect(state.stale.notifications).toBe(false);
+  });
+
   it('invalidates the work item as well when one is admitted', () => {
     const admitted = {
       ...event,
@@ -176,6 +213,8 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
     const state = reduceWorkspaceProjection(hydrate(), { type: 'event-received', event: admitted });
     expect(state.stale).toEqual({
       workspaceSummary: true,
+      roadmaps: true,
+      notifications: false,
       projectIds: ['project-1'],
       workItemIds: ['item-1'],
       repositoryList: false,
@@ -186,12 +225,15 @@ describe('planning event invalidation (CT03-A66, CT03-A67)', () => {
         type: 'stale-consumed',
         consumed: {
           workspaceSummary: true,
+          roadmaps: true,
           projectIds: state.stale.projectIds,
           workItemIds: state.stale.workItemIds,
         },
       }).stale,
     ).toEqual({
       workspaceSummary: false,
+      roadmaps: false,
+      notifications: false,
       projectIds: [],
       workItemIds: [],
       repositoryList: false,
@@ -294,6 +336,8 @@ describe('repository event invalidation', () => {
     );
     expect(state.stale).toEqual({
       workspaceSummary: false,
+      roadmaps: false,
+      notifications: false,
       projectIds: [],
       workItemIds: [],
       repositoryList: true,

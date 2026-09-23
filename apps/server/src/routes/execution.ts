@@ -36,7 +36,7 @@ import type { ExecutionService, ExecutionStatus } from '../services/execution-se
 import { registerBranchRoutes } from './branches.js';
 import { noStore, sendApiError } from './http.js';
 import { authenticate, authorizeMutation } from './request-security.js';
-import { runSummary } from './run-summary.js';
+import { runListRow, runSummary } from './run-summary.js';
 
 /**
  * Repository, worktree, and diff routes.
@@ -263,7 +263,9 @@ export function registerExecutionRoutes(
     },
   );
 
-  app.get<{ Params: { workspaceId: string } }>(
+  // List rows omit the outcome summary (most of the body, and no list shows it);
+  // `?status=live` returns only the runs the dashboard shows.
+  app.get<{ Params: { workspaceId: string }; Querystring: { status?: string } }>(
     '/api/workspaces/:workspaceId/runs',
     async (request, reply) => {
       const context = authenticate(request, authService);
@@ -271,11 +273,17 @@ export function registerExecutionRoutes(
       if (!workspaceId.success) {
         return sendApiError(reply, 404, 'not-found', 'Resource not found');
       }
-      const result = executionService.listRuns(context, workspaceId.data, request.id);
+      const status = request.query.status;
+      if (status !== undefined && status !== 'live') {
+        return sendApiError(reply, 400, 'invalid-request', 'Unsupported run status filter');
+      }
+      const result = executionService.listRuns(context, workspaceId.data, request.id, {
+        live: status === 'live',
+      });
       return noStore(reply).send(
         workspaceRunsResponseSchema.parse({
           runs: result.runs.map((entry) => ({
-            ...runSummary(entry.run),
+            ...runListRow(entry.run),
             workItemSourceId: entry.workItemSourceId,
             workItemTitle: entry.workItemTitle,
             projectName: entry.projectName,

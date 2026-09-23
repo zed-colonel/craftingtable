@@ -5,6 +5,11 @@ import type { ServerConfig } from './config.js';
 import { registerAgentRunRoutes } from './routes/agent-runs.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerCrossProjectRoutes } from './routes/cross-project.js';
+import {
+  DaemonDiagnostics,
+  RequestLogController,
+  registerDiagnosticsRoutes,
+} from './routes/diagnostics.js';
 import { registerExecutionRoutes } from './routes/execution.js';
 import { registerFinalizationRoutes } from './routes/finalizations.js';
 import { registerHealthRoute } from './routes/health.js';
@@ -100,17 +105,21 @@ export function buildServer(
         };
   // The HTTPS and HTTP instances differ only in the raw server generic; the
   // routes never touch it, so one FastifyInstance type serves both.
+  // One completion line per request carries route, status, duration and bytes (R-D3).
+  const logController = new RequestLogController();
   const app: FastifyInstance =
     config.tls === undefined
-      ? fastify({ logger })
+      ? fastify({ logger, logController })
       : (fastify({
           logger,
+          logController,
           https: {
             cert: readFileSync(config.tls.certPath),
             key: readFileSync(config.tls.keyPath),
           },
         }) as unknown as FastifyInstance);
   void app.register(cookie);
+  registerDiagnosticsRoutes(app, deps.authService, deps.workspaceService, new DaemonDiagnostics());
 
   app.addHook('onReady', async () => {
     deps.roadmapService.startWorker();

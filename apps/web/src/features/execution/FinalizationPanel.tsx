@@ -43,6 +43,11 @@ import { defaultFinalizationStages, FinalizationStageSetup } from './Finalizatio
 import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
 import { ReviewFindings } from './ReviewFindings.js';
 import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
+import {
+  WorktreeChangesRefusal,
+  type WorktreeChangesRefused,
+  worktreeChangesRefused,
+} from './WorktreeChangesRefusal.js';
 
 export function FinalizationPanel({
   workspaceId,
@@ -65,6 +70,9 @@ export function FinalizationPanel({
   const [roundKeys] = useState(() => Array.from({ length: 10 }, () => crypto.randomUUID()));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [removalRefused, setRemovalRefused] = useState<
+    WorktreeChangesRefused & { readonly finalizationId: string }
+  >();
   const [reload, setReload] = useState(0);
   const [confirm, setConfirm] = useState<{
     id: string;
@@ -174,6 +182,29 @@ export function FinalizationPanel({
         },
         csrfToken,
       );
+    });
+  /** Removal never discards uncommitted work unless the operator chooses to after a refusal. */
+  const removeWorktree = (view: FinalizationView, discardChanges = false) =>
+    perform(async () => {
+      setRemovalRefused(undefined);
+      try {
+        await controlFinalization(
+          workspaceId,
+          view.finalization.id,
+          {
+            action: 'remove-worktree',
+            expectedVersion: view.finalization.version,
+            expectedCycleVersion: view.cycle?.version,
+            ...(discardChanges ? { discardChanges: true } : {}),
+          },
+          csrfToken,
+        );
+      } catch (e) {
+        const refused = worktreeChangesRefused(e);
+        if (refused !== undefined)
+          setRemovalRefused({ ...refused, finalizationId: view.finalization.id });
+        throw e;
+      }
     });
   const live = views.some((v) => ['preparing', 'active'].includes(v.finalization.status));
   const current =
@@ -587,11 +618,24 @@ export function FinalizationPanel({
                   type="button"
                   className="secondary-button"
                   disabled={busy}
-                  onClick={() => void command(view, 'remove-worktree')}
+                  onClick={() => void removeWorktree(view)}
                 >
                   Remove stopped finalization worktree
                 </button>
               )}
+              {canMutate &&
+                removalRefused?.finalizationId === f.id &&
+                view.worktree?.status === 'active' && (
+                  <WorktreeChangesRefusal
+                    refused={removalRefused}
+                    busy={busy}
+                    onDiscard={() => void removeWorktree(view, true)}
+                    onKeep={() => {
+                      setRemovalRefused(undefined);
+                      setError(undefined);
+                    }}
+                  />
+                )}
             </div>
             {f.status === 'completed' && (
               <fieldset className="stack-form">

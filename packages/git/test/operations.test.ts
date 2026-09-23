@@ -146,9 +146,21 @@ describe('git operations', () => {
     });
     expect(truncated.ok && truncated.value.patchTruncated).toBe(true);
 
+    // Removal never discards uncommitted work unless it is explicitly forced.
+    const refused = await operations.removeWorktree({
+      repositoryPath: repo.repository,
+      worktreePath,
+    });
+    expect(!refused.ok && refused.failure).toMatchObject({
+      kind: 'worktree-dirty',
+      changedPaths: ['new.txt'],
+      changedPathCount: 1,
+    });
+    expect(existsSync(join(worktreePath, 'new.txt'))).toBe(true);
     const removed = await operations.removeWorktree({
       repositoryPath: repo.repository,
       worktreePath,
+      force: true,
     });
     expect(removed.ok).toBe(true);
     const again = await operations.removeWorktree({
@@ -412,6 +424,87 @@ describe('git operations', () => {
     const slow = createGitOperations({ gitExecutable: slowGit, commandTimeoutMs: 100 });
     const result = await slow.inspectRepository(repo.repository);
     expect(!result.ok && result.failure.kind).toBe('timed-out');
+  });
+});
+
+describe('interrupted merges (GIT-01)', () => {
+  /** A primary checkout on main, a reviewed branch, and a merge hook that sleeps past the timeout. */
+  function slowMergeFixture(hook: string) {
+    const repo = fixture();
+    const identity = ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid'];
+    runFixtureGit(['checkout', '-q', '-b', 'ct/slow'], { cwd: repo.repository });
+    writeFileSync(join(repo.repository, 'feature.txt'), 'feature\n');
+    runFixtureGit(['add', '.'], { cwd: repo.repository });
+    runFixtureGit([...identity, 'commit', '-q', '--no-gpg-sign', '-m', 'feature'], {
+      cwd: repo.repository,
+    });
+    runFixtureGit(['checkout', '-q', 'main'], { cwd: repo.repository });
+    writeFileSync(join(repo.repository, 'main.txt'), 'main\n');
+    runFixtureGit(['add', '.'], { cwd: repo.repository });
+    runFixtureGit([...identity, 'commit', '-q', '--no-gpg-sign', '-m', 'main'], {
+      cwd: repo.repository,
+    });
+    const hooks = join(repo.root, 'hooks');
+    mkdirSync(hooks);
+    writeFileSync(join(hooks, hook), '#!/bin/sh\nsleep 30\n', { mode: 0o755 });
+    runFixtureGit(['config', 'core.hooksPath', hooks], { cwd: repo.repository });
+    for (const [key, value] of [
+      ['user.name', 'T'],
+      ['user.email', 't@example.invalid'],
+      ['commit.gpgSign', 'false'],
+    ])
+      runFixtureGit(['config', key as string, value as string], { cwd: repo.repository });
+    const head = runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim();
+    return { repo, head };
+  }
+
+  const mergeHead = (cwd: string) => {
+    try {
+      runFixtureGit(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { cwd });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // prepare-commit-msg runs after MERGE_HEAD is written; pre-merge-commit runs
+  // after the merge result is staged but before MERGE_HEAD exists.
+  for (const hook of ['prepare-commit-msg', 'pre-merge-commit']) {
+    it(`undoes a merge whose git process timed out in ${hook}`, async () => {
+      const { repo, head } = slowMergeFixture(hook);
+      const slow = createGitOperations({ gitExecutable: GIT_EXECUTABLE, commandTimeoutMs: 1500 });
+      const merged = await slow.mergeBranch({
+        repositoryPath: repo.repository,
+        branchName: 'ct/slow',
+        targetBranch: 'main',
+        scratchPath: join(repo.root, 'scratch'),
+        message: 'merge',
+      });
+      expect(!merged.ok && merged.failure.kind).toBe('timed-out');
+      expect(mergeHead(repo.repository)).toBe(false);
+      expect(runFixtureGit(['rev-parse', 'HEAD'], { cwd: repo.repository }).toString().trim()).toBe(
+        head,
+      );
+      expect(runFixtureGit(['status', '--porcelain'], { cwd: repo.repository }).toString()).toBe(
+        '',
+      );
+    }, 15_000);
+  }
+
+  it('refuses a primary checkout with a pending merge distinctly from a dirty one', async () => {
+    const { repo } = slowMergeFixture('prepare-commit-msg');
+    runFixtureGit(['config', '--unset', 'core.hooksPath'], { cwd: repo.repository });
+    runFixtureGit(['merge', '--no-ff', '--no-commit', 'ct/slow'], { cwd: repo.repository });
+    const refused = await operations.mergeBranch({
+      repositoryPath: repo.repository,
+      branchName: 'ct/slow',
+      targetBranch: 'main',
+      scratchPath: join(repo.root, 'scratch'),
+      message: 'merge',
+    });
+    expect(!refused.ok && refused.failure.kind).toBe('merge-in-progress');
+    expect(!refused.ok && refused.failure.message).toMatch(/merge in progress/);
+    expect(mergeHead(repo.repository)).toBe(true);
   });
 });
 

@@ -38,10 +38,17 @@ export class BootstrapRefusedError extends Error {
  * repository, a Git command that failed, a run that is no longer live. The
  * message is composed by the daemon and safe to return to the operator.
  */
+export interface ExecutionErrorDetail {
+  readonly reason: 'worktree-has-changes';
+  readonly paths: readonly string[];
+  readonly pathCount?: number;
+}
+
 export class ExecutionRequestError extends Error {
   constructor(
     readonly code: 'invalid-request' | 'conflict' | 'unavailable',
     message: string,
+    readonly detail?: ExecutionErrorDetail,
   ) {
     super(message);
     this.name = 'ExecutionRequestError';

@@ -187,7 +187,13 @@ export const createWorktreeResponseSchema = z.strictObject({
   worktree: worktreeSummarySchema,
 });
 
-export const removeWorktreeRequestSchema = z.strictObject({});
+export const removeWorktreeRequestSchema = z.strictObject({
+  /**
+   * Remove even though the worktree has uncommitted or untracked changes,
+   * discarding them. Without it a dirty worktree is refused with its paths.
+   */
+  discardChanges: z.boolean().optional(),
+});
 export const removeWorktreeResponseSchema = z.strictObject({
   worktree: worktreeSummarySchema,
   changed: z.boolean(),
@@ -541,6 +547,7 @@ export type RetireSourceRepositoryResponse = z.infer<typeof retireSourceReposito
 export type WorktreeSummary = z.infer<typeof worktreeSummarySchema>;
 export type CreateWorktreeRequest = z.infer<typeof createWorktreeRequestSchema>;
 export type CreateWorktreeResponse = z.infer<typeof createWorktreeResponseSchema>;
+export type RemoveWorktreeRequest = z.infer<typeof removeWorktreeRequestSchema>;
 export type RemoveWorktreeResponse = z.infer<typeof removeWorktreeResponseSchema>;
 export type MergeGate = z.infer<typeof mergeGateSchema>;
 export type MergeWorktreeRequest = z.infer<typeof mergeWorktreeRequestSchema>;

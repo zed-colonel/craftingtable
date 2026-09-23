@@ -54,6 +54,10 @@ import { RunList, RunsPage } from './features/execution/RunsPage.js';
 import { ScopeRepairPanel } from './features/execution/ScopeRepairPanel.js';
 import { ScopeReviewRecovery } from './features/execution/ScopeReviewRecovery.js';
 import { WorktreeBranchPanel } from './features/execution/WorktreeBranchPanel.js';
+import {
+  type WorktreeChangesRefused,
+  worktreeChangesRefused,
+} from './features/execution/WorktreeChangesRefusal.js';
 import { WorkspacesPage } from './features/home/WorkspacesPage.js';
 import { AgendaPage } from './features/planning/AgendaPage.js';
 import { ImportPlanPage } from './features/planning/ImportPlanPage.js';
@@ -328,6 +332,9 @@ export function App() {
   const [diff, setDiff] = useState<WorktreeDiffResponse>();
   const [executionBusy, setExecutionBusy] = useState(false);
   const [executionError, setExecutionError] = useState<string>();
+  const [removalRefused, setRemovalRefused] = useState<
+    WorktreeChangesRefused & { readonly worktreeId: WorktreeId }
+  >();
 
   // Workspace and account commands.
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
@@ -370,6 +377,7 @@ export function App() {
     setDiff(undefined);
     setExecutionBusy(false);
     setExecutionError(undefined);
+    setRemovalRefused(undefined);
     setWorkspaceError(undefined);
     setWorkspaceNotice(undefined);
     dispatch({ type: 'workspace-changed' });
@@ -1013,9 +1021,20 @@ export function App() {
     executionCommand(async (csrfToken, forWorkspace) => {
       await createWorktree(forWorkspace, workItemId, { repositoryId }, csrfToken);
     });
-  const handleRemoveWorktree = (worktreeId: WorktreeId): void =>
+  const handleRemoveWorktree = (
+    worktreeId: WorktreeId,
+    input: { readonly discardChanges?: true } = {},
+  ): void =>
     executionCommand(async (csrfToken, forWorkspace) => {
-      await removeWorktree(forWorkspace, worktreeId, csrfToken);
+      setRemovalRefused(undefined);
+      try {
+        await removeWorktree(forWorkspace, worktreeId, csrfToken, input);
+      } catch (error) {
+        const refused = worktreeChangesRefused(error);
+        if (refused !== undefined && activeWorkspaceIdRef.current === forWorkspace)
+          setRemovalRefused({ ...refused, worktreeId });
+        throw error;
+      }
       setDiff((current) => (current?.worktree.id === worktreeId ? undefined : current));
     });
   const handleMergeWorktree = (worktreeId: WorktreeId, targetBranch: string): void =>
@@ -1702,6 +1721,11 @@ export function App() {
                   handleCreateWorktree(workItem.workItem.id, repositoryId)
                 }
                 onRemoveWorktree={handleRemoveWorktree}
+                {...(removalRefused === undefined ? {} : { removalRefused })}
+                onKeepWorktree={() => {
+                  setRemovalRefused(undefined);
+                  setExecutionError(undefined);
+                }}
                 onMergeWorktree={handleMergeWorktree}
                 onLoadBranches={handleLoadBranches}
                 onLaunch={(input) => handleLaunch(workItem.workItem.id, input)}

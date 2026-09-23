@@ -6,6 +6,7 @@ import type {
   AgentBackend,
   AgentLaunchRequest,
   AgentSession,
+  AgentSessionItem,
   NormalizedAgentEvent,
 } from '@craftingtable/agents';
 import {
@@ -126,6 +127,8 @@ function summarise(text: string): string {
 export class AgentRunService {
   private readonly preparationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly live = new Map<string, LiveRun>();
+  /** Runs whose supervision failed; their killed sessions have not reported exit yet. */
+  private readonly orphaned = new Set<LiveRun>();
   private readonly pendingCycleLaunches = new Map<AgentRunId, () => void>();
 
   constructor(
@@ -465,6 +468,7 @@ export class AgentRunService {
     worktreeId: WorktreeId,
     exceptRunId?: AgentRunId,
   ): void {
+    this.mutations.requireNoTerminatingAgent(worktreeId);
     for (const live of this.live.values()) {
       if (
         live.workspaceId !== workspaceId ||
@@ -478,6 +482,22 @@ export class AgentRunService {
           'This worktree still has background work awaiting completion. Wait for its outcome or cancel the owning run before starting another run.',
         );
     }
+  }
+
+  /**
+   * One agent per worktree: two live sessions editing one checkout make the diff
+   * and review attribution ambiguous (AGT-13). A handoff source that is still
+   * waiting keeps its process alive, so it must be ended first.
+   */
+  private requireNoLiveRun(workspaceId: WorkspaceId, worktreeId: WorktreeId): void {
+    const live = this.storage.execution.runs
+      .listForWorktree(workspaceId, worktreeId)
+      .some((run) => !isTerminalAgentRunStatus(run.status));
+    if (live)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Another agent run is still live in this worktree. End or cancel it before starting another.',
+      );
   }
 
   private requireManualControl(
@@ -713,7 +733,10 @@ export class AgentRunService {
           );
         requireTreeScope(this.storage, prepared.worktree, 'start');
         if (cycle !== undefined) this.requireCycleLaunchAuthority(cycle);
-        else this.requireManualControl(workspaceId, input.worktreeId);
+        else {
+          this.requireManualControl(workspaceId, input.worktreeId);
+          this.requireNoLiveRun(workspaceId, input.worktreeId);
+        }
       } finally {
         if (
           cycle !== undefined &&
@@ -1270,13 +1293,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           session.kill();
         }
       }
-      liveRun.done = this.consume(liveRun).catch((error: unknown) => {
-        this.log.warn('agent run consumer failed', {
-          runId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        this.finalize(workspaceId, runId, 'failed', { message: 'Run supervision failed' });
-      });
+      liveRun.done = this.supervise(liveRun, input.worktreeId);
       return this.storage.execution.runs.find(workspaceId, runId) ?? run;
     });
   }
@@ -1505,7 +1522,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   }
 
   async shutdown(): Promise<void> {
-    const pending = [...this.live.values()];
+    const pending = [...this.live.values(), ...this.orphaned];
     for (const liveRun of pending) {
       liveRun.cancelRequested = true;
       liveRun.session.kill();
@@ -1534,9 +1551,49 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     return run;
   }
 
-  private async consume(liveRun: LiveRun): Promise<void> {
+  /**
+   * Consumes the session. If supervision itself fails (a storage write, a
+   * report assessment), the agent must not keep working unobserved: its process
+   * group is killed, the run is closed as failed, and the worktree stays
+   * reserved until the session reports its exit (AGT-01).
+   */
+  private async supervise(liveRun: LiveRun, worktreeId: WorktreeId): Promise<void> {
+    const items = liveRun.session.items[Symbol.asyncIterator]();
+    try {
+      await this.consume(liveRun, items);
+    } catch (error) {
+      const { workspaceId, runId } = liveRun;
+      this.log.warn('agent run consumer failed', {
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      liveRun.cancelRequested = true;
+      liveRun.session.kill();
+      this.orphaned.add(liveRun);
+      const reserved = this.mutations.untilExited(worktreeId, drainUntilExit(items));
+      try {
+        this.finalize(workspaceId, runId, 'failed', { message: 'Run supervision failed' });
+      } catch (finalizeError) {
+        this.log.warn('agent run finalization failed', {
+          runId,
+          error: finalizeError instanceof Error ? finalizeError.message : String(finalizeError),
+        });
+      }
+      await reserved;
+      this.orphaned.delete(liveRun);
+      this.notifier.notify();
+    }
+  }
+
+  /**
+   * Iterates by hand rather than with `for await`: an exception in the loop body
+   * must not close the backend's stream, because `supervise` keeps reading it to
+   * learn when the killed process has exited.
+   */
+  private async consume(liveRun: LiveRun, items: AsyncIterator<AgentSessionItem>): Promise<void> {
     const { workspaceId, runId } = liveRun;
-    for await (const item of liveRun.session.items) {
+    for (let next = await items.next(); next.done !== true; next = await items.next()) {
+      const item = next.value;
       if (item.type === 'exited') {
         const lastTurn = this.storage.execution.runEvents.latestOfKind(
           workspaceId,
@@ -1834,6 +1891,21 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       });
     });
   }
+}
+
+/**
+ * Reads a killed session until it reports its exit. If the stream ends or fails
+ * without one, the backend's SIGTERM-then-SIGKILL escalation is given time to
+ * finish before the worktree is released.
+ */
+async function drainUntilExit(items: AsyncIterator<AgentSessionItem>): Promise<void> {
+  try {
+    for (let next = await items.next(); next.done !== true; next = await items.next())
+      if (next.value.type === 'exited') return;
+  } catch {
+    // The backend stream failed; fall through to the grace period.
+  }
+  await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS));
 }
 
 function appendStatusChanged(

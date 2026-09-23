@@ -1,4 +1,5 @@
 import {
+  type ApiErrorResponse,
   type AuthenticatedSessionResponse,
   apiErrorResponseSchema,
   authenticatedSessionResponseSchema,
@@ -26,11 +27,19 @@ interface ResponseSchema<T> {
   parse(value: unknown): T;
 }
 
+/** The machine-readable part of an error beyond its code, when the daemon sends one. */
+export interface ApiErrorDetail {
+  readonly reason?: ApiErrorResponse['error']['reason'];
+  readonly paths?: readonly string[];
+  readonly pathCount?: number;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly detail: ApiErrorDetail = {},
   ) {
     super(message);
     this.name = 'ApiError';
@@ -53,11 +62,14 @@ export async function request<T>(
   const body: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {
     const error = apiErrorResponseSchema.safeParse(body);
-    throw new ApiError(
-      response.status,
-      error.success ? error.data.error.code : 'internal-error',
-      error.success ? error.data.error.message : 'The server returned an invalid error response',
-    );
+    if (!error.success)
+      throw new ApiError(
+        response.status,
+        'internal-error',
+        'The server returned an invalid error response',
+      );
+    const { code, message, ...detail } = error.data.error;
+    throw new ApiError(response.status, code, message, detail);
   }
   return schema.parse(body);
 }

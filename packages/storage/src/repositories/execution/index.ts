@@ -200,11 +200,29 @@ interface AgentRunEventRow {
   raw_json: string | null;
 }
 
+/**
+ * Brings a stored payload written by an older daemon up to the current event
+ * shape. Session-started events recorded before billing was observed carry no
+ * `billing`; they read back as `unknown`, which is what the daemon records when
+ * it cannot tell.
+ */
+function upcastRunEventPayload(kind: AgentRunEventKind, payload: unknown): unknown {
+  if (
+    kind === 'session-started' &&
+    typeof payload === 'object' &&
+    payload !== null &&
+    !('billing' in payload)
+  ) {
+    return { ...payload, billing: 'unknown' };
+  }
+  return payload;
+}
+
 function mapAgentRunEvent(row: AgentRunEventRow): AgentRunEvent {
   if (!isAgentRunEventKind(row.kind)) {
     throw new Error(`Agent run event ${row.id} has an unregistered kind`);
   }
-  const payload = JSON.parse(row.payload_json) as never;
+  const payload = upcastRunEventPayload(row.kind, JSON.parse(row.payload_json)) as never;
   return {
     sequence: row.sequence,
     id: row.id as AgentRunEvent['id'],

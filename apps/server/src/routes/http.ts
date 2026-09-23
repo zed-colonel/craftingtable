@@ -24,10 +24,15 @@ export function sendApiError(
     | 'unavailable'
     | 'internal-error',
   message: string,
+  detail?: {
+    readonly reason: 'worktree-has-changes';
+    readonly paths: readonly string[];
+    readonly pathCount?: number;
+  },
 ): FastifyReply {
   return noStore(reply)
     .code(statusCode)
-    .send(apiErrorResponseSchema.parse({ error: { code, message } }));
+    .send(apiErrorResponseSchema.parse({ error: { code, message, ...detail } }));
 }
 
 export function sessionSummary(

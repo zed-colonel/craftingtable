@@ -109,6 +109,42 @@ it('records timeout failure and rejects changed manifests', () => {
   expect(f.execute(['-e', '']).stderr).toContain('manifest changed');
   expect(f.receipts()).toHaveLength(1);
 });
+it('kills the whole check process tree on timeout and after the check ends (AGT-09)', async () => {
+  const f = fixture();
+  f.launch({ ...f.m, checkTimeoutMs: 1500 });
+  // A stray descendant: `sleep` outlives its parent unless its group is signalled.
+  const spawnSleeper = (pidFile: string, then: string) => [
+    '-e',
+    `const c=require("node:child_process").spawn("sleep",["60"],{stdio:"ignore"});require("node:fs").writeFileSync(${JSON.stringify(pidFile)},String(c.pid));${then}`,
+  ];
+  const running = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return false;
+    }
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      return !['Z', 'X'].includes(stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3));
+    } catch {
+      return false;
+    }
+  };
+  const settled = async (pid: number) => {
+    const deadline = Date.now() + 3000;
+    while (running(pid) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    return !running(pid);
+  };
+  const timedOutPid = join(f.root, 'timed-out.pid');
+  expect(f.execute(spawnSleeper(timedOutPid, 'setTimeout(()=>{},60000)')).status).toBe(1);
+  expect(f.receipts()[0]).toMatchObject({ diagnostic: 'Check interrupted or timed out.' });
+  expect(await settled(Number(readFileSync(timedOutPid, 'utf8')))).toBe(true);
+
+  const finishedPid = join(f.root, 'finished.pid');
+  expect(f.execute(spawnSleeper(finishedPid, 'process.exit(0)')).status).toBe(0);
+  expect(await settled(Number(readFileSync(finishedPid, 'utf8')))).toBe(true);
+});
 it('binds act to one repository workflow, pinned image, local storage and no automatic host secrets', () => {
   const f = fixture();
   const workflow = join(f.m.workspacePath, '.github/workflows');

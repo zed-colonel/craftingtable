@@ -1068,6 +1068,7 @@ export class ExecutionService {
     workspaceId: WorkspaceId,
     worktreeId: WorktreeId,
     requestId?: string,
+    options: { readonly discardChanges?: boolean } = {},
   ): Promise<{ readonly worktree: Worktree; readonly changed: boolean }> {
     if (this.storage.execution.merges.latest(workspaceId, worktreeId)?.status === 'reserved')
       throw new ExecutionRequestError(
@@ -1110,10 +1111,25 @@ export class ExecutionService {
         throw new ExecutionRequestError('conflict', 'A run is still live in this worktree');
       }
       return this.branches.duringMerge(repository.rootPath, async () => {
+        // Only an explicit operator choice discards uncommitted or untracked work.
         const removed = await this.requireGit().removeWorktree({
           repositoryPath: repository.rootPath,
           worktreePath: worktree.path,
+          force: options.discardChanges === true,
         });
+        if (!removed.ok && removed.failure.kind === 'worktree-dirty') {
+          throw new ExecutionRequestError(
+            'conflict',
+            `${removed.failure.message}. Commit them, or remove the worktree again choosing to discard them.`,
+            {
+              reason: 'worktree-has-changes',
+              paths: removed.failure.changedPaths ?? [],
+              ...(removed.failure.changedPathCount === undefined
+                ? {}
+                : { pathCount: removed.failure.changedPathCount }),
+            },
+          );
+        }
         if (!removed.ok) {
           throw new ExecutionRequestError(
             'invalid-request',
@@ -1146,7 +1162,10 @@ export class ExecutionService {
             outcome: 'succeeded',
             priorVersion: worktree.version,
             resultingVersion: marked.version,
-            metadata: { branchName: worktree.branchName },
+            metadata: {
+              branchName: worktree.branchName,
+              ...(options.discardChanges === true ? { discardChanges: true } : {}),
+            },
           });
           tx.workspaceEvents.appendEvent({
             id: asEventId(randomUUID()),
@@ -1652,6 +1671,8 @@ export class ExecutionService {
           repositoryPath: repository.rootPath,
           branchName: tree.branchName,
           mergedInto: operation.targetBranch,
+          // Compare-and-delete: a commit added after the merge keeps the branch.
+          expectedHeadSha: operation.sourceSha,
         })
       : undefined;
     const error = !removed.ok

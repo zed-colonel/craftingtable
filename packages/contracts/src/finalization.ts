@@ -150,6 +150,8 @@ export const controlFinalizationRequestSchema = z
       .refine((ids) => new Set(ids).size === ids.length)
       .optional(),
     agentOverride: finalizationAgentSelectionSchema.nullable().optional(),
+    /** With `remove-worktree`: discard uncommitted changes instead of refusing. */
+    discardChanges: z.boolean().optional(),
     selectedFindingIds: z.array(z.string().min(1).max(64)).max(100).optional(),
     obligationId: z.string().min(1).max(64).optional(),
     rationale: z.string().trim().min(1).max(4000).optional(),

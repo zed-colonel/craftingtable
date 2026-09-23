@@ -15,6 +15,7 @@ import {
 } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../lib/api-client.js';
 import { CyclePanel } from './CyclePanel.js';
 import { DelegationPanel } from './DelegationPanel.js';
 import { DiffView } from './DiffView.js';
@@ -22,6 +23,7 @@ import { handoffDefaults, handoffTarget } from './handoff.js';
 import { RepositoriesPage } from './RepositoriesPage.js';
 import { outcomeProse, RunOutcome } from './RunOutcome.js';
 import { RunPage } from './RunPage.js';
+import { worktreeChangesRefused } from './WorktreeChangesRefusal.js';
 
 afterEach(cleanup);
 
@@ -625,6 +627,46 @@ function panelProps(overrides: Partial<Parameters<typeof DelegationPanel>[0]> = 
     ...overrides,
   };
 }
+
+describe('worktree removal (GIT-02)', () => {
+  it('lists the changes a refused removal would lose and discards them only on request', () => {
+    const onRemoveWorktree = vi.fn();
+    const onKeepWorktree = vi.fn();
+    render(
+      <DelegationPanel
+        {...panelProps({
+          onRemoveWorktree,
+          onKeepWorktree,
+          removalRefused: {
+            worktreeId: worktree.id,
+            paths: ['src/lib.rs', 'notes.txt'],
+            pathCount: 3,
+          },
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(onRemoveWorktree).toHaveBeenLastCalledWith(worktree.id);
+    const refusal = screen.getByRole('alert');
+    expect(refusal.textContent).toContain('3 uncommitted or untracked paths');
+    expect(within(refusal).getByText('src/lib.rs')).toBeTruthy();
+    expect(within(refusal).getByText('…and 1 more')).toBeTruthy();
+    fireEvent.click(within(refusal).getByRole('button', { name: 'Discard changes and remove' }));
+    expect(onRemoveWorktree).toHaveBeenLastCalledWith(worktree.id, { discardChanges: true });
+    fireEvent.click(within(refusal).getByRole('button', { name: 'Keep worktree' }));
+    expect(onKeepWorktree).toHaveBeenCalled();
+  });
+
+  it('reads the refusal from the daemon error by its reason code', () => {
+    const refused = new ApiError(409, 'conflict', 'The worktree has 1 path', {
+      reason: 'worktree-has-changes',
+      paths: ['new.txt'],
+      pathCount: 1,
+    });
+    expect(worktreeChangesRefused(refused)).toEqual({ paths: ['new.txt'], pathCount: 1 });
+    expect(worktreeChangesRefused(new ApiError(409, 'conflict', 'busy'))).toBeUndefined();
+  });
+});
 
 describe('run profiles', () => {
   it('pre-fills the launch form from the role profile and follows role changes', () => {

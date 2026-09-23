@@ -176,7 +176,9 @@ export class FinalizationService {
         return this.view(await this.cleanupIntegration(context, value));
       if (input.action === 'remove-worktree') {
         if (value.status !== 'stopped') conflict('Stop finalization before removing its worktree.');
-        await this.execution.removeWorktree(context, workspaceId, value.worktreeId);
+        await this.execution.removeWorktree(context, workspaceId, value.worktreeId, undefined, {
+          discardChanges: input.discardChanges === true,
+        });
         return this.view(value);
       }
       if (input.action === 'retry-cleanup') {

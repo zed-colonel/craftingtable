@@ -281,18 +281,34 @@ export async function runLocalCheck(
     // act reads .actrc from its process cwd. Keep that cwd controller-owned;
     // -C names the worktree separately. No host .env/.secrets are loaded.
     code = await new Promise<number | null>((resolveResult, reject) => {
+      // The check runs in its own process group so a timeout or cancellation
+      // reaches everything it started (build scripts, test binaries), not only
+      // the direct child (AGT-09).
       const child = spawn(command, actual, {
         cwd: isCi ? directory : m.workspacePath,
         env,
         shell: false,
+        detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
+      const signalGroup = (signal: NodeJS.Signals) => {
+        if (child.pid === undefined) return;
+        try {
+          process.kill(-child.pid, signal);
+        } catch {
+          try {
+            child.kill(signal);
+          } catch {
+            /* already gone */
+          }
+        }
+      };
       let expired = false;
       let killTimer: ReturnType<typeof setTimeout> | undefined;
-      const stop = () => {
-        killTimer ??= setTimeout(() => child.kill('SIGKILL'), 5000);
+      const stop = (graceMs = 5000) => {
+        killTimer ??= setTimeout(() => signalGroup('SIGKILL'), graceMs);
         expired = true;
-        child.kill('SIGTERM');
+        signalGroup('SIGTERM');
         if (isNative) void stopNativeUnit(m.runId).catch(() => {});
         if (isCi) {
           try {
@@ -302,9 +318,15 @@ export async function runLocalCheck(
           }
         }
       };
-      const timer = setTimeout(stop, m.checkTimeoutMs ?? 30 * 60000);
-      process.once('SIGTERM', stop);
-      process.once('SIGINT', stop);
+      const timer = setTimeout(() => stop(), m.checkTimeoutMs ?? 30 * 60000);
+      // The agent supervisor escalates to SIGKILL after its own grace period;
+      // escalate sooner so the detached group never outlives this launcher.
+      const interrupted = () => stop(1000);
+      // Last resort if this launcher exits while the check is still running.
+      const exiting = () => signalGroup('SIGKILL');
+      process.once('SIGTERM', interrupted);
+      process.once('SIGINT', interrupted);
+      process.once('exit', exiting);
       const collect = (data: Buffer) => {
         const text = data.toString();
         if (Buffer.byteLength(log) < 2 * 1024 * 1024) log += text;
@@ -315,8 +337,11 @@ export async function runLocalCheck(
       const finish = () => {
         clearTimeout(timer);
         clearTimeout(killTimer);
-        process.removeListener('SIGTERM', stop);
-        process.removeListener('SIGINT', stop);
+        process.removeListener('SIGTERM', interrupted);
+        process.removeListener('SIGINT', interrupted);
+        process.removeListener('exit', exiting);
+        // Nothing a check started may keep running once its result is recorded.
+        signalGroup('SIGKILL');
       };
       child.once('error', (error) => {
         finish();

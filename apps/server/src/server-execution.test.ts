@@ -351,6 +351,86 @@ class ScriptedSession implements AgentSession {
   }
 }
 
+/**
+ * A session whose second event cannot be journaled (a BigInt payload makes the
+ * storage append throw inside the run consumer), and whose process keeps
+ * running after kill() until the test lets it exit, like a process group that
+ * takes time to drain.
+ */
+class UnsupervisableSession implements AgentSession {
+  readonly pid = 4343;
+  killCount = 0;
+  private readonly queue: AgentSessionItem[] = [];
+  private waiter: ((item: IteratorResult<AgentSessionItem>) => void) | undefined;
+  private closed = false;
+
+  constructor(request: AgentLaunchRequest) {
+    this.push({
+      type: 'event',
+      event: {
+        kind: 'session-started',
+        payload: {
+          backend: 'claude-code',
+          backendSessionId: 'unsupervisable-session',
+          model: 'scripted-model',
+          permissionMode: request.permissionMode,
+          cwd: request.cwd,
+          billing: 'subscription',
+        },
+      },
+    });
+    this.push({
+      type: 'event',
+      event: { kind: 'assistant-message', payload: { text: 1n as unknown as string } },
+    });
+  }
+
+  readonly items: AsyncIterable<AgentSessionItem> = {
+    [Symbol.asyncIterator]: () => ({
+      next: (): Promise<IteratorResult<AgentSessionItem>> => {
+        const item = this.queue.shift();
+        if (item !== undefined) return Promise.resolve({ value: item, done: false });
+        if (this.closed) return Promise.resolve({ value: undefined as never, done: true });
+        return new Promise((resolve) => {
+          this.waiter = resolve;
+        });
+      },
+    }),
+  };
+
+  private push(item: AgentSessionItem): void {
+    const resolve = this.waiter;
+    this.waiter = undefined;
+    if (resolve !== undefined) resolve({ value: item, done: false });
+    else this.queue.push(item);
+  }
+
+  send(): boolean {
+    return !this.closed;
+  }
+
+  end(): void {}
+
+  kill(): void {
+    this.killCount++;
+  }
+
+  exitNow(): void {
+    this.push({ type: 'exited', exitCode: null, signal: 'SIGTERM' });
+    this.closed = true;
+  }
+}
+
+class UnsupervisableBackend extends ScriptedBackend {
+  stalled: UnsupervisableSession | undefined;
+  override launch(request: AgentLaunchRequest): Promise<AgentSession> {
+    if (this.stalled !== undefined) return super.launch(request);
+    this.launches.push(request);
+    this.stalled = new UnsupervisableSession(request);
+    return Promise.resolve(this.stalled);
+  }
+}
+
 interface Ready {
   readonly context: TestContext;
   readonly cookie: string;
@@ -820,6 +900,89 @@ describe('agent runs', () => {
           event.kind === 'session-started' && event.payload.backendSessionId === 'legacy-session',
       );
     expect(legacy?.payload).toMatchObject({ billing: 'unknown' });
+  });
+
+  it('kills an agent whose supervision fails and holds its worktree until it exits (AGT-01)', async () => {
+    const backend = new UnsupervisableBackend();
+    const state = await ready({ backend });
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const launch = () =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+        headers: mutationHeaders(state),
+        payload: { worktreeId: worktree.id, role: 'implement' },
+      });
+    const started = await launch();
+    expect(started.statusCode, started.body).toBe(200);
+    const { run } = startAgentRunResponseSchema.parse(started.json());
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'failed',
+      'supervision failure',
+    );
+    expect(state.context.storage.execution.runs.find(state.workspaceId, run.id)).toMatchObject({
+      outcomeSummary: 'Run supervision failed',
+    });
+    const stalled = backend.stalled;
+    expect(stalled?.killCount).toBeGreaterThan(0);
+
+    // The killed process has not exited yet: nothing else may launch into its checkout.
+    const refused = await launch();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({
+      error: { code: 'conflict', message: expect.stringMatching(/lost supervision/) },
+    });
+    expect(backend.launches).toHaveLength(1);
+
+    stalled?.exitNow();
+    let relaunched = await launch();
+    const deadline = Date.now() + 3000;
+    while (relaunched.statusCode === 409 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      relaunched = await launch();
+    }
+    expect(relaunched.statusCode, relaunched.body).toBe(200);
+    expect(backend.launches).toHaveLength(2);
+  });
+
+  it('refuses a second manual run while another is live in the worktree (AGT-13)', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const launch = (payload: Record<string, unknown>) =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+        headers: mutationHeaders(state),
+        payload: { worktreeId: worktree.id, ...payload },
+      });
+    const first = await launch({ role: 'implement' });
+    const { run } = startAgentRunResponseSchema.parse(first.json());
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'waiting',
+      'first turn',
+    );
+    for (const payload of [{ role: 'implement' }, { role: 'review', parentRunId: run.id }]) {
+      const second = await launch(payload);
+      expect(second.statusCode).toBe(409);
+      expect(second.json()).toMatchObject({ error: { code: 'conflict' } });
+    }
+    expect(state.backend.launches).toHaveLength(1);
+
+    await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/end`,
+      headers: mutationHeaders(state),
+      payload: {},
+    });
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'finished',
+      'first run to finish',
+    );
+    const after = await launch({ role: 'review', parentRunId: run.id });
+    expect(after.statusCode, after.body).toBe(200);
   });
 
   it('cancels a live run and records a launch failure as failed', async () => {

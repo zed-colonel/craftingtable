@@ -775,6 +775,53 @@ describe('agent runs', () => {
     expect(agentRunCommandResponseSchema.parse(late.json()).accepted).toBe(false);
   });
 
+  it('serves a session-started event recorded before billing was observed (R-H1)', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, role: 'implement' },
+    });
+    const { run } = startAgentRunResponseSchema.parse(started.json());
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'waiting',
+      'first turn',
+    );
+    // The first live run (2026-09-04) predates billing detection: its stored
+    // session-started payload has no `billing` field at all.
+    state.context.storage.execution.runEvents.append({
+      id: `legacy-${randomUUID()}`,
+      workspaceId: state.workspaceId,
+      runId: run.id,
+      occurredAt: '2026-09-04T00:00:01.000Z',
+      kind: 'session-started',
+      payload: {
+        backend: 'claude-code',
+        backendSessionId: 'legacy-session',
+        model: 'legacy-model',
+        permissionMode: 'auto',
+        cwd: worktree.path,
+      },
+    } as unknown as Parameters<typeof state.context.storage.execution.runEvents.append>[0]);
+
+    const page = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/event-page`,
+      headers: { cookie: state.cookie },
+    });
+    expect(page.statusCode, page.body).toBe(200);
+    const legacy = runEventPageResponseSchema
+      .parse(page.json())
+      .events.find(
+        (event) =>
+          event.kind === 'session-started' && event.payload.backendSessionId === 'legacy-session',
+      );
+    expect(legacy?.payload).toMatchObject({ billing: 'unknown' });
+  });
+
   it('cancels a live run and records a launch failure as failed', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());

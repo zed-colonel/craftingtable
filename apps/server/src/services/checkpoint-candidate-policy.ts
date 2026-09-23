@@ -23,9 +23,7 @@ export function candidateCheckpointIssues(
   const issues: string[] = [];
   if (c.delegatedReview) {
     const a = c.delegatedReview;
-    const saved = tx.roadmaps
-      .history(s.workspaceId, a.roadmapId)
-      .find((d) => d.revision === a.definitionRevision);
+    const saved = tx.roadmaps.definition(s.workspaceId, a.roadmapId, a.definitionRevision);
     const roadmap = tx.roadmaps.find(s.workspaceId, a.roadmapId);
     const attempt = roadmap?.attempts.find((x) => x.cycleId === a.cycleId);
     const entry = saved?.entries.find((e) => e.id === attempt?.entryId);

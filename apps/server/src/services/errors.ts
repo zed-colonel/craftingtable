@@ -54,3 +54,15 @@ export class ExecutionRequestError extends Error {
     this.name = 'ExecutionRequestError';
   }
 }
+
+/**
+ * An optimistic-concurrency miss: another worker or command committed a newer version of
+ * the aggregate first. Callers answer the request as a conflict; the scheduling loops
+ * treat it as retryable because the next pass reads the newer version.
+ */
+export class ConcurrentModificationError extends ExecutionRequestError {
+  constructor(message: string) {
+    super('conflict', message);
+    this.name = 'ConcurrentModificationError';
+  }
+}

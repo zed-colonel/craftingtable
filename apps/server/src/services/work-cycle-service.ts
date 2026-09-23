@@ -27,6 +27,7 @@ import {
   isTerminalAgentRunStatus,
   optionalFinding,
   ownsIntegrationResolution,
+  type PhaseBlocker,
   remediationAllowance,
   remediationUsed,
   sameExecutionScope,
@@ -47,7 +48,7 @@ import {
 import { prioritizeRoadmapCycles } from './cycle-priority.js';
 import { designDependencyState } from './design-dependency-policy.js';
 import { collectDesignRecovery } from './design-recovery.js';
-import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { ConcurrentModificationError, ExecutionRequestError, NotFoundError } from './errors.js';
 import {
   requireScope,
   requireTreeScope,
@@ -60,6 +61,7 @@ import { finalizationForCycle, finalizationHasNoQuestions } from './finalization
 import { assessStageReport, recordStageEvidence } from './finalization-stage-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { PhaseGateError } from './phase-resources.js';
+import { attemptDelegation } from './roadmap-delegation-policy.js';
 import { latestReviewReport, runEvents, runLineage } from './run-handoff.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
@@ -78,6 +80,15 @@ import { WorktreeMutationBusyError, WorktreeMutationGuard } from './worktree-mut
 const PREPARING_RECOVERY = 'Preparing the requested recovery. Existing findings remain available.';
 /** Statuses in which a cycle has ended; the browser treats them as history. */
 const TERMINAL_CYCLE_STATUSES: ReadonlySet<WorkCycle['status']> = new Set(['completed', 'stopped']);
+
+/** Contention another pass resolves by itself: never a reason to stop for the operator. */
+function retryableControllerError(error: unknown): boolean {
+  return (
+    error instanceof ConcurrentModificationError ||
+    error instanceof RepositoryMutationBusyError ||
+    error instanceof WorktreeMutationBusyError
+  );
+}
 
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
 export class WorkCycleService {
@@ -1591,20 +1602,12 @@ export class WorkCycleService {
             const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
             if (
               current?.version === cycle.version &&
-              ['running', 'awaiting-merge'].includes(current.status) &&
-              !current.phaseWait
+              ['running', 'awaiting-merge'].includes(current.status)
             )
-              this.change(current, {
-                phaseWait: { startedAt: this.now().toISOString(), blockers: error.blockers },
-                reason: error.message,
-              });
+              this.waitForPhase(current, error.blockers, error.message);
             continue;
           }
-          if (
-            error instanceof RepositoryMutationBusyError ||
-            error instanceof WorktreeMutationBusyError
-          )
-            continue;
+          if (retryableControllerError(error)) continue;
           const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
           if (
             current?.version === cycle.version &&
@@ -1625,6 +1628,65 @@ export class WorkCycleService {
         timeoutMs: 1000,
         signal: this.abort.signal,
       });
+    }
+  }
+
+  /**
+   * Record a phase wait, and refresh it when the blocker set changes so the explanation
+   * stays current. The original start is kept: it measures the whole wait.
+   */
+  private waitForPhase(cycle: WorkCycle, blockers: readonly PhaseBlocker[], reason: string): void {
+    if (cycle.phaseWait && JSON.stringify(cycle.phaseWait.blockers) === JSON.stringify(blockers))
+      return;
+    this.change(cycle, {
+      phaseWait: { startedAt: cycle.phaseWait?.startedAt ?? this.now().toISOString(), blockers },
+      reason,
+    });
+  }
+
+  /**
+   * A controller-started reassessment that cannot be prepared is shown to the operator
+   * once. It is retried only after the cycle changes (an operator command, a new run),
+   * never silently on every loop pass. Transient contention is retried normally.
+   */
+  private readonly failedReassessments = new Map<string, number>();
+  private async reassess(cycle: WorkCycle, source: AgentRun): Promise<void> {
+    if (this.failedReassessments.get(cycle.id) === cycle.version) return;
+    this.failedReassessments.delete(cycle.id);
+    try {
+      await this.startWorkflowReview(cycle, source, 'reassessment');
+    } catch (error) {
+      if (retryableControllerError(error) || (error instanceof PhaseGateError && error.waiting))
+        throw error;
+      const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+      if (current?.version !== cycle.version) return;
+      const updated = this.change(current, {
+        status: 'needs-attention',
+        reason: `Controller reassessment could not be prepared: ${
+          error instanceof ExecutionRequestError
+            ? error.message
+            : 'unexpected controller error. Inspect the worktree before resuming.'
+        }`,
+      });
+      this.failedReassessments.set(cycle.id, updated.version);
+    }
+  }
+
+  /**
+   * True when neither a controller review (ADR-063) nor an integration refresh may start
+   * for this cycle, so reconciling it cannot act. Errors mean "may act": the full path
+   * then reports them exactly as before.
+   */
+  private onlyOperatorCanAdvance(cycle: WorkCycle): boolean {
+    try {
+      if (this.refreshOwner(cycle)) return false;
+      return (
+        cycle.executionScope?.kind !== 'slice' ||
+        !cycle.workflow ||
+        workflowDelegation(this.storage, cycle)?.runnable !== true
+      );
+    } catch {
+      return false;
     }
   }
 
@@ -1668,8 +1730,7 @@ export class WorkCycleService {
         )
       ) {
         const source = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
-        if (source?.status === 'finished')
-          await this.startWorkflowReview(cycle, source, 'reassessment');
+        if (source?.status === 'finished') await this.reassess(cycle, source);
         return;
       }
     }
@@ -1696,12 +1757,7 @@ export class WorkCycleService {
         workflowDelegation(this.storage, cycle)?.runnable === true &&
         (cycle.workflow?.reassessments ?? 0) < 2
       ) {
-        try {
-          await this.startWorkflowReview(cycle, prior, 'reassessment');
-        } catch (error) {
-          if (!(error instanceof ExecutionRequestError)) throw error;
-          this.attention(cycle, `Controller reassessment could not be prepared: ${error.message}`);
-        }
+        await this.reassess(cycle, prior);
       }
       return;
     }
@@ -1724,6 +1780,10 @@ export class WorkCycleService {
       this.attention(cycle, 'The initiating user no longer has permission to run this cycle.');
       return;
     }
+    // An awaiting-merge cycle that no automation may advance only waits for the operator,
+    // whose merge evaluates its own gate. Skip the gate evaluation and projections below;
+    // they are the idle controller's main cost and cannot change what happens next.
+    if (cycle.status === 'awaiting-merge' && this.onlyOperatorCanAdvance(cycle)) return;
     // A changed admission gate must not prevent supervision, cancellation or deadline
     // enforcement for a process already launched. Recheck before the next launch/merge.
     if (cycle.workItemId) {
@@ -1751,16 +1811,11 @@ export class WorkCycleService {
       cycle.workflow?.activeReview &&
       !workflowDelegation(this.storage, cycle)?.runnable
     ) {
-      if (!cycle.phaseWait)
-        this.change(cycle, {
-          phaseWait: {
-            startedAt: this.now().toISOString(),
-            blockers: [
-              { kind: 'authorization', message: 'Roadmap scheduling or this entry is paused.' },
-            ],
-          },
-          reason: 'Controller review reserved; waiting for scheduling to resume.',
-        });
+      this.waitForPhase(
+        cycle,
+        [{ kind: 'authorization', message: 'Roadmap scheduling or this entry is paused.' }],
+        'Controller review reserved; waiting for scheduling to resume.',
+      );
       return;
     }
     if (!pendingRun && worktree.executionScope && worktree.workItemId) {
@@ -2359,11 +2414,11 @@ export class WorkCycleService {
   }
 
   private async advanceWorkflow(cycle: WorkCycle, run: AgentRun): Promise<boolean> {
-    if (cycle.executionScope?.kind !== 'slice' || !cycle.workflow) return false;
+    if (cycle.executionScope?.kind !== 'slice' || !cycle.workflow || !cycle.workItemId)
+      return false;
     const initialVersion = cycle.version;
-    const context = workflowContext(this.storage, cycle);
     const delegation = workflowDelegation(this.storage, cycle);
-    if (!context || !delegation) return false;
+    if (!delegation) return false;
     if (!delegation.runnable) {
       if (cycle.status !== 'awaiting-merge')
         this.change(cycle, {
@@ -2375,6 +2430,9 @@ export class WorkCycleService {
     }
     const branch = run.reviewBranchContext;
     if (!branch) return false;
+    // Only a runnable delegation uses the obligations, so only then pay for evaluating them.
+    const context = workflowContext(this.storage, cycle);
+    if (!context) return false;
     const active = cycle.workflow.activeReview;
     if (active) {
       if (active.kind === 'checkpoint') {
@@ -2409,7 +2467,8 @@ export class WorkCycleService {
       await this.startWorkflowReview(cycle, run, 'security');
       return true;
     }
-    const current = workflowContext(this.storage, cycle)!;
+    // Accepting an active review's checkpoint changes the obligations; otherwise reuse them.
+    const current = active ? workflowContext(this.storage, cycle)! : context;
     const missing = current.checkpoints.filter((c) => !c.accepted);
     const ready = missing.find((c) => c.supported && c.assigned && !c.pending.length);
     if (ready) {
@@ -3219,17 +3278,11 @@ export class WorkCycleService {
         'conflict',
         'The roadmap worktree branch binding changed. Reconcile it before resuming.',
       );
-    const definition =
-      roadmap.definition.revision === attempt.definitionRevision
-        ? roadmap.definition
-        : this.storage.roadmaps
-            .history(cycle.workspaceId, roadmap.id)
-            .find((d) => d.revision === attempt.definitionRevision);
-    const settings = definition?.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
-    const automation =
-      definition?.entries.find((e) => e.id === attempt.entryId)?.automation ??
-      definition?.automation ??
-      DEFAULT_ROADMAP_AUTOMATION;
+    // Same resolution as the scheduler, including ADR-065 grants: a grant that makes an
+    // entry's merge automatic must also refresh it, or the delegated merge meets a stale review.
+    const delegation = attemptDelegation(this.storage, roadmap, attempt);
+    const settings = delegation?.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
+    const automation = delegation?.automation ?? DEFAULT_ROADMAP_AUTOMATION;
     if (
       settings.mode !== 'parallel' &&
       automation.integrationMerge !== 'automatic' &&
@@ -3344,10 +3397,12 @@ export class WorkCycleService {
         latest.status === 'running' &&
         error instanceof RepositoryMutationBusyError
       ) {
+        // Contention is controller-owned: undo the reservation exactly, keeping the status
+        // and explanation the operator saw, and retry on a later pass.
         this.change(latest, {
           status: cycle.status,
-          integrationRefreshes: cycle.integrationRefreshes ?? 0,
-          reason: 'Waiting for the repository mutation to finish before refreshing.',
+          integrationRefreshes: cycle.integrationRefreshes,
+          reason: cycle.reason,
         });
         return true;
       }
@@ -3940,12 +3995,19 @@ export class WorkCycleService {
       version: cycle.version + 1,
       updatedAt: this.now().toISOString(),
     };
+    // A controller write that changes nothing is not a transition: no version, audit entry
+    // or work-cycle-changed event (each event costs every open browser a refetch round).
+    // Operator commands are always recorded, and a stale snapshot still fails below.
+    if (
+      context === undefined &&
+      JSON.stringify({ ...updated, version: cycle.version, updatedAt: cycle.updatedAt }) ===
+        JSON.stringify(cycle) &&
+      this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version === cycle.version
+    )
+      return cycle;
     this.storage.transaction((tx) => {
       if (!tx.execution.cycles.replace(updated, cycle.version))
-        throw new ExecutionRequestError(
-          'conflict',
-          'Cycle changed while this operation was in progress',
-        );
+        throw new ConcurrentModificationError('Cycle changed while this operation was in progress');
       this.record(tx, updated, action, context);
     });
     this.notifier.notify();

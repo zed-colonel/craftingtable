@@ -3,7 +3,11 @@ import {
   supportsArchitectureDecision,
 } from './architecture-decision-policy.js';
 import { currentDecisionPreparation } from './decision-preparation-policy.js';
-import { effectiveDelegation } from './roadmap-delegation-policy.js';
+import {
+  attemptDefinition,
+  attemptDelegation,
+  effectiveDelegation,
+} from './roadmap-delegation-policy.js';
 import { randomUUID } from 'node:crypto';
 import type {
   PrepareRoadmapDecision,
@@ -35,7 +39,7 @@ import { cycleAgentSelection, entryAgentSelections } from './agent-profile-polic
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
 import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-project-service.js';
-import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { ConcurrentModificationError, ExecutionRequestError, NotFoundError } from './errors.js';
 import {
   requireScopeOwnership,
   resolveScope,
@@ -63,6 +67,14 @@ class SupersededRoadmapOperation extends Error {}
 const ended = (roadmap: Roadmap) => ['stopped', 'completed'].includes(roadmap.status);
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
+}
+/**
+ * A sequential roadmap's reason follows its single current entry. A parallel roadmap keeps
+ * its scheduling reason: per-entry progress carries each entry's state, and rewriting the
+ * shared reason per entry only to restore it after the pass wastes a write and an event.
+ */
+function entryReason(parallel: boolean, reason: string): { reason?: string } {
+  return parallel ? {} : { reason };
 }
 
 /** One delegated roadmap per workspace. The cycle controller owns every agent step. */
@@ -992,6 +1004,7 @@ export class RoadmapService {
         } catch (error) {
           if (
             error instanceof SupersededRoadmapOperation ||
+            error instanceof ConcurrentModificationError ||
             (error instanceof PhaseGateError && error.waiting) ||
             error instanceof RepositoryMutationBusyError ||
             error instanceof WorktreeMutationBusyError ||
@@ -1075,6 +1088,7 @@ export class RoadmapService {
         } catch (error) {
           if (error instanceof SupersededRoadmapOperation) throw error;
           if (
+            error instanceof ConcurrentModificationError ||
             (error instanceof PhaseGateError && error.waiting) ||
             error instanceof RepositoryMutationBusyError ||
             error instanceof WorktreeMutationBusyError ||
@@ -1248,9 +1262,7 @@ export class RoadmapService {
               'This review evidence is no longer current. Stop this roadmap and create a new selection for re-verification; prior attempts remain in history.',
             );
           if (cycle.status === 'awaiting-merge') {
-            const definition = this.storage.roadmaps
-              .history(roadmap.workspaceId, roadmap.id)
-              .find((d) => d.revision === attempt!.definitionRevision);
+            const definition = attemptDefinition(this.storage, roadmap, attempt);
             if (
               entry.executionScope.kind === 'slice-verification' ||
               definition?.crossProject?.parentAcceptance === 'automatic'
@@ -1293,7 +1305,7 @@ export class RoadmapService {
               ? { ...a, status: 'completed' as const, completedAt: worktree.mergedAt }
               : a,
           ),
-          reason: `${entry.sourceId} integrated.`,
+          ...entryReason(parallel, `${entry.sourceId} integrated.`),
           entryHolds: Object.fromEntries(
             Object.entries(roadmap.entryHolds ?? {}).filter(([id]) => id !== entry.id),
           ),
@@ -1310,14 +1322,9 @@ export class RoadmapService {
       const cycle = this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
       if (cycle) {
         const boundAttempt = attempt;
-        const definition = this.storage.roadmaps
-          .history(roadmap.workspaceId, roadmap.id)
-          .find((d) => d.revision === boundAttempt.definitionRevision);
-        const bound = definition?.entries.find((e) => e.id === entry.id);
-        const automation = effectiveDelegation(
-          roadmap,
-          bound ?? entry,
-          definition ?? roadmap.definition,
+        const automation = (
+          attemptDelegation(this.storage, roadmap, boundAttempt, entry.id) ??
+          effectiveDelegation(roadmap, entry, roadmap.definition)
         ).automation;
         const check = () => {
           const current = this.find(roadmap.workspaceId, roadmap.id);
@@ -1462,7 +1469,7 @@ export class RoadmapService {
       };
       roadmap = this.change(roadmap, {
         attempts: [...roadmap.attempts, attempt],
-        reason: `Preparing ${entry.sourceId}.`,
+        ...entryReason(parallel, `Preparing ${entry.sourceId}.`),
       });
     }
     const reserved = attempt;
@@ -1520,7 +1527,7 @@ export class RoadmapService {
         attempts: roadmap.attempts.map((a) =>
           a.id === reserved.id ? { ...a, status: 'active' } : a,
         ),
-        reason: `Running ${entry.sourceId}.`,
+        ...entryReason(parallel, `Running ${entry.sourceId}.`),
       });
     });
   }
@@ -1658,10 +1665,9 @@ export class RoadmapService {
           return true;
         }
         const preview = collectScopeRepair(mapReadSnapshot(this.storage), sourceCycle);
-        const frozen = this.storage.roadmaps
-          .history(ws, roadmap.id)
-          .find((d) => d.revision === reserved.definitionRevision)
-          ?.entries.find((e) => e.id === owner.id);
+        const frozen = attemptDefinition(this.storage, roadmap, reserved)?.entries.find(
+          (e) => e.id === owner.id,
+        );
         if (!frozen) conflict('Recovery settings are unavailable.');
         await this.cycles.delegateScopeRepair(
           context,
@@ -1746,9 +1752,7 @@ export class RoadmapService {
     ) {
       const restarts = reserved.recovery!.reviewRestarts?.[target.id] ?? 0;
       const settings =
-        this.storage.roadmaps
-          .history(ws, roadmap.id)
-          .find((d) => d.revision === reviewAttempt!.definitionRevision)?.scheduling ??
+        attemptDefinition(this.storage, roadmap, reviewAttempt!)?.scheduling ??
         DEFAULT_ROADMAP_SCHEDULING;
       if (restarts >= settings.maxIntegrationRefreshes)
         conflict(
@@ -2190,9 +2194,7 @@ export class RoadmapService {
         .map((progress) => {
           const attempt = roadmap.attempts.find((a) => a.entryId === progress.entryId);
           const definition = attempt
-            ? snapshot.roadmaps
-                .history(roadmap.workspaceId, roadmap.id)
-                .find((d) => d.revision === attempt.definitionRevision)
+            ? attemptDefinition(snapshot, roadmap, attempt)
             : roadmap.definition;
           return {
             ...progress,
@@ -2240,7 +2242,7 @@ export class RoadmapService {
     context?: AuthContext,
   ): void {
     if (!tx.roadmaps.save(roadmap, expectedVersion))
-      conflict('Roadmap changed during this operation.');
+      throw new ConcurrentModificationError('Roadmap changed during this operation.');
     const actorUserId = context?.user.id ?? roadmap.delegatedByUserId ?? roadmap.createdByUserId;
     tx.audit.append({
       id: asAuditEventId(randomUUID()),

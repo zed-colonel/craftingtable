@@ -1,5 +1,5 @@
 import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
-import { effectiveDelegation } from './roadmap-delegation-policy.js';
+import { attemptDefinition, effectiveDelegation } from './roadmap-delegation-policy.js';
 import { supportsArchitectureDecision } from './architecture-decision-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { createHash } from 'node:crypto';
@@ -23,9 +23,7 @@ export function workflowDelegation(tx: StorageRepositories, cycle: WorkCycle) {
   for (const roadmap of tx.roadmaps.list(cycle.workspaceId)) {
     const attempt = roadmap.attempts.find((a) => a.cycleId === cycle.id);
     if (!attempt || !roadmap.definition.crossProject) continue;
-    const saved = tx.roadmaps
-      .history(cycle.workspaceId, roadmap.id)
-      .find((d) => d.revision === attempt.definitionRevision);
+    const saved = attemptDefinition(tx, roadmap, attempt);
     const entry = saved?.entries.find((e) => e.id === attempt.entryId);
     if (entry)
       return {

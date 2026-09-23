@@ -56,7 +56,7 @@ export function scopeReviewerRoles(
         continue;
       const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
       const definition = attempt
-        ? tx.roadmaps.history(ws, roadmap.id).find((d) => d.revision === attempt.definitionRevision)
+        ? tx.roadmaps.definition(ws, roadmap.id, attempt.definitionRevision)
         : roadmap.definition;
       const bound = definition?.entries.find((e) => e.id === entry.id);
       if (runId) {

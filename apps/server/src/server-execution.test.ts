@@ -3395,6 +3395,57 @@ describe('plan integration branches', () => {
   });
 });
 
+it('refreshes a phase wait when its blockers change and records nothing for a controller write that changes nothing', {
+  timeout: 10000,
+}, async () => {
+  const { state, worktree } = await cycleFixture([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([]) },
+  ]);
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'approval');
+  const cycleEvents = () =>
+    state.context.storage.workspaceEvents
+      .listAfter({ workspaceId: state.workspaceId, after: 0, limit: 1000 })
+      .filter((e) => e.kind === 'work-cycle-changed').length;
+  const { PhaseGateError } = await import('./services/phase-resources.js');
+  const service = state.context.services.workCycleService as unknown as {
+    reconcile: (cycle: WorkCycle) => Promise<void>;
+    change: (cycle: WorkCycle, changes: Partial<WorkCycle>) => WorkCycle;
+  };
+  let blockers: import('@craftingtable/domain').PhaseBlocker[] = [
+    { kind: 'resource', message: 'Resource build capacity is in use.' },
+  ];
+  vi.spyOn(service, 'reconcile').mockImplementation(async () => {
+    throw new PhaseGateError(blockers);
+  });
+  await waitFor(
+    () => currentCycle(state, cycle).phaseWait?.blockers[0]?.kind === 'resource',
+    'wait',
+  );
+  const first = currentCycle(state, cycle);
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  expect(currentCycle(state, cycle).version).toBe(first.version);
+  blockers = [{ kind: 'dependency', message: 'Predecessor AQ-00 is not merged yet.' }];
+  await waitFor(
+    () => currentCycle(state, cycle).phaseWait?.blockers[0]?.kind === 'dependency',
+    'refreshed wait',
+  );
+  const refreshed = currentCycle(state, cycle);
+  expect(refreshed).toMatchObject({
+    status: 'awaiting-merge',
+    reason: 'Predecessor AQ-00 is not merged yet.',
+    phaseWait: { startedAt: first.phaseWait?.startedAt, blockers },
+  });
+  const events = cycleEvents();
+  expect(
+    service.change(refreshed, { reason: refreshed.reason, phaseWait: refreshed.phaseWait }),
+  ).toBe(refreshed);
+  expect(currentCycle(state, cycle).version).toBe(refreshed.version);
+  expect(cycleEvents()).toBe(events);
+});
+
 it('adopts a preexisting worktree without rewriting its original base and refuses changes while a session is open', async () => {
   const state = await ready();
   const root = fixtureRepository();
@@ -4175,6 +4226,14 @@ describe('parallel roadmaps', () => {
     await mergeRoadmapAttempt(state, right.worktreeId);
     await waitFor(() => storedRoadmap(state).status === 'completed', 'parallel completion');
     expect(backend.launches).toHaveLength(10);
+    // Per-entry progress carries entry state; the shared reason is not rewritten per entry.
+    const reasons = state.context.storage.workspaceEvents
+      .listAfter({ workspaceId: state.workspaceId, after: 0, limit: 1000 })
+      .filter((e) => e.kind === 'roadmap-changed')
+      .map((e) => e.payload.reason as string);
+    const parallelReason = reasons.find((r) => r.startsWith('Parallel scheduling enabled'));
+    expect(parallelReason).toBeDefined();
+    expect(reasons.filter((r, i) => r === parallelReason && reasons[i - 1] !== r)).toHaveLength(1);
   });
 
   it('treats list order as priority and retains awaiting-merge capacity', {
@@ -4352,6 +4411,36 @@ describe('parallel roadmaps', () => {
     expect(storedRoadmap(state).status).toBe('running');
   });
 });
+
+it.each(['sequential', 'parallel'] as const)(
+  'retries a %s roadmap entry after a concurrent cycle write instead of stopping for attention',
+  { timeout: 15000 },
+  async (mode) => {
+    const { state, input } = await parallelFixture();
+    await saveRoadmapRequest(state, mode === 'parallel' ? input : roadmapInput(state));
+    const { ConcurrentModificationError } = await import('./services/errors.js');
+    const cycles = state.context.services.workCycleService;
+    const start = cycles.start.bind(cycles);
+    let calls = 0;
+    vi.spyOn(cycles, 'start').mockImplementation((...args) => {
+      // Another worker committed the cycle first: optimistic concurrency, not a failure.
+      if (calls++ === 0)
+        throw new ConcurrentModificationError('Cycle changed while this operation was in progress');
+      return start(...args);
+    });
+    await roadmapControl(state, 'start');
+    await awaitRoadmapMerge(state, 0);
+    expect(calls).toBeGreaterThan(1);
+    const roadmap = storedRoadmap(state);
+    expect(roadmap.status).toBe('running');
+    expect(roadmap.entryHolds ?? {}).toEqual({});
+    expect(
+      state.context.storage.workspaceEvents
+        .listAfter({ workspaceId: state.workspaceId, after: 0, limit: 500 })
+        .some((e) => e.kind === 'roadmap-changed' && e.payload.status === 'needs-attention'),
+    ).toBe(false);
+  },
+);
 
 it('parallel refresh cannot launch a review after stop supersedes in-flight Git', {
   timeout: 15000,
@@ -5692,6 +5781,113 @@ it('keeps a started entry manual when queued defaults change to automatic integr
   expect(
     state.context.storage.execution.merges.latest(state.workspaceId, second.worktreeId),
   ).toMatchObject({ roadmapId, definitionRevision: 2 });
+});
+
+async function applyDelegation(
+  state: Ready,
+  entryId: string,
+  integrationMerge: 'automatic' | 'manual',
+) {
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmapId}/delegation`,
+    headers: mutationHeaders(state),
+    payload: {
+      expectedVersion: storedRoadmap(state).version,
+      entryIds: [entryId],
+      automation: { integrationMerge, integrationConflicts: 'manual' },
+      reviewerRoles: [],
+      rationale: 'Change delegation of started work.',
+    },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json();
+}
+function advanceIntegration(root: string) {
+  git(['checkout', 'revision'], root);
+  const target = commitFile(root, 'integrated-elsewhere.txt', 'integrated elsewhere\n');
+  git(['checkout', 'main'], root);
+  return target;
+}
+function reviewReplies(backend: CycleBackend) {
+  backend.replyForRequest = (request) =>
+    request.model === 'design-model'
+      ? designDone
+      : request.model === 'review-model'
+        ? { resultText: reviewText([]) }
+        : implementationDone;
+}
+
+it('refreshes and merges a started manual entry once a delegation grant makes its integration automatic', {
+  timeout: 20000,
+}, async () => {
+  const fixture = await roadmapFixture();
+  const { state, backend, root } = fixture;
+  const ws = state.workspaceId;
+  await useIntegration(fixture);
+  reviewReplies(backend);
+  await saveRoadmapRequest(state, roadmapInput(state, [state.workItemId]));
+  await roadmapControl(state, 'start');
+  const first = await awaitRoadmapMerge(state, 0);
+  await roadmapControl(state, 'pause');
+  const target = advanceIntegration(root);
+  const granted = await applyDelegation(state, first.entryId, 'automatic');
+  expect(granted.progress[0].effectiveAutomation.integrationMerge).toBe('automatic');
+  const reviews = backend.launches.filter((r) => r.model === 'review-model').length;
+  await roadmapControl(state, 'resume');
+  // The scheduler merges under the grant, so the cycle must refresh under it too; a merge
+  // of the stale review would be refused and stop the roadmap.
+  await waitFor(
+    () => storedRoadmap(state).status === 'completed',
+    'delegated refresh and merge',
+    15000,
+  ).catch((error) => {
+    throw new Error(`${error.message}: ${storedRoadmap(state).reason}`);
+  });
+  const cycle = present(state.context.storage.execution.cycles.find(ws, first.cycleId));
+  expect(cycle.integrationRefreshes).toBe(1);
+  expect(backend.launches.filter((r) => r.model === 'review-model')).toHaveLength(reviews + 1);
+  expect(
+    state.context.storage.execution.runs.find(ws, cycle.currentRunId)?.reviewBranchContext
+      ?.targetSha,
+  ).toBe(target);
+  expect(state.context.storage.execution.merges.latest(ws, first.worktreeId)).toMatchObject({
+    roadmapId,
+    definitionRevision: 1,
+  });
+});
+
+it('neither refreshes nor merges a started automatic entry once a delegation grant makes its integration manual', {
+  timeout: 20000,
+}, async () => {
+  const fixture = await roadmapFixture();
+  const { state, backend, root } = fixture;
+  const ws = state.workspaceId;
+  await useIntegration(fixture);
+  reviewReplies(backend);
+  await saveRoadmapRequest(state, {
+    ...roadmapInput(state, [state.workItemId]),
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
+  });
+  const draft = storedRoadmap(state);
+  expect(draft.status).toBe('draft');
+  await applyDelegation(state, present(draft.definition.entries[0]).id, 'manual');
+  // Hold the review at awaiting-merge: integration advances while the roadmap is paused.
+  await roadmapControl(state, 'start');
+  const first = await awaitRoadmapMerge(state, 0);
+  await roadmapControl(state, 'pause');
+  advanceIntegration(root);
+  const launches = backend.launches.length;
+  await roadmapControl(state, 'resume');
+  await state.context.services.roadmapService.tick();
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  await state.context.services.roadmapService.tick();
+  const cycle = present(state.context.storage.execution.cycles.find(ws, first.cycleId));
+  expect(cycle.status).toBe('awaiting-merge');
+  expect(cycle.integrationRefreshes ?? 0).toBe(0);
+  expect(backend.launches).toHaveLength(launches);
+  expect(state.context.storage.execution.merges.latest(ws, first.worktreeId)).toBeUndefined();
+  expect(storedRoadmap(state).status).toBe('running');
 });
 
 it('holds integration merges while finalization is active or paused and releases them on stop', {
@@ -13471,6 +13667,47 @@ it('reassesses an older implementation question read-only and leaves a genuine o
     f.state.context.storage.execution.runs.find(f.state.workspaceId, cycle.currentRunId)
       ?.profileSelection?.purpose,
   ).toBe('investigation');
+});
+
+it('shows a reassessment that cannot be prepared once instead of retrying it on every controller pass', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(true);
+  const original = present(f.backend.replyForRequest);
+  f.backend.replyForRequest = (request) => {
+    const reply = original(request);
+    return request.model === 'implement-model'
+      ? {
+          ...reply,
+          resultText:
+            'Implementation complete.\n## Open questions\nShould the controller obtain the remaining checkpoint?',
+        }
+      : reply;
+  };
+  const cycles = f.state.context.services.workCycleService as unknown as {
+    startWorkflowReview: (...args: unknown[]) => Promise<void>;
+  };
+  let attempts = 0;
+  vi.spyOn(cycles, 'startWorkflowReview').mockImplementation(async () => {
+    attempts++;
+    throw new Error('Unexpected preparation failure');
+  });
+  await adoptSupervisedMap(f);
+  f.service.save(f.auth, f.state.workspaceId, f.input);
+  await roadmapControl(f.state, 'start');
+  const tx = f.state.context.storage,
+    ws = f.state.workspaceId;
+  await waitFor(() => attempts > 0, 'controller reassessment', 12000);
+  await waitFor(
+    () => tx.execution.cycles.list(ws).some((c) => c.reason.includes('reassessment')),
+    'surfaced reassessment failure',
+  );
+  const surfaced = present(tx.execution.cycles.list(ws).find((c) => c.status !== 'completed'));
+  expect(surfaced.status).toBe('needs-attention');
+  expect(surfaced.reason).toContain('Controller reassessment could not be prepared');
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  expect(attempts).toBe(1);
+  expect(present(tx.execution.cycles.find(ws, surfaced.id)).version).toBe(surfaced.version);
 });
 
 it('repairs code findings before the separate security review without spending remediation on the review obligation', {

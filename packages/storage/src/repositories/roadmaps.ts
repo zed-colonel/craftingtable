@@ -6,6 +6,8 @@ export interface RoadmapRepository {
   save(roadmap: Roadmap, expectedVersion: number): boolean;
   addDefinition(definition: RoadmapDefinition): void;
   history(workspaceId: WorkspaceId, id: string): readonly RoadmapDefinition[];
+  /** One immutable revision by primary key, without parsing the rest of the history. */
+  definition(workspaceId: WorkspaceId, id: string, revision: number): RoadmapDefinition | undefined;
 }
 function map(row: unknown): Roadmap | undefined {
   return row === undefined
@@ -77,5 +79,13 @@ export class SqliteRoadmapRepository implements RoadmapRepository {
         (row) =>
           JSON.parse((row as { definition_json: string }).definition_json) as RoadmapDefinition,
       );
+  }
+  definition(workspaceId: WorkspaceId, id: string, revision: number) {
+    const row = this.db
+      .prepare(
+        'SELECT definition_json FROM roadmap_definitions d JOIN roadmaps r ON r.id = d.roadmap_id WHERE r.workspace_id = ? AND r.id = ? AND d.revision = ?',
+      )
+      .get(workspaceId, id, revision) as { definition_json: string } | undefined;
+    return row && (JSON.parse(row.definition_json) as RoadmapDefinition);
   }
 }

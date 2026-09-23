@@ -56,7 +56,7 @@ export function mapReadSnapshot(source: StorageRepositories): StorageRepositorie
       'archiveInfo',
       'planLinks',
     ]),
-    roadmaps: memo(source.roadmaps, ['list', 'find', 'history']),
+    roadmaps: memo(source.roadmaps, ['list', 'find', 'history', 'definition']),
     amendments: memo(source.amendments, [
       'list',
       'pending',

@@ -24,11 +24,14 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type {
-  AgentBackend,
-  AgentLaunchRequest,
-  AgentSession,
-  AgentSessionItem,
+import {
+  type AgentBackend,
+  type AgentLaunchRequest,
+  type AgentSession,
+  type AgentSessionItem,
+  ClaudeStreamNormalizer,
+  CodexStreamNormalizer,
+  type NormalizedAgentEvent,
 } from '@craftingtable/agents';
 import {
   evidenceSubmissionRequestSchema,
@@ -12869,6 +12872,67 @@ describe('bounded model service recovery', () => {
     { ...overloaded, exitReason: 'background-work-timeout' as const },
   ])('requires operator input for unsafe or nonretryable failures: $resultText', async (reply) => {
     const { state, backend, worktree } = await cycleFixture([reply]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'safe hold');
+    expect(backend.launches).toHaveLength(1);
+    expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
+  });
+
+  /** Replays a recorded vendor failure through the real adapter normalizer. */
+  function recordedFailure(name: string) {
+    const lines = readFileSync(
+      new URL(`../../../packages/agents/fixtures/provider-failures/${name}.jsonl`, import.meta.url),
+      'utf8',
+    )
+      .trim()
+      .split('\n');
+    const events: NormalizedAgentEvent[] = [];
+    if (name.startsWith('claude-')) {
+      const normalizer = new ClaudeStreamNormalizer({ permissionMode: 'auto', cwd: '/work' });
+      for (const line of lines) events.push(...normalizer.normalizeLine(line));
+    } else {
+      const normalizer = new CodexStreamNormalizer();
+      for (const line of lines) {
+        const { method, params } = JSON.parse(line);
+        if (method === 'turn/started') normalizer.beginTurn();
+        else if (method === 'turn/completed') events.push(normalizer.complete(params.turn, 'm'));
+        else events.push(...normalizer.normalize(method, params));
+      }
+    }
+    const turn = events.at(-1);
+    if (turn?.kind !== 'turn-completed' || !turn.payload.providerFailure)
+      throw new Error(`${name} did not record a provider failure`);
+    return turn.payload.providerFailure;
+  }
+
+  it.each([
+    'claude-overloaded',
+    'claude-server-error',
+    'codex-sleep-then-overloaded',
+    'codex-stream-disconnected',
+  ])('schedules a bounded service retry for recorded %s', async (name) => {
+    const failure = recordedFailure(name);
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: 'API Error', providerFailure: failure },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'backoff');
+    expect(currentCycle(state, cycle)).toMatchObject({
+      status: 'running',
+      providerRecovery: { attempts: 0, failure },
+    });
+    expect(backend.launches).toHaveLength(1);
+  });
+
+  it.each([
+    'claude-session-limit',
+    'claude-overloaded-pending-tool',
+    'codex-usage-limit',
+    'codex-delegated-then-overloaded',
+  ])('holds recorded %s for the operator', async (name) => {
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: 'API Error', providerFailure: recordedFailure(name) },
+    ]);
     const cycle = await startCycle(state, worktree.id);
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'safe hold');
     expect(backend.launches).toHaveLength(1);

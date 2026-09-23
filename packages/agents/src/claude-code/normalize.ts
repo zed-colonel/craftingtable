@@ -97,6 +97,68 @@ export function summarizeToolCall(name: string, input: unknown): string {
   }
 }
 
+const failures = {
+  capacity: {
+    kind: 'capacity',
+    message: 'The model service is overloaded.',
+    safeToRetry: true,
+  },
+  unavailable: {
+    kind: 'unavailable',
+    message: 'The model service reported a server failure.',
+    safeToRetry: true,
+  },
+  authentication: {
+    kind: 'authentication',
+    message: 'The model service requires authentication.',
+    safeToRetry: false,
+  },
+  quota: {
+    kind: 'quota',
+    message: 'The model service reported an allowance or rate limit.',
+    safeToRetry: false,
+  },
+  unknown: {
+    kind: 'unknown',
+    message: 'The backend reported an unclassified error.',
+    safeToRetry: false,
+  },
+} as const satisfies Record<string, ProviderFailure>;
+
+/** The assistant message's structured `error` discriminant (SDK `AssistantMessageError`). */
+function assistantErrorFailure(error: string): ProviderFailure {
+  if (error === 'server_error') return failures.unavailable;
+  if (error === 'authentication_failed') return failures.authentication;
+  if (error === 'billing_error' || error === 'rate_limit') return failures.quota;
+  return failures.unknown;
+}
+
+/**
+ * The result's `api_error_status`. Overload (529) and other 5xx responses are temporary service
+ * failures (ADR-062). 429/402 are allowance or rate limits, including subscription session
+ * windows, and 401/403 need new credentials; both require the operator.
+ */
+function apiStatusFailure(status: unknown): ProviderFailure | undefined {
+  if (typeof status !== 'number' || !Number.isInteger(status)) return undefined;
+  if (status === 529) return failures.capacity;
+  if (status >= 500 && status <= 599) return failures.unavailable;
+  if (status === 429 || status === 402) return failures.quota;
+  if (status === 401 || status === 403) return failures.authentication;
+  return failures.unknown;
+}
+
+/** An operator-owned classification from either record wins; otherwise the HTTP status does. */
+function combineFailures(
+  assistant: ProviderFailure | undefined,
+  api: ProviderFailure | undefined,
+): ProviderFailure | undefined {
+  if (assistant?.kind === 'authentication' || assistant?.kind === 'quota') return assistant;
+  return api ?? assistant;
+}
+
+/** Unrecognized message kinds reported once each per run; later repeats are dropped. */
+const UNKNOWN_REPORT_LIMIT = 64;
+
 export interface ClaudeNormalizerOptions {
   readonly permissionMode: AgentPermissionMode;
   readonly cwd: string;
@@ -115,6 +177,7 @@ export class ClaudeStreamNormalizer {
   private readonly backgroundTasks = new Set<string>();
   private backgroundAfterResult = false;
   private untrackedBackgroundTasks = false;
+  private readonly reportedUnknown = new Set<string>();
 
   /** A result emitted before pending task notifications is not the collected outcome. */
   get hasUncollectedBackgroundWork(): boolean {
@@ -170,17 +233,22 @@ export class ClaudeStreamNormalizer {
       case 'stream_event':
         return [];
       default:
-        return [
-          {
-            kind: 'notice',
-            payload: {
-              category: 'other',
-              message: `Backend message: ${stringOf(parsed.type) || 'unknown'}`,
-            },
-            raw,
-          },
-        ];
+        return this.unknownOnce(
+          `Backend message: ${firstLine(stringOf(parsed.type) || 'unknown', 100)}`,
+          raw,
+        );
     }
+  }
+
+  /**
+   * New CLI releases add progress-style messages. Report each unrecognized kind once per run,
+   * with one bounded raw sample for diagnosis, instead of journaling every occurrence.
+   */
+  private unknownOnce(message: string, raw: string): readonly NormalizedAgentEvent[] {
+    if (this.reportedUnknown.has(message) || this.reportedUnknown.size >= UNKNOWN_REPORT_LIMIT)
+      return [];
+    this.reportedUnknown.add(message);
+    return [{ kind: 'notice', payload: { category: 'other', message }, raw }];
   }
 
   private normalizeSystem(
@@ -270,16 +338,10 @@ export class ClaudeStreamNormalizer {
           },
         ];
       default:
-        return [
-          {
-            kind: 'notice',
-            payload: {
-              category: 'other',
-              message: `Backend system message: ${stringOf(message.subtype) || 'unknown'}`,
-            },
-            raw,
-          },
-        ];
+        return this.unknownOnce(
+          `Backend system message: ${firstLine(stringOf(message.subtype) || 'unknown', 100)}`,
+          raw,
+        );
     }
   }
 
@@ -287,32 +349,11 @@ export class ClaudeStreamNormalizer {
     message: Record<string, unknown>,
     raw: string,
   ): readonly NormalizedAgentEvent[] {
-    if (!message.parent_tool_use_id && typeof message.error === 'string') {
+    // Only the main thread's messages describe the turn's service state. A sub-agent message
+    // (parent_tool_use_id set) neither records nor clears a main-thread failure.
+    if (!message.parent_tool_use_id)
       this.providerFailure =
-        message.error === 'server_error'
-          ? {
-              kind: 'unavailable',
-              message: 'The model service reported a server failure.',
-              safeToRetry: true,
-            }
-          : message.error === 'authentication_failed'
-            ? {
-                kind: 'authentication',
-                message: 'The model service requires authentication.',
-                safeToRetry: false,
-              }
-            : ['billing_error', 'rate_limit'].includes(message.error)
-              ? {
-                  kind: 'quota',
-                  message: 'The model service reported an allowance or rate limit.',
-                  safeToRetry: false,
-                }
-              : {
-                  kind: 'unknown',
-                  message: 'The backend reported an unclassified error.',
-                  safeToRetry: false,
-                };
-    } else this.providerFailure = undefined;
+        typeof message.error === 'string' ? assistantErrorFailure(message.error) : undefined;
 
     const inner = isRecord(message.message) ? message.message : {};
     const content = Array.isArray(inner.content) ? inner.content : [];
@@ -379,7 +420,13 @@ export class ClaudeStreamNormalizer {
     message: Record<string, unknown>,
     raw: string,
   ): readonly NormalizedAgentEvent[] {
-    const failure = this.providerFailure;
+    // Claude Code reports an API failure as `terminal_reason: 'api_error'` with the HTTP status,
+    // even when the result subtype is `success` (with `is_error: true`).
+    const apiError = message.terminal_reason === 'api_error';
+    const failure = combineFailures(
+      this.providerFailure,
+      apiError ? apiStatusFailure(message.api_error_status) : undefined,
+    );
     this.providerFailure = undefined;
     const pendingBackground = this.hasUncollectedBackgroundWork;
     this.backgroundAfterResult = false;
@@ -404,7 +451,7 @@ export class ClaudeStreamNormalizer {
                   ...failure,
                   safeToRetry:
                     failure.safeToRetry &&
-                    message.subtype === 'error_during_execution' &&
+                    (message.subtype === 'error_during_execution' || apiError) &&
                     !this.interactiveRequest &&
                     !(
                       Array.isArray(message.permission_denials) && message.permission_denials.length

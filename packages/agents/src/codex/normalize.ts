@@ -13,6 +13,22 @@ import {
 } from '../bounded.js';
 import type { NormalizedAgentEvent } from '../index.js';
 
+/**
+ * App-server items that neither run a tool nor delegate work (generated `ThreadItem` schema):
+ * a timed wait, a proposed plan, an image the model viewed and review-mode markers. They carry
+ * no side effect whose completion the adapter must prove, so they never make a failed turn
+ * unsafe to retry, and they are not journaled.
+ */
+const INFORMATIONAL_ITEM_TYPES: ReadonlySet<string> = new Set([
+  'sleep',
+  'plan',
+  'imageView',
+  'enteredReviewMode',
+  'exitedReviewMode',
+]);
+
+const UNKNOWN_REPORT_LIMIT = 64;
+
 /** Only the selected thread's notifications reach this adapter-local normalizer. */
 export class CodexStreamNormalizer {
   private turns = 0;
@@ -30,6 +46,8 @@ export class CodexStreamNormalizer {
   private baselineUsage: AgentRunEventPayloads['turn-completed']['tokenUsage'];
   private readonly calls = new Set<string>();
   private readonly completedItems = new Set<string>();
+  /** Unrecognized item types already reported once in this run. */
+  private readonly reportedUnknownItems = new Set<string>();
   constructor(resumed = false) {
     if (!resumed)
       this.totalUsage = {
@@ -190,7 +208,8 @@ export class CodexStreamNormalizer {
     raw: string,
   ): readonly NormalizedAgentEvent[] {
     const type = stringOf(item.type);
-    if (type === 'reasoning' || type === 'userMessage') return [];
+    if (type === 'reasoning' || type === 'userMessage' || INFORMATIONAL_ITEM_TYPES.has(type))
+      return [];
     if (type === 'agentMessage') {
       if (!completed) return [];
       const bounded = truncateUtf8(stringOf(item.text), MESSAGE_TEXT_LIMIT_BYTES);
@@ -262,9 +281,21 @@ export class CodexStreamNormalizer {
         input = { query: stringOf(item.query) };
         summary = firstLine(stringOf(item.query));
         break;
-      default:
+      default: {
+        // An unrecognized item may be a new kind of tool or delegated work whose terminal state
+        // this adapter cannot prove, so the turn stays ineligible for automatic retry. Report
+        // each unknown type once per run rather than once per item.
         this.unsafeContinuation = true;
-        return completed ? [this.notice(`Backend item: ${firstLine(type || 'unknown')}`, raw)] : [];
+        const label = firstLine(type || 'unknown', 100);
+        if (
+          !completed ||
+          this.reportedUnknownItems.has(label) ||
+          this.reportedUnknownItems.size >= UNKNOWN_REPORT_LIMIT
+        )
+          return [];
+        this.reportedUnknownItems.add(label);
+        return [this.notice(`Backend item: ${label}`, raw)];
+      }
     }
     const events: NormalizedAgentEvent[] = [];
     if (!this.calls.has(toolUseId)) {

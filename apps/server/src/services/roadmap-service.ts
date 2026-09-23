@@ -86,7 +86,10 @@ export class RoadmapService {
 
   list(context: AuthContext, workspaceId: WorkspaceId): readonly RoadmapView[] {
     this.workspaces.requireAuthorized(context, workspaceId);
-    return this.storage.roadmaps.list(workspaceId).map((roadmap) => this.view(roadmap));
+    // One read snapshot for the whole list: roadmaps share definitions, evidence
+    // and scheduling reads, so a per-roadmap snapshot re-decoded them (PERF-08a).
+    const snapshot = mapReadSnapshot(this.storage);
+    return this.storage.roadmaps.list(workspaceId).map((roadmap) => this.view(roadmap, snapshot));
   }
   agentSettings(context: AuthContext, workspaceId: WorkspaceId): RoadmapAgents {
     this.workspaces.requireAuthorized(context, workspaceId);
@@ -2071,8 +2074,7 @@ export class RoadmapService {
       );
     return undefined;
   }
-  private view(roadmap: Roadmap): RoadmapView {
-    const snapshot = mapReadSnapshot(this.storage);
+  private view(roadmap: Roadmap, snapshot = mapReadSnapshot(this.storage)): RoadmapView {
     const capacity = (key: string) => ({
       limit: snapshot.phaseScheduling.capacity(key),
       inUse: snapshot.phaseScheduling.active().filter((r) => r.resourceKey === key).length,

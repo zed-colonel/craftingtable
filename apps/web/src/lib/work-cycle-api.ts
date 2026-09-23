@@ -38,8 +38,14 @@ export function delegateScopeRepair(
     mutation(csrfToken, input),
   );
 }
-export function loadWorkCycles(workspaceId: WorkspaceId) {
-  return request(`/api/workspaces/${encode(workspaceId)}/cycles`, workCyclesResponseSchema);
+/**
+ * Without a work item: the cycles that have not ended, without design-recovery
+ * detail (attention strip, rail count, run page). With one: that item's full
+ * cycles, history included (work-item page).
+ */
+export function loadWorkCycles(workspaceId: WorkspaceId, workItemId?: WorkItemId) {
+  const query = workItemId === undefined ? '' : `?workItemId=${encode(workItemId)}`;
+  return request(`/api/workspaces/${encode(workspaceId)}/cycles${query}`, workCyclesResponseSchema);
 }
 export function startWorkCycle(
   workspaceId: WorkspaceId,

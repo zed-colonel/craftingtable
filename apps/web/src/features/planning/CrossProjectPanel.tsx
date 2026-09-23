@@ -14,7 +14,7 @@ import {
   type Roadmap,
   type WorkspaceId,
 } from '@craftingtable/domain';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActionBar } from '../../components/ActionBar.js';
 import { Reasons } from '../../components/Reasons.js';
 import { Section } from '../../components/Section.js';
@@ -25,6 +25,7 @@ import {
   saveCrossProject,
 } from '../../lib/cross-project-api.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
+import { useRefreshOn } from '../../lib/refresh-signals.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { buildPath } from '../../lib/route.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
@@ -160,6 +161,18 @@ export function CrossProjectPanel({
       live = false;
     };
   }, [workspaceId]);
+  // Event-driven instead of a 5 s poll (PERF-06): roadmap, cycle and evidence
+  // rounds, plus the slow safety refresh. One preview at a time.
+  const previewing = useRef(false);
+  useRefreshOn('roadmaps', () => {
+    if (previewing.current) return;
+    previewing.current = true;
+    void refresh()
+      .catch((e) => setError(e instanceof Error ? e.message : 'Could not inspect the roadmap.'))
+      .finally(() => {
+        previewing.current = false;
+      });
+  });
   useEffect(() => {
     let alive = true;
     let loading = false;
@@ -183,10 +196,8 @@ export function CrossProjectPanel({
       }
     };
     void load();
-    const timer = window.setInterval(() => void load(), 5000);
     return () => {
       alive = false;
-      clearInterval(timer);
     };
   }, [workspaceId, definitionId, bindingRevision, target, selection, csrfToken]);
   const command = async (action: () => Promise<void>) => {

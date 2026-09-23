@@ -18,6 +18,7 @@ import {
 import type { WorkspaceId } from '@craftingtable/domain';
 import { revealElement } from '../../lib/reveal-element.js';
 import { request } from '../../lib/api-client.js';
+import { useRefreshOn } from '../../lib/refresh-signals.js';
 export function RuntimeEvidencePanel({
   workspaceId,
   definitionId,
@@ -44,6 +45,8 @@ export function RuntimeEvidencePanel({
   onDraftChange?: (roadmapId: string, dirty: boolean) => void;
 }) {
   const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime`;
+  const baseRef = useRef(base);
+  baseRef.current = base;
   const [view, setView] = useState<RuntimeEvidenceView>(),
     [config, setConfig] = useState<ConfigureRuntime>(),
     [busy, setBusy] = useState(false),
@@ -136,6 +139,20 @@ export function RuntimeEvidencePanel({
   useEffect(() => {
     if (roadmapId) onDraftChange?.(roadmapId, dependencyDirty);
   }, [roadmapId, dependencyDirty, onDraftChange]);
+  // Evidence recorded by automation shows without navigation (PERF-03, UI-13).
+  // An unsaved setup draft is kept: only the view is replaced under it.
+  const setupDirty = useRef(false);
+  setupDirty.current = dependencyDirty;
+  useRefreshOn('roadmaps', () => {
+    const requested = base;
+    void request(requested, runtimeEvidenceViewSchema)
+      .then((next) => {
+        if (requested !== baseRef.current) return;
+        if (setupDirty.current) setView(next);
+        else adopt(next);
+      })
+      .catch(() => undefined);
+  });
   if (!view || !config)
     return <p role={error ? 'alert' : undefined}>{error || 'Loading dependency environments…'}</p>;
   const changedRefs = config.pins.some(

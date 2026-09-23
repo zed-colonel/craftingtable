@@ -15,7 +15,12 @@ export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'disconne
  * a summary event is not the authoritative model (CT03-I13, CT03-A66).
  */
 export interface StaleScopes {
+  /** The page's authoritative queries: snapshot, cycles, route detail. */
   readonly workspaceSummary: boolean;
+  /** Roadmap, map-preview and runtime-evidence panels. */
+  readonly roadmaps: boolean;
+  /** The notification settings panel only; no page query depends on it. */
+  readonly notifications: boolean;
   readonly projectIds: readonly ProjectId[];
   readonly workItemIds: readonly WorkItemId[];
   readonly repositoryList: boolean;
@@ -24,6 +29,8 @@ export interface StaleScopes {
 
 const NO_STALE_SCOPES: StaleScopes = {
   workspaceSummary: false,
+  roadmaps: false,
+  notifications: false,
   projectIds: [],
   workItemIds: [],
   repositoryList: false,
@@ -94,6 +101,8 @@ export type WorkspaceProjectionAction =
       readonly type: 'stale-consumed';
       readonly consumed: {
         readonly workspaceSummary?: true;
+        readonly roadmaps?: true;
+        readonly notifications?: true;
         readonly projectIds?: readonly ProjectId[];
         readonly workItemIds?: readonly WorkItemId[];
         readonly repositoryList?: true;
@@ -121,7 +130,15 @@ function subtract<T extends string>(values: readonly T[], consumed: readonly T[]
   return values.filter((value) => !consumedSet.has(value));
 }
 
-/** Which authoritative queries an event makes stale. */
+/**
+ * Which authoritative queries an event makes stale.
+ *
+ * Roadmap progress is derived from cycles, worktrees, evidence and admission,
+ * so those events also reach the roadmap panels. Roadmap and evidence events
+ * still refresh the page itself because cycle waits are derived from roadmap
+ * state and scope evidence. Notification bookkeeping reaches only the
+ * notification panel: no page query reads it (PERF-03).
+ */
 function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): StaleScopes {
   switch (event.kind) {
     case 'workspace-created':
@@ -143,6 +160,7 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
       return {
         ...current,
         workspaceSummary: true,
+        roadmaps: true,
         projectIds: unique([...current.projectIds, event.payload.projectId]),
         workItemIds: unique([...current.workItemIds, event.payload.workItemId]),
       };
@@ -164,22 +182,26 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
     case 'source-repository-registered':
       return { ...current, repositoryList: true };
     case 'runtime-evidence-changed':
-      return { ...current, workspaceSummary: true };
+      return { ...current, workspaceSummary: true, roadmaps: true };
     case 'scope-scheduling-authorized':
     case 'scope-evidence-recorded':
       return {
         ...current,
         workspaceSummary: true,
+        roadmaps: true,
         workItemIds: unique([...current.workItemIds, event.payload.workItemId]),
       };
     case 'roadmap-changed':
+      return { ...current, workspaceSummary: true, roadmaps: true };
     case 'notifications-changed':
+      return { ...current, notifications: true };
     case 'workspace-updated':
       return { ...current, workspaceSummary: true };
     case 'work-item-completed':
       return {
         ...current,
         workspaceSummary: true,
+        roadmaps: true,
         projectIds: unique([...current.projectIds, event.projectId]),
         workItemIds: event.workItemId
           ? unique([...current.workItemIds, event.workItemId])
@@ -190,6 +212,7 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
       return {
         ...current,
         workspaceSummary: true,
+        roadmaps: true,
         workItemIds: event.workItemId
           ? unique([...current.workItemIds, event.workItemId])
           : current.workItemIds,
@@ -198,6 +221,14 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
     case 'worktree-created':
     case 'worktree-removed':
     case 'work-cycle-changed':
+      return {
+        ...current,
+        workspaceSummary: true,
+        roadmaps: true,
+        workItemIds: event.workItemId
+          ? unique([...current.workItemIds, event.workItemId])
+          : current.workItemIds,
+      };
     case 'agent-run-started':
     case 'agent-run-status-changed':
       return {
@@ -287,6 +318,8 @@ export function reduceWorkspaceProjection(
         ...state,
         stale: {
           workspaceSummary: action.consumed.workspaceSummary ? false : state.stale.workspaceSummary,
+          roadmaps: action.consumed.roadmaps ? false : state.stale.roadmaps,
+          notifications: action.consumed.notifications ? false : state.stale.notifications,
           projectIds:
             action.consumed.projectIds === undefined
               ? state.stale.projectIds

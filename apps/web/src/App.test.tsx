@@ -1,6 +1,7 @@
 import type {
   AuthenticatedSessionResponse,
   WorkspaceAuditPageResponse,
+  WorkspaceEventEnvelope,
   WorkspaceListResponse,
   WorkspaceSnapshotResponse,
 } from '@craftingtable/contracts';
@@ -226,6 +227,11 @@ function workItemDetailFor(workspaceId: string) {
 
 const snapshotCalls: string[] = [];
 let pendingSnapshotB: Deferred<WorkspaceSnapshotResponse>;
+/** When set, workspace A's snapshot waits for it: a slow round on the daemon. */
+let snapshotAGate: Promise<void> | undefined;
+const auditCalls: string[] = [];
+/** The signed-in user's workspaces; tests may change the role. */
+let workspaceList: WorkspaceListResponse = WORKSPACES;
 
 vi.mock('./lib/api-client.js', () => ({
   ApiError: class ApiError extends Error {
@@ -239,13 +245,22 @@ vi.mock('./lib/api-client.js', () => ({
   },
   loadSession: () => Promise.resolve(SESSION),
   loadSessions: () => Promise.resolve({ sessions: [] }),
-  loadWorkspaces: () => Promise.resolve(WORKSPACES),
+  loadWorkspaces: () => Promise.resolve(workspaceList),
   loadWorkspaceSnapshot: (id: string) => {
     snapshotCalls.push(id);
-    return id === 'workspace-a' ? Promise.resolve(SNAPSHOT_A) : pendingSnapshotB.promise;
+    if (id !== 'workspace-a') return pendingSnapshotB.promise;
+    return snapshotAGate === undefined
+      ? Promise.resolve(SNAPSHOT_A)
+      : snapshotAGate.then(() => SNAPSHOT_A);
   },
-  loadWorkspaceAudit: (id: string) =>
-    Promise.resolve(id === 'workspace-a' ? AUDIT_A : { records: [] }),
+  loadWorkspaceAudit: (id: string) => {
+    auditCalls.push(id);
+    // Like the daemon: the audit log is owner-only and hidden from other members.
+    const role = workspaceList.workspaces.find((workspace) => workspace.id === id)?.role;
+    return role === 'owner'
+      ? Promise.resolve(id === 'workspace-a' ? AUDIT_A : { records: [] })
+      : Promise.reject(new Error('not found'));
+  },
   login: () => Promise.resolve(SESSION),
   logout: () => Promise.resolve(),
   revokeSession: () => Promise.resolve(false),
@@ -377,6 +392,9 @@ beforeEach(() => {
   // The remembered-workspace bookmark must not leak between tests.
   window.localStorage.clear();
   snapshotCalls.length = 0;
+  auditCalls.length = 0;
+  snapshotAGate = undefined;
+  workspaceList = WORKSPACES;
   pendingSnapshotB = deferred<WorkspaceSnapshotResponse>();
   planning.artifact = deferred<string>();
   planning.admit = deferred<unknown>();
@@ -386,37 +404,163 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-it('batches transition events into one background refresh and retains the stream cursor', async () => {
-  renderApp();
-  await screen.findByText('Alpha Project');
-  const initialCalls = snapshotCalls.length;
-  expect(initialCalls).toBe(1);
-  const stream = vi.mocked(useWorkspaceEventStream).mock.lastCall!;
-  const cursor = stream[1];
-  vi.useFakeTimers();
-  try {
+/** A workspace event of `kind` for workspace A, as the stream delivers it. */
+function streamEvent(sequence: number, kind: string, extra: object = {}): WorkspaceEventEnvelope {
+  return {
+    id: asEventId(`event-${sequence}`),
+    sequence,
+    occurredAt: '2026-07-24T00:00:00.000Z',
+    workspaceId: 'workspace-a',
+    schemaVersion: 1,
+    kind,
+    payload: {},
+    ...extra,
+  } as unknown as WorkspaceEventEnvelope;
+}
+
+/**
+ * Delivers `events` at their offsets (ms from the first) through the real
+ * stream callback, then lets every pending timer and read finish.
+ */
+async function replay(events: readonly (readonly [number, WorkspaceEventEnvelope])[]) {
+  const onEvent = vi.mocked(useWorkspaceEventStream).mock.lastCall![2].onEvent;
+  let elapsed = 0;
+  for (const [at, event] of events) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(at - elapsed);
+    });
+    elapsed = at;
+    act(() => onEvent(event));
+  }
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
+  });
+}
+
+/**
+ * The run-finished -> next-run transition recorded in the live journal as
+ * seq 3248-3254 (PERF-02): seven events over 11.4 s, 0.3-6 s apart.
+ */
+const RECORDED_TRANSITION = [
+  [0, streamEvent(3248, 'agent-run-status-changed')],
+  [339, streamEvent(3249, 'agent-run-status-changed')],
+  [2_948, streamEvent(3250, 'work-cycle-changed')],
+  [4_368, streamEvent(3251, 'work-cycle-changed')],
+  [4_844, streamEvent(3252, 'work-cycle-changed')],
+  [10_848, streamEvent(3253, 'agent-run-started')],
+  [11_381, streamEvent(3254, 'agent-run-status-changed')],
+] as const;
+
+describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function loaded(): Promise<number> {
+    renderApp();
+    await screen.findByText('Alpha Project');
+    await settle();
+    vi.useFakeTimers();
+    return snapshotCalls.length;
+  }
+
+  it('batches a burst of events into one round and retains the stream cursor', async () => {
+    const initial = await loaded();
+    expect(initial).toBe(1);
+    const cursor = vi.mocked(useWorkspaceEventStream).mock.lastCall![1];
+    const onEvent = vi.mocked(useWorkspaceEventStream).mock.lastCall![2].onEvent;
     for (let sequence = 6; sequence <= 8; sequence++) {
-      act(() =>
-        stream[2].onEvent({
-          ...SNAPSHOT_A.recentActivity[0]!,
-          sequence,
-          id: asEventId(`event-${sequence}`),
-        }),
-      );
+      act(() => onEvent(streamEvent(sequence, 'work-cycle-changed')));
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(50);
+        await vi.advanceTimersByTimeAsync(150);
       });
     }
-    expect(snapshotCalls.length).toBe(initialCalls);
+    // Still inside the quiet period after the last event.
+    expect(snapshotCalls.length).toBe(initial);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(300);
     });
-    expect(snapshotCalls.length).toBe(initialCalls + 1);
+    expect(snapshotCalls.length).toBe(initial + 1);
     expect(vi.mocked(useWorkspaceEventStream).mock.lastCall?.[1]).toBe(cursor);
     expect(screen.getByText('Alpha Project')).toBeDefined();
-  } finally {
-    vi.useRealTimers();
-  }
+  });
+
+  it('refreshes a recorded transition in fewer rounds than it has events', async () => {
+    const initial = await loaded();
+    await replay(RECORDED_TRANSITION);
+    // The fixed 200 ms window made this 7 rounds (one per event). Events closer
+    // than the debounce now share a round; the remaining rounds are the
+    // controller's multi-second gaps inside one transition (PERF-18).
+    expect(snapshotCalls.length - initial).toBe(6);
+  });
+
+  it('never refreshes the page for notification bookkeeping', async () => {
+    const initial = await loaded();
+    await replay([
+      [0, streamEvent(20, 'notifications-changed', { payload: { action: 'delivery' } })],
+      [1_000, streamEvent(21, 'notifications-changed', { payload: { action: 'attention' } })],
+    ]);
+    expect(snapshotCalls.length).toBe(initial);
+  });
+
+  it('keeps one round in flight and follows up exactly once', async () => {
+    const initial = await loaded();
+    const slow = deferred<void>();
+    snapshotAGate = slow.promise;
+    // Each event is past the previous debounce, so each would start a round.
+    await replay([
+      [0, streamEvent(30, 'work-cycle-changed')],
+      [1_000, streamEvent(31, 'work-cycle-changed')],
+      [2_000, streamEvent(32, 'work-cycle-changed')],
+      [3_000, streamEvent(33, 'agent-run-status-changed')],
+    ]);
+    expect(snapshotCalls.length - initial).toBe(1);
+    snapshotAGate = undefined;
+    await act(async () => {
+      slow.resolve();
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(snapshotCalls.length - initial).toBe(2);
+  });
+
+  it('reads nothing while the tab is hidden and catches up once when shown', async () => {
+    const initial = await loaded();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      await replay(RECORDED_TRANSITION.map(([at, event]) => [at, event] as const));
+      expect(snapshotCalls.length).toBe(initial);
+      visibility.mockReturnValue('visible');
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(snapshotCalls.length - initial).toBe(1);
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+});
+
+describe('non-owner members (PERF-15)', () => {
+  it('load the workspace without requesting the owner-only audit log', async () => {
+    workspaceList = {
+      workspaces: WORKSPACES.workspaces.map((workspace) => ({ ...workspace, role: 'editor' })),
+    } as unknown as WorkspaceListResponse;
+    renderApp();
+    await screen.findByText('Alpha Project');
+    await settle();
+    expect(screen.queryByText('The workspace snapshot could not be loaded.')).toBeNull();
+    expect(
+      screen.queryByText('The latest refresh failed. The last committed state remains visible.'),
+    ).toBeNull();
+    expect(auditCalls).toEqual([]);
+  });
+
+  it('still show owners their audit log on the dashboard', async () => {
+    renderApp();
+    await screen.findByText('plan.import.succeeded');
+    expect(auditCalls).toContain('workspace-a');
+  });
 });
 
 describe('workspace switching in the app (CT03-RR4)', () => {
@@ -469,7 +613,7 @@ describe('workspace switching in the app (CT03-RR4)', () => {
   it('clears the audit panel belonging to the previous workspace', async () => {
     renderApp();
     await screen.findByText('Alpha Project');
-    expect(screen.getByText('plan.import.succeeded')).toBeDefined();
+    await screen.findByText('plan.import.succeeded');
 
     fireEvent.change(screen.getByLabelText('Workspace'), {
       target: { value: 'workspace-b' },

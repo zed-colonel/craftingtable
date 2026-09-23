@@ -11,7 +11,7 @@ import {
   readArchive,
 } from '@craftingtable/planning';
 import { openCraftingTableStorage } from '@craftingtable/storage';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { zipFixture } from '../../../packages/planning/src/archive-test-support.js';
 import { buildMultipartBody } from './multipart-test-support.js';
 import { createTestContext, type TestContext } from './test-support.js';
@@ -203,6 +203,25 @@ describe('package import HTTP flow', () => {
           c.blockers.some((b) => b.includes('Configure exact upstream pins')),
         ),
     ).toBe(true);
+    // PERF-04: one read decodes the definition once, not once per slice × phase.
+    const definitionReads = vi.spyOn(r.context.storage.imports, 'definition');
+    try {
+      const again = await r.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${r.workspaceId}/work-items/${item}/execution-scopes`,
+        headers: { cookie: r.session.cookie },
+      });
+      expect(again.json()).toEqual(scopes.json());
+      const perArguments = new Map<string, number>();
+      for (const call of definitionReads.mock.calls) {
+        const key = JSON.stringify(call);
+        perArguments.set(key, (perArguments.get(key) ?? 0) + 1);
+      }
+      expect(perArguments.size).toBeGreaterThan(0);
+      expect(Math.max(...perArguments.values())).toBe(1);
+    } finally {
+      definitionReads.mockRestore();
+    }
     const blocked = await r.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${r.workspaceId}/work-items/${item}/worktrees`,

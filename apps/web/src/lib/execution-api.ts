@@ -228,8 +228,15 @@ export function loadRepositoryBranches(
   );
 }
 
-export function loadWorkspaceRuns(workspaceId: WorkspaceId): Promise<WorkspaceRunsResponse> {
-  return request(`/api/workspaces/${encode(workspaceId)}/runs`, workspaceRunsResponseSchema);
+/** Recent runs as list rows (no outcome text); `live` returns only the runs still working. */
+export function loadWorkspaceRuns(
+  workspaceId: WorkspaceId,
+  options: { readonly live?: boolean } = {},
+): Promise<WorkspaceRunsResponse> {
+  return request(
+    `/api/workspaces/${encode(workspaceId)}/runs${options.live ? '?status=live' : ''}`,
+    workspaceRunsResponseSchema,
+  );
 }
 
 export function loadRunProfiles(workspaceId: WorkspaceId): Promise<RunProfilesResponse> {

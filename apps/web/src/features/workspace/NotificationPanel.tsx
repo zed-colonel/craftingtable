@@ -6,6 +6,7 @@ import {
   saveNotifications,
   testNotifications,
 } from '../../lib/notification-api.js';
+import { useRefreshOn } from '../../lib/refresh-signals.js';
 
 export function NotificationPanel({
   workspaceId,
@@ -36,12 +37,13 @@ export function NotificationPanel({
       }
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
     return () => {
       alive = false;
-      window.clearInterval(timer);
     };
   }, [workspaceId, reload]);
+  // Delivery status follows notification events and the slow safety refresh,
+  // not a 5 s poll (PERF-06, PERF-17).
+  useRefreshOn('notifications', () => setReload((value) => value + 1));
   // Polling delivery status must never erase unsaved settings or credentials.
   useEffect(() => {
     if (status !== undefined && draft === undefined) {

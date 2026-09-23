@@ -32,6 +32,7 @@ import {
   loadFinalizations,
   startFinalization,
 } from '../../lib/finalization-api.js';
+import { useRefreshOn } from '../../lib/refresh-signals.js';
 import { controlWorkCycle, resolveIntegration } from '../../lib/work-cycle-api.js';
 import { AgentProfileFields } from './AgentProfileFields.js';
 import { CYCLE_STATUS_LABELS } from './CyclePanel.js';
@@ -97,12 +98,13 @@ export function FinalizationPanel({
       }
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 3000);
     return () => {
       active = false;
-      window.clearInterval(timer);
     };
   }, [workspaceId, planVersionId, reload]);
+  // Page rounds (cycle, branch and merge events) and the slow safety refresh
+  // replace the 3 s poll (PERF-09, PERF-13).
+  useRefreshOn('workspace', () => setReload((value) => value + 1));
   useEffect(() => {
     let active = true;
     void Promise.all([loadExecutionStatus(), loadRunProfiles(workspaceId)])

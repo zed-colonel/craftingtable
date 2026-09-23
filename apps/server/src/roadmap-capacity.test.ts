@@ -10,7 +10,7 @@ import {
   asSourceRepositoryId,
   type Roadmap,
 } from '@craftingtable/domain';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createTestContext, type TestContext } from './test-support.js';
 const contexts: TestContext[] = [];
 afterEach(async () => {
@@ -175,5 +175,38 @@ it('rejects unauthenticated, CSRF-less, invalid, running, and ended capacity edi
     s.c.storage.roadmaps.save({ ...s.roadmap, version: version + 1, status }, version);
     version++;
     expect((await s.save({ ...s.payload, expectedVersion: version })).statusCode).toBe(409);
+  }
+});
+it('evaluates the whole roadmap list in one read snapshot (PERF-08)', async () => {
+  const s = await fixture();
+  // Whole-item entries: this fixture binds no map, so slice scopes cannot resolve.
+  const definition = {
+    ...s.roadmap.definition,
+    entries: s.roadmap.definition.entries.map(({ executionScope: _scope, ...entry }) => entry),
+  };
+  s.c.storage.roadmaps.save({ ...s.roadmap, version: 2, definition }, 1);
+  const second = randomUUID();
+  s.c.storage.roadmaps.save(
+    {
+      ...s.roadmap,
+      id: second,
+      status: 'completed',
+      reason: 'Completed.',
+      definition: { ...definition, roadmapId: second, name: 'Second roadmap' },
+    },
+    0,
+  );
+  const capacityReads = vi.spyOn(s.c.storage.phaseScheduling, 'capacity');
+  try {
+    const response = await s.c.app.inject({ method: 'GET', url: s.base, headers: s.headers });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().roadmaps).toHaveLength(2);
+    // Two capacity keys, read once each for both roadmaps.
+    expect(capacityReads.mock.calls.map(([key]) => key).toSorted()).toEqual([
+      'local-development',
+      'local-verification',
+    ]);
+  } finally {
+    capacityReads.mockRestore();
   }
 });

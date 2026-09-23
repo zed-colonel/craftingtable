@@ -9676,7 +9676,7 @@ it('supervises slices, fresh verification and independent parent acceptance with
   expect(
     state.context.storage.notifications
       .records(ws)
-      .some((n) => n.sourceKey.includes(':checkpoints:')),
+      .some((n) => n.sourceKey.endsWith(':checkpoints')),
   ).toBe(false);
   expect((await roadmapControl(state, 'start')).statusCode).toBe(200);
   await waitFor(
@@ -9705,7 +9705,7 @@ it('supervises slices, fresh verification and independent parent acceptance with
   await notifications.tick();
   const alert = state.context.storage.notifications
     .records(ws)
-    .find((n) => n.sourceKey.includes(':checkpoints:'))!;
+    .find((n) => n.sourceKey.endsWith(':checkpoints'))!;
   expect(alert.message).toContain('LOCAL-TARGET');
   const delivered = alert.deliveredCount;
   await notifications.tick();
@@ -11155,7 +11155,7 @@ it('alerts for an eligible missing native environment, not future dependency wai
   });
   await notifications.tick();
   const alerts = () =>
-    tx.notifications.records(ws).filter((n) => n.sourceKey.includes(':environments:'));
+    tx.notifications.records(ws).filter((n) => n.sourceKey.endsWith(':environments'));
   expect(alerts()).toHaveLength(0);
   const tree = await scopeTree(f, f.scopes[0]!);
   commitFile(tree.path, 'a.txt', 'A');

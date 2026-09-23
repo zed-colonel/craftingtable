@@ -14,15 +14,28 @@ import {
   asWorktreeId,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_NOTIFICATION_PREFERENCES,
+  type Roadmap,
+  type RoadmapDefinition,
   type WorkCycle,
 } from '@craftingtable/domain';
 import { openCraftingTableStorage, openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NotificationService } from './services/notification-service.js';
+import {
+  NOTIFICATION_SETTLE_MS,
+  NotificationService,
+  type NotificationServiceOptions,
+} from './services/notification-service.js';
 import type { DeliveryResult, NotificationMessage } from './services/notification-transport.js';
+import {
+  STORAGE_ALERT_CLEAR_HOLD_MS,
+  type StorageAlert,
+  StorageAlertGate,
+} from './services/storage-alerts.js';
+import { GiB } from './services/storage-files.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
 import { WorkspaceService } from './services/workspace-service.js';
 import { createTestContext, type TestContext } from './test-support.js';
+
 const contexts: TestContext[] = [];
 afterEach(async () => {
   for (const context of contexts.splice(0)) await context.cleanup();
@@ -30,7 +43,13 @@ afterEach(async () => {
 const token = 'a'.repeat(30);
 const key = 'u'.repeat(30);
 const preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, enabled: true };
-async function fixture(cycleTransitioning: (id: string) => boolean = () => false) {
+// Most scenarios exercise scheduling and leases; they opt out of the settle delay, which
+// has its own tests below.
+async function fixture(
+  cycleTransitioning: (id: string) => boolean = () => false,
+  options: NotificationServiceOptions = { settleMs: 0 },
+  storageAttention?: () => readonly StorageAlert[],
+) {
   let time = Date.parse('2026-09-10T15:00:00Z');
   const now = () => new Date(time);
   const context = await createTestContext({ now });
@@ -160,8 +179,9 @@ async function fixture(cycleTransitioning: (id: string) => boolean = () => false
     { send },
     'https://craft.example',
     now,
-    undefined,
+    storageAttention,
     cycleTransitioning,
+    options,
   );
   service.save(auth, workspaceId, {
     preferences,
@@ -190,8 +210,15 @@ async function fixture(cycleTransitioning: (id: string) => boolean = () => false
       time += minutes * 60_000;
     },
     status: () => service.get(auth, workspaceId),
-    setCycle: (status: WorkCycle['status']) => {
-      const next = { ...cycle, status, version: cycle.version + 1, updatedAt: now().toISOString() };
+    cycle: () => cycle,
+    setCycle: (status: WorkCycle['status'], changes: Partial<WorkCycle> = {}) => {
+      const next = {
+        ...cycle,
+        ...changes,
+        status,
+        version: cycle.version + 1,
+        updatedAt: now().toISOString(),
+      };
       context.storage.execution.cycles.replace(next, cycle.version);
       cycle = next;
     },
@@ -908,4 +935,361 @@ it('retains parallel item reminder timing while siblings progress and resolves a
       .filter((r) => r.sourceKey.startsWith('roadmap:'))
       .every((r) => r.state === 'resolved'),
   ).toBe(true);
+});
+
+describe('notification noise controls (R-A1, R-A2)', () => {
+  const pages = (send: ReturnType<typeof vi.fn>) =>
+    send.mock.calls.filter(
+      (call) => !(call[0] as NotificationMessage).message.startsWith('Reminder:'),
+    );
+  it('never sends attention that automation takes over inside the settle window', async () => {
+    const f = await fixture(undefined, {});
+    f.setCycle('running');
+    f.setCycle('needs-attention', { reason: 'Open questions need a reassessment.' });
+    await f.service.tick();
+    expect(f.context.storage.notifications.records(f.workspaceId)).toHaveLength(1);
+    f.advance(NOTIFICATION_SETTLE_MS / 60_000 / 2);
+    await f.service.tick();
+    f.setCycle('running'); // The controller's own reassessment starts.
+    await f.service.tick();
+    f.advance(60);
+    await f.service.tick();
+    expect(f.send).not.toHaveBeenCalled();
+    expect(f.context.storage.notifications.records(f.workspaceId)[0]).toMatchObject({
+      state: 'resolved',
+      deliveredCount: 0,
+    });
+    // A stop that persists through the window is sent exactly once, after it settles.
+    f.setCycle('needs-attention', { reason: 'Reassessment still needs the operator.' });
+    await f.service.tick();
+    f.advance(NOTIFICATION_SETTLE_MS / 60_000 - 1 / 60);
+    await f.service.tick();
+    expect(f.send).not.toHaveBeenCalled();
+    f.advance(1 / 60);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+  });
+  it('keeps one occurrence and its reminder schedule across version bumps with the same blocker', async () => {
+    const f = await fixture(undefined, {});
+    f.setCycle('needs-attention', { reason: 'Scope review requires recovery: 1 major.' });
+    await f.service.tick();
+    f.advance(1);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 5; i++) {
+      f.advance(1);
+      f.setCycle('needs-attention', { reason: `Scope review requires recovery (round ${i}).` });
+      await f.service.tick();
+    }
+    expect(f.send).toHaveBeenCalledTimes(1);
+    const records = f.context.storage.notifications.records(f.workspaceId);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.sourceKey).toBe(`cycle:${f.cycle().id}:needs-attention`);
+    expect(records[0]?.message).toContain('round 4');
+    // Reminders stay anchored to the first push (at +1 min) and carry the current wording.
+    f.advance(24.5);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+    f.advance(0.5);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(2);
+    expect(f.send.mock.calls[1]?.[0].message).toMatch(/^Reminder:.*round 4/s);
+  });
+  it('reopens a flapping occurrence without a new page or a restarted reminder schedule', async () => {
+    const f = await fixture(undefined, {});
+    f.setCycle('needs-attention');
+    await f.service.tick();
+    f.advance(1);
+    await f.service.tick();
+    const first = f.context.storage.notifications.records(f.workspaceId)[0]!;
+    expect(f.send).toHaveBeenCalledTimes(1);
+    f.setCycle('running');
+    await f.service.tick();
+    f.advance(5);
+    f.setCycle('needs-attention');
+    await f.service.tick();
+    f.advance(5);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+    expect(f.context.storage.notifications.records(f.workspaceId)[0]).toMatchObject({
+      id: first.id,
+      state: 'active',
+      firstSentAt: first.firstSentAt,
+      nextAttemptAt: first.nextAttemptAt,
+    });
+    // Outside the flap window a reopened stop is a new occurrence and pages again.
+    f.setCycle('running');
+    await f.service.tick();
+    f.advance(15);
+    f.setCycle('needs-attention');
+    await f.service.tick();
+    f.advance(1);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(2);
+    expect(f.send.mock.calls[1]?.[0].message).not.toMatch(/^Reminder:/);
+  });
+  it('sends at most one storage page while a volume flaps around its reserve', async () => {
+    const gate = new StorageAlertGate();
+    const reserve = 5 * GiB;
+    let free = [4 * GiB, 20 * GiB];
+    let clock = () => new Date();
+    const f = await fixture(undefined, {}, () =>
+      gate.evaluate(
+        [
+          { label: 'Future run files', path: '/runs', freeBytes: free[0] ?? null },
+          { label: 'Future worktrees', path: '/trees', freeBytes: free[1] ?? null },
+        ],
+        reserve,
+        clock().getTime(),
+      ),
+    );
+    clock = f.now;
+    f.setCycle('running');
+    const storage = () =>
+      f.context.storage.notifications
+        .records(f.workspaceId)
+        .filter((r) => r.sourceKey.startsWith('storage:'));
+    // 45 minutes of oscillation every 15 s, including brief recoveries well above the margin.
+    for (let i = 0; i < 180; i++) {
+      free = [i % 2 ? 4.9 * GiB : i % 3 ? 5.1 * GiB : 12 * GiB, 20 * GiB];
+      await f.service.tick();
+      f.advance(0.25);
+    }
+    expect(pages(f.send)).toHaveLength(1);
+    expect(storage()).toHaveLength(1);
+    expect(storage()[0]?.state).toBe('active');
+    // A second volume joining is new work: the coalesced alert pages once more.
+    free = [4 * GiB, 4 * GiB];
+    await f.service.tick();
+    f.advance(1);
+    await f.service.tick();
+    expect(pages(f.send)).toHaveLength(2);
+    expect(f.send.mock.lastCall?.[0].message).toContain('Future worktrees');
+    expect(storage()).toHaveLength(1);
+    // Clearing needs the free space to stay above the margin for the whole hold period.
+    free = [20 * GiB, 20 * GiB];
+    await f.service.tick();
+    f.advance(STORAGE_ALERT_CLEAR_HOLD_MS / 60_000 - 1);
+    await f.service.tick();
+    expect(storage()[0]?.state).toBe('active');
+    f.advance(1);
+    await f.service.tick();
+    expect(storage()[0]?.state).toBe('resolved');
+    expect(pages(f.send)).toHaveLength(2);
+  });
+  it('journals no workspace event and wakes no stream for delivery bookkeeping', async () => {
+    const f = await fixture();
+    const notifier = f.context.services.workspaceEventNotifier;
+    const events = () =>
+      f.context.storage.workspaceEvents
+        .listAfter({ workspaceId: f.workspaceId, after: 0, limit: 1000 })
+        .filter((event) => event.kind === 'notifications-changed');
+    await f.service.tick(); // The attention occurrence opens: one event, then the first push.
+    expect(f.send).toHaveBeenCalledTimes(1);
+    const before = events().length;
+    const generation = notifier.generation;
+    f.advance(30);
+    await f.service.tick(); // Reminder.
+    f.send.mockResolvedValueOnce({ status: 'retry', reason: 'Network error' });
+    f.advance(30);
+    await f.service.tick(); // Failed reminder.
+    f.advance(5);
+    await f.service.tick(); // Retried reminder.
+    expect(f.send).toHaveBeenCalledTimes(4);
+    expect(events()).toHaveLength(before);
+    expect(notifier.generation).toBe(generation);
+    // Each accepted push stays attributable in the audit log.
+    const deliveries = f.context.storage.audit
+      .listWorkspace({ workspaceId: f.workspaceId, limit: 100 })
+      .filter((row) => row.action === 'notifications.updated')
+      .map((row) => row.metadata)
+      .filter((metadata) => metadata.action === 'delivery');
+    expect(deliveries).toHaveLength(3);
+    expect(deliveries.every((m) => m.sourceKey === `cycle:${f.cycle().id}:awaiting-merge`)).toBe(
+      true,
+    );
+    // Resolution changes the attention set, so it is journaled.
+    f.setCycle('running');
+    await f.service.tick();
+    expect(events()).toHaveLength(before + 1);
+  });
+  it('backs off a transport error per record without holding other alerts', async () => {
+    const f = await fixture();
+    f.send.mockResolvedValueOnce({ status: 'retry', reason: 'Network error' });
+    await f.service.tick();
+    expect(f.status().retryAt).toBeNull();
+    await f.context.services.roadmapService.shutdown();
+    const id = randomUUID();
+    f.context.storage.roadmaps.save(
+      {
+        id,
+        workspaceId: f.workspaceId,
+        version: 1,
+        status: 'needs-attention',
+        reason: 'Worktree preparation failed.',
+        createdAt: f.now().toISOString(),
+        updatedAt: f.now().toISOString(),
+        createdByUserId: f.auth.user.id,
+        delegatedByUserId: f.auth.user.id,
+        attempts: [],
+        definition: {
+          roadmapId: id,
+          revision: 1,
+          name: 'AQ sequence',
+          entries: [],
+          createdAt: f.now().toISOString(),
+          createdByUserId: f.auth.user.id,
+        },
+      },
+      0,
+    );
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(2);
+    expect(f.send.mock.calls[1]?.[0].title).toBe('AQ sequence · Roadmap needs attention');
+  });
+  it('honours a delegation grant that makes integration merge manual', async () => {
+    const f = await fixture();
+    await f.context.services.roadmapService.shutdown();
+    const cycle = f.cycle();
+    const id = randomUUID();
+    const entryId = randomUUID();
+    const definition: RoadmapDefinition = {
+      roadmapId: id,
+      revision: 1,
+      name: 'AQ sequence',
+      automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
+      entries: [
+        {
+          id: entryId,
+          workItemId: f.workItemId,
+          projectId: f.projectId,
+          planVersionId: asPlanVersionId('plan-1'),
+          sourceId: 'AQ-05',
+          title: 'Next queue improvement',
+          repositoryId: f.repositoryId,
+          integrationBranch: 'aq-cont-1',
+          profiles: cycle.profiles,
+          policy: cycle.policy,
+          instructions: '',
+        },
+      ],
+      createdAt: f.now().toISOString(),
+      createdByUserId: f.auth.user.id,
+    };
+    const roadmap: Roadmap = {
+      id,
+      workspaceId: f.workspaceId,
+      version: 1,
+      status: 'running',
+      reason: 'Running.',
+      createdAt: f.now().toISOString(),
+      updatedAt: f.now().toISOString(),
+      createdByUserId: f.auth.user.id,
+      delegatedByUserId: f.auth.user.id,
+      attempts: [
+        {
+          id: 'attempt',
+          entryId,
+          definitionRevision: 1,
+          cycleId: cycle.id,
+          worktreeId: f.worktreeId,
+          status: 'active',
+          createdAt: f.now().toISOString(),
+        },
+      ],
+      definition,
+    };
+    f.context.storage.roadmaps.save(roadmap, 0);
+    f.context.storage.roadmaps.addDefinition(definition);
+    await f.service.tick();
+    expect(f.send).not.toHaveBeenCalled(); // The roadmap merges this item itself.
+    f.context.storage.roadmaps.save(
+      {
+        ...roadmap,
+        version: 2,
+        delegationAssignments: [
+          {
+            id: 'grant-1',
+            entryIds: [entryId],
+            automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
+            reviewerRoles: [],
+            rationale: 'Operator approves this merge.',
+            appliedAt: f.now().toISOString(),
+            appliedByUserId: f.auth.user.id,
+          },
+        ],
+      },
+      1,
+    );
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+    expect(f.send.mock.calls[0]?.[0].title).toBe('ActionQueue · AQ-05 · Ready for merge');
+  });
+  it('coalesces restart-stopped work into one message per boot', async () => {
+    const f = await fixture();
+    await f.context.services.roadmapService.shutdown();
+    const id = randomUUID();
+    const roadmap: Roadmap = {
+      id,
+      workspaceId: f.workspaceId,
+      version: 1,
+      status: 'needs-attention',
+      reason: 'Daemon restarted.',
+      createdAt: f.now().toISOString(),
+      updatedAt: f.now().toISOString(),
+      createdByUserId: f.auth.user.id,
+      delegatedByUserId: f.auth.user.id,
+      attempts: [],
+      definition: {
+        roadmapId: id,
+        revision: 1,
+        name: 'AQ sequence',
+        entries: [],
+        createdAt: f.now().toISOString(),
+        createdByUserId: f.auth.user.id,
+      },
+    };
+    f.context.storage.roadmaps.save(roadmap, 0);
+    f.setCycle('needs-attention', { reason: 'Daemon restarted.' });
+    const booted = new NotificationService(
+      f.context.storage,
+      f.context.services.workspaceService,
+      f.context.services.workspaceEventNotifier,
+      { send: f.send },
+      'https://craft.example',
+      f.now,
+      undefined,
+      undefined,
+      { settleMs: 0, restartedAtBoot: { cycleIds: [f.cycle().id], roadmapIds: [id] } },
+    );
+    try {
+      await booted.tick();
+      await booted.tick();
+      expect(f.send).toHaveBeenCalledTimes(1);
+      expect(f.send.mock.calls[0]?.[0]).toMatchObject({
+        title: 'CraftingTable · Resume after restart',
+        url: `https://craft.example/workspaces/${f.workspaceId}/roadmaps`,
+      });
+      expect(f.send.mock.calls[0]?.[0].message).toContain('1 roadmap and 1 work cycle');
+      // Resuming one item shrinks the message silently.
+      f.context.storage.roadmaps.save({ ...roadmap, status: 'running', version: 2 }, 1);
+      await booted.tick();
+      expect(f.send).toHaveBeenCalledTimes(1);
+      const digest = () =>
+        f.context.storage.notifications
+          .records(f.workspaceId)
+          .find((r) => r.sourceKey.startsWith('restart:'));
+      expect(digest()?.message).not.toContain('AQ sequence');
+      f.setCycle('running');
+      await booted.tick();
+      expect(digest()?.state).toBe('resolved');
+      // A later stop is a genuine, individual alert again.
+      f.setCycle('needs-attention', { reason: 'Review found blocking issues.' });
+      await booted.tick();
+      expect(f.send).toHaveBeenCalledTimes(2);
+      expect(f.send.mock.calls[1]?.[0].title).toBe('ActionQueue · AQ-05 · Needs attention');
+    } finally {
+      await booted.shutdown();
+    }
+  });
 });

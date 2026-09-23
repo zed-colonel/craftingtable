@@ -210,7 +210,8 @@ while ordinary messages/tool output do not trigger full map evaluation. Periodic
 for deadlines and external changes. Map projections share memoized repository reads only within
 one synchronous read pass; no snapshot survives a mutation or asynchronous execution boundary.
 Decision-binding hashes, approved decisions and evidence prerequisite results share that same
-read-pass lifetime. Notification delivery wakes browser streams without waking workflow workers.
+read-pass lifetime. Notification delivery wakes neither browser streams nor workflow workers; only
+changes to the active attention set and notification settings wake streams.
 
 ## Browser
 
@@ -232,9 +233,17 @@ schedule. Restart releases this transient ownership without replaying the comman
 The notification service reconciles durable work-item attention into a SQLite outbox,
 claims deliveries with expiring leases, and schedules retries and local-time reminders.
 It wakes from the workspace notifier and a five-second timer; no browser connection is
-required. Pushover sits behind an injectable transport. Settings and workflow/delivery
-changes append audit and workspace events in the same transaction; claim bookkeeping is
-internal. See ADR-027 for delivery and credential semantics.
+required. Pushover sits behind an injectable transport. A new occurrence waits a 30-second
+settle period before its first push, and the claim re-derives attention, so a state the
+controller leaves on its own is never sent. Occurrences are keyed by condition (cycle and
+status, roadmap and alert class, roadmap entry), not by row version; wording changes update the
+text silently, set-valued alerts re-page only when a member is added, and an occurrence that
+reopens within ten minutes keeps its reminder schedule. Storage alerts use hysteresis and
+coalesce all volumes; work stopped by a daemon restart shares one message per boot. Only a
+provider rate limit or rejection holds every alert; transport errors back off per record.
+Settings and attention-set changes append audit and workspace events in the same
+transaction; each accepted push appends an audit row only, and retries and claims stay in
+the outbox row. See ADR-027 for delivery and credential semantics.
 
 ## Roadmaps
 

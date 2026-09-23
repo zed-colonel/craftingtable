@@ -28,6 +28,10 @@ export interface NotificationRecord {
   lastError: string | null;
   leaseToken: string | null;
   leaseUntil: string | null;
+  /** When the occurrence last resolved; a quick reopen reactivates it without a new page. */
+  resolvedAt?: string;
+  /** Members of a set-valued alert; only a newly added member re-pages. */
+  members?: readonly string[];
 }
 export interface NotificationRepository {
   settings(workspaceId: WorkspaceId): StoredNotificationSettings | undefined;

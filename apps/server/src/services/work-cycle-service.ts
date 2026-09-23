@@ -1504,7 +1504,9 @@ export class WorkCycleService {
     );
   }
 
-  recoverInterrupted(): void {
+  /** Returns the cycles this restart stopped, so notifications can coalesce them per boot. */
+  recoverInterrupted(): string[] {
+    const stopped: string[] = [];
     for (let cycle of this.storage.execution.cycles.list()) {
       if (cycle.baselinePreparation?.status === 'preparing')
         cycle = this.change(
@@ -1519,12 +1521,15 @@ export class WorkCycleService {
           },
           'baseline-preparation-interrupted',
         );
-      if (cycle.status === 'running' && !cycle.designWait)
+      if (cycle.status === 'running' && !cycle.designWait) {
         this.attention(
           cycle,
           'Daemon restarted. Inspect the interrupted step and resume explicitly; no process was relaunched.',
         );
+        stopped.push(cycle.id);
+      }
     }
+    return stopped;
   }
 
   startWorker(): void {

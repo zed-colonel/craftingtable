@@ -391,8 +391,9 @@ six delivered increments, including reviewed amendments and the shared Planning 
 
 Pushover notifications are configured per workspace in **Settings**. Owners can save
 write-only credentials, choose merge/attention alerts, send a test, and inspect delivery
-status. Reminders persist across restarts: immediately, +30 minutes, +1 through +6 hours,
-then daily at 21:00 in the configured timezone (default America/Los_Angeles).
+status. Reminders persist across restarts: after a 30-second settle period, +30 minutes,
++1 through +6 hours, then daily at 21:00 in the configured timezone (default
+America/Los_Angeles).
 
 ## Quickstart on the workstation
 

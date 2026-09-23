@@ -1,0 +1,591 @@
+{
+  "digest": {
+    "hex": "0cc93f0234ceda670a9e849d942105b39af1ef7676b91ca47285adf975dc1f86",
+    "algorithm": "sha-256",
+    "formatVersion": 1
+  },
+  "fatal": false,
+  "errorCount": 0,
+  "warningCount": 0,
+  "diagnostics": [],
+  "totalByteLength": 251018,
+  "artifacts": [
+    {
+      "role": "implementation-plan",
+      "logicalFilename": "aq-cont-1-implementation-plan.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 79970,
+      "sha256": "9423ebc38048330a24e87bbb1a4fc17b712b7a48f8cfd1c9dc84eec8ef4e7ed0"
+    },
+    {
+      "role": "work-breakdown",
+      "logicalFilename": "aq-cont-1-work-breakdown.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 4412,
+      "sha256": "209be944495376e01beced19a0e4edbb16605a8389c2628e1f31c66edf45e115"
+    },
+    {
+      "role": "validation-manifest",
+      "logicalFilename": "aq-cont-1-implementation-plan.sha256",
+      "mediaType": "text/plain",
+      "sourceClass": "text",
+      "byteLength": 195,
+      "sha256": "69a03317b5794816b68b71d3bbac593ed8231a1db5961d19aa81ff2111ba2e9d"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "aq-cont-1-planning-package-README.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 788,
+      "sha256": "c64070540384f0f0011abaa866eb3114408e83eca481f7601c9b4e8bb2e81c03"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "constitutional-stack-implementation-contracts.yaml",
+      "mediaType": "application/yaml",
+      "sourceClass": "yaml",
+      "byteLength": 5378,
+      "sha256": "842d5ae8bfbd4b8c3767f7b589267ab26de1b40a2bf722b0ab1d182768d48922"
+    },
+    {
+      "role": "supporting",
+      "logicalFilename": "actionqueue-hardening-implementation-ready.md",
+      "mediaType": "text/markdown",
+      "sourceClass": "markdown",
+      "byteLength": 160275,
+      "sha256": "fe863d44107a4493087a3a730234c54421ec080f4b07a44da09df29ad5d7bf75"
+    }
+  ],
+  "plan": {
+    "sourceProfile": "exo-work-breakdown-v1",
+    "document": "AQ-CONT-1 Implementation Plan",
+    "repository": "zed-colonel/actionqueue",
+    "baselineCommit": "97c9dc26c19c697dbfb204ed503e82c5f053394f",
+    "contract": "AQ-CONT-1",
+    "stackRevision": "STACK-2026-07-20-CLEAN-1",
+    "status": "development-planning-baseline",
+    "metadata": {
+      "keys": [
+        "document",
+        "status",
+        "contract",
+        "stack_revision",
+        "repository",
+        "baseline_commit",
+        "clean_break",
+        "pull_requests",
+        "release_order",
+        "forbidden_release_symbols"
+      ],
+      "canonicalSha256": "501a97466a2ea82ff18db239cace49b05f674d1c8372bbe47d3f80ec6b3e2293"
+    },
+    "workItems": [
+      {
+        "sourceId": "AQ-01",
+        "ordinal": 0,
+        "title": "Freeze evidence and establish the development contract",
+        "risk": "medium",
+        "primaryAreas": [
+          "contract",
+          "conformance",
+          "archive"
+        ],
+        "exitGate": "Baseline green; contract, archive, and boundary checks installed.",
+        "requiredDependencies": [],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "7fa5702a6bc55352a9b4b83a843797a7848fc626d1833e4a339644f4bf7c1a27"
+      },
+      {
+        "sourceId": "AQ-02",
+        "ordinal": 1,
+        "title": "Introduce target core vocabulary, state, and routing terminology",
+        "risk": "high",
+        "primaryAreas": [
+          "actionqueue-core"
+        ],
+        "exitGate": "Pure types, Awaiting transitions, serialization, and terminology tests pass.",
+        "requiredDependencies": [
+          "AQ-01"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "803d01bef2259b2db59314c8efa72e4201062ee57fc9ed41f9a3b33f5716ab5a"
+      },
+      {
+        "sourceId": "AQ-03",
+        "ordinal": 2,
+        "title": "Establish the fresh AQ-CONT-1 persistence lineage",
+        "risk": "critical",
+        "primaryAreas": [
+          "actionqueue-storage",
+          "runtime-bootstrap"
+        ],
+        "exitGate": "Target replay, reject-old, backup/restore, and projection equivalence pass.",
+        "requiredDependencies": [
+          "AQ-02"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "90bd9e6b7e81fa35830a1e2a9a2a6d179a40cc8dc23a61a9e3a2cbe88ccb0346"
+      },
+      {
+        "sourceId": "AQ-04",
+        "ordinal": 3,
+        "title": "Implement compound idempotent task admission",
+        "risk": "critical",
+        "primaryAreas": [
+          "core",
+          "engine",
+          "storage",
+          "runtime"
+        ],
+        "exitGate": "Admission conflict, race, crash, and replay suites pass.",
+        "requiredDependencies": [
+          "AQ-03"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "fcf23723b4d182d0afc109be700d452aa6719d62cb58efc89e0bf1e32bbe82af"
+      },
+      {
+        "sourceId": "AQ-05",
+        "ordinal": 4,
+        "title": "Add durable signal admission and retained signal indexing",
+        "risk": "high",
+        "primaryAreas": [
+          "core",
+          "engine",
+          "storage",
+          "runtime"
+        ],
+        "exitGate": "Signal deduplication, conflict, sequence, retention, and replay pass.",
+        "requiredDependencies": [
+          "AQ-03"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "ed59df91d66f7451d9b4ebb1f1b316b3ec7d5d39be0e3d14307e0c62bd680689"
+      },
+      {
+        "sourceId": "AQ-06",
+        "ordinal": 5,
+        "title": "Implement Awaiting, waits, deadlines, and race-free matching",
+        "risk": "critical",
+        "primaryAreas": [
+          "core",
+          "engine",
+          "storage",
+          "runtime"
+        ],
+        "exitGate": "Full no-lost-wakeup, timeout, cancellation, and recovery matrix passes.",
+        "requiredDependencies": [
+          "AQ-05"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "7b3e1c49df52a1de6afbe19951f44b5d0ca80117a106189424676b73b8863cfd"
+      },
+      {
+        "sourceId": "AQ-07",
+        "ordinal": 6,
+        "title": "Add immutable checkpoints and resume context",
+        "risk": "high",
+        "primaryAreas": [
+          "core",
+          "storage",
+          "executor-local",
+          "runtime"
+        ],
+        "exitGate": "Checkpoint and exactly-once resume-context crash suite passes.",
+        "requiredDependencies": [
+          "AQ-06"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "1747cbb007378bc8a5335e268b0940bd7f279e7f0809bdb4a9bbf87976ddb74f"
+      },
+      {
+        "sourceId": "AQ-08",
+        "ordinal": 7,
+        "title": "Replace HandlerOutput with AttemptDisposition",
+        "risk": "critical",
+        "primaryAreas": [
+          "executor-local",
+          "core",
+          "storage",
+          "runtime"
+        ],
+        "exitGate": "One target handler path; lease-fenced compound disposition tests pass.",
+        "requiredDependencies": [
+          "AQ-04",
+          "AQ-06",
+          "AQ-07"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "d9997211760274d289a0dcbbf8cbf2110e6c1e5cdc2edc94359ec21982055d45"
+      },
+      {
+        "sourceId": "AQ-09",
+        "ordinal": 8,
+        "title": "Rebuild workflow coordination around transactional child admission",
+        "risk": "critical",
+        "primaryAreas": [
+          "workflow",
+          "runtime",
+          "storage"
+        ],
+        "exitGate": "Child/wait atomicity, DAG, hierarchy, and recovery tests pass.",
+        "requiredDependencies": [
+          "AQ-08"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "82948dbd687dc8e30279cc135dd15e257648de12121513779eda1e6936db651e"
+      },
+      {
+        "sourceId": "AQ-10",
+        "ordinal": 9,
+        "title": "Separate budgets and internal reactivity from durable continuation",
+        "risk": "high",
+        "primaryAreas": [
+          "budget",
+          "core",
+          "runtime"
+        ],
+        "exitGate": "Budget/suspension/awaiting feature matrix passes; external custom events removed.",
+        "requiredDependencies": [
+          "AQ-06",
+          "AQ-08"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "39dbabb2defa8d04d5ad2fdeb238fc91e42d35a9d0345455ce20c5f3b83c2218"
+      },
+      {
+        "sourceId": "AQ-11",
+        "ordinal": 10,
+        "title": "Update remote actors, platform controls, and mutation attribution",
+        "risk": "high",
+        "primaryAreas": [
+          "actor",
+          "platform",
+          "runtime"
+        ],
+        "exitGate": "Fence, tenant, routing-trait, and control-attribution suites pass.",
+        "requiredDependencies": [
+          "AQ-08",
+          "AQ-10"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "9b104a569bdc15bf02a24e1560db1b52feb0a5d50aff1b7c8d40fe65bfffb827"
+      },
+      {
+        "sourceId": "AQ-12",
+        "ordinal": 11,
+        "title": "Complete embedded API, daemon, CLI, inspection, and observability",
+        "risk": "high",
+        "primaryAreas": [
+          "runtime",
+          "daemon",
+          "cli"
+        ],
+        "exitGate": "Embedded/daemon/CLI semantic parity and security tests pass.",
+        "requiredDependencies": [
+          "AQ-04",
+          "AQ-05",
+          "AQ-06",
+          "AQ-07",
+          "AQ-08",
+          "AQ-09",
+          "AQ-10",
+          "AQ-11"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "452b45f3a86019325af297aea5a3dec6cd56dc91795cabf3a6fb7253bbd6d5c5"
+      },
+      {
+        "sourceId": "AQ-13",
+        "ordinal": 12,
+        "title": "Build conformance, model, chaos, and performance suite",
+        "risk": "critical",
+        "primaryAreas": [
+          "conformance",
+          "acceptance",
+          "chaos",
+          "benchmarks"
+        ],
+        "exitGate": "Full target conformance and crash matrix pass with immutable fixture hashes.",
+        "requiredDependencies": [
+          "AQ-12"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "bdec279ad4024af62cde84f373e8c1cf682d37da3b851e17489eb7591734b2c1"
+      },
+      {
+        "sourceId": "AQ-14",
+        "ordinal": 13,
+        "title": "Release cutover and downstream handoff",
+        "risk": "high",
+        "primaryAreas": [
+          "release",
+          "documentation",
+          "downstream-example"
+        ],
+        "exitGate": "All release blockers clear; target release and conformance manifest published.",
+        "requiredDependencies": [
+          "AQ-13"
+        ],
+        "recommendedDependencies": [],
+        "sourceFieldKeys": [
+          "id",
+          "title",
+          "depends_on",
+          "risk",
+          "primary_areas",
+          "exit_gate"
+        ],
+        "sourceFieldsSha256": "9698614f803be77ff6ba6722df76363d82f719395ba824bb54079026f72b3dc9"
+      }
+    ]
+  },
+  "graph": {
+    "requiredEdges": [
+      "AQ-01 -> AQ-02 #0",
+      "AQ-02 -> AQ-03 #0",
+      "AQ-03 -> AQ-04 #0",
+      "AQ-03 -> AQ-05 #0",
+      "AQ-05 -> AQ-06 #0",
+      "AQ-06 -> AQ-07 #0",
+      "AQ-04 -> AQ-08 #0",
+      "AQ-06 -> AQ-08 #1",
+      "AQ-07 -> AQ-08 #2",
+      "AQ-08 -> AQ-09 #0",
+      "AQ-06 -> AQ-10 #0",
+      "AQ-08 -> AQ-10 #1",
+      "AQ-08 -> AQ-11 #0",
+      "AQ-10 -> AQ-11 #1",
+      "AQ-04 -> AQ-12 #0",
+      "AQ-05 -> AQ-12 #1",
+      "AQ-06 -> AQ-12 #2",
+      "AQ-07 -> AQ-12 #3",
+      "AQ-08 -> AQ-12 #4",
+      "AQ-09 -> AQ-12 #5",
+      "AQ-10 -> AQ-12 #6",
+      "AQ-11 -> AQ-12 #7",
+      "AQ-12 -> AQ-13 #0",
+      "AQ-13 -> AQ-14 #0"
+    ],
+    "recommendedEdges": [],
+    "rootSourceIds": [
+      "AQ-01"
+    ],
+    "planningReadySourceIds": [
+      "AQ-01"
+    ],
+    "requiredPredecessors": {
+      "AQ-01": [],
+      "AQ-02": [
+        "AQ-01"
+      ],
+      "AQ-03": [
+        "AQ-02"
+      ],
+      "AQ-04": [
+        "AQ-03"
+      ],
+      "AQ-05": [
+        "AQ-03"
+      ],
+      "AQ-06": [
+        "AQ-05"
+      ],
+      "AQ-07": [
+        "AQ-06"
+      ],
+      "AQ-08": [
+        "AQ-04",
+        "AQ-06",
+        "AQ-07"
+      ],
+      "AQ-09": [
+        "AQ-08"
+      ],
+      "AQ-10": [
+        "AQ-06",
+        "AQ-08"
+      ],
+      "AQ-11": [
+        "AQ-08",
+        "AQ-10"
+      ],
+      "AQ-12": [
+        "AQ-04",
+        "AQ-05",
+        "AQ-06",
+        "AQ-07",
+        "AQ-08",
+        "AQ-09",
+        "AQ-10",
+        "AQ-11"
+      ],
+      "AQ-13": [
+        "AQ-12"
+      ],
+      "AQ-14": [
+        "AQ-13"
+      ]
+    },
+    "requiredSuccessors": {
+      "AQ-01": [
+        "AQ-02"
+      ],
+      "AQ-02": [
+        "AQ-03"
+      ],
+      "AQ-03": [
+        "AQ-04",
+        "AQ-05"
+      ],
+      "AQ-04": [
+        "AQ-08",
+        "AQ-12"
+      ],
+      "AQ-05": [
+        "AQ-06",
+        "AQ-12"
+      ],
+      "AQ-06": [
+        "AQ-07",
+        "AQ-08",
+        "AQ-10",
+        "AQ-12"
+      ],
+      "AQ-07": [
+        "AQ-08",
+        "AQ-12"
+      ],
+      "AQ-08": [
+        "AQ-09",
+        "AQ-10",
+        "AQ-11",
+        "AQ-12"
+      ],
+      "AQ-09": [
+        "AQ-12"
+      ],
+      "AQ-10": [
+        "AQ-11",
+        "AQ-12"
+      ],
+      "AQ-11": [
+        "AQ-12"
+      ],
+      "AQ-12": [
+        "AQ-13"
+      ],
+      "AQ-13": [
+        "AQ-14"
+      ],
+      "AQ-14": []
+    }
+  }
+}

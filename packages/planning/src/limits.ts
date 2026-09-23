@@ -31,6 +31,8 @@ export const PLAN_LIMITS = {
   maxTitleLength: 300,
   maxDocumentLength: 300,
   maxExitGateLength: 1000,
+  /** `work_items.phase` and the wire contract both allow at most 64 characters. */
+  maxPhaseLength: 64,
   maxPrimaryAreas: 32,
   maxPrimaryAreaLength: 64,
   maxDependenciesPerItem: 64,

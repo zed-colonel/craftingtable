@@ -1,0 +1,256 @@
+{
+  "alias-bomb.yaml": {
+    "fatal": true,
+    "digest": "37886eb553ae5b435d8929a8b98bbc759f1ac56a0471e88c3e72806f7f189832",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "yaml-too-complex",
+        "message": "YAML could not be materialised: Excessive alias count indicates a resource exhaustion attack",
+        "artifactName": "breakdown.yaml"
+      }
+    ]
+  },
+  "duplicate-ids.yaml": {
+    "fatal": true,
+    "digest": "110a46b7d9335f70cd6ce7237dd048dc2c2ef428e089e77943831a1adbc22740",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "duplicate-work-item-id",
+        "message": "Work-item identifier \"WI-01\" appears at positions 0 and 1",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[1].id",
+        "workItemSourceId": "WI-01"
+      }
+    ]
+  },
+  "duplicate-required-edge.yaml": {
+    "fatal": false,
+    "digest": "ecdd3f0d0d8bbdd81a7a372ba47ad07ea223725c2aa964af260c92fad5d6cd2b",
+    "itemCount": 2,
+    "diagnostics": [
+      {
+        "severity": "warning",
+        "code": "duplicate-required-dependency",
+        "message": "\"WI-02\" lists \"WI-01\" more than once; the duplicate was ignored",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[1].depends_on[1]",
+        "workItemSourceId": "WI-02"
+      }
+    ]
+  },
+  "invalid-ids.yaml": {
+    "fatal": true,
+    "digest": "34fae3ac79957e14bd4ef07342995bd664e825b583375275b0a5db3738b75ec5",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "invalid-work-item-id",
+        "message": "\"   \" is not a well-formed work-item identifier",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[0].id"
+      },
+      {
+        "severity": "error",
+        "code": "invalid-work-item-id",
+        "message": "\"has spaces\" is not a well-formed work-item identifier",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[1].id"
+      },
+      {
+        "severity": "error",
+        "code": "invalid-work-item-id",
+        "message": "\"-leading-dash\" is not a well-formed work-item identifier",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[2].id"
+      }
+    ]
+  },
+  "long-cycle.yaml": {
+    "fatal": true,
+    "digest": "ee7f6e7dd1471f4cae484e460e300dbf088930c6ede60ae63817d34f1680734c",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "required-dependency-cycle",
+        "message": "Required dependency cycle: WI-02 → WI-03 → WI-04 → WI-05 → WI-02",
+        "artifactName": "breakdown.yaml",
+        "workItemSourceId": "WI-02"
+      }
+    ]
+  },
+  "malformed.yaml": {
+    "fatal": true,
+    "digest": "5bb46a474ecebc993ee42508380f57120c953e3169602d4a668dfee35066c7c7",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "invalid-yaml",
+        "message": "Flow sequence in block collection must be sufficiently indented and end with a ] at line 5, column 3:\n\n  title: [unclosed\n  depends_on: []\n  ^\n",
+        "artifactName": "breakdown.yaml",
+        "line": 5,
+        "column": 3
+      }
+    ]
+  },
+  "missing-dependency.yaml": {
+    "fatal": true,
+    "digest": "45afaf4d4cd67fe61b73c3ee882a0a355a6d7b9c14be696d4027d19d36a1fc3b",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "missing-required-dependency",
+        "message": "\"WI-01\" requires \"WI-99\", which is not present in this plan version",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[0].depends_on[0]",
+        "workItemSourceId": "WI-01"
+      }
+    ]
+  },
+  "missing-required-fields.yaml": {
+    "fatal": true,
+    "digest": "26d1cf82c10cec30dc1b8a8143bb29ff7918558ea93ee50fb06831150e811b04",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "invalid-work-item-field",
+        "message": "\"depends_on\" is required",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[0].depends_on",
+        "workItemSourceId": "WI-01"
+      },
+      {
+        "severity": "error",
+        "code": "invalid-work-item-field",
+        "message": "\"exit_gate\" is required and must be a string",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[0].exit_gate",
+        "workItemSourceId": "WI-01"
+      },
+      {
+        "severity": "error",
+        "code": "invalid-work-item-field",
+        "message": "\"primary_areas\" is required",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[0].primary_areas",
+        "workItemSourceId": "WI-01"
+      }
+    ]
+  },
+  "no-work-items.yaml": {
+    "fatal": true,
+    "digest": "f252183b576f5da9158b3efb8b2d60a72d25f3fa25a429532e800df7562fa938",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "missing-work-items",
+        "message": "Work breakdown contains no work items",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests"
+      }
+    ]
+  },
+  "recommends-unknown.yaml": {
+    "fatal": false,
+    "digest": "a8741d63849d2624bf8f66e27566fb3d1fbccbdaa0ce481e5d51d3374a1b951a",
+    "itemCount": 1,
+    "diagnostics": [
+      {
+        "severity": "warning",
+        "code": "unknown-recommended-dependency",
+        "message": "\"WI-01\" recommends \"WI-99\", which is not present in this plan version",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[0].recommends[0]",
+        "workItemSourceId": "WI-01"
+      }
+    ]
+  },
+  "script-injection.yaml": {
+    "fatal": false,
+    "digest": "ecb42d7025c093b63e2916a88dd684954d15bf6342e0010770c898acffa2cddf",
+    "itemCount": 1,
+    "diagnostics": []
+  },
+  "self-dependency.yaml": {
+    "fatal": true,
+    "digest": "6cdaffdc5d87845bdff80b043d183d5c2d4567d4ae2b4ef9e23bb90455972300",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "self-dependency",
+        "message": "\"WI-01\" cannot depend on itself",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[0].depends_on[0]",
+        "workItemSourceId": "WI-01"
+      }
+    ]
+  },
+  "two-node-cycle.yaml": {
+    "fatal": true,
+    "digest": "a4b16e1b7a0b91cb795f06ad53a429709b2f34277b50e4a7539c3fc0c9364249",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "required-dependency-cycle",
+        "message": "Required dependency cycle: WI-01 → WI-02 → WI-01",
+        "artifactName": "breakdown.yaml",
+        "workItemSourceId": "WI-01"
+      }
+    ]
+  },
+  "unknown-tag.yaml": {
+    "fatal": true,
+    "digest": "26d5b6ba9980533a5190ba693c7502eafec3d97b770537ac4f14e145acee3695",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "invalid-yaml",
+        "message": "Unresolved tag: tag:yaml.org,2002:python/object/apply:os.system at line 3, column 9:\n\ndanger: !!python/object/apply:os.system [\"echo compromised\"]\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
+        "artifactName": "breakdown.yaml",
+        "line": 3,
+        "column": 9
+      }
+    ]
+  },
+  "unrecognized-risk.yaml": {
+    "fatal": false,
+    "digest": "727a93b44ab969298f0a5e866fc9d933a5ed61f5ec81abd1fcb3ed3fa35e4e8a",
+    "itemCount": 1,
+    "diagnostics": [
+      {
+        "severity": "warning",
+        "code": "unrecognized-risk",
+        "message": "Risk \"apocalyptic\" is not recognized; recorded as unspecified",
+        "artifactName": "breakdown.yaml",
+        "path": "pull_requests[0].risk",
+        "workItemSourceId": "WI-01"
+      }
+    ]
+  },
+  "unsafe-key.yaml": {
+    "fatal": true,
+    "digest": "6e71be5aa256f15f0253ec54ca549946961b0d2830a6d3074c0bba6426364370",
+    "itemCount": null,
+    "diagnostics": [
+      {
+        "severity": "error",
+        "code": "unsafe-yaml-key",
+        "message": "Key \"__proto__\" is not permitted in planning input",
+        "artifactName": "breakdown.yaml",
+        "path": "__proto__"
+      }
+    ]
+  }
+}

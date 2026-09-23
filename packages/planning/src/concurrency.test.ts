@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { targetClosure } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { readArchive } from './archive.js';
@@ -53,6 +54,31 @@ describe('source-bound concurrency definition', () => {
     );
     expect(result.diagnostics.some((d) => d.code === 'milestone-cycle')).toBe(true);
     expect(result.source).toBeUndefined();
+  });
+  it('detects a cycle through the implicit parent barrier that targetClosure applies (FMT-03)', () => {
+    type Requirement = { kind: string; id: string; state: string };
+    type Slice = { id: string; start_requires: Requirement[] };
+    const edit = (m: ReturnType<typeof parse>) => {
+      const slice = (id: string) => (m.slices as Slice[]).find((s) => s.id === id) as Slice;
+      const wi03 = slice('wi/WI-03/integration');
+      // WI-03 still depends on WI-02, so starting this non-early slice implicitly waits
+      // for wi/WI-02 accepted even without the explicit requirement.
+      wi03.start_requires = wi03.start_requires.filter((r) => r.kind !== 'work_item');
+      slice('wi/WI-02/integration').start_requires.push({
+        kind: 'slice',
+        id: 'wi/WI-03/integration',
+        state: 'verified',
+      });
+    };
+    const result = analyzeConcurrencyArchive(edited(edit));
+    expect(result.source).toBeUndefined();
+    expect(result.diagnostics.map((d) => d.code)).toEqual(['milestone-cycle']);
+    // Without the implicit edge the explicit graph is acyclic; the domain model is not.
+    const map = parse(Buffer.from(mapEntry.bytes).toString());
+    edit(map);
+    expect(() => targetClosure(map, 'FULL-STACK-RELEASE', 'prioritize-full')).toThrow(
+      'Circular retained milestone requirements.',
+    );
   });
   it('rejects dangling dependencies and changed complete parent obligations', () => {
     expect(

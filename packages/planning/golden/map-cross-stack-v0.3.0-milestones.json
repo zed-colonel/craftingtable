@@ -1,0 +1,4967 @@
+{
+  "milestones": {
+    "work_item:wi/WI-01:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "slice:wi/WI-01/implementation:verified"
+      ]
+    },
+    "work_item:wi/WI-02:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-01:accepted",
+        "slice:wi/WI-02/domain:verified",
+        "slice:wi/WI-02/integration:verified"
+      ]
+    },
+    "work_item:wi/WI-03:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-02:accepted",
+        "slice:wi/WI-03/domain:verified",
+        "slice:wi/WI-03/integration:verified"
+      ]
+    },
+    "work_item:wi/WI-04:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-02:accepted",
+        "slice:wi/WI-04/domain:verified",
+        "slice:wi/WI-04/integration:verified"
+      ]
+    },
+    "work_item:wi/WI-05:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-02:accepted",
+        "slice:wi/WI-05/domain:verified",
+        "slice:wi/WI-05/integration:verified"
+      ]
+    },
+    "work_item:wi/WI-06:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "slice:wi/WI-06/domain:verified",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-09/process-provider:verified",
+        "slice:wi/WI-13/supervisor-conformance:verified"
+      ]
+    },
+    "work_item:wi/WI-07:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "work_item:wi/WI-06:accepted",
+        "slice:wi/WI-07/domain:verified",
+        "slice:wi/WI-07/integration:verified"
+      ]
+    },
+    "work_item:wi/WI-08:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-07:accepted",
+        "slice:wi/WI-08/integration:verified",
+        "slice:wi/WI-09/process-provider:verified",
+        "slice:wi/WI-13/supervisor-conformance:verified"
+      ]
+    },
+    "work_item:wi/WI-09:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-08:accepted",
+        "slice:wi/WI-09/domain:verified",
+        "slice:wi/WI-09/integration:verified",
+        "slice:wi/WI-09/process-provider:verified"
+      ]
+    },
+    "work_item:wi/WI-10:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-09:accepted",
+        "slice:wi/WI-10/domain:verified",
+        "slice:wi/WI-10/integration:verified",
+        "slice:wi/WI-10/process-catalog:verified"
+      ]
+    },
+    "work_item:wi/WI-11:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-03:accepted",
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-07:accepted",
+        "work_item:wi/WI-08:accepted",
+        "work_item:wi/WI-09:accepted",
+        "work_item:wi/WI-10:accepted",
+        "slice:wi/WI-11/domain:verified",
+        "slice:wi/WI-11/integration:verified",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "slice:wi/WI-11/supervisor-boundary:verified",
+        "slice:wi/WI-13/supervisor-conformance:verified"
+      ]
+    },
+    "work_item:wi/WI-12:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "work_item:wi/WI-11:accepted",
+        "slice:wi/WI-12/domain:verified",
+        "slice:wi/WI-12/integration:verified"
+      ]
+    },
+    "work_item:wi/WI-13:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-01:accepted",
+        "work_item:wi/WI-02:accepted",
+        "work_item:wi/WI-03:accepted",
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-07:accepted",
+        "work_item:wi/WI-08:accepted",
+        "work_item:wi/WI-09:accepted",
+        "work_item:wi/WI-10:accepted",
+        "work_item:wi/WI-11:accepted",
+        "work_item:wi/WI-12:accepted",
+        "slice:wi/WI-13/conformance:verified",
+        "slice:wi/WI-13/worker-conformance:verified",
+        "slice:wi/WI-13/supervisor-conformance:verified"
+      ]
+    },
+    "work_item:wi/WI-14:accepted": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-13:accepted",
+        "slice:wi/WI-14/release:verified",
+        "slice:wi/WI-14/worker-handoff:verified"
+      ]
+    },
+    "work_item:exo/EXO-01:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "slice:exo/EXO-01/domain:verified"
+      ]
+    },
+    "work_item:exo/EXO-02:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-01:accepted",
+        "slice:exo/EXO-02/domain:verified"
+      ]
+    },
+    "work_item:exo/EXO-03:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-02:accepted",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-03/integration:verified"
+      ]
+    },
+    "work_item:exo/EXO-04:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-02:accepted",
+        "slice:exo/EXO-04/domain:verified"
+      ]
+    },
+    "work_item:exo/EXO-05:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-02:accepted",
+        "work_item:exo/EXO-04:accepted",
+        "slice:exo/EXO-05/domain:verified",
+        "slice:exo/EXO-05/integration:verified"
+      ]
+    },
+    "work_item:exo/EXO-06:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-03:accepted",
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-05:accepted",
+        "slice:exo/EXO-06/domain:verified",
+        "slice:exo/EXO-06/integration:verified"
+      ]
+    },
+    "work_item:exo/EXO-07:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-05:accepted",
+        "work_item:exo/EXO-06:accepted",
+        "slice:exo/EXO-07/domain:verified"
+      ]
+    },
+    "work_item:exo/EXO-08:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-03:accepted",
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-06:accepted",
+        "work_item:exo/EXO-07:accepted",
+        "slice:exo/EXO-08/domain:verified"
+      ]
+    },
+    "work_item:exo/EXO-09:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-05:accepted",
+        "work_item:exo/EXO-06:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "slice:exo/EXO-09/domain:verified"
+      ]
+    },
+    "work_item:exo/EXO-10:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-03:accepted",
+        "work_item:exo/EXO-05:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-09:accepted",
+        "slice:exo/EXO-10/domain:verified",
+        "slice:exo/EXO-10/integration:verified"
+      ]
+    },
+    "work_item:exo/EXO-11:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-06:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-10:accepted",
+        "slice:exo/EXO-11/integration:verified",
+        "slice:exo/EXO-11/embedded-runtime:verified"
+      ]
+    },
+    "work_item:exo/EXO-12:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-10:accepted",
+        "work_item:exo/EXO-11:accepted",
+        "slice:exo/EXO-12/domain:verified",
+        "slice:exo/EXO-12/integration:verified",
+        "slice:exo/EXO-12/embedded-worker:verified"
+      ]
+    },
+    "work_item:exo/EXO-13:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-09:accepted",
+        "work_item:exo/EXO-11:accepted",
+        "work_item:exo/EXO-12:accepted",
+        "slice:exo/EXO-13/domain:verified",
+        "slice:exo/EXO-13/integration:verified",
+        "slice:exo/EXO-13/embedded-acceptance:verified"
+      ]
+    },
+    "work_item:exo/EXO-14:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-07:accepted",
+        "work_item:exo/EXO-09:accepted",
+        "work_item:exo/EXO-13:accepted",
+        "slice:exo/EXO-14/domain:verified",
+        "slice:exo/EXO-14/integration:verified",
+        "slice:exo/EXO-14/embedded-provenance:verified"
+      ]
+    },
+    "work_item:exo/EXO-15:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-10:accepted",
+        "work_item:exo/EXO-11:accepted",
+        "work_item:exo/EXO-12:accepted",
+        "work_item:exo/EXO-13:accepted",
+        "work_item:exo/EXO-14:accepted",
+        "slice:exo/EXO-15/domain:verified",
+        "slice:exo/EXO-15/integration:verified",
+        "slice:exo/EXO-15/embedded-lifecycle:verified"
+      ]
+    },
+    "work_item:exo/EXO-16:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-03:accepted",
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-09:accepted",
+        "work_item:exo/EXO-10:accepted",
+        "work_item:exo/EXO-11:accepted",
+        "work_item:exo/EXO-14:accepted",
+        "work_item:exo/EXO-15:accepted",
+        "slice:exo/EXO-16/domain:verified",
+        "slice:exo/EXO-16/integration:verified",
+        "slice:exo/EXO-16/embedded-recovery:verified"
+      ]
+    },
+    "work_item:exo/EXO-17:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-06:accepted",
+        "work_item:exo/EXO-07:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-09:accepted",
+        "work_item:exo/EXO-10:accepted",
+        "work_item:exo/EXO-11:accepted",
+        "work_item:exo/EXO-12:accepted",
+        "work_item:exo/EXO-13:accepted",
+        "work_item:exo/EXO-14:accepted",
+        "work_item:exo/EXO-15:accepted",
+        "work_item:exo/EXO-16:accepted",
+        "slice:exo/EXO-17/integration:verified"
+      ]
+    },
+    "work_item:exo/EXO-18:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-11:accepted",
+        "work_item:exo/EXO-13:accepted",
+        "work_item:exo/EXO-15:accepted",
+        "work_item:exo/EXO-16:accepted",
+        "work_item:exo/EXO-17:accepted",
+        "slice:exo/EXO-18/domain:verified",
+        "slice:exo/EXO-18/integration:verified",
+        "slice:exo/EXO-18/instance-design:verified",
+        "slice:exo/EXO-18/instance-qualification:verified"
+      ]
+    },
+    "work_item:exo/EXO-19:accepted": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-18:accepted",
+        "slice:exo/EXO-19/release:verified",
+        "slice:exo/EXO-19/embedded-viability:verified"
+      ]
+    },
+    "slice:wi/WI-01/implementation:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-01",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed"
+      ]
+    },
+    "slice:wi/WI-01/implementation:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-01",
+      "requires": [
+        "slice:wi/WI-01/implementation:started"
+      ]
+    },
+    "slice:wi/WI-01/implementation:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-01",
+      "requires": [
+        "slice:wi/WI-01/implementation:merged"
+      ]
+    },
+    "slice:wi/WI-02/domain:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-02",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "slice:wi/WI-02/domain:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-02",
+      "requires": [
+        "slice:wi/WI-02/domain:started",
+        "checkpoint:WI-ADR-001:passed",
+        "checkpoint:WI-ADR-002:passed",
+        "checkpoint:WI-ADR-003:passed",
+        "checkpoint:WI-ADR-016:passed"
+      ]
+    },
+    "slice:wi/WI-02/domain:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-02",
+      "requires": [
+        "slice:wi/WI-02/domain:merged"
+      ]
+    },
+    "slice:wi/WI-02/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-02",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted",
+        "slice:wi/WI-02/domain:verified"
+      ]
+    },
+    "slice:wi/WI-02/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-02",
+      "requires": [
+        "slice:wi/WI-02/integration:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-ADR-001:passed",
+        "checkpoint:WI-ADR-002:passed",
+        "checkpoint:WI-ADR-003:passed"
+      ]
+    },
+    "slice:wi/WI-02/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-02",
+      "requires": [
+        "slice:wi/WI-02/integration:merged"
+      ]
+    },
+    "slice:wi/WI-03/domain:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-03",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-02/domain:verified"
+      ]
+    },
+    "slice:wi/WI-03/domain:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-03",
+      "requires": [
+        "slice:wi/WI-03/domain:started",
+        "checkpoint:WI-ADR-012:passed",
+        "checkpoint:WI-ADR-013:passed"
+      ]
+    },
+    "slice:wi/WI-03/domain:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-03",
+      "requires": [
+        "slice:wi/WI-03/domain:merged"
+      ]
+    },
+    "slice:wi/WI-03/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-03",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-02:accepted",
+        "slice:wi/WI-03/domain:verified"
+      ]
+    },
+    "slice:wi/WI-03/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-03",
+      "requires": [
+        "slice:wi/WI-03/integration:started",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-ADR-012:passed",
+        "checkpoint:WI-ADR-013:passed"
+      ]
+    },
+    "slice:wi/WI-03/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-03",
+      "requires": [
+        "slice:wi/WI-03/integration:merged"
+      ]
+    },
+    "slice:wi/WI-04/domain:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-04",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-02/domain:verified"
+      ]
+    },
+    "slice:wi/WI-04/domain:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-04",
+      "requires": [
+        "slice:wi/WI-04/domain:started",
+        "checkpoint:WI-ADR-004:passed",
+        "checkpoint:WI-ADR-005:passed",
+        "checkpoint:WI-ADR-006:passed",
+        "checkpoint:WI-ADR-007:passed",
+        "checkpoint:WI-WORKER-G1:passed"
+      ]
+    },
+    "slice:wi/WI-04/domain:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-04",
+      "requires": [
+        "slice:wi/WI-04/domain:merged"
+      ]
+    },
+    "slice:wi/WI-04/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-04",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-02:accepted",
+        "slice:wi/WI-04/domain:verified"
+      ]
+    },
+    "slice:wi/WI-04/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-04",
+      "requires": [
+        "slice:wi/WI-04/integration:started",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-ADR-004:passed",
+        "checkpoint:WI-ADR-005:passed",
+        "checkpoint:WI-ADR-006:passed",
+        "checkpoint:WI-ADR-007:passed"
+      ]
+    },
+    "slice:wi/WI-04/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-04",
+      "requires": [
+        "slice:wi/WI-04/integration:merged"
+      ]
+    },
+    "slice:wi/WI-05/domain:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-05",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-02/domain:verified"
+      ]
+    },
+    "slice:wi/WI-05/domain:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-05",
+      "requires": [
+        "slice:wi/WI-05/domain:started",
+        "checkpoint:WI-ADR-008:passed",
+        "checkpoint:WI-ADR-009:passed",
+        "checkpoint:WI-WORKER-G1:passed"
+      ]
+    },
+    "slice:wi/WI-05/domain:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-05",
+      "requires": [
+        "slice:wi/WI-05/domain:merged"
+      ]
+    },
+    "slice:wi/WI-05/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-05",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-02:accepted",
+        "slice:wi/WI-05/domain:verified"
+      ]
+    },
+    "slice:wi/WI-05/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-05",
+      "requires": [
+        "slice:wi/WI-05/integration:started",
+        "checkpoint:WI-AQ-G4:passed",
+        "checkpoint:WI-ADR-007:passed",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-ADR-008:passed",
+        "checkpoint:WI-ADR-009:passed"
+      ]
+    },
+    "slice:wi/WI-05/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-05",
+      "requires": [
+        "slice:wi/WI-05/integration:merged"
+      ]
+    },
+    "slice:wi/WI-06/domain:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-06",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-04/domain:verified",
+        "slice:wi/WI-05/domain:verified"
+      ]
+    },
+    "slice:wi/WI-06/domain:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-06",
+      "requires": [
+        "slice:wi/WI-06/domain:started",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-ADR-011:passed"
+      ]
+    },
+    "slice:wi/WI-06/domain:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-06",
+      "requires": [
+        "slice:wi/WI-06/domain:merged"
+      ]
+    },
+    "slice:wi/WI-06/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-06",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "slice:wi/WI-06/domain:verified"
+      ]
+    },
+    "slice:wi/WI-06/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-06",
+      "requires": [
+        "slice:wi/WI-06/integration:started",
+        "checkpoint:WI-AQ-G4:passed",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-ADR-011:passed"
+      ]
+    },
+    "slice:wi/WI-06/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-06",
+      "requires": [
+        "slice:wi/WI-06/integration:merged"
+      ]
+    },
+    "slice:wi/WI-07/domain:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-07",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-02/domain:verified"
+      ]
+    },
+    "slice:wi/WI-07/domain:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-07",
+      "requires": [
+        "slice:wi/WI-07/domain:started",
+        "checkpoint:WI-ADR-014:passed"
+      ]
+    },
+    "slice:wi/WI-07/domain:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-07",
+      "requires": [
+        "slice:wi/WI-07/domain:merged"
+      ]
+    },
+    "slice:wi/WI-07/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-07",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-07/domain:verified"
+      ]
+    },
+    "slice:wi/WI-07/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-07",
+      "requires": [
+        "slice:wi/WI-07/integration:started",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed",
+        "checkpoint:WI-ADR-014:passed"
+      ]
+    },
+    "slice:wi/WI-07/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-07",
+      "requires": [
+        "slice:wi/WI-07/integration:merged"
+      ]
+    },
+    "slice:wi/WI-08/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-08",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-07/integration:verified"
+      ]
+    },
+    "slice:wi/WI-08/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-08",
+      "requires": [
+        "slice:wi/WI-08/integration:started",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed",
+        "checkpoint:WI-ADR-015:passed"
+      ]
+    },
+    "slice:wi/WI-08/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-08",
+      "requires": [
+        "slice:wi/WI-08/integration:merged"
+      ]
+    },
+    "slice:wi/WI-09/domain:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-09",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-02/domain:verified"
+      ]
+    },
+    "slice:wi/WI-09/domain:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-09",
+      "requires": [
+        "slice:wi/WI-09/domain:started",
+        "checkpoint:WI-ADR-016:passed"
+      ]
+    },
+    "slice:wi/WI-09/domain:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-09",
+      "requires": [
+        "slice:wi/WI-09/domain:merged"
+      ]
+    },
+    "slice:wi/WI-09/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-09",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-08:accepted",
+        "slice:wi/WI-09/domain:verified",
+        "slice:wi/WI-09/process-provider:verified"
+      ]
+    },
+    "slice:wi/WI-09/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-09",
+      "requires": [
+        "slice:wi/WI-09/integration:started",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed",
+        "checkpoint:WI-ADR-016:passed"
+      ]
+    },
+    "slice:wi/WI-09/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-09",
+      "requires": [
+        "slice:wi/WI-09/integration:merged",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed"
+      ]
+    },
+    "slice:wi/WI-09/process-provider:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-09",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-08/integration:verified",
+        "slice:wi/WI-09/domain:verified"
+      ]
+    },
+    "slice:wi/WI-09/process-provider:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-09",
+      "requires": [
+        "slice:wi/WI-09/process-provider:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "checkpoint:WI-WORKER-G2:passed",
+        "checkpoint:WI-ADR-016:passed",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed"
+      ]
+    },
+    "slice:wi/WI-09/process-provider:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-09",
+      "requires": [
+        "slice:wi/WI-09/process-provider:merged"
+      ]
+    },
+    "slice:wi/WI-10/domain:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-10",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "slice:wi/WI-10/domain:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-10",
+      "requires": [
+        "slice:wi/WI-10/domain:started",
+        "checkpoint:WI-ADR-017:passed"
+      ]
+    },
+    "slice:wi/WI-10/domain:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-10",
+      "requires": [
+        "slice:wi/WI-10/domain:merged"
+      ]
+    },
+    "slice:wi/WI-10/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-10",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-09:accepted",
+        "slice:wi/WI-10/domain:verified",
+        "slice:wi/WI-10/process-catalog:verified"
+      ]
+    },
+    "slice:wi/WI-10/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-10",
+      "requires": [
+        "slice:wi/WI-10/integration:started",
+        "checkpoint:WI-ADR-017:passed"
+      ]
+    },
+    "slice:wi/WI-10/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-10",
+      "requires": [
+        "slice:wi/WI-10/integration:merged"
+      ]
+    },
+    "slice:wi/WI-10/process-catalog:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-10",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-10/domain:verified",
+        "slice:wi/WI-09/process-provider:verified"
+      ]
+    },
+    "slice:wi/WI-10/process-catalog:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-10",
+      "requires": [
+        "slice:wi/WI-10/process-catalog:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed",
+        "checkpoint:WI-WORKER-G3:passed",
+        "checkpoint:WI-ADR-017:passed"
+      ]
+    },
+    "slice:wi/WI-10/process-catalog:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-10",
+      "requires": [
+        "slice:wi/WI-10/process-catalog:merged"
+      ]
+    },
+    "slice:wi/WI-11/domain:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-02/domain:verified"
+      ]
+    },
+    "slice:wi/WI-11/domain:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "slice:wi/WI-11/domain:started",
+        "checkpoint:WI-ADR-018:passed",
+        "checkpoint:WI-ADR-004:passed"
+      ]
+    },
+    "slice:wi/WI-11/domain:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "slice:wi/WI-11/domain:merged"
+      ]
+    },
+    "slice:wi/WI-11/embedded-runtime:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-03:accepted",
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-07/integration:verified",
+        "slice:wi/WI-08/integration:verified",
+        "slice:wi/WI-11/domain:verified"
+      ]
+    },
+    "slice:wi/WI-11/embedded-runtime:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "slice:wi/WI-11/embedded-runtime:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed",
+        "slice:wi/WI-09/process-provider:verified",
+        "slice:wi/WI-10/process-catalog:verified",
+        "checkpoint:WI-ADR-018:passed"
+      ]
+    },
+    "slice:wi/WI-11/embedded-runtime:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "slice:wi/WI-11/embedded-runtime:merged"
+      ]
+    },
+    "slice:wi/WI-11/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-03:accepted",
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-07:accepted",
+        "work_item:wi/WI-08:accepted",
+        "work_item:wi/WI-09:accepted",
+        "work_item:wi/WI-10:accepted",
+        "slice:wi/WI-11/domain:verified",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "slice:wi/WI-11/supervisor-boundary:verified"
+      ]
+    },
+    "slice:wi/WI-11/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "slice:wi/WI-11/integration:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed",
+        "checkpoint:WI-ADR-018:passed"
+      ]
+    },
+    "slice:wi/WI-11/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "slice:wi/WI-11/integration:merged",
+        "checkpoint:WI-AQ-G5:passed"
+      ]
+    },
+    "slice:wi/WI-11/supervisor-boundary:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-08/integration:verified",
+        "slice:wi/WI-11/domain:verified"
+      ]
+    },
+    "slice:wi/WI-11/supervisor-boundary:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "slice:wi/WI-11/supervisor-boundary:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "checkpoint:WI-WORKER-G2:passed",
+        "checkpoint:WI-ADR-018:passed",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-ADR-016:passed",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed"
+      ]
+    },
+    "slice:wi/WI-11/supervisor-boundary:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-11",
+      "requires": [
+        "slice:wi/WI-11/supervisor-boundary:merged"
+      ]
+    },
+    "slice:wi/WI-12/domain:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-12",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-02/domain:verified"
+      ]
+    },
+    "slice:wi/WI-12/domain:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-12",
+      "requires": [
+        "slice:wi/WI-12/domain:started",
+        "checkpoint:WI-ADR-019:passed",
+        "checkpoint:WI-ADR-020:passed"
+      ]
+    },
+    "slice:wi/WI-12/domain:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-12",
+      "requires": [
+        "slice:wi/WI-12/domain:merged"
+      ]
+    },
+    "slice:wi/WI-12/integration:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-12",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "work_item:wi/WI-11:accepted",
+        "slice:wi/WI-12/domain:verified"
+      ]
+    },
+    "slice:wi/WI-12/integration:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-12",
+      "requires": [
+        "slice:wi/WI-12/integration:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-ADR-019:passed",
+        "checkpoint:WI-ADR-020:passed"
+      ]
+    },
+    "slice:wi/WI-12/integration:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-12",
+      "requires": [
+        "slice:wi/WI-12/integration:merged"
+      ]
+    },
+    "slice:wi/WI-13/conformance:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-13",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted",
+        "work_item:wi/WI-02:accepted",
+        "work_item:wi/WI-03:accepted",
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted",
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-07:accepted",
+        "work_item:wi/WI-08:accepted",
+        "work_item:wi/WI-09:accepted",
+        "work_item:wi/WI-10:accepted",
+        "work_item:wi/WI-11:accepted",
+        "work_item:wi/WI-12:accepted",
+        "checkpoint:WI-AQ-G5:passed",
+        "slice:wi/WI-13/worker-conformance:verified",
+        "slice:wi/WI-13/supervisor-conformance:verified"
+      ]
+    },
+    "slice:wi/WI-13/conformance:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-13",
+      "requires": [
+        "slice:wi/WI-13/conformance:started",
+        "checkpoint:WI-AQ-G5:passed"
+      ]
+    },
+    "slice:wi/WI-13/conformance:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-13",
+      "requires": [
+        "slice:wi/WI-13/conformance:merged",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "checkpoint:WI-WORKER-G5:passed"
+      ]
+    },
+    "slice:wi/WI-13/supervisor-conformance:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-13",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-11/supervisor-boundary:verified"
+      ]
+    },
+    "slice:wi/WI-13/supervisor-conformance:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-13",
+      "requires": [
+        "slice:wi/WI-13/supervisor-conformance:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed"
+      ]
+    },
+    "slice:wi/WI-13/supervisor-conformance:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-13",
+      "requires": [
+        "slice:wi/WI-13/supervisor-conformance:merged"
+      ]
+    },
+    "slice:wi/WI-13/worker-conformance:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-13",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "slice:wi/WI-10/process-catalog:verified"
+      ]
+    },
+    "slice:wi/WI-13/worker-conformance:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-13",
+      "requires": [
+        "slice:wi/WI-13/worker-conformance:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed"
+      ]
+    },
+    "slice:wi/WI-13/worker-conformance:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-13",
+      "requires": [
+        "slice:wi/WI-13/worker-conformance:merged"
+      ]
+    },
+    "slice:wi/WI-14/release:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-14",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-13:accepted",
+        "checkpoint:AQ-PUBLISHED:passed",
+        "slice:wi/WI-14/worker-handoff:verified"
+      ]
+    },
+    "slice:wi/WI-14/release:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-14",
+      "requires": [
+        "slice:wi/WI-14/release:started",
+        "checkpoint:AQ-PUBLISHED:passed"
+      ]
+    },
+    "slice:wi/WI-14/release:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-14",
+      "requires": [
+        "slice:wi/WI-14/release:merged"
+      ]
+    },
+    "slice:wi/WI-14/worker-handoff:started": {
+      "repository": "wi",
+      "parentId": "wi/WI-14",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-13/worker-conformance:verified"
+      ]
+    },
+    "slice:wi/WI-14/worker-handoff:merged": {
+      "repository": "wi",
+      "parentId": "wi/WI-14",
+      "requires": [
+        "slice:wi/WI-14/worker-handoff:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed"
+      ]
+    },
+    "slice:wi/WI-14/worker-handoff:verified": {
+      "repository": "wi",
+      "parentId": "wi/WI-14",
+      "requires": [
+        "slice:wi/WI-14/worker-handoff:merged"
+      ]
+    },
+    "slice:exo/EXO-01/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-01",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed"
+      ]
+    },
+    "slice:exo/EXO-01/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-01",
+      "requires": [
+        "slice:exo/EXO-01/domain:started"
+      ]
+    },
+    "slice:exo/EXO-01/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-01",
+      "requires": [
+        "slice:exo/EXO-01/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-02/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-02",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "slice:exo/EXO-02/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-02",
+      "requires": [
+        "slice:exo/EXO-02/domain:started",
+        "checkpoint:EXO-ADR-001:passed",
+        "checkpoint:EXO-ADR-002:passed",
+        "checkpoint:EXO-ADR-003:passed"
+      ]
+    },
+    "slice:exo/EXO-02/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-02",
+      "requires": [
+        "slice:exo/EXO-02/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-03/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-03",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-02/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-03/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-03",
+      "requires": [
+        "slice:exo/EXO-03/domain:started",
+        "checkpoint:EXO-ADR-004:passed",
+        "checkpoint:EXO-ADR-005:passed",
+        "checkpoint:EXO-ADR-037:passed"
+      ]
+    },
+    "slice:exo/EXO-03/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-03",
+      "requires": [
+        "slice:exo/EXO-03/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-03/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-03",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-02:accepted",
+        "slice:exo/EXO-03/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-03/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-03",
+      "requires": [
+        "slice:exo/EXO-03/integration:started",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:EXO-ADR-004:passed",
+        "checkpoint:EXO-ADR-005:passed",
+        "checkpoint:EXO-ADR-037:passed"
+      ]
+    },
+    "slice:exo/EXO-03/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-03",
+      "requires": [
+        "slice:exo/EXO-03/integration:merged"
+      ]
+    },
+    "slice:exo/EXO-04/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-04",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-02/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-04/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-04",
+      "requires": [
+        "slice:exo/EXO-04/domain:started",
+        "checkpoint:EXO-WI-TIME-REVIEW:passed",
+        "checkpoint:EXO-ADR-006:passed",
+        "checkpoint:EXO-ADR-007:passed",
+        "checkpoint:EXO-ADR-008:passed",
+        "checkpoint:EXO-ADR-018:passed",
+        "checkpoint:EXO-ADR-031:passed"
+      ]
+    },
+    "slice:exo/EXO-04/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-04",
+      "requires": [
+        "slice:exo/EXO-04/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-05/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-05",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-02/domain:verified",
+        "slice:exo/EXO-04/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-05/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-05",
+      "requires": [
+        "slice:exo/EXO-05/domain:started",
+        "checkpoint:EXO-ADR-008:passed",
+        "checkpoint:EXO-ADR-009:passed",
+        "checkpoint:EXO-ADR-010:passed",
+        "checkpoint:EXO-ADR-011:passed",
+        "checkpoint:EXO-ADR-012:passed"
+      ]
+    },
+    "slice:exo/EXO-05/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-05",
+      "requires": [
+        "slice:exo/EXO-05/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-05/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-05",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-02:accepted",
+        "work_item:exo/EXO-04:accepted",
+        "slice:exo/EXO-05/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-05/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-05",
+      "requires": [
+        "slice:exo/EXO-05/integration:started",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:EXO-ADR-008:passed",
+        "checkpoint:EXO-ADR-009:passed",
+        "checkpoint:EXO-ADR-010:passed",
+        "checkpoint:EXO-ADR-011:passed",
+        "checkpoint:EXO-ADR-012:passed"
+      ]
+    },
+    "slice:exo/EXO-05/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-05",
+      "requires": [
+        "slice:exo/EXO-05/integration:merged"
+      ]
+    },
+    "slice:exo/EXO-06/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-06",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-04/domain:verified",
+        "slice:exo/EXO-05/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-06/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-06",
+      "requires": [
+        "slice:exo/EXO-06/domain:started",
+        "checkpoint:EXO-ADR-002:passed",
+        "checkpoint:EXO-ADR-013:passed",
+        "checkpoint:EXO-ADR-014:passed"
+      ]
+    },
+    "slice:exo/EXO-06/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-06",
+      "requires": [
+        "slice:exo/EXO-06/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-06/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-06",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-03:accepted",
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-05:accepted",
+        "slice:exo/EXO-06/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-06/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-06",
+      "requires": [
+        "slice:exo/EXO-06/integration:started",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:EXO-ADR-002:passed",
+        "checkpoint:EXO-ADR-013:passed",
+        "checkpoint:EXO-ADR-014:passed"
+      ]
+    },
+    "slice:exo/EXO-06/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-06",
+      "requires": [
+        "slice:exo/EXO-06/integration:merged"
+      ]
+    },
+    "slice:exo/EXO-07/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-07",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-04/domain:verified",
+        "slice:exo/EXO-05/domain:verified",
+        "slice:exo/EXO-06/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-07/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-07",
+      "requires": [
+        "slice:exo/EXO-07/domain:started",
+        "checkpoint:EXO-WI-FACULTY-REVIEW:passed",
+        "checkpoint:EXO-ADR-015:passed",
+        "checkpoint:EXO-ADR-016:passed",
+        "checkpoint:EXO-ADR-032:passed"
+      ]
+    },
+    "slice:exo/EXO-07/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-07",
+      "requires": [
+        "slice:exo/EXO-07/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-08/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-08",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-04/domain:verified",
+        "slice:exo/EXO-06/domain:verified",
+        "slice:exo/EXO-07/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-08/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-08",
+      "requires": [
+        "slice:exo/EXO-08/domain:started",
+        "checkpoint:EXO-ADR-005:passed",
+        "checkpoint:EXO-ADR-012:passed",
+        "checkpoint:EXO-ADR-014:passed",
+        "checkpoint:EXO-ADR-017:passed"
+      ]
+    },
+    "slice:exo/EXO-08/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-08",
+      "requires": [
+        "slice:exo/EXO-08/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-09/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-09",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-04/domain:verified",
+        "slice:exo/EXO-05/domain:verified",
+        "slice:exo/EXO-06/domain:verified",
+        "slice:exo/EXO-08/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-09/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-09",
+      "requires": [
+        "slice:exo/EXO-09/domain:started",
+        "checkpoint:EXO-WI-DISCLOSURE-REVIEW:passed",
+        "checkpoint:EXO-ADR-011:passed",
+        "checkpoint:EXO-ADR-018:passed",
+        "checkpoint:EXO-ADR-019:passed",
+        "checkpoint:EXO-ADR-020:passed"
+      ]
+    },
+    "slice:exo/EXO-09/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-09",
+      "requires": [
+        "slice:exo/EXO-09/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-10/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-10",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-05/domain:verified",
+        "slice:exo/EXO-08/domain:verified",
+        "slice:exo/EXO-09/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-10/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-10",
+      "requires": [
+        "slice:exo/EXO-10/domain:started",
+        "checkpoint:EXO-ADR-021:passed",
+        "checkpoint:EXO-ADR-022:passed"
+      ]
+    },
+    "slice:exo/EXO-10/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-10",
+      "requires": [
+        "slice:exo/EXO-10/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-10/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-10",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-03:accepted",
+        "work_item:exo/EXO-05:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-09:accepted",
+        "slice:exo/EXO-10/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-10/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-10",
+      "requires": [
+        "slice:exo/EXO-10/integration:started",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:EXO-ADR-021:passed",
+        "checkpoint:EXO-ADR-022:passed"
+      ]
+    },
+    "slice:exo/EXO-10/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-10",
+      "requires": [
+        "slice:exo/EXO-10/integration:merged"
+      ]
+    },
+    "slice:exo/EXO-11/embedded-runtime:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-11",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-06:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-10:accepted"
+      ]
+    },
+    "slice:exo/EXO-11/embedded-runtime:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-11",
+      "requires": [
+        "slice:exo/EXO-11/embedded-runtime:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "checkpoint:EXO-ADR-020:passed",
+        "checkpoint:EXO-ADR-021:passed"
+      ]
+    },
+    "slice:exo/EXO-11/embedded-runtime:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-11",
+      "requires": [
+        "slice:exo/EXO-11/embedded-runtime:merged"
+      ]
+    },
+    "slice:exo/EXO-11/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-11",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-06:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-10:accepted",
+        "slice:exo/EXO-11/embedded-runtime:verified"
+      ]
+    },
+    "slice:exo/EXO-11/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-11",
+      "requires": [
+        "slice:exo/EXO-11/integration:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:EXO-WI-G3:passed",
+        "checkpoint:EXO-ADR-020:passed",
+        "checkpoint:EXO-ADR-021:passed"
+      ]
+    },
+    "slice:exo/EXO-11/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-11",
+      "requires": [
+        "slice:exo/EXO-11/integration:merged",
+        "checkpoint:WI-DEPLOYMENT-PARITY:passed"
+      ]
+    },
+    "slice:exo/EXO-12/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-12",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-08/domain:verified",
+        "slice:exo/EXO-10/domain:verified",
+        "slice:exo/EXO-11/embedded-runtime:verified"
+      ]
+    },
+    "slice:exo/EXO-12/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-12",
+      "requires": [
+        "slice:exo/EXO-12/domain:started",
+        "checkpoint:EXO-ADR-023:passed",
+        "checkpoint:EXO-ADR-038:passed"
+      ]
+    },
+    "slice:exo/EXO-12/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-12",
+      "requires": [
+        "slice:exo/EXO-12/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-12/embedded-worker:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-12",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-11/embedded-runtime:verified",
+        "slice:exo/EXO-12/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-12/embedded-worker:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-12",
+      "requires": [
+        "slice:exo/EXO-12/embedded-worker:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "checkpoint:EXO-ADR-023:passed",
+        "checkpoint:EXO-ADR-038:passed"
+      ]
+    },
+    "slice:exo/EXO-12/embedded-worker:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-12",
+      "requires": [
+        "slice:exo/EXO-12/embedded-worker:merged"
+      ]
+    },
+    "slice:exo/EXO-12/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-12",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-10:accepted",
+        "work_item:exo/EXO-11:accepted",
+        "slice:exo/EXO-12/domain:verified",
+        "slice:exo/EXO-12/embedded-worker:verified"
+      ]
+    },
+    "slice:exo/EXO-12/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-12",
+      "requires": [
+        "slice:exo/EXO-12/integration:started",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "checkpoint:EXO-WI-G3:passed",
+        "checkpoint:EXO-WI-G4:passed",
+        "checkpoint:EXO-ADR-023:passed",
+        "checkpoint:EXO-ADR-038:passed"
+      ]
+    },
+    "slice:exo/EXO-12/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-12",
+      "requires": [
+        "slice:exo/EXO-12/integration:merged"
+      ]
+    },
+    "slice:exo/EXO-13/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-13",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-04/domain:verified",
+        "slice:exo/EXO-08/domain:verified",
+        "slice:exo/EXO-09/domain:verified",
+        "slice:exo/EXO-11/embedded-runtime:verified",
+        "slice:exo/EXO-12/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-13/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-13",
+      "requires": [
+        "slice:exo/EXO-13/domain:started",
+        "checkpoint:EXO-ADR-018:passed",
+        "checkpoint:EXO-ADR-024:passed",
+        "checkpoint:EXO-ADR-031:passed",
+        "checkpoint:EXO-ADR-033:passed",
+        "checkpoint:EXO-ADR-034:passed"
+      ]
+    },
+    "slice:exo/EXO-13/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-13",
+      "requires": [
+        "slice:exo/EXO-13/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-13/embedded-acceptance:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-13",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-12/embedded-worker:verified",
+        "slice:exo/EXO-13/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-13/embedded-acceptance:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-13",
+      "requires": [
+        "slice:exo/EXO-13/embedded-acceptance:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "checkpoint:EXO-ADR-018:passed",
+        "checkpoint:EXO-ADR-024:passed",
+        "checkpoint:EXO-ADR-031:passed",
+        "checkpoint:EXO-ADR-033:passed",
+        "checkpoint:EXO-ADR-034:passed"
+      ]
+    },
+    "slice:exo/EXO-13/embedded-acceptance:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-13",
+      "requires": [
+        "slice:exo/EXO-13/embedded-acceptance:merged"
+      ]
+    },
+    "slice:exo/EXO-13/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-13",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-09:accepted",
+        "work_item:exo/EXO-11:accepted",
+        "work_item:exo/EXO-12:accepted",
+        "slice:exo/EXO-13/domain:verified",
+        "slice:exo/EXO-13/embedded-acceptance:verified"
+      ]
+    },
+    "slice:exo/EXO-13/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-13",
+      "requires": [
+        "slice:exo/EXO-13/integration:started",
+        "checkpoint:EXO-AQ-G5:passed",
+        "checkpoint:EXO-WI-G3:passed",
+        "checkpoint:EXO-WI-G4:passed",
+        "checkpoint:EXO-ADR-018:passed",
+        "checkpoint:EXO-ADR-024:passed",
+        "checkpoint:EXO-ADR-031:passed",
+        "checkpoint:EXO-ADR-033:passed",
+        "checkpoint:EXO-ADR-034:passed"
+      ]
+    },
+    "slice:exo/EXO-13/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-13",
+      "requires": [
+        "slice:exo/EXO-13/integration:merged"
+      ]
+    },
+    "slice:exo/EXO-14/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-14",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-04/domain:verified",
+        "slice:exo/EXO-07/domain:verified",
+        "slice:exo/EXO-09/domain:verified",
+        "slice:exo/EXO-13/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-14/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-14",
+      "requires": [
+        "slice:exo/EXO-14/domain:started",
+        "checkpoint:EXO-ADR-025:passed",
+        "checkpoint:EXO-ADR-032:passed"
+      ]
+    },
+    "slice:exo/EXO-14/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-14",
+      "requires": [
+        "slice:exo/EXO-14/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-14/embedded-provenance:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-14",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-14/domain:verified",
+        "slice:exo/EXO-13/embedded-acceptance:verified"
+      ]
+    },
+    "slice:exo/EXO-14/embedded-provenance:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-14",
+      "requires": [
+        "slice:exo/EXO-14/embedded-provenance:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "checkpoint:EXO-ADR-025:passed",
+        "checkpoint:EXO-ADR-032:passed"
+      ]
+    },
+    "slice:exo/EXO-14/embedded-provenance:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-14",
+      "requires": [
+        "slice:exo/EXO-14/embedded-provenance:merged"
+      ]
+    },
+    "slice:exo/EXO-14/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-14",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-07:accepted",
+        "work_item:exo/EXO-09:accepted",
+        "work_item:exo/EXO-13:accepted",
+        "slice:exo/EXO-14/domain:verified",
+        "slice:exo/EXO-14/embedded-provenance:verified"
+      ]
+    },
+    "slice:exo/EXO-14/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-14",
+      "requires": [
+        "slice:exo/EXO-14/integration:started",
+        "checkpoint:EXO-AQ-G5:passed",
+        "checkpoint:EXO-WI-G4:passed",
+        "checkpoint:EXO-ADR-025:passed",
+        "checkpoint:EXO-ADR-032:passed"
+      ]
+    },
+    "slice:exo/EXO-14/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-14",
+      "requires": [
+        "slice:exo/EXO-14/integration:merged"
+      ]
+    },
+    "slice:exo/EXO-15/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-15",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-10/domain:verified",
+        "slice:exo/EXO-11/embedded-runtime:verified",
+        "slice:exo/EXO-12/domain:verified",
+        "slice:exo/EXO-13/domain:verified",
+        "slice:exo/EXO-14/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-15/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-15",
+      "requires": [
+        "slice:exo/EXO-15/domain:started",
+        "checkpoint:EXO-ADR-026:passed",
+        "checkpoint:EXO-ADR-027:passed",
+        "checkpoint:EXO-ADR-034:passed",
+        "checkpoint:EXO-ADR-035:passed",
+        "checkpoint:EXO-ADR-036:passed",
+        "checkpoint:EXO-ADR-038:passed"
+      ]
+    },
+    "slice:exo/EXO-15/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-15",
+      "requires": [
+        "slice:exo/EXO-15/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-15/embedded-lifecycle:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-15",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-15/domain:verified",
+        "slice:exo/EXO-14/embedded-provenance:verified",
+        "slice:exo/EXO-16/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-15/embedded-lifecycle:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-15",
+      "requires": [
+        "slice:exo/EXO-15/embedded-lifecycle:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "checkpoint:WI-WORKER-G5:passed",
+        "checkpoint:EXO-ADR-026:passed",
+        "checkpoint:EXO-ADR-027:passed",
+        "checkpoint:EXO-ADR-034:passed",
+        "checkpoint:EXO-ADR-035:passed",
+        "checkpoint:EXO-ADR-036:passed",
+        "checkpoint:EXO-ADR-038:passed"
+      ]
+    },
+    "slice:exo/EXO-15/embedded-lifecycle:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-15",
+      "requires": [
+        "slice:exo/EXO-15/embedded-lifecycle:merged",
+        "checkpoint:EXO-ENV-G2:passed"
+      ]
+    },
+    "slice:exo/EXO-15/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-15",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-10:accepted",
+        "work_item:exo/EXO-11:accepted",
+        "work_item:exo/EXO-12:accepted",
+        "work_item:exo/EXO-13:accepted",
+        "work_item:exo/EXO-14:accepted",
+        "slice:exo/EXO-15/domain:verified",
+        "slice:exo/EXO-15/embedded-lifecycle:verified"
+      ]
+    },
+    "slice:exo/EXO-15/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-15",
+      "requires": [
+        "slice:exo/EXO-15/integration:started",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "checkpoint:EXO-AQ-G5:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:EXO-WI-G3:passed",
+        "checkpoint:EXO-WI-G4:passed",
+        "checkpoint:EXO-WI-G5:passed",
+        "checkpoint:EXO-ADR-026:passed",
+        "checkpoint:EXO-ADR-027:passed",
+        "checkpoint:EXO-ADR-034:passed",
+        "checkpoint:EXO-ADR-035:passed",
+        "checkpoint:EXO-ADR-036:passed",
+        "checkpoint:EXO-ADR-038:passed"
+      ]
+    },
+    "slice:exo/EXO-15/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-15",
+      "requires": [
+        "slice:exo/EXO-15/integration:merged"
+      ]
+    },
+    "slice:exo/EXO-16/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-16",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-04/domain:verified",
+        "slice:exo/EXO-08/domain:verified",
+        "slice:exo/EXO-09/domain:verified",
+        "slice:exo/EXO-10/domain:verified",
+        "slice:exo/EXO-11/embedded-runtime:verified",
+        "slice:exo/EXO-14/domain:verified",
+        "slice:exo/EXO-15/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-16/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-16",
+      "requires": [
+        "slice:exo/EXO-16/domain:started",
+        "checkpoint:EXO-ADR-028:passed",
+        "checkpoint:EXO-ADR-036:passed"
+      ]
+    },
+    "slice:exo/EXO-16/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-16",
+      "requires": [
+        "slice:exo/EXO-16/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-16/embedded-recovery:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-16",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-16/domain:verified",
+        "slice:exo/EXO-15/embedded-lifecycle:verified"
+      ]
+    },
+    "slice:exo/EXO-16/embedded-recovery:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-16",
+      "requires": [
+        "slice:exo/EXO-16/embedded-recovery:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "checkpoint:WI-WORKER-G5:passed",
+        "checkpoint:EXO-ADR-028:passed",
+        "checkpoint:EXO-ADR-036:passed"
+      ]
+    },
+    "slice:exo/EXO-16/embedded-recovery:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-16",
+      "requires": [
+        "slice:exo/EXO-16/embedded-recovery:merged",
+        "checkpoint:EXO-ENV-G2:passed"
+      ]
+    },
+    "slice:exo/EXO-16/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-16",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-03:accepted",
+        "work_item:exo/EXO-04:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-09:accepted",
+        "work_item:exo/EXO-10:accepted",
+        "work_item:exo/EXO-11:accepted",
+        "work_item:exo/EXO-14:accepted",
+        "work_item:exo/EXO-15:accepted",
+        "slice:exo/EXO-16/domain:verified",
+        "slice:exo/EXO-16/embedded-recovery:verified"
+      ]
+    },
+    "slice:exo/EXO-16/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-16",
+      "requires": [
+        "slice:exo/EXO-16/integration:started",
+        "checkpoint:EXO-AQ-G5:passed",
+        "checkpoint:EXO-WI-G4:passed",
+        "checkpoint:EXO-WI-G5:passed",
+        "checkpoint:EXO-ADR-028:passed",
+        "checkpoint:EXO-ADR-036:passed"
+      ]
+    },
+    "slice:exo/EXO-16/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-16",
+      "requires": [
+        "slice:exo/EXO-16/integration:merged"
+      ]
+    },
+    "slice:exo/EXO-17/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-17",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-06:accepted",
+        "work_item:exo/EXO-07:accepted",
+        "work_item:exo/EXO-08:accepted",
+        "work_item:exo/EXO-09:accepted",
+        "work_item:exo/EXO-10:accepted",
+        "work_item:exo/EXO-11:accepted",
+        "work_item:exo/EXO-12:accepted",
+        "work_item:exo/EXO-13:accepted",
+        "work_item:exo/EXO-14:accepted",
+        "work_item:exo/EXO-15:accepted",
+        "work_item:exo/EXO-16:accepted"
+      ]
+    },
+    "slice:exo/EXO-17/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-17",
+      "requires": [
+        "slice:exo/EXO-17/integration:started",
+        "checkpoint:EXO-AQ-G5:passed",
+        "checkpoint:EXO-WI-G4:passed",
+        "checkpoint:EXO-ADR-029:passed"
+      ]
+    },
+    "slice:exo/EXO-17/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-17",
+      "requires": [
+        "slice:exo/EXO-17/integration:merged"
+      ]
+    },
+    "slice:exo/EXO-18/domain:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-11:accepted",
+        "slice:exo/EXO-13/domain:verified",
+        "slice:exo/EXO-15/domain:verified",
+        "slice:exo/EXO-16/domain:verified",
+        "work_item:exo/EXO-17:accepted"
+      ]
+    },
+    "slice:exo/EXO-18/domain:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "slice:exo/EXO-18/domain:started",
+        "checkpoint:EXO-ADR-022:passed",
+        "checkpoint:EXO-ADR-030:passed",
+        "checkpoint:EXO-ADR-037:passed"
+      ]
+    },
+    "slice:exo/EXO-18/domain:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "slice:exo/EXO-18/domain:merged"
+      ]
+    },
+    "slice:exo/EXO-18/instance-design:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-02/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-18/instance-design:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "slice:exo/EXO-18/instance-design:started",
+        "checkpoint:EXO-ADR-022:passed",
+        "checkpoint:EXO-ADR-030:passed",
+        "checkpoint:EXO-ADR-037:passed",
+        "checkpoint:EXO-ADR-038:passed"
+      ]
+    },
+    "slice:exo/EXO-18/instance-design:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "slice:exo/EXO-18/instance-design:merged"
+      ]
+    },
+    "slice:exo/EXO-18/instance-qualification:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-18/instance-design:verified",
+        "slice:exo/EXO-03/domain:verified"
+      ]
+    },
+    "slice:exo/EXO-18/instance-qualification:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "slice:exo/EXO-18/instance-qualification:started",
+        "checkpoint:EXO-ENV-G1:passed",
+        "checkpoint:EXO-ADR-022:passed",
+        "checkpoint:EXO-ADR-030:passed",
+        "checkpoint:EXO-ADR-037:passed"
+      ]
+    },
+    "slice:exo/EXO-18/instance-qualification:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "slice:exo/EXO-18/instance-qualification:merged",
+        "slice:exo/EXO-11/embedded-runtime:verified"
+      ]
+    },
+    "slice:exo/EXO-18/integration:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-11:accepted",
+        "work_item:exo/EXO-13:accepted",
+        "work_item:exo/EXO-15:accepted",
+        "work_item:exo/EXO-16:accepted",
+        "work_item:exo/EXO-17:accepted",
+        "slice:exo/EXO-18/domain:verified",
+        "slice:exo/EXO-18/instance-qualification:verified"
+      ]
+    },
+    "slice:exo/EXO-18/integration:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "slice:exo/EXO-18/integration:started",
+        "checkpoint:EXO-AQ-G5:passed",
+        "checkpoint:EXO-WI-G4:passed",
+        "checkpoint:EXO-WI-G5:passed",
+        "checkpoint:EXO-ADR-022:passed",
+        "checkpoint:EXO-ADR-030:passed",
+        "checkpoint:EXO-ADR-037:passed"
+      ]
+    },
+    "slice:exo/EXO-18/integration:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-18",
+      "requires": [
+        "slice:exo/EXO-18/integration:merged",
+        "checkpoint:EXO-ENV-G1:passed",
+        "checkpoint:EXO-ENV-G2:passed"
+      ]
+    },
+    "slice:exo/EXO-19/embedded-viability:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-19",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:EXO-ENV-G2:passed",
+        "checkpoint:EXO-ENV-G3:passed",
+        "checkpoint:EXO-ENV-G4:passed",
+        "slice:exo/EXO-14/embedded-provenance:verified"
+      ]
+    },
+    "slice:exo/EXO-19/embedded-viability:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-19",
+      "requires": [
+        "slice:exo/EXO-19/embedded-viability:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "checkpoint:EXO-ADR-038:passed"
+      ]
+    },
+    "slice:exo/EXO-19/embedded-viability:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-19",
+      "requires": [
+        "slice:exo/EXO-19/embedded-viability:merged"
+      ]
+    },
+    "slice:exo/EXO-19/release:started": {
+      "repository": "exo",
+      "parentId": "exo/EXO-19",
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-18:accepted",
+        "checkpoint:EXO-AQ-G5:passed",
+        "checkpoint:EXO-WI-G5:passed",
+        "checkpoint:AQ-PUBLISHED:passed",
+        "checkpoint:WI-PUBLISHED:passed",
+        "slice:exo/EXO-19/embedded-viability:verified"
+      ]
+    },
+    "slice:exo/EXO-19/release:merged": {
+      "repository": "exo",
+      "parentId": "exo/EXO-19",
+      "requires": [
+        "slice:exo/EXO-19/release:started",
+        "checkpoint:EXO-AQ-G5:passed",
+        "checkpoint:EXO-WI-G5:passed",
+        "checkpoint:AQ-PUBLISHED:passed",
+        "checkpoint:WI-PUBLISHED:passed",
+        "checkpoint:EXO-ADR-038:passed"
+      ]
+    },
+    "slice:exo/EXO-19/release:verified": {
+      "repository": "exo",
+      "parentId": "exo/EXO-19",
+      "requires": [
+        "slice:exo/EXO-19/release:merged",
+        "checkpoint:EXO-EMBEDDED-VIABILITY-1:passed"
+      ]
+    },
+    "checkpoint:STACK-PLAN-ACCEPTED:passed": {
+      "repository": "stack",
+      "parentId": null,
+      "requires": []
+    },
+    "checkpoint:AQ-BASELINE-ACCEPTED:passed": {
+      "repository": "stack",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:WI-ADR-001:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-002:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-003:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-004:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-005:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-006:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-007:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-008:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-009:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-010:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-011:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-012:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-013:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-014:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-015:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-016:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-017:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-018:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-019:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:WI-ADR-020:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-001:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-002:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-003:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-004:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-005:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-006:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-007:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-008:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-009:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-010:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-011:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-012:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-013:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-014:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-015:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-016:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-017:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-018:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-019:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-020:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-021:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-022:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-023:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-024:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-025:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-026:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-027:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-028:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-029:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-030:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-031:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-032:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-033:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-034:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-035:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-036:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:WI-AQ-G1:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:WI-AQ-G2:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:WI-AQ-G3:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:WI-AQ-G4:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:EXO-AQ-G1:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:EXO-AQ-G2:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:EXO-AQ-G3:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:EXO-AQ-G4:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:WI-AQ-G5:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:AQ-PUBLISHED:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:EXO-AQ-G5:passed": {
+      "repository": "aq",
+      "parentId": null,
+      "requires": [
+        "checkpoint:AQ-PUBLISHED:passed",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed"
+      ]
+    },
+    "checkpoint:EXO-WI-G1:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-02:accepted"
+      ]
+    },
+    "checkpoint:EXO-WI-G2:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-03:accepted",
+        "work_item:wi/WI-04:accepted",
+        "work_item:wi/WI-05:accepted"
+      ]
+    },
+    "checkpoint:EXO-WI-G3:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-07:accepted",
+        "work_item:wi/WI-08:accepted"
+      ]
+    },
+    "checkpoint:EXO-WI-G4:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-09:accepted",
+        "work_item:wi/WI-10:accepted",
+        "work_item:wi/WI-11:accepted",
+        "work_item:wi/WI-12:accepted"
+      ]
+    },
+    "checkpoint:EXO-WI-G5:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-13:accepted",
+        "work_item:wi/WI-14:accepted",
+        "checkpoint:WI-PUBLISHED:passed"
+      ]
+    },
+    "checkpoint:WI-PUBLISHED:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-14:accepted",
+        "checkpoint:AQ-PUBLISHED:passed"
+      ]
+    },
+    "checkpoint:EXO-PUBLISHED:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-19:accepted",
+        "checkpoint:AQ-PUBLISHED:passed",
+        "checkpoint:WI-PUBLISHED:passed"
+      ]
+    },
+    "checkpoint:WI-DEPLOYMENT-PARITY:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "work_item:wi/WI-11:accepted"
+      ]
+    },
+    "checkpoint:EXO-WI-TIME-REVIEW:passed": {
+      "repository": "stack",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-01:accepted",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-WI-FACULTY-REVIEW:passed": {
+      "repository": "stack",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-01:accepted",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-WI-DISCLOSURE-REVIEW:passed": {
+      "repository": "stack",
+      "parentId": null,
+      "requires": [
+        "work_item:exo/EXO-01:accepted",
+        "work_item:wi/WI-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-037:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted"
+      ]
+    },
+    "checkpoint:EXO-ADR-038:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "work_item:exo/EXO-01:accepted",
+        "checkpoint:WI-ADR-016:passed"
+      ]
+    },
+    "checkpoint:WI-WORKER-G1:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-02/domain:verified",
+        "slice:wi/WI-09/domain:verified",
+        "slice:wi/WI-10/domain:verified",
+        "checkpoint:WI-ADR-016:passed",
+        "checkpoint:WI-ADR-005:passed",
+        "checkpoint:WI-ADR-006:passed",
+        "checkpoint:WI-ADR-008:passed",
+        "checkpoint:WI-ADR-010:passed"
+      ]
+    },
+    "checkpoint:WI-WORKER-G2:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "slice:wi/WI-04/domain:verified",
+        "slice:wi/WI-05/domain:verified"
+      ]
+    },
+    "checkpoint:WI-WORKER-G3:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "checkpoint:WI-WORKER-G2:passed",
+        "slice:wi/WI-09/process-provider:verified",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed"
+      ]
+    },
+    "checkpoint:WI-WORKER-G4:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:WI-WORKER-G3:passed",
+        "slice:wi/WI-09/process-provider:verified",
+        "slice:wi/WI-10/process-catalog:verified",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "slice:wi/WI-13/worker-conformance:verified",
+        "slice:wi/WI-14/worker-handoff:verified",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed"
+      ]
+    },
+    "checkpoint:WI-WORKER-G5:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "checkpoint:WI-WORKER-G2:passed",
+        "slice:wi/WI-11/supervisor-boundary:verified",
+        "slice:wi/WI-13/supervisor-conformance:verified",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed"
+      ]
+    },
+    "checkpoint:EXO-ENV-G1:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-18/instance-design:verified",
+        "checkpoint:EXO-ADR-037:passed",
+        "checkpoint:EXO-ADR-038:passed",
+        "checkpoint:WI-WORKER-G1:passed"
+      ]
+    },
+    "checkpoint:EXO-ENV-G2:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:EXO-ENV-G1:passed",
+        "slice:exo/EXO-18/instance-qualification:verified"
+      ]
+    },
+    "checkpoint:EXO-ENV-G3:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "slice:exo/EXO-12/embedded-worker:verified",
+        "slice:exo/EXO-13/embedded-acceptance:verified"
+      ]
+    },
+    "checkpoint:EXO-ENV-G4:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:EXO-ENV-G2:passed",
+        "checkpoint:WI-WORKER-G5:passed",
+        "slice:exo/EXO-15/embedded-lifecycle:verified",
+        "slice:exo/EXO-16/embedded-recovery:verified"
+      ]
+    },
+    "checkpoint:EXO-ENV-G5:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:EXO-ENV-G2:passed",
+        "checkpoint:EXO-ENV-G3:passed",
+        "checkpoint:EXO-ENV-G4:passed",
+        "checkpoint:WI-WORKER-G4:passed",
+        "slice:exo/EXO-12/embedded-worker:verified",
+        "slice:exo/EXO-14/embedded-provenance:verified",
+        "slice:exo/EXO-19/embedded-viability:verified"
+      ]
+    },
+    "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "checkpoint:WI-WORKER-G2:passed",
+        "checkpoint:WI-WORKER-G3:passed",
+        "checkpoint:WI-WORKER-G4:passed"
+      ]
+    },
+    "checkpoint:EXO-EMBEDDED-VIABILITY-1:passed": {
+      "repository": "exo",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "checkpoint:EXO-ENV-G1:passed",
+        "checkpoint:EXO-ENV-G2:passed",
+        "checkpoint:EXO-ENV-G3:passed",
+        "checkpoint:EXO-ENV-G4:passed",
+        "checkpoint:EXO-ENV-G5:passed"
+      ]
+    },
+    "checkpoint:WI-EMBEDDED-CORE-1:passed": {
+      "repository": "wi",
+      "parentId": null,
+      "requires": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-02/integration:verified",
+        "slice:wi/WI-03/integration:verified",
+        "slice:wi/WI-04/integration:verified",
+        "slice:wi/WI-05/integration:verified",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-07/integration:verified",
+        "slice:wi/WI-08/integration:verified",
+        "checkpoint:WI-AQ-G1:passed",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "checkpoint:WI-AQ-G4:passed"
+      ]
+    }
+  },
+  "closures": {
+    "WI-EMBEDDED-WORKER-PROOF-1 target-only": {
+      "nodes": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-01/implementation:started",
+        "slice:wi/WI-01/implementation:merged",
+        "slice:wi/WI-01/implementation:verified",
+        "work_item:wi/WI-01:accepted",
+        "slice:wi/WI-02/domain:started",
+        "checkpoint:WI-ADR-001:passed",
+        "checkpoint:WI-ADR-002:passed",
+        "checkpoint:WI-ADR-003:passed",
+        "checkpoint:WI-ADR-016:passed",
+        "slice:wi/WI-02/domain:merged",
+        "slice:wi/WI-02/domain:verified",
+        "slice:wi/WI-09/domain:started",
+        "slice:wi/WI-09/domain:merged",
+        "slice:wi/WI-09/domain:verified",
+        "slice:wi/WI-10/domain:started",
+        "checkpoint:WI-ADR-017:passed",
+        "slice:wi/WI-10/domain:merged",
+        "slice:wi/WI-10/domain:verified",
+        "checkpoint:WI-ADR-005:passed",
+        "checkpoint:WI-ADR-006:passed",
+        "checkpoint:WI-ADR-008:passed",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "slice:wi/WI-04/domain:started",
+        "checkpoint:WI-ADR-004:passed",
+        "checkpoint:WI-ADR-007:passed",
+        "slice:wi/WI-04/domain:merged",
+        "slice:wi/WI-04/domain:verified",
+        "slice:wi/WI-05/domain:started",
+        "checkpoint:WI-ADR-009:passed",
+        "slice:wi/WI-05/domain:merged",
+        "slice:wi/WI-05/domain:verified",
+        "checkpoint:WI-WORKER-G2:passed",
+        "slice:wi/WI-02/integration:started",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed",
+        "checkpoint:WI-AQ-G1:passed",
+        "slice:wi/WI-02/integration:merged",
+        "slice:wi/WI-02/integration:verified",
+        "work_item:wi/WI-02:accepted",
+        "slice:wi/WI-04/integration:started",
+        "checkpoint:WI-AQ-G2:passed",
+        "slice:wi/WI-04/integration:merged",
+        "slice:wi/WI-04/integration:verified",
+        "work_item:wi/WI-04:accepted",
+        "slice:wi/WI-05/integration:started",
+        "checkpoint:WI-AQ-G4:passed",
+        "slice:wi/WI-05/integration:merged",
+        "slice:wi/WI-05/integration:verified",
+        "work_item:wi/WI-05:accepted",
+        "slice:wi/WI-06/domain:started",
+        "checkpoint:WI-ADR-011:passed",
+        "slice:wi/WI-06/domain:merged",
+        "slice:wi/WI-06/domain:verified",
+        "slice:wi/WI-06/integration:started",
+        "slice:wi/WI-06/integration:merged",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-07/domain:started",
+        "checkpoint:WI-ADR-014:passed",
+        "slice:wi/WI-07/domain:merged",
+        "slice:wi/WI-07/domain:verified",
+        "slice:wi/WI-07/integration:started",
+        "checkpoint:WI-AQ-G3:passed",
+        "slice:wi/WI-07/integration:merged",
+        "slice:wi/WI-07/integration:verified",
+        "slice:wi/WI-08/integration:started",
+        "checkpoint:WI-ADR-015:passed",
+        "slice:wi/WI-08/integration:merged",
+        "slice:wi/WI-08/integration:verified",
+        "slice:wi/WI-09/process-provider:started",
+        "slice:wi/WI-03/domain:started",
+        "checkpoint:WI-ADR-012:passed",
+        "checkpoint:WI-ADR-013:passed",
+        "slice:wi/WI-03/domain:merged",
+        "slice:wi/WI-03/domain:verified",
+        "slice:wi/WI-03/integration:started",
+        "slice:wi/WI-03/integration:merged",
+        "slice:wi/WI-03/integration:verified",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "slice:wi/WI-09/process-provider:merged",
+        "slice:wi/WI-09/process-provider:verified",
+        "checkpoint:WI-WORKER-G3:passed",
+        "slice:wi/WI-10/process-catalog:started",
+        "slice:wi/WI-10/process-catalog:merged",
+        "slice:wi/WI-10/process-catalog:verified",
+        "work_item:wi/WI-03:accepted",
+        "slice:wi/WI-11/domain:started",
+        "checkpoint:WI-ADR-018:passed",
+        "slice:wi/WI-11/domain:merged",
+        "slice:wi/WI-11/domain:verified",
+        "slice:wi/WI-11/embedded-runtime:started",
+        "slice:wi/WI-11/embedded-runtime:merged",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "slice:wi/WI-13/worker-conformance:started",
+        "slice:wi/WI-13/worker-conformance:merged",
+        "slice:wi/WI-13/worker-conformance:verified",
+        "slice:wi/WI-14/worker-handoff:started",
+        "slice:wi/WI-14/worker-handoff:merged",
+        "slice:wi/WI-14/worker-handoff:verified",
+        "checkpoint:WI-WORKER-G4:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed"
+      ],
+      "excludedCount": 234,
+      "priorityIsTargetOnly": true
+    },
+    "WI-EMBEDDED-WORKER-PROOF-1 prioritize-full": {
+      "nodes": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:wi/WI-01/implementation:started",
+        "slice:wi/WI-01/implementation:merged",
+        "slice:wi/WI-01/implementation:verified",
+        "work_item:wi/WI-01:accepted",
+        "slice:wi/WI-02/domain:started",
+        "checkpoint:WI-ADR-001:passed",
+        "checkpoint:WI-ADR-002:passed",
+        "checkpoint:WI-ADR-003:passed",
+        "checkpoint:WI-ADR-016:passed",
+        "slice:wi/WI-02/domain:merged",
+        "slice:wi/WI-02/domain:verified",
+        "slice:wi/WI-09/domain:started",
+        "slice:wi/WI-09/domain:merged",
+        "slice:wi/WI-09/domain:verified",
+        "slice:wi/WI-10/domain:started",
+        "checkpoint:WI-ADR-017:passed",
+        "slice:wi/WI-10/domain:merged",
+        "slice:wi/WI-10/domain:verified",
+        "checkpoint:WI-ADR-005:passed",
+        "checkpoint:WI-ADR-006:passed",
+        "checkpoint:WI-ADR-008:passed",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "slice:wi/WI-04/domain:started",
+        "checkpoint:WI-ADR-004:passed",
+        "checkpoint:WI-ADR-007:passed",
+        "slice:wi/WI-04/domain:merged",
+        "slice:wi/WI-04/domain:verified",
+        "slice:wi/WI-05/domain:started",
+        "checkpoint:WI-ADR-009:passed",
+        "slice:wi/WI-05/domain:merged",
+        "slice:wi/WI-05/domain:verified",
+        "checkpoint:WI-WORKER-G2:passed",
+        "slice:wi/WI-02/integration:started",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed",
+        "checkpoint:WI-AQ-G1:passed",
+        "slice:wi/WI-02/integration:merged",
+        "slice:wi/WI-02/integration:verified",
+        "work_item:wi/WI-02:accepted",
+        "slice:wi/WI-04/integration:started",
+        "checkpoint:WI-AQ-G2:passed",
+        "slice:wi/WI-04/integration:merged",
+        "slice:wi/WI-04/integration:verified",
+        "work_item:wi/WI-04:accepted",
+        "slice:wi/WI-05/integration:started",
+        "checkpoint:WI-AQ-G4:passed",
+        "slice:wi/WI-05/integration:merged",
+        "slice:wi/WI-05/integration:verified",
+        "work_item:wi/WI-05:accepted",
+        "slice:wi/WI-06/domain:started",
+        "checkpoint:WI-ADR-011:passed",
+        "slice:wi/WI-06/domain:merged",
+        "slice:wi/WI-06/domain:verified",
+        "slice:wi/WI-06/integration:started",
+        "slice:wi/WI-06/integration:merged",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-07/domain:started",
+        "checkpoint:WI-ADR-014:passed",
+        "slice:wi/WI-07/domain:merged",
+        "slice:wi/WI-07/domain:verified",
+        "slice:wi/WI-07/integration:started",
+        "checkpoint:WI-AQ-G3:passed",
+        "slice:wi/WI-07/integration:merged",
+        "slice:wi/WI-07/integration:verified",
+        "slice:wi/WI-08/integration:started",
+        "checkpoint:WI-ADR-015:passed",
+        "slice:wi/WI-08/integration:merged",
+        "slice:wi/WI-08/integration:verified",
+        "slice:wi/WI-09/process-provider:started",
+        "slice:wi/WI-03/domain:started",
+        "checkpoint:WI-ADR-012:passed",
+        "checkpoint:WI-ADR-013:passed",
+        "slice:wi/WI-03/domain:merged",
+        "slice:wi/WI-03/domain:verified",
+        "slice:wi/WI-03/integration:started",
+        "slice:wi/WI-03/integration:merged",
+        "slice:wi/WI-03/integration:verified",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "slice:wi/WI-09/process-provider:merged",
+        "slice:wi/WI-09/process-provider:verified",
+        "checkpoint:WI-WORKER-G3:passed",
+        "slice:wi/WI-10/process-catalog:started",
+        "slice:wi/WI-10/process-catalog:merged",
+        "slice:wi/WI-10/process-catalog:verified",
+        "work_item:wi/WI-03:accepted",
+        "slice:wi/WI-11/domain:started",
+        "checkpoint:WI-ADR-018:passed",
+        "slice:wi/WI-11/domain:merged",
+        "slice:wi/WI-11/domain:verified",
+        "slice:wi/WI-11/embedded-runtime:started",
+        "slice:wi/WI-11/embedded-runtime:merged",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "slice:wi/WI-13/worker-conformance:started",
+        "slice:wi/WI-13/worker-conformance:merged",
+        "slice:wi/WI-13/worker-conformance:verified",
+        "slice:wi/WI-14/worker-handoff:started",
+        "slice:wi/WI-14/worker-handoff:merged",
+        "slice:wi/WI-14/worker-handoff:verified",
+        "checkpoint:WI-WORKER-G4:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "slice:wi/WI-11/supervisor-boundary:started",
+        "slice:wi/WI-11/supervisor-boundary:merged",
+        "slice:wi/WI-11/supervisor-boundary:verified",
+        "slice:wi/WI-13/supervisor-conformance:started",
+        "slice:wi/WI-13/supervisor-conformance:merged",
+        "slice:wi/WI-13/supervisor-conformance:verified",
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-07:accepted",
+        "work_item:wi/WI-08:accepted",
+        "slice:wi/WI-09/integration:started",
+        "slice:wi/WI-09/integration:merged",
+        "slice:wi/WI-09/integration:verified",
+        "work_item:wi/WI-09:accepted",
+        "slice:wi/WI-10/integration:started",
+        "slice:wi/WI-10/integration:merged",
+        "slice:wi/WI-10/integration:verified",
+        "work_item:wi/WI-10:accepted",
+        "slice:wi/WI-11/integration:started",
+        "slice:wi/WI-11/integration:merged",
+        "checkpoint:WI-AQ-G5:passed",
+        "slice:wi/WI-11/integration:verified",
+        "work_item:wi/WI-11:accepted",
+        "slice:wi/WI-12/domain:started",
+        "checkpoint:WI-ADR-019:passed",
+        "checkpoint:WI-ADR-020:passed",
+        "slice:wi/WI-12/domain:merged",
+        "slice:wi/WI-12/domain:verified",
+        "slice:wi/WI-12/integration:started",
+        "slice:wi/WI-12/integration:merged",
+        "slice:wi/WI-12/integration:verified",
+        "work_item:wi/WI-12:accepted",
+        "slice:wi/WI-13/conformance:started",
+        "slice:wi/WI-13/conformance:merged",
+        "checkpoint:WI-WORKER-G5:passed",
+        "slice:wi/WI-13/conformance:verified",
+        "work_item:wi/WI-13:accepted",
+        "checkpoint:AQ-PUBLISHED:passed",
+        "slice:wi/WI-14/release:started",
+        "slice:wi/WI-14/release:merged",
+        "slice:wi/WI-14/release:verified",
+        "work_item:wi/WI-14:accepted",
+        "slice:exo/EXO-01/domain:started",
+        "slice:exo/EXO-01/domain:merged",
+        "slice:exo/EXO-01/domain:verified",
+        "work_item:exo/EXO-01:accepted",
+        "slice:exo/EXO-02/domain:started",
+        "checkpoint:EXO-ADR-001:passed",
+        "checkpoint:EXO-ADR-002:passed",
+        "checkpoint:EXO-ADR-003:passed",
+        "slice:exo/EXO-02/domain:merged",
+        "slice:exo/EXO-02/domain:verified",
+        "work_item:exo/EXO-02:accepted",
+        "slice:exo/EXO-03/domain:started",
+        "checkpoint:EXO-ADR-004:passed",
+        "checkpoint:EXO-ADR-005:passed",
+        "checkpoint:EXO-ADR-037:passed",
+        "slice:exo/EXO-03/domain:merged",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-03/integration:started",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "checkpoint:EXO-WI-G1:passed",
+        "checkpoint:EXO-WI-G2:passed",
+        "slice:exo/EXO-03/integration:merged",
+        "slice:exo/EXO-03/integration:verified",
+        "work_item:exo/EXO-03:accepted",
+        "slice:exo/EXO-04/domain:started",
+        "checkpoint:EXO-WI-TIME-REVIEW:passed",
+        "checkpoint:EXO-ADR-006:passed",
+        "checkpoint:EXO-ADR-007:passed",
+        "checkpoint:EXO-ADR-008:passed",
+        "checkpoint:EXO-ADR-018:passed",
+        "checkpoint:EXO-ADR-031:passed",
+        "slice:exo/EXO-04/domain:merged",
+        "slice:exo/EXO-04/domain:verified",
+        "work_item:exo/EXO-04:accepted",
+        "slice:exo/EXO-05/domain:started",
+        "checkpoint:EXO-ADR-009:passed",
+        "checkpoint:EXO-ADR-010:passed",
+        "checkpoint:EXO-ADR-011:passed",
+        "checkpoint:EXO-ADR-012:passed",
+        "slice:exo/EXO-05/domain:merged",
+        "slice:exo/EXO-05/domain:verified",
+        "slice:exo/EXO-05/integration:started",
+        "slice:exo/EXO-05/integration:merged",
+        "slice:exo/EXO-05/integration:verified",
+        "work_item:exo/EXO-05:accepted",
+        "slice:exo/EXO-06/domain:started",
+        "checkpoint:EXO-ADR-013:passed",
+        "checkpoint:EXO-ADR-014:passed",
+        "slice:exo/EXO-06/domain:merged",
+        "slice:exo/EXO-06/domain:verified",
+        "slice:exo/EXO-06/integration:started",
+        "slice:exo/EXO-06/integration:merged",
+        "slice:exo/EXO-06/integration:verified",
+        "work_item:exo/EXO-06:accepted",
+        "slice:exo/EXO-07/domain:started",
+        "checkpoint:EXO-WI-FACULTY-REVIEW:passed",
+        "checkpoint:EXO-ADR-015:passed",
+        "checkpoint:EXO-ADR-016:passed",
+        "checkpoint:EXO-ADR-032:passed",
+        "slice:exo/EXO-07/domain:merged",
+        "slice:exo/EXO-07/domain:verified",
+        "work_item:exo/EXO-07:accepted",
+        "slice:exo/EXO-08/domain:started",
+        "checkpoint:EXO-ADR-017:passed",
+        "slice:exo/EXO-08/domain:merged",
+        "slice:exo/EXO-08/domain:verified",
+        "work_item:exo/EXO-08:accepted",
+        "slice:exo/EXO-09/domain:started",
+        "checkpoint:EXO-WI-DISCLOSURE-REVIEW:passed",
+        "checkpoint:EXO-ADR-019:passed",
+        "checkpoint:EXO-ADR-020:passed",
+        "slice:exo/EXO-09/domain:merged",
+        "slice:exo/EXO-09/domain:verified",
+        "work_item:exo/EXO-09:accepted",
+        "slice:exo/EXO-10/domain:started",
+        "checkpoint:EXO-ADR-021:passed",
+        "checkpoint:EXO-ADR-022:passed",
+        "slice:exo/EXO-10/domain:merged",
+        "slice:exo/EXO-10/domain:verified",
+        "slice:exo/EXO-10/integration:started",
+        "slice:exo/EXO-10/integration:merged",
+        "slice:exo/EXO-10/integration:verified",
+        "work_item:exo/EXO-10:accepted",
+        "slice:exo/EXO-11/embedded-runtime:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "slice:exo/EXO-11/embedded-runtime:merged",
+        "slice:exo/EXO-11/embedded-runtime:verified",
+        "slice:exo/EXO-11/integration:started",
+        "checkpoint:EXO-WI-G3:passed",
+        "slice:exo/EXO-11/integration:merged",
+        "checkpoint:WI-DEPLOYMENT-PARITY:passed",
+        "slice:exo/EXO-11/integration:verified",
+        "work_item:exo/EXO-11:accepted",
+        "slice:exo/EXO-12/domain:started",
+        "checkpoint:EXO-ADR-023:passed",
+        "checkpoint:EXO-ADR-038:passed",
+        "slice:exo/EXO-12/domain:merged",
+        "slice:exo/EXO-12/domain:verified",
+        "slice:exo/EXO-12/embedded-worker:started",
+        "slice:exo/EXO-12/embedded-worker:merged",
+        "slice:exo/EXO-12/embedded-worker:verified",
+        "slice:exo/EXO-12/integration:started",
+        "checkpoint:EXO-WI-G4:passed",
+        "slice:exo/EXO-12/integration:merged",
+        "slice:exo/EXO-12/integration:verified",
+        "work_item:exo/EXO-12:accepted",
+        "slice:exo/EXO-13/domain:started",
+        "checkpoint:EXO-ADR-024:passed",
+        "checkpoint:EXO-ADR-033:passed",
+        "checkpoint:EXO-ADR-034:passed",
+        "slice:exo/EXO-13/domain:merged",
+        "slice:exo/EXO-13/domain:verified",
+        "slice:exo/EXO-13/embedded-acceptance:started",
+        "slice:exo/EXO-13/embedded-acceptance:merged",
+        "slice:exo/EXO-13/embedded-acceptance:verified",
+        "slice:exo/EXO-13/integration:started",
+        "checkpoint:EXO-AQ-G5:passed",
+        "slice:exo/EXO-13/integration:merged",
+        "slice:exo/EXO-13/integration:verified",
+        "work_item:exo/EXO-13:accepted",
+        "slice:exo/EXO-14/domain:started",
+        "checkpoint:EXO-ADR-025:passed",
+        "slice:exo/EXO-14/domain:merged",
+        "slice:exo/EXO-14/domain:verified",
+        "slice:exo/EXO-14/embedded-provenance:started",
+        "slice:exo/EXO-14/embedded-provenance:merged",
+        "slice:exo/EXO-14/embedded-provenance:verified",
+        "slice:exo/EXO-14/integration:started",
+        "slice:exo/EXO-14/integration:merged",
+        "slice:exo/EXO-14/integration:verified",
+        "work_item:exo/EXO-14:accepted",
+        "slice:exo/EXO-15/domain:started",
+        "checkpoint:EXO-ADR-026:passed",
+        "checkpoint:EXO-ADR-027:passed",
+        "checkpoint:EXO-ADR-035:passed",
+        "checkpoint:EXO-ADR-036:passed",
+        "slice:exo/EXO-15/domain:merged",
+        "slice:exo/EXO-15/domain:verified",
+        "slice:exo/EXO-16/domain:started",
+        "checkpoint:EXO-ADR-028:passed",
+        "slice:exo/EXO-16/domain:merged",
+        "slice:exo/EXO-16/domain:verified",
+        "slice:exo/EXO-15/embedded-lifecycle:started",
+        "slice:exo/EXO-15/embedded-lifecycle:merged",
+        "slice:exo/EXO-18/instance-design:started",
+        "checkpoint:EXO-ADR-030:passed",
+        "slice:exo/EXO-18/instance-design:merged",
+        "slice:exo/EXO-18/instance-design:verified",
+        "checkpoint:EXO-ENV-G1:passed",
+        "slice:exo/EXO-18/instance-qualification:started",
+        "slice:exo/EXO-18/instance-qualification:merged",
+        "slice:exo/EXO-18/instance-qualification:verified",
+        "checkpoint:EXO-ENV-G2:passed",
+        "slice:exo/EXO-15/embedded-lifecycle:verified",
+        "slice:exo/EXO-15/integration:started",
+        "checkpoint:WI-PUBLISHED:passed",
+        "checkpoint:EXO-WI-G5:passed",
+        "slice:exo/EXO-15/integration:merged",
+        "slice:exo/EXO-15/integration:verified",
+        "work_item:exo/EXO-15:accepted",
+        "slice:exo/EXO-16/embedded-recovery:started",
+        "slice:exo/EXO-16/embedded-recovery:merged",
+        "slice:exo/EXO-16/embedded-recovery:verified",
+        "slice:exo/EXO-16/integration:started",
+        "slice:exo/EXO-16/integration:merged",
+        "slice:exo/EXO-16/integration:verified",
+        "work_item:exo/EXO-16:accepted",
+        "slice:exo/EXO-17/integration:started",
+        "checkpoint:EXO-ADR-029:passed",
+        "slice:exo/EXO-17/integration:merged",
+        "slice:exo/EXO-17/integration:verified",
+        "work_item:exo/EXO-17:accepted",
+        "slice:exo/EXO-18/domain:started",
+        "slice:exo/EXO-18/domain:merged",
+        "slice:exo/EXO-18/domain:verified",
+        "slice:exo/EXO-18/integration:started",
+        "slice:exo/EXO-18/integration:merged",
+        "slice:exo/EXO-18/integration:verified",
+        "work_item:exo/EXO-18:accepted",
+        "checkpoint:EXO-ENV-G3:passed",
+        "checkpoint:EXO-ENV-G4:passed",
+        "slice:exo/EXO-19/embedded-viability:started",
+        "slice:exo/EXO-19/embedded-viability:merged",
+        "slice:exo/EXO-19/embedded-viability:verified",
+        "slice:exo/EXO-19/release:started",
+        "slice:exo/EXO-19/release:merged",
+        "checkpoint:EXO-ENV-G5:passed",
+        "checkpoint:EXO-EMBEDDED-VIABILITY-1:passed",
+        "slice:exo/EXO-19/release:verified",
+        "work_item:exo/EXO-19:accepted",
+        "checkpoint:EXO-PUBLISHED:passed"
+      ],
+      "excludedCount": 0,
+      "priorityIsTargetOnly": true
+    },
+    "EXO-EMBEDDED-VIABILITY-1 target-only": {
+      "nodes": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-01/domain:started",
+        "slice:exo/EXO-01/domain:merged",
+        "slice:exo/EXO-01/domain:verified",
+        "work_item:exo/EXO-01:accepted",
+        "slice:exo/EXO-02/domain:started",
+        "checkpoint:EXO-ADR-001:passed",
+        "checkpoint:EXO-ADR-002:passed",
+        "checkpoint:EXO-ADR-003:passed",
+        "slice:exo/EXO-02/domain:merged",
+        "slice:exo/EXO-02/domain:verified",
+        "slice:exo/EXO-03/domain:started",
+        "checkpoint:EXO-ADR-004:passed",
+        "checkpoint:EXO-ADR-005:passed",
+        "checkpoint:EXO-ADR-037:passed",
+        "slice:exo/EXO-03/domain:merged",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-18/instance-design:started",
+        "checkpoint:EXO-ADR-022:passed",
+        "checkpoint:EXO-ADR-030:passed",
+        "slice:wi/WI-01/implementation:started",
+        "slice:wi/WI-01/implementation:merged",
+        "slice:wi/WI-01/implementation:verified",
+        "work_item:wi/WI-01:accepted",
+        "checkpoint:WI-ADR-016:passed",
+        "checkpoint:EXO-ADR-038:passed",
+        "slice:exo/EXO-18/instance-design:merged",
+        "slice:exo/EXO-18/instance-design:verified",
+        "slice:wi/WI-02/domain:started",
+        "checkpoint:WI-ADR-001:passed",
+        "checkpoint:WI-ADR-002:passed",
+        "checkpoint:WI-ADR-003:passed",
+        "slice:wi/WI-02/domain:merged",
+        "slice:wi/WI-02/domain:verified",
+        "slice:wi/WI-09/domain:started",
+        "slice:wi/WI-09/domain:merged",
+        "slice:wi/WI-09/domain:verified",
+        "slice:wi/WI-10/domain:started",
+        "checkpoint:WI-ADR-017:passed",
+        "slice:wi/WI-10/domain:merged",
+        "slice:wi/WI-10/domain:verified",
+        "checkpoint:WI-ADR-005:passed",
+        "checkpoint:WI-ADR-006:passed",
+        "checkpoint:WI-ADR-008:passed",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "checkpoint:EXO-ENV-G1:passed",
+        "slice:exo/EXO-18/instance-qualification:started",
+        "slice:exo/EXO-18/instance-qualification:merged",
+        "work_item:exo/EXO-02:accepted",
+        "slice:exo/EXO-03/integration:started",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "slice:wi/WI-02/integration:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "slice:wi/WI-02/integration:merged",
+        "slice:wi/WI-02/integration:verified",
+        "work_item:wi/WI-02:accepted",
+        "checkpoint:EXO-WI-G1:passed",
+        "slice:wi/WI-03/domain:started",
+        "checkpoint:WI-ADR-012:passed",
+        "checkpoint:WI-ADR-013:passed",
+        "slice:wi/WI-03/domain:merged",
+        "slice:wi/WI-03/domain:verified",
+        "slice:wi/WI-03/integration:started",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "slice:wi/WI-03/integration:merged",
+        "slice:wi/WI-03/integration:verified",
+        "work_item:wi/WI-03:accepted",
+        "slice:wi/WI-04/domain:started",
+        "checkpoint:WI-ADR-004:passed",
+        "checkpoint:WI-ADR-007:passed",
+        "slice:wi/WI-04/domain:merged",
+        "slice:wi/WI-04/domain:verified",
+        "slice:wi/WI-04/integration:started",
+        "slice:wi/WI-04/integration:merged",
+        "slice:wi/WI-04/integration:verified",
+        "work_item:wi/WI-04:accepted",
+        "slice:wi/WI-05/domain:started",
+        "checkpoint:WI-ADR-009:passed",
+        "slice:wi/WI-05/domain:merged",
+        "slice:wi/WI-05/domain:verified",
+        "slice:wi/WI-05/integration:started",
+        "checkpoint:WI-AQ-G4:passed",
+        "slice:wi/WI-05/integration:merged",
+        "slice:wi/WI-05/integration:verified",
+        "work_item:wi/WI-05:accepted",
+        "checkpoint:EXO-WI-G2:passed",
+        "slice:exo/EXO-03/integration:merged",
+        "slice:exo/EXO-03/integration:verified",
+        "work_item:exo/EXO-03:accepted",
+        "slice:exo/EXO-04/domain:started",
+        "checkpoint:EXO-WI-TIME-REVIEW:passed",
+        "checkpoint:EXO-ADR-006:passed",
+        "checkpoint:EXO-ADR-007:passed",
+        "checkpoint:EXO-ADR-008:passed",
+        "checkpoint:EXO-ADR-018:passed",
+        "checkpoint:EXO-ADR-031:passed",
+        "slice:exo/EXO-04/domain:merged",
+        "slice:exo/EXO-04/domain:verified",
+        "work_item:exo/EXO-04:accepted",
+        "slice:exo/EXO-05/domain:started",
+        "checkpoint:EXO-ADR-009:passed",
+        "checkpoint:EXO-ADR-010:passed",
+        "checkpoint:EXO-ADR-011:passed",
+        "checkpoint:EXO-ADR-012:passed",
+        "slice:exo/EXO-05/domain:merged",
+        "slice:exo/EXO-05/domain:verified",
+        "slice:exo/EXO-05/integration:started",
+        "slice:exo/EXO-05/integration:merged",
+        "slice:exo/EXO-05/integration:verified",
+        "work_item:exo/EXO-05:accepted",
+        "slice:exo/EXO-06/domain:started",
+        "checkpoint:EXO-ADR-013:passed",
+        "checkpoint:EXO-ADR-014:passed",
+        "slice:exo/EXO-06/domain:merged",
+        "slice:exo/EXO-06/domain:verified",
+        "slice:exo/EXO-06/integration:started",
+        "slice:exo/EXO-06/integration:merged",
+        "slice:exo/EXO-06/integration:verified",
+        "work_item:exo/EXO-06:accepted",
+        "slice:exo/EXO-07/domain:started",
+        "checkpoint:EXO-WI-FACULTY-REVIEW:passed",
+        "checkpoint:EXO-ADR-015:passed",
+        "checkpoint:EXO-ADR-016:passed",
+        "checkpoint:EXO-ADR-032:passed",
+        "slice:exo/EXO-07/domain:merged",
+        "slice:exo/EXO-07/domain:verified",
+        "work_item:exo/EXO-07:accepted",
+        "slice:exo/EXO-08/domain:started",
+        "checkpoint:EXO-ADR-017:passed",
+        "slice:exo/EXO-08/domain:merged",
+        "slice:exo/EXO-08/domain:verified",
+        "work_item:exo/EXO-08:accepted",
+        "slice:exo/EXO-09/domain:started",
+        "checkpoint:EXO-WI-DISCLOSURE-REVIEW:passed",
+        "checkpoint:EXO-ADR-019:passed",
+        "checkpoint:EXO-ADR-020:passed",
+        "slice:exo/EXO-09/domain:merged",
+        "slice:exo/EXO-09/domain:verified",
+        "work_item:exo/EXO-09:accepted",
+        "slice:exo/EXO-10/domain:started",
+        "checkpoint:EXO-ADR-021:passed",
+        "slice:exo/EXO-10/domain:merged",
+        "slice:exo/EXO-10/domain:verified",
+        "slice:exo/EXO-10/integration:started",
+        "slice:exo/EXO-10/integration:merged",
+        "slice:exo/EXO-10/integration:verified",
+        "work_item:exo/EXO-10:accepted",
+        "slice:exo/EXO-11/embedded-runtime:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "slice:wi/WI-06/domain:started",
+        "checkpoint:WI-ADR-011:passed",
+        "slice:wi/WI-06/domain:merged",
+        "slice:wi/WI-06/domain:verified",
+        "slice:wi/WI-06/integration:started",
+        "slice:wi/WI-06/integration:merged",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-07/domain:started",
+        "checkpoint:WI-ADR-014:passed",
+        "slice:wi/WI-07/domain:merged",
+        "slice:wi/WI-07/domain:verified",
+        "slice:wi/WI-07/integration:started",
+        "slice:wi/WI-07/integration:merged",
+        "slice:wi/WI-07/integration:verified",
+        "slice:wi/WI-08/integration:started",
+        "checkpoint:WI-ADR-015:passed",
+        "slice:wi/WI-08/integration:merged",
+        "slice:wi/WI-08/integration:verified",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "slice:wi/WI-11/domain:started",
+        "checkpoint:WI-ADR-018:passed",
+        "slice:wi/WI-11/domain:merged",
+        "slice:wi/WI-11/domain:verified",
+        "slice:wi/WI-11/embedded-runtime:started",
+        "slice:wi/WI-09/process-provider:started",
+        "checkpoint:WI-WORKER-G2:passed",
+        "slice:wi/WI-09/process-provider:merged",
+        "slice:wi/WI-09/process-provider:verified",
+        "slice:wi/WI-10/process-catalog:started",
+        "checkpoint:WI-WORKER-G3:passed",
+        "slice:wi/WI-10/process-catalog:merged",
+        "slice:wi/WI-10/process-catalog:verified",
+        "slice:wi/WI-11/embedded-runtime:merged",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "slice:exo/EXO-11/embedded-runtime:merged",
+        "slice:exo/EXO-11/embedded-runtime:verified",
+        "slice:exo/EXO-18/instance-qualification:verified",
+        "checkpoint:EXO-ENV-G2:passed",
+        "slice:wi/WI-13/worker-conformance:started",
+        "slice:wi/WI-13/worker-conformance:merged",
+        "slice:wi/WI-13/worker-conformance:verified",
+        "slice:wi/WI-14/worker-handoff:started",
+        "slice:wi/WI-14/worker-handoff:merged",
+        "slice:wi/WI-14/worker-handoff:verified",
+        "checkpoint:WI-WORKER-G4:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "slice:exo/EXO-12/domain:started",
+        "checkpoint:EXO-ADR-023:passed",
+        "slice:exo/EXO-12/domain:merged",
+        "slice:exo/EXO-12/domain:verified",
+        "slice:exo/EXO-12/embedded-worker:started",
+        "slice:exo/EXO-12/embedded-worker:merged",
+        "slice:exo/EXO-12/embedded-worker:verified",
+        "slice:exo/EXO-13/domain:started",
+        "checkpoint:EXO-ADR-024:passed",
+        "checkpoint:EXO-ADR-033:passed",
+        "checkpoint:EXO-ADR-034:passed",
+        "slice:exo/EXO-13/domain:merged",
+        "slice:exo/EXO-13/domain:verified",
+        "slice:exo/EXO-13/embedded-acceptance:started",
+        "slice:exo/EXO-13/embedded-acceptance:merged",
+        "slice:exo/EXO-13/embedded-acceptance:verified",
+        "checkpoint:EXO-ENV-G3:passed",
+        "slice:wi/WI-11/supervisor-boundary:started",
+        "slice:wi/WI-11/supervisor-boundary:merged",
+        "slice:wi/WI-11/supervisor-boundary:verified",
+        "slice:wi/WI-13/supervisor-conformance:started",
+        "slice:wi/WI-13/supervisor-conformance:merged",
+        "slice:wi/WI-13/supervisor-conformance:verified",
+        "checkpoint:WI-WORKER-G5:passed",
+        "slice:exo/EXO-14/domain:started",
+        "checkpoint:EXO-ADR-025:passed",
+        "slice:exo/EXO-14/domain:merged",
+        "slice:exo/EXO-14/domain:verified",
+        "slice:exo/EXO-15/domain:started",
+        "checkpoint:EXO-ADR-026:passed",
+        "checkpoint:EXO-ADR-027:passed",
+        "checkpoint:EXO-ADR-035:passed",
+        "checkpoint:EXO-ADR-036:passed",
+        "slice:exo/EXO-15/domain:merged",
+        "slice:exo/EXO-15/domain:verified",
+        "slice:exo/EXO-14/embedded-provenance:started",
+        "slice:exo/EXO-14/embedded-provenance:merged",
+        "slice:exo/EXO-14/embedded-provenance:verified",
+        "slice:exo/EXO-16/domain:started",
+        "checkpoint:EXO-ADR-028:passed",
+        "slice:exo/EXO-16/domain:merged",
+        "slice:exo/EXO-16/domain:verified",
+        "slice:exo/EXO-15/embedded-lifecycle:started",
+        "slice:exo/EXO-15/embedded-lifecycle:merged",
+        "slice:exo/EXO-15/embedded-lifecycle:verified",
+        "slice:exo/EXO-16/embedded-recovery:started",
+        "slice:exo/EXO-16/embedded-recovery:merged",
+        "slice:exo/EXO-16/embedded-recovery:verified",
+        "checkpoint:EXO-ENV-G4:passed",
+        "slice:exo/EXO-19/embedded-viability:started",
+        "slice:exo/EXO-19/embedded-viability:merged",
+        "slice:exo/EXO-19/embedded-viability:verified",
+        "checkpoint:EXO-ENV-G5:passed",
+        "checkpoint:EXO-EMBEDDED-VIABILITY-1:passed"
+      ],
+      "excludedCount": 81,
+      "priorityIsTargetOnly": true
+    },
+    "EXO-EMBEDDED-VIABILITY-1 prioritize-full": {
+      "nodes": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-01/domain:started",
+        "slice:exo/EXO-01/domain:merged",
+        "slice:exo/EXO-01/domain:verified",
+        "work_item:exo/EXO-01:accepted",
+        "slice:exo/EXO-02/domain:started",
+        "checkpoint:EXO-ADR-001:passed",
+        "checkpoint:EXO-ADR-002:passed",
+        "checkpoint:EXO-ADR-003:passed",
+        "slice:exo/EXO-02/domain:merged",
+        "slice:exo/EXO-02/domain:verified",
+        "slice:exo/EXO-03/domain:started",
+        "checkpoint:EXO-ADR-004:passed",
+        "checkpoint:EXO-ADR-005:passed",
+        "checkpoint:EXO-ADR-037:passed",
+        "slice:exo/EXO-03/domain:merged",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-18/instance-design:started",
+        "checkpoint:EXO-ADR-022:passed",
+        "checkpoint:EXO-ADR-030:passed",
+        "slice:wi/WI-01/implementation:started",
+        "slice:wi/WI-01/implementation:merged",
+        "slice:wi/WI-01/implementation:verified",
+        "work_item:wi/WI-01:accepted",
+        "checkpoint:WI-ADR-016:passed",
+        "checkpoint:EXO-ADR-038:passed",
+        "slice:exo/EXO-18/instance-design:merged",
+        "slice:exo/EXO-18/instance-design:verified",
+        "slice:wi/WI-02/domain:started",
+        "checkpoint:WI-ADR-001:passed",
+        "checkpoint:WI-ADR-002:passed",
+        "checkpoint:WI-ADR-003:passed",
+        "slice:wi/WI-02/domain:merged",
+        "slice:wi/WI-02/domain:verified",
+        "slice:wi/WI-09/domain:started",
+        "slice:wi/WI-09/domain:merged",
+        "slice:wi/WI-09/domain:verified",
+        "slice:wi/WI-10/domain:started",
+        "checkpoint:WI-ADR-017:passed",
+        "slice:wi/WI-10/domain:merged",
+        "slice:wi/WI-10/domain:verified",
+        "checkpoint:WI-ADR-005:passed",
+        "checkpoint:WI-ADR-006:passed",
+        "checkpoint:WI-ADR-008:passed",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "checkpoint:EXO-ENV-G1:passed",
+        "slice:exo/EXO-18/instance-qualification:started",
+        "slice:exo/EXO-18/instance-qualification:merged",
+        "work_item:exo/EXO-02:accepted",
+        "slice:exo/EXO-03/integration:started",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "slice:wi/WI-02/integration:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "slice:wi/WI-02/integration:merged",
+        "slice:wi/WI-02/integration:verified",
+        "work_item:wi/WI-02:accepted",
+        "checkpoint:EXO-WI-G1:passed",
+        "slice:wi/WI-03/domain:started",
+        "checkpoint:WI-ADR-012:passed",
+        "checkpoint:WI-ADR-013:passed",
+        "slice:wi/WI-03/domain:merged",
+        "slice:wi/WI-03/domain:verified",
+        "slice:wi/WI-03/integration:started",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "slice:wi/WI-03/integration:merged",
+        "slice:wi/WI-03/integration:verified",
+        "work_item:wi/WI-03:accepted",
+        "slice:wi/WI-04/domain:started",
+        "checkpoint:WI-ADR-004:passed",
+        "checkpoint:WI-ADR-007:passed",
+        "slice:wi/WI-04/domain:merged",
+        "slice:wi/WI-04/domain:verified",
+        "slice:wi/WI-04/integration:started",
+        "slice:wi/WI-04/integration:merged",
+        "slice:wi/WI-04/integration:verified",
+        "work_item:wi/WI-04:accepted",
+        "slice:wi/WI-05/domain:started",
+        "checkpoint:WI-ADR-009:passed",
+        "slice:wi/WI-05/domain:merged",
+        "slice:wi/WI-05/domain:verified",
+        "slice:wi/WI-05/integration:started",
+        "checkpoint:WI-AQ-G4:passed",
+        "slice:wi/WI-05/integration:merged",
+        "slice:wi/WI-05/integration:verified",
+        "work_item:wi/WI-05:accepted",
+        "checkpoint:EXO-WI-G2:passed",
+        "slice:exo/EXO-03/integration:merged",
+        "slice:exo/EXO-03/integration:verified",
+        "work_item:exo/EXO-03:accepted",
+        "slice:exo/EXO-04/domain:started",
+        "checkpoint:EXO-WI-TIME-REVIEW:passed",
+        "checkpoint:EXO-ADR-006:passed",
+        "checkpoint:EXO-ADR-007:passed",
+        "checkpoint:EXO-ADR-008:passed",
+        "checkpoint:EXO-ADR-018:passed",
+        "checkpoint:EXO-ADR-031:passed",
+        "slice:exo/EXO-04/domain:merged",
+        "slice:exo/EXO-04/domain:verified",
+        "work_item:exo/EXO-04:accepted",
+        "slice:exo/EXO-05/domain:started",
+        "checkpoint:EXO-ADR-009:passed",
+        "checkpoint:EXO-ADR-010:passed",
+        "checkpoint:EXO-ADR-011:passed",
+        "checkpoint:EXO-ADR-012:passed",
+        "slice:exo/EXO-05/domain:merged",
+        "slice:exo/EXO-05/domain:verified",
+        "slice:exo/EXO-05/integration:started",
+        "slice:exo/EXO-05/integration:merged",
+        "slice:exo/EXO-05/integration:verified",
+        "work_item:exo/EXO-05:accepted",
+        "slice:exo/EXO-06/domain:started",
+        "checkpoint:EXO-ADR-013:passed",
+        "checkpoint:EXO-ADR-014:passed",
+        "slice:exo/EXO-06/domain:merged",
+        "slice:exo/EXO-06/domain:verified",
+        "slice:exo/EXO-06/integration:started",
+        "slice:exo/EXO-06/integration:merged",
+        "slice:exo/EXO-06/integration:verified",
+        "work_item:exo/EXO-06:accepted",
+        "slice:exo/EXO-07/domain:started",
+        "checkpoint:EXO-WI-FACULTY-REVIEW:passed",
+        "checkpoint:EXO-ADR-015:passed",
+        "checkpoint:EXO-ADR-016:passed",
+        "checkpoint:EXO-ADR-032:passed",
+        "slice:exo/EXO-07/domain:merged",
+        "slice:exo/EXO-07/domain:verified",
+        "work_item:exo/EXO-07:accepted",
+        "slice:exo/EXO-08/domain:started",
+        "checkpoint:EXO-ADR-017:passed",
+        "slice:exo/EXO-08/domain:merged",
+        "slice:exo/EXO-08/domain:verified",
+        "work_item:exo/EXO-08:accepted",
+        "slice:exo/EXO-09/domain:started",
+        "checkpoint:EXO-WI-DISCLOSURE-REVIEW:passed",
+        "checkpoint:EXO-ADR-019:passed",
+        "checkpoint:EXO-ADR-020:passed",
+        "slice:exo/EXO-09/domain:merged",
+        "slice:exo/EXO-09/domain:verified",
+        "work_item:exo/EXO-09:accepted",
+        "slice:exo/EXO-10/domain:started",
+        "checkpoint:EXO-ADR-021:passed",
+        "slice:exo/EXO-10/domain:merged",
+        "slice:exo/EXO-10/domain:verified",
+        "slice:exo/EXO-10/integration:started",
+        "slice:exo/EXO-10/integration:merged",
+        "slice:exo/EXO-10/integration:verified",
+        "work_item:exo/EXO-10:accepted",
+        "slice:exo/EXO-11/embedded-runtime:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "slice:wi/WI-06/domain:started",
+        "checkpoint:WI-ADR-011:passed",
+        "slice:wi/WI-06/domain:merged",
+        "slice:wi/WI-06/domain:verified",
+        "slice:wi/WI-06/integration:started",
+        "slice:wi/WI-06/integration:merged",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-07/domain:started",
+        "checkpoint:WI-ADR-014:passed",
+        "slice:wi/WI-07/domain:merged",
+        "slice:wi/WI-07/domain:verified",
+        "slice:wi/WI-07/integration:started",
+        "slice:wi/WI-07/integration:merged",
+        "slice:wi/WI-07/integration:verified",
+        "slice:wi/WI-08/integration:started",
+        "checkpoint:WI-ADR-015:passed",
+        "slice:wi/WI-08/integration:merged",
+        "slice:wi/WI-08/integration:verified",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "slice:wi/WI-11/domain:started",
+        "checkpoint:WI-ADR-018:passed",
+        "slice:wi/WI-11/domain:merged",
+        "slice:wi/WI-11/domain:verified",
+        "slice:wi/WI-11/embedded-runtime:started",
+        "slice:wi/WI-09/process-provider:started",
+        "checkpoint:WI-WORKER-G2:passed",
+        "slice:wi/WI-09/process-provider:merged",
+        "slice:wi/WI-09/process-provider:verified",
+        "slice:wi/WI-10/process-catalog:started",
+        "checkpoint:WI-WORKER-G3:passed",
+        "slice:wi/WI-10/process-catalog:merged",
+        "slice:wi/WI-10/process-catalog:verified",
+        "slice:wi/WI-11/embedded-runtime:merged",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "slice:exo/EXO-11/embedded-runtime:merged",
+        "slice:exo/EXO-11/embedded-runtime:verified",
+        "slice:exo/EXO-18/instance-qualification:verified",
+        "checkpoint:EXO-ENV-G2:passed",
+        "slice:wi/WI-13/worker-conformance:started",
+        "slice:wi/WI-13/worker-conformance:merged",
+        "slice:wi/WI-13/worker-conformance:verified",
+        "slice:wi/WI-14/worker-handoff:started",
+        "slice:wi/WI-14/worker-handoff:merged",
+        "slice:wi/WI-14/worker-handoff:verified",
+        "checkpoint:WI-WORKER-G4:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "slice:exo/EXO-12/domain:started",
+        "checkpoint:EXO-ADR-023:passed",
+        "slice:exo/EXO-12/domain:merged",
+        "slice:exo/EXO-12/domain:verified",
+        "slice:exo/EXO-12/embedded-worker:started",
+        "slice:exo/EXO-12/embedded-worker:merged",
+        "slice:exo/EXO-12/embedded-worker:verified",
+        "slice:exo/EXO-13/domain:started",
+        "checkpoint:EXO-ADR-024:passed",
+        "checkpoint:EXO-ADR-033:passed",
+        "checkpoint:EXO-ADR-034:passed",
+        "slice:exo/EXO-13/domain:merged",
+        "slice:exo/EXO-13/domain:verified",
+        "slice:exo/EXO-13/embedded-acceptance:started",
+        "slice:exo/EXO-13/embedded-acceptance:merged",
+        "slice:exo/EXO-13/embedded-acceptance:verified",
+        "checkpoint:EXO-ENV-G3:passed",
+        "slice:wi/WI-11/supervisor-boundary:started",
+        "slice:wi/WI-11/supervisor-boundary:merged",
+        "slice:wi/WI-11/supervisor-boundary:verified",
+        "slice:wi/WI-13/supervisor-conformance:started",
+        "slice:wi/WI-13/supervisor-conformance:merged",
+        "slice:wi/WI-13/supervisor-conformance:verified",
+        "checkpoint:WI-WORKER-G5:passed",
+        "slice:exo/EXO-14/domain:started",
+        "checkpoint:EXO-ADR-025:passed",
+        "slice:exo/EXO-14/domain:merged",
+        "slice:exo/EXO-14/domain:verified",
+        "slice:exo/EXO-15/domain:started",
+        "checkpoint:EXO-ADR-026:passed",
+        "checkpoint:EXO-ADR-027:passed",
+        "checkpoint:EXO-ADR-035:passed",
+        "checkpoint:EXO-ADR-036:passed",
+        "slice:exo/EXO-15/domain:merged",
+        "slice:exo/EXO-15/domain:verified",
+        "slice:exo/EXO-14/embedded-provenance:started",
+        "slice:exo/EXO-14/embedded-provenance:merged",
+        "slice:exo/EXO-14/embedded-provenance:verified",
+        "slice:exo/EXO-16/domain:started",
+        "checkpoint:EXO-ADR-028:passed",
+        "slice:exo/EXO-16/domain:merged",
+        "slice:exo/EXO-16/domain:verified",
+        "slice:exo/EXO-15/embedded-lifecycle:started",
+        "slice:exo/EXO-15/embedded-lifecycle:merged",
+        "slice:exo/EXO-15/embedded-lifecycle:verified",
+        "slice:exo/EXO-16/embedded-recovery:started",
+        "slice:exo/EXO-16/embedded-recovery:merged",
+        "slice:exo/EXO-16/embedded-recovery:verified",
+        "checkpoint:EXO-ENV-G4:passed",
+        "slice:exo/EXO-19/embedded-viability:started",
+        "slice:exo/EXO-19/embedded-viability:merged",
+        "slice:exo/EXO-19/embedded-viability:verified",
+        "checkpoint:EXO-ENV-G5:passed",
+        "checkpoint:EXO-EMBEDDED-VIABILITY-1:passed",
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-07:accepted",
+        "work_item:wi/WI-08:accepted",
+        "slice:wi/WI-09/integration:started",
+        "slice:wi/WI-09/integration:merged",
+        "slice:wi/WI-09/integration:verified",
+        "work_item:wi/WI-09:accepted",
+        "slice:wi/WI-10/integration:started",
+        "slice:wi/WI-10/integration:merged",
+        "slice:wi/WI-10/integration:verified",
+        "work_item:wi/WI-10:accepted",
+        "slice:wi/WI-11/integration:started",
+        "slice:wi/WI-11/integration:merged",
+        "checkpoint:WI-AQ-G5:passed",
+        "slice:wi/WI-11/integration:verified",
+        "work_item:wi/WI-11:accepted",
+        "slice:wi/WI-12/domain:started",
+        "checkpoint:WI-ADR-019:passed",
+        "checkpoint:WI-ADR-020:passed",
+        "slice:wi/WI-12/domain:merged",
+        "slice:wi/WI-12/domain:verified",
+        "slice:wi/WI-12/integration:started",
+        "slice:wi/WI-12/integration:merged",
+        "slice:wi/WI-12/integration:verified",
+        "work_item:wi/WI-12:accepted",
+        "slice:wi/WI-13/conformance:started",
+        "slice:wi/WI-13/conformance:merged",
+        "slice:wi/WI-13/conformance:verified",
+        "work_item:wi/WI-13:accepted",
+        "checkpoint:AQ-PUBLISHED:passed",
+        "slice:wi/WI-14/release:started",
+        "slice:wi/WI-14/release:merged",
+        "slice:wi/WI-14/release:verified",
+        "work_item:wi/WI-14:accepted",
+        "slice:exo/EXO-11/integration:started",
+        "checkpoint:EXO-WI-G3:passed",
+        "slice:exo/EXO-11/integration:merged",
+        "checkpoint:WI-DEPLOYMENT-PARITY:passed",
+        "slice:exo/EXO-11/integration:verified",
+        "work_item:exo/EXO-11:accepted",
+        "slice:exo/EXO-12/integration:started",
+        "checkpoint:EXO-WI-G4:passed",
+        "slice:exo/EXO-12/integration:merged",
+        "slice:exo/EXO-12/integration:verified",
+        "work_item:exo/EXO-12:accepted",
+        "slice:exo/EXO-13/integration:started",
+        "checkpoint:EXO-AQ-G5:passed",
+        "slice:exo/EXO-13/integration:merged",
+        "slice:exo/EXO-13/integration:verified",
+        "work_item:exo/EXO-13:accepted",
+        "slice:exo/EXO-14/integration:started",
+        "slice:exo/EXO-14/integration:merged",
+        "slice:exo/EXO-14/integration:verified",
+        "work_item:exo/EXO-14:accepted",
+        "slice:exo/EXO-15/integration:started",
+        "checkpoint:WI-PUBLISHED:passed",
+        "checkpoint:EXO-WI-G5:passed",
+        "slice:exo/EXO-15/integration:merged",
+        "slice:exo/EXO-15/integration:verified",
+        "work_item:exo/EXO-15:accepted",
+        "slice:exo/EXO-16/integration:started",
+        "slice:exo/EXO-16/integration:merged",
+        "slice:exo/EXO-16/integration:verified",
+        "work_item:exo/EXO-16:accepted",
+        "slice:exo/EXO-17/integration:started",
+        "checkpoint:EXO-ADR-029:passed",
+        "slice:exo/EXO-17/integration:merged",
+        "slice:exo/EXO-17/integration:verified",
+        "work_item:exo/EXO-17:accepted",
+        "slice:exo/EXO-18/domain:started",
+        "slice:exo/EXO-18/domain:merged",
+        "slice:exo/EXO-18/domain:verified",
+        "slice:exo/EXO-18/integration:started",
+        "slice:exo/EXO-18/integration:merged",
+        "slice:exo/EXO-18/integration:verified",
+        "work_item:exo/EXO-18:accepted",
+        "slice:exo/EXO-19/release:started",
+        "slice:exo/EXO-19/release:merged",
+        "slice:exo/EXO-19/release:verified",
+        "work_item:exo/EXO-19:accepted",
+        "checkpoint:EXO-PUBLISHED:passed"
+      ],
+      "excludedCount": 0,
+      "priorityIsTargetOnly": true
+    },
+    "FULL-STACK-RELEASE target-only": {
+      "nodes": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-01/domain:started",
+        "slice:exo/EXO-01/domain:merged",
+        "slice:exo/EXO-01/domain:verified",
+        "work_item:exo/EXO-01:accepted",
+        "slice:exo/EXO-02/domain:started",
+        "checkpoint:EXO-ADR-001:passed",
+        "checkpoint:EXO-ADR-002:passed",
+        "checkpoint:EXO-ADR-003:passed",
+        "slice:exo/EXO-02/domain:merged",
+        "slice:exo/EXO-02/domain:verified",
+        "work_item:exo/EXO-02:accepted",
+        "slice:exo/EXO-03/domain:started",
+        "checkpoint:EXO-ADR-004:passed",
+        "checkpoint:EXO-ADR-005:passed",
+        "checkpoint:EXO-ADR-037:passed",
+        "slice:exo/EXO-03/domain:merged",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-03/integration:started",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "slice:wi/WI-01/implementation:started",
+        "slice:wi/WI-01/implementation:merged",
+        "slice:wi/WI-01/implementation:verified",
+        "work_item:wi/WI-01:accepted",
+        "slice:wi/WI-02/domain:started",
+        "checkpoint:WI-ADR-001:passed",
+        "checkpoint:WI-ADR-002:passed",
+        "checkpoint:WI-ADR-003:passed",
+        "checkpoint:WI-ADR-016:passed",
+        "slice:wi/WI-02/domain:merged",
+        "slice:wi/WI-02/domain:verified",
+        "slice:wi/WI-02/integration:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "slice:wi/WI-02/integration:merged",
+        "slice:wi/WI-02/integration:verified",
+        "work_item:wi/WI-02:accepted",
+        "checkpoint:EXO-WI-G1:passed",
+        "slice:wi/WI-03/domain:started",
+        "checkpoint:WI-ADR-012:passed",
+        "checkpoint:WI-ADR-013:passed",
+        "slice:wi/WI-03/domain:merged",
+        "slice:wi/WI-03/domain:verified",
+        "slice:wi/WI-03/integration:started",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "slice:wi/WI-03/integration:merged",
+        "slice:wi/WI-03/integration:verified",
+        "work_item:wi/WI-03:accepted",
+        "slice:wi/WI-04/domain:started",
+        "checkpoint:WI-ADR-004:passed",
+        "checkpoint:WI-ADR-005:passed",
+        "checkpoint:WI-ADR-006:passed",
+        "checkpoint:WI-ADR-007:passed",
+        "slice:wi/WI-09/domain:started",
+        "slice:wi/WI-09/domain:merged",
+        "slice:wi/WI-09/domain:verified",
+        "slice:wi/WI-10/domain:started",
+        "checkpoint:WI-ADR-017:passed",
+        "slice:wi/WI-10/domain:merged",
+        "slice:wi/WI-10/domain:verified",
+        "checkpoint:WI-ADR-008:passed",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "slice:wi/WI-04/domain:merged",
+        "slice:wi/WI-04/domain:verified",
+        "slice:wi/WI-04/integration:started",
+        "slice:wi/WI-04/integration:merged",
+        "slice:wi/WI-04/integration:verified",
+        "work_item:wi/WI-04:accepted",
+        "slice:wi/WI-05/domain:started",
+        "checkpoint:WI-ADR-009:passed",
+        "slice:wi/WI-05/domain:merged",
+        "slice:wi/WI-05/domain:verified",
+        "slice:wi/WI-05/integration:started",
+        "checkpoint:WI-AQ-G4:passed",
+        "slice:wi/WI-05/integration:merged",
+        "slice:wi/WI-05/integration:verified",
+        "work_item:wi/WI-05:accepted",
+        "checkpoint:EXO-WI-G2:passed",
+        "slice:exo/EXO-03/integration:merged",
+        "slice:exo/EXO-03/integration:verified",
+        "work_item:exo/EXO-03:accepted",
+        "slice:exo/EXO-04/domain:started",
+        "checkpoint:EXO-WI-TIME-REVIEW:passed",
+        "checkpoint:EXO-ADR-006:passed",
+        "checkpoint:EXO-ADR-007:passed",
+        "checkpoint:EXO-ADR-008:passed",
+        "checkpoint:EXO-ADR-018:passed",
+        "checkpoint:EXO-ADR-031:passed",
+        "slice:exo/EXO-04/domain:merged",
+        "slice:exo/EXO-04/domain:verified",
+        "work_item:exo/EXO-04:accepted",
+        "slice:exo/EXO-05/domain:started",
+        "checkpoint:EXO-ADR-009:passed",
+        "checkpoint:EXO-ADR-010:passed",
+        "checkpoint:EXO-ADR-011:passed",
+        "checkpoint:EXO-ADR-012:passed",
+        "slice:exo/EXO-05/domain:merged",
+        "slice:exo/EXO-05/domain:verified",
+        "slice:exo/EXO-05/integration:started",
+        "slice:exo/EXO-05/integration:merged",
+        "slice:exo/EXO-05/integration:verified",
+        "work_item:exo/EXO-05:accepted",
+        "slice:exo/EXO-06/domain:started",
+        "checkpoint:EXO-ADR-013:passed",
+        "checkpoint:EXO-ADR-014:passed",
+        "slice:exo/EXO-06/domain:merged",
+        "slice:exo/EXO-06/domain:verified",
+        "slice:exo/EXO-06/integration:started",
+        "slice:exo/EXO-06/integration:merged",
+        "slice:exo/EXO-06/integration:verified",
+        "work_item:exo/EXO-06:accepted",
+        "slice:exo/EXO-07/domain:started",
+        "checkpoint:EXO-WI-FACULTY-REVIEW:passed",
+        "checkpoint:EXO-ADR-015:passed",
+        "checkpoint:EXO-ADR-016:passed",
+        "checkpoint:EXO-ADR-032:passed",
+        "slice:exo/EXO-07/domain:merged",
+        "slice:exo/EXO-07/domain:verified",
+        "work_item:exo/EXO-07:accepted",
+        "slice:exo/EXO-08/domain:started",
+        "checkpoint:EXO-ADR-017:passed",
+        "slice:exo/EXO-08/domain:merged",
+        "slice:exo/EXO-08/domain:verified",
+        "work_item:exo/EXO-08:accepted",
+        "slice:exo/EXO-09/domain:started",
+        "checkpoint:EXO-WI-DISCLOSURE-REVIEW:passed",
+        "checkpoint:EXO-ADR-019:passed",
+        "checkpoint:EXO-ADR-020:passed",
+        "slice:exo/EXO-09/domain:merged",
+        "slice:exo/EXO-09/domain:verified",
+        "work_item:exo/EXO-09:accepted",
+        "slice:exo/EXO-10/domain:started",
+        "checkpoint:EXO-ADR-021:passed",
+        "checkpoint:EXO-ADR-022:passed",
+        "slice:exo/EXO-10/domain:merged",
+        "slice:exo/EXO-10/domain:verified",
+        "slice:exo/EXO-10/integration:started",
+        "slice:exo/EXO-10/integration:merged",
+        "slice:exo/EXO-10/integration:verified",
+        "work_item:exo/EXO-10:accepted",
+        "slice:exo/EXO-11/embedded-runtime:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "slice:wi/WI-06/domain:started",
+        "checkpoint:WI-ADR-011:passed",
+        "slice:wi/WI-06/domain:merged",
+        "slice:wi/WI-06/domain:verified",
+        "slice:wi/WI-06/integration:started",
+        "slice:wi/WI-06/integration:merged",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-07/domain:started",
+        "checkpoint:WI-ADR-014:passed",
+        "slice:wi/WI-07/domain:merged",
+        "slice:wi/WI-07/domain:verified",
+        "slice:wi/WI-07/integration:started",
+        "slice:wi/WI-07/integration:merged",
+        "slice:wi/WI-07/integration:verified",
+        "slice:wi/WI-08/integration:started",
+        "checkpoint:WI-ADR-015:passed",
+        "slice:wi/WI-08/integration:merged",
+        "slice:wi/WI-08/integration:verified",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "slice:wi/WI-11/domain:started",
+        "checkpoint:WI-ADR-018:passed",
+        "slice:wi/WI-11/domain:merged",
+        "slice:wi/WI-11/domain:verified",
+        "slice:wi/WI-11/embedded-runtime:started",
+        "slice:wi/WI-09/process-provider:started",
+        "checkpoint:WI-WORKER-G2:passed",
+        "slice:wi/WI-09/process-provider:merged",
+        "slice:wi/WI-09/process-provider:verified",
+        "slice:wi/WI-10/process-catalog:started",
+        "checkpoint:WI-WORKER-G3:passed",
+        "slice:wi/WI-10/process-catalog:merged",
+        "slice:wi/WI-10/process-catalog:verified",
+        "slice:wi/WI-11/embedded-runtime:merged",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "slice:exo/EXO-11/embedded-runtime:merged",
+        "slice:exo/EXO-11/embedded-runtime:verified",
+        "slice:exo/EXO-11/integration:started",
+        "slice:wi/WI-11/supervisor-boundary:started",
+        "slice:wi/WI-11/supervisor-boundary:merged",
+        "slice:wi/WI-11/supervisor-boundary:verified",
+        "slice:wi/WI-13/supervisor-conformance:started",
+        "slice:wi/WI-13/supervisor-conformance:merged",
+        "slice:wi/WI-13/supervisor-conformance:verified",
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-07:accepted",
+        "work_item:wi/WI-08:accepted",
+        "checkpoint:EXO-WI-G3:passed",
+        "slice:exo/EXO-11/integration:merged",
+        "slice:wi/WI-09/integration:started",
+        "slice:wi/WI-09/integration:merged",
+        "slice:wi/WI-13/worker-conformance:started",
+        "slice:wi/WI-13/worker-conformance:merged",
+        "slice:wi/WI-13/worker-conformance:verified",
+        "slice:wi/WI-14/worker-handoff:started",
+        "slice:wi/WI-14/worker-handoff:merged",
+        "slice:wi/WI-14/worker-handoff:verified",
+        "checkpoint:WI-WORKER-G4:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "slice:wi/WI-09/integration:verified",
+        "work_item:wi/WI-09:accepted",
+        "slice:wi/WI-10/integration:started",
+        "slice:wi/WI-10/integration:merged",
+        "slice:wi/WI-10/integration:verified",
+        "work_item:wi/WI-10:accepted",
+        "slice:wi/WI-11/integration:started",
+        "slice:wi/WI-11/integration:merged",
+        "checkpoint:WI-AQ-G5:passed",
+        "slice:wi/WI-11/integration:verified",
+        "work_item:wi/WI-11:accepted",
+        "checkpoint:WI-DEPLOYMENT-PARITY:passed",
+        "slice:exo/EXO-11/integration:verified",
+        "work_item:exo/EXO-11:accepted",
+        "slice:exo/EXO-12/domain:started",
+        "checkpoint:EXO-ADR-023:passed",
+        "checkpoint:EXO-ADR-038:passed",
+        "slice:exo/EXO-12/domain:merged",
+        "slice:exo/EXO-12/domain:verified",
+        "slice:exo/EXO-12/embedded-worker:started",
+        "slice:exo/EXO-12/embedded-worker:merged",
+        "slice:exo/EXO-12/embedded-worker:verified",
+        "slice:exo/EXO-12/integration:started",
+        "slice:wi/WI-12/domain:started",
+        "checkpoint:WI-ADR-019:passed",
+        "checkpoint:WI-ADR-020:passed",
+        "slice:wi/WI-12/domain:merged",
+        "slice:wi/WI-12/domain:verified",
+        "slice:wi/WI-12/integration:started",
+        "slice:wi/WI-12/integration:merged",
+        "slice:wi/WI-12/integration:verified",
+        "work_item:wi/WI-12:accepted",
+        "checkpoint:EXO-WI-G4:passed",
+        "slice:exo/EXO-12/integration:merged",
+        "slice:exo/EXO-12/integration:verified",
+        "work_item:exo/EXO-12:accepted",
+        "slice:exo/EXO-13/domain:started",
+        "checkpoint:EXO-ADR-024:passed",
+        "checkpoint:EXO-ADR-033:passed",
+        "checkpoint:EXO-ADR-034:passed",
+        "slice:exo/EXO-13/domain:merged",
+        "slice:exo/EXO-13/domain:verified",
+        "slice:exo/EXO-13/embedded-acceptance:started",
+        "slice:exo/EXO-13/embedded-acceptance:merged",
+        "slice:exo/EXO-13/embedded-acceptance:verified",
+        "slice:exo/EXO-13/integration:started",
+        "checkpoint:AQ-PUBLISHED:passed",
+        "checkpoint:EXO-AQ-G5:passed",
+        "slice:exo/EXO-13/integration:merged",
+        "slice:exo/EXO-13/integration:verified",
+        "work_item:exo/EXO-13:accepted",
+        "slice:exo/EXO-14/domain:started",
+        "checkpoint:EXO-ADR-025:passed",
+        "slice:exo/EXO-14/domain:merged",
+        "slice:exo/EXO-14/domain:verified",
+        "slice:exo/EXO-14/embedded-provenance:started",
+        "slice:exo/EXO-14/embedded-provenance:merged",
+        "slice:exo/EXO-14/embedded-provenance:verified",
+        "slice:exo/EXO-14/integration:started",
+        "slice:exo/EXO-14/integration:merged",
+        "slice:exo/EXO-14/integration:verified",
+        "work_item:exo/EXO-14:accepted",
+        "slice:exo/EXO-15/domain:started",
+        "checkpoint:EXO-ADR-026:passed",
+        "checkpoint:EXO-ADR-027:passed",
+        "checkpoint:EXO-ADR-035:passed",
+        "checkpoint:EXO-ADR-036:passed",
+        "slice:exo/EXO-15/domain:merged",
+        "slice:exo/EXO-15/domain:verified",
+        "slice:exo/EXO-16/domain:started",
+        "checkpoint:EXO-ADR-028:passed",
+        "slice:exo/EXO-16/domain:merged",
+        "slice:exo/EXO-16/domain:verified",
+        "slice:exo/EXO-15/embedded-lifecycle:started",
+        "checkpoint:WI-WORKER-G5:passed",
+        "slice:exo/EXO-15/embedded-lifecycle:merged",
+        "slice:exo/EXO-18/instance-design:started",
+        "checkpoint:EXO-ADR-030:passed",
+        "slice:exo/EXO-18/instance-design:merged",
+        "slice:exo/EXO-18/instance-design:verified",
+        "checkpoint:EXO-ENV-G1:passed",
+        "slice:exo/EXO-18/instance-qualification:started",
+        "slice:exo/EXO-18/instance-qualification:merged",
+        "slice:exo/EXO-18/instance-qualification:verified",
+        "checkpoint:EXO-ENV-G2:passed",
+        "slice:exo/EXO-15/embedded-lifecycle:verified",
+        "slice:exo/EXO-15/integration:started",
+        "slice:wi/WI-13/conformance:started",
+        "slice:wi/WI-13/conformance:merged",
+        "slice:wi/WI-13/conformance:verified",
+        "work_item:wi/WI-13:accepted",
+        "slice:wi/WI-14/release:started",
+        "slice:wi/WI-14/release:merged",
+        "slice:wi/WI-14/release:verified",
+        "work_item:wi/WI-14:accepted",
+        "checkpoint:WI-PUBLISHED:passed",
+        "checkpoint:EXO-WI-G5:passed",
+        "slice:exo/EXO-15/integration:merged",
+        "slice:exo/EXO-15/integration:verified",
+        "work_item:exo/EXO-15:accepted",
+        "slice:exo/EXO-16/embedded-recovery:started",
+        "slice:exo/EXO-16/embedded-recovery:merged",
+        "slice:exo/EXO-16/embedded-recovery:verified",
+        "slice:exo/EXO-16/integration:started",
+        "slice:exo/EXO-16/integration:merged",
+        "slice:exo/EXO-16/integration:verified",
+        "work_item:exo/EXO-16:accepted",
+        "slice:exo/EXO-17/integration:started",
+        "checkpoint:EXO-ADR-029:passed",
+        "slice:exo/EXO-17/integration:merged",
+        "slice:exo/EXO-17/integration:verified",
+        "work_item:exo/EXO-17:accepted",
+        "slice:exo/EXO-18/domain:started",
+        "slice:exo/EXO-18/domain:merged",
+        "slice:exo/EXO-18/domain:verified",
+        "slice:exo/EXO-18/integration:started",
+        "slice:exo/EXO-18/integration:merged",
+        "slice:exo/EXO-18/integration:verified",
+        "work_item:exo/EXO-18:accepted",
+        "checkpoint:EXO-ENV-G3:passed",
+        "checkpoint:EXO-ENV-G4:passed",
+        "slice:exo/EXO-19/embedded-viability:started",
+        "slice:exo/EXO-19/embedded-viability:merged",
+        "slice:exo/EXO-19/embedded-viability:verified",
+        "slice:exo/EXO-19/release:started",
+        "slice:exo/EXO-19/release:merged",
+        "checkpoint:EXO-ENV-G5:passed",
+        "checkpoint:EXO-EMBEDDED-VIABILITY-1:passed",
+        "slice:exo/EXO-19/release:verified",
+        "work_item:exo/EXO-19:accepted",
+        "checkpoint:EXO-PUBLISHED:passed"
+      ],
+      "excludedCount": 0,
+      "priorityIsTargetOnly": true
+    },
+    "FULL-STACK-RELEASE prioritize-full": {
+      "nodes": [
+        "checkpoint:STACK-PLAN-ACCEPTED:passed",
+        "slice:exo/EXO-01/domain:started",
+        "slice:exo/EXO-01/domain:merged",
+        "slice:exo/EXO-01/domain:verified",
+        "work_item:exo/EXO-01:accepted",
+        "slice:exo/EXO-02/domain:started",
+        "checkpoint:EXO-ADR-001:passed",
+        "checkpoint:EXO-ADR-002:passed",
+        "checkpoint:EXO-ADR-003:passed",
+        "slice:exo/EXO-02/domain:merged",
+        "slice:exo/EXO-02/domain:verified",
+        "work_item:exo/EXO-02:accepted",
+        "slice:exo/EXO-03/domain:started",
+        "checkpoint:EXO-ADR-004:passed",
+        "checkpoint:EXO-ADR-005:passed",
+        "checkpoint:EXO-ADR-037:passed",
+        "slice:exo/EXO-03/domain:merged",
+        "slice:exo/EXO-03/domain:verified",
+        "slice:exo/EXO-03/integration:started",
+        "checkpoint:AQ-BASELINE-ACCEPTED:passed",
+        "checkpoint:EXO-AQ-G2:passed",
+        "checkpoint:EXO-AQ-G3:passed",
+        "slice:wi/WI-01/implementation:started",
+        "slice:wi/WI-01/implementation:merged",
+        "slice:wi/WI-01/implementation:verified",
+        "work_item:wi/WI-01:accepted",
+        "slice:wi/WI-02/domain:started",
+        "checkpoint:WI-ADR-001:passed",
+        "checkpoint:WI-ADR-002:passed",
+        "checkpoint:WI-ADR-003:passed",
+        "checkpoint:WI-ADR-016:passed",
+        "slice:wi/WI-02/domain:merged",
+        "slice:wi/WI-02/domain:verified",
+        "slice:wi/WI-02/integration:started",
+        "checkpoint:WI-AQ-G1:passed",
+        "slice:wi/WI-02/integration:merged",
+        "slice:wi/WI-02/integration:verified",
+        "work_item:wi/WI-02:accepted",
+        "checkpoint:EXO-WI-G1:passed",
+        "slice:wi/WI-03/domain:started",
+        "checkpoint:WI-ADR-012:passed",
+        "checkpoint:WI-ADR-013:passed",
+        "slice:wi/WI-03/domain:merged",
+        "slice:wi/WI-03/domain:verified",
+        "slice:wi/WI-03/integration:started",
+        "checkpoint:WI-AQ-G2:passed",
+        "checkpoint:WI-AQ-G3:passed",
+        "slice:wi/WI-03/integration:merged",
+        "slice:wi/WI-03/integration:verified",
+        "work_item:wi/WI-03:accepted",
+        "slice:wi/WI-04/domain:started",
+        "checkpoint:WI-ADR-004:passed",
+        "checkpoint:WI-ADR-005:passed",
+        "checkpoint:WI-ADR-006:passed",
+        "checkpoint:WI-ADR-007:passed",
+        "slice:wi/WI-09/domain:started",
+        "slice:wi/WI-09/domain:merged",
+        "slice:wi/WI-09/domain:verified",
+        "slice:wi/WI-10/domain:started",
+        "checkpoint:WI-ADR-017:passed",
+        "slice:wi/WI-10/domain:merged",
+        "slice:wi/WI-10/domain:verified",
+        "checkpoint:WI-ADR-008:passed",
+        "checkpoint:WI-ADR-010:passed",
+        "checkpoint:WI-WORKER-G1:passed",
+        "slice:wi/WI-04/domain:merged",
+        "slice:wi/WI-04/domain:verified",
+        "slice:wi/WI-04/integration:started",
+        "slice:wi/WI-04/integration:merged",
+        "slice:wi/WI-04/integration:verified",
+        "work_item:wi/WI-04:accepted",
+        "slice:wi/WI-05/domain:started",
+        "checkpoint:WI-ADR-009:passed",
+        "slice:wi/WI-05/domain:merged",
+        "slice:wi/WI-05/domain:verified",
+        "slice:wi/WI-05/integration:started",
+        "checkpoint:WI-AQ-G4:passed",
+        "slice:wi/WI-05/integration:merged",
+        "slice:wi/WI-05/integration:verified",
+        "work_item:wi/WI-05:accepted",
+        "checkpoint:EXO-WI-G2:passed",
+        "slice:exo/EXO-03/integration:merged",
+        "slice:exo/EXO-03/integration:verified",
+        "work_item:exo/EXO-03:accepted",
+        "slice:exo/EXO-04/domain:started",
+        "checkpoint:EXO-WI-TIME-REVIEW:passed",
+        "checkpoint:EXO-ADR-006:passed",
+        "checkpoint:EXO-ADR-007:passed",
+        "checkpoint:EXO-ADR-008:passed",
+        "checkpoint:EXO-ADR-018:passed",
+        "checkpoint:EXO-ADR-031:passed",
+        "slice:exo/EXO-04/domain:merged",
+        "slice:exo/EXO-04/domain:verified",
+        "work_item:exo/EXO-04:accepted",
+        "slice:exo/EXO-05/domain:started",
+        "checkpoint:EXO-ADR-009:passed",
+        "checkpoint:EXO-ADR-010:passed",
+        "checkpoint:EXO-ADR-011:passed",
+        "checkpoint:EXO-ADR-012:passed",
+        "slice:exo/EXO-05/domain:merged",
+        "slice:exo/EXO-05/domain:verified",
+        "slice:exo/EXO-05/integration:started",
+        "slice:exo/EXO-05/integration:merged",
+        "slice:exo/EXO-05/integration:verified",
+        "work_item:exo/EXO-05:accepted",
+        "slice:exo/EXO-06/domain:started",
+        "checkpoint:EXO-ADR-013:passed",
+        "checkpoint:EXO-ADR-014:passed",
+        "slice:exo/EXO-06/domain:merged",
+        "slice:exo/EXO-06/domain:verified",
+        "slice:exo/EXO-06/integration:started",
+        "slice:exo/EXO-06/integration:merged",
+        "slice:exo/EXO-06/integration:verified",
+        "work_item:exo/EXO-06:accepted",
+        "slice:exo/EXO-07/domain:started",
+        "checkpoint:EXO-WI-FACULTY-REVIEW:passed",
+        "checkpoint:EXO-ADR-015:passed",
+        "checkpoint:EXO-ADR-016:passed",
+        "checkpoint:EXO-ADR-032:passed",
+        "slice:exo/EXO-07/domain:merged",
+        "slice:exo/EXO-07/domain:verified",
+        "work_item:exo/EXO-07:accepted",
+        "slice:exo/EXO-08/domain:started",
+        "checkpoint:EXO-ADR-017:passed",
+        "slice:exo/EXO-08/domain:merged",
+        "slice:exo/EXO-08/domain:verified",
+        "work_item:exo/EXO-08:accepted",
+        "slice:exo/EXO-09/domain:started",
+        "checkpoint:EXO-WI-DISCLOSURE-REVIEW:passed",
+        "checkpoint:EXO-ADR-019:passed",
+        "checkpoint:EXO-ADR-020:passed",
+        "slice:exo/EXO-09/domain:merged",
+        "slice:exo/EXO-09/domain:verified",
+        "work_item:exo/EXO-09:accepted",
+        "slice:exo/EXO-10/domain:started",
+        "checkpoint:EXO-ADR-021:passed",
+        "checkpoint:EXO-ADR-022:passed",
+        "slice:exo/EXO-10/domain:merged",
+        "slice:exo/EXO-10/domain:verified",
+        "slice:exo/EXO-10/integration:started",
+        "slice:exo/EXO-10/integration:merged",
+        "slice:exo/EXO-10/integration:verified",
+        "work_item:exo/EXO-10:accepted",
+        "slice:exo/EXO-11/embedded-runtime:started",
+        "checkpoint:EXO-AQ-G1:passed",
+        "checkpoint:EXO-AQ-G4:passed",
+        "slice:wi/WI-06/domain:started",
+        "checkpoint:WI-ADR-011:passed",
+        "slice:wi/WI-06/domain:merged",
+        "slice:wi/WI-06/domain:verified",
+        "slice:wi/WI-06/integration:started",
+        "slice:wi/WI-06/integration:merged",
+        "slice:wi/WI-06/integration:verified",
+        "slice:wi/WI-07/domain:started",
+        "checkpoint:WI-ADR-014:passed",
+        "slice:wi/WI-07/domain:merged",
+        "slice:wi/WI-07/domain:verified",
+        "slice:wi/WI-07/integration:started",
+        "slice:wi/WI-07/integration:merged",
+        "slice:wi/WI-07/integration:verified",
+        "slice:wi/WI-08/integration:started",
+        "checkpoint:WI-ADR-015:passed",
+        "slice:wi/WI-08/integration:merged",
+        "slice:wi/WI-08/integration:verified",
+        "checkpoint:WI-EMBEDDED-CORE-1:passed",
+        "slice:wi/WI-11/domain:started",
+        "checkpoint:WI-ADR-018:passed",
+        "slice:wi/WI-11/domain:merged",
+        "slice:wi/WI-11/domain:verified",
+        "slice:wi/WI-11/embedded-runtime:started",
+        "slice:wi/WI-09/process-provider:started",
+        "checkpoint:WI-WORKER-G2:passed",
+        "slice:wi/WI-09/process-provider:merged",
+        "slice:wi/WI-09/process-provider:verified",
+        "slice:wi/WI-10/process-catalog:started",
+        "checkpoint:WI-WORKER-G3:passed",
+        "slice:wi/WI-10/process-catalog:merged",
+        "slice:wi/WI-10/process-catalog:verified",
+        "slice:wi/WI-11/embedded-runtime:merged",
+        "slice:wi/WI-11/embedded-runtime:verified",
+        "slice:exo/EXO-11/embedded-runtime:merged",
+        "slice:exo/EXO-11/embedded-runtime:verified",
+        "slice:exo/EXO-11/integration:started",
+        "slice:wi/WI-11/supervisor-boundary:started",
+        "slice:wi/WI-11/supervisor-boundary:merged",
+        "slice:wi/WI-11/supervisor-boundary:verified",
+        "slice:wi/WI-13/supervisor-conformance:started",
+        "slice:wi/WI-13/supervisor-conformance:merged",
+        "slice:wi/WI-13/supervisor-conformance:verified",
+        "work_item:wi/WI-06:accepted",
+        "work_item:wi/WI-07:accepted",
+        "work_item:wi/WI-08:accepted",
+        "checkpoint:EXO-WI-G3:passed",
+        "slice:exo/EXO-11/integration:merged",
+        "slice:wi/WI-09/integration:started",
+        "slice:wi/WI-09/integration:merged",
+        "slice:wi/WI-13/worker-conformance:started",
+        "slice:wi/WI-13/worker-conformance:merged",
+        "slice:wi/WI-13/worker-conformance:verified",
+        "slice:wi/WI-14/worker-handoff:started",
+        "slice:wi/WI-14/worker-handoff:merged",
+        "slice:wi/WI-14/worker-handoff:verified",
+        "checkpoint:WI-WORKER-G4:passed",
+        "checkpoint:WI-EMBEDDED-WORKER-PROOF-1:passed",
+        "slice:wi/WI-09/integration:verified",
+        "work_item:wi/WI-09:accepted",
+        "slice:wi/WI-10/integration:started",
+        "slice:wi/WI-10/integration:merged",
+        "slice:wi/WI-10/integration:verified",
+        "work_item:wi/WI-10:accepted",
+        "slice:wi/WI-11/integration:started",
+        "slice:wi/WI-11/integration:merged",
+        "checkpoint:WI-AQ-G5:passed",
+        "slice:wi/WI-11/integration:verified",
+        "work_item:wi/WI-11:accepted",
+        "checkpoint:WI-DEPLOYMENT-PARITY:passed",
+        "slice:exo/EXO-11/integration:verified",
+        "work_item:exo/EXO-11:accepted",
+        "slice:exo/EXO-12/domain:started",
+        "checkpoint:EXO-ADR-023:passed",
+        "checkpoint:EXO-ADR-038:passed",
+        "slice:exo/EXO-12/domain:merged",
+        "slice:exo/EXO-12/domain:verified",
+        "slice:exo/EXO-12/embedded-worker:started",
+        "slice:exo/EXO-12/embedded-worker:merged",
+        "slice:exo/EXO-12/embedded-worker:verified",
+        "slice:exo/EXO-12/integration:started",
+        "slice:wi/WI-12/domain:started",
+        "checkpoint:WI-ADR-019:passed",
+        "checkpoint:WI-ADR-020:passed",
+        "slice:wi/WI-12/domain:merged",
+        "slice:wi/WI-12/domain:verified",
+        "slice:wi/WI-12/integration:started",
+        "slice:wi/WI-12/integration:merged",
+        "slice:wi/WI-12/integration:verified",
+        "work_item:wi/WI-12:accepted",
+        "checkpoint:EXO-WI-G4:passed",
+        "slice:exo/EXO-12/integration:merged",
+        "slice:exo/EXO-12/integration:verified",
+        "work_item:exo/EXO-12:accepted",
+        "slice:exo/EXO-13/domain:started",
+        "checkpoint:EXO-ADR-024:passed",
+        "checkpoint:EXO-ADR-033:passed",
+        "checkpoint:EXO-ADR-034:passed",
+        "slice:exo/EXO-13/domain:merged",
+        "slice:exo/EXO-13/domain:verified",
+        "slice:exo/EXO-13/embedded-acceptance:started",
+        "slice:exo/EXO-13/embedded-acceptance:merged",
+        "slice:exo/EXO-13/embedded-acceptance:verified",
+        "slice:exo/EXO-13/integration:started",
+        "checkpoint:AQ-PUBLISHED:passed",
+        "checkpoint:EXO-AQ-G5:passed",
+        "slice:exo/EXO-13/integration:merged",
+        "slice:exo/EXO-13/integration:verified",
+        "work_item:exo/EXO-13:accepted",
+        "slice:exo/EXO-14/domain:started",
+        "checkpoint:EXO-ADR-025:passed",
+        "slice:exo/EXO-14/domain:merged",
+        "slice:exo/EXO-14/domain:verified",
+        "slice:exo/EXO-14/embedded-provenance:started",
+        "slice:exo/EXO-14/embedded-provenance:merged",
+        "slice:exo/EXO-14/embedded-provenance:verified",
+        "slice:exo/EXO-14/integration:started",
+        "slice:exo/EXO-14/integration:merged",
+        "slice:exo/EXO-14/integration:verified",
+        "work_item:exo/EXO-14:accepted",
+        "slice:exo/EXO-15/domain:started",
+        "checkpoint:EXO-ADR-026:passed",
+        "checkpoint:EXO-ADR-027:passed",
+        "checkpoint:EXO-ADR-035:passed",
+        "checkpoint:EXO-ADR-036:passed",
+        "slice:exo/EXO-15/domain:merged",
+        "slice:exo/EXO-15/domain:verified",
+        "slice:exo/EXO-16/domain:started",
+        "checkpoint:EXO-ADR-028:passed",
+        "slice:exo/EXO-16/domain:merged",
+        "slice:exo/EXO-16/domain:verified",
+        "slice:exo/EXO-15/embedded-lifecycle:started",
+        "checkpoint:WI-WORKER-G5:passed",
+        "slice:exo/EXO-15/embedded-lifecycle:merged",
+        "slice:exo/EXO-18/instance-design:started",
+        "checkpoint:EXO-ADR-030:passed",
+        "slice:exo/EXO-18/instance-design:merged",
+        "slice:exo/EXO-18/instance-design:verified",
+        "checkpoint:EXO-ENV-G1:passed",
+        "slice:exo/EXO-18/instance-qualification:started",
+        "slice:exo/EXO-18/instance-qualification:merged",
+        "slice:exo/EXO-18/instance-qualification:verified",
+        "checkpoint:EXO-ENV-G2:passed",
+        "slice:exo/EXO-15/embedded-lifecycle:verified",
+        "slice:exo/EXO-15/integration:started",
+        "slice:wi/WI-13/conformance:started",
+        "slice:wi/WI-13/conformance:merged",
+        "slice:wi/WI-13/conformance:verified",
+        "work_item:wi/WI-13:accepted",
+        "slice:wi/WI-14/release:started",
+        "slice:wi/WI-14/release:merged",
+        "slice:wi/WI-14/release:verified",
+        "work_item:wi/WI-14:accepted",
+        "checkpoint:WI-PUBLISHED:passed",
+        "checkpoint:EXO-WI-G5:passed",
+        "slice:exo/EXO-15/integration:merged",
+        "slice:exo/EXO-15/integration:verified",
+        "work_item:exo/EXO-15:accepted",
+        "slice:exo/EXO-16/embedded-recovery:started",
+        "slice:exo/EXO-16/embedded-recovery:merged",
+        "slice:exo/EXO-16/embedded-recovery:verified",
+        "slice:exo/EXO-16/integration:started",
+        "slice:exo/EXO-16/integration:merged",
+        "slice:exo/EXO-16/integration:verified",
+        "work_item:exo/EXO-16:accepted",
+        "slice:exo/EXO-17/integration:started",
+        "checkpoint:EXO-ADR-029:passed",
+        "slice:exo/EXO-17/integration:merged",
+        "slice:exo/EXO-17/integration:verified",
+        "work_item:exo/EXO-17:accepted",
+        "slice:exo/EXO-18/domain:started",
+        "slice:exo/EXO-18/domain:merged",
+        "slice:exo/EXO-18/domain:verified",
+        "slice:exo/EXO-18/integration:started",
+        "slice:exo/EXO-18/integration:merged",
+        "slice:exo/EXO-18/integration:verified",
+        "work_item:exo/EXO-18:accepted",
+        "checkpoint:EXO-ENV-G3:passed",
+        "checkpoint:EXO-ENV-G4:passed",
+        "slice:exo/EXO-19/embedded-viability:started",
+        "slice:exo/EXO-19/embedded-viability:merged",
+        "slice:exo/EXO-19/embedded-viability:verified",
+        "slice:exo/EXO-19/release:started",
+        "slice:exo/EXO-19/release:merged",
+        "checkpoint:EXO-ENV-G5:passed",
+        "checkpoint:EXO-EMBEDDED-VIABILITY-1:passed",
+        "slice:exo/EXO-19/release:verified",
+        "work_item:exo/EXO-19:accepted",
+        "checkpoint:EXO-PUBLISHED:passed"
+      ],
+      "excludedCount": 0,
+      "priorityIsTargetOnly": true
+    }
+  }
+}

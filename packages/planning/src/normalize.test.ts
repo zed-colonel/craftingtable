@@ -116,6 +116,55 @@ describe('work-breakdown normalization', () => {
     ]);
   });
 
+  it('rejects a phase longer than stored work items allow instead of failing in storage (FMT-08)', () => {
+    const item = (phase: string) =>
+      `document: X\npull_requests:\n- id: WI-01\n  title: T\n  depends_on: []\n  risk: low\n  primary_areas: []\n  exit_gate: G\n  phase: ${phase}\n`;
+    const bounded = normalizeSource(item('p'.repeat(64)));
+    expect(bounded.diagnostics).toEqual([]);
+    expect(bounded.plan?.workItems[0]?.phase).toBe('p'.repeat(64));
+
+    const { diagnostics } = normalizeSource(item('p'.repeat(65)));
+    expect(diagnostics.map((d) => [d.severity, d.code, d.path, d.workItemSourceId])).toEqual([
+      ['error', 'invalid-work-item-field', 'pull_requests[0].phase', 'WI-01'],
+    ]);
+  });
+
+  it('warns whenever a field agents rely on is cut, and still accepts the plan (FMT-14)', () => {
+    const areas = [...Array.from({ length: 32 }, (_, i) => `area-${i}`), 'dropped-area'];
+    const source = `document: ${'D'.repeat(301)}\npull_requests:\n- id: WI-01\n  title: ${'T'.repeat(301)}\n  depends_on: []\n  risk: low\n  primary_areas: [${'a'.repeat(65)}, ${areas.slice(1).join(', ')}]\n  exit_gate: ${'G'.repeat(1001)}\n`;
+    const { plan, diagnostics } = normalizeSource(source);
+    expect(diagnostics.every((d) => d.severity === 'warning' && d.code === 'field-truncated')).toBe(
+      true,
+    );
+    expect(diagnostics.map((d) => d.path).toSorted()).toEqual([
+      'document',
+      'pull_requests[0].exit_gate',
+      'pull_requests[0].primary_areas',
+      'pull_requests[0].primary_areas[0]',
+      'pull_requests[0].title',
+    ]);
+    const normalized = requirePlan(plan);
+    const [item] = normalized.workItems;
+    if (item === undefined) {
+      throw new Error('Expected one normalized work item');
+    }
+    expect(normalized.document).toHaveLength(300);
+    expect(item.title).toHaveLength(300);
+    expect(item.exitGate).toHaveLength(1000);
+    expect(item.primaryAreas).toHaveLength(32);
+    expect(item.primaryAreas[0]).toHaveLength(64);
+    // The full text is still retained verbatim for agents.
+    expect((item.sourceFields as { exit_gate: string }).exit_gate).toHaveLength(1001);
+  });
+
+  it('does not warn for values exactly at their limits (FMT-14)', () => {
+    const areas = Array.from({ length: 32 }, () => 'a'.repeat(64)).join(', ');
+    const { diagnostics } = normalizeSource(
+      `document: ${'D'.repeat(300)}\npull_requests:\n- id: WI-01\n  title: ${'T'.repeat(300)}\n  depends_on: []\n  risk: low\n  primary_areas: [${areas}]\n  exit_gate: ${'G'.repeat(1000)}\n`,
+    );
+    expect(diagnostics).toEqual([]);
+  });
+
   it('keeps every top-level source key in metadata', () => {
     const { plan } = normalizeSource(
       'document: X\nunmodelled_key: {a: 1}\npull_requests:\n- id: WI-01\n  title: T\n  depends_on: []\n  risk: low\n  primary_areas: []\n  exit_gate: G\n',

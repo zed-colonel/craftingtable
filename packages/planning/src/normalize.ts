@@ -60,6 +60,31 @@ function optionalString(
 }
 
 /**
+ * Cuts a value to its stored length. The full text always survives verbatim in
+ * the source fields, but the cut value is what briefs and the UI headline, so a
+ * cut is reported rather than silent.
+ */
+function truncated(
+  value: string,
+  maxLength: number,
+  field: string,
+  diagnostics: PlanDiagnostic[],
+  detail: Omit<PlanDiagnostic, 'severity' | 'code' | 'message'>,
+): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  diagnostics.push(
+    warning(
+      'field-truncated',
+      `"${field}" is ${value.length} characters; only the first ${maxLength} are imported (the full text stays in the source fields)`,
+      detail,
+    ),
+  );
+  return value.slice(0, maxLength);
+}
+
+/**
  * Reads a dependency list. Absent and null both mean "no dependencies"; any
  * other non-array shape is a field error rather than a silent empty list, so a
  * typo cannot quietly drop a real edge.
@@ -145,6 +170,15 @@ function primaryAreas(
     );
     return [];
   }
+  if (raw.length > PLAN_LIMITS.maxPrimaryAreas) {
+    diagnostics.push(
+      warning(
+        'field-truncated',
+        `"primary_areas" has ${raw.length} entries; only the first ${PLAN_LIMITS.maxPrimaryAreas} are imported (the full list stays in the source fields)`,
+        { artifactName, path: `${itemPath}.primary_areas`, workItemSourceId: sourceId },
+      ),
+    );
+  }
   const areas: string[] = [];
   for (const [index, entry] of raw.slice(0, PLAN_LIMITS.maxPrimaryAreas).entries()) {
     if (typeof entry !== 'string') {
@@ -157,7 +191,13 @@ function primaryAreas(
       );
       continue;
     }
-    const value = entry.normalize('NFC').trim().slice(0, PLAN_LIMITS.maxPrimaryAreaLength);
+    const value = truncated(
+      entry.normalize('NFC').trim(),
+      PLAN_LIMITS.maxPrimaryAreaLength,
+      'primary_areas',
+      diagnostics,
+      { artifactName, path: `${itemPath}.primary_areas[${index}]`, workItemSourceId: sourceId },
+    );
     if (value.length > 0) {
       areas.push(value);
     }
@@ -234,7 +274,11 @@ function requiredText(
     );
     return undefined;
   }
-  return value.slice(0, maxLength);
+  return truncated(value, maxLength, key, diagnostics, {
+    artifactName,
+    path: `${itemPath}.${key}`,
+    workItemSourceId: sourceId,
+  });
 }
 
 /**
@@ -398,7 +442,17 @@ export function normalizePlan(value: JsonValue, artifactName: string): Normalize
     }
 
     const risk = normalizeRisk(entry, sourceId, itemPath, diagnostics, artifactName);
-    const phase = optionalString(entry, 'phase');
+    let phase = optionalString(entry, 'phase');
+    if (phase !== undefined && phase.length > PLAN_LIMITS.maxPhaseLength) {
+      diagnostics.push(
+        error(
+          'invalid-work-item-field',
+          `"phase" exceeds ${PLAN_LIMITS.maxPhaseLength} characters`,
+          { artifactName, path: `${itemPath}.phase`, workItemSourceId: sourceId },
+        ),
+      );
+      phase = undefined;
+    }
 
     if (title === undefined || exitGate === undefined) {
       continue;
@@ -442,12 +496,16 @@ export function normalizePlan(value: JsonValue, artifactName: string): Normalize
   const stackRevision = optionalString(value, 'stack_revision');
   const status = optionalString(value, 'status');
   const phase = optionalString(value, 'phase');
+  const documentText = truncated(document, PLAN_LIMITS.maxDocumentLength, 'document', diagnostics, {
+    artifactName,
+    path: 'document',
+  });
 
   return {
     diagnostics,
     plan: {
       sourceProfile: SOURCE_PROFILE,
-      document: document.slice(0, PLAN_LIMITS.maxDocumentLength),
+      document: documentText,
       ...(repository === undefined ? {} : { repository }),
       ...(baselineCommit === undefined ? {} : { baselineCommit }),
       ...(contract === undefined ? {} : { contract }),

@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { JsonValue } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
+import { zipFixture } from './archive-test-support.js';
 import { analyzePlanBundle } from './bundle.js';
 import { parseYamlDocument } from './parse.js';
+import { preparePlanArchive } from './plan-archive.js';
 import {
   AQ_BUNDLE_ROLES,
   aqBundleArtifacts,
@@ -191,5 +193,50 @@ describe('AQ-CONT-1 fixture import', () => {
     expect(analysis.digest?.algorithm).toBe('sha-256');
     expect(analysis.digest?.formatVersion).toBe(1);
     expect(analysis.digest?.hex).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+/**
+ * FMT-13: the documented transport behaviour of the digest-v1 identity.
+ *
+ * The digest covers role, filename, canonical media type and bytes. A plan ZIP
+ * never imports `*.sha256` manifests as artifacts and assigns every
+ * non-primary file the `supporting` role, so the same package gets the same
+ * digest by both transports only when the discrete upload uses those roles and
+ * omits the manifest. Normalizing the discrete path would change the digest of
+ * plan versions that are already imported (re-imports would stop being
+ * duplicates), so the difference is pinned here rather than removed.
+ */
+describe('plan identity across transports (FMT-13)', () => {
+  const zipped = zipFixture(
+    AQ_BUNDLE_ROLES.map(([, filename]) => ({
+      path: `aq-cont-1/${filename}`,
+      bytes: readFixtureBytes(filename),
+    })),
+  );
+  const fromZip = analyzePlanBundle(
+    preparePlanArchive(zipped, {
+      implementationPlan: 'aq-cont-1/aq-cont-1-implementation-plan.md',
+      workBreakdown: 'aq-cont-1/aq-cont-1-work-breakdown.yaml',
+    }).bundle,
+  );
+
+  it('matches a discrete upload that uses the roles a ZIP assigns', () => {
+    const discrete = analyzePlanBundle({
+      artifacts: aqBundleArtifacts()
+        .filter((artifact) => !artifact.filename.endsWith('.sha256'))
+        .map((artifact) =>
+          artifact.fieldName === 'implementation-plan' || artifact.fieldName === 'work-breakdown'
+            ? artifact
+            : { ...artifact, fieldName: 'supporting' },
+        ),
+    });
+    expect(fromZip.fatal).toBe(false);
+    expect(discrete.digest?.hex).toBe(fromZip.digest?.hex);
+  });
+
+  it('differs from a discrete upload that labels optional roles or includes a manifest', () => {
+    expect(analysis.digest?.hex).toBeDefined();
+    expect(analysis.digest?.hex).not.toBe(fromZip.digest?.hex);
   });
 });

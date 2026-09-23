@@ -2390,6 +2390,10 @@ describe('single work-item automation', () => {
     expect(backend.launches).toHaveLength(7);
     expect(backend.launches[5]?.prompt).toContain('Keep the approved API.');
     expect(backend.launches[5]?.prompt).toContain('Concentrate on the remaining regression.');
+    // The grant's guidance was for that remediation; the following review keeps only the
+    // cycle's own instructions.
+    expect(backend.launches[6]?.prompt).toContain('Keep the approved API.');
+    expect(backend.launches[6]?.prompt).not.toContain('Concentrate on the remaining regression.');
     const reopened = openCraftingTableStorage(state.context.storage.databasePath);
     try {
       expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)).toMatchObject({
@@ -2557,6 +2561,8 @@ describe('single work-item automation', () => {
       expect(currentCycle(state, cycle).step).toBe('review');
       expect(currentCycle(state, cycle).remediationRounds).toBe(0);
       expect(backend.launches).toHaveLength(4);
+      expect(backend.launches[2]?.prompt).toContain('Use the controller policy');
+      expect(backend.launches[3]?.prompt).not.toContain('Use the controller policy');
       expect((await resume()).statusCode).toBe(409);
       const guidance = 'Preserve the approved API boundary.';
       if (allowance === 0) {
@@ -2580,8 +2586,56 @@ describe('single work-item automation', () => {
       );
       expect(currentCycle(state, cycle).remediationRounds).toBe(1);
       expect(backend.launches[4]?.prompt).toContain('Preserve the approved API boundary.');
+      expect(backend.launches[5]?.prompt).not.toContain('Preserve the approved API boundary.');
     },
   );
+
+  it('scopes guidance given on a review retry to that review only', async () => {
+    const retryGuidance = 'For this retry of the review only, restate the report in full.';
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      implementationDone,
+      {
+        resultText: `## Open questions\nShould the report restate the boundary?\n\n## Review report\n${reviewText([])}`,
+      },
+      { resultText: reviewText([structuredFinding]) },
+      implementationDone,
+      {
+        resultText: reviewText([
+          { ...structuredFinding, status: 'resolved', disposition: 'Verified regression case.' },
+        ]),
+      },
+    ]);
+    const cycle = await startCycle(state, worktree.id, { instructions: 'Keep the approved API.' });
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'review question');
+    expect(currentCycle(state, cycle).step).toBe('review');
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: {
+        action: 'resume',
+        expectedVersion: currentCycle(state, cycle).version,
+        instructions: retryGuidance,
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'remediated');
+    const prompts = backend.launches.map((launch) => launch.prompt);
+    expect(prompts).toHaveLength(6);
+    expect(prompts[3]).toContain(`## Operator guidance for this step\n\n${retryGuidance}`);
+    // The following implement (remediation) brief and the next review do not inherit it.
+    for (const later of prompts.slice(4)) {
+      expect(later).not.toContain(retryGuidance);
+      expect(later).toContain('Keep the approved API.');
+    }
+    expect(currentCycle(state, cycle)).toMatchObject({ instructions: 'Keep the approved API.' });
+    expect(currentCycle(state, cycle).stepGuidance).toBeUndefined();
+    // Controller-authored rules are labelled as such; the operator section holds only operator text.
+    const operator = prompts[4]?.split('## Operator instructions\n\n')[1]?.split('\n## ')[0];
+    expect(operator?.trim()).toBe('Keep the approved API.');
+    expect(prompts[4]).toContain('## Step rules (from the controller)');
+  });
 
   it('does not treat disappearing finding IDs as resolution', async () => {
     const { state, worktree } = await cycleFixture([
@@ -11466,8 +11520,8 @@ it('recovers parent review with durable guidance only after current verification
   const result = await resume();
   expect(result.statusCode, result.body).toBe(200);
   const continued = currentCycle(state, cycle);
-  expect(continued.instructions).toContain('Keep the original parent gate.');
-  expect(continued.instructions).toContain('Apply the adopted policy');
+  expect(continued.instructions).toBe('Keep the original parent gate.');
+  expect(continued.stepGuidance).toBe('Apply the adopted policy without waiving the source gate.');
   expect(continued.remediationRounds).toBe(0);
   await waitFor(() => currentCycle(state, cycle).status !== 'running', 'fresh parent review');
   const run = state.context.storage.execution.runs.find(
@@ -12832,7 +12886,7 @@ describe('bounded model service recovery', () => {
       },
     });
     expect(resumed.statusCode, resumed.body).toBe(200);
-    expect(currentCycle(state, cycle).instructions).toContain('Keep the saved scope.');
+    expect(currentCycle(state, cycle).stepGuidance).toBe('Keep the saved scope.');
     expect(currentCycle(state, cycle).runDeadlineAt).toBe(before.runDeadlineAt);
     expect(currentCycle(state, cycle).providerRecovery).toEqual(before.providerRecovery);
     expect((await command(state, cycle, 'pause')).statusCode).toBe(200);

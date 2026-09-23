@@ -1040,7 +1040,7 @@ describe('automated cycle controls', () => {
     fireEvent.change(screen.getByLabelText('Additional remediation attempts'), {
       target: { value: '2' },
     });
-    fireEvent.change(screen.getByLabelText('Additional cycle guidance (optional)'), {
+    fireEvent.change(screen.getByLabelText('Guidance for the next run (optional)'), {
       target: { value: 'Address the boundary regression.' },
     });
     expect(screen.getByText('New total allowance: 6 attempts.')).toBeTruthy();

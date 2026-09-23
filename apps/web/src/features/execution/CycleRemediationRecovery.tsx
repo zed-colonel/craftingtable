@@ -49,10 +49,10 @@ export function CycleRemediationRecovery({
         />
       </label>
       <label className="field">
-        Additional cycle guidance (optional)
+        Guidance for the next run (optional)
         <textarea
           value={instructions}
-          maxLength={Math.max(0, 16000 - cycle.instructions.length - 2)}
+          maxLength={16000}
           disabled={disabled}
           onChange={(event) => setInstructions(event.target.value)}
         />

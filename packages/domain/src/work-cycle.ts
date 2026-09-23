@@ -151,7 +151,19 @@ export interface WorkCycle {
   readonly step: CycleStep;
   readonly policy: CompletionPolicy;
   readonly profiles: CycleProfiles;
+  /**
+   * Cycle-scoped operator instructions given at start; every step receives them. Records written
+   * before `stepGuidance` existed may also hold one-shot guidance appended here. That text cannot
+   * be separated reliably, so it is kept as-is, but commands no longer append to it.
+   */
   readonly instructions: string;
+  /**
+   * One-shot operator guidance for the step reserved by the command that supplied it (resume,
+   * continue, retry, authorize remediation, review again, finalization decisions). Same-step
+   * service retries and completion continuations keep it; any other transition clears it, so
+   * later steps never inherit it. The run it applies to records it in its brief.
+   */
+  readonly stepGuidance?: string;
   /** Reserved durably before process launch. A missing run after restart needs operator attention. */
   readonly currentRunId: AgentRunId;
   readonly parentRunId?: AgentRunId;

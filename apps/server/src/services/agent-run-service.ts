@@ -80,7 +80,12 @@ export interface StartRunInput {
   readonly permissionMode: AgentPermissionMode;
   readonly model?: string;
   readonly reasoningEffort?: AgentRun['reasoningEffort'];
+  /** Operator-authored instructions (a manual run's request, or the cycle's start text). */
   readonly instructions?: string;
+  /** One-shot operator guidance for this run only. */
+  readonly stepGuidance?: string;
+  /** Controller-authored rules for an automated step; never presented as operator text. */
+  readonly controllerInstructions?: string;
   readonly parentRunId?: AgentRunId;
 }
 
@@ -368,9 +373,12 @@ export class AgentRunService {
         worktreeId: cycle.worktreeId,
         role: cycle.step === 'remediate' ? 'implement' : cycle.step,
         ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
-        instructions: [
+        instructions: cycle.instructions,
+        stepGuidance: [cycle.stepGuidance, recovery?.instructions, resolution?.instructions]
+          .filter(Boolean)
+          .join('\n\n'),
+        controllerInstructions: [
           ownsIntegrationResolution(cycle) ? '' : workflowPrompt(this.storage, cycle),
-          cycle.instructions,
           cycle.providerRecovery
             ? `This is service retry ${cycle.providerRecovery.attempts} of 3 for the SAME step after a model-service failure, in a fresh session with the configured retry backend/model. Read the prior handoff and partial scratch records; preserve completed work and unresolved findings. Inspect the current worktree and evidence before continuing. Do not assume an interrupted check passed, repeat completed side effects blindly, or treat a draft report as accepted. Complete every required check and the final report. Report genuine decisions in ## Open questions; never decide them for the operator. The original step deadline still applies.`
             : '',
@@ -385,7 +393,6 @@ export class AgentRunService {
                 recovery.mode === 'investigate'
                   ? 'Investigate the unresolved questions and report evidence and remaining decisions. The controller will pause after this run for operator review even if all questions are answered.'
                   : 'Apply the operator answers and supporting evidence to complete the design. The controller advances only if no genuine questions remain. Keep unresolved evidence requirements explicit.',
-                recovery.instructions,
               ]
             : []),
           cycle.executionScope && cycle.executionScope.kind !== 'slice'
@@ -401,7 +408,6 @@ export class AgentRunService {
                 resolution.diagnostics,
                 'Read the supplied plan and both sides of the incoming commits. Preserve both work items’ intended behavior, including automatically merged files. Use the supplied scratch directory, run the repository checks on the combined state, and report commands, outcomes and any semantic decisions. Remove only your confirmed generated files; leave no untracked files. Preserve existing finding IDs in the handoff.',
                 'If questions remain or checks fail, explain them and end with ## Resolution status followed by blocked. Only when every conflict is resolved, intended changes are staged, and checks pass, end with ## Resolution status followed by ready. A successful process exit alone is not approval.',
-                resolution.instructions ?? '',
               ]
             : []),
           (cycle.resultContinuations ?? 0) > 0
@@ -1023,6 +1029,10 @@ export class AgentRunService {
         ...(reviewBranchContext === undefined ? {} : { reviewBranchContext }),
         planDocuments,
         ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
+        ...(input.stepGuidance ? { stepGuidance: input.stepGuidance } : {}),
+        ...(input.controllerInstructions
+          ? { controllerInstructions: input.controllerInstructions }
+          : {}),
         ...(prepared.parentRun === undefined
           ? {}
           : {

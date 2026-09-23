@@ -3,7 +3,8 @@ import { scopeReviewWait, scopeMergeWait } from './scope-repair.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { crossProjectState, milestoneSatisfied } from './cross-project-service.js';
-import { createHash, randomUUID } from 'node:crypto';
+import { effectiveDelegation } from './roadmap-delegation-policy.js';
+import { randomUUID } from 'node:crypto';
 import type { NotificationStatus, SaveNotificationsRequest } from '@craftingtable/contracts';
 import {
   asEventId,
@@ -24,14 +25,36 @@ import type {
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError } from './errors.js';
 import type { DeliveryResult, NotificationTransport } from './notification-transport.js';
+import type { StorageAlert } from './storage-alerts.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 
-type Attention = Pick<NotificationRecord, 'sourceKey' | 'kind' | 'title' | 'message' | 'path'>;
+/**
+ * A new occurrence waits this long before its first push. The claim re-derives attention,
+ * so a state the controller leaves on its own within the window is never sent (NOTIF-01).
+ */
+export const NOTIFICATION_SETTLE_MS = 30_000;
+/** An occurrence that reopens this soon after resolving is the same occurrence (NOTIF-03). */
+export const NOTIFICATION_FLAP_WINDOW_MS = 10 * 60_000;
+export interface NotificationServiceOptions {
+  readonly settleMs?: number;
+  /** Cycles and roadmaps this boot's restart recovery stopped; they share one message. */
+  readonly restartedAtBoot?: {
+    readonly cycleIds: readonly string[];
+    readonly roadmapIds: readonly string[];
+  };
+}
+type Attention = Pick<NotificationRecord, 'sourceKey' | 'kind' | 'title' | 'message' | 'path'> & {
+  readonly members?: readonly string[];
+};
 export class NotificationService {
   private readonly abort = new AbortController();
   private worker: Promise<void> | undefined;
   private ticking: Promise<void> | undefined;
+  private readonly settleMs: number;
+  private readonly bootId = randomUUID();
+  /** `cycle:<id>` / `roadmap:<id>` still in the state this boot's restart left them in. */
+  private readonly restartHeld: Set<string>;
   constructor(
     private readonly storage: CraftingTableStorage,
     private readonly workspaces: WorkspaceService,
@@ -39,9 +62,16 @@ export class NotificationService {
     private readonly transport: NotificationTransport,
     private readonly publicOrigin: string,
     private readonly now: () => Date = () => new Date(),
-    private readonly storageAttention?: () => readonly { key: string; message: string }[],
+    private readonly storageAttention?: () => readonly StorageAlert[],
     private readonly cycleTransitioning: (id: string) => boolean = () => false,
-  ) {}
+    options: NotificationServiceOptions = {},
+  ) {
+    this.settleMs = options.settleMs ?? NOTIFICATION_SETTLE_MS;
+    this.restartHeld = new Set([
+      ...(options.restartedAtBoot?.cycleIds ?? []).map((id) => `cycle:${id}`),
+      ...(options.restartedAtBoot?.roadmapIds ?? []).map((id) => `roadmap:${id}`),
+    ]);
+  }
 
   get(context: AuthContext, workspaceId: WorkspaceId): NotificationStatus {
     this.workspaces.requireRole(context, workspaceId, ['owner']);
@@ -209,7 +239,14 @@ export class NotificationService {
     tx = mapReadSnapshot(tx);
     const workspaceId = settings.workspaceId;
     const cycles = tx.execution.cycles.list(workspaceId);
+    const roadmaps = tx.roadmaps.list(workspaceId);
     const result: Attention[] = [];
+    // Restart-stopped work is held in one per-boot message until it is seen leaving that state.
+    for (const cycle of cycles)
+      if (cycle.status !== 'needs-attention') this.restartHeld.delete(`cycle:${cycle.id}`);
+    for (const roadmap of roadmaps)
+      if (roadmap.status !== 'needs-attention') this.restartHeld.delete(`roadmap:${roadmap.id}`);
+    const restarted: { id: string; label: string; roadmap: boolean }[] = [];
     if (
       settings.preferences.needsAttention &&
       tx.maintenance.ownsInstallation(settings.ownerUserId)
@@ -221,6 +258,7 @@ export class NotificationService {
           title: 'CraftingTable · Storage needs attention',
           message: notificationText(alert.message, 1024),
           path: `/workspaces/${encodeURIComponent(workspaceId)}/settings`,
+          ...(alert.members ? { members: alert.members } : {}),
         });
     }
     for (const tree of tx.execution.worktrees.listActive(workspaceId)) {
@@ -242,20 +280,35 @@ export class NotificationService {
       let sourceKey: string;
       if (cycle !== undefined && !['stopped', 'completed'].includes(cycle.status)) {
         if (cycle.status !== 'awaiting-merge' && cycle.status !== 'needs-attention') continue;
+        if (this.restartHeld.has(`cycle:${cycle.id}`)) {
+          restarted.push({
+            id: cycle.id,
+            label: `${item.sourceId}: ${item.title}`,
+            roadmap: false,
+          });
+          continue;
+        }
         if (automatedScopeRecoveryWait(tx, cycle) || scopeReviewWait(tx, cycle)) continue;
-        const owner = tx.roadmaps
-          .list(workspaceId)
-          .find((r) => r.status === 'running' && r.attempts.some((a) => a.cycleId === cycle.id));
+        const owner = roadmaps.find(
+          (r) => r.status === 'running' && r.attempts.some((a) => a.cycleId === cycle.id),
+        );
         const attempt = owner?.attempts.find((a) => a.cycleId === cycle.id);
+        // Resolve authority exactly as RoadmapService does, including delegation grants (CTRL-06).
         const definition =
           owner &&
           attempt &&
-          tx.roadmaps
+          (tx.roadmaps
             .history(workspaceId, owner.id)
-            .find((d) => d.revision === attempt.definitionRevision);
+            .find((d) => d.revision === attempt.definitionRevision) ??
+            owner.definition);
+        const entry =
+          attempt &&
+          (definition?.entries.find((e) => e.id === attempt.entryId) ??
+            owner?.definition.entries.find((e) => e.id === attempt.entryId));
         const automation =
-          definition?.entries.find((e) => e.id === attempt?.entryId)?.automation ??
-          definition?.automation;
+          owner && definition && entry
+            ? effectiveDelegation(owner, entry, definition).automation
+            : undefined;
         if (
           owner &&
           attempt &&
@@ -280,7 +333,8 @@ export class NotificationService {
             ? 'merge'
             : 'attention';
         reason = mergeWait ?? `${cycle.step}: ${cycle.reason}`;
-        sourceKey = `cycle:${cycle.id}:${cycle.version}${mergeWait ? ':merge-requirements' : ''}`;
+        // Keyed by condition, not row version: bumps that keep the blocker do not re-page.
+        sourceKey = `cycle:${cycle.id}:${cycle.status}${mergeWait ? ':merge-requirements' : ''}`;
       } else {
         if (run === undefined || cycle?.currentRunId === run.id) continue;
         const turn = tx.execution.runEvents.latestOfKind(workspaceId, run.id, 'turn-completed');
@@ -340,9 +394,12 @@ export class NotificationService {
       });
     }
     if (settings.preferences.needsAttention) {
-      for (const roadmap of tx.roadmaps.list(workspaceId)) {
+      const cycleAlert = (id: string) =>
+        result.some((source) => source.sourceKey.startsWith(`cycle:${id}:`));
+      for (const roadmap of roadmaps) {
         if (roadmap.status === 'running') {
           const snapshot = mapReadSnapshot(tx);
+          const environmentEntries: string[] = [];
           const environmentWaits = roadmap.definition.entries.flatMap((entry) => {
             if (entry.executionScope?.kind !== 'slice-verification') return [];
             if (roadmap.attempts.some((a) => a.entryId === entry.id)) return [];
@@ -358,19 +415,20 @@ export class NotificationService {
                 (b.kind === 'authorization' && b.message.startsWith('Resource ')) ||
                 b.kind === 'review',
             );
-            return environment.length && blockers.every((b) => environment.includes(b))
-              ? environment.map((b) => `${entry.sourceId}: ${b.message}`)
-              : [];
+            if (!environment.length || !blockers.every((b) => environment.includes(b))) return [];
+            environmentEntries.push(entry.id);
+            return environment.map((b) => `${entry.sourceId}: ${b.message}`);
           });
           if (environmentWaits.length)
             result.push({
-              sourceKey: `roadmap:${roadmap.id}:environments:${createHash('sha256').update(JSON.stringify(environmentWaits.sort())).digest('hex')}`,
+              sourceKey: `roadmap:${roadmap.id}:environments`,
+              members: environmentEntries.sort(),
               kind: 'attention',
               title: notificationText(
                 `${roadmap.definition.name} · Verification setup needed`,
                 250,
               ),
-              message: notificationText(environmentWaits.join('\n'), 1024),
+              message: notificationText(environmentWaits.sort().join('\n'), 1024),
               path: `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`,
             });
           if (roadmap.definition.crossProject) {
@@ -383,7 +441,8 @@ export class NotificationService {
               .sort();
             if (ready.length)
               result.push({
-                sourceKey: `roadmap:${roadmap.id}:checkpoints:${createHash('sha256').update(JSON.stringify(ready)).digest('hex')}`,
+                sourceKey: `roadmap:${roadmap.id}:checkpoints`,
+                members: ready,
                 kind: 'attention',
                 title: notificationText(
                   `${roadmap.definition.name} · Checkpoint evidence needed`,
@@ -407,13 +466,9 @@ export class NotificationService {
             if (cycle && (cycle.status === 'running' || this.cycleTransitioning(cycle.id)))
               continue;
             if (entry.executionScope && this.scopeComplete(tx, roadmap, entry)) continue;
-            if (
-              cycle &&
-              result.some((source) => source.sourceKey === `cycle:${cycle.id}:${cycle.version}`)
-            )
-              continue;
+            if (cycle && cycleAlert(cycle.id)) continue;
             result.push({
-              sourceKey: `roadmap:${roadmap.id}:entry:${entryId}:${createHash('sha256').update(hold.reason).digest('hex')}`,
+              sourceKey: `roadmap:${roadmap.id}:entry:${entryId}`,
               kind: 'attention',
               title: notificationText(`${entry.sourceId} · Roadmap item needs attention`, 250),
               message: notificationText(`${entry.title}\n${hold.reason}`, 1024),
@@ -422,40 +477,92 @@ export class NotificationService {
           }
         }
         if (roadmap.status !== 'needs-attention') continue;
+        if (this.restartHeld.has(`roadmap:${roadmap.id}`)) {
+          restarted.push({ id: roadmap.id, label: roadmap.definition.name, roadmap: true });
+          continue;
+        }
         const active = roadmap.attempts.find((attempt) => attempt.status !== 'completed');
         const cycle = active && cycles.find((candidate) => candidate.id === active.cycleId);
         // The item alert already carries findings and branch details for this checkpoint.
-        if (
-          cycle &&
-          result.some((source) => source.sourceKey === `cycle:${cycle.id}:${cycle.version}`)
-        )
-          continue;
+        if (cycle && cycleAlert(cycle.id)) continue;
         result.push({
-          sourceKey: `roadmap:${roadmap.id}:${roadmap.version}`,
+          sourceKey: `roadmap:${roadmap.id}:needs-attention`,
           kind: 'attention',
           title: notificationText(`${roadmap.definition.name} · Roadmap needs attention`, 250),
           message: notificationText(roadmap.reason, 1024),
           path: `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`,
         });
       }
+      // NOTIF-06: a restart stops every running roadmap and cycle; say so once per boot.
+      if (restarted.length) {
+        const count = (roadmap: boolean, noun: string) => {
+          const n = restarted.filter((r) => r.roadmap === roadmap).length;
+          return n ? [`${n} ${noun}${n === 1 ? '' : 's'}`] : [];
+        };
+        const anyRoadmap = restarted.some((r) => r.roadmap);
+        result.push({
+          sourceKey: `restart:${this.bootId}`,
+          members: restarted.map((r) => r.id).sort(),
+          kind: 'attention',
+          title: 'CraftingTable · Resume after restart',
+          message: notificationText(
+            `The daemon restarted and stopped ${[...count(true, 'roadmap'), ...count(false, 'work cycle')].join(' and ')}. Each waits for an explicit Resume:\n${restarted.map((r) => r.label).join('\n')}`,
+            1024,
+          ),
+          path: `/workspaces/${encodeURIComponent(workspaceId)}${anyRoadmap ? '/roadmaps' : ''}`,
+        });
+      }
     }
     return result;
   }
   private record(workspaceId: WorkspaceId, source: Attention): NotificationRecord {
+    const now = this.now();
     return {
       ...source,
       workspaceId,
       id: randomUUID(),
       state: 'active',
-      createdAt: this.now().toISOString(),
+      createdAt: now.toISOString(),
       firstSentAt: null,
       lastSentAt: null,
-      nextAttemptAt: this.now().toISOString(),
+      // An explicit test is the operator's own request; everything else settles first.
+      nextAttemptAt:
+        source.kind === 'test' ? now.toISOString() : this.settled(now.getTime()).toISOString(),
       deliveredCount: 0,
       failures: 0,
       lastError: null,
       leaseToken: null,
       leaseUntil: null,
+    };
+  }
+  private settled(from: number): Date {
+    return new Date(from + this.settleMs);
+  }
+  /** Reopen a recently resolved occurrence without a new page or a restarted reminder schedule. */
+  private reopen(
+    existing: NotificationRecord,
+    source: Attention,
+    settings: StoredNotificationSettings,
+  ): NotificationRecord {
+    const settle = this.settled(this.now().getTime()).toISOString();
+    const reminder =
+      existing.firstSentAt === null
+        ? settle
+        : nextReminderAt(
+            existing.firstSentAt,
+            existing.lastSentAt ?? existing.firstSentAt,
+            settings.preferences,
+          );
+    return {
+      ...existing,
+      ...source,
+      state: 'active',
+      resolvedAt: undefined,
+      failures: 0,
+      lastError: null,
+      leaseToken: null,
+      leaseUntil: null,
+      nextAttemptAt: reminder > settle ? reminder : settle,
     };
   }
   private scopeComplete(tx: StorageRepositories, roadmap: Roadmap, entry: RoadmapEntry): boolean {
@@ -490,9 +597,11 @@ export class NotificationService {
     }
     return false;
   }
-  private reconcile(tx: StorageRepositories, settings: StoredNotificationSettings): void {
+  /** Returns whether the set of active attention occurrences changed. */
+  private reconcile(tx: StorageRepositories, settings: StoredNotificationSettings): boolean {
     const desired = this.attention(tx, settings);
     const records = tx.notifications.records(settings.workspaceId);
+    const now = this.now();
     let changed = false;
     for (const record of records) {
       if (
@@ -504,6 +613,7 @@ export class NotificationService {
         tx.notifications.saveRecord({
           ...record,
           state: 'resolved',
+          resolvedAt: now.toISOString(),
           leaseToken: null,
           leaseUntil: null,
         });
@@ -516,22 +626,54 @@ export class NotificationService {
         tx.notifications.saveRecord(this.record(settings.workspaceId, source));
         changed = true;
       } else if (existing.state === 'resolved') {
+        const flapped =
+          existing.resolvedAt !== undefined &&
+          now.getTime() - Date.parse(existing.resolvedAt) < NOTIFICATION_FLAP_WINDOW_MS;
+        tx.notifications.saveRecord(
+          flapped
+            ? this.reopen(existing, source, settings)
+            : { ...this.record(settings.workspaceId, source), id: existing.id },
+        );
+        changed = true;
+      } else if (
+        existing.firstSentAt !== null &&
+        source.members?.some((member) => !existing.members?.includes(member))
+      ) {
+        // A set-valued alert gained a member: that is new work, so page again.
         tx.notifications.saveRecord({
           ...this.record(settings.workspaceId, source),
           id: existing.id,
         });
         changed = true;
+      } else if (
+        existing.title !== source.title ||
+        existing.message !== source.message ||
+        existing.path !== source.path ||
+        existing.kind !== source.kind ||
+        JSON.stringify(existing.members) !== JSON.stringify(source.members)
+      ) {
+        // Wording, a shrinking set, or a version bump: refresh the text silently.
+        tx.notifications.saveRecord({
+          ...existing,
+          title: source.title,
+          message: source.message,
+          path: source.path,
+          kind: source.kind,
+          members: source.members,
+        });
       }
     }
     if (changed) this.journal(tx, settings.workspaceId, 'attention');
+    return changed;
   }
   private async deliverDue(): Promise<void> {
     for (const initial of this.storage.notifications.listSettings()) {
       if (this.abort.signal.aborted) return;
       for (let count = 0; count < 20 && !this.abort.signal.aborted; count += 1) {
+        let changed = false;
         const claim = this.storage.transaction((tx) => {
           const settings = tx.notifications.settings(initial.workspaceId);
-          if (settings) this.reconcile(tx, settings);
+          if (settings) changed = this.reconcile(tx, settings);
           if (
             !settings ||
             !this.authorized(tx, settings) ||
@@ -561,6 +703,7 @@ export class NotificationService {
           tx.notifications.saveRecord(claimed);
           return { settings, record: claimed };
         });
+        if (changed) this.notifier.notify('activity');
         if (claim === undefined) break;
         const { settings, record } = claim;
         let delivery: DeliveryResult;
@@ -583,26 +726,32 @@ export class NotificationService {
           };
         }
         if (this.abort.signal.aborted) return; // Leave the claim durable; acceptance might be ambiguous.
+        changed = false;
         this.storage.transaction((tx) => {
           const currentSettings = tx.notifications.settings(settings.workspaceId);
           if (currentSettings === undefined) return;
-          this.reconcile(tx, currentSettings);
+          changed = this.reconcile(tx, currentSettings);
           const current = tx.notifications.find(settings.workspaceId, record.id);
           const now = this.now().toISOString();
           const seconds = [30, 60, 300, 900, 3600][Math.min(record.failures, 4)] ?? 3600;
-          const retryAt =
-            delivery.status === 'retry' && delivery.retryAt !== undefined
-              ? delivery.retryAt
-              : new Date(this.now().getTime() + seconds * 1000).toISOString();
+          // Only the provider's own cooldown (rate limit) holds every alert. A transport
+          // error or provider outage backs off this record alone (NOTIF-16).
+          const cooldown =
+            delivery.status === 'retry' && delivery.retryAt !== undefined ? delivery.retryAt : null;
+          const retryAt = cooldown ?? new Date(this.now().getTime() + seconds * 1000).toISOString();
           // A provider cooldown belongs to the recipient configuration, even if
           // the incident resolved while the request was in flight. An old response
           // must never block credentials saved during that request.
-          if (currentSettings.version === settings.version) {
-            tx.notifications.saveSettings({
-              ...currentSettings,
-              retryAt: delivery.status === 'accepted' ? null : retryAt,
-              blockedReason: delivery.status === 'blocked' ? delivery.reason : null,
-            });
+          const blockedReason = delivery.status === 'blocked' ? delivery.reason : null;
+          if (
+            currentSettings.version === settings.version &&
+            (currentSettings.retryAt !== cooldown ||
+              currentSettings.blockedReason !== blockedReason)
+          ) {
+            tx.notifications.saveSettings({ ...currentSettings, retryAt: cooldown, blockedReason });
+            // A rejection or provider cooldown changes what Settings shows; it is rare.
+            this.journal(tx, settings.workspaceId, 'settings');
+            changed = true;
           }
           if (
             current !== undefined &&
@@ -621,6 +770,13 @@ export class NotificationService {
                 state: record.kind === 'test' ? 'resolved' : current.state,
                 nextAttemptAt: nextReminderAt(firstSentAt, now, currentSettings.preferences),
               });
+              // One audit row per accepted push keeps pages attributable; retries,
+              // failures and leases stay in the outbox row only (R-A2).
+              this.journal(tx, settings.workspaceId, 'delivery', undefined, {
+                notificationId: current.id,
+                sourceKey: current.sourceKey,
+                reminder: current.deliveredCount > 0,
+              });
             } else {
               tx.notifications.saveRecord({
                 ...released,
@@ -633,10 +789,14 @@ export class NotificationService {
                     : current.state,
               });
             }
+            // The operator asked for this test and is watching Settings for its outcome.
+            if (record.kind === 'test' && delivery.status !== 'retry') {
+              this.journal(tx, settings.workspaceId, 'test');
+              changed = true;
+            }
           }
-          this.journal(tx, settings.workspaceId, 'delivery');
         });
-        this.notifier.notify('activity');
+        if (changed) this.notifier.notify('activity');
       }
     }
   }
@@ -645,6 +805,7 @@ export class NotificationService {
     workspaceId: WorkspaceId,
     action: 'settings' | 'attention' | 'delivery' | 'test',
     context?: AuthContext,
+    detail: Record<string, string | boolean> = {},
   ): void {
     const occurredAt = this.now().toISOString();
     tx.audit.append({
@@ -659,8 +820,11 @@ export class NotificationService {
       targetType: 'workspace',
       targetId: workspaceId,
       outcome: 'succeeded',
-      metadata: { action },
+      metadata: { action, ...detail },
     });
+    // Delivery bookkeeping never invalidates browsers; only the attention set and
+    // settings do (R-A2, NOTIF-10).
+    if (action === 'delivery') return;
     tx.workspaceEvents.appendEvent({
       id: asEventId(randomUUID()),
       workspaceId,

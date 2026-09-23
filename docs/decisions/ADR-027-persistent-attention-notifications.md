@@ -34,6 +34,19 @@ An in-flight message can race resolution; later sends recheck current state. Tim
 rules follow the host's Intl timezone data; nonexistent custom times skip a day and
 repeated local times send once. Credentials require private database backups.
 
+## Amendment (2026-09-22, review items R-A1 and R-A2)
+
+Live use showed pushes for states the controller left within a second, re-pages on every
+row-version bump, storage bursts and restart pages. New occurrences now wait a 30-second
+settle period before their first push; tests still send at once. Occurrences are keyed by
+condition rather than row version or content hash, and one that reopens within ten minutes
+keeps its identity and reminder schedule. Set-valued roadmap and storage alerts re-page only
+when a member is added. Storage alerts clear only after free space stays above the reserve
+plus a margin for five minutes. Work stopped by a restart shares one message per boot. Only
+a provider rate limit or rejection pauses every alert; transport errors back off per record.
+Delivery bookkeeping no longer journals workspace events: each accepted push keeps one audit
+row, and only attention-set and settings changes invalidate browsers.
+
 ## Alternatives considered
 
 SMS adds a paid gateway and phone-number setup. Browser push adds service-worker and

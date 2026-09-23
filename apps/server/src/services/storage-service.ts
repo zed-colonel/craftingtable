@@ -25,6 +25,7 @@ import type {
 import type { ExecutionConfig, ServerConfig } from '../config.js';
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError, ForbiddenError } from './errors.js';
+import { type StorageAlert, StorageAlertGate } from './storage-alerts.js';
 import {
   type BuildCache,
   checkRoot,
@@ -51,6 +52,7 @@ export class StorageService {
   private operation: Promise<unknown> | undefined;
   private readonly runCleanups = new Map<WorktreeId, Promise<void>>();
   private stopping = false;
+  private readonly alertGate = new StorageAlertGate();
   private timer: ReturnType<typeof setInterval> | undefined;
   readonly executionConfig: ExecutionConfig;
 
@@ -145,13 +147,17 @@ export class StorageService {
     this.authorize(context, workspaceId);
     return this.status();
   }
-  alerts(): readonly { key: string; message: string }[] {
-    const pressure = this.status()
-      .volumes.filter((volume) => volume.error)
-      .map((volume) => ({
-        key: `storage:volume:${volume.path}`,
-        message: `${volume.label}: ${volume.error} Open Storage settings to inspect disk capacity and cleanup options.`,
-      }));
+  /** Notification sources: one coalesced, hysteresis-gated volume alert plus maintenance. */
+  alerts(): readonly StorageAlert[] {
+    const pressure = this.alertGate.evaluate(
+      this.status().volumes.map((volume) => ({
+        label: volume.label,
+        path: volume.path,
+        freeBytes: volume.realPath === null ? null : volume.freeBytes,
+      })),
+      this.settings.policy.minimumFreeGiB * GiB,
+      this.now().getTime(),
+    );
     if (this.lastError)
       pressure.push({
         key: 'storage:maintenance',

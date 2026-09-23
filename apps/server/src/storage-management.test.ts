@@ -29,6 +29,10 @@ import {
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
 import { NotificationService } from './services/notification-service.js';
+import {
+  STORAGE_ALERT_CLEAR_HOLD_MS,
+  STORAGE_UNAVAILABLE_GRACE_MS,
+} from './services/storage-alerts.js';
 import { cargoCaches, cleanupCandidates, requireFree } from './services/storage-files.js';
 import { StorageService } from './services/storage-service.js';
 import { createTestContext, type TestContext } from './test-support.js';
@@ -402,47 +406,65 @@ it('refuses new writes after a configured volume disappears and raises a stable 
   const s = await fixture();
   const before = s.service.get(s.auth, s.workspaceId);
   const root = before.policy.runsRoot;
-  renameSync(root, `${root}-offline`);
-  expect(() => s.service.executionConfig.runsRoot).toThrow(/unavailable/);
-  expect(existsSync(root)).toBe(false);
-  expect(() =>
-    requireFree(
-      { path: s.context.directory, device: statSync(s.context.directory).dev },
-      Number.MAX_SAFE_INTEGER,
-    ),
-  ).toThrow(/less than/);
-  const alerts = s.service.alerts();
-  expect(alerts).toHaveLength(1);
-  const notifications = new NotificationService(
-    s.context.storage,
-    s.context.services.workspaceService,
-    s.context.services.workspaceEventNotifier,
-    { send: async () => ({ status: 'accepted' }) },
-    s.context.config.publicOrigin,
-    () => new Date(),
-    () => s.service.alerts(),
-  );
-  notifications.save(s.auth, s.workspaceId, {
-    expectedVersion: 0,
-    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, enabled: true },
-    applicationToken: 'a'.repeat(30),
-    userKey: 'u'.repeat(30),
-    clearCredentials: false,
-  });
-  await notifications.tick();
-  expect(
-    s.context.storage.notifications
-      .records(s.workspaceId)
-      .some((record) => record.sourceKey === alerts[0]?.key),
-  ).toBe(true);
-  renameSync(`${root}-offline`, root);
-  await notifications.tick();
-  expect(
-    s.context.storage.notifications
-      .records(s.workspaceId)
-      .every((record) => record.state === 'resolved'),
-  ).toBe(true);
-  await notifications.shutdown();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  try {
+    renameSync(root, `${root}-offline`);
+    expect(() => s.service.executionConfig.runsRoot).toThrow(/unavailable/);
+    expect(existsSync(root)).toBe(false);
+    expect(() =>
+      requireFree(
+        { path: s.context.directory, device: statSync(s.context.directory).dev },
+        Number.MAX_SAFE_INTEGER,
+      ),
+    ).toThrow(/less than/);
+    // A brief remount stays quiet; a mount that stays away raises one coalesced alert.
+    expect(s.service.alerts()).toHaveLength(0);
+    vi.setSystemTime(Date.now() + STORAGE_UNAVAILABLE_GRACE_MS);
+    const alerts = s.service.alerts();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]?.key).toBe('storage:volumes');
+    const notifications = new NotificationService(
+      s.context.storage,
+      s.context.services.workspaceService,
+      s.context.services.workspaceEventNotifier,
+      { send: async () => ({ status: 'accepted' }) },
+      s.context.config.publicOrigin,
+      () => new Date(),
+      () => s.service.alerts(),
+      undefined,
+      { settleMs: 0 },
+    );
+    notifications.save(s.auth, s.workspaceId, {
+      expectedVersion: 0,
+      preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, enabled: true },
+      applicationToken: 'a'.repeat(30),
+      userKey: 'u'.repeat(30),
+      clearCredentials: false,
+    });
+    await notifications.tick();
+    expect(
+      s.context.storage.notifications
+        .records(s.workspaceId)
+        .some((record) => record.sourceKey === alerts[0]?.key && record.state === 'active'),
+    ).toBe(true);
+    renameSync(`${root}-offline`, root);
+    await notifications.tick();
+    expect(
+      s.context.storage.notifications
+        .records(s.workspaceId)
+        .some((record) => record.state === 'active'),
+    ).toBe(true);
+    vi.setSystemTime(Date.now() + STORAGE_ALERT_CLEAR_HOLD_MS);
+    await notifications.tick();
+    expect(
+      s.context.storage.notifications
+        .records(s.workspaceId)
+        .every((record) => record.state === 'resolved'),
+    ).toBe(true);
+    await notifications.shutdown();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 it('serves validated storage status and a usable cleanup preview through the authenticated API', async () => {
   const s = await fixture();

@@ -238,7 +238,7 @@ export async function createServices(
     executionService,
     runtimeEvidenceService,
   );
-  workCycleService.recoverInterrupted();
+  const restartedCycleIds = workCycleService.recoverInterrupted();
   const roadmapService = new RoadmapService(
     storage,
     workspaceService,
@@ -251,7 +251,7 @@ export async function createServices(
     agentRunService,
     gitOperations,
   );
-  roadmapService.recoverInterrupted();
+  const restartedRoadmapIds = roadmapService.recoverInterrupted();
   const crossProjectService = new CrossProjectService(
     storage,
     workspaceService,
@@ -306,6 +306,7 @@ export async function createServices(
       now,
       () => storageService.alerts(),
       (id) => workCycleService.isTransitioning(id),
+      { restartedAtBoot: { cycleIds: restartedCycleIds, roadmapIds: restartedRoadmapIds } },
     ),
     packageImportService: new PackageImportService(
       storage,

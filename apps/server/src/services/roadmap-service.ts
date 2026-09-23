@@ -916,7 +916,8 @@ export class RoadmapService {
     }
   }
 
-  recoverInterrupted(): void {
+  /** Returns the roadmaps this restart stopped, so notifications can coalesce them per boot. */
+  recoverInterrupted(): string[] {
     for (const roadmap of this.storage.roadmaps.list()) {
       if (
         roadmap.decisionPreparations?.some(
@@ -939,12 +940,16 @@ export class RoadmapService {
         );
     }
 
+    const stopped: string[] = [];
     for (const roadmap of this.storage.roadmaps.list())
-      if (roadmap.status === 'running')
+      if (roadmap.status === 'running') {
         this.change(roadmap, {
           status: 'needs-attention',
           reason: 'Daemon restarted. Inspect the current item and explicitly resume the roadmap.',
         });
+        stopped.push(roadmap.id);
+      }
+    return stopped;
   }
   startWorker(): void {
     this.task ??= this.loop();

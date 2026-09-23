@@ -311,6 +311,7 @@ export const workCycleSchema = z
       .regex(/^[0-9a-f]{7,64}$/)
       .optional(),
     housekeepingInstructions: z.string().max(16000).optional(),
+    stepGuidance: z.string().max(16000).optional(),
     checkpoint: z
       .strictObject({
         sourceRunId: agentRunIdSchema,

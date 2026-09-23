@@ -32,11 +32,14 @@ run or prove the project's acceptance checks.
 Explicit unanswered `## Open questions` in successful implementation, remediation, or review
 outcomes stop the ordinary cycle before another step. Legacy results without that section remain
 valid. The browser provides **Continue with guidance** for questions and stalled reviews. An
-authenticated answer or changed approach is retained in cycle instructions, resets the bounded
-stall window, and uses the existing allowance. It never grants extra rounds or approves a finding.
-If the allowance is exhausted, the separate explicit additional-round authorization can carry
-answers alongside its grant. Invalid reports, conflicts, and independent-review scope boundaries
-retain their existing guards.
+authenticated answer or changed approach is one-shot guidance: it applies to the next run of the
+step it was given for (and that step's ADR-062 service retries and completion continuations), is
+recorded in that run's brief, and is not inherited by later steps. Only the instructions given at
+cycle start apply to every step. (Amended 2026-09: accumulated guidance contradicted later
+steps.) Guidance resets the bounded stall window and uses the existing allowance. It never
+grants extra rounds or approves a finding. If the allowance is exhausted, the separate explicit
+additional-round authorization can carry answers alongside its grant. Invalid reports, conflicts,
+and independent-review scope boundaries retain their existing guards.
 
 Before review, the daemon requires a clean managed branch and records its commit. It checks
 that identity after review and again at operator merge. Automated merge approval pins Git's

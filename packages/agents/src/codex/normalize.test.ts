@@ -244,3 +244,66 @@ it('does not retry ambiguous tools, interactive requests, auth, quotas or unknow
     ).toMatchObject({ providerFailure: { safeToRetry: true } });
   }
 });
+
+function replayFixture(name: string) {
+  const normalizer = new CodexStreamNormalizer();
+  const events = [];
+  const fixture = readFileSync(
+    new URL(`../../fixtures/provider-failures/${name}.jsonl`, import.meta.url),
+    'utf8',
+  );
+  for (const line of fixture.trim().split('\n')) {
+    const { method, params } = JSON.parse(line);
+    if (method === 'turn/started') normalizer.beginTurn();
+    else if (method === 'turn/completed') events.push(normalizer.complete(params.turn, 'model'));
+    else events.push(...normalizer.normalize(method, params));
+  }
+  return events;
+}
+
+it.each([
+  ['codex-sleep-then-overloaded', 'capacity', true],
+  ['codex-internal-server-error', 'unavailable', true],
+  ['codex-stream-disconnected', 'transport', true],
+  ['codex-overloaded-pending-command', 'capacity', false],
+  ['codex-delegated-then-overloaded', 'capacity', false],
+  ['codex-usage-limit', 'quota', false],
+  ['codex-rate-limit-http', 'quota', false],
+  ['codex-unauthorized', 'authentication', false],
+  ['codex-bad-request', 'unknown', false],
+] as const)('recorded %s is classified as %s (retry %s)', (name, kind, safeToRetry) => {
+  const turn = replayFixture(name).at(-1);
+  expect(turn).toMatchObject({
+    kind: 'turn-completed',
+    payload: { outcome: 'error', providerFailure: { kind, safeToRetry } },
+  });
+});
+
+it('treats waits and other informational items as benign and silent', () => {
+  const events = replayFixture('codex-sleep-then-overloaded');
+  expect(events.some((e) => e.kind === 'notice' && /Backend item/.test(e.payload.message))).toBe(
+    false,
+  );
+  const n = new CodexStreamNormalizer();
+  n.beginTurn();
+  for (const type of ['sleep', 'plan', 'imageView', 'enteredReviewMode', 'exitedReviewMode'])
+    expect(n.normalize('item/completed', { item: { type, id: type } })).toEqual([]);
+  n.normalize('error', { error: { codexErrorInfo: 'serverOverloaded' }, willRetry: false });
+  expect(n.complete({ status: 'failed' }, 'model').payload).toMatchObject({
+    providerFailure: { kind: 'capacity', safeToRetry: true },
+  });
+});
+
+it('keeps unknown items conservative but reports each type once per run', () => {
+  const n = new CodexStreamNormalizer();
+  n.beginTurn();
+  const item = (id: string) => ({ item: { type: 'subAgentActivity', id } });
+  expect(n.normalize('item/completed', item('a'))).toHaveLength(1);
+  expect(n.normalize('item/completed', item('b'))).toEqual([]);
+  n.normalize('error', { error: { codexErrorInfo: 'serverOverloaded' }, willRetry: false });
+  expect(n.complete({ status: 'failed' }, 'model').payload).toMatchObject({
+    providerFailure: { kind: 'capacity', safeToRetry: false },
+  });
+  n.beginTurn();
+  expect(n.normalize('item/completed', item('c'))).toEqual([]);
+});

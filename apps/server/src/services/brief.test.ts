@@ -60,3 +60,28 @@ describe('composeBrief design handoff', () => {
     expect(brief).not.toContain('## Accepted design');
   });
 });
+
+describe('composeBrief instruction provenance', () => {
+  it('keeps controller rules, operator instructions and one-shot guidance apart', () => {
+    const brief = composeBrief(
+      briefInput({
+        controllerInstructions: 'Do not merge. Complete this step.',
+        instructions: 'Keep the public API.',
+        stepGuidance: 'For this attempt only, rerun the failing check.',
+      }),
+    );
+    const section = (heading: string) =>
+      brief.split(`## ${heading}\n\n`)[1]?.split('\n## ')[0]?.trim();
+    expect(section('Step rules (from the controller)')).toBe('Do not merge. Complete this step.');
+    expect(section('Operator instructions')).toBe('Keep the public API.');
+    expect(section('Operator guidance for this step')).toBe(
+      'For this attempt only, rerun the failing check.',
+    );
+  });
+
+  it('omits empty sections', () => {
+    const brief = composeBrief(briefInput({ controllerInstructions: ' ', stepGuidance: '' }));
+    expect(brief).not.toContain('## Step rules');
+    expect(brief).not.toContain('## Operator guidance');
+  });
+});

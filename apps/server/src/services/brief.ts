@@ -64,7 +64,12 @@ export interface BriefInput {
     readonly integrationBranch?: string;
   };
   readonly planDocuments: readonly BriefPlanDocument[];
+  /** Operator-authored instructions that hold for every step. */
   readonly instructions?: string;
+  /** One-shot operator guidance for this run only. */
+  readonly stepGuidance?: string;
+  /** Controller-authored rules for this automated step. */
+  readonly controllerInstructions?: string;
   /** The run this one continues from, with its final message. */
   readonly parentRun?: BriefParentRun;
 }
@@ -353,8 +358,14 @@ export function composeBrief(input: BriefInput): string {
       sections.push(`## Previous ${parent.role} run\n\n${parentMessage}`);
     }
   }
+  if (input.controllerInstructions?.trim()) {
+    sections.push(`## Step rules (from the controller)\n\n${input.controllerInstructions.trim()}`);
+  }
   if (input.instructions !== undefined && input.instructions.trim().length > 0) {
     sections.push(`## Operator instructions\n\n${input.instructions.trim()}`);
+  }
+  if (input.stepGuidance?.trim()) {
+    sections.push(`## Operator guidance for this step\n\n${input.stepGuidance.trim()}`);
   }
   if (input.reviewContinuationArtifacts !== undefined) {
     sections.push(

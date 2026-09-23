@@ -290,3 +290,92 @@ it('normalizes Claude service errors conservatively and requires settled tool re
   send({ type: 'assistant', message: { content: [{ type: 'text', text: 'server_error' }] } });
   expect(result()[0]?.payload).not.toHaveProperty('providerFailure');
 });
+
+describe('recorded provider failures', () => {
+  function replay(name: string) {
+    const subject = normalizer();
+    const lines = readFileSync(
+      fileURLToPath(new URL(`../../fixtures/provider-failures/${name}.jsonl`, import.meta.url)),
+      'utf8',
+    )
+      .trim()
+      .split('\n');
+    const events = lines.flatMap((line) => subject.normalizeLine(line));
+    const turn = events.at(-1);
+    if (turn?.kind !== 'turn-completed') throw new Error(`${name} did not end a turn`);
+    return turn.payload;
+  }
+
+  it.each([
+    ['claude-overloaded', 'capacity', true],
+    ['claude-server-error', 'unavailable', true],
+    ['claude-error-during-execution', 'unavailable', true],
+    ['claude-overloaded-pending-tool', 'capacity', false],
+    ['claude-session-limit', 'quota', false],
+    ['claude-authentication', 'authentication', false],
+    ['claude-invalid-request', 'unknown', false],
+  ] as const)('%s is classified as %s (retry %s)', (name, kind, safeToRetry) => {
+    expect(replay(name)).toMatchObject({
+      outcome: 'error',
+      providerFailure: { kind, safeToRetry },
+    });
+  });
+
+  it('classifies a success-subtype API error from its HTTP status alone', () => {
+    const subject = normalizer();
+    const result = (status: number) =>
+      subject.normalizeLine(
+        JSON.stringify({
+          type: 'result',
+          subtype: 'success',
+          is_error: true,
+          api_error_status: status,
+          terminal_reason: 'api_error',
+        }),
+      )[0]?.payload;
+    expect(result(503)).toMatchObject({
+      providerFailure: { kind: 'unavailable', safeToRetry: true },
+    });
+    subject.normalizeLine(JSON.stringify({ type: 'assistant', error: 'unknown', message: {} }));
+    expect(result(529)).toMatchObject({ providerFailure: { kind: 'capacity', safeToRetry: true } });
+    // An allowance classification from the assistant record is never overridden by a 5xx.
+    subject.normalizeLine(JSON.stringify({ type: 'assistant', error: 'rate_limit', message: {} }));
+    expect(result(500)).toMatchObject({ providerFailure: { kind: 'quota', safeToRetry: false } });
+    for (const status of [402, 429]) {
+      expect(result(status)).toMatchObject({
+        providerFailure: { kind: 'quota', safeToRetry: false },
+      });
+    }
+    // A success result without an API failure carries no provider failure.
+    expect(
+      subject.normalizeLine(
+        JSON.stringify({ type: 'result', subtype: 'success', is_error: false }),
+      )[0]?.payload,
+    ).not.toHaveProperty('providerFailure');
+  });
+
+  it('keeps a main-thread service failure when a sub-agent message follows it', () => {
+    const subject = normalizer();
+    const send = (message: unknown) => subject.normalizeLine(JSON.stringify(message));
+    send({ type: 'assistant', error: 'server_error', parent_tool_use_id: null, message: {} });
+    send({
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_task',
+      message: { content: [{ type: 'text', text: 'sub-agent progress' }] },
+    });
+    // A sub-agent's own API error does not classify the main turn either.
+    send({ type: 'assistant', error: 'rate_limit', parent_tool_use_id: 'toolu_task', message: {} });
+    expect(
+      send({ type: 'result', subtype: 'error_during_execution', is_error: true })[0]?.payload,
+    ).toMatchObject({ providerFailure: { kind: 'unavailable', safeToRetry: true } });
+  });
+
+  it('reports each unknown message kind once per run', () => {
+    const subject = normalizer();
+    const progress = JSON.stringify({ type: 'system', subtype: 'task_progress', detail: 'x' });
+    expect(subject.normalizeLine(progress)).toHaveLength(1);
+    expect(subject.normalizeLine(progress)).toEqual([]);
+    expect(subject.normalizeLine(JSON.stringify({ type: 'tool_progress' }))).toHaveLength(1);
+    expect(subject.normalizeLine(JSON.stringify({ type: 'tool_progress' }))).toEqual([]);
+  });
+});

@@ -25,7 +25,7 @@ export function CycleGuidanceRecovery({
       <h3>Continue with guidance</h3>
       <p>
         Read the current run’s outcome, then answer its questions or explain what changes the
-        stalled approach. Guidance is retained with this cycle and passed to the next agent.
+        stalled approach. Guidance goes to the next agent run only; later steps do not inherit it.
       </p>
       <p>
         {remaining} remediation attempts remain. This uses the existing allowance and opens a new
@@ -36,7 +36,7 @@ export function CycleGuidanceRecovery({
         <textarea
           required
           rows={5}
-          maxLength={Math.max(0, 16000 - cycle.instructions.length - 2)}
+          maxLength={16000}
           value={guidance}
           disabled={disabled}
           onChange={(event) => setGuidance(event.target.value)}

@@ -406,7 +406,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       'Work item · exhausted remediation allowance',
     );
     await cycle
-      .getByLabel('Additional cycle guidance (optional)')
+      .getByLabel('Guidance for the next run (optional)')
       .fill('E2E-AUTHORIZED-RECOVERY E2E-OPERATOR-QUESTION: Address the remaining regression.');
     await cycle.getByRole('button', { name: 'Authorize more remediation' }).click();
     await expect(cycle.getByLabel('Answers and recovery guidance')).toBeVisible({

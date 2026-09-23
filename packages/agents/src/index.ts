@@ -126,6 +126,7 @@ export { ClaudeStreamNormalizer } from './claude-code/normalize.js';
 
 export { CodexBackend } from './codex/backend.js';
 export { CODEX_MODELS } from './codex/models.js';
+export { CodexStreamNormalizer } from './codex/normalize.js';
 
 export { observeRustToolchain } from './local-toolchain.js';
 

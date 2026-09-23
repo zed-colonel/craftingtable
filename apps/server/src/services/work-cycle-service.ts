@@ -755,7 +755,7 @@ export class WorkCycleService {
         'End the current session before resuming with guidance.',
       );
     return this.next(cycle, cycle.step, runs[0], context, {
-      instructions,
+      stepGuidance: instructions,
       ...(agentOverride === undefined ? {} : { finalizationAgentOverride: agentOverride }),
     });
   }
@@ -898,7 +898,7 @@ export class WorkCycleService {
           remediationRounds: cycle.remediationRounds + 1,
           stalledReviews: 0,
           findingFocus: input.findingIds,
-          instructions,
+          stepGuidance: instructions,
           housekeepingInstructions: this.housekeepingGuidance(),
           reason: `Authorized focused remediation for ${input.findingIds.join(', ')}.`,
         },
@@ -939,7 +939,7 @@ export class WorkCycleService {
         ...(input.agentOverride === undefined
           ? {}
           : { finalizationAgentOverride: input.agentOverride }),
-        instructions,
+        stepGuidance: instructions,
         findingFocus: [],
         ...(finalReview
           ? { polishPhase: 'final-review' as const, polishRound: finalization.rounds.length }
@@ -1045,19 +1045,13 @@ export class WorkCycleService {
         'conflict',
         'Authorize between 1 and 20 additional remediation attempts.',
       );
-    const instructions = [cycle.instructions, input.instructions].filter(Boolean).join('\n\n');
-    if (instructions.length > 16000)
-      throw new ExecutionRequestError(
-        'conflict',
-        'Combined cycle guidance exceeds 16000 characters; shorten the additional guidance.',
-      );
     const blocker = this.remediationBlocker(cycle, !!input.instructions.trim());
     if (blocker) throw new ExecutionRequestError('conflict', blocker);
     const run = this.storage.execution.runs.find(workspaceId, cycle.currentRunId);
     if (!run) throw new NotFoundError();
     return this.reviewRemediation(cycle, run, context, {
       additionalRounds: input.additionalRounds,
-      instructions,
+      instructions: input.instructions.trim(),
     });
   }
 
@@ -1149,12 +1143,6 @@ export class WorkCycleService {
         'conflict',
         'Only a completed or unstarted independent scope review can be reviewed again.',
       );
-    const instructions = [cycle.instructions, guidance.trim()].filter(Boolean).join('\n\n');
-    if (instructions.length > 16000)
-      throw new ExecutionRequestError(
-        'conflict',
-        'Combined cycle guidance exceeds 16000 characters; shorten the additional guidance.',
-      );
     const check = () => {
       delegationCheck?.();
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -1207,7 +1195,7 @@ export class WorkCycleService {
           this.storage.execution.runs.find(workspaceId, cycle.currentRunId),
           context,
           {
-            instructions,
+            stepGuidance: guidance.trim(),
             reason: 'Starting a fresh independent review with the existing reviewer assignment.',
           },
           'review-again',
@@ -1316,19 +1304,20 @@ export class WorkCycleService {
           'conflict',
           'This attempt was retired by a planning amendment.',
         );
-      const instructions = [cycle.instructions, reviewGuidance?.trim()]
+      // Guidance for a pending retry joins the guidance the retried step already carries.
+      const stepGuidance = [cycle.stepGuidance, reviewGuidance?.trim()]
         .filter(Boolean)
         .join('\n\n');
-      if (instructions.length > 16000)
+      if (stepGuidance.length > 16000)
         throw new ExecutionRequestError(
           'invalid-request',
-          'Combined cycle guidance exceeds 16000 characters.',
+          'Combined guidance for this step exceeds 16000 characters.',
         );
       return this.change(
         cycle,
         {
           status: 'running',
-          instructions,
+          ...(stepGuidance ? { stepGuidance } : {}),
           providerRecovery: {
             ...cycle.providerRecovery,
             nextRetryAt:
@@ -1397,19 +1386,17 @@ export class WorkCycleService {
           'conflict',
           'Guided continuation requires answers or guidance and the finished current implementation or review.',
         );
-      const instructions = [cycle.instructions, reviewGuidance.trim()].filter(Boolean).join('\n\n');
-      if (instructions.length > 16000)
-        throw new ExecutionRequestError(
-          'conflict',
-          'Combined cycle guidance exceeds 16000 characters.',
-        );
+      const stepGuidance = reviewGuidance.trim();
       if (cycle.step === 'review') {
         const assessment = latestReviewReport(this.storage.execution, run);
         if (
           assessment?.status === 'complete' &&
           evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
         )
-          return this.reviewRemediation(cycle, run, context, { additionalRounds: 0, instructions });
+          return this.reviewRemediation(cycle, run, context, {
+            additionalRounds: 0,
+            instructions: stepGuidance,
+          });
       }
       return this.next(
         cycle,
@@ -1417,7 +1404,7 @@ export class WorkCycleService {
         run,
         context,
         {
-          instructions,
+          stepGuidance,
           stalledReviews: 0,
           reason:
             'Continuing the current step with operator guidance; existing allowance retained.',
@@ -1440,14 +1427,7 @@ export class WorkCycleService {
           'conflict',
           'Review guidance requires an idle verification or parent-acceptance cycle with its current review run.',
         );
-      const instructions = [cycle.instructions, reviewGuidance?.trim()]
-        .filter(Boolean)
-        .join('\n\n');
-      if (instructions.length > 16000)
-        throw new ExecutionRequestError(
-          'conflict',
-          'Combined cycle guidance exceeds 16000 characters; shorten the additional guidance.',
-        );
+      const stepGuidance = reviewGuidance?.trim() ?? '';
       const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
       if (!tree || !this.branches)
         throw new ExecutionRequestError('unavailable', 'Review snapshot is unavailable.');
@@ -1468,7 +1448,7 @@ export class WorkCycleService {
         );
         return this.mutations.during(tree.id, async () => {
           check();
-          return this.next(cycle, 'review', run, context, { instructions }, 'resume', {
+          return this.next(cycle, 'review', run, context, { stepGuidance }, 'resume', {
             check: delegationCheck,
             attach: onReviewReserved,
           });
@@ -2874,7 +2854,7 @@ export class WorkCycleService {
         {
           ...agent,
           finalizationProgress: updated,
-          instructions,
+          stepGuidance: instructions,
           reason: 'Plan adjustment recorded; reassessing conformance before further changes.',
         },
         'approve-plan-change',
@@ -2975,7 +2955,7 @@ export class WorkCycleService {
         ...(extra
           ? { additionalRemediationRounds: (cycle.additionalRemediationRounds ?? 0) + extra }
           : {}),
-        instructions,
+        stepGuidance: instructions,
         reason: selected.length
           ? 'Implementing the selected stage batch, followed by focused verification.'
           : 'Recording optional follow-ups and verifying the stage without new improvement discovery.',
@@ -3082,7 +3062,7 @@ export class WorkCycleService {
               ...(grant.agentOverride === undefined
                 ? {}
                 : { finalizationAgentOverride: grant.agentOverride }),
-              instructions: grant.instructions,
+              stepGuidance: grant.instructions,
               reason:
                 grant.additionalRounds === 0
                   ? 'Starting remediation with operator guidance using the existing allowance.'
@@ -3862,6 +3842,15 @@ export class WorkCycleService {
         );
     }
     const nextRunId = asAgentRunId(randomUUID());
+    // Operator guidance is one-shot: it belongs to the step it was given for. It survives a
+    // re-reservation of that step before its run launched (e.g. an integration refresh), and
+    // same-step service retries and completion continuations (ADR-062); every other transition
+    // drops it.
+    const sameStepAttempt =
+      step === cycle.step &&
+      (!this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId) ||
+        (changes.providerRecovery?.attempts ?? 0) > 0 ||
+        (changes.resultContinuations ?? 0) > 0);
     reservation?.check?.();
     return this.storage.transaction(() => {
       const result = this.change(
@@ -3876,7 +3865,8 @@ export class WorkCycleService {
           // An explicit resume grants a fresh recovery window; automatic attempts retain their count/deadline.
           resultContinuations: collectingReview && context ? 1 : 0,
           providerRecovery: null,
-          // Resume guidance belongs to that attempt; its answers remain in the handoff journal.
+          stepGuidance: sameStepAttempt ? cycle.stepGuidance : undefined,
+          // Legacy finalization records kept resume guidance here; it belonged to that attempt.
           ...(cycle.finalizationId && parent?.id === cycle.currentRunId
             ? { instructions: '' }
             : {}),
@@ -4076,7 +4066,7 @@ export class WorkCycleService {
           : {}),
         ...(action === 'authorize-remediation' || action === 'remediate-findings'
           ? {
-              instructions: cycle.instructions,
+              instructions: cycle.stepGuidance ?? '',
               initialRemediationAllowance: cycle.policy.maxRemediationRounds,
               additionalRemediationRounds: cycle.additionalRemediationRounds ?? 0,
               remediationAllowance: remediationAllowance(cycle),
@@ -4093,7 +4083,7 @@ export class WorkCycleService {
                 },
               })),
               findingFocus: cycle.findingFocus ?? [],
-              instructions: cycle.instructions,
+              instructions: cycle.stepGuidance ?? '',
             }
           : {}),
         ...(cycle.integrationResolution

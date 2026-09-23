@@ -24,11 +24,14 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type {
-  AgentBackend,
-  AgentLaunchRequest,
-  AgentSession,
-  AgentSessionItem,
+import {
+  type AgentBackend,
+  type AgentLaunchRequest,
+  type AgentSession,
+  type AgentSessionItem,
+  ClaudeStreamNormalizer,
+  CodexStreamNormalizer,
+  type NormalizedAgentEvent,
 } from '@craftingtable/agents';
 import {
   apiErrorResponseSchema,
@@ -2646,6 +2649,10 @@ describe('single work-item automation', () => {
     expect(backend.launches).toHaveLength(7);
     expect(backend.launches[5]?.prompt).toContain('Keep the approved API.');
     expect(backend.launches[5]?.prompt).toContain('Concentrate on the remaining regression.');
+    // The grant's guidance was for that remediation; the following review keeps only the
+    // cycle's own instructions.
+    expect(backend.launches[6]?.prompt).toContain('Keep the approved API.');
+    expect(backend.launches[6]?.prompt).not.toContain('Concentrate on the remaining regression.');
     const reopened = openCraftingTableStorage(state.context.storage.databasePath);
     try {
       expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)).toMatchObject({
@@ -2813,6 +2820,8 @@ describe('single work-item automation', () => {
       expect(currentCycle(state, cycle).step).toBe('review');
       expect(currentCycle(state, cycle).remediationRounds).toBe(0);
       expect(backend.launches).toHaveLength(4);
+      expect(backend.launches[2]?.prompt).toContain('Use the controller policy');
+      expect(backend.launches[3]?.prompt).not.toContain('Use the controller policy');
       expect((await resume()).statusCode).toBe(409);
       const guidance = 'Preserve the approved API boundary.';
       if (allowance === 0) {
@@ -2836,8 +2845,56 @@ describe('single work-item automation', () => {
       );
       expect(currentCycle(state, cycle).remediationRounds).toBe(1);
       expect(backend.launches[4]?.prompt).toContain('Preserve the approved API boundary.');
+      expect(backend.launches[5]?.prompt).not.toContain('Preserve the approved API boundary.');
     },
   );
+
+  it('scopes guidance given on a review retry to that review only', async () => {
+    const retryGuidance = 'For this retry of the review only, restate the report in full.';
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      implementationDone,
+      {
+        resultText: `## Open questions\nShould the report restate the boundary?\n\n## Review report\n${reviewText([])}`,
+      },
+      { resultText: reviewText([structuredFinding]) },
+      implementationDone,
+      {
+        resultText: reviewText([
+          { ...structuredFinding, status: 'resolved', disposition: 'Verified regression case.' },
+        ]),
+      },
+    ]);
+    const cycle = await startCycle(state, worktree.id, { instructions: 'Keep the approved API.' });
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'review question');
+    expect(currentCycle(state, cycle).step).toBe('review');
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: {
+        action: 'resume',
+        expectedVersion: currentCycle(state, cycle).version,
+        instructions: retryGuidance,
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'remediated');
+    const prompts = backend.launches.map((launch) => launch.prompt);
+    expect(prompts).toHaveLength(6);
+    expect(prompts[3]).toContain(`## Operator guidance for this step\n\n${retryGuidance}`);
+    // The following implement (remediation) brief and the next review do not inherit it.
+    for (const later of prompts.slice(4)) {
+      expect(later).not.toContain(retryGuidance);
+      expect(later).toContain('Keep the approved API.');
+    }
+    expect(currentCycle(state, cycle)).toMatchObject({ instructions: 'Keep the approved API.' });
+    expect(currentCycle(state, cycle).stepGuidance).toBeUndefined();
+    // Controller-authored rules are labelled as such; the operator section holds only operator text.
+    const operator = prompts[4]?.split('## Operator instructions\n\n')[1]?.split('\n## ')[0];
+    expect(operator?.trim()).toBe('Keep the approved API.');
+    expect(prompts[4]).toContain('## Step rules (from the controller)');
+  });
 
   it('does not treat disappearing finding IDs as resolution', async () => {
     const { state, worktree } = await cycleFixture([
@@ -11918,8 +11975,8 @@ it('recovers parent review with durable guidance only after current verification
   const result = await resume();
   expect(result.statusCode, result.body).toBe(200);
   const continued = currentCycle(state, cycle);
-  expect(continued.instructions).toContain('Keep the original parent gate.');
-  expect(continued.instructions).toContain('Apply the adopted policy');
+  expect(continued.instructions).toBe('Keep the original parent gate.');
+  expect(continued.stepGuidance).toBe('Apply the adopted policy without waiving the source gate.');
   expect(continued.remediationRounds).toBe(0);
   await waitFor(() => currentCycle(state, cycle).status !== 'running', 'fresh parent review');
   const run = state.context.storage.execution.runs.find(
@@ -13285,7 +13342,7 @@ describe('bounded model service recovery', () => {
       },
     });
     expect(resumed.statusCode, resumed.body).toBe(200);
-    expect(currentCycle(state, cycle).instructions).toContain('Keep the saved scope.');
+    expect(currentCycle(state, cycle).stepGuidance).toBe('Keep the saved scope.');
     expect(currentCycle(state, cycle).runDeadlineAt).toBe(before.runDeadlineAt);
     expect(currentCycle(state, cycle).providerRecovery).toEqual(before.providerRecovery);
     expect((await command(state, cycle, 'pause')).statusCode).toBe(200);
@@ -13325,6 +13382,67 @@ describe('bounded model service recovery', () => {
     { ...overloaded, exitReason: 'background-work-timeout' as const },
   ])('requires operator input for unsafe or nonretryable failures: $resultText', async (reply) => {
     const { state, backend, worktree } = await cycleFixture([reply]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'safe hold');
+    expect(backend.launches).toHaveLength(1);
+    expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
+  });
+
+  /** Replays a recorded vendor failure through the real adapter normalizer. */
+  function recordedFailure(name: string) {
+    const lines = readFileSync(
+      new URL(`../../../packages/agents/fixtures/provider-failures/${name}.jsonl`, import.meta.url),
+      'utf8',
+    )
+      .trim()
+      .split('\n');
+    const events: NormalizedAgentEvent[] = [];
+    if (name.startsWith('claude-')) {
+      const normalizer = new ClaudeStreamNormalizer({ permissionMode: 'auto', cwd: '/work' });
+      for (const line of lines) events.push(...normalizer.normalizeLine(line));
+    } else {
+      const normalizer = new CodexStreamNormalizer();
+      for (const line of lines) {
+        const { method, params } = JSON.parse(line);
+        if (method === 'turn/started') normalizer.beginTurn();
+        else if (method === 'turn/completed') events.push(normalizer.complete(params.turn, 'm'));
+        else events.push(...normalizer.normalize(method, params));
+      }
+    }
+    const turn = events.at(-1);
+    if (turn?.kind !== 'turn-completed' || !turn.payload.providerFailure)
+      throw new Error(`${name} did not record a provider failure`);
+    return turn.payload.providerFailure;
+  }
+
+  it.each([
+    'claude-overloaded',
+    'claude-server-error',
+    'codex-sleep-then-overloaded',
+    'codex-stream-disconnected',
+  ])('schedules a bounded service retry for recorded %s', async (name) => {
+    const failure = recordedFailure(name);
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: 'API Error', providerFailure: failure },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'backoff');
+    expect(currentCycle(state, cycle)).toMatchObject({
+      status: 'running',
+      providerRecovery: { attempts: 0, failure },
+    });
+    expect(backend.launches).toHaveLength(1);
+  });
+
+  it.each([
+    'claude-session-limit',
+    'claude-overloaded-pending-tool',
+    'codex-usage-limit',
+    'codex-delegated-then-overloaded',
+  ])('holds recorded %s for the operator', async (name) => {
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: 'API Error', providerFailure: recordedFailure(name) },
+    ]);
     const cycle = await startCycle(state, worktree.id);
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'safe hold');
     expect(backend.launches).toHaveLength(1);

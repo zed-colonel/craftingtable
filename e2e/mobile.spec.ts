@@ -180,7 +180,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await fitsPhone(page);
     await cycle.screenshot({ path: info.outputPath('phone-remediation-recovery.png') });
     await cycle
-      .getByLabel('Additional cycle guidance (optional)')
+      .getByLabel('Guidance for the next run (optional)')
       .fill('E2E-AUTHORIZED-RECOVERY: Address the remaining regression.');
     await cycle.getByRole('button', { name: 'Authorize more remediation' }).click();
 

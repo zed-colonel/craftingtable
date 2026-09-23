@@ -1,4 +1,9 @@
-import type { ConcurrencyRequirement, ConcurrencySource, JsonValue } from '@craftingtable/domain';
+import {
+  type ConcurrencyRequirement,
+  type ConcurrencySource,
+  concurrencyMilestones,
+  type JsonValue,
+} from '@craftingtable/domain';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import {
   ARCHIVE_LIMITS,
@@ -10,7 +15,7 @@ import {
 } from './archive.js';
 import { concurrencySourceSchema } from './concurrency-schema.js';
 import { sha256Hex } from './digest.js';
-import { parseYamlDocument, normalizeJsonDocument } from './parse.js';
+import { normalizeJsonDocument, parseYamlDocument } from './parse.js';
 
 export interface ImportDiagnostic {
   readonly severity: 'error' | 'warning' | 'info';
@@ -518,9 +523,20 @@ export function analyzeConcurrencyDefinition(
       require(graph.has(
         predecessor,
       ), 'unknown-reference', `${id}: unknown prerequisite ${predecessor}`);
-  const remaining = new Map([...graph].map(([id, predecessors]) => [id, predecessors.size]));
+  // Check acyclicity over the same milestone model that targetClosure, amendments and the
+  // supervisor use, which adds implicit edges (parent dependencies before a non-early slice
+  // starts; every evidence producer before parent acceptance). Implicit edges to unknown
+  // milestones are reported by the reference checks above, so only resolvable ones are added.
+  // The reported node/edge counts stay those of the explicit graph: import summaries and
+  // plan-acceptance facts already persist them.
+  const milestones = new Map([...graph].map(([id, predecessors]) => [id, new Set(predecessors)]));
+  if (source.slices.every((slice) => parents.has(slice.work_item)))
+    for (const node of concurrencyMilestones(source))
+      for (const predecessor of node.requires)
+        if (graph.has(predecessor)) milestones.get(node.key)?.add(predecessor);
+  const remaining = new Map([...milestones].map(([id, predecessors]) => [id, predecessors.size]));
   const dependents = new Map<string, string[]>();
-  for (const [id, predecessors] of graph)
+  for (const [id, predecessors] of milestones)
     for (const p of predecessors) dependents.set(p, [...(dependents.get(p) ?? []), id]);
   const queue = [...remaining].filter(([, n]) => n === 0).map(([id]) => id);
   for (let i = 0; i < queue.length; i++)
@@ -530,7 +546,7 @@ export function analyzeConcurrencyDefinition(
       if (count === 0) queue.push(id);
     }
   require(queue.length ===
-    graph.size, 'milestone-cycle', `Expanded milestone graph contains a cycle or unresolved dependency: ${[
+    milestones.size, 'milestone-cycle', `Expanded milestone graph contains a cycle or unresolved dependency: ${[
     ...remaining,
   ]
     .filter(([, n]) => n > 0)

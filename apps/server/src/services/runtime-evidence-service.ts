@@ -1,3 +1,7 @@
+import {
+  currentDecisionPreparation,
+  decisionPreparationForRun,
+} from './decision-preparation-policy.js';
 import { workflowContext, workflowDelegation } from './workflow-policy.js';
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import type { WorkCycle } from '@craftingtable/domain';
@@ -1561,12 +1565,19 @@ export class RuntimeEvidenceService {
         const binding = this.binding(ws, id, input.bindingRevision).bindings.find(
           (b) => b.alias === spec.checkpoint?.owner,
         );
+        const preparation = run && decisionPreparationForRun(tx, ws, run.id);
+        const preparedHere =
+          preparation?.definitionId === id &&
+          preparation.worktreeId === run?.worktreeId &&
+          preparation.checkpointId === input.checkpointId &&
+          currentDecisionPreparation(tx, preparation);
         if (
           !run ||
           run.status !== 'finished' ||
           !tree ||
-          tree.executionScope?.definitionId !== id ||
-          tree.executionScope.bindingRevision !== input.bindingRevision ||
+          (!preparedHere &&
+            (tree.executionScope?.definitionId !== id ||
+              tree.executionScope.bindingRevision !== input.bindingRevision)) ||
           worktreePlan(tx, tree) !== binding?.planVersionId ||
           tree.repositoryId !== binding?.repositoryId
         )
@@ -1574,6 +1585,7 @@ export class RuntimeEvidenceService {
         const event = tx.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
         if (
           event?.kind !== 'turn-completed' ||
+          event.payload.outcome !== 'success' ||
           event.payload.truncated ||
           !event.payload.resultText
         )
@@ -1679,7 +1691,8 @@ export class RuntimeEvidenceService {
         .some(
           (r) =>
             r.workspaceId === ws &&
-            tx.execution.worktrees.find(ws, r.worktreeId)?.executionScope?.definitionId === id,
+            (tx.execution.worktrees.find(ws, r.worktreeId)?.executionScope?.definitionId === id ||
+              decisionPreparationForRun(tx, ws, r.id)?.definitionId === id),
         )
     )
       conflict('Wait for live runs on this map to finish before changing architecture decisions.');

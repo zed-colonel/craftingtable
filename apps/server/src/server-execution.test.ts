@@ -9622,8 +9622,9 @@ it('adopts exact map decisions separately, previews exclusions, guards HTTP auth
     after.nodes.find((n) => n.kind === 'slice' && n.state === 'verified')?.reviewerRoles,
   ).toEqual(['repository-maintainer', 'independent-security-reviewer-if-required-by-source']);
   expect(
-    after.nodes.filter((n) => n.kind === 'checkpoint').every((n) => !n.reviewerRoles?.length),
-  ).toBe(true);
+    after.nodes.find((n) => n.kind === 'checkpoint' && n.sourceId === 'LOCAL-TARGET')
+      ?.reviewerRoles,
+  ).toEqual(['repository-maintainer', 'independent-security-reviewer-if-required-by-source']);
 
   expect(after.targetReached).toBe(false);
   expect(
@@ -13707,3 +13708,377 @@ it('changes future remediation and review models of a started roadmap cycle with
   expect(cycle.remediationRounds).toBe(1);
   expect(cycle.additionalRemediationRounds).toBe(1);
 }, 15000);
+
+it('prepares a decision before gated development, keeps it proposal-only, and binds its report to the exact map', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(false, 'automatic', false, false, false, (source) => ({
+    ...source,
+    evidence_profiles: [
+      ...source.evidence_profiles,
+      {
+        id: 'architecture-approval',
+        independence_required: true,
+        reviewer_roles: ['repository-maintainer'],
+        required_evidence: [
+          'accepted decision artifact digest and revision',
+          'source contract and affected schema or protocol references',
+          'decision owner approval and applicability to the active plan generation',
+        ],
+      },
+    ],
+    checkpoints: [
+      ...source.checkpoints,
+      {
+        ...source.checkpoints[0]!,
+        id: 'LOCAL-ADR-01',
+        owner: 'local',
+        kind: 'architecture_decision',
+        evidence_profile: 'architecture-approval',
+        requires: [],
+      },
+    ],
+    slices: source.slices.map((s) => ({
+      ...s,
+      start_requires: [{ kind: 'checkpoint', id: 'LOCAL-ADR-01', state: 'passed' }],
+    })),
+  }));
+  const ws = f.state.workspaceId,
+    tx = f.state.context.storage,
+    roadmaps = f.state.context.services.roadmapService;
+  await adoptSupervisedMap(f);
+  const saved = f.service.save(f.auth, ws, f.input).roadmap;
+  const beforeEvidence = tx.runtimeEvidence.submissions(ws, f.parentScope.definitionId);
+  const beforeItems = tx.planning.workItems.listForVersion(
+    ws,
+    saved.definition.entries[0]!.planVersionId,
+  );
+  const decision = {
+    checkpointId: 'LOCAL-ADR-01',
+    decisionText: 'Use the documented boundary.',
+    why: 'The plan requires separation.',
+    alternatives: [{ option: 'Shared mutable boundary', tradeoff: 'Weaker isolation' }],
+    consequences: 'Test isolation later.',
+    coverage: 'full',
+    consumers: [],
+    retainedObligations: 'Implementation tests remain mandatory.',
+  };
+  f.backend.replyForRequest = () => ({
+    resultText:
+      '## Open questions\nApprove LOCAL-ADR-01?\n```craftingtable-design\n' +
+      JSON.stringify({
+        version: 1,
+        items: [
+          {
+            kind: 'operator-decision',
+            question: 'Approve LOCAL-ADR-01?',
+            answer: 'Use the documented boundary.',
+            sources: ['Exact imported plan LOCAL-ADR-01'],
+            decision,
+          },
+        ],
+      }) +
+      '\n```',
+  });
+  const url = `/api/workspaces/${ws}/roadmaps/${saved.id}/prepare-decision`;
+  const payload = {
+    expectedVersion: saved.version,
+    checkpointId: 'LOCAL-ADR-01',
+    profile: { backend: 'claude-code', model: 'decision-model' },
+    minutes: 5,
+    instructions: 'Focus on architectural choice, retain test obligations.',
+  };
+  expect((await f.state.context.app.inject({ method: 'POST', url, payload })).statusCode).toBe(401);
+  expect(
+    (
+      await f.state.context.app.inject({
+        method: 'POST',
+        url,
+        headers: { cookie: f.state.cookie },
+        payload,
+      })
+    ).statusCode,
+  ).toBe(403);
+  const launchBackend = f.backend.launch.bind(f.backend);
+  let releaseLaunch!: () => void;
+  const launchReady = new Promise<void>((resolve) => {
+    releaseLaunch = resolve;
+  });
+  const launchSpy = vi.spyOn(f.backend, 'launch').mockImplementation(async (request) => {
+    await launchReady;
+    return launchBackend(request);
+  });
+  const pending = f.state.context.app.inject({
+    method: 'POST',
+    url,
+    headers: mutationHeaders(f.state),
+    payload,
+  });
+  await waitFor(() => tx.execution.runs.listLive().length === 1, 'reserved preparation launch');
+  const duplicate = await f.state.context.app.inject({
+    method: 'POST',
+    url,
+    headers: mutationHeaders(f.state),
+    payload: { ...payload, expectedVersion: storedRoadmap(f.state).version },
+  });
+  expect(duplicate.statusCode).toBe(409);
+  releaseLaunch();
+  const result = await pending;
+  expect(launchSpy).toHaveBeenCalledTimes(1);
+  expect(result.statusCode, result.body).toBe(200);
+  const updated = storedRoadmap(f.state),
+    prep = updated.decisionPreparations![0]!;
+  await waitFor(
+    () => tx.execution.runs.find(ws, prep.runId)?.status === 'finished',
+    'standalone decision preparation',
+  );
+  expect(updated.definition).toEqual(saved.definition);
+  expect(updated.attempts).toHaveLength(0);
+  expect(updated.status).toBe('draft');
+  expect(tx.execution.cycles.list(ws)).toHaveLength(0);
+  expect(
+    tx.planning.workItems.listForVersion(ws, saved.definition.entries[0]!.planVersionId),
+  ).toEqual(beforeItems);
+  expect(tx.runtimeEvidence.submissions(ws, prep.definitionId)).toEqual(beforeEvidence);
+  const launch = f.backend.launches[0]!;
+  expect(launch.readOnly).toBe(true);
+  expect(launch.deadlineAt).toBe(prep.deadlineAt);
+  expect(launch.prompt).toContain('LOCAL-ADR-01');
+  expect(launch.prompt).toContain('decision-preparation/context.json');
+  expect(launch.prompt).not.toContain('Plan finalization:');
+  const tree = tx.execution.worktrees.find(ws, prep.worktreeId)!;
+  expect(tree.workItemId).toBeUndefined();
+  expect(tree.executionScope).toBeUndefined();
+  expect(tree.baseSha).toBe(prep.integrationSha);
+  const { architectureDecisionInbox } = await import('./services/architecture-decision-inbox.js');
+  const definition = tx.imports.definition(ws, prep.definitionId)!;
+  const card = architectureDecisionInbox(tx, definition).decisions.find(
+    (c) => c.checkpointId === prep.checkpointId,
+  )!;
+  expect(card.recommendation?.brief).toEqual(decision);
+  expect(card.recommendation?.investigation).toBe(true);
+  expect(card.records).toHaveLength(0);
+  const proposal =
+    await f.state.context.services.runtimeEvidenceService.proposeArchitectureDecision(
+      f.auth,
+      ws,
+      prep.definitionId,
+      {
+        bindingRevision: 1,
+        checkpointId: prep.checkpointId,
+        sourceRunId: prep.runId,
+        sourceReportDigest: card.recommendation!.sourceReportDigest,
+        coverage: 'full',
+        proposal: decision.decisionText,
+        sourceReferences: card.sourceReferences,
+        consumers: [],
+        retainedObligations: decision.retainedObligations,
+      },
+    );
+  expect(
+    proposal.submissions.find((s) => s.submission.subject.sourceId === prep.checkpointId)?.decision,
+  ).toBeUndefined();
+  await expect(
+    f.state.context.services.executionService.mergeWorktree(f.auth, ws, prep.worktreeId),
+  ).rejects.toThrow('cannot be merged');
+
+  expect(
+    (
+      await f.state.context.app.inject({
+        method: 'POST',
+        url,
+        headers: mutationHeaders(f.state),
+        payload,
+      })
+    ).statusCode,
+  ).toBe(409);
+  // Rebinding makes prior preparation unavailable for new proposals without discarding history.
+  const reservation = {
+    ...prep,
+    id: randomUUID(),
+    runId: asAgentRunId(randomUUID()),
+    worktreeId: asWorktreeId(randomUUID()),
+  };
+  const beforeRestart = storedRoadmap(f.state);
+  tx.roadmaps.save(
+    {
+      ...beforeRestart,
+      version: beforeRestart.version + 1,
+      decisionPreparations: [...beforeRestart.decisionPreparations!, reservation],
+    },
+    beforeRestart.version,
+  );
+  roadmaps.recoverInterrupted();
+  expect(storedRoadmap(f.state).decisionPreparations!.at(-1)?.failure).toContain(
+    'restarted before launch',
+  );
+  expect(launchSpy).toHaveBeenCalledTimes(1);
+  const binding = tx.imports.bindings(ws, prep.definitionId)[0]!;
+  tx.imports.addBindings({ ...binding, revision: 2 });
+  expect(
+    architectureDecisionInbox(tx, definition).decisions.find(
+      (c) => c.checkpointId === prep.checkpointId,
+    )?.recommendation,
+  ).toBeUndefined();
+});
+
+it('explicitly updates future delegation of started work without rewriting definitions, reports or accepted-plan evidence', {
+  timeout: 20000,
+}, async () => {
+  const f = await supervisedMapFixture(true, 'manual', false, false, false, (source) => ({
+    ...source,
+    evidence_profiles: [
+      ...source.evidence_profiles,
+      { ...source.evidence_profiles[0]!, id: 'profile-review', reviewer_roles: ['profile-owner'] },
+    ],
+    checkpoints: [
+      ...source.checkpoints,
+      {
+        ...source.checkpoints[0]!,
+        id: 'LOCAL-PROFILE',
+        owner: 'local',
+        kind: 'profile',
+        requires: [],
+        evidence_profile: 'profile-review',
+      },
+    ],
+    slices: source.slices.map((s, i) =>
+      i
+        ? s
+        : {
+            ...s,
+            mode: 'domain',
+            merge_requires: [{ kind: 'checkpoint', id: 'LOCAL-PROFILE', state: 'passed' }],
+          },
+    ),
+  }));
+  const originalReply = f.backend.replyForRequest!;
+  f.backend.replyForRequest = (request) => {
+    const reply = originalReply(request);
+    if (request.model !== 'review-model') return reply;
+    const checkpoint = request.prompt.includes('This is a separate checkpoint review.');
+    const spec = requireSubjectRequirements(
+      f.state.context.storage.imports.definition(f.state.workspaceId, f.parentScope.definitionId)!,
+      { kind: 'checkpoint', sourceId: 'LOCAL-PROFILE' },
+      f.scopes[0]!.sourceId,
+    );
+    return {
+      ...reply,
+      resultText: withWorkflowReport(
+        reply.resultText!,
+        checkpoint
+          ? {
+              checkpoint: {
+                id: 'LOCAL-PROFILE',
+                passed: true,
+                requirements: spec.requirements.map((requirement) => ({
+                  requirement,
+                  evidence: 'Independent candidate inspection',
+                })),
+                caseIds: spec.cases.map((c) => c.id),
+              },
+            }
+          : {},
+      ),
+    };
+  };
+  await adoptSupervisedMap(f);
+  f.service.save(f.auth, f.state.workspaceId, f.input);
+  const preview = f.service.view(f.auth, f.state.workspaceId, {
+    definitionId: f.parentScope.definitionId,
+    bindingRevision: 1,
+    targetId: 'LOCAL',
+    selection: 'target-only',
+  });
+  expect(preview.nodes.find((n) => n.sourceId === 'LOCAL-PROFILE')?.reviewerRoles).toContain(
+    'profile-owner',
+  );
+  await roadmapControl(f.state, 'start');
+  const tx = f.state.context.storage,
+    ws = f.state.workspaceId;
+  await waitFor(
+    () =>
+      tx.execution.cycles
+        .list(ws)
+        .some((c) => ['needs-attention', 'awaiting-merge'].includes(c.status)),
+    'missing reviewer delegation',
+    10000,
+  );
+  await roadmapControl(f.state, 'pause');
+  const saved = storedRoadmap(f.state),
+    attempt = saved.attempts[0]!,
+    beforeRuns = tx.execution.runs.listForWorktree(ws, attempt.worktreeId);
+  const input = {
+    expectedVersion: saved.version,
+    entryIds: [attempt.entryId],
+    automation: {
+      integrationMerge: 'automatic' as const,
+      integrationConflicts: 'automatic' as const,
+    },
+    reviewerRoles: [
+      'repository-maintainer',
+      'independent-security-reviewer-if-required-by-source',
+      'profile-owner',
+    ],
+    rationale: 'Delegate remaining technical reviews and integration recovery.',
+  };
+  const url = `/api/workspaces/${ws}/roadmaps/${saved.id}/delegation`;
+  expect(
+    (await f.state.context.app.inject({ method: 'POST', url, payload: input })).statusCode,
+  ).toBe(401);
+  const reply = await f.state.context.app.inject({
+    method: 'POST',
+    url,
+    headers: mutationHeaders(f.state),
+    payload: input,
+  });
+  expect(reply.statusCode, reply.body).toBe(200);
+  const current = storedRoadmap(f.state);
+  expect(current.status).toBe('paused');
+  expect(current.definition).toEqual(saved.definition);
+  expect(current.attempts).toEqual(saved.attempts);
+  expect(tx.execution.runs.listForWorktree(ws, attempt.worktreeId)).toEqual(beforeRuns);
+  expect(tx.roadmaps.history(ws, saved.id)).toHaveLength(1);
+  const { workflowDelegation } = await import('./services/workflow-policy.js');
+  expect(workflowDelegation(tx, tx.execution.cycles.find(ws, attempt.cycleId)!)?.roles).toContain(
+    'profile-owner',
+  );
+  expect(
+    (
+      await f.state.context.app.inject({
+        method: 'POST',
+        url,
+        headers: mutationHeaders(f.state),
+        payload: input,
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(
+    (
+      await f.state.context.app.inject({
+        method: 'POST',
+        url,
+        headers: mutationHeaders(f.state),
+        payload: {
+          ...input,
+          expectedVersion: current.version,
+          reviewerRoles: ['invented-qualification'],
+        },
+      })
+    ).statusCode,
+  ).toBe(409);
+  await roadmapControl(f.state, 'resume');
+  await waitFor(
+    () => !!tx.execution.worktrees.find(ws, attempt.worktreeId)?.mergedAt,
+    'integration after explicit reviewer grant',
+    10000,
+  ).catch((error) => {
+    throw new Error(
+      `${error.message}: ${JSON.stringify(tx.execution.cycles.list(ws).map((c) => ({ status: c.status, reason: c.reason, workflow: c.workflow })))}; roadmap=${JSON.stringify(storedRoadmap(f.state).entryHolds)}`,
+    );
+  });
+  const checkpoint = tx.runtimeEvidence
+    .submissions(ws, f.parentScope.definitionId)
+    .find((s) => s.subject.sourceId === 'LOCAL-PROFILE');
+  expect(checkpoint?.candidateCheckpoint?.delegatedReview?.roles).toEqual(['profile-owner']);
+});

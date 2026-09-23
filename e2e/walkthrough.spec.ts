@@ -721,6 +721,39 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await expect(
       page.getByRole('region', { name: 'Independent review recovery', exact: true }),
     ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByRole('button', { name: 'Change future delegation', exact: true }),
+    ).toBeVisible();
+    await walk.capture(
+      'roadmap-future-delegation',
+      'Roadmaps · explicit future delegation',
+      async (p) => {
+        await p.getByRole('button', { name: 'Change future delegation', exact: true }).click();
+        const form = p
+          .locator('details')
+          .filter({ has: p.getByText('Delegation for queued and started work', { exact: true }) })
+          .last();
+        await form.getByRole('button', { name: 'Select all entries', exact: true }).click();
+        await expect(
+          form.getByRole('button', { name: 'Apply future delegation', exact: true }),
+        ).toBeDisabled();
+      },
+    );
+    await walk.capture(
+      'roadmap-decision-preparation',
+      'Roadmaps · independent architecture preparation',
+      async (p) => {
+        await p.getByRole('button', { name: 'Prepare architecture decision', exact: true }).click();
+        await p
+          .getByRole('combobox', { name: 'Decision to prepare', exact: true })
+          .selectOption('WI-ADR-008');
+        await expect(
+          p.getByRole('button', { name: 'Prepare decision brief', exact: true }),
+        ).toBeEnabled();
+      },
+    );
+
     await walk.capture(
       'roadmap-recovery-delegation',
       'Roadmaps · bounded independent review recovery',

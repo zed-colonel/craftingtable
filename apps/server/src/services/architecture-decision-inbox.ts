@@ -1,3 +1,7 @@
+import {
+  currentDecisionPreparation,
+  decisionPreparationForRun,
+} from './decision-preparation-policy.js';
 import { createHash } from 'node:crypto';
 import {
   parseDesignReport,
@@ -39,7 +43,8 @@ export function architectureDecisionInbox(
       .some(
         (r) =>
           r.workspaceId === ws &&
-          tx.execution.worktrees.find(ws, r.worktreeId)?.executionScope?.definitionId === d.id,
+          (tx.execution.worktrees.find(ws, r.worktreeId)?.executionScope?.definitionId === d.id ||
+            decisionPreparationForRun(tx, ws, r.id)?.definitionId === d.id),
       )
   )
     blockers.push('Wait for live runs on this map to finish before approving decisions.');
@@ -56,6 +61,14 @@ export function architectureDecisionInbox(
     .filter((c) => c.executionScope?.definitionId === d.id);
   // Include stopped designs even after substantial activity elsewhere pushes them off the recent list.
   const runs = [
+    ...tx.roadmaps
+      .list(ws)
+      .flatMap((r) => r.decisionPreparations ?? [])
+      .filter((p) => p.definitionId === d.id)
+      .flatMap((p) => {
+        const run = tx.execution.runs.find(ws, p.runId);
+        return run ? [run] : [];
+      }),
     ...cycles.flatMap((c) => {
       const r = tx.execution.runs.find(ws, c.currentRunId);
       return r ? [r] : [];
@@ -68,16 +81,28 @@ export function architectureDecisionInbox(
     seenTrees.add(run.worktreeId);
     if (run.status !== 'finished') continue;
     const tree = tx.execution.worktrees.find(ws, run.worktreeId);
+    const preparation = decisionPreparationForRun(tx, ws, run.id);
+    const preparedHere =
+      preparation?.definitionId === d.id &&
+      preparation.worktreeId === run.worktreeId &&
+      currentDecisionPreparation(tx, preparation);
     if (
-      tree?.executionScope?.definitionId !== d.id ||
-      tree.executionScope.bindingRevision !== revision
+      !tree ||
+      (!preparedHere &&
+        (tree.executionScope?.definitionId !== d.id ||
+          tree.executionScope.bindingRevision !== revision))
     )
       continue;
     const owner = binding?.bindings.find(
       (b) => b.planVersionId === worktreePlan(tx, tree) && b.repositoryId === tree.repositoryId,
     )?.alias;
     const event = tx.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
-    if (event?.kind !== 'turn-completed' || event.payload.truncated || !event.payload.resultText)
+    if (
+      event?.kind !== 'turn-completed' ||
+      event.payload.outcome !== 'success' ||
+      event.payload.truncated ||
+      !event.payload.resultText
+    )
       continue;
     const report = event.payload.resultText;
     const parsed = parseDesignReport(report);
@@ -129,6 +154,7 @@ export function architectureDecisionInbox(
       const candidates = checkpoints.filter(
         (c) =>
           c.owner === owner &&
+          (!preparation || preparation.checkpointId === c.id) &&
           (question.decision ? question.decision.checkpointId === c.id : tokens.has(c.id)),
       );
       for (const c of candidates) {
@@ -143,7 +169,7 @@ export function architectureDecisionInbox(
           ...(parsed.status === 'invalid' ? { classificationIssue: parsed.reason } : {}),
           sourceReportDigest: createHash('sha256').update(report).digest('hex'),
           ...(run.workItemId ? { workItemId: run.workItemId } : {}),
-          sliceId: tree.executionScope.sourceId,
+          ...(tree.executionScope ? { sliceId: tree.executionScope.sourceId } : {}),
           question: question.question,
           answer: question.answer,
           sources: question.sources,

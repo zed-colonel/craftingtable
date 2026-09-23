@@ -5,7 +5,11 @@ export function codexThreadParams(request: AgentLaunchRequest): Record<string, u
   return {
     cwd: request.cwd,
     ...codexApprovalParams(request),
-    sandbox: request.permissionMode === 'unrestricted' ? 'danger-full-access' : 'workspace-write',
+    sandbox: request.readOnly
+      ? 'read-only'
+      : request.permissionMode === 'unrestricted'
+        ? 'danger-full-access'
+        : 'workspace-write',
     ...(request.model === undefined ? {} : { model: request.model }),
     ...(request.appendSystemPrompt === undefined
       ? {}
@@ -19,7 +23,7 @@ export function codexThreadParams(request: AgentLaunchRequest): Record<string, u
 }
 
 function codexApprovalParams(request: AgentLaunchRequest): Record<string, unknown> {
-  return request.permissionMode === 'auto'
+  return !request.readOnly && request.permissionMode === 'auto'
     ? { approvalPolicy: 'on-request', approvalsReviewer: 'auto_review' }
     : { approvalPolicy: 'never', approvalsReviewer: 'user' };
 }
@@ -29,8 +33,9 @@ export function codexTurnParams(request: AgentLaunchRequest): Record<string, unk
     ...(request.reasoningEffort ? { effort: request.reasoningEffort } : {}),
     cwd: request.cwd,
     ...codexApprovalParams(request),
-    sandboxPolicy:
-      request.permissionMode === 'unrestricted'
+    sandboxPolicy: request.readOnly
+      ? { type: 'readOnly' }
+      : request.permissionMode === 'unrestricted'
         ? { type: 'dangerFullAccess' }
         : {
             type: 'workspaceWrite',

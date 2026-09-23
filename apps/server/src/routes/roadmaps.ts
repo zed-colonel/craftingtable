@@ -1,5 +1,8 @@
 import {
   applyRoadmapAgentsSchema,
+  applyRoadmapDelegationSchema,
+  prepareRoadmapDecisionSchema,
+  decisionPreparationSettingsSchema,
   controlRoadmapRequestSchema,
   roadmapAgentsSchema,
   roadmapCapacitiesSchema,
@@ -24,6 +27,65 @@ export function registerRoadmapRoutes(
   roadmaps: RoadmapService,
   config: ServerConfig,
 ): void {
+  app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparations',
+    async (request, reply) => {
+      const context = authenticate(request, auth),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      if (!ws.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      return noStore(reply).send(
+        decisionPreparationSettingsSchema.parse(
+          roadmaps.decisionSettings(context, ws.data, id.data),
+        ),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/prepare-decision',
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        id = roadmapIdSchema.safeParse(request.params.roadmapId),
+        input = prepareRoadmapDecisionSchema.safeParse(request.body);
+      if (!ws.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      if (!input.success)
+        return sendApiError(
+          reply,
+          400,
+          'invalid-request',
+          'Choose a decision, model and bounded preparation time.',
+        );
+      return noStore(reply).send(
+        roadmapViewSchema.parse(
+          await roadmaps.prepareDecision(context, ws.data, id.data, input.data),
+        ),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/delegation',
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
+        id = roadmapIdSchema.safeParse(request.params.roadmapId),
+        input = applyRoadmapDelegationSchema.safeParse(request.body);
+      if (!ws.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      if (!input.success)
+        return sendApiError(
+          reply,
+          400,
+          'invalid-request',
+          'Choose current entries, delegation and a reason.',
+        );
+      return noStore(reply).send(
+        roadmapViewSchema.parse(roadmaps.applyDelegation(context, ws.data, id.data, input.data)),
+      );
+    },
+  );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/agent-profiles',
     async (request, reply) => {

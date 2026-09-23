@@ -1,3 +1,4 @@
+import { decisionPreparationDocuments } from './decision-preparation-policy.js';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -123,6 +124,7 @@ function summarise(text: string): string {
  * regress a run the operator already cancelled.
  */
 export class AgentRunService {
+  private readonly preparationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly live = new Map<string, LiveRun>();
   private readonly pendingCycleLaunches = new Map<AgentRunId, () => void>();
 
@@ -267,6 +269,31 @@ export class AgentRunService {
     );
   }
 
+  async startDecisionPreparation(
+    context: AuthContext,
+    preparation: import('@craftingtable/domain').DecisionPreparation,
+    check: () => void,
+  ): Promise<AgentRun> {
+    this.workspaceService.requireRole(context, preparation.workspaceId, ['owner', 'editor']);
+    check();
+    return this.launchAuthorized(
+      preparation.workspaceId,
+      undefined,
+      {
+        ...preparation.profile,
+        permissionMode: 'edit-only',
+        role: 'design',
+        worktreeId: preparation.worktreeId,
+        instructions: `Prepare an operator decision brief for ${preparation.checkpointId}. This is read-only decision preparation, not work-item implementation or finalization. Read the exact imported sources and decision-preparation/context.json. Do not change source, commit, merge, run builds, provision environments, approve decisions or claim tests passed. Work-item start/merge gates do not prevent preparing this recommendation. Cite facts and distinguish them from proposed choices; identify information genuinely unavailable. Recommend full architecture coverage only when the choice can be settled without future implementation evidence; otherwise name narrow clauses and preserve the full checkpoint. Include one consolidated craftingtable-design block with an operator-decision item and a decision recommendation for exactly ${preparation.checkpointId}; include decisionText, why, at least one alternative with tradeoff, consequences, coverage, consumers and retainedObligations. A full recommendation has consumers: []; implementation and tests retain their gates. Your final message is the artifact; do not write report files.\n\nOperator guidance:\n${preparation.instructions}`,
+      },
+      { userId: context.user.id, sessionId: context.session.id },
+      undefined,
+      undefined,
+      { purpose: 'investigation', preparationId: preparation.id },
+      { value: preparation, check },
+    );
+  }
+
   private requireCycleLaunchAuthority(cycle: WorkCycle): void {
     const stored = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
     const user = this.storage.users.findById(cycle.createdByUserId);
@@ -405,6 +432,9 @@ export class AgentRunService {
       cycle,
       {
         purpose: selected.provenance.purpose,
+        ...(selected.provenance.delegationId
+          ? { delegationId: selected.provenance.delegationId }
+          : {}),
         ...(profile.backend === selected.profile.backend &&
         profile.model === selected.profile.model &&
         profile.reasoningEffort === selected.profile.reasoningEffort &&
@@ -478,8 +508,18 @@ export class AgentRunService {
     requestId?: string,
     cycle?: WorkCycle,
     profileSelection?: AgentRun['profileSelection'],
+    preparation?: { value: import('@craftingtable/domain').DecisionPreparation; check: () => void },
   ): Promise<AgentRun> {
     await this.storageService?.waitForRunCleanup(input.worktreeId);
+    const preparationTree = this.storage.roadmaps
+      .list(workspaceId)
+      .some((r) => r.decisionPreparations?.some((p) => p.worktreeId === input.worktreeId));
+    if (preparationTree && (!preparation || input.role !== 'design' || workItemId))
+      throw new ExecutionRequestError(
+        'conflict',
+        'Decision worktrees only permit their reserved read-only preparation run.',
+      );
+    preparation?.check();
     if (this.storage.execution.merges.latest(workspaceId, input.worktreeId)?.status === 'reserved')
       throw new ExecutionRequestError(
         'conflict',
@@ -534,14 +574,20 @@ export class AgentRunService {
           .find((candidate) => candidate.id === workItemId) ??
         (worktree.planVersionId
           ? {
-              sourceId: 'Finalization',
-              title: 'Plan conformance, simplification and polish',
+              sourceId: preparation?.value.checkpointId ?? 'Finalization',
+              title: preparation
+                ? 'Prepare architecture decision for operator review'
+                : 'Plan conformance, simplification and polish',
               risk: 'high',
               phase: undefined,
               primaryAreas: [],
-              exitGate:
-                'The entire adopted plan conforms, required checks pass, and the final findings policy is met.',
-              sourceFields: { planVersionId, scope: 'whole-plan' },
+              exitGate: preparation
+                ? 'Return a source-backed architecture recommendation for explicit operator approval. No implementation or verification is authorized.'
+                : 'The entire adopted plan conforms, required checks pass, and the final findings policy is met.',
+              sourceFields: {
+                planVersionId,
+                scope: preparation ? 'decision-preparation' : 'whole-plan',
+              },
             }
           : undefined);
       if (repository === undefined || project === undefined || row === undefined) {
@@ -675,7 +721,8 @@ export class AgentRunService {
         )
           this.pendingCycleLaunches.delete(cycle.currentRunId);
       }
-      const runId = cycle?.currentRunId ?? asAgentRunId(randomUUID());
+      preparation?.check();
+      const runId = cycle?.currentRunId ?? preparation?.value.runId ?? asAgentRunId(randomUUID());
       this.storageService?.requireSpace('runsRoot', prepared.worktree.path);
       const runDirectory = join(this.config.runsRoot, runId);
       const temporaryDirectory = join(runDirectory, 'scratch');
@@ -692,6 +739,32 @@ export class AgentRunService {
         writeFileSync(path, artifact.content, { mode: 0o600 });
         return { filename: artifact.logicalFilename, role: artifact.role, path };
       });
+      if (preparation) {
+        const directory = join(runDirectory, 'decision-preparation');
+        mkdirSync(directory, { recursive: true, mode: 0o700 });
+        const documents = decisionPreparationDocuments(this.storage, preparation.value);
+        for (const document of documents) {
+          const path = join(directory, document.name);
+          writeFileSync(path, document.content, { mode: 0o600 });
+          planDocuments.push({
+            filename: `decision-preparation/${document.name}`,
+            role: 'supporting',
+            path,
+          });
+        }
+        writeFileSync(
+          join(directory, 'manifest.json'),
+          JSON.stringify(
+            {
+              preparation: preparation.value,
+              documents: documents.map((d) => ({ name: d.name, digest: d.digest })),
+            },
+            null,
+            2,
+          ),
+          { mode: 0o600 },
+        );
+      }
       if (cycle?.scopeRepair) {
         const path = join(planDirectory, 'craftingtable-scope-repair.json');
         writeFileSync(path, JSON.stringify(scopeRepairPacket(this.storage, cycle), null, 2), {
@@ -921,7 +994,7 @@ export class AgentRunService {
           : {}),
         ...(reviewArtifacts === undefined ? {} : { reviewContinuationArtifacts: reviewArtifacts }),
         resolvingIntegration: ownsIntegrationResolution(cycle),
-        planFinalization: !!prepared.worktree.planVersionId,
+        planFinalization: !!prepared.worktree.planVersionId && !preparation,
         temporaryDirectory,
         role: input.role,
         projectName: prepared.project.name,
@@ -997,6 +1070,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
 
       const createdAt = this.now().toISOString();
       const run = this.storage.transaction((tx) => {
+        preparation?.check();
         requireTreeScope(tx, prepared.worktree, 'start');
         if (prepared.worktree.executionScope && prepared.worktree.workItemId) {
           const scope = prepared.worktree.executionScope;
@@ -1113,7 +1187,11 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           : {}),
         cwd: prepared.worktree.path,
         temporaryDirectory,
-        ...(cycle ? { deadlineAt: cycle.runDeadlineAt } : {}),
+        ...(cycle
+          ? { deadlineAt: cycle.runDeadlineAt }
+          : preparation
+            ? { deadlineAt: preparation.value.deadlineAt, readOnly: true }
+            : {}),
         prompt: brief,
         permissionMode: input.permissionMode,
         ...(input.model === undefined ? {} : { model: input.model }),
@@ -1127,10 +1205,20 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       };
       let session: AgentSession;
       try {
-        session =
-          cycle === undefined
-            ? await backend.launch(launch)
-            : await this.launchCycleSession(backend, launch, cycle);
+        session = cycle
+          ? await this.launchCycleSession(backend, launch, cycle)
+          : preparation
+            ? await this.launchCycleSession(backend, launch, {
+                currentRunId: preparation.value.runId,
+                runDeadlineAt: preparation.value.deadlineAt,
+              })
+            : await backend.launch(launch);
+        try {
+          preparation?.check();
+        } catch (e) {
+          session.kill();
+          throw e;
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Agent could not be started';
         this.finalize(
@@ -1161,6 +1249,20 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         done: Promise.resolve(),
       };
       this.live.set(runId, liveRun);
+      if (preparation) {
+        const timer = setTimeout(
+          () => {
+            liveRun.cancelRequested = true;
+            session.kill();
+            this.finalize(workspaceId, runId, 'failed', {
+              message:
+                'Decision preparation reached its time limit. Review partial results and explicitly start another preparation if needed.',
+            });
+          },
+          Math.max(1, Date.parse(preparation.value.deadlineAt) - this.now().getTime()),
+        );
+        this.preparationTimers.set(runId, timer);
+      }
       if (cycle !== undefined) {
         const latest = this.storage.execution.cycles.find(workspaceId, cycle.id);
         if (latest?.status === 'stopped' || latest?.currentRunId !== runId) {
@@ -1182,7 +1284,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   private async launchCycleSession(
     backend: AgentBackend,
     request: AgentLaunchRequest,
-    cycle: WorkCycle,
+    cycle: Pick<WorkCycle, 'currentRunId' | 'runDeadlineAt'>,
   ): Promise<AgentSession> {
     let cancelled = false;
     let cancel: () => void = () => undefined;
@@ -1536,6 +1638,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             ...(event.payload.costUsd === undefined ? {} : { costUsd: event.payload.costUsd }),
             ...(run?.role === 'review' ? { verdict: verdict ?? null } : {}),
           });
+          if (this.preparationTimers.has(runId)) liveRun.session.end();
           break;
         }
         default:
@@ -1629,6 +1732,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       readonly reason?: AgentExitReason;
     },
   ): void {
+    clearTimeout(this.preparationTimers.get(runId));
+    this.preparationTimers.delete(runId);
     this.live.delete(runId);
     const occurredAt = this.now().toISOString();
     const changed = this.storage.transaction((tx) => {

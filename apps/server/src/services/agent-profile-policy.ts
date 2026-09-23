@@ -20,7 +20,10 @@ export function cycleAgentSelection(
   tx: StorageRepositories,
   cycle: WorkCycle,
   purpose = cycleProfilePurpose(cycle),
-) {
+): {
+  profile: ReturnType<typeof profileForPurpose>;
+  provenance: NonNullable<AgentRun['profileSelection']>;
+} {
   const fallback = {
     ...profileForPurpose(cycle.profiles, purpose),
     permissionMode:
@@ -32,14 +35,19 @@ export function cycleAgentSelection(
     const assignment = roadmap.agentAssignments?.findLast((a) =>
       a.entryIds.includes(attempt.entryId),
     );
+    const grant = roadmap.delegationAssignments?.findLast((a) =>
+      a.entryIds.includes(attempt.entryId),
+    );
+    const authority = grant ? { delegationId: grant.id } : {};
     if (assignment)
       return {
         profile: {
           ...selectionsForPurpose(assignment.selections, purpose),
           permissionMode: fallback.permissionMode,
         },
-        provenance: { purpose, assignmentId: assignment.id },
+        provenance: { purpose, assignmentId: assignment.id, ...authority },
       };
+    return { profile: fallback, provenance: { purpose, ...authority } };
   }
   return { profile: fallback, provenance: { purpose } };
 }

@@ -1,6 +1,14 @@
+import {
+  decisionBindingDigest,
+  supportsArchitectureDecision,
+} from './architecture-decision-policy.js';
+import { currentDecisionPreparation } from './decision-preparation-policy.js';
+import { effectiveDelegation } from './roadmap-delegation-policy.js';
 import { randomUUID } from 'node:crypto';
 import type {
+  PrepareRoadmapDecision,
   ApplyRoadmapAgents,
+  ApplyRoadmapDelegation,
   RoadmapAgents,
   RoadmapCapacities,
   SaveRoadmapCapacity,
@@ -8,6 +16,8 @@ import type {
   ScopeRecoveryPolicyRequest,
 } from '@craftingtable/contracts';
 import {
+  selectionsForPurpose,
+  asAgentRunId,
   asAuditEventId,
   asEventId,
   asWorktreeId,
@@ -70,6 +80,8 @@ export class RoadmapService {
     private readonly notifier: WorkspaceEventNotifier,
     private readonly now: () => Date = () => new Date(),
     private readonly runtimeEvidence?: import('./runtime-evidence-service.js').RuntimeEvidenceService,
+    private readonly agents?: import('./agent-run-service.js').AgentRunService,
+    private readonly git?: import('@craftingtable/git').GitOperations,
   ) {}
 
   list(context: AuthContext, workspaceId: WorkspaceId): readonly RoadmapView[] {
@@ -146,6 +158,235 @@ export class RoadmapService {
       context,
     );
     return this.agentSettings(context, workspaceId);
+  }
+  decisionSettings(context: AuthContext, ws: WorkspaceId, id: string) {
+    this.workspaces.requireAuthorized(context, ws);
+    const roadmap = this.find(ws, id),
+      cp = roadmap.definition.crossProject;
+    const d = cp && this.storage.imports.definition(ws, cp.definitionId);
+    const binding = cp && this.storage.imports.bindings(ws, cp.definitionId)[0];
+    return {
+      version: roadmap.version,
+      status: roadmap.status,
+      decisions: (d?.source.checkpoints ?? [])
+        .filter((c) => supportsArchitectureDecision(d!, c.id))
+        .flatMap((c) => {
+          const owner = binding?.bindings.find((b) => b.alias === c.owner);
+          const entry = roadmap.definition.entries.find(
+            (e) => e.planVersionId === owner?.planVersionId,
+          );
+          if (!entry) return [];
+          const latest = roadmap.decisionPreparations?.findLast((p) => p.checkpointId === c.id);
+          const run = latest && this.storage.execution.runs.find(ws, latest.runId);
+          return [
+            {
+              id: c.id,
+              title: c.title,
+              profile: selectionsForPurpose(
+                entryAgentSelections(roadmap, entry).selections,
+                'investigation',
+              ),
+              ...(latest
+                ? {
+                    latest: {
+                      runId: latest.runId,
+                      status: latest.failure ? 'failed' : (run?.status ?? 'preparing'),
+                      summary: latest.failure ?? run?.outcomeSummary ?? '',
+                      createdAt: latest.createdAt,
+                    },
+                  }
+                : {}),
+            },
+          ];
+        }),
+    };
+  }
+  async prepareDecision(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    input: PrepareRoadmapDecision,
+  ): Promise<RoadmapView> {
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    const old = this.find(ws, id),
+      cp = old.definition.crossProject;
+    if (!this.agents || !this.git)
+      conflict('Decision preparation is unavailable on this controller.');
+    if (old.version !== input.expectedVersion || this.controlling.has(id))
+      conflict('Roadmap changed. Refresh before preparing a decision.');
+    if (!cp || !['paused', 'draft', 'needs-attention'].includes(old.status))
+      conflict('Pause this cross-project roadmap before preparing a decision.');
+    if (this.storage.amendments.pending(ws, id))
+      conflict('Resolve the pending planning amendment first.');
+    const d = this.storage.imports.definition(ws, cp.definitionId);
+    const binding = this.storage.imports.bindings(ws, cp.definitionId)[0];
+    if (
+      !d ||
+      binding?.revision !== cp.bindingRevision ||
+      !supportsArchitectureDecision(d, input.checkpointId)
+    )
+      conflict('Choose an architecture decision from the exact current map binding.');
+    const checkpoint = d.source.checkpoints.find((c) => c.id === input.checkpointId)!;
+    const owner = binding.bindings.find((b) => b.alias === checkpoint.owner);
+    if (
+      !owner?.repositoryId ||
+      !owner.projectId ||
+      !owner.planVersionId ||
+      !owner.integrationBranch
+    )
+      conflict('Bind this decision owner to an exact plan and integration branch first.');
+    if (
+      old.decisionPreparations?.some(
+        (p) =>
+          p.checkpointId === checkpoint.id &&
+          !p.failure &&
+          (!this.storage.execution.runs.find(ws, p.runId) ||
+            ['starting', 'running', 'waiting'].includes(
+              this.storage.execution.runs.find(ws, p.runId)!.status,
+            )),
+      )
+    )
+      conflict(
+        'This decision already has a preparation in flight. Open its run or wait for completion.',
+      );
+    const entry = old.definition.entries.find((e) => e.planVersionId === owner.planVersionId);
+    if (!entry) conflict('This decision owner is outside the selected roadmap.');
+    this.cycles.validateAgentSelections({
+      ...entryAgentSelections(old, entry).selections,
+      investigation: input.profile,
+    });
+    const repo = this.storage.execution.sourceRepositories.find(ws, owner.repositoryId);
+    if (!repo) throw new NotFoundError();
+    this.controlling.add(id);
+    let reserved: import('@craftingtable/domain').DecisionPreparation | undefined;
+    try {
+      const result = await this.git.resolveBranch(repo.rootPath, owner.integrationBranch);
+      if (!result.ok) conflict(result.failure.message);
+      if (this.find(ws, id).version !== old.version)
+        conflict('Roadmap changed during preparation. Refresh and try again.');
+      const at = this.now();
+      const p: import('@craftingtable/domain').DecisionPreparation = {
+        id: randomUUID(),
+        definitionId: d.id,
+        bindingRevision: binding.revision,
+        bindingDigest: decisionBindingDigest(this.storage, d, binding.revision),
+        checkpointId: checkpoint.id,
+        workspaceId: ws,
+        repositoryId: owner.repositoryId,
+        projectId: owner.projectId,
+        planVersionId: owner.planVersionId,
+        integrationBranch: owner.integrationBranch,
+        integrationSha: result.value,
+        worktreeId: asWorktreeId(randomUUID()),
+        runId: asAgentRunId(randomUUID()),
+        profile: input.profile,
+        deadlineAt: new Date(at.getTime() + input.minutes * 60000).toISOString(),
+        instructions: input.instructions,
+        createdAt: at.toISOString(),
+        createdByUserId: context.user.id,
+      };
+      const saved = this.change(
+        old,
+        { decisionPreparations: [...(old.decisionPreparations ?? []), p] },
+        'prepare-decision',
+        context,
+      );
+      reserved = p;
+      const check = () => {
+        this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+        if (
+          this.find(ws, id).version !== saved.version ||
+          !currentDecisionPreparation(this.storage, p) ||
+          this.now().getTime() >= Date.parse(p.deadlineAt)
+        )
+          conflict('Decision preparation authority or binding changed. Start a fresh preparation.');
+      };
+      check();
+      await this.execution.createDecisionWorktree(context, p, check);
+      check();
+      await this.agents.startDecisionPreparation(context, p, check);
+    } catch (e) {
+      if (reserved) {
+        const current = this.find(ws, id);
+        this.change(
+          current,
+          {
+            decisionPreparations: current.decisionPreparations!.map((p) =>
+              p.id === reserved!.id
+                ? { ...p, failure: e instanceof Error ? e.message : 'Preparation failed' }
+                : p,
+            ),
+          },
+          'decision-preparation-failed',
+          context,
+        );
+      }
+      throw e;
+    } finally {
+      this.controlling.delete(id);
+    }
+    return this.view(this.find(ws, id));
+  }
+  applyDelegation(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: ApplyRoadmapDelegation,
+  ): RoadmapView {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    const old = this.find(workspaceId, id);
+    if (old.version !== input.expectedVersion || this.controlling.has(id))
+      conflict('Roadmap changed. Refresh before applying delegation.');
+    if (!['draft', 'paused', 'needs-attention'].includes(old.status))
+      conflict('Pause scheduling before changing delegation.');
+    if (this.storage.amendments.pending(workspaceId, id))
+      conflict('Decide the pending planning amendment first.');
+    if (
+      this.storage.execution.runs.listLive().some((r) => r.workspaceId === workspaceId) ||
+      this.storage.execution.cycles.list(workspaceId).some((c) => c.status === 'running')
+    )
+      conflict('Wait for running agents and cycles to finish before changing delegation.');
+    if (
+      new Set(input.entryIds).size !== input.entryIds.length ||
+      input.entryIds.some((id) => !old.definition.entries.some((e) => e.id === id))
+    )
+      conflict('Select current roadmap entries.');
+    const map =
+      old.definition.crossProject &&
+      this.storage.imports.definition(workspaceId, old.definition.crossProject.definitionId);
+    const allowedRoles = new Set(
+      map?.source.evidence_profiles.flatMap((p) => p.reviewer_roles) ?? [],
+    );
+    if (
+      input.reviewerRoles.some((r) => !allowedRoles.has(r)) ||
+      new Set(input.reviewerRoles).size !== input.reviewerRoles.length
+    )
+      conflict('Choose reviewer responsibilities declared by this map.');
+    if (input.automation.resolutionProfile)
+      this.cycles.validateAgentSelections({
+        ...this.agentSettings(context, workspaceId).roadmaps.find((r) => r.id === id)!.entries[0]!
+          .selections,
+        conflict: input.automation.resolutionProfile,
+      });
+    const { expectedVersion: _version, ...grant } = input;
+    return this.view(
+      this.change(
+        old,
+        {
+          delegationAssignments: [
+            ...(old.delegationAssignments ?? []),
+            {
+              ...grant,
+              id: randomUUID(),
+              appliedAt: this.now().toISOString(),
+              appliedByUserId: context.user.id,
+            },
+          ],
+        },
+        'apply-delegation',
+        context,
+      ),
+    );
   }
   /** Capacity settings need no Git inspection or dependency-graph evaluation. */
   capacities(context: AuthContext, workspaceId: WorkspaceId): RoadmapCapacities {
@@ -676,6 +917,28 @@ export class RoadmapService {
   }
 
   recoverInterrupted(): void {
+    for (const roadmap of this.storage.roadmaps.list()) {
+      if (
+        roadmap.decisionPreparations?.some(
+          (p) => !p.failure && !this.storage.execution.runs.find(roadmap.workspaceId, p.runId),
+        )
+      )
+        this.change(
+          roadmap,
+          {
+            decisionPreparations: roadmap.decisionPreparations.map((p) =>
+              !p.failure && !this.storage.execution.runs.find(roadmap.workspaceId, p.runId)
+                ? {
+                    ...p,
+                    failure: 'Controller restarted before launch; start a fresh preparation.',
+                  }
+                : p,
+            ),
+          },
+          'decision-preparation-interrupted',
+        );
+    }
+
     for (const roadmap of this.storage.roadmaps.list())
       if (roadmap.status === 'running')
         this.change(roadmap, {
@@ -1043,8 +1306,11 @@ export class RoadmapService {
           .history(roadmap.workspaceId, roadmap.id)
           .find((d) => d.revision === boundAttempt.definitionRevision);
         const bound = definition?.entries.find((e) => e.id === entry.id);
-        const automation =
-          bound?.automation ?? definition?.automation ?? DEFAULT_ROADMAP_AUTOMATION;
+        const automation = effectiveDelegation(
+          roadmap,
+          bound ?? entry,
+          definition ?? roadmap.definition,
+        ).automation;
         const check = () => {
           const current = this.find(roadmap.workspaceId, roadmap.id);
           if (
@@ -1923,10 +2189,12 @@ export class RoadmapService {
             : roadmap.definition;
           return {
             ...progress,
-            effectiveAutomation:
-              definition?.entries.find((e) => e.id === progress.entryId)?.automation ??
-              definition?.automation ??
-              DEFAULT_ROADMAP_AUTOMATION,
+            effectiveAutomation: effectiveDelegation(
+              roadmap,
+              definition?.entries.find((e) => e.id === progress.entryId) ??
+                roadmap.definition.entries.find((e) => e.id === progress.entryId)!,
+              definition ?? roadmap.definition,
+            ).automation,
           };
         }),
     };
@@ -1984,6 +2252,20 @@ export class RoadmapService {
         status: roadmap.status,
         revision: roadmap.definition.revision,
         reason: roadmap.reason,
+        ...(action === 'prepare-decision'
+          ? {
+              preparationId: roadmap.decisionPreparations?.at(-1)?.id,
+              checkpointId: roadmap.decisionPreparations?.at(-1)?.checkpointId,
+              runId: roadmap.decisionPreparations?.at(-1)?.runId,
+            }
+          : {}),
+        ...(action === 'apply-delegation'
+          ? {
+              delegationId: roadmap.delegationAssignments?.at(-1)?.id,
+              entryCount: roadmap.delegationAssignments?.at(-1)?.entryIds.length,
+              rationale: roadmap.delegationAssignments?.at(-1)?.rationale,
+            }
+          : {}),
         ...(action === 'apply-agent-profiles'
           ? {
               assignmentId: roadmap.agentAssignments?.at(-1)?.id,

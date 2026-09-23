@@ -30,6 +30,8 @@ import type {
  */
 
 export interface AgentLaunchRequest {
+  /** Controller-only preparation: disable write and escalation tools. */
+  readonly readOnly?: boolean;
   readonly buildEnvironment?: { readonly binDirectory: string; readonly namespace?: string };
   /** Absolute worktree path used as the agent's working directory. */
   readonly cwd: string;

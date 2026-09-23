@@ -99,7 +99,39 @@ export interface RoadmapAttempt {
   readonly createdAt: string;
   readonly completedAt?: string;
 }
+export interface DecisionPreparation {
+  readonly id: string;
+  readonly definitionId: string;
+  readonly bindingRevision: number;
+  readonly bindingDigest: string;
+  readonly checkpointId: string;
+  readonly workspaceId: WorkspaceId;
+  readonly repositoryId: SourceRepositoryId;
+  readonly projectId: ProjectId;
+  readonly planVersionId: PlanVersionId;
+  readonly integrationBranch: string;
+  readonly integrationSha: string;
+  readonly worktreeId: WorktreeId;
+  readonly runId: import('./ids.js').AgentRunId;
+  readonly profile: import('./agent-profiles.js').AgentSelection;
+  readonly deadlineAt: string;
+  readonly instructions: string;
+  readonly createdAt: string;
+  readonly createdByUserId: UserId;
+  readonly failure?: string;
+}
 export interface Roadmap {
+  readonly decisionPreparations?: readonly DecisionPreparation[];
+  /** Explicit operational authority for future actions; adopted definitions remain immutable. */
+  readonly delegationAssignments?: readonly {
+    readonly id: string;
+    readonly entryIds: readonly string[];
+    readonly automation: RoadmapAutomation;
+    readonly reviewerRoles: readonly string[];
+    readonly rationale: string;
+    readonly appliedAt: string;
+    readonly appliedByUserId: UserId;
+  }[];
   /** Append-only model choices, independent of plan authority and definition revisions. */
   readonly agentAssignments?: readonly {
     readonly id: string;

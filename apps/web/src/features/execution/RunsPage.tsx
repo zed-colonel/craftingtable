@@ -84,7 +84,11 @@ export function RunList({
               className="ghost-button"
               onClick={() => (run.workItemId ? onOpenWorkItem(run.workItemId) : onOpenRun(run.id))}
             >
-              {run.workItemId ? 'Work item' : 'Finalization run'}
+              {run.workItemId
+                ? 'Work item'
+                : run.profileSelection?.preparationId
+                  ? 'Decision preparation'
+                  : 'Finalization run'}
             </button>
           </li>
         );

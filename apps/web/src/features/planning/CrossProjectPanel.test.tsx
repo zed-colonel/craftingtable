@@ -191,7 +191,9 @@ function savedRoadmap() {
     id,
     status: 'needs-attention',
     version: 3,
+    attempts: [],
     definition: {
+      entries: [],
       revision: 2,
       name: 'Stack roadmap',
       scheduling: { maxInFlight: 2, maxPerRepository: 2, maxIntegrationRefreshes: 3 },

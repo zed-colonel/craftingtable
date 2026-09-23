@@ -1,6 +1,6 @@
 import { ROADMAP_STATUSES } from '@craftingtable/domain';
 import { z } from 'zod';
-import { agentSelectionsSchema } from './agent-profiles.js';
+import { agentSelectionSchema, agentSelectionsSchema } from './agent-profiles.js';
 import { crossProjectConfigurationSchema } from './cross-project.js';
 import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
 import {
@@ -103,7 +103,54 @@ export const roadmapDefinitionSchema = z.strictObject({
   createdAt: z.iso.datetime(),
   createdByUserId: userIdSchema,
 });
+export const applyRoadmapDelegationSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  entryIds: z.array(z.uuid()).min(1).max(1000),
+  automation: roadmapAutomationSchema,
+  reviewerRoles: z.array(z.string().min(1).max(200)).max(50),
+  rationale: z.string().trim().min(1).max(4000),
+});
+export type ApplyRoadmapDelegation = z.infer<typeof applyRoadmapDelegationSchema>;
+export const prepareRoadmapDecisionSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  checkpointId: z.string().min(1).max(200),
+  profile: agentSelectionSchema,
+  minutes: z.number().int().min(5).max(60),
+  instructions: z.string().trim().max(8000),
+});
+export type PrepareRoadmapDecision = z.infer<typeof prepareRoadmapDecisionSchema>;
+export const decisionPreparationSchema = z.strictObject({
+  id: z.uuid(),
+  definitionId: z.uuid(),
+  bindingRevision: z.number().int().positive(),
+  bindingDigest: z.string(),
+  checkpointId: z.string(),
+  workspaceId: workspaceIdSchema,
+  repositoryId: sourceRepositoryIdSchema,
+  projectId: projectIdSchema,
+  planVersionId: planVersionIdSchema,
+  integrationBranch: z.string(),
+  integrationSha: z.string(),
+  worktreeId: worktreeIdSchema,
+  runId: agentRunIdSchema,
+  profile: agentSelectionSchema,
+  deadlineAt: z.iso.datetime(),
+  instructions: z.string(),
+  createdAt: z.iso.datetime(),
+  createdByUserId: userIdSchema,
+  failure: z.string().optional(),
+});
 export const roadmapSchema = z.strictObject({
+  decisionPreparations: z.array(decisionPreparationSchema).optional(),
+  delegationAssignments: z
+    .array(
+      applyRoadmapDelegationSchema.omit({ expectedVersion: true }).extend({
+        id: z.uuid(),
+        appliedAt: z.iso.datetime(),
+        appliedByUserId: userIdSchema,
+      }),
+    )
+    .optional(),
   agentAssignments: z
     .array(
       z.strictObject({
@@ -241,3 +288,24 @@ export const roadmapCapacitiesSchema = z.strictObject({
   ),
 });
 export type RoadmapCapacities = z.infer<typeof roadmapCapacitiesSchema>;
+
+export const decisionPreparationSettingsSchema = z.strictObject({
+  version: z.number().int().positive(),
+  status: z.enum(ROADMAP_STATUSES),
+  decisions: z.array(
+    z.strictObject({
+      id: z.string(),
+      title: z.string(),
+      profile: agentSelectionSchema,
+      latest: z
+        .strictObject({
+          runId: agentRunIdSchema,
+          status: z.string(),
+          summary: z.string(),
+          createdAt: z.iso.datetime(),
+        })
+        .optional(),
+    }),
+  ),
+});
+export type DecisionPreparationSettings = z.infer<typeof decisionPreparationSettingsSchema>;

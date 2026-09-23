@@ -1,3 +1,5 @@
+import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
+import { effectiveDelegation } from './roadmap-delegation-policy.js';
 import { supportsArchitectureDecision } from './architecture-decision-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { createHash } from 'node:crypto';
@@ -15,7 +17,6 @@ import {
   scopeRuntimeChanges,
   prerequisiteIssues,
   subjectRequirements,
-  testedRepositories,
 } from './runtime-evidence-policy.js';
 
 export function workflowDelegation(tx: StorageRepositories, cycle: WorkCycle) {
@@ -30,7 +31,7 @@ export function workflowDelegation(tx: StorageRepositories, cycle: WorkCycle) {
       return {
         roadmap,
         entry,
-        roles: entry.reviewerRoles ?? [],
+        roles: effectiveDelegation(roadmap, entry, saved!).reviewerRoles,
         runnable: roadmap.status === 'running' && !roadmap.entryHolds?.[entry.id],
       };
   }
@@ -49,17 +50,11 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
     .map((checkpoint) => {
       const subject = { kind: 'checkpoint' as const, sourceId: checkpoint.id };
       const spec = subjectRequirements(scope.definition, subject, cycle.executionScope!.sourceId);
-      const technical = ['contract', 'profile', 'semantic_review'].includes(checkpoint.kind);
       const alias = tx.imports
         .bindings(cycle.workspaceId, scope.definition.id)
         .find((b) => b.revision === cycle.executionScope!.bindingRevision)
         ?.bindings.find((b) => b.workItems.some((w) => w.workItemId === cycle.workItemId))?.alias;
-      const code = testedRepositories(scope.definition, subject);
-      const supported =
-        technical &&
-        !spec.cases.some((c) => c.requiresKata) &&
-        ((code.length === 1 && code[0] === alias) ||
-          (checkpoint.kind === 'semantic_review' && code.length === 0));
+      const supported = supportsTechnicalCheckpoint(scope.definition, checkpoint.id, alias);
       return {
         id: checkpoint.id,
         title: checkpoint.title,

@@ -1,3 +1,4 @@
+import { effectiveDelegation, historicalReviewerRoles } from './roadmap-delegation-policy.js';
 import type { WorkspaceId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { assignedReviewMatches } from './agent-profile-policy.js';
@@ -72,7 +73,13 @@ export function scopeReviewerRoles(
         )
           continue;
       }
-      return bound?.reviewerRoles ?? [];
+      const run =
+        runId && tx.execution.runs.find(ws, runId as import('@craftingtable/domain').AgentRunId);
+      return bound
+        ? run
+          ? historicalReviewerRoles(roadmap, bound, run)
+          : effectiveDelegation(roadmap, bound, definition!).reviewerRoles
+        : [];
     }
   }
   return [];

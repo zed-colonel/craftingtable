@@ -196,6 +196,8 @@ export interface AgentRun {
   readonly profileSelection?: {
     readonly purpose: import('./agent-profiles.js').AgentProfilePurpose;
     readonly assignmentId?: string;
+    readonly delegationId?: string;
+    readonly preparationId?: string;
   };
   readonly id: AgentRunId;
   readonly workspaceId: WorkspaceId;

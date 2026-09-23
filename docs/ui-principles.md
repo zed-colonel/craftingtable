@@ -314,3 +314,15 @@ saving from applying selections to existing roadmaps; the latter names the selec
 includes future steps of started cycles, and explains that plan evidence remains valid.
 Retain unsaved edits on refresh and reject stale saves. Link directly from a roadmap into its
 settings selection. Keep finalization's per-stage controls and recovery override distinct.
+
+Paused roadmap supervision exposes **Change future delegation** separately from saved-plan
+editing. The operator selects entries (including started ones), integration policy and reviewer
+responsibilities, then confirms a reasoned grant. Current reports retain their original authority;
+this operational change neither resumes scheduling nor requires new plan-acceptance evidence.
+Supported technical checkpoint responsibilities must be discoverable in the main role checklist.
+
+**Prepare architecture decision** is available before the owning development slice can start.
+Its form collects a checkpoint, model, time limit and optional guidance; source references are
+controller-collected. Show the preparation's state and run link, with a refresh action leading
+to the existing shared decision inbox. Preparation must never be described as approval or as
+permission to implement a gated work item.

@@ -1,3 +1,4 @@
+import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
 import { scopeArchitectureDecisions } from './architecture-decision-policy.js';
 import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
 import { bindingIssues } from './map-binding-policy.js';
@@ -226,7 +227,9 @@ export function crossProjectState(
               ? d.source.work_items.find((w) => w.id === r.id)?.acceptance_evidence_profile
               : r.kind === 'slice' && r.state === 'verified'
                 ? d.source.slices.find((s) => s.id === r.id)?.evidence_profile
-                : undefined),
+                : r.kind === 'checkpoint' && supportsTechnicalCheckpoint(d, r.id)
+                  ? d.source.checkpoints.find((c) => c.id === r.id)?.evidence_profile
+                  : undefined),
         )?.reviewer_roles ?? []),
       ],
       ...(decisionCoverage.length

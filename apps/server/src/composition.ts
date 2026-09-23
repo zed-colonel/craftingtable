@@ -248,6 +248,8 @@ export async function createServices(
     notifier,
     now,
     runtimeEvidenceService,
+    agentRunService,
+    gitOperations,
   );
   roadmapService.recoverInterrupted();
   const crossProjectService = new CrossProjectService(

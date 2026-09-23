@@ -20,7 +20,18 @@ export function claudeCodeArguments(request: AgentLaunchRequest): readonly strin
     '--permission-prompts',
     'none',
   ];
-  args.push(...permissionArguments(request.permissionMode));
+  args.push(
+    ...(request.readOnly
+      ? [
+          '--restricted',
+          '--tools',
+          'Read,Glob,Grep',
+          '--strict-mcp-config',
+          '--permission-mode',
+          'dontAsk',
+        ]
+      : permissionArguments(request.permissionMode)),
+  );
   if (request.model !== undefined) {
     args.push('--model', request.model);
   }

@@ -1,3 +1,5 @@
+import { DecisionPreparationPanel } from './DecisionPreparationPanel.js';
+import { RoadmapDelegationPanel } from './RoadmapDelegationPanel.js';
 import type {
   CrossProjectView,
   ExecutionStatusResponse,
@@ -404,6 +406,24 @@ export function CrossProjectPanel({
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
+      {roadmap && view && (
+        <RoadmapDelegationPanel
+          roadmap={roadmap}
+          view={view}
+          backends={backends}
+          csrfToken={csrfToken}
+          disabled={!canMutate || busy || dirty || staleSettings}
+          onChanged={refresh}
+        />
+      )}
+      {roadmap && (
+        <DecisionPreparationPanel
+          roadmap={roadmap}
+          backends={backends}
+          csrfToken={csrfToken}
+          disabled={!canMutate || busy || dirty || staleSettings}
+        />
+      )}
       <div className="cycle-settings-grid">
         <label className="field">
           Planning target
@@ -535,6 +555,24 @@ export function CrossProjectPanel({
           )}
           {actions}
           <ActionBar label="Roadmap setup">
+            {roadmap && (
+              <>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => revealElement(`future-delegation-${roadmap.id}`)}
+                >
+                  Change future delegation
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => revealElement(`decision-preparation-${roadmap.id}`)}
+                >
+                  Prepare architecture decision
+                </button>
+              </>
+            )}
             <button
               type="button"
               className="secondary-button"

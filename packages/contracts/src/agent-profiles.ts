@@ -33,6 +33,8 @@ export const agentSelectionsSchema = z.strictObject({
 export const profileSelectionSchema = z.strictObject({
   purpose: z.enum(AGENT_PROFILE_PURPOSES),
   assignmentId: z.uuid().optional(),
+  delegationId: z.uuid().optional(),
+  preparationId: z.uuid().optional(),
 });
 export const applyRoadmapAgentsSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),

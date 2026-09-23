@@ -1,3 +1,4 @@
+import { historicalReviewerRoles } from './roadmap-delegation-policy.js';
 import { createHash } from 'node:crypto';
 import { asWorktreeId, type EvidenceSubmission, type ExecutionScope } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
@@ -31,7 +32,9 @@ export function candidateCheckpointIssues(
     if (
       !entry ||
       entry.executionScope?.sourceId !== c.sliceId ||
-      a.roles.some((r) => !entry.reviewerRoles?.includes(r)) ||
+      a.roles.some(
+        (r) => !roadmap || !run || !historicalReviewerRoles(roadmap, entry, run).includes(r),
+      ) ||
       !run ||
       !roadmap ||
       !assignedReviewMatches(roadmap, entry, run)

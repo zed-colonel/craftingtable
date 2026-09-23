@@ -306,13 +306,21 @@ export function RunPage({
         crumbs={
           <>
             <button type="button" className="link-button" onClick={onOpenWorkItem}>
-              {detail.run.planVersionId ? 'Plan finalization' : 'Work item'}
+              {run.profileSelection?.preparationId
+                ? 'Plan'
+                : detail.run.planVersionId
+                  ? 'Plan finalization'
+                  : 'Work item'}
             </button>
             <span>/</span>
             <span>{RUN_ROLE_LABELS[run.role]} run</span>
           </>
         }
-        title={`${RUN_ROLE_LABELS[run.role]} run`}
+        title={
+          run.profileSelection?.preparationId
+            ? 'Architecture decision preparation'
+            : `${RUN_ROLE_LABELS[run.role]} run`
+        }
         subtitle={
           <StatusStrip
             compact
@@ -483,7 +491,11 @@ export function RunPage({
                   : ''}
             </dd>
             <dt>Permissions</dt>
-            <dd>{PERMISSION_MODE_LABELS[run.permissionMode]}</dd>
+            <dd>
+              {run.profileSelection?.preparationId
+                ? 'Read-only preparation'
+                : PERMISSION_MODE_LABELS[run.permissionMode]}
+            </dd>
             <dt>Worktree</dt>
             <dd className="mono">{worktree.path}</dd>
             <dt>Base</dt>

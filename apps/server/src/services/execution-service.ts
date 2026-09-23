@@ -952,6 +952,40 @@ export class ExecutionService {
     check: () => void,
     recoverOnly = false,
   ): Promise<Worktree | undefined> {
+    return this.createPlanWorktree(context, value, check, 'finalization', recoverOnly);
+  }
+
+  async createDecisionWorktree(
+    context: CommandContext,
+    value: import('@craftingtable/domain').DecisionPreparation,
+    check: () => void,
+  ): Promise<Worktree> {
+    return (await this.createPlanWorktree(
+      context,
+      { ...value, targetBranch: value.integrationBranch },
+      check,
+      'decision',
+    ))!;
+  }
+
+  private async createPlanWorktree(
+    context: CommandContext,
+    value: Pick<
+      import('@craftingtable/domain').Finalization,
+      | 'id'
+      | 'workspaceId'
+      | 'repositoryId'
+      | 'worktreeId'
+      | 'projectId'
+      | 'planVersionId'
+      | 'integrationSha'
+      | 'integrationBranch'
+      | 'targetBranch'
+    >,
+    check: () => void,
+    purpose: 'finalization' | 'decision',
+    recoverOnly = false,
+  ): Promise<Worktree | undefined> {
     this.workspaceService.requireRole(context, value.workspaceId, ['owner', 'editor']);
     const existing = this.storage.execution.worktrees.find(value.workspaceId, value.worktreeId);
     if (existing) return existing;
@@ -962,8 +996,12 @@ export class ExecutionService {
     if (!repository) throw new NotFoundError();
     return this.branches.duringMerge(repository.rootPath, async () => {
       check();
-      const path = join(this.config.worktreeRoot, 'finalizations', value.id);
-      const branchName = `ct/finalize-${value.id}`;
+      const path = join(
+        this.config.worktreeRoot,
+        purpose === 'decision' ? 'decisions' : 'finalizations',
+        value.id,
+      );
+      const branchName = `ct/${purpose === 'decision' ? 'decision' : 'finalize'}-${value.id}`;
       if (recoverOnly && !existsSync(path)) return undefined;
       const result = await this.requireGit().createWorktree({
         recoverExisting: true,
@@ -1000,7 +1038,14 @@ export class ExecutionService {
           targetType: 'worktree',
           targetId: inserted.id,
           outcome: 'succeeded',
-          metadata: { finalizationId: value.id, planVersionId: value.planVersionId, branchName },
+          metadata: {
+            purpose,
+            ...(purpose === 'decision'
+              ? { preparationId: value.id }
+              : { finalizationId: value.id }),
+            planVersionId: value.planVersionId,
+            branchName,
+          },
         });
         return inserted;
       });
@@ -1161,6 +1206,15 @@ export class ExecutionService {
         ? this.storage.planning.workItems.find(workspaceId, worktree.workItemId)
         : { sourceId: 'Finalization', title: 'Plan finalization', status: 'completed' };
       if (!worktree || !repository || !item) throw new NotFoundError();
+      if (
+        this.storage.roadmaps
+          .list(workspaceId)
+          .some((r) => r.decisionPreparations?.some((p) => p.worktreeId === worktreeId))
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Decision preparation worktrees cannot be merged. Approve the decision separately.',
+        );
       const pending = this.storage.execution.merges.latest(workspaceId, worktreeId);
       const recovering = pending && ['reserved', 'merged', 'cleaned'].includes(pending.status);
       if (!recovering) requireTreeScope(this.storage, worktree, 'merge');

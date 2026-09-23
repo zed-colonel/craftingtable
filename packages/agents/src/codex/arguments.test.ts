@@ -55,3 +55,20 @@ it('sets explicit effort on thread creation and every turn without changing the 
   expect(codexTurnParams(inherit)).not.toHaveProperty('effort');
   expect(codexThreadParams(inherit).config).not.toHaveProperty('model_reasoning_effort');
 });
+
+it('restricts decision preparation to read-only with no escalation on every turn', () => {
+  const request = {
+    cwd: '/work/x',
+    prompt: 'Prepare a decision',
+    permissionMode: 'unrestricted' as const,
+    readOnly: true,
+  };
+  expect(codexThreadParams(request)).toMatchObject({
+    sandbox: 'read-only',
+    approvalPolicy: 'never',
+  });
+  expect(codexTurnParams(request)).toMatchObject({
+    sandboxPolicy: { type: 'readOnly' },
+    approvalPolicy: 'never',
+  });
+});

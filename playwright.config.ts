@@ -50,9 +50,11 @@ export default defineConfig({
         browserName: 'chromium',
       },
     },
-    // The UI walkthrough photographs every page into a store outside the repository. It is
-    // opted into by `pnpm ui:walkthrough` and never part of the test gate.
-    ...(process.env.CRAFTINGTABLE_WALKTHROUGH === '1'
+    // The UI walkthrough photographs every page into a store outside the repository
+    // (`pnpm ui:walkthrough`, CRAFTINGTABLE_WALKTHROUGH=1). The test gate rehearses it without
+    // screenshots in a run of its own (CRAFTINGTABLE_WALKTHROUGH=rehearse) on a fresh daemon,
+    // so its seeding cannot interfere with the other specs.
+    ...(process.env.CRAFTINGTABLE_WALKTHROUGH
       ? [
           {
             name: 'walkthrough',

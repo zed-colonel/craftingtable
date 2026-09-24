@@ -25,7 +25,7 @@
     "lint": "biome lint .",
     "typecheck": "tsc -b && tsc --noEmit -p apps/web && tsc --noEmit -p packages/git/tsconfig.test.json",
     "test": "vitest run",
-    "test:e2e": "tsc -b && playwright test",
+    "test:e2e": "tsc -b && playwright test && CRAFTINGTABLE_WALKTHROUGH=rehearse playwright test --project=walkthrough",
     "ui:walkthrough": "tsc -b && CRAFTINGTABLE_WALKTHROUGH=1 playwright test --project=walkthrough",
     "check:scope": "node scripts/check-forbidden-scope.mjs",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test && pnpm test:e2e && pnpm check:scope"

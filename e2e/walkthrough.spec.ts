@@ -16,6 +16,11 @@ import { type Browser, devices, expect, type Page, test } from '@playwright/test
  * history, and appends one row to the committed `docs/ui-walkthrough/INDEX.md`
  * so later UI work can find and compare earlier captures. Each capture is
  * labeled by `WALKTHROUGH_LABEL` or the commit.
+ *
+ * `pnpm test:e2e` also rehearses it (`CRAFTINGTABLE_WALKTHROUGH=rehearse`): the same
+ * seeding and navigation on both viewports, without screenshots, images or an INDEX row.
+ * The seeding drives real controller flows, so the rehearsal keeps them from breaking
+ * unnoticed between captures, as happened after R-G3.
  */
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
@@ -30,6 +35,8 @@ const OUTPUT_ROOT =
   );
 /** The committed record of captures: one row per capture, text only. */
 const INDEX_FILE = join(REPOSITORY_ROOT, 'docs', 'ui-walkthrough', 'INDEX.md');
+/** Photograph and record; otherwise only rehearse the walk. */
+const RECORDING = process.env.CRAFTINGTABLE_WALKTHROUGH === '1';
 const USERNAME = 'e2e-admin';
 const PASSWORD = 'correct horse battery staple';
 
@@ -110,8 +117,14 @@ class Walkthrough {
     readonly phone: Page,
     readonly directory: string,
   ) {
+    if (!RECORDING) return;
     mkdirSync(join(directory, 'desktop'), { recursive: true });
     mkdirSync(join(directory, 'phone'), { recursive: true });
+  }
+
+  private async photograph(page: Page, viewport: 'desktop' | 'phone', file: string) {
+    if (RECORDING)
+      await page.screenshot({ path: join(this.directory, viewport, file), fullPage: true });
   }
 
   private nextFile(name: string): string {
@@ -125,22 +138,23 @@ class Walkthrough {
     const url = this.desktop.url();
     if (setup) await setup(this.desktop);
     await settled(this.desktop);
-    await this.desktop.screenshot({ path: join(this.directory, 'desktop', file), fullPage: true });
+    await this.photograph(this.desktop, 'desktop', file);
     await this.phone.goto(url);
     await settled(this.phone);
     if (setup) await setup(this.phone);
-    await this.phone.screenshot({ path: join(this.directory, 'phone', file), fullPage: true });
+    await this.photograph(this.phone, 'phone', file);
     this.shots.push({ file, title, path: pathOf(url), viewports: 'both' });
   }
 
   /** A scene that only exists on the phone layout, photographed as it stands. */
   async capturePhoneOnly(name: string, title: string): Promise<void> {
     const file = this.nextFile(name);
-    await this.phone.screenshot({ path: join(this.directory, 'phone', file), fullPage: true });
+    await this.photograph(this.phone, 'phone', file);
     this.shots.push({ file, title, path: pathOf(this.phone.url()), viewports: 'phone' });
   }
 
   writeIndex(label: string, commit: string): void {
+    if (!RECORDING) return;
     const sections = this.shots.map((shot) => {
       const desktop =
         shot.viewports === 'both'
@@ -189,7 +203,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
   test.setTimeout(600_000);
   page.setDefaultTimeout(20_000);
   const { label, directory, commit } = captureDirectory();
-  rmSync(directory, { recursive: true, force: true });
+  if (RECORDING) rmSync(directory, { recursive: true, force: true });
   const repository = initRepository('craftingtable-walkthrough-repo-', {
     'README.md': '# Walkthrough fixture\n',
   });

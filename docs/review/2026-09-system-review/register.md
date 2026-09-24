@@ -740,6 +740,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [QA-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-05-e2e-gate-screenshots-are-unasserted-cause-the-known-flake-and-helpers-are-copied-into-8-specs), [QA-06](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-06-the-fixture-derives-expected-scope-evidence-from-the-production-resolver-tautological), [QA-08](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-08-unit-tests-depend-on-host-tool-paths-and-create-fixtures-inside-the-repository)
 - **Change:** Assert or remove the unasserted gate screenshots (including the known amendment-panel flake); dedupe helpers copied into 8 specs; derive expected scope evidence independently of the production resolver; remove hard-coded host tool paths and in-repo temporary repositories.
 - **Done when:** E2E passes 10 consecutive runs; unit tests pass on a host without ~/.cargo.
+- **Amended 2026-09-24 (phase 1 review):**
+  - **The problem.** The UI walkthrough was never part of the gate. Its seeding drives real controller flows, and it failed unnoticed from R-G3 until 2026-09-24: guidance became one-shot per step, and the walkthrough script still relied on the old behaviour.
+  - **The fix.** `pnpm test:e2e` now rehearses the walkthrough (`CRAFTINGTABLE_WALKTHROUGH=rehearse`) in its own Playwright run on a fresh daemon. The rehearsal does the same seeding and navigation on both viewports, but takes no screenshots, writes no images and adds no INDEX row. It adds about 1.8 minutes to `pnpm check`.
+  - **Why not something cheaper.** A page-visit smoke test would not have caught the R-G3 breakage, which was in the seeding flow.
+  - **Capture.** `2026-09-24-p1-review-after` records the UI after the phase 1 review fixes.
 
 ### R-I6
 

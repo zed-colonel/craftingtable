@@ -26,3 +26,6 @@ Captures are a historical record: take one before and after UI work that changes
 structure, compare, and keep both. Do not edit captured images by hand. The spec that produces
 them is `e2e/walkthrough.spec.ts`; extend it when the app grows a page or a state worth
 remembering.
+
+`pnpm test:e2e` (and so `pnpm check`) rehearses the same walk without screenshots, images or
+an INDEX row, so a change that breaks its seeding fails the gate instead of the next capture.

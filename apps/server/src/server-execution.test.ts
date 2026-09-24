@@ -6081,8 +6081,8 @@ it('compacts finalization findings while preserving closure history and requirin
   const cycle = finalizationCycle(state, value);
   expect(cycle.reason).toContain('F-001');
   expect((await runDetail(state, cycle.currentRunId)).run.verdict).toBeUndefined();
-  // The report that drops the reopened finding is repaired twice before the stop (R-C2).
-  expect(backend.repairs).toBe(2);
+  // Dropping a reopened finding is missing content, not format: it stops at once (R-C2).
+  expect(backend.repairs).toBe(0);
   expect(backend.launches).toHaveLength(6 + backend.repairs);
   const current = present(
     state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
@@ -6667,8 +6667,8 @@ it('an incomplete finalization review retains concerns and cannot close findings
     'F-001',
     'F-002',
   ]);
-  // The report that drops open findings is repaired twice before the stop (R-C2).
-  expect(backend.repairs).toBe(2);
+  // Dropping open findings is missing content, not format: it stops at once (R-C2).
+  expect(backend.repairs).toBe(0);
   expect(backend.launches).toHaveLength(4 + backend.repairs);
   expect(backend.launches[3]?.prompt).toContain('Reuse recorded passing checks only when');
   expect(backend.launches[3]?.prompt).not.toContain(
@@ -11803,8 +11803,8 @@ it.each([false, true])(
     expect(response.statusCode, response.body).toBe(omitEvidence ? 409 : 200);
     if (omitEvidence) {
       expect(currentCycle(state, cycle)).toEqual(before);
-      // Missing scope evidence is repaired twice before the stop (R-C2).
-      expect(backend.repairs).toBe(2);
+      // Missing scope evidence needs the reviewer's work: it stops at once (R-C2).
+      expect(backend.repairs).toBe(0);
       expect(backend.launches).toHaveLength(3 + backend.repairs);
     } else {
       expect(workCycleResponseSchema.parse(response.json()).cycle).toMatchObject({

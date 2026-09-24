@@ -118,8 +118,10 @@ Status at the head of the branch:
 - **Done:** R-B9, R-B2, R-A3, R-C2, R-C8, R-C1, R-B8.
 - **Partial:** R-A7.
 - **Open:** R-B10.
-- `pnpm check` passes: 149 test files and 1,336 unit tests, 22 e2e tests, the walkthrough
-  rehearsal, and the scope check. `pnpm test` took 428 s under load.
+- `pnpm check` passes: 149 test files and 1,341 unit tests, 22 e2e tests, the walkthrough
+  rehearsal, and the scope check. `pnpm test` took about 420 s under load. That count includes
+  the operator-decision follow-ups: R-C2 repairs only format faults, and the unit's stop
+  settings are checked.
 - Not yet deployed.
 
 Exit criteria:

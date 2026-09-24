@@ -73,7 +73,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
-| [R-H2](#r-h2) | P1 | M | in progress | Journal retention: stop storing raw vendor lines by default |
+| [R-H2](#r-h2) | P1 | M | partial (cae7827 + compaction; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
 | [R-H3](#r-h3) | P1 | M | done (41a5a56, f63b908) | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | open | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
@@ -769,7 +769,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H2
 
-**Journal retention: stop storing raw vendor lines by default** · Phase P1 · Effort M · Status: open
+**Journal retention: stop storing raw vendor lines by default** · Phase P1 · Effort M · Status: partial (cae7827 + compaction; live measurement after deploy)
 
 - **Resolves:** [DATA-01](findings/DATA-storage-domain-contracts.md#data-01-agent_run_eventsraw_json-is-278-mb-of-never-read-data-that-is-also-shipped-to-the-browser), [DATA-02](findings/DATA-storage-domain-contracts.md#data-02-the-journal-can-never-be-pruned-growth-is-unbounded-and-every-byte-is-duplicated-about-8-by-backups), [AGT-03](findings/AGT-GIT-SEC-agents-git-security.md#agt-03-raw-vendor-lines-take-about-half-the-database-and-are-shipped-to-the-browser-which-never-reads-them), [HIST-11](findings/HIST-history-and-live-usage.md#hist-11-run-event-storage-is-dominated-by-duplicated-raw-vendor-json)
 - **Change:** Store raw only when normalization fails (or for a bounded window); move large tool-result bodies to compressed per-run files with a digest and preview in SQLite; add an explicit, audited compaction command (the append-only trigger stays for normal writes) and a retention policy aligned with run-directory cleanup.
@@ -783,6 +783,29 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Retention.** Bodies expire with the run's scratch retention: `cleanupCandidates` offers `tool-results` as expired run files once the run is eligible and past `scratchRetentionDays`, and never through a link.
   - **Tests:** adapter tests (raw only on failures), server offload/route/tamper test, retention test, run-page link test.
   - **Remaining:** the audited compaction command for stored rows, and the before/after measurement.
+- **Amended 2026-09-24: compaction and measurement (ADR-068).**
+  - **Command.** `craftingtable db compact-journal [--apply [--vacuum]] [--bodies <dir>]` applies the new-write rules to ended runs. It is a dry run unless given `--apply`. It takes the data-directory lock, so the daemon must be stopped.
+    - Each run is one transaction with a `storage.journal-compacted` audit record. The action is registered by migration 0028.
+    - Bodies are written before the rows that point at them. A body whose run directory is gone stays in the journal.
+    - The rows are rewritten through `AgentRunEventRepository.compact`. It lifts `agent_run_events_no_update` for its own statements, restores it byte-identical, verifies it, and passes every rewritten event through the R-H3 record guard. Normal writes never lift the trigger.
+    - Tests: `journal-compaction.test.ts` (dry run, apply, audit, restored trigger, idempotence, missing run directory) and the CLI parser.
+  - **Measured on a copy of the 2026-09-23 snapshot.** Bodies were written to a scratch directory with `--bodies`, never to the live run directories.
+
+    | | Before | After |
+    |---|---|---|
+    | Journal bytes, 310 ended runs | 473.3 MB | 85.5 MB (−82%) |
+    | Per run, median | 1.3 MB | 0.2 MB |
+    | Per run, mean | 1.53 MB | 0.28 MB |
+    | File size | 546.7 MB | 137.2 MB after VACUUM (−75%) |
+    | Compressed bodies in run directories | — | 54 MB (8,602 files) |
+
+    41,352 raw lines were dropped and 8,645 bodies moved; 2.7 MB of raw remains, on failure notices and the two live runs. The operation took 7.6 s.
+  - **Checks on the compacted copy.**
+    - `pnpm db:verify` passes (54,462 records).
+    - `controller:replay --check` reports 51 decisions, 0 changed.
+    - `--every-run --check` against the pre-change golden reports 278 decisions, 0 changed.
+  - **Projection for the done-when.** New runs are journaled under these rules, so their bytes per run match the compacted figure: about −82% against the >50% target. Daily backups shrink with the file. The done-when counts growth per run on the live database, which can only be measured after the branch is deployed and runs accumulate. The status therefore stays partial until that measurement.
+  - **Operator action.** Compact the live journal as documented in `docs/operations.md` ("Checking and compacting the database"). It was not run here.
 
 ### R-H3
 

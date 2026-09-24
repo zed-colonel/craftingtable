@@ -133,6 +133,10 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     return problems;
   }
 
+  vacuum(): void {
+    this.database.exec('VACUUM');
+  }
+
   close(): void {
     if (!this.closed) {
       this.closed = true;

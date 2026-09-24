@@ -57,3 +57,4 @@ concerns stay deferred rather than being designed prematurely.
 - [ADR-066: Drained restarts and session resume](ADR-066-drained-restarts-and-session-resume.md)
 
 - [ADR-067: Typed attention declared by the controller](ADR-067-typed-attention.md)
+- [ADR-068: Journal retention: raw lines on failure only, tool-result bodies beside the run](ADR-068-journal-retention.md)

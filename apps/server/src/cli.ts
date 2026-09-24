@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { inspectMigrationStatus, MigrationValidationError } from '@craftingtable/storage';
 import { configFromEnv } from './config.js';
@@ -7,13 +8,20 @@ import { openDaemonStorage } from './persisted-records.js';
 import { Argon2PasswordHasher } from './security/password-hasher.js';
 import { BootstrapService } from './services/bootstrap-service.js';
 import { BootstrapRefusedError } from './services/errors.js';
+import { compactJournal, type RunCompaction } from './services/journal-compaction.js';
 import { PasswordResetService } from './services/password-reset-service.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
 
 export interface ParsedCliCommand {
-  readonly command: 'bootstrap' | 'reset-password' | 'db-migrate' | 'db-status';
+  readonly command: 'bootstrap' | 'reset-password' | 'db-migrate' | 'db-status' | 'compact-journal';
   readonly username?: string;
+  /** compact-journal: rewrite the journal (otherwise a dry run), then reclaim space, and where bodies go. */
+  readonly apply?: boolean;
+  readonly vacuum?: boolean;
+  readonly bodies?: string;
 }
+
+const COMPACT_USAGE = 'db compact-journal [--apply [--vacuum]] [--bodies <absolute directory>]';
 
 export const SCHEMA_VALIDATION_EXIT_CODE = 4;
 
@@ -44,8 +52,27 @@ export function parseCliArguments(args: readonly string[]): ParsedCliCommand {
   if (args.length === 2 && args[0] === 'db' && args[1] === 'status') {
     return { command: 'db-status' };
   }
+  if (args[0] === 'db' && args[1] === 'compact-journal') {
+    const rest = args.slice(2);
+    const bodiesAt = rest.indexOf('--bodies');
+    const bodies = bodiesAt >= 0 ? rest[bodiesAt + 1] : undefined;
+    const flags =
+      bodiesAt < 0 ? rest : rest.filter((_, index) => index !== bodiesAt && index !== bodiesAt + 1);
+    if (
+      flags.some((flag) => flag !== '--apply' && flag !== '--vacuum') ||
+      (flags.includes('--vacuum') && !flags.includes('--apply')) ||
+      (bodiesAt >= 0 && (bodies === undefined || !bodies.startsWith('/')))
+    )
+      throw new Error(`Usage: craftingtable ${COMPACT_USAGE}`);
+    return {
+      command: 'compact-journal',
+      apply: flags.includes('--apply'),
+      vacuum: flags.includes('--vacuum'),
+      ...(bodies === undefined ? {} : { bodies }),
+    };
+  }
   throw new Error(
-    'Usage: craftingtable admin <bootstrap|reset-password> --username <name> | db migrate | db status',
+    `Usage: craftingtable admin <bootstrap|reset-password> --username <name> | db migrate | db status | ${COMPACT_USAGE}`,
   );
 }
 
@@ -161,10 +188,83 @@ export function runDatabaseCommand(
   }
 }
 
+/**
+ * Journal compaction (R-H2), an operator maintenance command run with the daemon stopped.
+ * Without `--apply` it reports what would change. Bodies go into each run's recorded
+ * directory, or under `--bodies` (for a copy of a database whose run directories live
+ * elsewhere). `--vacuum` then rebuilds the file to return the freed pages.
+ */
+export function runJournalCompaction(
+  databasePath: string,
+  options: { readonly apply: boolean; readonly vacuum: boolean; readonly bodies?: string },
+  stdout: CliOutput = process.stdout,
+): number {
+  const storage = openDaemonStorage(databasePath);
+  try {
+    const fileBytes = () => statSync(databasePath).size;
+    const startBytes = fileBytes();
+    const result = compactJournal(storage, {
+      apply: options.apply,
+      now: () => new Date(),
+      bodyDirectory: (run) => {
+        if (options.bodies !== undefined) return join(options.bodies, run.id);
+        const recorded = storage.maintenance.directory(run.id)?.path;
+        return recorded !== undefined && existsSync(recorded) ? recorded : undefined;
+      },
+    });
+    const sum = (pick: (run: RunCompaction) => number) =>
+      result.runs.reduce((total, run) => total + pick(run), 0);
+    const megabytes = (bytes: number) => `${(bytes / 1e6).toFixed(1)} MB`;
+    const median = (values: number[]) => {
+      const sorted = values.toSorted((a, b) => a - b);
+      return sorted[Math.floor(sorted.length / 2)] ?? 0;
+    };
+    stdout.write(
+      [
+        `${result.applied ? 'Compacted' : 'Would compact'} ${result.runs.length} ended runs:`,
+        `  raw lines dropped: ${sum((run) => run.rawCleared)}`,
+        `  tool-result bodies moved to run directories: ${sum((run) => run.bodiesMoved)}`,
+        `  bodies kept in the journal (no run directory): ${sum((run) => run.bodiesKept)}`,
+        `  journal bytes of these runs: ${megabytes(sum((run) => run.bytesBefore))} -> ${megabytes(sum((run) => run.bytesAfter))}`,
+        `  per run, median: ${megabytes(median(result.runs.map((run) => run.bytesBefore)))} -> ${megabytes(median(result.runs.map((run) => run.bytesAfter)))}`,
+        '',
+      ].join('\n'),
+    );
+    if (options.vacuum) {
+      storage.vacuum();
+      stdout.write(`File: ${megabytes(startBytes)} -> ${megabytes(fileBytes())} after VACUUM\n`);
+    }
+    return 0;
+  } finally {
+    storage.close();
+  }
+}
+
 export async function runCli(args: readonly string[]): Promise<number> {
   const parsed = parseCliArguments(args);
   const config = configFromEnv();
   if (parsed.command === 'db-status') return runDatabaseCommand('db-status', config.databasePath);
+  if (parsed.command === 'compact-journal') {
+    // Compaction rewrites the journal; the daemon must not be writing it at the same time.
+    let lock: Awaited<ReturnType<typeof acquireInstanceLock>>;
+    try {
+      lock = await acquireInstanceLock(config.dataDir);
+    } catch (error) {
+      if (!(error instanceof InstanceLockedError)) throw error;
+      process.stderr.write(`${error.message} Stop it before compacting the journal.\n`);
+      return 1;
+    }
+    try {
+      process.stdout.write(`Journal compaction in ${config.databasePath}\n`);
+      return runJournalCompaction(config.databasePath, {
+        apply: parsed.apply === true,
+        vacuum: parsed.vacuum === true,
+        ...(parsed.bodies === undefined ? {} : { bodies: parsed.bodies }),
+      });
+    } finally {
+      await lock.release();
+    }
+  }
   if (parsed.command === 'db-migrate') {
     // Migrating under a running daemon would change its schema beneath it.
     let lock: Awaited<ReturnType<typeof acquireInstanceLock>>;

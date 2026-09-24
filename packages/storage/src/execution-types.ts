@@ -168,7 +168,16 @@ export interface AgentRunRepository {
     to: string,
   ): readonly { readonly startedAt: string; readonly endedAt?: string }[];
   transition(input: TransitionAgentRunInput): AgentRun | undefined;
+  /** Runs in a terminal status across every workspace, oldest first (journal compaction). */
+  listEnded(): readonly AgentRun[];
   count(): number;
+}
+
+/** One stored event's compaction: a smaller payload, dropping its raw line, or both (R-H2). */
+export interface RunEventCompaction {
+  readonly sequence: number;
+  readonly payload?: AgentRunEventPayload;
+  readonly clearRaw: boolean;
 }
 
 export interface AgentRunEventRepository {
@@ -186,6 +195,12 @@ export interface AgentRunEventRepository {
     runId: AgentRunId,
     kind: AgentRunEventKind,
   ): AgentRunEvent | undefined;
+  /**
+   * The only rewrite the journal takes: journal compaction (R-H2). It must run inside the
+   * caller's transaction. The append-only trigger is lifted for these statements and
+   * restored byte-identical before returning; every rewritten event is guarded again.
+   */
+  compact(runId: AgentRunId, changes: readonly RunEventCompaction[]): void;
 }
 
 export interface ReplaceRunProfilesInput {

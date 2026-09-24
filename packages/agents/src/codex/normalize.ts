@@ -135,9 +135,7 @@ export class CodexStreamNormalizer {
         isRecord(params.error) ? params.error.codexErrorInfo : undefined,
       );
       this.failure = { ...failure, safeToRetry: failure.safeToRetry && params.willRetry === false };
-      return [
-        this.notice(isRecord(params.error) ? stringOf(params.error.message) : 'Codex error'),
-      ];
+      return [this.notice(isRecord(params.error) ? stringOf(params.error.message) : 'Codex error')];
     }
     if (method === 'turn/plan/updated') {
       return [this.notice(`Plan: ${JSON.stringify(boundedJson(params.plan, 3500))}`)];

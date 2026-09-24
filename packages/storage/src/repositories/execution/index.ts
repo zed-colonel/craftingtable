@@ -22,6 +22,7 @@ import type {
   CreateSourceRepositoryInput,
   CreateWorktreeInput,
   ExecutionRepositories,
+  RunEventCompaction,
   ReplaceRunProfilesInput,
   RunProfileRepository,
   SourceRepositoryRepository,
@@ -618,6 +619,18 @@ class SqliteAgentRunRepository implements AgentRunRepository {
     return result.changes === 0 ? undefined : this.written(input.workspaceId, input.runId);
   }
 
+  listEnded(): readonly AgentRun[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT * FROM agent_runs
+           WHERE status IN ('finished', 'failed', 'cancelled', 'interrupted')
+           ORDER BY created_at, id`,
+        )
+        .all() as AgentRunRow[]
+    ).map(mapAgentRun);
+  }
+
   count(): number {
     return (
       this.database.prepare(`SELECT COUNT(*) AS count FROM agent_runs`).get() as {
@@ -690,6 +703,48 @@ class SqliteAgentRunEventRepository implements AgentRunEventRepository {
       )
       .get(workspaceId, runId, kind) as AgentRunEventRow | undefined;
     return row === undefined ? undefined : mapAgentRunEvent(row);
+  }
+
+  compact(runId: AgentRunId, changes: readonly RunEventCompaction[]): void {
+    if (!this.database.inTransaction)
+      throw new Error('Journal compaction must run inside a transaction');
+    const trigger = this.database
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'agent_run_events_no_update'",
+      )
+      .get() as { sql: string } | undefined;
+    if (trigger === undefined)
+      throw new Error('The run-event journal has lost its append-only trigger');
+    const update = this.database.prepare(
+      `UPDATE agent_run_events
+       SET payload_json = COALESCE(?, payload_json),
+           raw_json = CASE WHEN ? THEN NULL ELSE raw_json END
+       WHERE sequence = ? AND run_id = ?`,
+    );
+    const read = this.database.prepare('SELECT * FROM agent_run_events WHERE sequence = ?');
+    this.database.exec('DROP TRIGGER agent_run_events_no_update');
+    try {
+      for (const change of changes) {
+        const result = update.run(
+          change.payload === undefined ? null : JSON.stringify(change.payload),
+          change.clearRaw ? 1 : 0,
+          change.sequence,
+          runId,
+        );
+        if (result.changes !== 1)
+          throw new Error(`Run event ${change.sequence} is not an event of run ${runId}`);
+        this.guard('run-event', mapAgentRunEvent(read.get(change.sequence) as AgentRunEventRow));
+      }
+    } finally {
+      this.database.exec(trigger.sql);
+    }
+    const restored = this.database
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'agent_run_events_no_update'",
+      )
+      .get() as { sql: string } | undefined;
+    if (restored?.sql !== trigger.sql)
+      throw new Error('The run-event journal trigger was not restored unchanged');
   }
 
   countForRun(workspaceId: WorkspaceId, runId: AgentRunId): number {

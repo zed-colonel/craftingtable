@@ -163,8 +163,10 @@ original final text in a disclosure.
 `packages/agents` defines `AgentBackend` (`describe`, `launch`) and `AgentSession`
 (`items`, `send`, `end`, `kill`). A backend owns the child process and translates the
 vendor's native output into `NormalizedAgentEvent`s; the daemon owns run state, the
-journal, audit, and workspace events. Raw vendor lines are retained, bounded, on each
-event for diagnostics but are never the durable vocabulary.
+journal, audit, and workspace events. A raw vendor line is retained, bounded, only on an
+event the adapter could not normalize, for diagnostics; it is never the durable vocabulary.
+Tool results over 4 KiB keep a preview in the journal and their gzipped body in the run
+directory, where it expires with the run's scratch (ADR-068).
 
 The Claude Code adapter launches `claude -p --input-format stream-json
 --output-format stream-json` with the brief as the first stdin message, keeps stdin

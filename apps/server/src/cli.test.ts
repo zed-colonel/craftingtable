@@ -15,6 +15,19 @@ describe('CLI argument parsing', () => {
     expect(parseCliArguments(['db', 'status'])).toEqual({ command: 'db-status' });
   });
 
+  it('parses journal compaction as a dry run unless applied (R-H2)', () => {
+    expect(parseCliArguments(['db', 'compact-journal'])).toEqual({
+      command: 'compact-journal',
+      apply: false,
+      vacuum: false,
+    });
+    expect(
+      parseCliArguments(['db', 'compact-journal', '--apply', '--vacuum', '--bodies', '/copy/runs']),
+    ).toEqual({ command: 'compact-journal', apply: true, vacuum: true, bodies: '/copy/runs' });
+    for (const args of [['--vacuum'], ['--bodies', 'relative'], ['--bodies'], ['--force']])
+      expect(() => parseCliArguments(['db', 'compact-journal', ...args])).toThrow(/Usage/);
+  });
+
   it('refuses passwords in process arguments', () => {
     expect(() =>
       parseCliArguments(['admin', 'bootstrap', '--username', 'keith', '--password', 'secret']),

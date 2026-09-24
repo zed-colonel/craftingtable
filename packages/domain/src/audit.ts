@@ -63,6 +63,7 @@ export const AUDIT_ACTIONS = [
   'host-scheduling.updated',
   'storage.cleaned',
   'storage.backup',
+  'storage.journal-compacted',
   'package.import',
   'concurrency.bindings',
   'scope.evidence-recorded',
@@ -120,6 +121,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'storage.updated': 15,
   'storage.cleaned': 15,
   'storage.backup': 15,
+  'storage.journal-compacted': 28,
   'package.import': 16,
   'concurrency.bindings': 16,
   'scope.evidence-recorded': 18,
@@ -133,7 +135,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
 } as const satisfies Readonly<
   Record<
     AuditAction,
-    1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 25
+    1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 25 | 28
   >
 >;
 

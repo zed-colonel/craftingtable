@@ -34,18 +34,20 @@ function bodyPath(runDirectory: string, digest: string): string {
 /**
  * Returns the payload to journal: unchanged when the output fits in the preview, otherwise
  * the preview plus a reference to the body written under `runDirectory`. Throws if the
- * body cannot be written, and the caller then journals the whole output.
+ * body cannot be written, and the caller then journals the whole output. With `write:
+ * false` it only computes the result (compaction's dry run).
  */
 export function offloadToolResult(
   payload: AgentRunEventPayload<'tool-result'>,
   runDirectory: string,
+  options: { readonly write: boolean } = { write: true },
 ): AgentRunEventPayload<'tool-result'> {
   if (payload.body !== undefined) return payload;
   const bytes = Buffer.byteLength(payload.content, 'utf8');
   if (bytes <= TOOL_RESULT_PREVIEW_BYTES) return payload;
   const digest = createHash('sha256').update(payload.content, 'utf8').digest('hex');
   const path = bodyPath(runDirectory, digest);
-  if (!existsSync(path)) {
+  if (options.write && !existsSync(path)) {
     const directory = join(runDirectory, TOOL_RESULTS_DIRECTORY);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     if (!lstatSync(directory).isDirectory() || realpathSync(directory) !== directory)

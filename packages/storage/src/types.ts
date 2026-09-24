@@ -266,6 +266,8 @@ export interface CraftingTableStorage extends StorageRepositories {
    * when the file is sound.
    */
   integrityProblems(): readonly string[];
+  /** Rebuilds the file to return free pages to the filesystem. Blocks writers while it runs. */
+  vacuum(): void;
   close(): void;
 }
 

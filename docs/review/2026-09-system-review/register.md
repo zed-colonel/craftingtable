@@ -11,11 +11,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **A** | | | | **Attention, decisions and notifications (pain points 1 and 3)** |
 | [R-A1](#r-a1) | P0 | S | done (012447b) | Stop notification noise without a redesign |
 | [R-A2](#r-a2) | P0 | S | done (012447b, 67e2e9b) | Stop journaling notification delivery bookkeeping as workspace events |
-| [R-A3](#r-a3) | P1 | M-L | done (eb757da) | Controller-declared, typed attention on every blocking transition |
+| [R-A3](#r-a3) | P1 | M-L | done (eb757da, 57a3a16) | Controller-declared, typed attention on every blocking transition |
 | [R-A4](#r-a4) | P2 | M-L | open | Durable attention items, delivery log, quiescence and presence |
 | [R-A5](#r-a5) | P2 | L | open | One "Needs you" inbox that every surface reads |
 | [R-A6](#r-a6) | P3 | L | open | Consolidate decision and recovery components; delete per-page hosts |
-| [R-A7](#r-a7) | P1 | M | partial (9339d01) | Offer only actions that can make progress; one transition gate for commands and launch |
+| [R-A7](#r-a7) | P1 | M | partial (9339d01, c6e4042, 27266c0) | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
 | [R-B1](#r-b1) | P0 | S | done (fd269b6, 012447b) | Controller quick fixes (no schema change) |
 | [R-B2](#r-b2) | P1 | M | done (131a9de) | Characterization harness for the cycle controller |
@@ -25,17 +25,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B6](#r-b6) | P4 | M-L | open | Scoped consistency instead of whole-roadmap pause |
 | [R-B7](#r-b7) | P4 | L | open | Decompose the controller services along real boundaries |
 | [R-B8](#r-b8) | P1 | M | done (c0ccf3b, 9fe2152) | Remove dead and vestigial paths |
-| [R-B9](#r-b9) | P1 | M | done (4d81743) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
+| [R-B9](#r-b9) | P1 | M | done (4d81743, efd7369) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | [R-B10](#r-b10) | P1 | S-M | open | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
-| [R-C1](#r-c1) | P1 | S-M | done (7689200) | Measure operator-wait as a first-class metric |
-| [R-C2](#r-c2) | P1 | S-M | done (f049b3a) | Re-prompt the agent automatically on output-format validation failures |
+| [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
+| [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
 | [R-C3](#r-c3) | P2 | M | open | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | open | Refresh and re-review automatically when only upstream integration advanced |
 | [R-C5](#r-c5) | P2 | M | open | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
-| [R-C8](#r-c8) | P1 | S | done (5744289) | Schedule automatic retry for quota/session limits with a known reset time |
+| [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
 | [R-C9](#r-c9) | P2 (proposed) | S-M | open | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
@@ -83,7 +83,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I2](#r-i2) | P1 | M | open | Split the 14k-line execution test file |
 | [R-I3](#r-i3) | P1 | S-M | open | Systematic authorization tests |
 | [R-I4](#r-i4) | P2 | M | open | Structural test/production and process-authority boundaries |
-| [R-I5](#r-i5) | P1 | S-M | open | E2E and fixture reliability |
+| [R-I5](#r-i5) | P1 | S-M | partial (b966dd7) | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | open | Gate on lint |
 | [R-I7](#r-i7) | P1-P3 | M | open | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
@@ -110,7 +110,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A3
 
-**Controller-declared, typed attention on every blocking transition** · Phase P1 · Effort M-L · Status: done (eb757da)
+**Controller-declared, typed attention on every blocking transition** · Phase P1 · Effort M-L · Status: done (eb757da, 57a3a16)
 
 - **Resolves:** [CTRL-05](findings/CTRL-controller.md#ctrl-05-at-least-10-separate-places-decide-needs-the-operator-with-different-rules), [CTRL-10](findings/CTRL-controller.md#ctrl-10-awaiting-merge-is-overloaded-with-six-meanings), [CTRL-11](findings/CTRL-controller.md#ctrl-11-control-flow-depends-on-the-wording-of-human-readable-messages), [CTRL-22](findings/CTRL-controller.md#ctrl-22-the-api-returns-projection-fields-mixed-into-the-domain-workcycle), [NOTIF-02](findings/NOTIF-attention-notifications.md#notif-02-attention-is-inferred-by-predicting-automation-each-new-automation-needs-a-matching-suppression-clause), [DATA-05](findings/DATA-storage-domain-contracts.md#data-05-attention-and-operator-decisions-are-not-first-class-identity-is-keyed-on-versions-or-text-hashes-and-behavior-branches-on-english-reason-prefixes), [UI-02](findings/UI-information-architecture.md#ui-02-recovery-routing-depends-on-english-prose-reason-prefix-regexes-in-the-ui-and-navigation-prose-in-daemon-blocker-messages), [UI-09](findings/UI-information-architecture.md#ui-09-the-waiting-on-other-work-classification-hides-operator-owned-evidence), [UI-16](findings/UI-information-architecture.md#ui-16-attentionstrip-and-the-notification-service-disagree-about-merge-approvals)
 - **Change:** Add an optional `attention {owner: operator|controller, code, subject refs, message, actions[]}` to cycles, roadmap entries/holds and roadmap status, written in the same transaction as the status change by the code that makes the decision. Add `code` and `owner` to PhaseBlocker; add a typed restart flag; add an `awaiting-merge` gate subtype (operator-merge, promotion, record-evidence, automatic-merge, controller-wait, scheduling-held). Map legacy reason strings to codes once, in one tested function. Replace every reason/message prefix match on the server and in the web with code switches, and remove navigation prose from daemon messages. NotificationService then selects owner=operator items and imports no policy modules.
@@ -173,7 +173,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A7
 
-**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: partial (9339d01)
+**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: partial (9339d01, c6e4042, 27266c0)
 
 - **Resolves:** [CTRL-04](findings/CTRL-controller.md#ctrl-04-resume-is-accepted-even-when-it-cannot-make-progress), [CTRL-12](findings/CTRL-controller.md#ctrl-12-manual-commands-accept-transitions-that-the-automated-launch-then-rejects)
 - **Change:** Derive the valid operator actions from the attention code (in the same pure code that decides the transition) and return them with the cycle projection; reject Resume when the blocking fact is not transient, with the correct destination. Put whole-item and scoped start/advance gates, including predecessor ancestry, into one transitionGate() used by commands before acceptance and again at launch.
@@ -276,7 +276,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B9
 
-**Low-disruption restarts: bounded drain plus automatic resume of interrupted steps** · Phase P1 · Effort M · Status: done (4d81743)
+**Low-disruption restarts: bounded drain plus automatic resume of interrupted steps** · Phase P1 · Effort M · Status: done (4d81743, efd7369)
 
 - **Resolves:** [HIST-06](findings/HIST-history-and-live-usage.md#hist-06-deploy--restart-and-every-restart-stops-running-roadmaps-and-live-runs), [CTRL-20](findings/CTRL-controller.md#ctrl-20-every-restart-stops-all-automation-and-kills-in-flight-agent-work), [HIST-13](findings/HIST-history-and-live-usage.md#hist-13-schema-and-adr-churn-rate-22-migrations-46-adrs-in-18-days-with-manual-pre-migration-backups)
 - **Change:** Agents are child processes of the daemon, connected only by stdio pipes, so a restarted daemon cannot re-attach to a run that is still going. Combine two mechanisms (operator decision 2026-09-23). (1) Bounded drain: on stop or deploy, stop admitting new steps and wait up to a configurable bound (a few minutes) for live turns to finish; then interrupt what is left, recording which runs were interrupted by a controlled drain (as opposed to a crash). `pnpm deploy:daemon --when-idle` instead waits until nothing is live before switching and restarting. (2) Automatic resume: on a clean start, relaunch each step interrupted by the drain by resuming its vendor session (Claude `--resume <session>`, Codex app-server thread resume; both adapters already have resume paths) in the same worktree, with the original deadline and permissions, so conversation and worktree edits survive and only the in-flight tool call is redone; roadmaps and cycles that were running continue without an operator Resume. Unclean interruptions (crash, kill, lost session id) and failed resumes keep today's explicit-resume attention. Also take the pre-migration DB snapshot automatically in the migration runner. Truly surviving a restart (agents that outlive the daemon) is R-G12.
@@ -316,7 +316,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C1
 
-**Measure operator-wait as a first-class metric** · Phase P1 · Effort S-M · Status: done (7689200)
+**Measure operator-wait as a first-class metric** · Phase P1 · Effort S-M · Status: done (7689200, ca489a9)
 
 - **Resolves:** [HIST-02](findings/HIST-history-and-live-usage.md#hist-02-wall-clock-throughput-is-dominated-by-waiting-for-the-operator-not-by-agent-work-or-controller-latency), [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes), [HIST-09](findings/HIST-history-and-live-usage.md#hist-09-agent-reliability-is-high-stops-are-controller-derived-prioritize-accordingly)
 - **Change:** Record stop openedAt/resolvedAt/owner/kind (falls out of R-A3/R-A4) and show operator-wait hours and stops-by-kind on the dashboard. Use it to rank the remaining automation work.
@@ -343,7 +343,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C2
 
-**Re-prompt the agent automatically on output-format validation failures** · Phase P1 · Effort S-M · Status: done (f049b3a)
+**Re-prompt the agent automatically on output-format validation failures** · Phase P1 · Effort S-M · Status: done (f049b3a, 2d24969)
 
 - **Resolves:** [HIST-10](findings/HIST-history-and-live-usage.md#hist-10-agent-output-format-validation-becomes-operator-stops-instead-of-automatic-re-prompts), [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes)
 - **Change:** When a design classification, structured review report or "## Open questions" section fails validation, send one bounded follow-up turn to the same session quoting the validator errors (up to 2 attempts) before stopping for the operator. Record the attempts in the stop record.
@@ -412,7 +412,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C8
 
-**Schedule automatic retry for quota/session limits with a known reset time** · Phase P1 · Effort S · Status: done (5744289)
+**Schedule automatic retry for quota/session limits with a known reset time** · Phase P1 · Effort S · Status: done (5744289, 4abfec2)
 
 - **Resolves:** [AGT-60](findings/AGT-GIT-SEC-agents-git-security.md#agt-60-quota-and-session-limit-failures-with-a-known-reset-time-always-need-the-operator)
 - **Change:** When the vendor reports a reset time, schedule the retry at that time within the step deadline instead of stopping for the operator.
@@ -791,7 +791,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I5
 
-**E2E and fixture reliability** · Phase P1 · Effort S-M · Status: open
+**E2E and fixture reliability** · Phase P1 · Effort S-M · Status: partial (b966dd7)
 
 - **Resolves:** [QA-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-05-e2e-gate-screenshots-are-unasserted-cause-the-known-flake-and-helpers-are-copied-into-8-specs), [QA-06](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-06-the-fixture-derives-expected-scope-evidence-from-the-production-resolver-tautological), [QA-08](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-08-unit-tests-depend-on-host-tool-paths-and-create-fixtures-inside-the-repository)
 - **Change:** Assert or remove the unasserted gate screenshots (including the known amendment-panel flake); dedupe helpers copied into 8 specs; derive expected scope evidence independently of the production resolver; remove hard-coded host tool paths and in-repo temporary repositories.

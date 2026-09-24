@@ -99,14 +99,15 @@ export function cycleActions(
     case 'paused':
       return ['resume', 'stop'];
     case 'awaiting-merge': {
+      // Pausing at the merge boundary holds a roadmap's automatic merge.
       const code = effectiveCycleAttention(cycle)?.code;
       return code === 'merge-approval'
-        ? ['merge', 'stop']
+        ? ['merge', 'pause', 'stop']
         : code === 'record-scope-evidence'
-          ? ['record-scope-evidence', 'stop']
+          ? ['record-scope-evidence', 'pause', 'stop']
           : code === 'final-promotion'
-            ? ['approve-promotion', 'stop']
-            : ['stop'];
+            ? ['approve-promotion', 'pause', 'stop']
+            : ['pause', 'stop'];
     }
     case 'needs-attention': {
       const redirect = resumeRedirect(cycle, latestRunId);

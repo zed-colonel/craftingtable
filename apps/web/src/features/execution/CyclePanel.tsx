@@ -257,7 +257,7 @@ export function CyclePanel({
                 Open current run
               </button>
             )}
-            {['running', 'awaiting-merge'].includes(active.status) && (
+            {cycleActions(active, latestTreeRun?.id).includes('pause') && (
               <button
                 type="button"
                 className="secondary-button"
@@ -286,7 +286,7 @@ export function CyclePanel({
                   Resume automation
                 </button>
               )}
-            {active.status !== 'completed' && (
+            {cycleActions(active, latestTreeRun?.id).includes('stop') && (
               <button
                 type="button"
                 className="secondary-button danger"

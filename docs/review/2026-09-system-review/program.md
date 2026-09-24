@@ -142,6 +142,12 @@ Exit criteria:
   - a deploy of this branch (the first deploy cannot drain, because the running daemon predates
     R-B9);
   - for restarts outside `pnpm deploy:daemon`, the unit change in R-B9's amendment.
+- **Operator decisions (2026-09-24):**
+  - R-C8's deadline extension stays.
+  - R-C2 repairs only format faults.
+  - R-C9 is P2 and R-H6 is P3.
+  - R-A7's done-when is restated to the server half plus the cycle panel, and the rest moved to R-A6.
+  - Deployment waits until P1 lands.
 - **Items still open in P1:** R-B3, R-B10, R-G7, R-H2, R-H3, R-I2, R-I3, R-I5, R-I6, R-E6, R-I7,
   and R-A7's remainder.
 
@@ -154,7 +160,7 @@ Exit criteria:
 | R-E1, R-E2 | Real routes and a `Link` component; split the Roadmaps page into list, board, setup and history. |
 | R-D4, R-D5 | Query store, App.tsx split, server view models, compression and git-fact cache. |
 | R-C3, R-C4, R-C5 | Remove the top operator-stop causes: the design stage, integration-advanced refreshes, and the repair loop. |
-| R-C9 (proposed 2026-09-24) | End the session on a terminal quota error, so R-C8's reset wait applies to incidents like the one that motivated it. |
+| R-C9 (added 2026-09-24) | End the session on a terminal quota error, so R-C8's reset wait applies to incidents like the one that motivated it. |
 | R-G4, R-G5, R-G6, R-G9 | Daemon-owned receipts, agent environment isolation, brief redesign, auth hardening. |
 | R-H4, R-I4 | Lighter evidence storage; structural test and process boundaries. |
 
@@ -174,7 +180,7 @@ Exit criteria:
 | R-C6, R-C7 | Evidence ceremony; verification layering and finalization stops. |
 | R-F2 | Typed feature recognition instead of prose and magic identifiers. |
 | R-G10, R-G11, R-H5 | Git adapter robustness, supervisor loose ends, route rationalization. |
-| R-H6 (proposed 2026-09-24) | Journal cleanup of the empty registry tables. It needs a `workspace_events` rebuild, so it waits for R-H3's preservation tests and should share a rebuild with any other journal change. |
+| R-H6 (added 2026-09-24) | Journal cleanup of the empty registry tables. It needs a `workspace_events` rebuild, so it waits for R-H3's preservation tests and should share a rebuild with any other journal change. |
 
 Exit criteria:
 - From the board, the operator can answer "what is this waiting on, and what does this decision

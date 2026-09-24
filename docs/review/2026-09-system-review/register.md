@@ -36,7 +36,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
-| [R-C9](#r-c9) | P2 (proposed) | S-M | open | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
+| [R-C9](#r-c9) | P2 | S-M | open | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -77,7 +77,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H3](#r-h3) | P1 | M | open | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | open | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
-| [R-H6](#r-h6) | P3 (proposed) | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
+| [R-H6](#r-h6) | P3 | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | open | Split the 14k-line execution test file |
@@ -170,6 +170,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [UI-03](findings/UI-information-architecture.md#ui-03-the-same-decision-concept-is-surfaced-in-several-places-with-different-names-and-forms), [UI-10](findings/UI-information-architecture.md#ui-10-recovery-panels-render-when-nothing-needs-recovering), [UI-17](findings/UI-information-architecture.md#ui-17-roadmap-supervision-panels-share-mutable-page-level-dirty-gates-that-disable-unrelated-decisions), [UI-18](findings/UI-information-architecture.md#ui-18-the-work-item-page-stacks-up-to-about-a-dozen-conditional-panels-in-one-automated-cycle-section-slice-gates-sit-at-the-bottom), [UI-19](findings/UI-information-architecture.md#ui-19-the-e2e-and-walkthrough-suites-are-coupled-to-current-accessible-names-so-an-ia-migration-needs-a-test-plan)
 - **Change:** Replace the ~21 recovery/decision panels with one component per decision kind rendered only in the inbox detail: CycleContinuation (guidance, extra rounds, agent override, fresh-review semantics), DesignQuestions, ArchitectureDecision (prepare with agent / author manually / approve full or limited / clarify), EvidenceDecision (checkpoint and plan acceptance), EnvironmentApproval, IntegrationConflict, ScopeRepair, AmendmentDecision, FinalizationStep, FinalPromotion. Other pages show a one-line banner linking to the item. Delete the originals and their e2e specs in the same commit that adds the replacement specs.
 - **Done when:** Each daemon decision command is posted from exactly one component; `apps/web/src/features` no longer contains the listed per-page recovery panels; walkthrough captures before/after are recorded.
+- **Amended 2026-09-24:** moved here from R-A7 by operator decision. Each decision and recovery component renders only the actions the daemon's `cycleActions` returns for the cycle.
 
 ### R-A7
 
@@ -190,7 +191,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Deferred, with reasons:**
     - A `remediation-exhausted` stop raised from housekeeping at an implement or remediate step can be resolved only with Stop. Resume redirects to Authorize, and Authorize requires a review step. It never happened in the live data (0 of 5 limit stops). Fixing it means authorizing remediation outside a review, which changes controller behaviour and belongs behind the R-B4 decision core.
     - A roadmap resume in sequential mode used to fail part-way on a refused cycle. It now skips such cycles, but it still throws on a cycle refused by the launch gates.
-  - **Dependency mismatch (proposed, operator to decide).** The UI half of the done-when ("the UI renders only returned actions") cannot be met in P1. About 21 panels decide their own visibility until R-A6 (P3) consolidates them, and the API does not return actions yet. Proposal: restate R-A7's done-when to the server half plus the cycle panel, and move "each panel renders only returned actions" into R-A6's done-when.
+  - **Dependency mismatch.** The UI half of the done-when ("the UI renders only returned actions") cannot be met in P1. About 21 panels decide their own visibility until R-A6 (P3) consolidates them, and the API does not return actions yet. Proposal: restate R-A7's done-when to the server half plus the cycle panel, and move "each panel renders only returned actions" into R-A6's done-when.
+- **Amended 2026-09-24 (operator decision): done-when restated.**
+  - **New done-when:**
+    - Tests that replay the shapes of the three recorded sequences (d148f0a4, 10dbc912, 2f1ab211) show no accepted-then-bounced resume, including through Pause/Resume and the integration-resolution command.
+    - The cycle panel offers only the actions `cycleActions` returns: Resume, guidance, Pause and Stop.
+  - "Every panel renders only returned actions" moves to R-A6.
+  - **Met** (`cycle-actions.test.ts`, `execution-views.test.tsx`). To get there, `cycleActions` now offers Pause at the merge boundary, as the server always allowed, because a pause there holds a roadmap's automatic merge. The panel's Pause and Stop follow `cycleActions`.
+  - **The status stays partial for the rest of the Change:**
+    - one transition gate shared with the roadmap scheduler (`RoadmapService.blocker`, `requireReady`, `scopePhaseBlockers`);
+    - the duplicated remediation-grant validators, which are R-B7's (CTRL-12).
 
 ## Workstream B — Controller core (pain point 3)
 
@@ -438,14 +448,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The Provider recovery panel and the service-retry brief still said the original step deadline always applies. They now describe the reset wait.
 
   **Deadline policy.** The step deadline moves by each wait, at most 6 h per wait and 3 waits. That can extend the deadline by up to about 18 h without an operator decision. It is listed as an open operator decision in the phase 1 review, and the code is unchanged until the operator decides.
+  - **Operator decision (2026-09-24):** keep it. A soft deadline that moves with quota waits suits how the operator works, so the extension is intended.
 
   Codex quota failures carry no reset time and are unchanged.
 
 ### R-C9
 
-**End the session on a terminal quota error so the reset wait applies** · Phase P2 (proposed) · Effort S-M · Status: open
+**End the session on a terminal quota error so the reset wait applies** · Phase P2 · Effort S-M · Status: open
 
-- **Added 2026-09-24** in the phase 1 review of R-C8.
+- **Added 2026-09-24** in the phase 1 review of R-C8. The operator confirmed P2 the same day.
 - **Resolves:** [AGT-60](findings/AGT-GIT-SEC-agents-git-security.md#agt-60-quota-and-session-limit-failures-with-a-known-reset-time-always-need-the-operator) (the part R-C8 left out).
 - **Why:** R-C8 schedules the wait only when a quota failure is safe to retry. In the recorded incident (run 736446e8), the session kept background sub-agents and tool calls running for 31 minutes after the terminal quota error, so every quota result was unsafe and the step still stopped for the operator. Only 3 of about 12 quota results in that stream carried a reset time.
 - **Change:** On a terminal quota error that has a reported reset, end the session promptly: stop background sub-agents and let outstanding tool calls settle or be cancelled. Keep the latest reported reset for the turn's final failure, rather than applying it to one result only. Add a recorded-stream fixture of the 736446e8 shape.
@@ -753,9 +764,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H6
 
-**Journal cleanup: registry tables and `repository-*` vocabulary** · Phase P3 (proposed) · Effort M · Status: open
+**Journal cleanup: registry tables and `repository-*` vocabulary** · Phase P3 · Effort M · Status: open
 
-- **Added 2026-09-24:** split from [R-B8](#r-b8) in the phase 1 review.
+- **Added 2026-09-24:** split from [R-B8](#r-b8) in the phase 1 review. The operator confirmed P3 the same day.
 - **Resolves:** [DATA-09](findings/DATA-storage-domain-contracts.md#data-09-the-dead-ct-04a1a2-repository-inspector-and-registry-are-still-compiled-constructed-and-schema-resident) (the schema residue).
 - **Why not in R-B8:** `workspace_events.repository_inspection_id` and `repository_binding_id` are foreign keys into `repository_inspections` and `project_repository_bindings`. With either parent table missing, SQLite rejects every insert into `workspace_events`, even when the keys are NULL (checked on a copy of the 2026-09-23 snapshot). The tables can only go when `workspace_events` is rebuilt without those columns, which is the operation ADR-013 took once and called the riskiest.
 - **Change:**

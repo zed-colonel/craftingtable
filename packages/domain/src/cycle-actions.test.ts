@@ -49,12 +49,17 @@ describe('cycle actions (R-A7)', () => {
   });
 
   it('names the merge-boundary action from the gate', () => {
-    expect(cycleActions(cycle('awaiting-merge', 'merge-approval'))).toEqual(['merge', 'stop']);
-    expect(cycleActions(cycle('awaiting-merge', 'final-promotion'))).toEqual([
-      'approve-promotion',
+    expect(cycleActions(cycle('awaiting-merge', 'merge-approval'))).toEqual([
+      'merge',
+      'pause',
       'stop',
     ]);
-    expect(cycleActions(cycle('awaiting-merge', 'controller-wait'))).toEqual(['stop']);
+    expect(cycleActions(cycle('awaiting-merge', 'final-promotion'))).toEqual([
+      'approve-promotion',
+      'pause',
+      'stop',
+    ]);
+    expect(cycleActions(cycle('awaiting-merge', 'controller-wait'))).toEqual(['pause', 'stop']);
     expect(cycleActions(cycle('completed'))).toEqual([]);
   });
 });

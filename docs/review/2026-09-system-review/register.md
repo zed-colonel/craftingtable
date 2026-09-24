@@ -803,6 +803,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - Before: `pnpm test` 426 s. The execution file alone took 423 s; the next slowest file took 11 s.
   - After: 104 s. The slowest files are scope verification (101 s, 12 tests) and supervised maps (86 s).
   - Not yet under the ~90 s target. The remaining work is rebalancing the slow files and moving the controller-transition tests from wall-clock polling onto the R-B2 stepping seam.
+- **Amended 2026-09-24: rebalanced.** Three groups moved to their own files, making 18: bounded scope recovery, delegated scope findings and supervised-map amendments. They were regenerated from the original file by the same mechanical split, so test bodies are unchanged. `pnpm test`: 89 s by Vitest's clock (about 92 s wall), still with no margin.
 
 ### R-I3
 

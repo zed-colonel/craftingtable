@@ -45,10 +45,15 @@ describe('offer only actions that can make progress (R-A7)', () => {
     const f = await fixture();
     const started = await startCycle(f);
     await stepController(f.services);
-    f.backend.latest.release('Design.\n\n```craftingtable-design\n{"version":1,"items":[{}]}\n```');
-    await stepController(f.services, 2);
+    // The same invalid classification survives the two automatic repairs (R-C2).
+    for (let turn = 0; turn < 3; turn += 1) {
+      f.backend.latest.release(
+        'Design.\n\n```craftingtable-design\n{"version":1,"items":[{}]}\n```',
+      );
+      await stepController(f.services, 3);
+    }
     const stopped = storedCycle(f, started.id);
-    expect(stopped.attention?.code).toBe('design-report-invalid');
+    expect(stopped.attention).toMatchObject({ code: 'design-report-invalid', repairAttempts: 2 });
     expect(cycleActions(stopped)).toEqual(['resolve-design', 'stop']);
 
     const resumed = await control(f, started.id, 'resume');
@@ -56,7 +61,7 @@ describe('offer only actions that can make progress (R-A7)', () => {
     expect(resumed.json().error.message).toContain('Use Resolve design questions');
     expect(storedCycle(f, started.id).version).toBe(stopped.version);
     await stepController(f.services, 2);
-    expect(f.backend.sessions).toHaveLength(1);
+    expect(f.backend.sessions).toHaveLength(3);
     expect((await control(f, started.id, 'stop')).statusCode).toBe(200);
   });
 

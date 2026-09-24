@@ -28,7 +28,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B9](#r-b9) | P1 | M | done (4d81743) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | open | Measure operator-wait as a first-class metric |
-| [R-C2](#r-c2) | P1 | S-M | open | Re-prompt the agent automatically on output-format validation failures |
+| [R-C2](#r-c2) | P1 | S-M | done (pending) | Re-prompt the agent automatically on output-format validation failures |
 | [R-C3](#r-c3) | P2 | M | open | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | open | Refresh and re-review automatically when only upstream integration advanced |
 | [R-C5](#r-c5) | P2 | M | open | Converge the parent/slice repair loop |
@@ -236,11 +236,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C2
 
-**Re-prompt the agent automatically on output-format validation failures** · Phase P1 · Effort S-M · Status: open
+**Re-prompt the agent automatically on output-format validation failures** · Phase P1 · Effort S-M · Status: done (pending)
 
 - **Resolves:** [HIST-10](findings/HIST-history-and-live-usage.md#hist-10-agent-output-format-validation-becomes-operator-stops-instead-of-automatic-re-prompts), [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes)
 - **Change:** When a design classification, structured review report or "## Open questions" section fails validation, send one bounded follow-up turn to the same session quoting the validator errors (up to 2 attempts) before stopping for the operator. Record the attempts in the stop record.
 - **Done when:** Replaying the WI-09 and finalization invalid-output stops produces automatic repair turns, not needs-attention.
+- **Progress:** `decideStepOutcome` returns `repair-output` instead of a stop when a finished run's final report fails a structural check: an invalid design classification, an invalid or missing workflow report, a review report that is unstructured or invalid (including a missing scope evidence entry), or an Open questions checkpoint that is missing, repeated, empty, not last in a design report, or "none" followed by more text (`openQuestionsCheckpoint`, domain). A checkpoint that lists questions still stops at once, as do findings, decisions and dependencies. The controller records `outputRepair { attempts, sourceRunId, code, issues }` on the cycle and relaunches the step resuming the run's vendor session (`sessionResumeSource`, the R-B9 path generalized) with a message quoting the validator issues and asking for the whole corrected report; reviews stay on their pinned baseline, guidance is kept, and the turn gets at least 20 minutes. After `OUTPUT_REPAIR_LIMIT` (2) failed repairs, or when the run has no session id, it stops with the same code as before and `attention.repairAttempts`. No new attention codes or operator surfaces. Live history (snapshot 2026-09-23): the two finalization review reports rejected on 09-13 (finding ids that break the id pattern; `exitGate.evidence` over 20,000 characters) now classify as repairs, with those issues quoted. The four WI-09 stops (cycle d148f0a4) came from a design validator that f574029 later relaxed. Today both runs parse as complete and end with a real ADR approval request, so they correctly stop for the operator. All 18 recorded design stops for open questions list real questions and still stop. Tests: `step-outcome.test.ts` (table rows and R-C2 block), `output-repair.test.ts` (resume and continue, exhaustion, real questions, review on pinned baseline).
 
 ### R-C3
 

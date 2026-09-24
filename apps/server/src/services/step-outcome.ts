@@ -5,6 +5,8 @@ import {
   type CycleAttentionCode,
   designHasNoOpenQuestions,
   evaluateCycleCompletion,
+  OUTPUT_REPAIR_LIMIT,
+  openQuestionsCheckpoint,
   ownsIntegrationResolution,
   remediationAllowance,
   remediationUsed,
@@ -31,6 +33,12 @@ import { workflowQuestions } from './workflow-policy.js';
  *
  * Every decision that stops for the operator carries a `code`: the typed identity of the
  * stop that later work (R-A3) persists and routes on instead of the message text.
+ *
+ * A final report that fails a structural check (design classification, workflow report,
+ * structured review report, the Open questions checkpoint) is repaired automatically before
+ * it becomes a stop (R-C2): `repair-output` resumes the same session with the validator's
+ * issues, at most `OUTPUT_REPAIR_LIMIT` times per step. Listed open questions are never
+ * repaired; they are the operator's.
  */
 
 type TurnCompleted = Extract<AgentRunEvent, { kind: 'turn-completed' }>;
@@ -76,7 +84,21 @@ export type StepOutcomeDecision = {
   | { readonly kind: 'wait-for-run' }
   | { readonly kind: 'end-turn' }
   | { readonly kind: 'resume-after-restart' }
-  | { readonly kind: 'attention'; readonly code: StepAttentionCode; readonly message: string }
+  | {
+      readonly kind: 'attention';
+      readonly code: StepAttentionCode;
+      readonly message: string;
+      /** Automatic output-format repairs made before this stop (R-C2). */
+      readonly repairAttempts?: number;
+    }
+  | {
+      readonly kind: 'repair-output';
+      /** The stop this would be without the repair. */
+      readonly code: StepAttentionCode;
+      readonly issues: readonly string[];
+      /** 1-based; at most `OUTPUT_REPAIR_LIMIT`. */
+      readonly attempt: number;
+    }
   | {
       readonly kind: 'schedule-service-retry';
       readonly providerRecovery: NonNullable<WorkCycle['providerRecovery']>;
@@ -169,6 +191,9 @@ export function stepOutcomeFacts(
 }
 
 const OPEN_QUESTIONS = /^## Open questions[ \t]*$/m;
+const CHECKPOINT_ISSUE =
+  'The final report must contain exactly one “## Open questions” section containing only “none” when nothing needs the operator, or listing each question for the operator.';
+const REVIEW_REPORT_ISSUE = 'A complete, valid structured review report is required.';
 /** ADR-062: same-step service retries after 1, 5 and 15 minutes. */
 const SERVICE_RETRY_DELAYS_MS = [60_000, 300_000, 900_000] as const;
 
@@ -179,6 +204,33 @@ function attention(code: StepAttentionCode, message: string, workflow?: WorkCycl
 export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcomeDecision {
   let cycle = input;
   const { run, turn, ended } = facts;
+  /**
+   * A structural fault in the final report: resume the session with the issues while
+   * repairs remain and the run has a session to resume, otherwise stop as before.
+   */
+  const formatFault = (
+    code: StepAttentionCode,
+    message: string,
+    issues: readonly string[],
+  ): StepOutcomeDecision => {
+    const attempts = input.outputRepair?.attempts ?? 0;
+    if (attempts < OUTPUT_REPAIR_LIMIT && run.backendSessionId !== undefined)
+      return {
+        kind: 'repair-output',
+        code,
+        issues: issues.slice(0, 20).map((issue) => issue.slice(0, 1000)),
+        attempt: attempts + 1,
+      };
+    return attempts
+      ? {
+          ...attention(
+            code,
+            `${message} ${attempts} automatic format ${attempts === 1 ? 'repair' : 'repairs'} did not produce a valid report.`,
+          ),
+          repairAttempts: attempts,
+        }
+      : attention(code, message);
+  };
   if (run.status === 'starting' || run.status === 'running') return { kind: 'wait-for-run' };
   if (facts.drainInterrupted)
     return run.backendSessionId === undefined || run.role !== cycleStepRole(cycle.step)
@@ -315,9 +367,14 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
       classified.status === 'invalid' ||
       (cycle.workflow?.activeReview && classified.status !== 'complete')
     )
-      return attention(
+      return formatFault(
         'workflow-report-invalid',
         'Workflow report needs correction. The controller cannot safely classify these questions or accept specialist evidence.',
+        [
+          classified.status === 'invalid'
+            ? classified.reason
+            : 'This specialist review requires one complete workflow report.',
+        ],
       );
     if (classified.status === 'complete') {
       const questions = facts.workflowQuestions(cycle, text);
@@ -357,13 +414,15 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
     finalization &&
     !(finalization.stages && cycle.step === 'review') &&
     !finalizationHasNoQuestions(text)
-  )
+  ) {
+    const message =
+      'Finalization needs your input or a complete Open questions checkpoint. Inspect the outcome and provide guidance before resuming.';
     return withWorkflow(
-      attention(
-        'finalization-needs-input',
-        'Finalization needs your input or a complete Open questions checkpoint. Inspect the outcome and provide guidance before resuming.',
-      ),
+      openQuestionsCheckpoint(text) === 'questions'
+        ? attention('finalization-needs-input', message)
+        : formatFault('finalization-needs-input', message, [CHECKPOINT_ISSUE]),
     );
+  }
   if (cycle.step === 'design') {
     if (cycle.designRecovery?.runId === run.id && cycle.designRecovery.mode === 'investigate')
       return withWorkflow(
@@ -374,7 +433,9 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
       );
     const classified = parseDesignReport(text);
     if (classified.status === 'invalid')
-      return withWorkflow(attention('design-report-invalid', classified.reason));
+      return withWorkflow(
+        formatFault('design-report-invalid', classified.reason, [classified.reason]),
+      );
     if (classified.status === 'complete') {
       const unresolved = classified.report.items.filter((i) => i.kind !== 'resolved');
       if (unresolved.length && unresolved.every((i) => i.kind === 'dependency')) {
@@ -410,13 +471,17 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
               ),
         );
     }
-    if (!designHasNoOpenQuestions(text))
+    if (!designHasNoOpenQuestions(text)) {
+      const message =
+        'Design has open questions or lacks an explicit “## Open questions” section containing only “none”. Use Resolve design questions to collect evidence and provide guidance.';
       return withWorkflow(
-        attention(
-          'design-open-questions',
-          'Design has open questions or lacks an explicit “## Open questions” section containing only “none”. Use Resolve design questions to collect evidence and provide guidance.',
-        ),
+        openQuestionsCheckpoint(text) === 'questions'
+          ? attention('design-open-questions', message)
+          : formatFault('design-open-questions', message, [
+              `${CHECKPOINT_ISSUE} In a design report it must be the last section.`,
+            ]),
       );
+    }
     return withWorkflow({ kind: 'next-step', step: 'implement', changes: {}, action: 'advance' });
   }
   if (cycle.step === 'implement' || cycle.step === 'remediate') {
@@ -458,11 +523,20 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
             'Review needs your input. Answer the Open questions using Continue with guidance before another remediation.',
           ),
     );
+  const reportIssues =
+    scopeIssue !== undefined
+      ? [scopeIssue]
+      : assessment?.status === 'complete'
+        ? undefined
+        : assessment?.status === 'invalid' && assessment.issues.length
+          ? assessment.issues
+          : [REVIEW_REPORT_ISSUE];
   if (finalization && assessment?.status === 'invalid')
     return withWorkflow(
-      attention(
+      formatFault(
         'finalization-report-rejected',
         `Review report rejected: ${assessment.issues.join(' ').slice(0, 3500)}`,
+        reportIssues ?? assessment.issues,
       ),
     );
   if (finalization?.stages)
@@ -472,7 +546,11 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
     });
   if (finalization && cycle.polishPhase === 'assess') {
     if (decision.action === 'needs-attention')
-      return withWorkflow(attention('polish-assessment-needs-attention', decision.reason));
+      return withWorkflow(
+        reportIssues
+          ? formatFault('polish-assessment-needs-attention', decision.reason, reportIssues)
+          : attention('polish-assessment-needs-attention', decision.reason),
+      );
     return withWorkflow({
       kind: 'next-step',
       step: 'remediate',
@@ -480,18 +558,23 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
       action: 'advance',
     });
   }
-  if (reviewOnly && (!finalizationHasNoQuestions(text) || decision.action !== 'awaiting-merge'))
+  if (reviewOnly && (!finalizationHasNoQuestions(text) || decision.action !== 'awaiting-merge')) {
+    if (!finalizationHasNoQuestions(text)) {
+      const message =
+        'Scope review has open questions or lacks its Open questions checkpoint. Pause and provide guidance before resuming.';
+      return withWorkflow(
+        openQuestionsCheckpoint(text) === 'questions'
+          ? attention('scope-review-open-questions', message)
+          : formatFault('scope-review-open-questions', message, [CHECKPOINT_ISSUE]),
+      );
+    }
+    const message = `Scope review requires recovery: ${decision.reason} Address findings through the owning slice; this review snapshot cannot implement changes.`;
     return withWorkflow(
-      !finalizationHasNoQuestions(text)
-        ? attention(
-            'scope-review-open-questions',
-            'Scope review has open questions or lacks its Open questions checkpoint. Pause and provide guidance before resuming.',
-          )
-        : attention(
-            'scope-review-recovery',
-            `Scope review requires recovery: ${decision.reason} Address findings through the owning slice; this review snapshot cannot implement changes.`,
-          ),
+      decision.action === 'needs-attention' && reportIssues
+        ? formatFault('scope-review-recovery', message, reportIssues)
+        : attention('scope-review-recovery', message),
     );
+  }
   // Findings can request more work without granting approval to the reviewed state.
   if (decision.action === 'remediate')
     return withWorkflow({
@@ -499,7 +582,11 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
       clearActiveReview: !!cycle.workflow?.activeReview,
     });
   if (decision.action === 'needs-attention')
-    return withWorkflow(attention('review-needs-attention', decision.reason));
+    return withWorkflow(
+      reportIssues
+        ? formatFault('review-needs-attention', decision.reason, reportIssues)
+        : attention('review-needs-attention', decision.reason),
+    );
   return withWorkflow({
     kind: 'approve-review',
     reviewOnly,

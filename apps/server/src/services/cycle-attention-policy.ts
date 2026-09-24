@@ -50,6 +50,7 @@ export function currentCycleAttention(
   return cycleAttention(code, declared.refs, {
     ...(claim ? { claim } : {}),
     ...(shown ? { detail: shown } : {}),
+    ...(declared.repairAttempts ? { repairAttempts: declared.repairAttempts } : {}),
   });
 }
 

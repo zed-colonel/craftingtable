@@ -25,6 +25,7 @@ import {
   finalizationProfile,
   isTerminalAgentRunStatus,
   optionalFinding,
+  OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
   type PhaseBlocker,
   remediationAllowance,
@@ -90,6 +91,8 @@ import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError, WorktreeMutationGuard } from './worktree-mutation-guard.js';
 
+/** The least time an automatic output-format repair turn gets (R-C2). */
+const OUTPUT_REPAIR_MINUTES = 20;
 const PREPARING_RECOVERY = 'Preparing the requested recovery. Existing findings remain available.';
 /** Statuses in which a cycle has ended; the browser treats them as history. */
 const TERMINAL_CYCLE_STATUSES: ReadonlySet<WorkCycle['status']> = new Set(['completed', 'stopped']);
@@ -2136,7 +2139,10 @@ export class WorkCycleService {
     if (decision.workflow) cycle = this.change(cycle, { workflow: decision.workflow });
     switch (decision.kind) {
       case 'attention':
-        this.attention(cycle, decision.code, decision.message);
+        this.attention(cycle, decision.code, decision.message, undefined, decision.repairAttempts);
+        return;
+      case 'repair-output':
+        await this.repairOutput(cycle, run, decision);
         return;
       case 'schedule-service-retry':
         this.change(
@@ -3748,12 +3754,51 @@ export class WorkCycleService {
         runDeadlineAt: cycle.runDeadlineAt,
         resultContinuations: cycle.resultContinuations ?? 0,
         providerRecovery: cycle.providerRecovery ?? null,
+        outputRepair: cycle.outputRepair ?? null,
         stepGuidance: cycle.stepGuidance,
         instructions: cycle.instructions,
         housekeepingInstructions: cycle.housekeepingInstructions,
         reason: `Resuming the ${cycle.step} session that the daemon restart interrupted.`,
       },
       'resume-after-restart',
+    );
+  }
+
+  /**
+   * Resumes the session whose final report failed a structural check and asks for the
+   * corrected report (R-C2). The step keeps its guidance and deadline; a repair turn gets at
+   * least `OUTPUT_REPAIR_MINUTES` even when the step used most of its window.
+   */
+  private async repairOutput(
+    cycle: WorkCycle,
+    run: AgentRun,
+    repair: Extract<StepOutcomeDecision, { kind: 'repair-output' }>,
+  ): Promise<void> {
+    if (this.runs.isDraining()) return;
+    const floor = this.now().getTime() + OUTPUT_REPAIR_MINUTES * 60_000;
+    await this.next(
+      cycle,
+      cycle.step,
+      run,
+      undefined,
+      {
+        outputRepair: {
+          attempts: repair.attempt,
+          sourceRunId: run.id,
+          code: repair.code,
+          issues: repair.issues,
+        },
+        runDeadlineAt:
+          Date.parse(cycle.runDeadlineAt) >= floor
+            ? cycle.runDeadlineAt
+            : new Date(floor).toISOString(),
+        resultContinuations: cycle.resultContinuations ?? 0,
+        stepGuidance: cycle.stepGuidance,
+        instructions: cycle.instructions,
+        housekeepingInstructions: cycle.housekeepingInstructions,
+        reason: `The final report did not pass validation. Asking the same agent session to correct it (automatic repair ${repair.attempt} of ${OUTPUT_REPAIR_LIMIT}).`,
+      },
+      'repair-output',
     );
   }
 
@@ -3774,7 +3819,8 @@ export class WorkCycleService {
       cycle.step === 'review' &&
       parent?.role === 'review' &&
       parent.id === cycle.currentRunId &&
-      drainInterrupted(this.storage.execution, parent);
+      (drainInterrupted(this.storage.execution, parent) ||
+        changes.outputRepair?.sourceRunId === parent.id);
     const collectingReview =
       resumingReview ||
       (step === 'review' &&
@@ -3837,7 +3883,8 @@ export class WorkCycleService {
       step === cycle.step &&
       (!this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId) ||
         (changes.providerRecovery?.attempts ?? 0) > 0 ||
-        (changes.resultContinuations ?? 0) > 0);
+        (changes.resultContinuations ?? 0) > 0 ||
+        !!changes.outputRepair);
     reservation?.check?.();
     return this.storage.transaction(() => {
       const result = this.change(
@@ -3852,6 +3899,7 @@ export class WorkCycleService {
           // An explicit resume grants a fresh recovery window; automatic attempts retain their count/deadline.
           resultContinuations: collectingReview && context ? 1 : 0,
           providerRecovery: null,
+          outputRepair: null,
           stepGuidance: sameStepAttempt ? cycle.stepGuidance : undefined,
           // Legacy finalization records kept resume guidance here; it belonged to that attempt.
           ...(cycle.finalizationId && parent?.id === cycle.currentRunId
@@ -3955,11 +4003,12 @@ export class WorkCycleService {
     code: CycleAttentionCode,
     reason: string,
     refs?: AttentionRefs,
+    repairAttempts?: number,
   ): void {
     this.change(cycle, {
       status: 'needs-attention',
       reason,
-      attention: cycleAttention(code, refs),
+      attention: cycleAttention(code, refs, repairAttempts ? { repairAttempts } : {}),
     });
   }
   private change(

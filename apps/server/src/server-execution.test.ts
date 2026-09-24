@@ -2032,15 +2032,28 @@ class CycleBackend extends ScriptedBackend {
   ) {
     super(kind);
   }
+  private scripted = 0;
+  /** The latest reply per worktree: concurrent cycles each repeat their own report. */
+  private readonly lastReply = new Map<string, ScriptedReply>();
+  /** Automatic output-format repairs launched so far (R-C2). */
+  repairs = 0;
   override launch(request: AgentLaunchRequest): Promise<AgentSession> {
     this.onLaunch?.(request);
-    this.repliesForNextRun = [
+    // An automatic output-format repair resumes the session (R-C2). The scripted agent repeats
+    // its report, so scripted outputs and reply scripts stay aligned with the steps.
+    const repair =
+      request.resumeSessionId !== undefined && request.prompt.startsWith(OUTPUT_REPAIR_PROMPT);
+    if (repair) this.repairs += 1;
+    const previous = repair ? this.lastReply.get(request.cwd) : undefined;
+    const reply = previous ??
       this.replyForRequest?.(request) ??
-        this.outputs[this.launches.length] ?? { resultText: 'No scripted result' },
-    ];
+      this.outputs[this.scripted++] ?? { resultText: 'No scripted result' };
+    this.lastReply.set(request.cwd, reply);
+    this.repliesForNextRun = [reply];
     return super.launch(request);
   }
 }
+const OUTPUT_REPAIR_PROMPT = 'CraftingTable could not accept your final report';
 const cycleProfiles = Object.fromEntries(
   CYCLE_STEPS.map((step) => [
     step,
@@ -2590,7 +2603,9 @@ describe('single work-item automation', () => {
       const cycle = await startCycle(state, worktree.id, { policy });
       await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', reason);
       expect(currentCycle(state, cycle).reason).toContain(reason);
-      expect(backend.launches).toHaveLength(3);
+      // Only the unstructured report is a format fault the agent gets two repairs for (R-C2).
+      expect(backend.repairs).toBe(reason === 'structured' ? 2 : 0);
+      expect(backend.launches).toHaveLength(3 + backend.repairs);
       const merge = await state.context.app.inject({
         method: 'POST',
         url: `/api/workspaces/${state.workspaceId}/worktrees/${worktree.id}/merge`,
@@ -2717,7 +2732,9 @@ describe('single work-item automation', () => {
       });
       expect(response.statusCode, response.body).toBe(409);
       expect(currentCycle(state, cycle)).toEqual(before);
-      expect(backend.launches).toHaveLength(3);
+      // A missing report is repaired twice before the stop (R-C2); questions are not.
+      expect(backend.repairs).toBe(checkpoint === 'invalid' ? 2 : 0);
+      expect(backend.launches).toHaveLength(3 + backend.repairs);
     },
   );
 
@@ -6062,7 +6079,9 @@ it('compacts finalization findings while preserving closure history and requirin
   const cycle = finalizationCycle(state, value);
   expect(cycle.reason).toContain('F-001');
   expect((await runDetail(state, cycle.currentRunId)).run.verdict).toBeUndefined();
-  expect(backend.launches).toHaveLength(6);
+  // The report that drops the reopened finding is repaired twice before the stop (R-C2).
+  expect(backend.repairs).toBe(2);
+  expect(backend.launches).toHaveLength(6 + backend.repairs);
   const current = present(
     state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
   );
@@ -6139,7 +6158,9 @@ it.each(['unchanged', 'candidate-changed', 'destination-changed', 'truncated'] a
       'corrected finalization',
       12000,
     );
-    const retry = present(backend.launches[1]);
+    // The oversized report is repaired automatically twice before the stop (R-C2).
+    expect(backend.repairs).toBe(scenario === 'truncated' ? 0 : 2);
+    const retry = present(backend.launches[1 + backend.repairs]);
     expect(retry.prompt).toContain('## Correct the rejected review report');
     expect(retry.prompt).toContain('Answer for this attempt only.');
     if (scenario === 'unchanged') {
@@ -6149,7 +6170,7 @@ it.each(['unchanged', 'candidate-changed', 'destination-changed', 'truncated'] a
       expect(retry.prompt).toContain('Perform a fresh review and run the required verification');
       expect(retry.prompt).not.toContain('The daemon confirmed');
     }
-    for (const launch of backend.launches.slice(2)) {
+    for (const launch of backend.launches.slice(2 + backend.repairs)) {
       expect(launch.prompt).not.toContain('Answer for this attempt only.');
       expect(launch.prompt).not.toContain('## Correct the rejected review report');
     }
@@ -6332,7 +6353,9 @@ it.each(['questions', 'invalid', 'conflict'] as const)(
     });
     expect(response.statusCode, response.body).toBe(409);
     expect(finalizationCycle(state, value).additionalRemediationRounds).toBeUndefined();
-    expect(backend.launches).toHaveLength(1);
+    // An invalid report is repaired twice before the stop (R-C2).
+    expect(backend.repairs).toBe(checkpoint === 'invalid' ? 2 : 0);
+    expect(backend.launches).toHaveLength(1 + backend.repairs);
   },
 );
 
@@ -6531,7 +6554,10 @@ describe('background-work completion recovery', () => {
         () => currentCycle(state, cycle).status === 'needs-attention',
         'operator attention',
       );
-      expect(backend.launches).toHaveLength(1);
+      // No completion continuation. A missing checkpoint on a finished run is an output-format
+      // fault, which gets the separate automatic format repair first (R-C2).
+      expect(backend.repairs).toBe(reply.exitReason === undefined ? 2 : 0);
+      expect(backend.launches).toHaveLength(1 + backend.repairs);
       expect(currentCycle(state, cycle).resultContinuations ?? 0).toBe(0);
     },
   );
@@ -6639,7 +6665,9 @@ it('an incomplete finalization review retains concerns and cannot close findings
     'F-001',
     'F-002',
   ]);
-  expect(backend.launches).toHaveLength(4);
+  // The report that drops open findings is repaired twice before the stop (R-C2).
+  expect(backend.repairs).toBe(2);
+  expect(backend.launches).toHaveLength(4 + backend.repairs);
   expect(backend.launches[3]?.prompt).toContain('Reuse recorded passing checks only when');
   expect(backend.launches[3]?.prompt).not.toContain(
     'The prior review is incomplete or its candidate/destination snapshot cannot be reused',
@@ -11769,7 +11797,9 @@ it.each([false, true])(
     expect(response.statusCode, response.body).toBe(omitEvidence ? 409 : 200);
     if (omitEvidence) {
       expect(currentCycle(state, cycle)).toEqual(before);
-      expect(backend.launches).toHaveLength(3);
+      // Missing scope evidence is repaired twice before the stop (R-C2).
+      expect(backend.repairs).toBe(2);
+      expect(backend.launches).toHaveLength(3 + backend.repairs);
     } else {
       expect(workCycleResponseSchema.parse(response.json()).cycle).toMatchObject({
         executionScope: scope,

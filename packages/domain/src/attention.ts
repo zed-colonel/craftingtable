@@ -132,6 +132,8 @@ export interface CycleAttention {
   readonly refs?: AttentionRefs;
   /** Display text for the specific blocker (e.g. unmet merge requirements); never parsed. */
   readonly detail?: string;
+  /** Automatic output-format repairs the controller made before this stop (R-C2). */
+  readonly repairAttempts?: number;
 }
 
 export interface RoadmapAttention {
@@ -144,7 +146,11 @@ export interface RoadmapAttention {
 export function cycleAttention(
   code: CycleAttentionCode,
   refs?: AttentionRefs,
-  extra: { readonly claim?: AttentionClaim; readonly detail?: string } = {},
+  extra: {
+    readonly claim?: AttentionClaim;
+    readonly detail?: string;
+    readonly repairAttempts?: number;
+  } = {},
 ): CycleAttention {
   return {
     code,
@@ -152,6 +158,7 @@ export function cycleAttention(
     ...(extra.claim ? { claim: extra.claim } : {}),
     ...(refs ? { refs } : {}),
     ...(extra.detail ? { detail: extra.detail.slice(0, 2000) } : {}),
+    ...(extra.repairAttempts ? { repairAttempts: extra.repairAttempts } : {}),
   };
 }
 

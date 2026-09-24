@@ -29,6 +29,7 @@ import {
   asEventId,
   finalizationProfile,
   isTerminalAgentRunStatus,
+  OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
   PROFILE_INHERITANCE,
   type ReviewReportAssessment,
@@ -64,7 +65,7 @@ import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { operatorDecisions } from './operator-decisions.js';
 import { reservePhase } from './phase-resources.js';
 import { REPOSITORY_POLICY_GUIDANCE, worktreePlan } from './repository-policy.js';
-import { restartResumePrompt, restartResumeSource } from './restart-resume.js';
+import { outputRepairPrompt, restartResumePrompt, sessionResumeSource } from './restart-resume.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
 import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-handoff.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
@@ -372,7 +373,7 @@ export class AgentRunService {
         : undefined;
     const selected = cycleAgentSelection(this.storage, cycle);
     // A resumed session keeps the agent, model and permissions it was started with.
-    const resumed = restartResumeSource(
+    const resumed = sessionResumeSource(
       this.storage.execution,
       cycle,
       cycle.parentRunId && this.storage.execution.runs.find(cycle.workspaceId, cycle.parentRunId),
@@ -696,7 +697,7 @@ export class AgentRunService {
     const resume =
       cycle === undefined
         ? undefined
-        : restartResumeSource(this.storage.execution, cycle, prepared.parentRun);
+        : sessionResumeSource(this.storage.execution, cycle, prepared.parentRun);
     if (resume !== undefined && resume.run.backend !== backend.kind)
       throw new ExecutionRequestError(
         'conflict',
@@ -1255,11 +1256,20 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       const previousRunDirectory = resume && join(this.config.runsRoot, resume.run.id);
       const prompt =
         resume && cycle && previousRunDirectory
-          ? restartResumePrompt({
-              deadlineAt: cycle.runDeadlineAt,
-              previousRunDirectory,
-              runDirectory,
-            })
+          ? resume.kind === 'output-repair' && cycle.outputRepair
+            ? outputRepairPrompt({
+                issues: cycle.outputRepair.issues,
+                attempt: cycle.outputRepair.attempts,
+                limit: OUTPUT_REPAIR_LIMIT,
+                deadlineAt: cycle.runDeadlineAt,
+                previousRunDirectory,
+                runDirectory,
+              })
+            : restartResumePrompt({
+                deadlineAt: cycle.runDeadlineAt,
+                previousRunDirectory,
+                runDirectory,
+              })
           : brief;
       const launch: AgentLaunchRequest = {
         ...(pinned

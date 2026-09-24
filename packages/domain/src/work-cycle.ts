@@ -174,6 +174,18 @@ export interface WorkCycle {
   } | null;
   /** Automatic recovery attempts within the current step, independent of remediation. */
   readonly resultContinuations?: number;
+  /**
+   * Automatic output-format repair of the current step (R-C2): the run whose final report
+   * failed validation, the stop it would have been, and the validator's issues. The next run
+   * resumes that run's session and asks for the corrected report. Any other transition
+   * clears it.
+   */
+  readonly outputRepair?: {
+    readonly attempts: number;
+    readonly sourceRunId: AgentRunId;
+    readonly code: import('./attention.js').CycleAttentionCode;
+    readonly issues: readonly string[];
+  } | null;
   /** Same-step service retries, separate from remediation and background-result continuations. */
   readonly providerRecovery?: {
     readonly attempts: number;
@@ -277,6 +289,39 @@ export function evaluateCompletion(
     reason: `Review meets the completion policy (${openCounts.nit} open nits, allowance ${policy.maxNits}). Operator merge approval required.`,
     openCounts,
   };
+}
+
+/** Automatic output-format repairs per step before the controller stops for the operator. */
+export const OUTPUT_REPAIR_LIMIT = 2;
+
+/**
+ * The shape of a final report's "## Open questions" checkpoint (R-C2). `questions` means
+ * the section exists once and lists something for the operator. `malformed` is a format
+ * fault the agent can repair itself: no section, a repeated section, an empty one, or a
+ * "none" followed by more text.
+ */
+export function openQuestionsCheckpoint(text: string): 'none' | 'questions' | 'malformed' {
+  let fence: string | undefined;
+  let collecting = false;
+  let count = 0;
+  const body: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker !== undefined) {
+      if (fence === undefined) fence = marker;
+      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
+      if (collecting) body.push(line);
+      continue;
+    }
+    if (fence === undefined && /^## /.test(line)) {
+      collecting = /^## Open questions[ \t]*$/.test(line);
+      if (collecting) count += 1;
+    } else if (collecting) body.push(line);
+  }
+  const content = body.join('\n').trim().toLowerCase();
+  if (count !== 1 || !content) return 'malformed';
+  if (content === 'none') return 'none';
+  return /^none\b/.test(content) ? 'malformed' : 'questions';
 }
 
 /** Deliberately strict: missing, ambiguous, or truncated design conclusions pause automation. */

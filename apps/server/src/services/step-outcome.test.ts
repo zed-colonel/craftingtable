@@ -269,10 +269,10 @@ const rows: readonly Row[] = [
     expected: { kind: 'advance-resolution' },
   },
   {
-    name: 'a slice step with a malformed workflow report needs correction',
+    name: 'a slice step with a malformed workflow report is sent back for repair',
     cycle: { executionScope: { kind: 'slice' } },
     facts: { turn: turnOf('Work.\n\n```craftingtable-workflow\n{}\n```') },
-    expected: { kind: 'attention', code: 'workflow-report-invalid' },
+    expected: { kind: 'repair-output', code: 'workflow-report-invalid', attempt: 1 },
   },
   {
     name: 'workflow questions that disagree with Open questions need the operator',
@@ -299,9 +299,9 @@ const rows: readonly Row[] = [
     expected: { kind: 'attention', code: 'work-item-questions' },
   },
   {
-    name: 'finalization without an Open questions checkpoint needs input',
+    name: 'finalization without an Open questions checkpoint is sent back for repair',
     facts: { finalization: finalization() },
-    expected: { kind: 'attention', code: 'finalization-needs-input' },
+    expected: { kind: 'repair-output', code: 'finalization-needs-input', attempt: 1 },
   },
   {
     name: 'a design investigation always stops for review',
@@ -310,10 +310,10 @@ const rows: readonly Row[] = [
     expected: { kind: 'attention', code: 'design-investigation-finished' },
   },
   {
-    name: 'an invalid design classification stops',
+    name: 'an invalid design classification is sent back for repair',
     cycle: { step: 'design' },
     facts: { run: runOf({ role: 'design' }), turn: turnOf('```craftingtable-design\n{') },
-    expected: { kind: 'attention', code: 'design-report-invalid' },
+    expected: { kind: 'repair-output', code: 'design-report-invalid', attempt: 1 },
   },
   {
     name: 'design waiting only on mapped predecessors waits for them',
@@ -398,7 +398,7 @@ const rows: readonly Row[] = [
     expected: { kind: 'attention', code: 'review-open-questions-at-limit' },
   },
   {
-    name: 'a rejected finalization review report stops',
+    name: 'a rejected finalization review report is sent back for repair',
     cycle: { step: 'review' },
     facts: {
       run: reviewRun,
@@ -407,7 +407,12 @@ const rows: readonly Row[] = [
       reviewAssessment: () =>
         ({ status: 'invalid', issues: ['Missing findings'] }) as ReviewReportAssessment,
     },
-    expected: { kind: 'attention', code: 'finalization-report-rejected' },
+    expected: {
+      kind: 'repair-output',
+      code: 'finalization-report-rejected',
+      issues: ['Missing findings'],
+      attempt: 1,
+    },
   },
   {
     name: 'a staged finalization review advances its stage',
@@ -421,10 +426,10 @@ const rows: readonly Row[] = [
     expected: { kind: 'advance-finalization-stage', noQuestions: false },
   },
   {
-    name: 'a polish assessment without a usable report stops',
+    name: 'a polish assessment without a usable report is sent back for repair',
     cycle: { step: 'review', polishPhase: 'assess' },
     facts: { run: reviewRun, turn: turnOf(noQuestions), finalization: finalization() },
-    expected: { kind: 'attention', code: 'polish-assessment-needs-attention' },
+    expected: { kind: 'repair-output', code: 'polish-assessment-needs-attention', attempt: 1 },
   },
   {
     name: 'a polish assessment starts the polish pass',
@@ -466,13 +471,13 @@ const rows: readonly Row[] = [
     expected: { kind: 'remediate-review', clearActiveReview: false },
   },
   {
-    name: 'a review without a structured report stops',
+    name: 'a review without a structured report is sent back for repair',
     cycle: { step: 'review' },
     facts: { run: reviewRun, turn: turnOf(noQuestions) },
-    expected: { kind: 'attention', code: 'review-needs-attention' },
+    expected: { kind: 'repair-output', code: 'review-needs-attention', attempt: 1 },
   },
   {
-    name: 'a scope issue invalidates an otherwise mergeable review',
+    name: 'a scope issue in an otherwise mergeable review is sent back for repair',
     cycle: { step: 'review' },
     facts: {
       run: reviewRun,
@@ -480,7 +485,7 @@ const rows: readonly Row[] = [
       reviewAssessment: () => review(),
       scopeIssue: () => 'The review omitted case C-1.',
     },
-    expected: { kind: 'attention', code: 'review-needs-attention' },
+    expected: { kind: 'repair-output', code: 'review-needs-attention', attempt: 1 },
   },
   {
     name: 'a mergeable review is approved',
@@ -555,5 +560,100 @@ describe('controller step classification (R-B2)', () => {
         }),
       ),
     ).toMatchObject({ kind: 'attention', code: 'step-incomplete' });
+  });
+});
+
+describe('automatic output-format repair (R-C2)', () => {
+  const designRun = runOf({ role: 'design' });
+  const invalidDesign = '```craftingtable-design\n{';
+  const repairing = (attempts: number) => ({
+    step: 'design',
+    outputRepair: {
+      attempts,
+      sourceRunId: 'run-0',
+      code: 'design-report-invalid',
+      issues: ['x'],
+    },
+  });
+
+  it('quotes the validator issues and counts attempts up to the limit', () => {
+    expect(
+      decideStepOutcome(
+        cycleOf(repairing(1)),
+        facts({ run: designRun, turn: turnOf(invalidDesign) }),
+      ),
+    ).toEqual({
+      kind: 'repair-output',
+      code: 'design-report-invalid',
+      issues: ['Incomplete design classification block.'],
+      attempt: 2,
+    });
+  });
+
+  it('stops for the operator once the repairs are used, recording how many were made', () => {
+    expect(
+      decideStepOutcome(
+        cycleOf(repairing(2)),
+        facts({ run: designRun, turn: turnOf(invalidDesign) }),
+      ),
+    ).toMatchObject({ kind: 'attention', code: 'design-report-invalid', repairAttempts: 2 });
+  });
+
+  it('stops as before when the run has no session to resume', () => {
+    const decision = decideStepOutcome(
+      cycleOf({ step: 'design' }),
+      facts({
+        run: runOf({ role: 'design', backendSessionId: undefined }),
+        turn: turnOf(invalidDesign),
+      }),
+    );
+    expect(decision).toMatchObject({ kind: 'attention', code: 'design-report-invalid' });
+    expect(decision).not.toHaveProperty('repairAttempts');
+  });
+
+  it('repairs a missing, repeated or trailing Open questions checkpoint but never real questions', () => {
+    const decide = (text: string) =>
+      decideStepOutcome(cycleOf({ step: 'design' }), facts({ run: designRun, turn: turnOf(text) }))
+        .kind;
+    expect(decide('Design settled.')).toBe('repair-output');
+    expect(decide(`${noQuestions}\n\n## Open questions\nnone`)).toBe('repair-output');
+    expect(decide(`${noQuestions}\n\n## Notes\nLater.`)).toBe('repair-output');
+    expect(decide('Done.\n\n## Open questions\nNone at this time.')).toBe('repair-output');
+    expect(decide(withQuestions)).toBe('attention');
+  });
+
+  it('repairs a scope review checkpoint but leaves its listed questions to the operator', () => {
+    const decide = (text: string) =>
+      decideStepOutcome(
+        cycleOf({ step: 'review', executionScope: { kind: 'parent-acceptance' } }),
+        facts({
+          run: reviewRun,
+          reviewOnly: true,
+          turn: turnOf(text),
+          reviewAssessment: () => review(),
+        }),
+      );
+    expect(decide('Reviewed.')).toMatchObject({
+      kind: 'repair-output',
+      code: 'scope-review-open-questions',
+    });
+    expect(decide(withQuestions)).toMatchObject({
+      kind: 'attention',
+      code: 'scope-review-open-questions',
+    });
+  });
+
+  it('does not repair a scope review whose findings need the owning slice', () => {
+    expect(
+      decideStepOutcome(
+        cycleOf({ step: 'review', executionScope: { kind: 'parent-acceptance' } }),
+        facts({
+          run: reviewRun,
+          reviewOnly: true,
+          turn: turnOf(noQuestions),
+          reviewAssessment: () => review([minor], 'changes-requested'),
+        }),
+      ),
+    ).toMatchObject({ kind: 'attention', code: 'scope-review-recovery' });
   });
 });

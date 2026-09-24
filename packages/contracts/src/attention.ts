@@ -3,6 +3,7 @@ import {
   CYCLE_ATTENTION,
   CYCLE_ATTENTION_CODES,
   type CycleAttentionCode,
+  OUTPUT_REPAIR_LIMIT,
   PHASE_BLOCKER_CODES,
   type PhaseBlockerCode,
   ROADMAP_ATTENTION,
@@ -28,6 +29,7 @@ export const cycleAttentionSchema = z
     claim: z.enum(ATTENTION_CLAIMS).optional(),
     refs: attentionRefsSchema,
     detail: z.string().max(2000).optional(),
+    repairAttempts: z.number().int().min(1).max(OUTPUT_REPAIR_LIMIT).optional(),
   })
   .refine(
     (a) => a.owner === (a.claim ? 'controller' : CYCLE_ATTENTION[a.code]),

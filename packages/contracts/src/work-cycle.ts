@@ -1,8 +1,11 @@
 import {
   AGENT_BACKENDS,
   AGENT_PERMISSION_MODES,
+  CYCLE_ATTENTION_CODES,
   CYCLE_STATUSES,
   CYCLE_STEPS,
+  type CycleAttentionCode,
+  OUTPUT_REPAIR_LIMIT,
 } from '@craftingtable/domain';
 import { z } from 'zod';
 import {
@@ -272,6 +275,15 @@ export const workCycleSchema = z
       .optional(),
     designDependencyContinuations: z.number().int().min(0).max(2).optional(),
     resultContinuations: z.number().int().min(0).max(2).optional(),
+    outputRepair: z
+      .strictObject({
+        attempts: z.number().int().min(1).max(OUTPUT_REPAIR_LIMIT),
+        sourceRunId: agentRunIdSchema,
+        code: z.enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]]),
+        issues: z.array(z.string().max(1000)).min(1).max(20),
+      })
+      .nullable()
+      .optional(),
     providerRecovery: z
       .strictObject({
         attempts: z.number().int().min(0).max(3),

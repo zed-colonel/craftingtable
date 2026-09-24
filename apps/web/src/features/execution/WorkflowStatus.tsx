@@ -1,4 +1,4 @@
-import type { WorkCycle } from '@craftingtable/domain';
+import { effectiveCycleAttention, type WorkCycle } from '@craftingtable/domain';
 export function WorkflowStatus({ cycle }: { cycle: WorkCycle }) {
   const workflow = cycle.workflow;
   if (!workflow) return null;
@@ -51,7 +51,9 @@ export function WorkflowStatus({ cycle }: { cycle: WorkCycle }) {
                   <a href={`#cycle-${cycle.step === 'design' ? 'design' : 'guidance'}-${cycle.id}`}>
                     {cycle.step === 'design'
                       ? 'Answer in this work item’s Resolve design questions controls'
-                      : cycle.reason?.startsWith('Remediation limit reached.')
+                      : ['remediation-exhausted', 'review-open-questions-at-limit'].includes(
+                            effectiveCycleAttention(cycle)?.code ?? '',
+                          )
                         ? 'Answer when authorizing more remediation for this work item'
                         : 'Answer in this work item’s Continue with guidance form'}
                   </a>

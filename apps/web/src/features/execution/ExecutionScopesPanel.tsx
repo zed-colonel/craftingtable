@@ -1,6 +1,8 @@
 import type { ExecutionScopeChoice, WorktreeSummary } from '@craftingtable/contracts';
 import {
   executionScopeKey,
+  PHASE_BLOCKERS,
+  phaseBlockerCode,
   type SourceRepositoryId,
   type WorkCycle,
   type WorktreeId,
@@ -173,7 +175,11 @@ export function ExecutionScopesPanel({
                     }
                   </h4>
                   <Reasons
-                    reasons={p.blockers.map((b) => ({ kind: b.kind, text: b.message }))}
+                    reasons={p.blockers.map((b) => ({
+                      kind: b.kind,
+                      text: b.message,
+                      owner: PHASE_BLOCKERS[phaseBlockerCode(b)].owner,
+                    }))}
                     satisfied="Phase requirements satisfied; current review and branch checks still apply."
                   />
                   {p.resources.map((r) => (
@@ -197,8 +203,10 @@ export function ExecutionScopesPanel({
               choice.phases.some(
                 (p) =>
                   p.phase === 'merge' &&
-                  p.blockers.some(
-                    (b) => b.kind === 'evidence' && b.message.startsWith('Checkpoint '),
+                  p.blockers.some((b) =>
+                    ['checkpoint-evidence', 'decision-checkpoint-evidence'].includes(
+                      phaseBlockerCode(b),
+                    ),
                   ),
               ) && (
                 <CheckpointRecoveryPanel

@@ -25,3 +25,4 @@ export * from './workspace-event.js';
 export * from './workflow.js';
 
 export * from './agent-profiles.js';
+export * from './attention.js';

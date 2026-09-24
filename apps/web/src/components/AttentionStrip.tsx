@@ -1,14 +1,13 @@
-import type { WorkCycle } from '@craftingtable/domain';
+import { effectiveCycleAttention, type WorkCycle } from '@craftingtable/domain';
 import { CYCLE_STATUS_LABELS } from '../lib/execution-labels.js';
 import { Section } from './Section.js';
 
-/** Cycles that stopped for an operator decision: merge approval or attention. */
+/**
+ * Cycles stopped for the operator: the daemon declares each stop and whether automation
+ * claims it, so this list and the notifications agree (UI-16, R-A3).
+ */
 export function attentionCycles(cycles: readonly WorkCycle[]): readonly WorkCycle[] {
-  return cycles.filter(
-    (cycle) =>
-      !cycle.scopeReviewWait &&
-      (cycle.status === 'needs-attention' || cycle.status === 'awaiting-merge'),
-  );
+  return cycles.filter((cycle) => effectiveCycleAttention(cycle)?.owner === 'operator');
 }
 
 /**

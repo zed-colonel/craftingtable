@@ -481,7 +481,7 @@ export class MapAmendmentService {
       if (
         !tx.roadmaps.save(
           {
-            ...r,
+            ...withoutAttention(r),
             status: 'paused',
             version: r.version + 1,
             updatedAt: at,
@@ -694,4 +694,12 @@ export class MapAmendmentService {
       },
     });
   }
+}
+
+/** A paused roadmap carries no attention; that belongs to needs-attention only (R-A3). */
+function withoutAttention<T extends { readonly attention?: unknown }>(
+  value: T,
+): Omit<T, 'attention'> {
+  const { attention: _cleared, ...rest } = value;
+  return rest;
 }

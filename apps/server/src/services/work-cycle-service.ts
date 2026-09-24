@@ -34,6 +34,11 @@ import {
   type WorkItemId,
   type WorkspaceId,
   type Worktree,
+  type AttentionRefs,
+  type CycleAttention,
+  type CycleAttentionCode,
+  cycleAttention,
+  effectiveCycleAttention,
 } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -47,6 +52,7 @@ import {
 } from './branch-service.js';
 import { prioritizeRoadmapCycles } from './cycle-priority.js';
 import { designDependencyState } from './design-dependency-policy.js';
+import { currentCycleAttention } from './cycle-attention-policy.js';
 import { collectDesignRecovery } from './design-recovery.js';
 import {
   ConcurrentModificationError,
@@ -86,6 +92,56 @@ import { WorktreeMutationBusyError, WorktreeMutationGuard } from './worktree-mut
 const PREPARING_RECOVERY = 'Preparing the requested recovery. Existing findings remain available.';
 /** Statuses in which a cycle has ended; the browser treats them as history. */
 const TERMINAL_CYCLE_STATUSES: ReadonlySet<WorkCycle['status']> = new Set(['completed', 'stopped']);
+
+/** The statuses that stop for someone and carry typed attention (R-A3). */
+const ATTENTION_STATUSES: ReadonlySet<WorkCycle['status']> = new Set([
+  'needs-attention',
+  'awaiting-merge',
+]);
+
+/** Field changes that keep the cycle's status and attention as they are. */
+type CycleFieldChanges = Omit<Partial<WorkCycle>, 'status' | 'attention'>;
+
+/**
+ * A cycle write. Entering `needs-attention` or `awaiting-merge` must declare its attention,
+ * so a new stop cannot be written without a code; attention alone may be refreshed while
+ * the status stays; any other status clears it.
+ */
+type CycleChanges = CycleFieldChanges &
+  (
+    | {
+        readonly status: 'needs-attention' | 'awaiting-merge';
+        readonly attention: CycleAttention;
+      }
+    | {
+        readonly status?: Exclude<WorkCycle['status'], 'needs-attention' | 'awaiting-merge'>;
+        readonly attention?: undefined;
+      }
+    | { readonly status?: undefined; readonly attention: CycleAttention }
+  );
+
+/**
+ * Stops where the agent asked questions or reported malformed workflow output. ADR-063 lets
+ * the controller reassess them automatically once delegated reviewers exist.
+ */
+const REASSESSABLE_STOPS: ReadonlySet<CycleAttentionCode> = new Set<CycleAttentionCode>([
+  'implementation-open-questions',
+  'review-open-questions',
+  'review-open-questions-at-limit',
+  'workflow-report-invalid',
+  'workflow-questions-disagree',
+  'finalization-needs-input',
+]);
+
+/** Puts a cycle back in the status (and stop) it had before an undone reservation. */
+function restoredStatus(cycle: WorkCycle): CycleChanges {
+  if (cycle.status !== 'needs-attention' && cycle.status !== 'awaiting-merge')
+    return { status: cycle.status };
+  return {
+    status: cycle.status,
+    attention: effectiveCycleAttention(cycle) ?? cycleAttention('legacy-attention'),
+  };
+}
 
 /** Contention another pass resolves by itself: never a reason to stop for the operator. */
 function retryableControllerError(error: unknown): boolean {
@@ -1560,6 +1616,7 @@ export class WorkCycleService {
       if (cycle.status === 'running' && !cycle.designWait && !options.cleanStop) {
         this.attention(
           cycle,
+          'restart-resume',
           'Daemon restarted. Inspect the interrupted step and resume explicitly; no process was relaunched.',
         );
         stopped.push(cycle.id);
@@ -1605,8 +1662,22 @@ export class WorkCycleService {
     await this.passing;
   }
   private passing: Promise<void> | undefined;
+  /** The workflow generation the declared attention was last brought up to date at. */
+  private attentionGeneration = -1;
+
+  /**
+   * Brings every stopped cycle's declared attention up to date with the automation that
+   * currently claims it. The controller pass does this whenever stored state changed.
+   */
+  declareAttention(): void {
+    this.attentionGeneration = this.notifier.workflowGeneration;
+    for (const cycle of this.storage.execution.cycles.list())
+      if (ATTENTION_STATUSES.has(cycle.status)) this.refreshAttention(cycle);
+  }
 
   private async pass(): Promise<void> {
+    // Attention depends only on stored state, so refresh it when that state has changed.
+    if (this.notifier.workflowGeneration !== this.attentionGeneration) this.declareAttention();
     for (const cycle of prioritizeRoadmapCycles(
       this.storage.execution.cycles.list(),
       this.storage.roadmaps.list(),
@@ -1632,12 +1703,38 @@ export class WorkCycleService {
         ) {
           this.attention(
             current,
+            'controller-error',
             error instanceof ExecutionRequestError
               ? error.message
               : 'Controller could not advance this step. Inspect the run before resuming.',
           );
         }
       }
+    }
+  }
+
+  /**
+   * Brings a stopped cycle's declared attention up to date: whether automation claims it,
+   * and whether a merge is blocked by unmet requirements (NOTIF-02). A policy that cannot
+   * be evaluated keeps the declared attention; reconcile reports real errors.
+   */
+  private refreshAttention(cycle: WorkCycle): WorkCycle {
+    try {
+      const current = currentCycleAttention(this.storage, cycle);
+      if (!current || JSON.stringify(current) === JSON.stringify(cycle.attention)) return cycle;
+      // A derived annotation, not a transition: written in place so an operator command
+      // holding this version stays valid, with an event so open browsers show the owner.
+      const updated: WorkCycle = { ...cycle, attention: current };
+      const written = this.storage.transaction((tx) => {
+        if (!tx.execution.cycles.replace(updated, cycle.version)) return false;
+        this.appendCycleEvent(tx, updated, this.now().toISOString());
+        return true;
+      });
+      if (!written) return cycle;
+      this.notifier.notify();
+      return updated;
+    } catch {
+      return cycle;
     }
   }
 
@@ -1672,6 +1769,7 @@ export class WorkCycleService {
       if (current?.version !== cycle.version) return;
       const updated = this.change(current, {
         status: 'needs-attention',
+        attention: cycleAttention('reassessment-failed'),
         reason: `Controller reassessment could not be prepared: ${
           error instanceof ExecutionRequestError
             ? error.message
@@ -1748,7 +1846,7 @@ export class WorkCycleService {
       cycle.status === 'needs-attention' &&
       cycle.executionScope?.kind === 'slice' &&
       ['implement', 'review', 'remediate'].includes(cycle.step) &&
-      /needs your input|Workflow report/.test(cycle.reason) &&
+      REASSESSABLE_STOPS.has(effectiveCycleAttention(cycle)?.code ?? 'legacy-attention') &&
       !ownsIntegrationResolution(cycle)
     ) {
       const prior = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
@@ -1773,7 +1871,7 @@ export class WorkCycleService {
     }
     if (!['running', 'awaiting-merge'].includes(cycle.status)) return;
     if (worktree?.status !== 'active') {
-      this.attention(cycle, 'Worktree is no longer active.');
+      this.attention(cycle, 'worktree-inactive', 'Worktree is no longer active.');
       return;
     }
     const user = this.storage.users.findById(cycle.createdByUserId);
@@ -1787,7 +1885,11 @@ export class WorkCycleService {
       !['owner', 'editor'].includes(authorization.membership.role)
     ) {
       this.runs.finishCycleTurn(cycle, true);
-      this.attention(cycle, 'The initiating user no longer has permission to run this cycle.');
+      this.attention(
+        cycle,
+        'authority-lost',
+        'The initiating user no longer has permission to run this cycle.',
+      );
       return;
     }
     // An awaiting-merge cycle that no automation may advance only waits for the operator,
@@ -1823,7 +1925,13 @@ export class WorkCycleService {
     ) {
       this.waitForPhase(
         cycle,
-        [{ kind: 'authorization', message: 'Roadmap scheduling or this entry is paused.' }],
+        [
+          {
+            kind: 'authorization',
+            code: 'scheduling-held',
+            message: 'Roadmap scheduling or this entry is paused.',
+          },
+        ],
         'Controller review reserved; waiting for scheduling to resume.',
       );
       return;
@@ -1845,7 +1953,7 @@ export class WorkCycleService {
     if (cycle.designWait) {
       const state = designDependencyState(this.storage, cycle, cycle.designWait.requirements);
       if (!state.supported) {
-        this.attention(cycle, state.pending.join(' '));
+        this.attention(cycle, 'design-dependency-unsupported', state.pending.join(' '));
         return;
       }
       if (state.pending.length) return;
@@ -1855,12 +1963,17 @@ export class WorkCycleService {
       if (roadmap && roadmap.status !== 'running') return;
       const parent = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
       if (!parent || parent.status !== 'finished') {
-        this.attention(cycle, 'Inspect the completed design before continuing.');
+        this.attention(
+          cycle,
+          'design-recheck-unavailable',
+          'Inspect the completed design before continuing.',
+        );
         return;
       }
       if ((cycle.designDependencyContinuations ?? 0) >= 2) {
         this.attention(
           cycle,
+          'design-dependency-continuations-exhausted',
           'Two automatic dependency continuations have been used. Review the latest design and authorize recovery.',
         );
         return;
@@ -1889,6 +2002,7 @@ export class WorkCycleService {
       this.runs.finishCycleTurn(cycle, true);
       this.attention(
         cycle,
+        'step-time-limit',
         'Step time limit reached. The current process was cancelled; inspect it before resuming.',
       );
       return;
@@ -1909,6 +2023,7 @@ export class WorkCycleService {
       ) {
         this.attention(
           cycle,
+          'service-retry-mismatch',
           'Provider recovery no longer matches the latest failed run. Inspect the worktree before resuming.',
         );
         return;
@@ -1990,7 +2105,7 @@ export class WorkCycleService {
     if (decision.workflow) cycle = this.change(cycle, { workflow: decision.workflow });
     switch (decision.kind) {
       case 'attention':
-        this.attention(cycle, decision.message);
+        this.attention(cycle, decision.code, decision.message);
         return;
       case 'schedule-service-retry':
         this.change(
@@ -2050,6 +2165,7 @@ export class WorkCycleService {
       if (approval.reviewOnly) {
         this.attention(
           cycle,
+          'scope-review-snapshot-changed',
           'Scope review changed its snapshot. Restore the reviewed integration state before resuming.',
         );
         return;
@@ -2063,7 +2179,11 @@ export class WorkCycleService {
     }
     const head = await this.cleanHead(cycle);
     if (head !== cycle.reviewHeadSha) {
-      this.attention(cycle, 'The worktree changed during review. A fresh review is required.');
+      this.attention(
+        cycle,
+        'review-baseline-changed',
+        'The worktree changed during review. A fresh review is required.',
+      );
       return;
     }
     if (await this.refreshIntegration(cycle, run)) return;
@@ -2085,6 +2205,13 @@ export class WorkCycleService {
     }
     this.change(cycle, {
       status: 'awaiting-merge',
+      attention: cycleAttention(
+        approval.reviewOnly
+          ? 'record-scope-evidence'
+          : approval.finalizationRounds !== undefined
+            ? 'final-promotion'
+            : 'merge-approval',
+      ),
       reason: approval.reviewOnly
         ? 'Independent review meets the completion policy. Ready to record scope verification or parent acceptance.'
         : approval.finalizationRounds !== undefined
@@ -2115,6 +2242,7 @@ export class WorkCycleService {
     ) {
       this.attention(
         cycle,
+        'security-reviewer-unassigned',
         'The plan requires a separate security review. Assign its reviewer responsibility in the roadmap before continuing.',
       );
       return;
@@ -2170,6 +2298,7 @@ export class WorkCycleService {
       if (cycle.status !== 'awaiting-merge')
         this.change(cycle, {
           status: 'awaiting-merge',
+          attention: cycleAttention('scheduling-held'),
           reason:
             'Technical review finished. Further controller reviews are held until scheduling resumes.',
         });
@@ -2241,9 +2370,11 @@ export class WorkCycleService {
       });
       this.attention(
         cycle,
+        exception.sharedDecision ? 'shared-decision-required' : 'workflow-obligation',
         exception.sharedDecision
           ? `Operator approval required for ${exception.id}. Open Shared architecture decisions in the roadmap.`
           : cycle.workflow!.waiting!,
+        { checkpointId: exception.id },
       );
       return true;
     }
@@ -2260,6 +2391,7 @@ export class WorkCycleService {
           cycle,
           {
             status: 'awaiting-merge',
+            attention: cycleAttention('controller-wait'),
             workflow: { ...cycle.workflow!, waiting },
             reason: waiting,
           },
@@ -2284,13 +2416,18 @@ export class WorkCycleService {
     const baseline = run.reviewBranchContext;
     const raw = latestReviewReport(this.storage.execution, run);
     if (!value || !progress || !stage || !raw || !baseline) {
-      this.attention(cycle, 'A complete staged review and recorded branch baseline are required.');
+      this.attention(
+        cycle,
+        'stage-report-invalid',
+        'A complete staged review and recorded branch baseline are required.',
+      );
       return;
     }
     const assessment = assessStageReport(value, cycle, raw, baseline);
     if (assessment.status !== 'complete' || !assessment.report.finalization) {
       this.attention(
         cycle,
+        'stage-report-invalid',
         `Staged report rejected: ${assessment.issues.join(' ').slice(0, 3500)}`,
       );
       return;
@@ -2317,6 +2454,7 @@ export class WorkCycleService {
     if (updated.obligations.length > 2000 || updated.followUps.length > 500) {
       this.attention(
         cycle,
+        'finalization-ledger-full',
         'The finalization ledger reached its bounded size. Consolidate individually actionable obligations or follow-ups before continuing.',
       );
       return;
@@ -2325,6 +2463,7 @@ export class WorkCycleService {
     if (!noQuestions) {
       this.attention(
         cycle,
+        'finalization-needs-input',
         'Finalization has open questions. Provide answers before continuing; plan-change proposals require an explicit obligation decision.',
       );
       return;
@@ -2332,6 +2471,7 @@ export class WorkCycleService {
     if (evidence.obligations.some((o) => o.status === 'change-requested')) {
       this.attention(
         cycle,
+        'plan-change-decision',
         'A plan change needs your decision. Approve the exact proposed obligation change, or resume with guidance to preserve the adopted plan.',
       );
       return;
@@ -2375,6 +2515,7 @@ export class WorkCycleService {
           cycle,
           {
             status: 'needs-attention',
+            attention: cycleAttention('stage-batch-selection'),
             finalizationProgress: {
               ...updated,
               stages: updated.stages.map((s, i) =>
@@ -2400,6 +2541,7 @@ export class WorkCycleService {
     if (report.verdict !== 'mergeable') {
       this.attention(
         cycle,
+        'stage-review-changes-requested',
         'The reviewer still requests changes. Resolve its technical concern or obtain a corrected report; optional follow-ups alone do not require another implementation pass.',
       );
       return;
@@ -2490,6 +2632,7 @@ export class WorkCycleService {
         {
           finalizationProgress: { ...progress, stages },
           status: 'awaiting-merge',
+          attention: cycleAttention('final-promotion'),
           reason:
             'All stages and the final independent review are complete on the current candidate. Review the evidence and follow-up work, then explicitly approve promotion.',
         },
@@ -2783,7 +2926,11 @@ export class WorkCycleService {
       run.reviewBranchContext,
     );
     if (remediationUsed(cycle) >= remediationAllowance(cycle) + (grant?.additionalRounds ?? 0)) {
-      this.attention(cycle, `Remediation limit reached. ${decision.reason}`);
+      this.attention(
+        cycle,
+        'remediation-exhausted',
+        `Remediation limit reached. ${decision.reason}`,
+      );
       return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
     }
     if (assessment?.status !== 'complete') return cycle;
@@ -2808,6 +2955,7 @@ export class WorkCycleService {
     if (stalledReviews >= 2) {
       this.attention(
         cycle,
+        'remediation-stalled',
         'Two remediation rounds left the same open findings and gate result. Operator attention is required.',
       );
       return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
@@ -2843,7 +2991,7 @@ export class WorkCycleService {
 
   private async housekeeping(cycle: WorkCycle, run: AgentRun, reason: string): Promise<void> {
     if (remediationUsed(cycle) >= remediationAllowance(cycle)) {
-      this.attention(cycle, `Remediation limit reached. ${reason}`);
+      this.attention(cycle, 'remediation-exhausted', `Remediation limit reached. ${reason}`);
       return;
     }
     await this.next(cycle, 'remediate', run, undefined, {
@@ -2978,6 +3126,7 @@ export class WorkCycleService {
       )
         this.attention(
           latest,
+          'implementation-commit-failed',
           error instanceof ExecutionRequestError
             ? error.message
             : 'Worktree finalization failed. Inspect the checkpoint before resuming.',
@@ -3089,6 +3238,7 @@ export class WorkCycleService {
     if ((cycle.integrationRefreshes ?? 0) >= owner.settings.maxIntegrationRefreshes) {
       this.attention(
         cycle,
+        'integration-refresh-limit',
         'Integration refresh limit reached. Update from integration manually, then resume for fresh review.',
       );
       return true;
@@ -3147,7 +3297,7 @@ export class WorkCycleService {
         // Contention is controller-owned: undo the reservation exactly, keeping the status
         // and explanation the operator saw, and retry on a later pass.
         this.change(latest, {
-          status: cycle.status,
+          ...restoredStatus(cycle),
           integrationRefreshes: cycle.integrationRefreshes,
           reason: cycle.reason,
         });
@@ -3160,6 +3310,11 @@ export class WorkCycleService {
       )
         this.change(latest, {
           status: 'needs-attention',
+          attention: cycleAttention(
+            error instanceof IntegrationUpdateConflict
+              ? 'integration-conflict'
+              : 'integration-update-failed',
+          ),
           reason:
             error instanceof ExecutionRequestError
               ? error.message
@@ -3329,6 +3484,7 @@ export class WorkCycleService {
           {
             integrationResolution: { ...resolution, status: 'abandoned' },
             status: 'needs-attention',
+            attention: cycleAttention('resolution-abandoned'),
             reason:
               'Resolution abandoned. The owned merge was aborted; untracked files and any unrelated edits are preserved. Inspect the diff before starting again.',
           },
@@ -3575,7 +3731,7 @@ export class WorkCycleService {
     step: CycleStep,
     parent?: AgentRun,
     context?: CommandContext,
-    changes: Partial<WorkCycle> = {},
+    changes: CycleFieldChanges = {},
     action = context === undefined ? 'advance' : 'resume',
     reservation?: { check?: () => void; attach?: () => void },
   ): Promise<WorkCycle> {
@@ -3740,15 +3896,41 @@ export class WorkCycleService {
   private deadline(minutes: number): string {
     return new Date(this.now().getTime() + minutes * 60_000).toISOString();
   }
-  private attention(cycle: WorkCycle, reason: string): void {
-    this.change(cycle, { status: 'needs-attention', reason });
+  /** Stops for someone to act: the code says what the stop is, the reason says it in words. */
+  private attention(
+    cycle: WorkCycle,
+    code: CycleAttentionCode,
+    reason: string,
+    refs?: AttentionRefs,
+  ): void {
+    this.change(cycle, {
+      status: 'needs-attention',
+      reason,
+      attention: cycleAttention(code, refs),
+    });
   }
   private change(
     cycle: WorkCycle,
-    changes: Partial<WorkCycle>,
+    input: CycleChanges,
     action = 'advance',
     context?: CommandContext,
   ): WorkCycle {
+    // Entering a stop declares its attention (enforced by CycleChanges); any other status
+    // clears it, so attention always describes the current state (R-A3).
+    const { attention: declared, ...fields } = input;
+    const nextStatus = fields.status ?? cycle.status;
+    let attention = ATTENTION_STATUSES.has(nextStatus) ? (declared ?? cycle.attention) : undefined;
+    // A new stop is declared complete in the same write: whether automation claims it and
+    // whether its merge requirements are met (NOTIF-02).
+    if (declared && fields.status !== undefined)
+      try {
+        attention =
+          currentCycleAttention(this.storage, { ...cycle, ...fields, attention: declared }) ??
+          declared;
+      } catch {
+        attention = declared;
+      }
+    let changes: Partial<WorkCycle> = { ...fields, ...(attention ? { attention } : {}) };
     // Keep lifetime totals and independent stage allowance/usage together in the same transaction.
     if (
       cycle.finalizationProgress &&
@@ -3778,13 +3960,15 @@ export class WorkCycleService {
         },
       };
     }
-    const updated = {
+    const merged: WorkCycle = {
       ...cycle,
       ...changes,
       reason: (changes.reason ?? cycle.reason).slice(0, 4000),
       version: cycle.version + 1,
       updatedAt: this.now().toISOString(),
     };
+    const { attention: _cleared, ...unattended } = merged;
+    const updated: WorkCycle = attention ? merged : unattended;
     // A controller write that changes nothing is not a transition: no version, audit entry
     // or work-cycle-changed event (each event costs every open browser a refetch round).
     // Operator commands are always recorded, and a stale snapshot still fails below.
@@ -3899,9 +4083,17 @@ export class WorkCycleService {
           : {}),
       },
     });
+    this.appendCycleEvent(tx, cycle, cycle.updatedAt, context);
+  }
+  private appendCycleEvent(
+    tx: StorageRepositories,
+    cycle: WorkCycle,
+    occurredAt: string,
+    context?: CommandContext,
+  ): void {
     tx.workspaceEvents.appendEvent({
       id: asEventId(randomUUID()),
-      occurredAt: cycle.updatedAt,
+      occurredAt,
       workspaceId: cycle.workspaceId,
       actorUserId: context?.user.id ?? cycle.createdByUserId,
       projectId: cycle.projectId,

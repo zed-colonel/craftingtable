@@ -30,3 +30,5 @@ export * from './repository-policy.js';
 export * from './workflow.js';
 
 export * from './agent-profiles.js';
+export * from './attention.js';
+export * from './attention-legacy.js';

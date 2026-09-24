@@ -1,15 +1,11 @@
-import { scopePhaseBlockers } from './execution-scope.js';
-import { scopeReviewWait, scopeMergeWait } from './scope-repair.js';
-import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
-import { mapReadSnapshot } from './map-read-snapshot.js';
-import { crossProjectState, milestoneSatisfied } from './cross-project-service.js';
-import { effectiveDelegation } from './roadmap-delegation-policy.js';
 import { randomUUID } from 'node:crypto';
 import type { NotificationStatus, SaveNotificationsRequest } from '@craftingtable/contracts';
 import {
   asEventId,
   DEFAULT_NOTIFICATION_PREFERENCES,
   designHasNoOpenQuestions,
+  effectiveCycleAttention,
+  effectiveRoadmapAttention,
   nextReminderAt,
   notificationText,
   type WorkspaceId,
@@ -36,8 +32,31 @@ import type { WorkspaceService } from './workspace-service.js';
 export const NOTIFICATION_SETTLE_MS = 30_000;
 /** An occurrence that reopens this soon after resolving is the same occurrence (NOTIF-03). */
 export const NOTIFICATION_FLAP_WINDOW_MS = 10 * 60_000;
+/**
+ * A roadmap-level wait for the operator. The scheduler that owns the policy derives these
+ * (`RoadmapService.attentionAlerts`); this service only formats and delivers them (R-A3).
+ */
+export type RoadmapAlert =
+  | {
+      readonly kind: 'verification-setup' | 'checkpoint-evidence';
+      readonly roadmap: Roadmap;
+      readonly members: readonly string[];
+      readonly lines: readonly string[];
+    }
+  | {
+      readonly kind: 'entry-hold';
+      readonly roadmap: Roadmap;
+      readonly entry: RoadmapEntry;
+      readonly reason: string;
+      readonly cycleId?: string;
+    };
+
 export interface NotificationServiceOptions {
   readonly settleMs?: number;
+  readonly roadmapAlerts?: (
+    storage: StorageRepositories,
+    workspaceId: WorkspaceId,
+  ) => readonly RoadmapAlert[];
   /** Cycles and roadmaps this boot's restart recovery stopped; they share one message. */
   readonly restartedAtBoot?: {
     readonly cycleIds: readonly string[];
@@ -53,6 +72,7 @@ export class NotificationService {
   private ticking: Promise<void> | undefined;
   private readonly settleMs: number;
   private readonly bootId = randomUUID();
+  private readonly roadmapAlerts: NotificationServiceOptions['roadmapAlerts'];
   /** `cycle:<id>` / `roadmap:<id>` still in the state this boot's restart left them in. */
   private readonly restartHeld: Set<string>;
   constructor(
@@ -67,6 +87,7 @@ export class NotificationService {
     options: NotificationServiceOptions = {},
   ) {
     this.settleMs = options.settleMs ?? NOTIFICATION_SETTLE_MS;
+    this.roadmapAlerts = options.roadmapAlerts;
     this.restartHeld = new Set([
       ...(options.restartedAtBoot?.cycleIds ?? []).map((id) => `cycle:${id}`),
       ...(options.restartedAtBoot?.roadmapIds ?? []).map((id) => `roadmap:${id}`),
@@ -236,7 +257,6 @@ export class NotificationService {
     );
   }
   private attention(tx: StorageRepositories, settings: StoredNotificationSettings): Attention[] {
-    tx = mapReadSnapshot(tx);
     const workspaceId = settings.workspaceId;
     const cycles = tx.execution.cycles.list(workspaceId);
     const roadmaps = tx.roadmaps.list(workspaceId);
@@ -288,53 +308,21 @@ export class NotificationService {
           });
           continue;
         }
-        if (automatedScopeRecoveryWait(tx, cycle) || scopeReviewWait(tx, cycle)) continue;
-        const owner = roadmaps.find(
-          (r) => r.status === 'running' && r.attempts.some((a) => a.cycleId === cycle.id),
-        );
-        const attempt = owner?.attempts.find((a) => a.cycleId === cycle.id);
-        // Resolve authority exactly as RoadmapService does, including delegation grants (CTRL-06).
-        const definition =
-          owner &&
-          attempt &&
-          (tx.roadmaps
-            .history(workspaceId, owner.id)
-            .find((d) => d.revision === attempt.definitionRevision) ??
-            owner.definition);
-        const entry =
-          attempt &&
-          (definition?.entries.find((e) => e.id === attempt.entryId) ??
-            owner?.definition.entries.find((e) => e.id === attempt.entryId));
-        const automation =
-          owner && definition && entry
-            ? effectiveDelegation(owner, entry, definition).automation
-            : undefined;
-        if (
-          owner &&
-          attempt &&
-          !owner.entryHolds?.[attempt.entryId] &&
-          (!attempt.recovery ||
-            (owner.scopeRecovery?.enabled &&
-              !owner.entryHolds?.[attempt.recovery.sourceEntryId])) &&
-          ((cycle.status === 'awaiting-merge' &&
-            (tree.executionScope?.kind === 'slice-verification' ||
-              (tree.executionScope?.kind === 'parent-acceptance'
-                ? definition?.crossProject?.parentAcceptance === 'automatic'
-                : automation?.integrationMerge === 'automatic'))) ||
-            (cycle.integrationResolution?.status === 'detected' &&
-              automation?.integrationConflicts === 'automatic'))
-        )
-          continue;
-        const mergeWait = scopeMergeWait(tx, cycle);
+        // The controller declares each stop and whether automation claims it (R-A3); only
+        // operator-owned stops are sent.
+        const attention = effectiveCycleAttention(cycle);
+        if (attention?.owner !== 'operator') continue;
+        const requirements = attention.code === 'merge-requirements';
         kind =
           cycle.status === 'awaiting-merge' &&
-          !mergeWait &&
+          !requirements &&
           (!tree.executionScope || tree.executionScope.kind === 'slice')
             ? 'merge'
             : 'attention';
-        reason = mergeWait ?? `${cycle.step}: ${cycle.reason}`;
+        reason =
+          requirements && attention.detail ? attention.detail : `${cycle.step}: ${cycle.reason}`;
         // Keyed by condition, not row version: bumps that keep the blocker do not re-page.
-        sourceKey = `cycle:${cycle.id}:${cycle.status}${mergeWait ? ':merge-requirements' : ''}`;
+        sourceKey = `cycle:${cycle.id}:${cycle.status}${requirements ? ':merge-requirements' : ''}`;
       } else {
         if (run === undefined || cycle?.currentRunId === run.id) continue;
         const turn = tx.execution.runEvents.latestOfKind(workspaceId, run.id, 'turn-completed');
@@ -396,87 +384,47 @@ export class NotificationService {
     if (settings.preferences.needsAttention) {
       const cycleAlert = (id: string) =>
         result.some((source) => source.sourceKey.startsWith(`cycle:${id}:`));
-      for (const roadmap of roadmaps) {
-        if (roadmap.status === 'running') {
-          const snapshot = mapReadSnapshot(tx);
-          const environmentEntries: string[] = [];
-          const environmentWaits = roadmap.definition.entries.flatMap((entry) => {
-            if (entry.executionScope?.kind !== 'slice-verification') return [];
-            if (roadmap.attempts.some((a) => a.entryId === entry.id)) return [];
-            const blockers = scopePhaseBlockers(
-              snapshot,
-              workspaceId,
-              entry.workItemId,
-              entry.executionScope,
-              'verify',
-            );
-            const environment = blockers.filter(
-              (b) =>
-                (b.kind === 'authorization' && b.message.startsWith('Resource ')) ||
-                b.kind === 'review',
-            );
-            if (!environment.length || !blockers.every((b) => environment.includes(b))) return [];
-            environmentEntries.push(entry.id);
-            return environment.map((b) => `${entry.sourceId}: ${b.message}`);
+      const roadmapsPath = `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`;
+      for (const alert of this.roadmapAlerts?.(tx, workspaceId) ?? []) {
+        if (alert.kind === 'entry-hold') {
+          if (alert.cycleId && cycleAlert(alert.cycleId)) continue;
+          result.push({
+            sourceKey: `roadmap:${alert.roadmap.id}:entry:${alert.entry.id}`,
+            kind: 'attention',
+            title: notificationText(`${alert.entry.sourceId} · Roadmap item needs attention`, 250),
+            message: notificationText(`${alert.entry.title}\n${alert.reason}`, 1024),
+            path: roadmapsPath,
           });
-          if (environmentWaits.length)
-            result.push({
-              sourceKey: `roadmap:${roadmap.id}:environments`,
-              members: environmentEntries.sort(),
-              kind: 'attention',
-              title: notificationText(
-                `${roadmap.definition.name} · Verification setup needed`,
-                250,
-              ),
-              message: notificationText(environmentWaits.sort().join('\n'), 1024),
-              path: `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`,
-            });
-          if (roadmap.definition.crossProject) {
-            const view = crossProjectState(tx, workspaceId, roadmap.definition.crossProject);
-            const ready = view.nodes
-              .filter(
-                (n) => n.included && !n.satisfied && n.kind === 'checkpoint' && !n.blockers.length,
-              )
-              .map((n) => n.sourceId)
-              .sort();
-            if (ready.length)
-              result.push({
-                sourceKey: `roadmap:${roadmap.id}:checkpoints`,
-                members: ready,
-                kind: 'attention',
-                title: notificationText(
-                  `${roadmap.definition.name} · Checkpoint evidence needed`,
-                  250,
-                ),
-                message: notificationText(
-                  `These checkpoints are eligible for independent evidence review: ${ready.join(', ')}. Expected dependency waits do not need action.`,
-                  1024,
-                ),
-                path: `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`,
-              });
-          }
-          for (const [entryId, hold] of Object.entries(roadmap.entryHolds ?? {})) {
-            if (hold.status !== 'needs-attention') continue;
-            const entry = roadmap.definition.entries.find((e) => e.id === entryId);
-            if (!entry) continue;
-            const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
-            const cycle = attempt && cycles.find((c) => c.id === attempt.cycleId);
-            // A manual recovery has taken over this checkpoint. The saved hold
-            // remains historical until reconciliation; it is not a second task.
-            if (cycle && (cycle.status === 'running' || this.cycleTransitioning(cycle.id)))
-              continue;
-            if (entry.executionScope && this.scopeComplete(tx, roadmap, entry)) continue;
-            if (cycle && cycleAlert(cycle.id)) continue;
-            result.push({
-              sourceKey: `roadmap:${roadmap.id}:entry:${entryId}`,
-              kind: 'attention',
-              title: notificationText(`${entry.sourceId} · Roadmap item needs attention`, 250),
-              message: notificationText(`${entry.title}\n${hold.reason}`, 1024),
-              path: `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`,
-            });
-          }
-        }
-        if (roadmap.status !== 'needs-attention') continue;
+        } else if (alert.kind === 'verification-setup')
+          result.push({
+            sourceKey: `roadmap:${alert.roadmap.id}:environments`,
+            members: alert.members,
+            kind: 'attention',
+            title: notificationText(
+              `${alert.roadmap.definition.name} · Verification setup needed`,
+              250,
+            ),
+            message: notificationText(alert.lines.join('\n'), 1024),
+            path: roadmapsPath,
+          });
+        else
+          result.push({
+            sourceKey: `roadmap:${alert.roadmap.id}:checkpoints`,
+            members: alert.members,
+            kind: 'attention',
+            title: notificationText(
+              `${alert.roadmap.definition.name} · Checkpoint evidence needed`,
+              250,
+            ),
+            message: notificationText(
+              `These checkpoints are eligible for independent evidence review: ${alert.lines.join(', ')}. Expected dependency waits do not need action.`,
+              1024,
+            ),
+            path: roadmapsPath,
+          });
+      }
+      for (const roadmap of roadmaps) {
+        if (effectiveRoadmapAttention(roadmap)?.owner !== 'operator') continue;
         if (this.restartHeld.has(`roadmap:${roadmap.id}`)) {
           restarted.push({ id: roadmap.id, label: roadmap.definition.name, roadmap: true });
           continue;
@@ -564,27 +512,6 @@ export class NotificationService {
       leaseUntil: null,
       nextAttemptAt: reminder > settle ? reminder : settle,
     };
-  }
-  private scopeComplete(tx: StorageRepositories, roadmap: Roadmap, entry: RoadmapEntry): boolean {
-    const scope = entry.executionScope;
-    const d = scope && tx.imports.definition(roadmap.workspaceId, scope.definitionId);
-    return (
-      !!scope &&
-      !!d &&
-      milestoneSatisfied(
-        tx,
-        roadmap.workspaceId,
-        d,
-        scope.bindingRevision,
-        scope.kind === 'parent-acceptance'
-          ? { kind: 'work_item', id: scope.sourceId, state: 'accepted' }
-          : {
-              kind: 'slice',
-              id: scope.sourceId,
-              state: scope.kind === 'slice' ? 'merged' : 'verified',
-            },
-      )
-    );
   }
   private transitioningRecord(tx: StorageRepositories, record: NotificationRecord): boolean {
     const parts = record.sourceKey.split(':');

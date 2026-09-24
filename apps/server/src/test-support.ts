@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentBackend } from '@craftingtable/agents';
 import type { GitOperations } from '@craftingtable/git';
+import { CYCLE_ATTENTION } from '@craftingtable/domain';
 import { openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import { createServices, type ServiceSet } from './composition.js';
@@ -150,8 +151,36 @@ export async function createTestContext(
       }
       closed = true;
       await app.close();
+      const untyped = untypedStops(storage);
       storage.close();
+      if (untyped.length)
+        throw new Error(`Stops written without typed attention (R-A3): ${untyped.join('; ')}`);
       rmSync(directory, { recursive: true, force: true });
     },
   };
+}
+
+/**
+ * Contract check run by every test daemon on cleanup (R-A3): whatever path a test drove,
+ * each cycle it left needs-attention or awaiting-merge, and each roadmap or entry hold it
+ * left needs-attention, carries typed attention whose owner is the one its code declares.
+ */
+export function untypedStops(storage: ReturnType<typeof openCraftingTableStorage>): string[] {
+  const problems: string[] = [];
+  for (const cycle of storage.execution.cycles.listAll())
+    if (
+      (cycle.status === 'needs-attention' || cycle.status === 'awaiting-merge') &&
+      (!cycle.attention ||
+        cycle.attention.owner !==
+          (cycle.attention.claim ? 'controller' : CYCLE_ATTENTION[cycle.attention.code]))
+    )
+      problems.push(`cycle ${cycle.status}: ${cycle.reason.slice(0, 80)}`);
+  for (const roadmap of storage.roadmaps.list()) {
+    if (roadmap.status === 'needs-attention' && !roadmap.attention)
+      problems.push(`roadmap needs-attention: ${roadmap.reason.slice(0, 80)}`);
+    for (const hold of Object.values(roadmap.entryHolds ?? {}))
+      if (hold.status === 'needs-attention' && !hold.attention)
+        problems.push(`entry hold: ${hold.reason.slice(0, 80)}`);
+  }
+  return problems;
 }

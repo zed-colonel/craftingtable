@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { phaseBlockerCodeSchema } from './attention.js';
 export const executionScopeSchema = z.strictObject({
   kind: z.enum(['slice', 'slice-verification', 'parent-acceptance']),
   definitionId: z.uuid(),
@@ -20,6 +21,14 @@ export const scopeReviewEvidenceSchema = z.strictObject({
 export const phaseBlockerSchema = z.strictObject({
   kind: z.enum(['dependency', 'evidence', 'review', 'authorization', 'resource']),
   message: z.string(),
+  code: phaseBlockerCodeSchema.optional(),
+  refs: z
+    .strictObject({
+      checkpointId: z.string().min(1).max(200).optional(),
+      sliceId: z.string().min(1).max(200).optional(),
+      resourceKey: z.string().min(1).max(4096).optional(),
+    })
+    .optional(),
 });
 export const phaseReservationSchema = z.strictObject({
   id: z.string(),

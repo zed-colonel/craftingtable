@@ -2,6 +2,7 @@ import { parseDesignReport, parseWorkflowReport } from '@craftingtable/contracts
 import {
   type AgentRun,
   type AgentRunEvent,
+  type CycleAttentionCode,
   designHasNoOpenQuestions,
   evaluateCycleCompletion,
   ownsIntegrationResolution,
@@ -65,7 +66,7 @@ export const STEP_ATTENTION_CODES = [
   'scope-review-recovery',
   'review-needs-attention',
   'restart-session-lost',
-] as const;
+] as const satisfies readonly CycleAttentionCode[];
 export type StepAttentionCode = (typeof STEP_ATTENTION_CODES)[number];
 
 export type StepOutcomeDecision = {
@@ -84,7 +85,7 @@ export type StepOutcomeDecision = {
   | {
       readonly kind: 'next-step';
       readonly step: WorkCycle['step'];
-      readonly changes: Partial<WorkCycle>;
+      readonly changes: Omit<Partial<WorkCycle>, 'status' | 'attention'>;
       readonly action: string;
     }
   | { readonly kind: 'advance-resolution' }
@@ -93,7 +94,10 @@ export type StepOutcomeDecision = {
       readonly designWait: NonNullable<WorkCycle['designWait']>;
       readonly reason: string;
     }
-  | { readonly kind: 'finalize-implementation'; readonly reviewChanges: Partial<WorkCycle> }
+  | {
+      readonly kind: 'finalize-implementation';
+      readonly reviewChanges: Omit<Partial<WorkCycle>, 'status' | 'attention'>;
+    }
   | { readonly kind: 'advance-finalization-stage'; readonly noQuestions: boolean }
   | { readonly kind: 'remediate-review'; readonly clearActiveReview: boolean }
   | {

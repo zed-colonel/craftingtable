@@ -241,8 +241,22 @@ recorded decisions (`pnpm controller:replay`, and a golden test over scenario sn
 step the controller with `WorkCycleService.tick()` and `AgentRunService.quiesce()` instead of
 waiting on wall-clock time.
 
+Every stop carries typed attention (`packages/domain/src/attention.ts`). A cycle that enters
+`needs-attention` or `awaiting-merge`, a roadmap that enters `needs-attention`, and a held entry
+declare a code and an owner in the same write; the compiler rejects a stop without one. The
+`awaiting-merge` code is the gate (merge approval, merge requirements, final promotion, scope
+evidence, controller wait, scheduling held). While automation will act on a stop (a roadmap that
+merges automatically, scope recovery, prerequisite work) the controller records that claim and
+the stop is controller-owned; the claim lapses when the automation no longer applies. Phase
+blockers carry codes too, with the owner and whether the controller waits on them. Reasons and
+messages are display text: nothing in the daemon or the browser parses them, which the scope
+check enforces. Records written before codes existed are read through
+`attention-legacy.ts`, the one place that maps old reason text to codes.
+
 The notification service reconciles durable work-item attention into a SQLite outbox,
-claims deliveries with expiring leases, and schedules retries and local-time reminders.
+claims deliveries with expiring leases, and schedules retries and local-time reminders. It
+sends only operator-owned attention as the controller declared it, and roadmap-level waits as
+`RoadmapService.attentionAlerts` reports them; it evaluates no scheduling policy itself.
 It wakes from the workspace notifier and a five-second timer; no browser connection is
 required. Pushover sits behind an injectable transport. A new occurrence waits a 30-second
 settle period before its first push, and the claim re-derives attention, so a state the

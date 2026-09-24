@@ -311,7 +311,10 @@ export async function createServices(
       now,
       () => storageService.alerts(),
       (id) => workCycleService.isTransitioning(id),
-      { restartedAtBoot: { cycleIds: restartedCycleIds, roadmapIds: restartedRoadmapIds } },
+      {
+        restartedAtBoot: { cycleIds: restartedCycleIds, roadmapIds: restartedRoadmapIds },
+        roadmapAlerts: (tx, workspaceId) => roadmapService.attentionAlerts(tx, workspaceId),
+      },
     ),
     packageImportService: new PackageImportService(
       storage,

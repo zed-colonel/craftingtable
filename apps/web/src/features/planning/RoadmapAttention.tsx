@@ -1,8 +1,15 @@
-import type { Roadmap, RoadmapEntryProgress, WorkspaceId } from '@craftingtable/domain';
+import {
+  effectiveRoadmapAttention,
+  phaseBlockerCode,
+  type Roadmap,
+  type RoadmapEntryProgress,
+  SETUP_BLOCKER_CODES,
+  type WorkspaceId,
+} from '@craftingtable/domain';
 import { revealElement } from '../../lib/reveal-element.js';
 import { buildPath } from '../../lib/route.js';
 export function roadmapStatusLabel(roadmap: Roadmap, fallback: string) {
-  return roadmap.status === 'needs-attention' && roadmap.reason.startsWith('Daemon restarted.')
+  return effectiveRoadmapAttention(roadmap)?.code === 'restart-resume'
     ? 'Resume required after restart'
     : fallback;
 }
@@ -21,14 +28,9 @@ export function RoadmapAttention({
   );
   const setup = progress.filter(
     (p) =>
-      p.blockers?.length &&
-      p.blockers.every(
-        (b) =>
-          b.kind === 'review' || (b.kind === 'authorization' && b.message.startsWith('Resource ')),
-      ),
+      p.blockers?.length && p.blockers.every((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b))),
   );
-  const restart =
-    roadmap.status === 'needs-attention' && roadmap.reason.startsWith('Daemon restarted.');
+  const restart = effectiveRoadmapAttention(roadmap)?.code === 'restart-resume';
   return (
     <section aria-label="Next roadmap actions" className="roadmap-next-actions">
       <h4>Next roadmap actions</h4>

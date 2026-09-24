@@ -1,5 +1,5 @@
 import type { ScopeRepairPreview } from '@craftingtable/contracts';
-import { asAgentRunId, type WorkCycle } from '@craftingtable/domain';
+import { asAgentRunId, cycleAttention, type WorkCycle } from '@craftingtable/domain';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { delegateScopeRepair, previewScopeRepair } from '../../lib/work-cycle-api.js';
@@ -23,6 +23,7 @@ const cycle = {
   id: 'review',
   version: 5,
   status: 'needs-attention',
+  reason: 'Scope review requires recovery: a finding is open.',
   workspaceId: 'ws',
   workItemId: 'exo',
   executionScope: { ...scope, kind: 'slice-verification' },
@@ -160,11 +161,16 @@ it('offers retry when preview loading fails and blocks delegation on current pha
   expect(delegateScopeRepair).not.toHaveBeenCalled();
 });
 it('keeps current attention but omits prerequisite waits without mutating historical reasons', () => {
+  // The daemon declares that prerequisite work claims this stop (R-A3).
   const waiting = {
     ...cycle,
     id: 'parent',
     reason: 'Old policy question',
     scopeReviewWait: 'Waiting for prerequisite work: verify repaired slice.',
+    attention: cycleAttention('scope-review-recovery', undefined, {
+      claim: 'prerequisite-work',
+      detail: 'Waiting for prerequisite work: verify repaired slice.',
+    }),
   };
   expect(attentionCycles([waiting, cycle])).toEqual([cycle]);
   expect(waiting.reason).toBe('Old policy question');

@@ -12,10 +12,12 @@ import {
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_ROADMAP_SCHEDULING,
   executionScopeKey,
+  phaseBlockerCode,
   type Roadmap,
   type RoadmapDefinition,
   type RoadmapStatus,
   type RoadmapView,
+  SETUP_BLOCKER_CODES,
   type WorkItemId,
   type WorkspaceId,
 } from '@craftingtable/domain';
@@ -677,11 +679,7 @@ export function RoadmapsPage({
             (p) =>
               (p.status === 'awaiting-merge' || p.status === 'needs-attention') &&
               (!p.blockers?.length ||
-                p.blockers.every(
-                  (b) =>
-                    b.kind === 'review' ||
-                    (b.kind === 'authorization' && b.message.startsWith('Resource ')),
-                )),
+                p.blockers.every((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b)))),
           );
         return (
           <Section
@@ -953,8 +951,10 @@ export function RoadmapsPage({
                       </p>
                       <p className="hint">{state?.reason}</p>
                       {entry.executionScope &&
-                        state?.blockers?.some(
-                          (b) => b.kind === 'authorization' && b.message.startsWith('Resource '),
+                        state?.blockers?.some((b) =>
+                          ['environment-approval', 'resource-unsupported'].includes(
+                            phaseBlockerCode(b),
+                          ),
                         ) && (
                           <button
                             type="button"

@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { ExecutionPhase, PhaseBlocker, Worktree } from '@craftingtable/domain';
+import {
+  type ExecutionPhase,
+  PHASE_BLOCKERS,
+  type PhaseBlocker,
+  phaseBlockerCode,
+  type Worktree,
+} from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { ExecutionRequestError } from './errors.js';
 import type { ResolvedScope } from './execution-scope.js';
@@ -9,12 +15,9 @@ export class PhaseGateError extends ExecutionRequestError {
   constructor(readonly blockers: readonly PhaseBlocker[]) {
     super('conflict', blockers.map((b) => b.message).join('\n'));
   }
+  /** The controller keeps waiting (and retrying) when every blocker is one it waits for. */
   get waiting() {
-    return this.blockers.every(
-      (b) =>
-        (b.kind !== 'authorization' && b.kind !== 'review') ||
-        (b.kind === 'authorization' && b.message.startsWith('Resource ')),
-    );
+    return this.blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].waits);
   }
 }
 export function phaseResources(tx: StorageRepositories, r: ResolvedScope, phase: ExecutionPhase) {
@@ -43,6 +46,9 @@ export function phaseResources(tx: StorageRepositories, r: ResolvedScope, phase:
     ) {
       blockers.push({
         kind: 'authorization',
+        code:
+          id === 'controlled-native-test-host' ? 'environment-approval' : 'resource-unsupported',
+        refs: { resourceKey: id },
         message:
           id === 'controlled-native-test-host'
             ? 'Resource controlled-native-test-host needs a qualified environment approval. Open Dependency environments and evidence → Verification environments, audit this workstation, then approve native verification.'
@@ -67,6 +73,7 @@ export function phaseResources(tx: StorageRepositories, r: ResolvedScope, phase:
     if (!lock || !repo || lock.repository !== r.binding.alias)
       blockers.push({
         kind: 'authorization',
+        code: 'merge-resource-mismatch',
         message: 'The merge resource does not match the frozen repository binding.',
       });
     else resources.push({ key: `repository:${repo.rootPath}`, capacity: 1 });
@@ -89,6 +96,8 @@ export function resourceBlockers(
     if (claims.length >= capacity)
       blockers.push({
         kind: 'resource',
+        code: 'resource-busy',
+        refs: { resourceKey: resource.key },
         message: `Waiting for ${resource.key}: ${claims.length}/${capacity} reservations occupied.`,
       });
   }

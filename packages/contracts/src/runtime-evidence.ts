@@ -253,6 +253,8 @@ export const checkpointRecoverySchema = z.strictObject({
       cases: z.array(z.strictObject({ id: name, sourceRecordDigest: digest })),
       laterCases: z.array(z.strictObject({ id: name, sliceId: name })),
       issues: z.array(z.string()),
+      /** Prerequisite checkpoints still without accepted evidence (typed; issues are text). */
+      prerequisiteCheckpoints: z.array(name).optional(),
       snapshotDigest: digest,
       runId: z.string().optional(),
       headSha: z.string().optional(),

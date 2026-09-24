@@ -1,6 +1,7 @@
 import { ROADMAP_STATUSES } from '@craftingtable/domain';
 import { z } from 'zod';
 import { agentSelectionSchema, agentSelectionsSchema } from './agent-profiles.js';
+import { roadmapAttentionSchema } from './attention.js';
 import { crossProjectConfigurationSchema } from './cross-project.js';
 import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
 import {
@@ -176,6 +177,7 @@ export const roadmapSchema = z.strictObject({
   definition: roadmapDefinitionSchema,
   status: z.enum(ROADMAP_STATUSES),
   reason: z.string(),
+  attention: roadmapAttentionSchema.optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   createdByUserId: userIdSchema,
@@ -186,6 +188,7 @@ export const roadmapSchema = z.strictObject({
       z.strictObject({
         status: z.enum(['paused', 'needs-attention']),
         reason: z.string().max(4000),
+        attention: roadmapAttentionSchema.optional(),
       }),
     )
     .optional(),

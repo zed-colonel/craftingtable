@@ -55,3 +55,5 @@ concerns stay deferred rather than being designed prematurely.
 - [ADR-053: Scoped verification and local CI](ADR-053-scoped-verification-and-local-ci.md)
 
 - [ADR-066: Drained restarts and session resume](ADR-066-drained-restarts-and-session-resume.md)
+
+- [ADR-067: Typed attention declared by the controller](ADR-067-typed-attention.md)

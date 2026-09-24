@@ -80,6 +80,7 @@ import {
   activeRuntime,
   subjectRequirements,
   submissionIssues,
+  prerequisiteGaps,
   prerequisiteIssues,
   expectedSubjectCommit,
   acceptedEvidence,
@@ -965,10 +966,11 @@ export class RuntimeEvidenceService {
     for (const checkpoint of checkpoints) {
       const subject = { kind: 'checkpoint' as const, sourceId: checkpoint.id };
       const spec = subjectRequirements(d, subject, scope.scope.sourceId);
-      const issues = [
-        ...commonIssues,
-        ...prerequisiteIssues(this.storage, d, scope.scope.bindingRevision, subject),
-      ];
+      const gaps = prerequisiteGaps(this.storage, d, scope.scope.bindingRevision, subject);
+      const issues = [...commonIssues, ...gaps.map((gap) => gap.message)];
+      const prerequisiteCheckpoints = gaps.flatMap((gap) =>
+        gap.checkpointId ? [gap.checkpointId] : [],
+      );
       if (spec.cases.some((c) => c.requiresKata))
         issues.push('This checkpoint requires separately qualified external evidence.');
       const requiredCode = testedRepositories(d, subject);
@@ -1067,6 +1069,7 @@ export class RuntimeEvidenceService {
         cases: spec.cases.map((c) => ({ id: c.id, sourceRecordDigest: c.sourceRecordDigest })),
         laterCases,
         issues: [...new Set(issues)],
+        prerequisiteCheckpoints,
         snapshotDigest,
         ...(run ? { runId: run.id } : {}),
         ...(run?.reviewBranchContext

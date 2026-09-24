@@ -12,6 +12,10 @@
  * 3. The planning package stays pure: no filesystem, process, network,
  *    database, or UI imports.
  * 4. The domain package depends on nothing but itself.
+ * 5. The daemon and the browser never branch on human-readable text: no prefix, substring
+ *    or regex tests on a `reason` or `message` (program rule 4, R-A3). Stops carry typed
+ *    codes; `packages/domain/src/attention-legacy.ts` is the one place that maps text
+ *    written by earlier releases to codes.
  *
  * Exported functions are unit-tested in check-forbidden-scope.test.mjs.
  */
@@ -219,6 +223,29 @@ export function sourceFindings(relativePath, source) {
   return findings;
 }
 
+/** Text matching on a reason or message: `x.reason.startsWith(`, `/…/.test(x.message)`. */
+export const PROSE_BRANCH_PATTERNS = [
+  /\b(?:reason|message)\??\.(?:startsWith|endsWith|includes|match|search)\(/,
+  /\.test\([^()]*\b(?:reason|message)\)/,
+];
+
+/** Production sources in the daemon and browser apps must branch on codes, not prose. */
+export function proseFindings(relativePath, source) {
+  if (isTestSource(relativePath)) return [];
+  if (!/^apps\/(?:server|web)\/src\//.test(relativePath)) return [];
+  const findings = [];
+  // Blank comments out in place so reported line numbers stay right.
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:\\])\/\/[^\n]*/g, '$1');
+  for (const [index, line] of code.split('\n').entries())
+    if (PROSE_BRANCH_PATTERNS.some((pattern) => pattern.test(line)))
+      findings.push(
+        `${relativePath}:${index + 1}: branches on human-readable text; use a typed code`,
+      );
+  return findings;
+}
+
 export function runCheck(root) {
   const findings = manifestFindings(root);
   for (const group of APPLICATION_GROUPS) {
@@ -231,7 +258,11 @@ export function runCheck(root) {
     }
     for (const file of walk(path)) {
       const relativePath = relative(root, file).split('\\').join('/');
-      findings.push(...sourceFindings(relativePath, readFileSync(file, 'utf8')));
+      const source = readFileSync(file, 'utf8');
+      findings.push(
+        ...sourceFindings(relativePath, source),
+        ...proseFindings(relativePath, source),
+      );
     }
   }
   return findings;
@@ -251,6 +282,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, process authority confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text.`,
   );
 }

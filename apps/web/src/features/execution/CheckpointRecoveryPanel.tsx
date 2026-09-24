@@ -146,7 +146,7 @@ export function CheckpointRecoveryPanel({
                 ))}
               </ul>
             )}
-            {c.issues.some((i) => i.startsWith('Checkpoint ')) && (
+            {(c.prerequisiteCheckpoints?.length ?? 0) > 0 && (
               <p>
                 <a href={`/workspaces/${workspaceId}/roadmaps`}>
                   Review prerequisite evidence on the roadmap

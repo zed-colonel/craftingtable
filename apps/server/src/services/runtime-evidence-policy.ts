@@ -432,11 +432,19 @@ export function runtimeScopeBlockers(
 ): PhaseBlocker[] {
   const d = tx.imports.definition(ws, scope.definitionId),
     runtime = activeRuntime(tx, ws, scope.definitionId, scope.bindingRevision);
-  if (!d) return [{ kind: 'authorization', message: 'Runtime definition is unavailable.' }];
+  if (!d)
+    return [
+      {
+        kind: 'authorization',
+        code: 'runtime-definition-unavailable',
+        message: 'Runtime definition is unavailable.',
+      },
+    ];
   if (tx.imports.bindings(ws, scope.definitionId)[0]?.revision !== scope.bindingRevision)
     return [
       {
         kind: 'authorization',
+        code: 'binding-superseded',
         message: 'The map binding was superseded. Reconcile the execution scope before continuing.',
       },
     ];
@@ -445,6 +453,7 @@ export function runtimeScopeBlockers(
       ? [
           {
             kind: 'evidence',
+            code: 'dependency-environment-missing',
             message:
               'Configure exact upstream pins and a dependency environment for this map binding.',
           },
@@ -452,7 +461,13 @@ export function runtimeScopeBlockers(
       : [];
   const consumer = runtime.consumers.find((c) => c.alias === consumerAlias);
   if (!consumer)
-    return [{ kind: 'evidence', message: `Configure supplied dependencies for ${consumerAlias}.` }];
+    return [
+      {
+        kind: 'evidence',
+        code: 'dependency-environment-missing',
+        message: `Configure supplied dependencies for ${consumerAlias}.`,
+      },
+    ];
   return snapshotCalculation(
     tx,
     `required-upstreams:${ws}:${d.id}:${d.digest}:${consumerAlias}`,
@@ -464,6 +479,7 @@ export function runtimeScopeBlockers(
     )
     .map((alias) => ({
       kind: 'evidence' as const,
+      code: 'upstream-pin-missing' as const,
       message: `${consumerAlias} must use an exact ${alias} upstream pin.`,
     }));
 }
@@ -475,20 +491,39 @@ export function prerequisiteIssues(
   subject: EvidenceSubject,
   visiting = new Set<string>(),
 ): string[] {
+  return prerequisiteGaps(tx, d, bindingRevision, subject, visiting).map((gap) => gap.message);
+}
+
+/** A missing prerequisite; `checkpointId` names a prerequisite checkpoint without evidence. */
+export interface PrerequisiteGap {
+  readonly message: string;
+  readonly checkpointId?: string;
+}
+
+export function prerequisiteGaps(
+  tx: StorageRepositories,
+  d: ConcurrencyDefinition,
+  bindingRevision: number,
+  subject: EvidenceSubject,
+  visiting = new Set<string>(),
+): PrerequisiteGap[] {
   const key = `${subject.kind}:${subject.sourceId}`;
-  if (visiting.has(key)) return ['Circular evidence prerequisite.'];
+  if (visiting.has(key)) return [{ message: 'Circular evidence prerequisite.' }];
   const next = new Set(visiting).add(key),
     spec = subjectRequirements(d, subject),
-    issues: string[] = [];
+    issues: PrerequisiteGap[] = [];
   const adopted = adoptedDecisions(tx, d.workspaceId, d.id, bindingRevision);
   const missing = spec.decisionRefs.filter((id) => !adopted.has(id));
-  if (missing.length) issues.push(`Decision adoption is required: ${missing.join(', ')}.`);
+  if (missing.length)
+    issues.push({ message: `Decision adoption is required: ${missing.join(', ')}.` });
   if (
     spec.checkpoint &&
     ['plan_approval', 'architecture_decision'].includes(spec.checkpoint.kind) &&
     !mapAdopted(tx, d.workspaceId, d.id, bindingRevision)
   )
-    issues.push('Adopt the exact bound map before accepting decision checkpoint evidence.');
+    issues.push({
+      message: 'Adopt the exact bound map before accepting decision checkpoint evidence.',
+    });
   const requirements =
     spec.checkpoint?.requires ??
     (spec.slice
@@ -519,7 +554,10 @@ export function prerequisiteIssues(
           next,
         )
       )
-        issues.push(`Checkpoint ${r.id} must pass with current accepted evidence.`);
+        issues.push({
+          message: `Checkpoint ${r.id} must pass with current accepted evidence.`,
+          checkpointId: r.id,
+        });
     } else {
       const parent =
         r.kind === 'work_item' ? r.id : d.source.slices.find((s) => s.id === r.id)?.work_item;
@@ -528,7 +566,7 @@ export function prerequisiteIssues(
         .find((w) => w.sourceId === parent)?.workItemId;
       if (r.kind === 'work_item') {
         if (!parentAccepted(tx, d.workspaceId, d.id, bindingRevision, r.id))
-          issues.push(`Parent ${r.id} must be accepted.`);
+          issues.push({ message: `Parent ${r.id} must be accepted.` });
       } else {
         const trees = id
           ? tx.execution.worktrees
@@ -576,7 +614,7 @@ export function prerequisiteIssues(
                         p.scope.sourceId === r.id &&
                         integrated?.mergeSha === p.integrationSha,
                     ));
-        if (!satisfied) issues.push(`Slice ${r.id} must be ${r.state}.`);
+        if (!satisfied) issues.push({ message: `Slice ${r.id} must be ${r.state}.` });
       }
     }
   }

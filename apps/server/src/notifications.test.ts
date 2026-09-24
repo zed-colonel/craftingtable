@@ -12,9 +12,12 @@ import {
   asWorkspaceId,
   asWorkspaceMembershipId,
   asWorktreeId,
+  cycleAttention,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_NOTIFICATION_PREFERENCES,
+  effectiveCycleAttention,
   type Roadmap,
+  roadmapAttention,
   type RoadmapDefinition,
   type WorkCycle,
 } from '@craftingtable/domain';
@@ -167,6 +170,7 @@ async function fixture(
     remediationRounds: 0,
     stalledReviews: 0,
     reason: 'Review meets policy. Operator merge approval required.',
+    attention: cycleAttention('merge-approval'),
   };
   context.storage.execution.cycles.insert(cycle);
   const send = vi
@@ -181,7 +185,10 @@ async function fixture(
     now,
     storageAttention,
     cycleTransitioning,
-    options,
+    {
+      roadmapAlerts: (tx, ws) => context.services.roadmapService.attentionAlerts(tx, ws),
+      ...options,
+    },
   );
   service.save(auth, workspaceId, {
     preferences,
@@ -212,13 +219,17 @@ async function fixture(
     status: () => service.get(auth, workspaceId),
     cycle: () => cycle,
     setCycle: (status: WorkCycle['status'], changes: Partial<WorkCycle> = {}) => {
-      const next = {
-        ...cycle,
+      // Written like the controller writes it: a stop carries its typed attention (R-A3).
+      const { attention: _previous, ...rest } = cycle;
+      const merged: WorkCycle = {
+        ...rest,
         ...changes,
         status,
         version: cycle.version + 1,
         updatedAt: now().toISOString(),
       };
+      const attention = changes.attention ?? effectiveCycleAttention(merged);
+      const next: WorkCycle = attention ? { ...merged, attention } : merged;
       context.storage.execution.cycles.replace(next, cycle.version);
       cycle = next;
     },
@@ -789,6 +800,7 @@ it('repeats roadmap preparation alerts and resolves on pause', async () => {
     workspaceId: f.workspaceId,
     version: 1,
     status: 'needs-attention',
+    attention: roadmapAttention('scheduler-error'),
     reason: 'Worktree preparation failed. Inspect the repository.',
     createdAt: f.now().toISOString(),
     updatedAt: f.now().toISOString(),
@@ -845,7 +857,13 @@ it('retains parallel item reminder timing while siblings progress and resolves a
     createdByUserId: f.auth.user.id,
     delegatedByUserId: f.auth.user.id,
     attempts: [],
-    entryHolds: { [entryId]: { status: 'needs-attention', reason: 'Cannot prepare worktree.' } },
+    entryHolds: {
+      [entryId]: {
+        status: 'needs-attention',
+        reason: 'Cannot prepare worktree.',
+        attention: roadmapAttention('entry-preparation-failed', { entryId }),
+      },
+    },
     definition: {
       roadmapId: id,
       revision: 1,
@@ -1126,6 +1144,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
         workspaceId: f.workspaceId,
         version: 1,
         status: 'needs-attention',
+        attention: roadmapAttention('scheduler-error'),
         reason: 'Worktree preparation failed.',
         createdAt: f.now().toISOString(),
         updatedAt: f.now().toISOString(),
@@ -1201,6 +1220,12 @@ describe('notification noise controls (R-A1, R-A2)', () => {
     };
     f.context.storage.roadmaps.save(roadmap, 0);
     f.context.storage.roadmaps.addDefinition(definition);
+    // The controller declares who owns the stop; notifications only read it (R-A3).
+    const controllerSees = async () => f.context.services.workCycleService.declareAttention();
+    await controllerSees();
+    expect(
+      f.context.storage.execution.cycles.find(f.workspaceId, f.cycle().id)?.attention,
+    ).toMatchObject({ code: 'merge-approval', owner: 'controller', claim: 'roadmap-merge' });
     await f.service.tick();
     expect(f.send).not.toHaveBeenCalled(); // The roadmap merges this item itself.
     f.context.storage.roadmaps.save(
@@ -1221,6 +1246,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
       },
       1,
     );
+    await controllerSees();
     await f.service.tick();
     expect(f.send).toHaveBeenCalledTimes(1);
     expect(f.send.mock.calls[0]?.[0].title).toBe('ActionQueue · AQ-05 · Ready for merge');
@@ -1234,6 +1260,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
       workspaceId: f.workspaceId,
       version: 1,
       status: 'needs-attention',
+      attention: roadmapAttention('restart-resume'),
       reason: 'Daemon restarted.',
       createdAt: f.now().toISOString(),
       updatedAt: f.now().toISOString(),

@@ -21,6 +21,11 @@ export type ReasonKind =
 export interface Reason {
   readonly kind: ReasonKind;
   readonly text: string;
+  /**
+   * Who resolves it, when the daemon says so (a phase blocker's code). An operator-owned
+   * reason is "Needs you" whatever its kind, e.g. plan acceptance evidence (UI-09).
+   */
+  readonly owner?: 'operator' | 'controller';
 }
 
 type Resolver = 'you' | 'automation' | 'other-work';
@@ -57,6 +62,10 @@ export const REASON_KIND_LABELS: Readonly<Record<ReasonKind, string>> = {
 
 const ORDER: readonly Resolver[] = ['you', 'automation', 'other-work'];
 
+function resolverOf(reason: Reason): Resolver {
+  return reason.owner === 'operator' ? 'you' : RESOLVER[reason.kind];
+}
+
 export function Reasons({
   reasons,
   satisfied,
@@ -75,7 +84,7 @@ export function Reasons({
   );
   const groups = ORDER.map((resolver) => ({
     resolver,
-    entries: unique.filter((reason) => RESOLVER[reason.kind] === resolver),
+    entries: unique.filter((reason) => resolverOf(reason) === resolver),
   })).filter((group) => group.entries.length > 0);
   return (
     <div className="reasons">

@@ -42,6 +42,8 @@ export const DEFAULT_ROADMAP_SCHEDULING: RoadmapScheduling = {
 export interface RoadmapEntryHold {
   readonly status: 'paused' | 'needs-attention';
   readonly reason: string;
+  /** The typed stop for a `needs-attention` hold (R-A3); see `effectiveHoldAttention`. */
+  readonly attention?: import('./attention.js').RoadmapAttention;
 }
 export interface RoadmapEntry {
   readonly reviewerRoles?: readonly string[];
@@ -153,6 +155,8 @@ export interface Roadmap {
   readonly definition: RoadmapDefinition;
   readonly status: RoadmapStatus;
   readonly reason: string;
+  /** The typed stop while `needs-attention` (R-A3); see `effectiveRoadmapAttention`. */
+  readonly attention?: import('./attention.js').RoadmapAttention;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly createdByUserId: UserId;

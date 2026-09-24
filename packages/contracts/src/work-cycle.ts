@@ -10,6 +10,7 @@ import {
   reasoningEffortSchema,
   specialistSelectionsShape,
 } from './agent-profiles.js';
+import { cycleAttentionSchema } from './attention.js';
 import { designDependencySchema, designReportSchema } from './design-report.js';
 import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
 import { finalizationProgressSchema } from './finalization-progress.js';
@@ -328,6 +329,7 @@ export const workCycleSchema = z
     integrationResolution: integrationResolutionSchema.optional(),
     integrationRefreshes: z.number().int().nonnegative().optional(),
     reason: z.string().max(4000),
+    attention: cycleAttentionSchema.optional(),
   })
   .refine(
     (cycle) =>

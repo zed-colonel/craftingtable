@@ -210,7 +210,14 @@ export interface WorkCycle {
   };
   readonly integrationResolution?: IntegrationResolution;
   readonly integrationRefreshes?: number;
+  /** Display text for the current state; never parsed. `attention` carries its meaning. */
   readonly reason: string;
+  /**
+   * Present while the cycle is `needs-attention` or `awaiting-merge`: the typed stop and who
+   * resolves it, written with the transition (R-A3). Older records lack it; read it through
+   * `effectiveCycleAttention`.
+   */
+  readonly attention?: import('./attention.js').CycleAttention;
 }
 export function remediationAllowance(
   cycle: Pick<WorkCycle, 'policy' | 'additionalRemediationRounds' | 'finalizationProgress'>,

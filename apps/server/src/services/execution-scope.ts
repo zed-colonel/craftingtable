@@ -11,6 +11,7 @@ import {
   executionScopeKey,
   type ExecutionPhase,
   type PhaseBlocker,
+  type PhaseBlockerCode,
   type ExecutionScope,
   type ScopeReviewEvidence,
   type WorkItemId,
@@ -96,7 +97,12 @@ export function scopePhaseBlockers(
   tx = mapReadSnapshot(tx);
   const r = resolveScope(tx, workspaceId, workItemId, scope);
   const issues: PhaseBlocker[] = [];
-  const add = (kind: PhaseBlocker['kind'], message: string) => issues.push({ kind, message });
+  const add = (
+    code: PhaseBlockerCode,
+    kind: PhaseBlocker['kind'],
+    message: string,
+    refs?: PhaseBlocker['refs'],
+  ) => issues.push({ kind, code, message, ...(refs ? { refs } : {}) });
   const settings = tx.execution.branchSettings.find(workspaceId, r.item.planVersionId);
   if (
     settings?.repositoryId !== r.binding.repositoryId ||
@@ -104,6 +110,7 @@ export function scopePhaseBlockers(
     settings?.version !== r.binding.branchSettingsVersion
   )
     add(
+      'binding-changed',
       'authorization',
       'The frozen repository/branch binding changed. Reconcile the map binding before continuing.',
     );
@@ -111,19 +118,21 @@ export function scopePhaseBlockers(
     tx.planning.projects.find(workspaceId, r.item.projectId)?.activePlanVersionId !==
     r.item.planVersionId
   )
-    add('authorization', 'The bound plan version is no longer active.');
+    add('plan-inactive', 'authorization', 'The bound plan version is no longer active.');
   if (
     !r.binding.repositoryId ||
     tx.execution.sourceRepositories.find(workspaceId, r.binding.repositoryId)?.status !== 'active'
   )
-    add('authorization', 'The bound repository is unavailable.');
+    add('repository-unavailable', 'authorization', 'The bound repository is unavailable.');
   if (tx.amendments.superseded(workspaceId, scope.definitionId, scope.bindingRevision))
     add(
+      'binding-retired',
       'authorization',
       'This map binding was retired by a reviewed amendment. Use its adopted replacement.',
     );
   if (amendmentHoldingScope(tx, workspaceId, scope))
     add(
+      'amendment-pending',
       'authorization',
       'A planning amendment is awaiting review. Execution is held until it is applied or rejected.',
     );
@@ -146,6 +155,7 @@ export function scopePhaseBlockers(
       (phase === 'accept' || !early)
     )
       add(
+        'predecessor-not-accepted',
         'dependency',
         `Parent predecessor ${d.sourceId} must be accepted.${r.slice?.early_start_exception ? ' An explicitly authorized early-development rule can replace this barrier for this slice only.' : ''}`,
       );
@@ -160,9 +170,9 @@ export function scopePhaseBlockers(
           tx.execution.runs.listForWorktree(workspaceId, t.id).some((run) => !!run.startedAt),
       )
   )
-    add('dependency', 'Start this slice before merging it.');
+    add('slice-not-started', 'dependency', 'Start this slice before merging it.');
   if (phase === 'verify' && !latestSliceMerge(tx, workspaceId, workItemId, scope))
-    add('dependency', 'Merge this slice before starting fresh verification.');
+    add('slice-not-merged', 'dependency', 'Merge this slice before starting fresh verification.');
   if (
     phase === 'verify' &&
     tx.execution.worktrees
@@ -175,13 +185,21 @@ export function scopePhaseBlockers(
           sameExecutionScope(t.executionScope, { ...scope, kind: 'slice' }),
       )
   )
-    add('dependency', 'Finish and merge the active owning-slice attempt before verification.');
+    add(
+      'slice-attempt-active',
+      'dependency',
+      'Finish and merge the active owning-slice attempt before verification.',
+    );
   // Imported requirements confer no adoption, environment or effect authority.
   issues.push(...runtimeScopeBlockers(tx, workspaceId, scope, r.binding.alias));
   const adopted = adoptedDecisions(tx, workspaceId, scope.definitionId, scope.bindingRevision);
   for (const decision of r.slice?.decision_refs ?? [])
     if (!adopted.has(decision))
-      add('authorization', `Decision ${decision} requires explicit map adoption.`);
+      add(
+        'decision-adoption-required',
+        'authorization',
+        `Decision ${decision} requires explicit map adoption.`,
+      );
   const requirements = r.slice
     ? [
         ...r.slice.start_requires,
@@ -207,7 +225,11 @@ export function scopePhaseBlockers(
       scope.bindingRevision,
       decision.subject,
     ))
-      add('evidence', `${decision.subject.sourceId} staged approval: ${message}`);
+      add(
+        'staged-approval-prerequisite',
+        'evidence',
+        `${decision.subject.sourceId} staged approval: ${message}`,
+      );
   }
   for (const requirement of requirements) {
     if (requirement.kind === 'checkpoint') {
@@ -227,8 +249,14 @@ export function scopePhaseBlockers(
         )
       )
         add(
+          ['plan_approval', 'architecture_decision'].includes(
+            r.definition.source.checkpoints.find((c) => c.id === requirement.id)?.kind ?? '',
+          )
+            ? 'decision-checkpoint-evidence'
+            : 'checkpoint-evidence',
           'evidence',
           `Checkpoint ${requirement.id} must pass with current independently accepted evidence.`,
+          { checkpointId: requirement.id },
         );
     } else if (requirement.kind === 'work_item') {
       const bound = tx.imports
@@ -240,7 +268,7 @@ export function scopePhaseBlockers(
         !bound ||
         !parentAccepted(tx, workspaceId, scope.definitionId, scope.bindingRevision, requirement.id)
       )
-        add('dependency', `Parent ${requirement.id} must be accepted.`);
+        add('parent-not-accepted', 'dependency', `Parent ${requirement.id} must be accepted.`);
     } else {
       const sourceSlice = r.definition.source.slices.find((s) => s.id === requirement.id);
       const bound = tx.imports
@@ -276,7 +304,13 @@ export function scopePhaseBlockers(
                   latestSliceMerge(tx, workspaceId, bound.workItemId, target)?.mergeSha ===
                     p.integrationSha,
               );
-      if (!satisfied) add('dependency', `Slice ${requirement.id} must be ${requirement.state}.`);
+      if (!satisfied)
+        add(
+          'slice-requirement',
+          'dependency',
+          `Slice ${requirement.id} must be ${requirement.state}.`,
+          { sliceId: requirement.id },
+        );
     }
   }
   if (
@@ -291,6 +325,7 @@ export function scopePhaseBlockers(
     })
   )
     add(
+      'external-qualification-required',
       'evidence',
       'Actual Kata case evidence requires an independently accepted external qualification; an agent reviewer-role assignment does not supply it.',
     );
@@ -301,7 +336,10 @@ export function scopePhaseBlockers(
     for (const sliceId of r.parent.required_slices) {
       const target = { ...scope, kind: 'slice' as const, sourceId: sliceId };
       const merged = latestSliceMerge(tx, workspaceId, workItemId, target);
-      if (!merged) add('evidence', `Required slice ${sliceId} has not merged.`);
+      if (!merged)
+        add('required-slice-unmerged', 'evidence', `Required slice ${sliceId} has not merged.`, {
+          sliceId,
+        });
       else if (
         !acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
           kind: 'slice',
@@ -314,7 +352,12 @@ export function scopePhaseBlockers(
             p.integrationSha === merged.mergeSha,
         )
       )
-        add('evidence', `Required slice ${sliceId} has not been verified.`);
+        add(
+          'required-slice-unverified',
+          'evidence',
+          `Required slice ${sliceId} has not been verified.`,
+          { sliceId },
+        );
     }
     if (
       trees.some(
@@ -324,7 +367,11 @@ export function scopePhaseBlockers(
           t.executionScope?.kind === 'slice',
       )
     )
-      add('dependency', 'Finish all active slice attempts before reviewing parent acceptance.');
+      add(
+        'slice-attempt-active',
+        'dependency',
+        'Finish all active slice attempts before reviewing parent acceptance.',
+      );
   }
   if (
     (phase === 'verify' || phase === 'accept') &&
@@ -339,6 +386,7 @@ export function scopePhaseBlockers(
       !['review', 'independent-reviewer'].includes(r.profile.reviewer_roles[0] ?? ''))
   )
     add(
+      'reviewer-assignment',
       'review',
       `Evidence profile ${r.profile.id} needs unassigned reviewer qualifications: ${r.profile.reviewer_roles.filter((role) => !scopeReviewerRoles(tx, workspaceId, scope).includes(role)).join(', ')}. Assign these responsibilities to the roadmap review agent, save the changed settings, then review the updated plan; independently reviewed external evidence is also supported.`,
     );

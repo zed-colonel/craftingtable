@@ -31,6 +31,12 @@ import {
   type RoadmapAttempt,
   type RoadmapEntry,
   type RoadmapView,
+  roadmapAttention,
+  type RoadmapAttention,
+  effectiveHoldAttention,
+  PHASE_BLOCKERS,
+  phaseBlockerCode,
+  SETUP_BLOCKER_CODES,
   sameExecutionScope,
   type WorkspaceId,
 } from '@craftingtable/domain';
@@ -61,6 +67,7 @@ import { securityReviewCurrent } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
+import type { RoadmapAlert } from './notification-service.js';
 
 class SupersededRoadmapOperation extends Error {}
 
@@ -78,6 +85,16 @@ function entryReason(parallel: boolean, reason: string): { reason?: string } {
 }
 
 /** One delegated roadmap per workspace. The cycle controller owns every agent step. */
+/** A roadmap write: entering `needs-attention` must declare its typed stop (R-A3). */
+type RoadmapChanges = Omit<Partial<Roadmap>, 'status' | 'attention'> &
+  (
+    | { readonly status: 'needs-attention'; readonly attention: RoadmapAttention }
+    | {
+        readonly status?: Exclude<Roadmap['status'], 'needs-attention'>;
+        readonly attention?: undefined;
+      }
+  );
+
 export class RoadmapService {
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
@@ -966,6 +983,7 @@ export class RoadmapService {
       if (roadmap.status === 'running') {
         this.change(roadmap, {
           status: 'needs-attention',
+          attention: roadmapAttention('restart-resume'),
           reason: 'Daemon restarted. Inspect the current item and explicitly resume the roadmap.',
         });
         stopped.push(roadmap.id);
@@ -1026,6 +1044,7 @@ export class RoadmapService {
           if (current.status === 'running')
             this.change(current, {
               status: 'needs-attention',
+              attention: roadmapAttention('scheduler-error'),
               reason:
                 error instanceof ExecutionRequestError
                   ? error.message
@@ -1115,7 +1134,11 @@ export class RoadmapService {
           this.change(latest, {
             entryHolds: {
               ...latest.entryHolds,
-              [entry.id]: { status: 'needs-attention', reason: reason.slice(0, 4000) },
+              [entry.id]: {
+                status: 'needs-attention',
+                reason: reason.slice(0, 4000),
+                attention: roadmapAttention('entry-preparation-failed', { entryId: entry.id }),
+              },
             },
           });
         }
@@ -1446,6 +1469,10 @@ export class RoadmapService {
         if (['paused', 'needs-attention', 'stopped', 'completed'].includes(cycle.status))
           this.change(roadmap, {
             status: 'needs-attention',
+            attention: roadmapAttention('cycle-needs-attention', {
+              cycleId: cycle.id,
+              entryId: entry.id,
+            }),
             reason: `${entry.sourceId}: ${cycle.reason} Inspect its cycle before resuming the roadmap.`,
           });
         else
@@ -1463,7 +1490,11 @@ export class RoadmapService {
         return;
       }
       if (blocker.needsAttention)
-        this.change(roadmap, { status: 'needs-attention', reason: blocker.reason });
+        this.change(roadmap, {
+          status: 'needs-attention',
+          attention: roadmapAttention('entry-blocked', { entryId: entry.id }),
+          reason: blocker.reason,
+        });
       else this.reason(roadmap, blocker.reason);
       return;
     }
@@ -2174,9 +2205,13 @@ export class RoadmapService {
             if (blockers.length)
               return {
                 entryId: entry.id,
-                status: blockers.some((b) => b.kind === 'authorization' || b.kind === 'review')
+                // Classified by who resolves each blocker (R-A3, UI-09): operator-owned
+                // evidence such as plan acceptance is the operator's, not other work.
+                status: blockers.some(
+                  (b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator',
+                )
                   ? 'needs-attention'
-                  : blockers.some((b) => b.kind === 'resource')
+                  : blockers.some((b) => phaseBlockerCode(b) === 'resource-busy')
                     ? 'capacity-blocked'
                     : 'dependency-blocked',
                 reason: blockers.map((b) => `${phase} · ${b.kind}: ${b.message}`).join(' '),
@@ -2224,23 +2259,116 @@ export class RoadmapService {
     if (!roadmap) throw new NotFoundError();
     return roadmap;
   }
+  /**
+   * Roadmap-level waits the operator must resolve, derived by the scheduler that owns the
+   * policy (R-A3): verification setup for slice verifications it cannot start, checkpoints
+   * ready for independent evidence, and entries held for attention. The notification
+   * service formats them; it evaluates no policy itself.
+   */
+  attentionAlerts(storage: StorageRepositories, workspaceId: WorkspaceId): RoadmapAlert[] {
+    const tx = mapReadSnapshot(storage);
+    const alerts: RoadmapAlert[] = [];
+    for (const roadmap of tx.roadmaps.list(workspaceId)) {
+      if (roadmap.status !== 'running') continue;
+      const environmentEntries: string[] = [];
+      const environmentLines = roadmap.definition.entries.flatMap((entry) => {
+        if (entry.executionScope?.kind !== 'slice-verification') return [];
+        if (roadmap.attempts.some((a) => a.entryId === entry.id)) return [];
+        const blockers = scopePhaseBlockers(
+          tx,
+          workspaceId,
+          entry.workItemId,
+          entry.executionScope,
+          'verify',
+        );
+        const setup = blockers.filter((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b)));
+        if (!setup.length || setup.length !== blockers.length) return [];
+        environmentEntries.push(entry.id);
+        return setup.map((b) => `${entry.sourceId}: ${b.message}`);
+      });
+      if (environmentLines.length)
+        alerts.push({
+          kind: 'verification-setup',
+          roadmap,
+          members: environmentEntries.sort(),
+          lines: environmentLines.sort(),
+        });
+      if (roadmap.definition.crossProject) {
+        const ready = crossProjectState(tx, workspaceId, roadmap.definition.crossProject)
+          .nodes.filter(
+            (n) => n.included && !n.satisfied && n.kind === 'checkpoint' && !n.blockers.length,
+          )
+          .map((n) => n.sourceId)
+          .sort();
+        if (ready.length)
+          alerts.push({ kind: 'checkpoint-evidence', roadmap, members: ready, lines: ready });
+      }
+      for (const [entryId, hold] of Object.entries(roadmap.entryHolds ?? {})) {
+        if (!effectiveHoldAttention(hold)) continue;
+        const entry = roadmap.definition.entries.find((e) => e.id === entryId);
+        if (!entry) continue;
+        const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
+        const cycle = attempt && tx.execution.cycles.find(workspaceId, attempt.cycleId);
+        // A manual recovery has taken over this checkpoint. The saved hold remains
+        // historical until reconciliation; it is not a second task.
+        if (cycle && (cycle.status === 'running' || this.cycles.isTransitioning(cycle.id)))
+          continue;
+        if (entry.executionScope && this.scopeComplete(tx, roadmap, entry)) continue;
+        alerts.push({
+          kind: 'entry-hold',
+          roadmap,
+          entry,
+          reason: hold.reason,
+          ...(cycle ? { cycleId: cycle.id } : {}),
+        });
+      }
+    }
+    return alerts;
+  }
+
+  /** The entry's own milestone is already satisfied, so its old hold needs nobody. */
+  private scopeComplete(tx: StorageRepositories, roadmap: Roadmap, entry: RoadmapEntry): boolean {
+    const scope = entry.executionScope;
+    const d = scope && tx.imports.definition(roadmap.workspaceId, scope.definitionId);
+    return (
+      !!scope &&
+      !!d &&
+      milestoneSatisfied(
+        tx,
+        roadmap.workspaceId,
+        d,
+        scope.bindingRevision,
+        scope.kind === 'parent-acceptance'
+          ? { kind: 'work_item', id: scope.sourceId, state: 'accepted' }
+          : {
+              kind: 'slice',
+              id: scope.sourceId,
+              state: scope.kind === 'slice' ? 'merged' : 'verified',
+            },
+      )
+    );
+  }
+
   private reason(roadmap: Roadmap, reason: string): void {
     const bounded = reason.slice(0, 4000);
     if (roadmap.reason !== bounded) this.change(roadmap, { reason: bounded });
   }
   private change(
     roadmap: Roadmap,
-    changes: Partial<Roadmap>,
+    changes: RoadmapChanges,
     action = 'advance',
     context?: AuthContext,
   ): Roadmap {
-    const updated = {
+    const merged: Roadmap = {
       ...roadmap,
       ...changes,
       reason: (changes.reason ?? roadmap.reason).slice(0, 4000),
       version: roadmap.version + 1,
       updatedAt: this.now().toISOString(),
     };
+    // Attention describes a needs-attention roadmap only; any other status clears it (R-A3).
+    const { attention: _cleared, ...unattended } = merged;
+    const updated: Roadmap = merged.status === 'needs-attention' ? merged : unattended;
     this.storage.transaction((tx) => this.persist(tx, updated, roadmap.version, action, context));
     this.notifier.notify();
     return updated;

@@ -1,0 +1,212 @@
+/**
+ * Typed attention (review item R-A3).
+ *
+ * Whoever decides a blocking transition also declares, in the same write, what the stop is
+ * (`code`) and who moves it next (`owner`). Consumers branch on the code; the accompanying
+ * `reason` or `message` text is for display only and is never parsed. Operator-owned
+ * attention is the operator's to resolve; controller-owned attention is a wait the
+ * controller resolves itself and is never pushed as a notification.
+ */
+
+export type AttentionOwner = 'operator' | 'controller';
+
+/** Stops a cycle's controller declares. The value is the owner. */
+export const CYCLE_ATTENTION = {
+  // Agent-run outcomes (decideStepOutcome).
+  'service-failure-not-retryable': 'operator',
+  'service-retries-exhausted': 'operator',
+  'exit-with-open-questions': 'operator',
+  'completion-continuations-exhausted': 'operator',
+  'background-work-unsafe': 'operator',
+  'step-incomplete': 'operator',
+  'resolution-needs-guidance': 'operator',
+  'workflow-report-invalid': 'operator',
+  'workflow-questions-disagree': 'operator',
+  'shared-decision-required': 'operator',
+  'work-item-questions': 'operator',
+  'finalization-needs-input': 'operator',
+  'design-investigation-finished': 'operator',
+  'design-report-invalid': 'operator',
+  'design-dependency-continuations-exhausted': 'operator',
+  'design-dependency-unsupported': 'operator',
+  'design-planning-conflict': 'operator',
+  'design-decision-required': 'operator',
+  'design-open-questions': 'operator',
+  'implementation-open-questions': 'operator',
+  'review-open-questions-at-limit': 'operator',
+  'review-open-questions': 'operator',
+  'finalization-report-rejected': 'operator',
+  'polish-assessment-needs-attention': 'operator',
+  'scope-review-open-questions': 'operator',
+  'scope-review-recovery': 'operator',
+  'review-needs-attention': 'operator',
+  'restart-session-lost': 'operator',
+  // Controller and workflow stops.
+  'restart-resume': 'operator',
+  'controller-error': 'operator',
+  'reassessment-failed': 'operator',
+  'worktree-inactive': 'operator',
+  'authority-lost': 'operator',
+  'design-recheck-unavailable': 'operator',
+  'step-time-limit': 'operator',
+  'service-retry-mismatch': 'operator',
+  'scope-review-snapshot-changed': 'operator',
+  'review-baseline-changed': 'operator',
+  'security-reviewer-unassigned': 'operator',
+  'workflow-obligation': 'operator',
+  'stage-report-invalid': 'operator',
+  'finalization-ledger-full': 'operator',
+  'plan-change-decision': 'operator',
+  'stage-batch-selection': 'operator',
+  'stage-review-changes-requested': 'operator',
+  'remediation-exhausted': 'operator',
+  'remediation-stalled': 'operator',
+  'implementation-commit-failed': 'operator',
+  'integration-refresh-limit': 'operator',
+  'integration-conflict': 'operator',
+  'integration-update-failed': 'operator',
+  'resolution-abandoned': 'operator',
+  // `awaiting-merge` gates (CTRL-10): what the cycle is waiting for at the merge boundary.
+  'merge-approval': 'operator',
+  // Merge approval is due but the slice's merge requirements are not met yet.
+  'merge-requirements': 'operator',
+  'final-promotion': 'operator',
+  'record-scope-evidence': 'operator',
+  'controller-wait': 'controller',
+  'scheduling-held': 'controller',
+  // A record written before codes existed whose reason maps to nothing more specific.
+  'legacy-attention': 'operator',
+} as const satisfies Record<string, AttentionOwner>;
+export type CycleAttentionCode = keyof typeof CYCLE_ATTENTION;
+export const CYCLE_ATTENTION_CODES = Object.keys(CYCLE_ATTENTION) as CycleAttentionCode[];
+
+/** The `awaiting-merge` gate codes; every other cycle code belongs to `needs-attention`. */
+export const AWAITING_MERGE_GATES = [
+  'merge-approval',
+  'merge-requirements',
+  'final-promotion',
+  'record-scope-evidence',
+  'controller-wait',
+  'scheduling-held',
+] as const satisfies readonly CycleAttentionCode[];
+export type AwaitingMergeGate = (typeof AWAITING_MERGE_GATES)[number];
+
+/** Stops a roadmap's scheduler declares, on the roadmap or on one entry's hold. */
+export const ROADMAP_ATTENTION = {
+  'restart-resume': 'operator',
+  'scheduler-error': 'operator',
+  'entry-preparation-failed': 'operator',
+  'entry-blocked': 'operator',
+  'cycle-needs-attention': 'operator',
+  'legacy-attention': 'operator',
+} as const satisfies Record<string, AttentionOwner>;
+export type RoadmapAttentionCode = keyof typeof ROADMAP_ATTENTION;
+export const ROADMAP_ATTENTION_CODES = Object.keys(ROADMAP_ATTENTION) as RoadmapAttentionCode[];
+
+export interface AttentionRefs {
+  readonly checkpointId?: string;
+  readonly cycleId?: string;
+  readonly entryId?: string;
+}
+
+/**
+ * Automation that will act on a stop next. A claimed stop keeps its code (what the stop is)
+ * but is owned by the controller until the claim lapses, e.g. a roadmap whose policy merges
+ * automatically, or a scope review waiting for prerequisite work (NOTIF-02).
+ */
+export const ATTENTION_CLAIMS = [
+  'roadmap-merge',
+  'roadmap-verification',
+  'roadmap-acceptance',
+  'conflict-automation',
+  'scope-recovery',
+  'prerequisite-work',
+] as const;
+export type AttentionClaim = (typeof ATTENTION_CLAIMS)[number];
+
+export interface CycleAttention {
+  readonly code: CycleAttentionCode;
+  /** `controller` when automation claims the stop; otherwise the code's own owner. */
+  readonly owner: AttentionOwner;
+  readonly claim?: AttentionClaim;
+  readonly refs?: AttentionRefs;
+  /** Display text for the specific blocker (e.g. unmet merge requirements); never parsed. */
+  readonly detail?: string;
+}
+
+export interface RoadmapAttention {
+  readonly code: RoadmapAttentionCode;
+  readonly owner: AttentionOwner;
+  readonly refs?: AttentionRefs;
+}
+
+/** The only way to build cycle attention: the owner follows the code, or a claim. */
+export function cycleAttention(
+  code: CycleAttentionCode,
+  refs?: AttentionRefs,
+  extra: { readonly claim?: AttentionClaim; readonly detail?: string } = {},
+): CycleAttention {
+  return {
+    code,
+    owner: extra.claim ? 'controller' : CYCLE_ATTENTION[code],
+    ...(extra.claim ? { claim: extra.claim } : {}),
+    ...(refs ? { refs } : {}),
+    ...(extra.detail ? { detail: extra.detail.slice(0, 2000) } : {}),
+  };
+}
+
+export function roadmapAttention(
+  code: RoadmapAttentionCode,
+  refs?: AttentionRefs,
+): RoadmapAttention {
+  return { code, owner: ROADMAP_ATTENTION[code], ...(refs ? { refs } : {}) };
+}
+
+/**
+ * Why a phase gate holds work. `waits` means the controller keeps waiting and retries on
+ * its own; otherwise the gate stops the work for someone to act. `owner` says who resolves
+ * the blocker, which is what the browser groups by (UI-09).
+ */
+export const PHASE_BLOCKERS = {
+  'binding-changed': { owner: 'operator', waits: false },
+  'plan-inactive': { owner: 'operator', waits: false },
+  'repository-unavailable': { owner: 'operator', waits: false },
+  'binding-retired': { owner: 'operator', waits: false },
+  'amendment-pending': { owner: 'operator', waits: false },
+  'runtime-definition-unavailable': { owner: 'operator', waits: false },
+  'binding-superseded': { owner: 'operator', waits: false },
+  'decision-adoption-required': { owner: 'operator', waits: false },
+  'merge-resource-mismatch': { owner: 'operator', waits: false },
+  'reviewer-assignment': { owner: 'operator', waits: false },
+  // Operator setup the controller waits for rather than stopping.
+  'environment-approval': { owner: 'operator', waits: true },
+  'resource-unsupported': { owner: 'operator', waits: true },
+  'dependency-environment-missing': { owner: 'operator', waits: true },
+  'upstream-pin-missing': { owner: 'operator', waits: true },
+  'external-qualification-required': { owner: 'operator', waits: true },
+  // Other work or the controller itself resolves these.
+  'predecessor-not-accepted': { owner: 'controller', waits: true },
+  'parent-not-accepted': { owner: 'controller', waits: true },
+  'slice-not-started': { owner: 'controller', waits: true },
+  'slice-not-merged': { owner: 'controller', waits: true },
+  'slice-attempt-active': { owner: 'controller', waits: true },
+  'slice-requirement': { owner: 'controller', waits: true },
+  'required-slice-unmerged': { owner: 'controller', waits: true },
+  'required-slice-unverified': { owner: 'controller', waits: true },
+  'checkpoint-evidence': { owner: 'controller', waits: true },
+  // Plan acceptance and architecture decisions: only the operator's acceptance satisfies them.
+  'decision-checkpoint-evidence': { owner: 'operator', waits: true },
+  'staged-approval-prerequisite': { owner: 'controller', waits: true },
+  'resource-busy': { owner: 'controller', waits: true },
+  'scheduling-held': { owner: 'controller', waits: true },
+  'legacy-blocker': { owner: 'operator', waits: false },
+} as const satisfies Record<string, { owner: AttentionOwner; waits: boolean }>;
+export type PhaseBlockerCode = keyof typeof PHASE_BLOCKERS;
+export const PHASE_BLOCKER_CODES = Object.keys(PHASE_BLOCKERS) as PhaseBlockerCode[];
+
+/** Setup the operator does outside the work item: reviewer roles and verification hosts. */
+export const SETUP_BLOCKER_CODES: ReadonlySet<PhaseBlockerCode> = new Set([
+  'reviewer-assignment',
+  'environment-approval',
+  'resource-unsupported',
+]);

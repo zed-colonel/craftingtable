@@ -1,10 +1,29 @@
 import { effectiveCycleProfiles } from './agent-profile-policy.js';
 import { createHash } from 'node:crypto';
 import type { WorkCycle, ExecutionScope } from '@craftingtable/domain';
-import { isTerminalAgentRunStatus, sameExecutionScope } from '@craftingtable/domain';
+import {
+  isTerminalAgentRunStatus,
+  type PhaseBlockerCode,
+  phaseBlockerCode,
+  sameExecutionScope,
+} from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { ExecutionRequestError } from './errors.js';
 import { resolveScope, scopePhaseBlockers } from './execution-scope.js';
+
+/** Blockers that other work resolves: predecessors, slices and checkpoint evidence. */
+const PREREQUISITE_WORK: ReadonlySet<PhaseBlockerCode> = new Set<PhaseBlockerCode>([
+  'predecessor-not-accepted',
+  'parent-not-accepted',
+  'slice-not-started',
+  'slice-not-merged',
+  'slice-attempt-active',
+  'slice-requirement',
+  'required-slice-unmerged',
+  'required-slice-unverified',
+  'checkpoint-evidence',
+  'decision-checkpoint-evidence',
+]);
 
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
@@ -48,14 +67,7 @@ export function scopeReviewWait(tx: StorageRepositories, cycle: WorkCycle): stri
       { resources: false },
     );
     // Suppress duplicate attention only for prerequisite work, never missing authority/configuration.
-    if (
-      blockers.length &&
-      blockers.every(
-        (b) =>
-          b.kind === 'dependency' ||
-          (b.kind === 'evidence' && /^(Required slice |Checkpoint )/.test(b.message)),
-      )
-    )
+    if (blockers.length && blockers.every((b) => PREREQUISITE_WORK.has(phaseBlockerCode(b))))
       return `Waiting for prerequisite work: ${blockers.map((b) => b.message).join(' ')}`;
   } catch {
     /* Invalid bindings remain actionable through the normal recovery controls. */

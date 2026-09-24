@@ -16,6 +16,7 @@ import {
   type CycleProfiles,
   cycleProfilesFromDefaults,
   DEFAULT_COMPLETION_POLICY,
+  effectiveCycleAttention,
   remediationAllowance,
   type WorkCycle,
   type WorktreeId,
@@ -135,12 +136,12 @@ export function CyclePanel({
   const liveRun = runs.some(
     (run) => run.worktreeId === selected && ['starting', 'running', 'waiting'].includes(run.status),
   );
+  const stop = active && effectiveCycleAttention(active)?.code;
   const exhaustedReview =
     active &&
     onAuthorizeRemediation &&
-    ['paused', 'needs-attention'].includes(active.status) &&
     active.step === 'review' &&
-    active.reason.startsWith('Remediation limit reached.') &&
+    (stop === 'remediation-exhausted' || stop === 'review-open-questions-at-limit') &&
     active.remediationRounds >= remediationAllowance(active) &&
     (!active.executionScope || active.executionScope.kind === 'slice') &&
     (!active.integrationResolution ||
@@ -153,8 +154,9 @@ export function CyclePanel({
     !exhaustedReview &&
     ['paused', 'needs-attention'].includes(active.status) &&
     (!!active.workflow?.questions.length ||
-      active.reason.startsWith('Two remediation rounds') ||
-      /^(Implementation|Review) needs your input\./.test(active.reason));
+      stop === 'remediation-stalled' ||
+      stop === 'implementation-open-questions' ||
+      stop === 'review-open-questions');
   const attention =
     active !== undefined &&
     !active.scopeReviewWait &&

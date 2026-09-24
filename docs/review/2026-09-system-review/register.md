@@ -887,6 +887,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **The other failure (run 3).** "Execution held:" did not appear within 5 s after "Propose and hold roadmap". The cause is not proven.
     - **A second window.** `MapAmendmentPanel` discarded refreshes that started before a command, but not ones that started while it ran. A jsdom test shows such a refresh, answering after the command, replacing the recorded proposal with the view from before it. The panel now also discards refreshes started during a command.
     - **Probably not the run 3 cause.** The server records the proposal and bumps the roadmap version in one transaction before notifying, so a refresh triggered by that bump reads the proposal. The likelier cause is that proposing pauses the affected cycles serially before it answers, which under load can take more than 5 s.
+    - **The spec now waits for the proposal's answer**, as it already did for Inspect, and then expects the notice. A slow command and a UI that fails to show a recorded proposal are no longer the same failure.
 
 ### R-I6
 

@@ -508,7 +508,13 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect(
     amendments.getByRole('heading', { name: 'Impact preview', exact: true }),
   ).toBeVisible();
+  // Proposing pauses the affected cycles before it answers; wait for that answer, then expect
+  // the panel to show the recorded proposal.
+  const proposed = page.waitForResponse(
+    (r) => r.url().endsWith('/amendments') && r.request().method() === 'POST',
+  );
   await amendments.getByRole('button', { name: 'Propose and hold roadmap', exact: true }).click();
+  expect((await proposed).status()).toBe(200);
   await expect(amendments.getByText('Execution held:', { exact: true })).toBeVisible();
   await page.reload();
   await expect(amendments.getByText('Execution held:', { exact: true })).toBeVisible();

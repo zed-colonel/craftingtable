@@ -221,8 +221,15 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
     code: StepAttentionCode,
     message: string,
     issues: readonly string[],
+    fault: 'format' | 'content' = 'format',
   ): StepOutcomeDecision => {
     const attempts = input.outputRepair?.attempts ?? 0;
+    // Only the report's structure is repaired automatically; missing content (checks,
+    // dispositions, evidence) needs more work or the operator (operator decision 2026-09-24).
+    if (fault === 'content')
+      return attempts
+        ? { ...attention(code, message), repairAttempts: attempts }
+        : attention(code, message);
     if (attempts < OUTPUT_REPAIR_LIMIT && run.backendSessionId !== undefined)
       return {
         kind: 'repair-output',
@@ -555,12 +562,18 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
         : assessment?.status === 'invalid' && assessment.issues.length
           ? assessment.issues
           : [REVIEW_REPORT_ISSUE];
+  // Omitted scope evidence and content checks need the reviewer's work, not a restatement.
+  const reportFault =
+    scopeIssue !== undefined || (assessment?.status === 'invalid' && assessment.fault === 'content')
+      ? 'content'
+      : 'format';
   if (finalization && assessment?.status === 'invalid')
     return withWorkflow(
       formatFault(
         'finalization-report-rejected',
         `Review report rejected: ${assessment.issues.join(' ').slice(0, 3500)}`,
         reportIssues ?? assessment.issues,
+        reportFault,
       ),
     );
   if (finalization?.stages)
@@ -572,7 +585,12 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
     if (decision.action === 'needs-attention')
       return withWorkflow(
         reportIssues
-          ? formatFault('polish-assessment-needs-attention', decision.reason, reportIssues)
+          ? formatFault(
+              'polish-assessment-needs-attention',
+              decision.reason,
+              reportIssues,
+              reportFault,
+            )
           : attention('polish-assessment-needs-attention', decision.reason),
       );
     return withWorkflow({
@@ -595,7 +613,7 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
     const message = `Scope review requires recovery: ${decision.reason} Address findings through the owning slice; this review snapshot cannot implement changes.`;
     return withWorkflow(
       decision.action === 'needs-attention' && reportIssues
-        ? formatFault('scope-review-recovery', message, reportIssues)
+        ? formatFault('scope-review-recovery', message, reportIssues, reportFault)
         : attention('scope-review-recovery', message),
     );
   }
@@ -608,7 +626,7 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
   if (decision.action === 'needs-attention')
     return withWorkflow(
       reportIssues
-        ? formatFault('review-needs-attention', decision.reason, reportIssues)
+        ? formatFault('review-needs-attention', decision.reason, reportIssues, reportFault)
         : attention('review-needs-attention', decision.reason),
     );
   return withWorkflow({

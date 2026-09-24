@@ -84,9 +84,8 @@ export function outputRepairPrompt(input: {
 }): string {
   return [
     `CraftingTable could not accept your final report for this step because it does not have the required structure. The validator reported:\n${input.issues.map((issue) => `- ${issue}`).join('\n')}`,
-    `This is automatic repair ${input.attempt} of ${input.limit}; after that the step stops for the operator. Only the report is being sent back, not your work.`,
+    `This is automatic repair ${input.attempt} of ${input.limit}; after that the step stops for the operator. Your work is not being rejected, only the report's format.`,
     'Reply with the complete corrected final report: the whole report your original instructions ask for, including every required section and structured block, not only the corrected part, because only this reply is read. Do not redo the step, change files or make commits. If you have questions for the operator, list them under “## Open questions” instead of guessing.',
-    'Some issues ask for evidence rather than format, such as a required check or a decision. Never fill those in from memory or assumption. You may run read-only commands to confirm what is actually true; report only what you verified, and list anything you cannot establish, or any decision that is the operator’s, under “## Open questions”.',
     `Files from the previous turn are in ${input.previousRunDirectory}. This run's refreshed brief and scratch directory are in ${input.runDirectory}. The deadline is ${input.deadlineAt}.`,
   ].join('\n\n');
 }

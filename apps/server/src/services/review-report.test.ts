@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assessReviewReport, finalVerdict } from './review-report.js';
+import { latestReviewReport } from './run-handoff.js';
 
 const finding = {
   id: 'F-001',
@@ -85,5 +86,44 @@ describe('consolidated findings', () => {
     expect(assessReviewReport(`${message()}\n…[truncated by CraftingTable]`).status).toBe(
       'invalid',
     );
+  });
+
+  it('tells a structural fault from missing content (R-C2 repairs only the first)', () => {
+    expect(assessReviewReport(message(report, 'changes-requested'))).toMatchObject({
+      status: 'invalid',
+      fault: 'format',
+    });
+    expect(assessReviewReport('```craftingtable-review\n{\n```')).toMatchObject({
+      status: 'invalid',
+      fault: 'format',
+    });
+    expect(
+      assessReviewReport(message({ ...report, findings: [] }), false, new Set(['F-001'])),
+    ).toMatchObject({ status: 'invalid', fault: 'content' });
+  });
+
+  it('derives the fault of a report recorded before faults were typed', () => {
+    const recorded = (resultText: string) => {
+      const event = {
+        kind: 'turn-completed',
+        sequence: 1,
+        payload: {
+          outcome: 'success',
+          resultText,
+          reviewReport: { status: 'invalid', issues: ['recorded issue'] },
+        },
+      };
+      const execution = {
+        runEvents: {
+          latestOfKind: (_w: unknown, _r: unknown, kind: string) =>
+            kind === 'turn-completed' ? event : undefined,
+        },
+      } as unknown as Parameters<typeof latestReviewReport>[0];
+      return latestReviewReport(execution, { role: 'review', workspaceId: 'w', id: 'r' } as never);
+    };
+    // Its text is itself malformed: the structure was at fault.
+    expect(recorded('```craftingtable-review\n{\n```')).toMatchObject({ fault: 'format' });
+    // Its text is a valid report: the recorded issues came from content checks.
+    expect(recorded(message())).toMatchObject({ fault: 'content', issues: ['recorded issue'] });
   });
 });

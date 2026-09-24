@@ -369,6 +369,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - A repair turn that hits a retryable provider failure gets an ADR-062 service retry. That retry reruns the whole step and starts a fresh repair budget: at most two repairs per retry, and three retries. Resuming the repair instead needs the service retry to carry the repair's session source and its review continuation, and that path should change behind the R-B4 decision core.
   - If a sibling merge moves the integration branch while a review repair is pending, the repair's continuation capture fails as `controller-error`, and the typed code is lost. That is also for R-B4.
   - Letting the agent repair evidence and completeness issues automatically is an operator policy question; see the phase 1 review's open decisions.
+- **Amended 2026-09-24 (operator decisions, same day):**
+  - **Keep** the 20-minute minimum for a repair turn.
+  - **Repair only pure format faults.** Review assessments now carry a typed `fault`:
+    - `format`: a missing, truncated, unparsable or schema-invalid report, or a verdict line that disagrees with its report.
+    - `content`: a well-formed report that is missing something only more work or the operator can supply. That covers previously recorded findings left without a disposition, staged-finalization checks (required checks, gates, obligation dispositions, stage naming), a failed or unfinished review turn, and omitted scope evidence.
+  - Design and workflow reports and the Open questions checkpoint have only structural faults, so they stay repairable.
+  - A content fault stops for the operator at once, and after a repair it keeps `repairAttempts`.
+  - The optional `fault` is set when an assessment is written. For older records the reader derives it from the report text: if the text alone is invalid, the fault is format; otherwise it is content (rule 2).
+  - The repair prompt no longer needs the paragraph about evidence, so it was removed.
+  - The restated done-when still holds: `--every-run` on the snapshot shows the same four finalization reports as repairs, and `--check` reports 0 changed.
+  - Tests: `review-report.test.ts` and the `step-outcome.test.ts` rows.
 
 ### R-C3
 

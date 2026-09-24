@@ -1818,6 +1818,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             event.payload.outcome === 'error'
               ? {
                   status: 'invalid' as const,
+                  fault: 'content' as const,
                   issues: ['The review turn failed; request a successful consolidated report.'],
                 }
               : assessReviewReport(

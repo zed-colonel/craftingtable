@@ -33,10 +33,25 @@ export interface ReviewReport {
   readonly finalization?: import('./finalization-stages.js').StageReviewReport;
 }
 
+/**
+ * Why a report is invalid (R-C2). `format`: its structure is wrong (missing, truncated,
+ * unparsable or schema-invalid block, a verdict line that disagrees with it), which the
+ * reviewer can fix by restating what it already reported. `content`: it is well formed but
+ * lacks something only more work or the operator can supply (required checks, obligation
+ * dispositions, retained findings, scope evidence). Only format faults are repaired
+ * automatically; content faults stop for the operator. Older records omit it; the reader
+ * derives it from the report text.
+ */
+export type ReviewReportFault = 'format' | 'content';
+
 /** Structural validity never implies that a reviewer found every possible defect. */
 export type ReviewReportAssessment =
   | { readonly status: 'unstructured'; readonly issues: readonly string[] }
-  | { readonly status: 'invalid'; readonly issues: readonly string[] }
+  | {
+      readonly status: 'invalid';
+      readonly issues: readonly string[];
+      readonly fault?: ReviewReportFault;
+    }
   | {
       readonly status: 'complete';
       readonly issues: readonly string[];

@@ -57,7 +57,11 @@ export const reviewReportSchema = z
 
 export const reviewReportAssessmentSchema = z.discriminatedUnion('status', [
   z.strictObject({ status: z.literal('unstructured'), issues: z.array(z.string()).max(100) }),
-  z.strictObject({ status: z.literal('invalid'), issues: z.array(z.string()).max(100) }),
+  z.strictObject({
+    status: z.literal('invalid'),
+    issues: z.array(z.string()).max(100),
+    fault: z.enum(['format', 'content']).optional(),
+  }),
   z.strictObject({
     status: z.literal('complete'),
     issues: z.array(z.string()).max(100),

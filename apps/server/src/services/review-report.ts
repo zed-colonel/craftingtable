@@ -16,6 +16,7 @@ export function assessReviewReport(
   if (truncated || text.endsWith('…[truncated by CraftingTable]')) {
     return {
       status: 'invalid',
+      fault: 'format',
       issues: ['The final review message was truncated. Ask the reviewer for a complete report.'],
     };
   }
@@ -30,6 +31,7 @@ export function assessReviewReport(
         }
       : {
           status: 'invalid',
+          fault: 'format',
           issues: [
             'The latest turn omitted the structured report and previously recorded findings.',
           ],
@@ -38,6 +40,7 @@ export function assessReviewReport(
   if (blocks.length !== 1) {
     return {
       status: 'invalid',
+      fault: 'format',
       issues: ['End the review with exactly one complete craftingtable-review JSON block.'],
     };
   }
@@ -45,12 +48,17 @@ export function assessReviewReport(
   try {
     value = JSON.parse(blocks[0]?.[1] ?? '');
   } catch {
-    return { status: 'invalid', issues: ['The findings report is not valid JSON.'] };
+    return {
+      status: 'invalid',
+      fault: 'format',
+      issues: ['The findings report is not valid JSON.'],
+    };
   }
   const parsed = reviewReportSchema.safeParse(value);
   if (!parsed.success) {
     return {
       status: 'invalid',
+      fault: 'format',
       issues: parsed.error.issues
         .slice(0, 20)
         .map((issue) => `${issue.path.join('.') || 'report'}: ${issue.message}`),
@@ -58,17 +66,20 @@ export function assessReviewReport(
   }
   const report = parsed.data;
   const issues: string[] = [];
+  let fault: 'format' | 'content' = 'format';
   if (finalVerdict(text) !== report.verdict) {
     issues.push('The final VERDICT line must agree with the structured report.');
   }
   const ids = new Set(report.findings.map((finding) => finding.id));
   const missing = [...previousFindingIds].filter((id) => !ids.has(id));
   if (missing.length > 0) {
+    // Dispositions for earlier findings need the reviewer's judgement, not a restatement.
+    fault = 'content';
     issues.push(
       `Previously recorded findings are missing: ${missing.join(', ')}. Retain them, marking resolved or withdrawn findings with a disposition.`,
     );
   }
   return issues.length > 0
-    ? { status: 'invalid', issues }
+    ? { status: 'invalid', fault, issues }
     : { status: 'complete', issues: [], report };
 }

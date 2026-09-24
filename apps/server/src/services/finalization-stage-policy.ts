@@ -22,6 +22,7 @@ export function assessStageReport(
   if (!stage || !report || report.stageId !== stage.id || !baseline)
     return {
       status: 'invalid',
+      fault: 'content',
       issues: [
         'A staged finalization report must name the current stage and have its recorded review baseline. Read craftingtable-finalization-state.json.',
       ],
@@ -98,7 +99,10 @@ export function assessStageReport(
         `Missing adopted obligations: ${missing.map((o) => o.id).join(', ')}. Report each current disposition; historical completion is not evidence of current conformance.`,
       );
   }
-  return issues.length ? { status: 'invalid', issues: issues.slice(0, 20) } : assessment;
+  // Stage checks (required checks, gates, obligation dispositions) need work or a decision.
+  return issues.length
+    ? { status: 'invalid', fault: 'content', issues: issues.slice(0, 20) }
+    : assessment;
 }
 
 export function recordStageEvidence(

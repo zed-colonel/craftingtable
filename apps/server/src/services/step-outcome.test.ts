@@ -477,7 +477,8 @@ const rows: readonly Row[] = [
     expected: { kind: 'repair-output', code: 'review-needs-attention', attempt: 1 },
   },
   {
-    name: 'a scope issue in an otherwise mergeable review is sent back for repair',
+    // Omitted scope evidence needs the reviewer's work, so only the operator can supply it.
+    name: 'a scope issue in an otherwise mergeable review stops for the operator',
     cycle: { step: 'review' },
     facts: {
       run: reviewRun,
@@ -485,7 +486,35 @@ const rows: readonly Row[] = [
       reviewAssessment: () => review(),
       scopeIssue: () => 'The review omitted case C-1.',
     },
+    expected: { kind: 'attention', code: 'review-needs-attention' },
+  },
+  {
+    name: 'a schema-invalid review report is sent back for repair',
+    cycle: { step: 'review' },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(noQuestions),
+      reviewAssessment: () => ({
+        status: 'invalid',
+        fault: 'format',
+        issues: ['findings.0.id: Invalid string'],
+      }),
+    },
     expected: { kind: 'repair-output', code: 'review-needs-attention', attempt: 1 },
+  },
+  {
+    name: 'a well-formed review missing required content stops for the operator',
+    cycle: { step: 'review' },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(noQuestions),
+      reviewAssessment: () => ({
+        status: 'invalid',
+        fault: 'content',
+        issues: ['Required check missing: cargo test'],
+      }),
+    },
+    expected: { kind: 'attention', code: 'review-needs-attention' },
   },
   {
     name: 'a mergeable review is approved',

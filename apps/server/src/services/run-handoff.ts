@@ -156,6 +156,7 @@ export function latestReviewReport(
   if (incompleteRun(execution, run, throughSequence))
     return {
       status: 'invalid',
+      fault: 'content',
       issues: [
         'The review exited before background verification and reporting completed. Its provisional report cannot close findings or authorize a merge.',
       ],
@@ -169,10 +170,18 @@ export function latestReviewReport(
     }
   if (event?.kind !== 'turn-completed')
     return { status: 'unstructured', issues: ['The review has no completed turn yet.'] };
-  return (
-    event.payload.reviewReport ??
-    assessReviewReport(event.payload.resultText, event.payload.truncated)
-  );
+  const stored = event.payload.reviewReport;
+  if (stored === undefined)
+    return assessReviewReport(event.payload.resultText, event.payload.truncated);
+  if (stored.status !== 'invalid' || stored.fault !== undefined) return stored;
+  // Recorded before faults were typed: the report's own structure decides. If the text alone
+  // is invalid, its structure is at fault; otherwise the issues came from content checks.
+  const structural = assessReviewReport(event.payload.resultText, event.payload.truncated);
+  return {
+    ...stored,
+    fault:
+      event.payload.outcome === 'error' || structural.status === 'complete' ? 'content' : 'format',
+  };
 }
 
 export interface HandoffFiles {

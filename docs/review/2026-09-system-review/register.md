@@ -113,6 +113,36 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** Add an optional `attention {owner: operator|controller, code, subject refs, message, actions[]}` to cycles, roadmap entries/holds and roadmap status, written in the same transaction as the status change by the code that makes the decision. Add `code` and `owner` to PhaseBlocker; add a typed restart flag; add an `awaiting-merge` gate subtype (operator-merge, promotion, record-evidence, automatic-merge, controller-wait, scheduling-held). Map legacy reason strings to codes once, in one tested function. Replace every reason/message prefix match on the server and in the web with code switches, and remove navigation prose from daemon messages. NotificationService then selects owner=operator items and imports no policy modules.
 - **Done when:** No `startsWith`/regex on reason or blocker message remains in apps/server or apps/web (grep test); every controller path that sets needs-attention or awaiting-merge sets attention.code (contract test); notification-service.ts no longer imports scope/roadmap policy modules.
 - **Progress:** ADR-067. Domain vocabulary in `packages/domain/src/attention.ts`: 59 cycle codes (the 28 step-outcome codes from R-B2, controller stops, and the six `awaiting-merge` gates), 6 roadmap codes, 29 phase-blocker codes with owner and `waits`. Cycles, roadmaps and entry holds carry optional `attention` (wire schemas refine the owner). `CycleChanges`/`RoadmapChanges` make a stop without attention a compile error; `untypedStops` checks every test daemon's rows on cleanup (the whole server suite runs it). Automation claims (roadmap merge/verification/acceptance, conflict automation, scope recovery, prerequisite work) and merge requirements are declared with the transition by `cycle-attention-policy.ts` and refreshed in place when stored state changes. `PhaseGateError.waiting`, `scopeReviewWait`, host scheduling, the reassessment trigger and the roadmap progress view switch on codes; `phaseBlockerResourceKey` replaces a message substring match. Web: CyclePanel, WorkflowStatus, RoadmapAttention, RoadmapsPage, ExecutionScopesPanel, CheckpointRecoveryPanel (typed `prerequisiteCheckpoints`), AttentionStrip (UI-16) and Reasons (owner-based, UI-09) use codes. The scope check's rule 5 is the grep test. `NotificationService` reads declared attention and `RoadmapService.attentionAlerts`; it imports no policy module. Legacy rows map through `attention-legacy.ts` only. Behaviour changes, intended: roadmap-claimed merges, `scheduling-held` and `controller-wait` stops are not pushed; operator-owned evidence (decision checkpoints, dependency environments) shows as the operator's. Not in this change: navigation prose in daemon messages stays until the inbox renders destinations from codes (R-A5), the `actions[]` list is R-A7, and the CTRL-22 projection split moves to R-D5.
+- **Amended 2026-09-24 (phase 1 review):**
+  - **The grep test was narrower than its done-when.** Rule 5 caught only `reason`/`message` immediately followed by `.startsWith(`-style calls, and it scanned only the two apps. It missed these, among others:
+    - `x.reason === 'Some sentence.'`
+    - `.exec(reason)`
+    - `/…/.test(reason ?? '')`
+    - `blockerMessage.includes(`
+    - anything in `packages/`
+
+    One real hit had survived: `map-amendment-service.ts` filtered binding issues with `!m.startsWith('Make the bound ')`. That is now a typed option (`bindingIssues(…, { inactivePlans: false })`).
+
+    Rule 5 now matches any identifier ending in `reason`/`message`, `.exec`/`.indexOf`, and equality with prose literals, while kebab-case codes stay allowed. It also covers `packages/contracts`, `domain`, `planning` and `storage`. As a boundary, it excludes the agent and Git adapters, which parse vendor and tool output, and `attention-legacy.ts`.
+
+    A grep cannot see aliasing (`const r = x.reason; r.startsWith(…)`), so review still has to look for that.
+  - **The contract test has gaps.** Cycles and roadmaps are compile-enforced. But:
+    - entry holds and phase blockers carry an optional code;
+    - `untypedStops` looks only at the rows present at cleanup;
+    - daemons built without `createTestContext` skip it.
+
+    A stop written without a code silently falls back to the legacy mapping.
+  - **Stops that still have no code or owner** (P1 exit criterion "every stop has a code and owner"):
+    - roadmaps paused to wait on the operator (a pending planning amendment, a dependency refresh);
+    - reserved or failed merge operations;
+    - failed baseline preparation;
+    - merge cleanup errors;
+    - blocked finalization removals;
+    - failed or interrupted manual runs, whose attention the notification service still decides itself;
+    - paused cycles, which are the operator's own hold.
+
+    They move to R-A4, where attention becomes occurrence rows. The exit criterion is restated in program.md.
+  - **Forward risk for R-H3.** The wire schemas validate `attention` against closed code enums, and they require the stored owner to equal the code's current owner. Renaming a code, changing its owner, or lowering `OUTPUT_REPAIR_LIMIT` would make stored rows fail response validation. Before the vocabulary changes, derive the owner on read or add an upcaster.
 
 ### R-A4
 

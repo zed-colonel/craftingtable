@@ -1,10 +1,15 @@
 import type { WorkspaceId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
+/**
+ * What keeps a map binding from being used. `inactivePlans: false` leaves out bound plan
+ * versions that are no longer active, for callers that are about to replace the binding.
+ */
 export function bindingIssues(
   tx: StorageRepositories,
   ws: WorkspaceId,
   id: string,
   revision: number,
+  options: { readonly inactivePlans?: boolean } = {},
 ): string[] {
   const d = tx.imports.definition(ws, id),
     b = tx.imports.bindings(ws, id)[0];
@@ -27,7 +32,10 @@ export function bindingIssues(
       continue;
     }
     const settings = tx.execution.branchSettings.find(ws, bound.planVersionId);
-    if (tx.planning.projects.find(ws, bound.projectId)?.activePlanVersionId !== bound.planVersionId)
+    if (
+      options.inactivePlans !== false &&
+      tx.planning.projects.find(ws, bound.projectId)?.activePlanVersionId !== bound.planVersionId
+    )
       issues.push(`Make the bound ${repo.id} plan active.`);
     if (
       settings?.version !== bound.branchSettingsVersion ||

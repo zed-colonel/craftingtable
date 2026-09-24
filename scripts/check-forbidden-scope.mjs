@@ -222,16 +222,35 @@ export function sourceFindings(relativePath, source) {
   return findings;
 }
 
-/** Text matching on a reason or message: `x.reason.startsWith(`, `/…/.test(x.message)`. */
+/**
+ * Text matching on a reason or message (rule 4). Any identifier ending in `reason` or
+ * `message` counts: `x.reason.startsWith(`, `blockerMessage.includes(`,
+ * `/…/.test(x.message ?? '')`, `x.reason === 'Some sentence.'`. Comparisons with
+ * kebab-case codes such as `reason === 'daemon-drain'` are typed and allowed.
+ */
 export const PROSE_BRANCH_PATTERNS = [
-  /\b(?:reason|message)\??\.(?:startsWith|endsWith|includes|match|search)\(/,
-  /\.test\([^()]*\b(?:reason|message)\)/,
+  /\b\w*(?:reason|message|Reason|Message)\??\.(?:startsWith|endsWith|includes|match|matchAll|search|indexOf)\(/,
+  /\.(?:test|exec)\(\s*[\w.?]*?\b\w*(?:reason|message|Reason|Message)\s*(?:\?\?\s*(['"`])\1)?\s*\)/,
+  /\b\w*(?:reason|message|Reason|Message)\s*[!=]==?\s*(['"`])[^'"`]*[ .][^'"`]*\1/,
+  /(['"`])[^'"`]*[ .][^'"`]*\1\s*[!=]==?\s*[\w.?]*?\b\w*(?:reason|message|Reason|Message)\b/,
 ];
 
-/** Production sources in the daemon and browser apps must branch on codes, not prose. */
+/**
+ * Where rule 4 applies: the daemon, the browser and the shared packages. The agent and Git
+ * adapters are excluded as a boundary: reading vendor and tool output is their job. So is
+ * the one legacy mapping allowed to read old reason text (ADR-067).
+ */
+function proseScoped(relativePath) {
+  if (isTestSource(relativePath)) return false;
+  if (relativePath === 'packages/domain/src/attention-legacy.ts') return false;
+  return /^(?:apps\/(?:server|web)|packages\/(?:contracts|domain|planning|storage))\/src\//.test(
+    relativePath,
+  );
+}
+
+/** Production sources must branch on codes, not prose. */
 export function proseFindings(relativePath, source) {
-  if (isTestSource(relativePath)) return [];
-  if (!/^apps\/(?:server|web)\/src\//.test(relativePath)) return [];
+  if (!proseScoped(relativePath)) return [];
   const findings = [];
   // Blank comments out in place so reported line numbers stay right.
   const code = source

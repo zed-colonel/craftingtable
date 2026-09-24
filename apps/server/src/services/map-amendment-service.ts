@@ -143,9 +143,11 @@ export class MapAmendmentService {
       before.definitionId === c.definitionId && before.bindingRevision === c.bindingRevision;
     const closure = targetClosure(next.source, c.targetId, c.selection),
       keys = new Set(closure.nodes.map((n) => n.key));
-    const blockers = bindingIssues(this.storage, ws, c.definitionId, c.bindingRevision).filter(
-      (m) => !m.startsWith('Make the bound '),
-    );
+    // The amendment replaces the binding, so a bound plan that is no longer active is not
+    // a blocker here.
+    const blockers = bindingIssues(this.storage, ws, c.definitionId, c.bindingRevision, {
+      inactivePlans: false,
+    });
     if (r.status === 'running')
       blockers.push('Propose this amendment to pause the roadmap before applying it.');
     if (

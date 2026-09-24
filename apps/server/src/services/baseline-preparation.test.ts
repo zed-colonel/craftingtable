@@ -1,13 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { afterEach, expect, it } from 'vitest';
+import { join } from 'node:path';
 import type { WorkCycle } from '@craftingtable/domain';
-import type { CraftingTableStorage } from '@craftingtable/storage';
 import { createGitOperations } from '@craftingtable/git';
+import type { CraftingTableStorage } from '@craftingtable/storage';
+import { afterEach, expect, it } from 'vitest';
 import type { ExecutionConfig } from '../config.js';
 import { BaselinePreparationService } from './baseline-preparation.js';
+
 const roots: string[] = [];
 afterEach(() => {
   for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true });
@@ -87,7 +88,7 @@ function fixture() {
   } as unknown as CraftingTableStorage;
   const service = new BaselinePreparationService(
     storage,
-    createGitOperations({ gitExecutable: '/usr/bin/git' }),
+    createGitOperations({ gitExecutable: 'git' }),
     { worktreeRoot: join(root, 'storage') } as ExecutionConfig,
   );
   return { service, cycle, repos, definition, root };

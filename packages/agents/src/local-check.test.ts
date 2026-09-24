@@ -1,14 +1,16 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
+import { hostGit } from './host-tools-test-support.js';
+import { loadLocalCiConfig, localActArguments, prepareLocalCheckLaunchers } from './local-check.js';
 import {
-  prepareCargoLauncher,
   cargoManifestDigest as hash,
   type PinnedCargoManifest,
+  prepareCargoLauncher,
 } from './pinned-cargo.js';
-import { prepareLocalCheckLaunchers, localActArguments, loadLocalCiConfig } from './local-check.js';
+
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -24,7 +26,7 @@ function fixture() {
     ['add', '.'],
     ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'fixture'],
   ])
-    expect(spawnSync('/usr/bin/git', args, { cwd: workspacePath }).status).toBe(0);
+    expect(spawnSync(hostGit(), args, { cwd: workspacePath }).status).toBe(0);
   const directory = join(root, 'run/dependencies');
   mkdirSync(directory, { recursive: true });
   const configPath = join(directory, 'pins.toml');
@@ -33,7 +35,7 @@ function fixture() {
     runtimeId: 'runtime',
     runId: 'run',
     cargoExecutable: '/unused',
-    gitExecutable: '/usr/bin/git',
+    gitExecutable: hostGit(),
     workspacePath,
     targetDirectory: join(root, 'target'),
     packages: [],

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { ExecutionScope } from '@craftingtable/domain';
 import { openCraftingTableStorage } from '@craftingtable/storage';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, } from 'vitest';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -13,6 +13,7 @@ import {
   cleanupExecutionFixtures,
   commitFile,
   implementationDone,
+  itNeedsCargo,
   mutationHeaders,
   roadmapControl,
   roadmapId,
@@ -26,7 +27,7 @@ import {
 
 afterEach(cleanupExecutionFixtures);
 
-it.each([
+itNeedsCargo.each([
   'accepted',
   'accepted-after-pause',
   'questions',

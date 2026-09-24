@@ -1,9 +1,13 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
+import { hostCargo } from './host-tools-test-support.js';
 import { cargoManifestDigest as hash, prepareHistoricalCargoLauncher } from './pinned-cargo.js';
+
+/** These build real crates; a host without Cargo skips them (R-I5, QA-08). */
+const cargoIt = it.skipIf(hostCargo === undefined);
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -27,7 +31,7 @@ function fixture(badTest = false, allowProvider = true) {
     join(consumer, 'src/lib.rs'),
     `#[test] fn baseline() { assert_eq!(historical_provider::old_api(), ${badTest ? 13 : 12}); }\n`,
   );
-  const cargo = join(homedir(), '.cargo/bin/cargo');
+  const cargo = hostCargo as string;
   expect(spawnSync(cargo, ['generate-lockfile', '--offline'], { cwd: consumer }).status).toBe(0);
   const files = [
     join(consumer, 'Cargo.toml'),
@@ -58,23 +62,26 @@ function fixture(badTest = false, allowProvider = true) {
       spawnSync(launcher.launcher, args, { cwd: root, encoding: 'utf8' }),
   };
 }
-it('builds the historical sibling sources with their original lockfile without emitting current verification receipts', () => {
-  const f = fixture();
-  const lock = readFileSync(join(f.consumer, 'Cargo.lock'), 'utf8');
-  const result = f.execute(['test', '--offline', '--locked']);
-  expect(result.status, result.stderr + result.stdout).toBe(0);
-  const receipt = JSON.parse(readFileSync(f.receiptPath, 'utf8').trim());
-  expect(receipt).toMatchObject({
-    kind: 'historical-baseline-command-v1',
-    success: true,
-    currentRuntimeVerification: false,
-    enforcedLocked: true,
-  });
-  expect(receipt.runtimeId).toBeUndefined();
-  expect(readFileSync(receipt.logPath, 'utf8')).toContain('1 passed');
-  expect(readFileSync(join(f.consumer, 'Cargo.lock'), 'utf8')).toBe(lock);
-});
-it('retains failed test logs and refuses source drift and configuration bypass', () => {
+cargoIt(
+  'builds the historical sibling sources with their original lockfile without emitting current verification receipts',
+  () => {
+    const f = fixture();
+    const lock = readFileSync(join(f.consumer, 'Cargo.lock'), 'utf8');
+    const result = f.execute(['test', '--offline', '--locked']);
+    expect(result.status, result.stderr + result.stdout).toBe(0);
+    const receipt = JSON.parse(readFileSync(f.receiptPath, 'utf8').trim());
+    expect(receipt).toMatchObject({
+      kind: 'historical-baseline-command-v1',
+      success: true,
+      currentRuntimeVerification: false,
+      enforcedLocked: true,
+    });
+    expect(receipt.runtimeId).toBeUndefined();
+    expect(readFileSync(receipt.logPath, 'utf8')).toContain('1 passed');
+    expect(readFileSync(join(f.consumer, 'Cargo.lock'), 'utf8')).toBe(lock);
+  },
+);
+cargoIt('retains failed test logs and refuses source drift and configuration bypass', () => {
   const f = fixture(true);
   expect(f.execute(['test', '--offline']).status).toBe(1);
   const receipt = JSON.parse(readFileSync(f.receiptPath, 'utf8').trim());
@@ -95,7 +102,7 @@ it('retains failed test logs and refuses source drift and configuration bypass',
   );
 });
 
-it('rejects historical path dependencies outside the controller supplied source roots', () => {
+cargoIt('rejects historical path dependencies outside the controller supplied source roots', () => {
   const f = fixture(false, false);
   const result = f.execute(['test', '--offline']);
   expect(result.status).toBe(1);

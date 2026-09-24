@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { workCycleResponseSchema } from '@craftingtable/contracts';
 import type { ExecutionScope, WorkCycle } from '@craftingtable/domain';
 import { openCraftingTableStorage } from '@craftingtable/storage';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, } from 'vitest';
 import { latestReviewReport } from './services/run-handoff.js';
 
 /* -------------------------------------------------------------------------- */
@@ -16,6 +16,7 @@ import {
   currentCycle,
   git,
   implementationDone,
+  itNeedsCargo,
   merge,
   mutationHeaders,
   recordScope,
@@ -31,7 +32,7 @@ import {
 
 afterEach(cleanupExecutionFixtures);
 
-it.each([false, true])(
+itNeedsCargo.each([false, true])(
   'delegates independent findings into an editable slice and enforces every source ID (omitted: %s)',
   {
     timeout: 40000,

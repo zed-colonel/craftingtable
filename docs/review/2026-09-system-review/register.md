@@ -863,6 +863,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Screenshots.** The 35 unasserted gate screenshots are gone. The 14 full-page ones assert nothing and are removed. The 21 element screenshots also implied that the element was visible; they became `await expect(element).toBeVisible()`, which retries instead of failing when a panel re-renders. That was the package-imports amendment-panel flake ("Element is not attached to the DOM"). The 3 s roadmap poll that remounted the panel is already gone; panels refresh from workspace events, with a 15 s safety check. The walkthrough stays the only capture mechanism.
   - **Helpers.** `e2e/support.ts` now holds the admin sign-in (`submitSignIn`, `signIn`) and the fixture `git()` helper. They were copied into 10 specs (sign-in) and 5 specs (`git`). Each spec keeps its own wait after signing in.
   - **Verified.** `pnpm test:e2e`: 22 passed, plus the walkthrough rehearsal.
+- **Amended 2026-09-24: host tools and in-repo fixtures (QA-08).**
+  - **Host paths.** Tests no longer name `/usr/bin/git` or `~/.cargo/bin/cargo`. They resolve Git and Cargo the way the daemon does: on PATH, then rustup's default directory for Cargo. The server tests use the production `resolveExecutable` (`HOST_GIT`, `HOST_CARGO` in `execution-test-support.ts`); the agents package uses `host-tools-test-support.ts`.
+  - **Cargo tests.** Tests that build real crates, or that exercise the pinned build path (which the daemon refuses without Cargo), run through `itNeedsCargo`, or `cargoIt` in the agents package. They run wherever Cargo is installed and are skipped elsewhere:
+    - 7 in the agents package;
+    - 44 cases across 29 declarations in the execution tests.
+  - **Verified without Rust.** With PATH stripped of Cargo and HOME pointed at an empty directory, `pnpm test` gives 1,293 passed, 51 skipped, 0 failed. On this workstation it gives 1,344 passed, 0 skipped.
+  - **In-repo fixtures.** The Git package's fixture root moved from the checkout to `os.tmpdir()`, and the obsolete `.gitignore` entry is removed.
+  - **Leaked fixture.** `.ct04a-git-test-iJlU8M/`, from 2026-09-09, had been committed by accident in c0ccf3b and is removed. Its nested `.git` was broken, so `git log` inside it printed CraftingTable's own history. That is the hazard the finding describes.
 
 ### R-I6
 

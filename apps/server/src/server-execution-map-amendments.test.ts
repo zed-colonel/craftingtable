@@ -9,6 +9,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
+  itNeedsCargo,
   mutationHeaders,
   roadmapControl,
   roadmapId,
@@ -149,249 +150,265 @@ it('rebinds a reviewed replacement without carrying adoption or evidence and ret
   expect(storage.runtimeEvidence.generations(ws, id, 1)).toHaveLength(0);
 });
 
-it('keeps live runs in their original context and retires idle attempts only after explicit amendment approval', {
-  timeout: 15000,
-}, async () => {
-  const f = await supervisedMapFixture(true),
-    { state } = f,
-    ws = state.workspaceId,
-    storage = state.context.storage,
-    service = state.context.services.mapAmendmentService;
-  f.service.save(f.auth, ws, {
-    ...f.input,
-    configuration: {
-      ...f.input.configuration,
-      defaults: { ...f.input.configuration.defaults, instructions: 'DEFER-TURNS' },
-    },
-  });
-  await adoptSupervisedMap(f);
-  await roadmapControl(state, 'start');
-  await waitFor(
-    () =>
-      storage.execution.cycles
-        .listForWorkspace(ws)
-        .some((c) => storage.execution.runs.find(ws, c.currentRunId)?.status === 'running'),
-    'live cycle',
-  );
-  const cycle = storage.execution.cycles.listForWorkspace(ws)[0]!,
-    run = storage.execution.runs.find(ws, cycle.currentRunId)!;
-  const original = storage.imports.definition(ws, f.parentScope.definitionId)!,
-    binding = storage.imports.bindings(ws, original.id)[0]!,
-    id = randomUUID();
-  storage.imports.addDefinition({
-    ...original,
-    id,
-    revision: 'replacement-live',
-    source: { ...original.source, revision: 'replacement-live' },
-  });
-  storage.imports.addBindings({ ...binding, definitionId: id });
-  const proposed = await service.propose(f.auth, ws, roadmapId, {
-    expectedVersion: storedRoadmap(state).version,
-    candidate: {
-      definitionId: id,
-      bindingRevision: 1,
-      targetId: 'LOCAL',
-      selection: 'target-only',
-    },
-    summary: 'Explicit scope replacement after the current session.',
-  });
-  expect(proposed.pendingImpact!.blockers.join(' ')).toContain(run.id);
-  expect(storage.execution.runs.find(ws, run.id)?.brief).toBe(run.brief);
-  expect(storage.execution.cycles.find(ws, cycle.id)?.status).toBe('paused');
-  const request = {
-    amendmentId: proposed.history[0]!.id,
-    outcome: 'apply' as const,
-    impactDigest: proposed.pendingImpact!.digest,
-    rationale: 'Retain original context as history.',
-    reuseIntegrationIds: [],
-  };
-  await expect(service.decide(f.auth, ws, roadmapId, request)).rejects.toThrow(/Wait for/);
-  const cancel = await state.context.app.inject({
-    method: 'POST',
-    url: `/api/workspaces/${ws}/runs/${run.id}/cancel`,
-    headers: mutationHeaders(state),
-    payload: {},
-  });
-  expect(cancel.statusCode, cancel.body).toBe(200);
-  await waitFor(
-    () => storage.execution.runs.find(ws, run.id)?.status === 'cancelled',
-    'cancel complete',
-  );
-  const current = service.view(f.auth, ws, roadmapId);
-  expect(current.pendingImpact!.blockers).toEqual([]);
-  await service.decide(f.auth, ws, roadmapId, {
-    ...request,
-    impactDigest: current.pendingImpact!.digest,
-  });
-  expect(storage.execution.worktrees.find(ws, cycle.worktreeId)?.status).toBe('active');
-  expect(storage.amendments.retired(ws, cycle.worktreeId)).toBe(true);
-  expect(storage.execution.cycles.find(ws, cycle.id)?.status).toBe('stopped');
-  expect(storedRoadmap(state).attempts).toHaveLength(0);
-  expect(
-    service.view(f.auth, ws, roadmapId).history[0]?.decision?.previous.attempts[0]?.cycleId,
-  ).toBe(cycle.id);
-  await expect(
-    state.context.services.workCycleService.control(
-      f.auth,
-      ws,
-      cycle.id,
-      'resume',
-      storage.execution.cycles.find(ws, cycle.id)!.version,
-    ),
-  ).rejects.toThrow();
-  const reopened = openCraftingTableStorage(state.context.config.databasePath);
-  try {
-    expect(reopened.amendments.retired(ws, cycle.worktreeId)).toBe(true);
-    expect(reopened.amendments.list(ws)[0]?.decision?.outcome).toBe('applied');
-  } finally {
-    reopened.close();
-  }
-});
-it('reconciles stale reviews on the same binding while retaining integrated code and requiring independent acceptance again', {
-  timeout: 25000,
-}, async () => {
-  const f = await supervisedMapFixture(),
-    { state } = f,
-    ws = state.workspaceId,
-    storage = state.context.storage;
-  f.service.save(f.auth, ws, f.input);
-  await adoptSupervisedMap(f);
-  await roadmapControl(state, 'start');
-  await waitFor(
-    () => storage.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
-    'original acceptance',
-    15000,
-  );
-  await roadmapControl(state, 'pause');
-  const old = storedRoadmap(state),
-    runtime = f.runtime.current!;
-  await state.context.services.runtimeEvidenceService.configure(
-    f.auth,
-    ws,
-    f.parentScope.definitionId,
-    {
-      bindingRevision: 1,
-      expectedGeneration: runtime.generation,
-      pins: [],
-      consumers: runtime.consumers.map((c) => ({ ...c, upstreams: [...c.upstreams] })),
-      environments: runtime.environments.map((e) => ({ ...e, fixtureDigest: 'f'.repeat(64) })),
-    },
-  );
-  expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(false);
-  const service = state.context.services.mapAmendmentService,
-    proposed = await service.propose(f.auth, ws, roadmapId, {
+itNeedsCargo(
+  'keeps live runs in their original context and retires idle attempts only after explicit amendment approval',
+  {
+    timeout: 15000,
+  },
+  async () => {
+    const f = await supervisedMapFixture(true),
+      { state } = f,
+      ws = state.workspaceId,
+      storage = state.context.storage,
+      service = state.context.services.mapAmendmentService;
+    f.service.save(f.auth, ws, {
+      ...f.input,
+      configuration: {
+        ...f.input.configuration,
+        defaults: { ...f.input.configuration.defaults, instructions: 'DEFER-TURNS' },
+      },
+    });
+    await adoptSupervisedMap(f);
+    await roadmapControl(state, 'start');
+    await waitFor(
+      () =>
+        storage.execution.cycles
+          .listForWorkspace(ws)
+          .some((c) => storage.execution.runs.find(ws, c.currentRunId)?.status === 'running'),
+      'live cycle',
+    );
+    const cycle = storage.execution.cycles.listForWorkspace(ws)[0]!,
+      run = storage.execution.runs.find(ws, cycle.currentRunId)!;
+    const original = storage.imports.definition(ws, f.parentScope.definitionId)!,
+      binding = storage.imports.bindings(ws, original.id)[0]!,
+      id = randomUUID();
+    storage.imports.addDefinition({
+      ...original,
+      id,
+      revision: 'replacement-live',
+      source: { ...original.source, revision: 'replacement-live' },
+    });
+    storage.imports.addBindings({ ...binding, definitionId: id });
+    const proposed = await service.propose(f.auth, ws, roadmapId, {
       expectedVersion: storedRoadmap(state).version,
       candidate: {
-        definitionId: f.parentScope.definitionId,
+        definitionId: id,
         bindingRevision: 1,
         targetId: 'LOCAL',
         selection: 'target-only',
       },
-      summary: 'Fresh acceptance under revised dependency environment.',
+      summary: 'Explicit scope replacement after the current session.',
     });
-  expect(proposed.pendingImpact!.attempts.filter((a) => a.disposition === 'retain')).toHaveLength(
-    2,
-  );
-  expect(proposed.pendingImpact!.attempts.filter((a) => a.disposition === 'retire')).toHaveLength(
-    3,
-  );
-  await service.decide(f.auth, ws, roadmapId, {
-    amendmentId: proposed.history[0]!.id,
-    outcome: 'apply',
-    impactDigest: proposed.pendingImpact!.digest,
-    rationale: 'Require fresh independent verification; retain integration.',
-    reuseIntegrationIds: [],
-  });
-  await roadmapControl(state, 'resume');
-  await waitFor(
-    () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
-    'fresh parent acceptance',
-    15000,
-  );
-  expect(
-    storage.scopeReceipts
-      .list(ws, state.workItemId)
-      .filter((r) => r.scope.kind === 'parent-acceptance'),
-  ).toHaveLength(2);
-  expect(
-    storedRoadmap(state).attempts.filter((a) => old.attempts.some((prior) => prior.id === a.id)),
-  ).toHaveLength(2);
-});
-
-it('queues affected completed scope reviews across restart and resumes them without repeating implementation', {
-  timeout: 30000,
-}, async () => {
-  const f = await supervisedMapFixture();
-  const { state } = f,
-    ws = state.workspaceId,
-    tx = state.context.storage;
-  const svc = state.context.services.runtimeEvidenceService,
-    id = f.parentScope.definitionId;
-  f.service.save(f.auth, ws, f.input);
-  await adoptSupervisedMap(f);
-  await roadmapControl(state, 'start');
-  await waitFor(
-    () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
-    'original parent acceptance',
-    15000,
-  );
-  await roadmapControl(state, 'pause');
-  const before = storedRoadmap(state),
-    generation = f.runtime.current!;
-  const sourceRuns = state.context.storage.execution.runs
-    .listRecent(ws, 500)
-    .filter((r) => r.role === 'implement')
-    .map((r) => r.id);
-  const receipts = tx.scopeReceipts.list(ws, state.workItemId);
-  const identical = {
-    bindingRevision: 1,
-    expectedGeneration: 1,
-    pins: [],
-    consumers: [{ alias: 'local', upstreams: [] }],
-    environments: [...generation.environments],
-  };
-  await svc.configure(f.auth, ws, id, identical);
-  expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(true);
-  expect(tx.scopeReceipts.list(ws, state.workItemId)).toEqual(receipts);
-  expect(storedRoadmap(state).attempts.some((a) => a.dependencyRefresh)).toBe(false);
-  await svc.configure(f.auth, ws, id, {
-    ...identical,
-    expectedGeneration: 2,
-    environments: generation.environments.map((e) => ({ ...e, fixtureDigest: 'f'.repeat(64) })),
-  });
-  expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(false);
-  expect(storedRoadmap(state).status).toBe('paused');
-  expect(storedRoadmap(state).attempts.filter((a) => a.dependencyRefresh)).toHaveLength(3);
-  state.context.services.workCycleService.recoverInterrupted();
-  state.context.services.roadmapService.recoverInterrupted();
-  const reopened = openCraftingTableStorage(tx.databasePath);
-  try {
+    expect(proposed.pendingImpact!.blockers.join(' ')).toContain(run.id);
+    expect(storage.execution.runs.find(ws, run.id)?.brief).toBe(run.brief);
+    expect(storage.execution.cycles.find(ws, cycle.id)?.status).toBe('paused');
+    const request = {
+      amendmentId: proposed.history[0]!.id,
+      outcome: 'apply' as const,
+      impactDigest: proposed.pendingImpact!.digest,
+      rationale: 'Retain original context as history.',
+      reuseIntegrationIds: [],
+    };
+    await expect(service.decide(f.auth, ws, roadmapId, request)).rejects.toThrow(/Wait for/);
+    const cancel = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/runs/${run.id}/cancel`,
+      headers: mutationHeaders(state),
+      payload: {},
+    });
+    expect(cancel.statusCode, cancel.body).toBe(200);
+    await waitFor(
+      () => storage.execution.runs.find(ws, run.id)?.status === 'cancelled',
+      'cancel complete',
+    );
+    const current = service.view(f.auth, ws, roadmapId);
+    expect(current.pendingImpact!.blockers).toEqual([]);
+    await service.decide(f.auth, ws, roadmapId, {
+      ...request,
+      impactDigest: current.pendingImpact!.digest,
+    });
+    expect(storage.execution.worktrees.find(ws, cycle.worktreeId)?.status).toBe('active');
+    expect(storage.amendments.retired(ws, cycle.worktreeId)).toBe(true);
+    expect(storage.execution.cycles.find(ws, cycle.id)?.status).toBe('stopped');
+    expect(storedRoadmap(state).attempts).toHaveLength(0);
     expect(
-      reopened.roadmaps.find(ws, roadmapId)?.attempts.filter((a) => a.dependencyRefresh),
-    ).toHaveLength(3);
-  } finally {
-    reopened.close();
-  }
-  await roadmapControl(state, 'resume');
-  await waitFor(
-    () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
-    'refreshed parent acceptance',
-    15000,
-  );
-  expect(storedRoadmap(state).attempts.map((a) => a.id)).toEqual(before.attempts.map((a) => a.id));
-  expect(storedRoadmap(state).attempts.some((a) => a.dependencyRefresh)).toBe(false);
-  expect(
-    tx.execution.runs
+      service.view(f.auth, ws, roadmapId).history[0]?.decision?.previous.attempts[0]?.cycleId,
+    ).toBe(cycle.id);
+    await expect(
+      state.context.services.workCycleService.control(
+        f.auth,
+        ws,
+        cycle.id,
+        'resume',
+        storage.execution.cycles.find(ws, cycle.id)!.version,
+      ),
+    ).rejects.toThrow();
+    const reopened = openCraftingTableStorage(state.context.config.databasePath);
+    try {
+      expect(reopened.amendments.retired(ws, cycle.worktreeId)).toBe(true);
+      expect(reopened.amendments.list(ws)[0]?.decision?.outcome).toBe('applied');
+    } finally {
+      reopened.close();
+    }
+  },
+);
+itNeedsCargo(
+  'reconciles stale reviews on the same binding while retaining integrated code and requiring independent acceptance again',
+  {
+    timeout: 25000,
+  },
+  async () => {
+    const f = await supervisedMapFixture(),
+      { state } = f,
+      ws = state.workspaceId,
+      storage = state.context.storage;
+    f.service.save(f.auth, ws, f.input);
+    await adoptSupervisedMap(f);
+    await roadmapControl(state, 'start');
+    await waitFor(
+      () => storage.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
+      'original acceptance',
+      15000,
+    );
+    await roadmapControl(state, 'pause');
+    const old = storedRoadmap(state),
+      runtime = f.runtime.current!;
+    await state.context.services.runtimeEvidenceService.configure(
+      f.auth,
+      ws,
+      f.parentScope.definitionId,
+      {
+        bindingRevision: 1,
+        expectedGeneration: runtime.generation,
+        pins: [],
+        consumers: runtime.consumers.map((c) => ({ ...c, upstreams: [...c.upstreams] })),
+        environments: runtime.environments.map((e) => ({ ...e, fixtureDigest: 'f'.repeat(64) })),
+      },
+    );
+    expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(false);
+    const service = state.context.services.mapAmendmentService,
+      proposed = await service.propose(f.auth, ws, roadmapId, {
+        expectedVersion: storedRoadmap(state).version,
+        candidate: {
+          definitionId: f.parentScope.definitionId,
+          bindingRevision: 1,
+          targetId: 'LOCAL',
+          selection: 'target-only',
+        },
+        summary: 'Fresh acceptance under revised dependency environment.',
+      });
+    expect(proposed.pendingImpact!.attempts.filter((a) => a.disposition === 'retain')).toHaveLength(
+      2,
+    );
+    expect(proposed.pendingImpact!.attempts.filter((a) => a.disposition === 'retire')).toHaveLength(
+      3,
+    );
+    await service.decide(f.auth, ws, roadmapId, {
+      amendmentId: proposed.history[0]!.id,
+      outcome: 'apply',
+      impactDigest: proposed.pendingImpact!.digest,
+      rationale: 'Require fresh independent verification; retain integration.',
+      reuseIntegrationIds: [],
+    });
+    await roadmapControl(state, 'resume');
+    await waitFor(
+      () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
+      'fresh parent acceptance',
+      15000,
+    );
+    expect(
+      storage.scopeReceipts
+        .list(ws, state.workItemId)
+        .filter((r) => r.scope.kind === 'parent-acceptance'),
+    ).toHaveLength(2);
+    expect(
+      storedRoadmap(state).attempts.filter((a) => old.attempts.some((prior) => prior.id === a.id)),
+    ).toHaveLength(2);
+  },
+);
+
+itNeedsCargo(
+  'queues affected completed scope reviews across restart and resumes them without repeating implementation',
+  {
+    timeout: 30000,
+  },
+  async () => {
+    const f = await supervisedMapFixture();
+    const { state } = f,
+      ws = state.workspaceId,
+      tx = state.context.storage;
+    const svc = state.context.services.runtimeEvidenceService,
+      id = f.parentScope.definitionId;
+    f.service.save(f.auth, ws, f.input);
+    await adoptSupervisedMap(f);
+    await roadmapControl(state, 'start');
+    await waitFor(
+      () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
+      'original parent acceptance',
+      15000,
+    );
+    await roadmapControl(state, 'pause');
+    const before = storedRoadmap(state),
+      generation = f.runtime.current!;
+    const sourceRuns = state.context.storage.execution.runs
       .listRecent(ws, 500)
       .filter((r) => r.role === 'implement')
-      .map((r) => r.id),
-  ).toEqual(sourceRuns);
-  expect(
-    tx.scopeReceipts.list(ws, state.workItemId).filter((r) => r.scope.kind === 'parent-acceptance'),
-  ).toHaveLength(2);
-});
+      .map((r) => r.id);
+    const receipts = tx.scopeReceipts.list(ws, state.workItemId);
+    const identical = {
+      bindingRevision: 1,
+      expectedGeneration: 1,
+      pins: [],
+      consumers: [{ alias: 'local', upstreams: [] }],
+      environments: [...generation.environments],
+    };
+    await svc.configure(f.auth, ws, id, identical);
+    expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(true);
+    expect(tx.scopeReceipts.list(ws, state.workItemId)).toEqual(receipts);
+    expect(storedRoadmap(state).attempts.some((a) => a.dependencyRefresh)).toBe(false);
+    await svc.configure(f.auth, ws, id, {
+      ...identical,
+      expectedGeneration: 2,
+      environments: generation.environments.map((e) => ({ ...e, fixtureDigest: 'f'.repeat(64) })),
+    });
+    expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(false);
+    expect(storedRoadmap(state).status).toBe('paused');
+    expect(storedRoadmap(state).attempts.filter((a) => a.dependencyRefresh)).toHaveLength(3);
+    state.context.services.workCycleService.recoverInterrupted();
+    state.context.services.roadmapService.recoverInterrupted();
+    const reopened = openCraftingTableStorage(tx.databasePath);
+    try {
+      expect(
+        reopened.roadmaps.find(ws, roadmapId)?.attempts.filter((a) => a.dependencyRefresh),
+      ).toHaveLength(3);
+    } finally {
+      reopened.close();
+    }
+    await roadmapControl(state, 'resume');
+    await waitFor(
+      () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
+      'refreshed parent acceptance',
+      15000,
+    );
+    expect(storedRoadmap(state).attempts.map((a) => a.id)).toEqual(
+      before.attempts.map((a) => a.id),
+    );
+    expect(storedRoadmap(state).attempts.some((a) => a.dependencyRefresh)).toBe(false);
+    expect(
+      tx.execution.runs
+        .listRecent(ws, 500)
+        .filter((r) => r.role === 'implement')
+        .map((r) => r.id),
+    ).toEqual(sourceRuns);
+    expect(
+      tx.scopeReceipts
+        .list(ws, state.workItemId)
+        .filter((r) => r.scope.kind === 'parent-acceptance'),
+    ).toHaveLength(2);
+  },
+);
 
-it.each(['manual', 'roadmap'] as const)(
+itNeedsCargo.each(['manual', 'roadmap'] as const)(
   'recovers an unstarted parent review through %s without losing its assignment',
   { timeout: 30000 },
   async (mode) => {

@@ -9,6 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 
 export const FIXTURE_GIT_ENVIRONMENT = Object.freeze({
@@ -69,7 +70,8 @@ export interface RepositoryFixture {
 }
 
 export function createRepositoryFixture(name = 'repository'): RepositoryFixture {
-  const root = realpathSync(mkdtempSync(join(process.cwd(), '.git-operations-test-')));
+  // Outside any repository, so a failed `git init` can never reach CraftingTable's own (QA-08).
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'craftingtable-git-operations-test-')));
   const sourceRoot = join(root, 'sources');
   const repository = join(sourceRoot, name);
   mkdirSync(sourceRoot);

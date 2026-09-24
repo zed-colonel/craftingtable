@@ -16,6 +16,9 @@ import {
   commitFile,
   fixtureRepository,
   git,
+  HOST_CARGO,
+  HOST_GIT,
+  itNeedsCargo,
   merge,
   mutationHeaders,
   runToFinish,
@@ -95,7 +98,7 @@ async function checkpointCandidateFixture() {
   f.backend.replyForRequest = (request) => {
     execFileSync(
       join(request.buildEnvironment!.binDirectory, 'ct-check'),
-      ['--', '/usr/bin/git', 'diff', '--check', 'HEAD'],
+      ['--', HOST_GIT, 'diff', '--check', 'HEAD'],
       { cwd: request.cwd },
     );
     return {
@@ -111,76 +114,79 @@ async function checkpointCandidateFixture() {
   const base = `/api/workspaces/${f.state.workspaceId}/concurrency-definitions/${f.parentScope.definitionId}/runtime`;
   return { ...f, svc, tree, run, base, config };
 }
-it('prepares candidate checkpoint evidence, retains later slice cases and permits only its reviewed merge', async () => {
-  const f = await checkpointCandidateFixture(),
-    ws = f.state.workspaceId,
-    id = f.parentScope.definitionId;
-  const { acceptedEvidence } = await import('./services/runtime-evidence-policy.js');
-  const { checkpointRecoverySchema } = await import('@craftingtable/contracts');
-  const tx = f.state.context.storage;
-  expect((await merge(f.state, f.tree.id)).statusCode).toBe(409);
-  const previewResponse = await f.state.context.app.inject({
-    method: 'GET',
-    url: `${f.base}/checkpoint-recovery/${f.tree.id}`,
-    headers: { cookie: f.state.cookie },
-  });
-  expect(previewResponse.statusCode, previewResponse.body).toBe(200);
-  const preview = checkpointRecoverySchema.parse(previewResponse.json()).candidates[0]!;
-  expect(preview.issues).toEqual([]);
-  expect(preview.cases.map((c) => c.id)).toEqual(['BASE-A']);
-  expect(preview.laterCases).toEqual([{ id: 'BASE-B', sliceId: 'AQ-01.B' }]);
-  const input = {
-    worktreeId: f.tree.id,
-    checkpointId: 'CORE-G1',
-    snapshotDigest: preview.snapshotDigest,
-  };
-  expect(
-    (
-      await f.state.context.app.inject({
-        method: 'POST',
-        url: `${f.base}/prepare-checkpoint`,
-        headers: { cookie: f.state.cookie },
-        payload: input,
-      })
-    ).statusCode,
-  ).toBe(403);
-  const prepared = await f.svc.prepareCheckpoint(f.auth, ws, id, input);
-  const submission = prepared.candidates[0]!.submission!;
-  expect(submission.candidateCheckpoint?.headSha).toBe(
-    git(['rev-parse', 'HEAD'], f.tree.path).trim(),
-  );
-  expect(submission.reviewers).toEqual([]);
-  expect(tx.runtimeEvidence.decisions(ws)).toHaveLength(0);
-  const acceptance = {
-    submissionId: submission.id,
-    outcome: 'accepted' as const,
-    rationale: 'Reviewed the saved tests and core obligations.',
-  };
-  await expect(f.svc.decide(f.auth, ws, id, acceptance)).rejects.toThrow(
-    'every required reviewer responsibility',
-  );
-  await f.svc.decide(f.auth, ws, id, {
-    ...acceptance,
-    checkpointReviewRoles: preview.reviewerRoles,
-  });
-  const subject = { kind: 'checkpoint' as const, sourceId: 'CORE-G1' };
-  expect(acceptedEvidence(tx, ws, id, 1, subject)).toBeUndefined();
-  expect(acceptedEvidence(tx, ws, id, 1, subject, new Set(), f.scopes[0])).toBeDefined();
-  expect(acceptedEvidence(tx, ws, id, 1, subject, new Set(), f.scopes[1])).toBeUndefined();
-  const landed = await merge(f.state, f.tree.id);
-  expect(landed.statusCode, landed.body).toBe(200);
-  expect(acceptedEvidence(tx, ws, id, 1, subject)).toBeDefined();
-  await expect(f.svc.assertSubjectsCurrent(ws, id, 1, [subject])).resolves.toBeUndefined();
-  expect(tx.scopeReceipts.list(ws, f.state.workItemId)).toHaveLength(0);
-  expect(tx.planning.workItems.find(ws, f.state.workItemId)?.status).toBe('admitted');
-  const resolvedB = resolveScope(tx, ws, f.state.workItemId, f.scopes[1]!);
-  expect(scopeCases(resolvedB)).toContain('BASE-B');
-  commitFile(f.root, 'later-integration.txt', 'a changed integration candidate');
-  await expect(f.svc.assertSubjectsCurrent(ws, id, 1, [subject])).rejects.toThrow(
-    'Integration changed',
-  );
-});
-it.each(['candidate', 'integration', 'dirty', 'run', 'runtime'] as const)(
+itNeedsCargo(
+  'prepares candidate checkpoint evidence, retains later slice cases and permits only its reviewed merge',
+  async () => {
+    const f = await checkpointCandidateFixture(),
+      ws = f.state.workspaceId,
+      id = f.parentScope.definitionId;
+    const { acceptedEvidence } = await import('./services/runtime-evidence-policy.js');
+    const { checkpointRecoverySchema } = await import('@craftingtable/contracts');
+    const tx = f.state.context.storage;
+    expect((await merge(f.state, f.tree.id)).statusCode).toBe(409);
+    const previewResponse = await f.state.context.app.inject({
+      method: 'GET',
+      url: `${f.base}/checkpoint-recovery/${f.tree.id}`,
+      headers: { cookie: f.state.cookie },
+    });
+    expect(previewResponse.statusCode, previewResponse.body).toBe(200);
+    const preview = checkpointRecoverySchema.parse(previewResponse.json()).candidates[0]!;
+    expect(preview.issues).toEqual([]);
+    expect(preview.cases.map((c) => c.id)).toEqual(['BASE-A']);
+    expect(preview.laterCases).toEqual([{ id: 'BASE-B', sliceId: 'AQ-01.B' }]);
+    const input = {
+      worktreeId: f.tree.id,
+      checkpointId: 'CORE-G1',
+      snapshotDigest: preview.snapshotDigest,
+    };
+    expect(
+      (
+        await f.state.context.app.inject({
+          method: 'POST',
+          url: `${f.base}/prepare-checkpoint`,
+          headers: { cookie: f.state.cookie },
+          payload: input,
+        })
+      ).statusCode,
+    ).toBe(403);
+    const prepared = await f.svc.prepareCheckpoint(f.auth, ws, id, input);
+    const submission = prepared.candidates[0]!.submission!;
+    expect(submission.candidateCheckpoint?.headSha).toBe(
+      git(['rev-parse', 'HEAD'], f.tree.path).trim(),
+    );
+    expect(submission.reviewers).toEqual([]);
+    expect(tx.runtimeEvidence.decisions(ws)).toHaveLength(0);
+    const acceptance = {
+      submissionId: submission.id,
+      outcome: 'accepted' as const,
+      rationale: 'Reviewed the saved tests and core obligations.',
+    };
+    await expect(f.svc.decide(f.auth, ws, id, acceptance)).rejects.toThrow(
+      'every required reviewer responsibility',
+    );
+    await f.svc.decide(f.auth, ws, id, {
+      ...acceptance,
+      checkpointReviewRoles: preview.reviewerRoles,
+    });
+    const subject = { kind: 'checkpoint' as const, sourceId: 'CORE-G1' };
+    expect(acceptedEvidence(tx, ws, id, 1, subject)).toBeUndefined();
+    expect(acceptedEvidence(tx, ws, id, 1, subject, new Set(), f.scopes[0])).toBeDefined();
+    expect(acceptedEvidence(tx, ws, id, 1, subject, new Set(), f.scopes[1])).toBeUndefined();
+    const landed = await merge(f.state, f.tree.id);
+    expect(landed.statusCode, landed.body).toBe(200);
+    expect(acceptedEvidence(tx, ws, id, 1, subject)).toBeDefined();
+    await expect(f.svc.assertSubjectsCurrent(ws, id, 1, [subject])).resolves.toBeUndefined();
+    expect(tx.scopeReceipts.list(ws, f.state.workItemId)).toHaveLength(0);
+    expect(tx.planning.workItems.find(ws, f.state.workItemId)?.status).toBe('admitted');
+    const resolvedB = resolveScope(tx, ws, f.state.workItemId, f.scopes[1]!);
+    expect(scopeCases(resolvedB)).toContain('BASE-B');
+    commitFile(f.root, 'later-integration.txt', 'a changed integration candidate');
+    await expect(f.svc.assertSubjectsCurrent(ws, id, 1, [subject])).rejects.toThrow(
+      'Integration changed',
+    );
+  },
+);
+itNeedsCargo.each(['candidate', 'integration', 'dirty', 'run', 'runtime'] as const)(
   'rejects checkpoint acceptance after %s drift',
   async (change) => {
     const f = await checkpointCandidateFixture(),
@@ -282,7 +288,7 @@ async function evidenceFixture(checkpointOwner = 'local') {
   };
   const view = await svc.configure(f.auth, f.state.workspaceId, definitionId, input);
   const spec = view.subjects.find((s) => s.subject.sourceId === 'LOCAL-QUALIFIED')!;
-  const head = execFileSync('/usr/bin/git', ['rev-parse', 'HEAD'], {
+  const head = execFileSync(HOST_GIT, ['rev-parse', 'HEAD'], {
     cwd: f.root,
     encoding: 'utf8',
   }).trim();
@@ -389,7 +395,7 @@ it('checks actual Git freshness at evidence review and keeps decisions immutable
   const submitted = await f.svc.submit(f.auth, ws, f.definitionId, f.submission);
   const s = submitted.submissions[0]!.submission;
   execFileSync(
-    '/usr/bin/git',
+    HOST_GIT,
     [
       '-c',
       'user.name=T',
@@ -620,7 +626,8 @@ it('protects runtime routes with workspace authorization and mutation CSRF', asy
   expect(bad.statusCode, bad.body).toBe(400);
 });
 
-it.each(['integration', 'implementation'] as const)(
+// Builds a real crate: a host without Cargo skips it (R-I5, QA-08).
+it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as const)(
   'supplies isolated %s verification and freezes generation-bound review provenance',
   async (mode) => {
     const f = await slicedFixture((source) => ({
@@ -649,7 +656,7 @@ it.each(['integration', 'implementation'] as const)(
       join(f.root, 'lib.rs'),
       '#[test] fn pin(){assert_eq!(ct_runtime_provider::value(),42);}\n',
     );
-    const cargo = join(process.env.HOME!, '.cargo/bin/cargo');
+    const cargo = HOST_CARGO as string;
     execFileSync(
       cargo,
       [

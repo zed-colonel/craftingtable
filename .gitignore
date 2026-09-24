@@ -23,9 +23,6 @@ tmp/
 *.sqlite-wal
 *.sqlite-shm
 
-# Git package test scratch
-.git-operations-test-*/
-
 # Editor and OS files
 .DS_Store
 .idea/

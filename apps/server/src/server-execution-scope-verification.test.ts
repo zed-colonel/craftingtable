@@ -18,6 +18,7 @@ import {
   cycleProfiles,
   git,
   implementationDone,
+  itNeedsCargo,
   launchScoped,
   merge,
   mergeRoadmapAttempt,
@@ -135,256 +136,264 @@ it('recovers parent review with durable guidance only after current verification
   ).toBe('admitted');
 });
 
-it('repeats completed verification in its existing worktree with the assigned roadmap reviewer', {
-  timeout: 20000,
-}, async () => {
-  const f = await supervisedMapFixture(false, 'manual'),
-    { state } = f,
-    ws = state.workspaceId;
-  f.service.save(f.auth, ws, f.input);
-  await adoptSupervisedMap(f);
-  await roadmapControl(state, 'start');
-  await waitFor(
-    () =>
-      state.context.storage.execution.cycles
-        .listForWorkspace(ws)
-        .some(
-          (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
-        ),
-    'parent review ready',
-    15000,
-  );
-  await roadmapControl(state, 'pause');
-  const cycle = state.context.storage.execution.cycles
-    .listForWorkspace(ws)
-    .find((c) => c.executionScope?.kind === 'slice-verification' && c.status === 'completed')!;
-  expect(cycle).toBeDefined();
-  const tree = state.context.storage.execution.worktrees.find(ws, cycle.worktreeId)!;
-  const receipts = state.context.storage.scopeReceipts.list(ws, state.workItemId);
-  const count = state.context.storage.execution.worktrees.listForWorkItem(
-    ws,
-    state.workItemId,
-  ).length;
-  const command = (id = cycle.id, version = cycle.version, headers = mutationHeaders(state)) =>
-    state.context.app.inject({
-      method: 'POST',
-      url: `/api/workspaces/${ws}/cycles/${id}/control`,
-      headers,
-      payload: {
-        action: 'review-again',
-        expectedVersion: version,
-        instructions: 'Use the adopted repository policy.',
+itNeedsCargo(
+  'repeats completed verification in its existing worktree with the assigned roadmap reviewer',
+  {
+    timeout: 20000,
+  },
+  async () => {
+    const f = await supervisedMapFixture(false, 'manual'),
+      { state } = f,
+      ws = state.workspaceId;
+    f.service.save(f.auth, ws, f.input);
+    await adoptSupervisedMap(f);
+    await roadmapControl(state, 'start');
+    await waitFor(
+      () =>
+        state.context.storage.execution.cycles
+          .listForWorkspace(ws)
+          .some(
+            (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
+          ),
+      'parent review ready',
+      15000,
+    );
+    await roadmapControl(state, 'pause');
+    const cycle = state.context.storage.execution.cycles
+      .listForWorkspace(ws)
+      .find((c) => c.executionScope?.kind === 'slice-verification' && c.status === 'completed')!;
+    expect(cycle).toBeDefined();
+    const tree = state.context.storage.execution.worktrees.find(ws, cycle.worktreeId)!;
+    const receipts = state.context.storage.scopeReceipts.list(ws, state.workItemId);
+    const count = state.context.storage.execution.worktrees.listForWorkItem(
+      ws,
+      state.workItemId,
+    ).length;
+    const command = (id = cycle.id, version = cycle.version, headers = mutationHeaders(state)) =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/cycles/${id}/control`,
+        headers,
+        payload: {
+          action: 'review-again',
+          expectedVersion: version,
+          instructions: 'Use the adopted repository policy.',
+        },
+      });
+    expect((await command(cycle.id, cycle.version, { cookie: state.cookie })).statusCode).toBe(403);
+    expect((await command(cycle.id, cycle.version + 1)).statusCode).toBe(409);
+    const implementation = state.context.storage.execution.cycles
+      .listForWorkspace(ws)
+      .find((c) => c.executionScope?.kind === 'slice')!;
+    expect((await command(implementation.id, implementation.version)).statusCode).toBe(409);
+    const policy = await branchCommand(state, 'plan-versions/version-1/repository-policy', {
+      expectedVersion: 0,
+      expectedBranchSettingsVersion: state.context.storage.execution.branchSettings.find(
+        ws,
+        state.context.storage.planning.workItems.find(ws, state.workItemId)!.planVersionId,
+      )!.version,
+      controlMode: 'controller-local',
+      interpretation: 'Local controller gates.',
+      publicationRequirement: 'Before remote publication.',
+    });
+    expect(policy.statusCode, policy.body).toBe(200);
+    git(['checkout', 'revision'], f.root);
+    commitFile(f.root, 'fresh-integration.txt', 'new integration evidence');
+    const head = git(['rev-parse', 'HEAD'], f.root).trim();
+    git(['checkout', 'main'], f.root);
+    writeFileSync(join(tree.path, 'operator-note.txt'), 'preserve this');
+    const dirty = await command();
+    expect(dirty.statusCode, dirty.body).toBe(409);
+    expect(readFileSync(join(tree.path, 'operator-note.txt'), 'utf8')).toBe('preserve this');
+    expect(currentCycle(state, cycle)).toEqual(cycle);
+    expect(state.context.services.workCycleService.isTransitioning(cycle.id)).toBe(false);
+    rmSync(join(tree.path, 'operator-note.txt'));
+    const branches = state.context.services.executionService.branches;
+    const changeWorktree = branches.changeWorktree.bind(branches);
+    let release!: () => void;
+    const preparation = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const delayed = vi.spyOn(branches, 'changeWorktree').mockImplementationOnce(async (...args) => {
+      await preparation;
+      return changeWorktree(...args);
+    });
+    const pending = command().then((response) => response);
+    await waitFor(
+      () => state.context.services.workCycleService.isTransitioning(cycle.id),
+      'review preparation guard',
+    );
+    expect(
+      state.context.services.workCycleService
+        .list(f.auth, ws, cycle.workItemId ? { workItemId: cycle.workItemId } : {})
+        .find((c) => c.id === cycle.id)?.scopeReviewWait,
+    ).toContain('Preparing the requested recovery');
+    const duplicate = await command();
+    expect(duplicate.statusCode, duplicate.body).toBe(409);
+    release();
+    const result = await pending;
+    delayed.mockRestore();
+    expect(state.context.services.workCycleService.isTransitioning(cycle.id)).toBe(false);
+    expect(result.statusCode, result.body).toBe(200);
+    expect(git(['rev-parse', 'HEAD'], tree.path).trim()).toBe(head);
+    const repeated = currentCycle(state, cycle);
+    expect(repeated.currentRunId).not.toBe(cycle.currentRunId);
+    expect(repeated.parentRunId).toBe(cycle.currentRunId);
+    expect(repeated.profiles).toEqual(cycle.profiles);
+    expect(repeated.remediationRounds).toBe(0);
+    expect((await command()).statusCode).toBe(409);
+    await waitFor(() => currentCycle(state, cycle).status !== 'running', 'repeated verification');
+    expect(currentCycle(state, cycle).status, currentCycle(state, cycle).reason).toBe(
+      'awaiting-merge',
+    );
+    const run = state.context.storage.execution.runs.find(ws, repeated.currentRunId)!;
+    expect(run.role).toBe('review');
+    expect(run.reviewBranchContext?.repositoryPolicyVersion).toBe(1);
+    expect(run.brief).toContain('Use the adopted repository policy.');
+    const refreshedTree = state.context.storage.execution.worktrees.find(ws, tree.id)!;
+    const recorded = await recordScope(f, refreshedTree);
+    expect(recorded.statusCode, recorded.body).toBe(200);
+    expect(state.context.storage.scopeReceipts.list(ws, state.workItemId)).toHaveLength(
+      receipts.length + 1,
+    );
+    expect(
+      state.context.storage.execution.worktrees.listForWorkItem(ws, state.workItemId),
+    ).toHaveLength(count);
+    expect(storedRoadmap(state).status).toBe('paused');
+  },
+);
+
+itNeedsCargo(
+  'recovers a verification defect, survives pause/restart, and preserves manual integration and parent approval',
+  {
+    timeout: 30000,
+  },
+  async () => {
+    const f = await supervisedMapFixture(false, 'manual', false, false, true);
+    const { state } = f,
+      ws = state.workspaceId,
+      tx = state.context.storage;
+    const normal = f.backend.replyForRequest!;
+    let verifications = 0;
+    f.backend.replyForRequest = (request) => {
+      const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
+      const scope = tree.executionScope!;
+      let findings: unknown[] | undefined;
+      if (scope.kind === 'slice-verification') {
+        runScopedFixtureCheck(request);
+        findings = [
+          {
+            ...structuredFinding,
+            ...(++verifications > 1
+              ? { status: 'resolved', disposition: 'Verified committed repair.' }
+              : {}),
+          },
+        ];
+      }
+      const packetPath = /`([^`]+\/craftingtable-scope-repair\.json)`/.exec(request.prompt)?.[1];
+      if (packetPath) {
+        if (request.model !== 'review-model') {
+          commitFile(request.cwd, 'repair.txt', 'Corrected verification finding');
+          return implementationDone;
+        }
+        runScopedFixtureCheck(request);
+        const packet = JSON.parse(readFileSync(packetPath, 'utf8'));
+        findings = packet.sources
+          .flatMap((s: { findings: (typeof structuredFinding)[] }) => s.findings)
+          .map((f: typeof structuredFinding) => ({
+            id: f.id,
+            severity: f.severity,
+            title: f.title,
+            explanation: f.explanation,
+            recommendation: f.recommendation,
+            status: 'resolved',
+            disposition: 'Verified the regression.',
+          }));
+      }
+      return findings
+        ? {
+            resultText:
+              '## Open questions\nnone\n\n## Review report\n' +
+              scopeReport(state, scope)
+                .replace('"findings":[]', `"findings":${JSON.stringify(findings)}`)
+                .replaceAll(
+                  'mergeable',
+                  scope.kind === 'slice-verification' && verifications === 1
+                    ? 'changes-requested'
+                    : 'mergeable',
+                ),
+          }
+        : normal(request);
+    };
+    f.service.save(f.auth, ws, {
+      ...f.input,
+      configuration: {
+        ...f.input.configuration,
+        defaults: {
+          ...f.input.configuration.defaults,
+          automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
+        },
       },
     });
-  expect((await command(cycle.id, cycle.version, { cookie: state.cookie })).statusCode).toBe(403);
-  expect((await command(cycle.id, cycle.version + 1)).statusCode).toBe(409);
-  const implementation = state.context.storage.execution.cycles
-    .listForWorkspace(ws)
-    .find((c) => c.executionScope?.kind === 'slice')!;
-  expect((await command(implementation.id, implementation.version)).statusCode).toBe(409);
-  const policy = await branchCommand(state, 'plan-versions/version-1/repository-policy', {
-    expectedVersion: 0,
-    expectedBranchSettingsVersion: state.context.storage.execution.branchSettings.find(
-      ws,
-      state.context.storage.planning.workItems.find(ws, state.workItemId)!.planVersionId,
-    )!.version,
-    controlMode: 'controller-local',
-    interpretation: 'Local controller gates.',
-    publicationRequirement: 'Before remote publication.',
-  });
-  expect(policy.statusCode, policy.body).toBe(200);
-  git(['checkout', 'revision'], f.root);
-  commitFile(f.root, 'fresh-integration.txt', 'new integration evidence');
-  const head = git(['rev-parse', 'HEAD'], f.root).trim();
-  git(['checkout', 'main'], f.root);
-  writeFileSync(join(tree.path, 'operator-note.txt'), 'preserve this');
-  const dirty = await command();
-  expect(dirty.statusCode, dirty.body).toBe(409);
-  expect(readFileSync(join(tree.path, 'operator-note.txt'), 'utf8')).toBe('preserve this');
-  expect(currentCycle(state, cycle)).toEqual(cycle);
-  expect(state.context.services.workCycleService.isTransitioning(cycle.id)).toBe(false);
-  rmSync(join(tree.path, 'operator-note.txt'));
-  const branches = state.context.services.executionService.branches;
-  const changeWorktree = branches.changeWorktree.bind(branches);
-  let release!: () => void;
-  const preparation = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const delayed = vi.spyOn(branches, 'changeWorktree').mockImplementationOnce(async (...args) => {
-    await preparation;
-    return changeWorktree(...args);
-  });
-  const pending = command().then((response) => response);
-  await waitFor(
-    () => state.context.services.workCycleService.isTransitioning(cycle.id),
-    'review preparation guard',
-  );
-  expect(
-    state.context.services.workCycleService
-      .list(f.auth, ws, cycle.workItemId ? { workItemId: cycle.workItemId } : {})
-      .find((c) => c.id === cycle.id)?.scopeReviewWait,
-  ).toContain('Preparing the requested recovery');
-  const duplicate = await command();
-  expect(duplicate.statusCode, duplicate.body).toBe(409);
-  release();
-  const result = await pending;
-  delayed.mockRestore();
-  expect(state.context.services.workCycleService.isTransitioning(cycle.id)).toBe(false);
-  expect(result.statusCode, result.body).toBe(200);
-  expect(git(['rev-parse', 'HEAD'], tree.path).trim()).toBe(head);
-  const repeated = currentCycle(state, cycle);
-  expect(repeated.currentRunId).not.toBe(cycle.currentRunId);
-  expect(repeated.parentRunId).toBe(cycle.currentRunId);
-  expect(repeated.profiles).toEqual(cycle.profiles);
-  expect(repeated.remediationRounds).toBe(0);
-  expect((await command()).statusCode).toBe(409);
-  await waitFor(() => currentCycle(state, cycle).status !== 'running', 'repeated verification');
-  expect(currentCycle(state, cycle).status, currentCycle(state, cycle).reason).toBe(
-    'awaiting-merge',
-  );
-  const run = state.context.storage.execution.runs.find(ws, repeated.currentRunId)!;
-  expect(run.role).toBe('review');
-  expect(run.reviewBranchContext?.repositoryPolicyVersion).toBe(1);
-  expect(run.brief).toContain('Use the adopted repository policy.');
-  const refreshedTree = state.context.storage.execution.worktrees.find(ws, tree.id)!;
-  const recorded = await recordScope(f, refreshedTree);
-  expect(recorded.statusCode, recorded.body).toBe(200);
-  expect(state.context.storage.scopeReceipts.list(ws, state.workItemId)).toHaveLength(
-    receipts.length + 1,
-  );
-  expect(
-    state.context.storage.execution.worktrees.listForWorkItem(ws, state.workItemId),
-  ).toHaveLength(count);
-  expect(storedRoadmap(state).status).toBe('paused');
-});
-
-it('recovers a verification defect, survives pause/restart, and preserves manual integration and parent approval', {
-  timeout: 30000,
-}, async () => {
-  const f = await supervisedMapFixture(false, 'manual', false, false, true);
-  const { state } = f,
-    ws = state.workspaceId,
-    tx = state.context.storage;
-  const normal = f.backend.replyForRequest!;
-  let verifications = 0;
-  f.backend.replyForRequest = (request) => {
-    const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
-    const scope = tree.executionScope!;
-    let findings: unknown[] | undefined;
-    if (scope.kind === 'slice-verification') {
-      runScopedFixtureCheck(request);
-      findings = [
-        {
-          ...structuredFinding,
-          ...(++verifications > 1
-            ? { status: 'resolved', disposition: 'Verified committed repair.' }
-            : {}),
-        },
-      ];
-    }
-    const packetPath = /`([^`]+\/craftingtable-scope-repair\.json)`/.exec(request.prompt)?.[1];
-    if (packetPath) {
-      if (request.model !== 'review-model') {
-        commitFile(request.cwd, 'repair.txt', 'Corrected verification finding');
-        return implementationDone;
-      }
-      runScopedFixtureCheck(request);
-      const packet = JSON.parse(readFileSync(packetPath, 'utf8'));
-      findings = packet.sources
-        .flatMap((s: { findings: (typeof structuredFinding)[] }) => s.findings)
-        .map((f: typeof structuredFinding) => ({
-          id: f.id,
-          severity: f.severity,
-          title: f.title,
-          explanation: f.explanation,
-          recommendation: f.recommendation,
-          status: 'resolved',
-          disposition: 'Verified the regression.',
-        }));
-    }
-    return findings
-      ? {
-          resultText:
-            '## Open questions\nnone\n\n## Review report\n' +
-            scopeReport(state, scope)
-              .replace('"findings":[]', `"findings":${JSON.stringify(findings)}`)
-              .replaceAll(
-                'mergeable',
-                scope.kind === 'slice-verification' && verifications === 1
-                  ? 'changes-requested'
-                  : 'mergeable',
-              ),
-        }
-      : normal(request);
-  };
-  f.service.save(f.auth, ws, {
-    ...f.input,
-    configuration: {
-      ...f.input.configuration,
-      defaults: {
-        ...f.input.configuration.defaults,
-        automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
-      },
-    },
-  });
-  await adoptSupervisedMap(f);
-  state.context.services.roadmapService.configureScopeRecovery(f.auth, ws, roadmapId, {
-    expectedVersion: storedRoadmap(state).version,
-    enabled: true,
-    maxRoundsPerParent: 2,
-  });
-  await roadmapControl(state, 'start');
-  const first = await awaitRoadmapMerge(state, 0);
-  await mergeRoadmapAttempt(state, first.worktreeId);
-  await waitFor(
-    () =>
-      storedRoadmap(state).attempts.some(
-        (a) => a.recovery && tx.execution.cycles.find(ws, a.cycleId)?.status === 'awaiting-merge',
-      ),
-    'manual repair integration',
-    10000,
-  );
-  const repair = storedRoadmap(state).attempts.find((a) => a.recovery)!;
-  expect(tx.execution.worktrees.find(ws, repair.worktreeId)?.mergedAt).toBeUndefined();
-  const source = tx.execution.cycles
-    .listForWorkspace(ws)
-    .find((c) => c.executionScope?.kind === 'slice-verification')!;
-  expect(
-    state.context.services.workCycleService.list(f.auth, ws).find((c) => c.id === source.id)
-      ?.scopeReviewWait,
-  ).toContain('roadmap recovery');
-  await roadmapControl(state, 'pause');
-  expect(storedRoadmap(state).attempts.filter((a) => a.recovery)).toHaveLength(1);
-  state.context.services.roadmapService.recoverInterrupted();
-  await roadmapControl(state, 'resume');
-  state.context.services.roadmapService.recoverInterrupted();
-  expect(storedRoadmap(state).status).toBe('needs-attention');
-  await state.context.services.roadmapService.tick();
-  expect(tx.execution.worktrees.find(ws, repair.worktreeId)?.mergedAt).toBeUndefined();
-  await roadmapControl(state, 'resume');
-  expect(storedRoadmap(state).attempts.filter((a) => a.recovery)).toHaveLength(1);
-  await mergeRoadmapAttempt(state, repair.worktreeId);
-  await waitFor(
-    () =>
-      tx.execution.cycles
-        .listForWorkspace(ws)
-        .some(
-          (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
+    await adoptSupervisedMap(f);
+    state.context.services.roadmapService.configureScopeRecovery(f.auth, ws, roadmapId, {
+      expectedVersion: storedRoadmap(state).version,
+      enabled: true,
+      maxRoundsPerParent: 2,
+    });
+    await roadmapControl(state, 'start');
+    const first = await awaitRoadmapMerge(state, 0);
+    await mergeRoadmapAttempt(state, first.worktreeId);
+    await waitFor(
+      () =>
+        storedRoadmap(state).attempts.some(
+          (a) => a.recovery && tx.execution.cycles.find(ws, a.cycleId)?.status === 'awaiting-merge',
         ),
-    'manual parent approval',
-    10000,
-  );
-  expect(verifications).toBe(2);
-  expect(tx.planning.workItems.find(ws, state.workItemId)?.status).not.toBe('completed');
-  const parent = tx.execution.cycles
-    .listForWorkspace(ws)
-    .find((c) => c.executionScope?.kind === 'parent-acceptance')!;
-  await recordScope(f, tx.execution.worktrees.find(ws, parent.worktreeId)!);
-  await waitFor(
-    () => tx.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
-    'explicit parent approval',
-  );
-});
+      'manual repair integration',
+      10000,
+    );
+    const repair = storedRoadmap(state).attempts.find((a) => a.recovery)!;
+    expect(tx.execution.worktrees.find(ws, repair.worktreeId)?.mergedAt).toBeUndefined();
+    const source = tx.execution.cycles
+      .listForWorkspace(ws)
+      .find((c) => c.executionScope?.kind === 'slice-verification')!;
+    expect(
+      state.context.services.workCycleService.list(f.auth, ws).find((c) => c.id === source.id)
+        ?.scopeReviewWait,
+    ).toContain('roadmap recovery');
+    await roadmapControl(state, 'pause');
+    expect(storedRoadmap(state).attempts.filter((a) => a.recovery)).toHaveLength(1);
+    state.context.services.roadmapService.recoverInterrupted();
+    await roadmapControl(state, 'resume');
+    state.context.services.roadmapService.recoverInterrupted();
+    expect(storedRoadmap(state).status).toBe('needs-attention');
+    await state.context.services.roadmapService.tick();
+    expect(tx.execution.worktrees.find(ws, repair.worktreeId)?.mergedAt).toBeUndefined();
+    await roadmapControl(state, 'resume');
+    expect(storedRoadmap(state).attempts.filter((a) => a.recovery)).toHaveLength(1);
+    await mergeRoadmapAttempt(state, repair.worktreeId);
+    await waitFor(
+      () =>
+        tx.execution.cycles
+          .listForWorkspace(ws)
+          .some(
+            (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
+          ),
+      'manual parent approval',
+      10000,
+    );
+    expect(verifications).toBe(2);
+    expect(tx.planning.workItems.find(ws, state.workItemId)?.status).not.toBe('completed');
+    const parent = tx.execution.cycles
+      .listForWorkspace(ws)
+      .find((c) => c.executionScope?.kind === 'parent-acceptance')!;
+    await recordScope(f, tx.execution.worktrees.find(ws, parent.worktreeId)!);
+    await waitFor(
+      () => tx.planning.workItems.find(ws, state.workItemId)?.status === 'completed',
+      'explicit parent approval',
+    );
+  },
+);
 
 it('reports the shared workstation limits and admits four scoped runs when configured', {
   timeout: 15000,

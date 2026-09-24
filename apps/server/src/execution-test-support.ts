@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
   AgentBackend,
@@ -37,8 +37,9 @@ import {
 } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import type { LightMyRequestResponse } from 'fastify';
-import { expect } from 'vitest';
+import { expect, it } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
+import { resolveExecutable } from './services/executables.js';
 import { resolveScope, scopeCases, scopeRequirements } from './services/execution-scope.js';
 import { PLAN_CRITERIA, PLAN_REQUIREMENTS } from './services/plan-acceptance-policy.js';
 import { createTestContext, type TestContext } from './test-support.js';
@@ -1223,6 +1224,24 @@ export function scopeReport(
     '\n```\nVERDICT: mergeable'
   );
 }
+/** Git as the daemon resolves it, on PATH, not a fixed install path (R-I5, QA-08). */
+export const HOST_GIT: string = (() => {
+  const git = resolveExecutable('git', undefined);
+  if (git === undefined) throw new Error('The execution tests need a git executable on PATH.');
+  return git;
+})();
+
+/** Cargo as the daemon resolves it (PATH, then rustup's default); undefined on a host without Rust. */
+export const HOST_CARGO: string | undefined = resolveExecutable('cargo', undefined, process.env, [
+  join(homedir(), '.cargo', 'bin'),
+]);
+
+/**
+ * A test of the pinned Cargo build path, which the daemon refuses without Cargo ("The pinned
+ * build adapter requires Cargo"). It runs wherever Cargo is installed and is skipped elsewhere.
+ */
+export const itNeedsCargo: ReturnType<typeof it.skipIf> = it.skipIf(HOST_CARGO === undefined);
+
 export function runScopedFixtureCheck(request: import('@craftingtable/agents').AgentLaunchRequest) {
   if (!request.buildEnvironment) return;
   const manifest = JSON.parse(
@@ -1231,7 +1250,7 @@ export function runScopedFixtureCheck(request: import('@craftingtable/agents').A
   if (manifest.verification?.mode === 'scoped-checks')
     execFileSync(
       join(request.buildEnvironment.binDirectory, 'ct-check'),
-      ['--', '/usr/bin/git', 'diff', '--check', 'HEAD'],
+      ['--', HOST_GIT, 'diff', '--check', 'HEAD'],
       { cwd: request.cwd },
     );
 }

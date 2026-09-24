@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { workCycleResponseSchema } from '@craftingtable/contracts';
 import type { ExecutionScope, WorkCycle } from '@craftingtable/domain';
 import { openCraftingTableStorage } from '@craftingtable/storage';
-import { afterEach, expect, } from 'vitest';
+import { afterEach, expect } from 'vitest';
 import { latestReviewReport } from './services/run-handoff.js';
 
 /* -------------------------------------------------------------------------- */

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { ExecutionScope } from '@craftingtable/domain';
 import { openCraftingTableStorage } from '@craftingtable/storage';
-import { afterEach, expect, } from 'vitest';
+import { afterEach, expect } from 'vitest';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */

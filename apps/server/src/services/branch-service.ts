@@ -1,7 +1,7 @@
 import { repositoryPolicyEvidence, worktreePlan } from './repository-policy.js';
 import type { SaveRepositoryPolicyRequest } from '@craftingtable/contracts';
 import { amendmentHoldingScope } from './scope-lineage.js';
-import { scopeAllowsEarlyDevelopment } from './execution-scope.js';
+import { predecessorGate } from './transition-gate.js';
 import { randomUUID } from 'node:crypto';
 import type {
   PlanBranchSettingsResponse,
@@ -391,14 +391,10 @@ export class BranchService {
     repositoryId: SourceRepositoryId,
     scope?: import('@craftingtable/domain').ExecutionScope,
   ) {
-    const early = scopeAllowsEarlyDevelopment(this.storage, workspaceId, workItemId, scope);
-    for (const edge of this.storage.planning.dependencies.listPredecessors(
-      workspaceId,
-      workItemId,
-    )) {
-      if (edge.kind !== 'required') continue;
+    const gate = predecessorGate(this.storage, workspaceId, workItemId, scope);
+    for (const edge of gate.required) {
       const predecessor = this.storage.planning.workItems.find(workspaceId, edge.workItemId);
-      if (predecessor?.status !== 'completed' && early) continue;
+      if (predecessor?.status !== 'completed' && gate.early) continue;
       if (predecessor?.status !== 'completed')
         conflict(`Required predecessor ${edge.sourceId} has not been completed`);
       const commit =

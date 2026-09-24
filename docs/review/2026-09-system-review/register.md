@@ -15,7 +15,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-A4](#r-a4) | P2 | M-L | open | Durable attention items, delivery log, quiescence and presence |
 | [R-A5](#r-a5) | P2 | L | open | One "Needs you" inbox that every surface reads |
 | [R-A6](#r-a6) | P3 | L | open | Consolidate decision and recovery components; delete per-page hosts |
-| [R-A7](#r-a7) | P1 | M | partial (9339d01, c6e4042, 27266c0) | Offer only actions that can make progress; one transition gate for commands and launch |
+| [R-A7](#r-a7) | P1 | M | partial (9339d01, c6e4042, 27266c0, + shared predecessor gate) | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
 | [R-B1](#r-b1) | P0 | S | done (fd269b6, 012447b) | Controller quick fixes (no schema change) |
 | [R-B2](#r-b2) | P1 | M | done (131a9de) | Characterization harness for the cycle controller |
@@ -65,7 +65,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G4](#r-g4) | P2 | M-L | open | Daemon-owned verification receipts |
 | [R-G5](#r-g5) | P2 | M | open | Agent environment and configuration isolation |
 | [R-G6](#r-g6) | P2 | M | open | Redesign briefs around the task |
-| [R-G7](#r-g7) | P1 | M | partial (this commit, recorded in the next; live measurement after deploy) | Stop cold-building Rust on every step |
+| [R-G7](#r-g7) | P1 | M | partial (0fc17d2; live measurement after deploy) | Stop cold-building Rust on every step |
 | [R-G8](#r-g8) | P5 | M-L | open | Backend capability model and persistent-agent seam |
 | [R-G9](#r-g9) | P2 | M | open | Authentication and authorization hardening |
 | [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
@@ -175,7 +175,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A7
 
-**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: partial (9339d01, c6e4042, 27266c0)
+**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: partial (9339d01, c6e4042, 27266c0, + shared predecessor gate)
 
 - **Resolves:** [CTRL-04](findings/CTRL-controller.md#ctrl-04-resume-is-accepted-even-when-it-cannot-make-progress), [CTRL-12](findings/CTRL-controller.md#ctrl-12-manual-commands-accept-transitions-that-the-automated-launch-then-rejects)
 - **Change:** Derive the valid operator actions from the attention code (in the same pure code that decides the transition) and return them with the cycle projection; reject Resume when the blocking fact is not transient, with the correct destination. Put whole-item and scoped start/advance gates, including predecessor ancestry, into one transitionGate() used by commands before acceptance and again at launch.
@@ -202,6 +202,20 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **The status stays partial for the rest of the Change:**
     - one transition gate shared with the roadmap scheduler (`RoadmapService.blocker`, `requireReady`, `scopePhaseBlockers`);
     - the duplicated remediation-grant validators, which are R-B7's (CTRL-12).
+- **Amended 2026-09-24: shared predecessor gate.**
+  - **One rule in `services/transition-gate.ts`.** The whole-item predecessor rule, previously written three times, is now `predecessorGate()`: a required predecessor that is not completed blocks, unless the slice's early-start exception applies. Its callers:
+    - commands (`requireReady`);
+    - the launch (`BranchService.requirePredecessors`, which adds the Git ancestry check);
+    - the roadmap scheduler (`RoadmapService.blocker`, which also counts its own unfinished attempts as in flight).
+
+    Each keeps its wording and its outcome. The scoped gates were already shared through `scopePhaseBlockers`, and commands already run the launch gates, including ancestry, before accepting a resume (9339d01).
+  - **Behaviour unchanged.** `controller:replay --check` (51) and `--every-run --check` (278) report 0 changed on the 2026-09-23 snapshot. Unit tests pass (`transition-gate.test.ts`, plus the existing 2f1ab211 command and scheduler tests).
+  - **Stopped here, because the rest changes decisions that belong to R-B4:**
+    - Running the launch's Git ancestry check in the scheduler before it creates an attempt. Today a missing predecessor merge stops the new cycle at launch as `needs-attention`. It would instead keep the roadmap entry waiting, which changes which stop the operator sees and when.
+    - Aligning the item-status checks. Commands require an admitted item; the scheduler requires the bound plan item and refuses one completed without its merge. That moves stops between the cycle and the roadmap.
+
+    Both belong in R-B4's decision core, behind the characterization harness. The duplicated remediation-grant validators stay with R-B7.
+  - **Proposal:** mark R-A7 done and move these two to R-B4 (see the operator decisions in program.md). Until decided, the status stays partial.
 
 ## Workstream B — Controller core (pain point 3)
 
@@ -722,7 +736,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G7
 
-**Stop cold-building Rust on every step** · Phase P1 · Effort M · Status: partial (this commit, recorded in the next; live measurement after deploy)
+**Stop cold-building Rust on every step** · Phase P1 · Effort M · Status: partial (0fc17d2; live measurement after deploy)
 
 - **Resolves:** [AGT-05](findings/AGT-GIT-SEC-agents-git-security.md#agt-05-per-run-cargo_target_dir-forces-a-cold-rust-build-on-every-step-768-gb-written-and-deleted-in-10-days)
 - **Change:** Share a Cargo target directory per worktree (or per repository with a lock) across the steps of a cycle, with the ADR-039 cleanup applied when the worktree is merged/removed.

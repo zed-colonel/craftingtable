@@ -220,6 +220,9 @@ R-A7's remainder.
   - **Audit baseline:** 825 GB removed across 101 caches in 25 worktrees over ten days.
   - **Projection:** at most 219 GB, about 3.8×. An order of magnitude needs a per-repository cache, which is an
     operator decision.
+- **R-A7: partial.** The whole-item predecessor rule is one function shared by commands, the launch and the
+  roadmap scheduler. Replays report 0 changed. Two remaining differences would change which stop the operator
+  sees: scheduler-side Git ancestry, and item-status checks. They are recorded for R-B4.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 

@@ -3,6 +3,7 @@ import {
   supportsArchitectureDecision,
 } from './architecture-decision-policy.js';
 import { ownerOf } from './cycle-ownership.js';
+import { predecessorGate } from './transition-gate.js';
 import { currentDecisionPreparation } from './decision-preparation-policy.js';
 import {
   attemptDefinition,
@@ -51,7 +52,6 @@ import { ConcurrentModificationError, ExecutionRequestError, NotFoundError } fro
 import {
   requireScopeOwnership,
   resolveScope,
-  scopeAllowsEarlyDevelopment,
   scopeBlockers,
   scopePhaseBlockers,
   unsupportedScopeCapabilities,
@@ -2016,26 +2016,24 @@ export class RoadmapService {
     } catch (error) {
       return blocked(error instanceof Error ? error.message : 'Execution scope is unavailable.');
     }
-    const required = tx.planning.dependencies
-      .listPredecessors(roadmap.workspaceId, entry.workItemId)
-      .filter(
-        (e) =>
-          e.kind === 'required' &&
-          (e.status !== 'completed' ||
-            roadmap.attempts.some(
-              (a) =>
-                a.status !== 'completed' &&
-                roadmap.definition.entries.some(
-                  (bound) => bound.id === a.entryId && bound.workItemId === e.workItemId,
-                ),
-            )),
-      );
-    if (
-      required.length &&
-      !scopeAllowsEarlyDevelopment(tx, roadmap.workspaceId, entry.workItemId, entry.executionScope)
-    )
+    // The shared predecessor rule, with this roadmap's unfinished attempts still in flight.
+    const predecessors = predecessorGate(
+      tx,
+      roadmap.workspaceId,
+      entry.workItemId,
+      entry.executionScope,
+      (e) =>
+        roadmap.attempts.some(
+          (a) =>
+            a.status !== 'completed' &&
+            roadmap.definition.entries.some(
+              (bound) => bound.id === a.entryId && bound.workItemId === e.workItemId,
+            ),
+        ),
+    );
+    if (predecessors.blocked)
       return blocked(
-        `${entry.sourceId}: Waiting for required predecessors: ${required.map((e) => `${e.sourceId}${roadmap.definition.entries.some((item) => item.workItemId === e.workItemId) ? '' : ' (outside this roadmap)'}`).join(', ')}.`,
+        `${entry.sourceId}: Waiting for required predecessors: ${predecessors.pending.map((e) => `${e.sourceId}${roadmap.definition.entries.some((item) => item.workItemId === e.workItemId) ? '' : ' (outside this roadmap)'}`).join(', ')}.`,
         false,
       );
     const settings = tx.execution.branchSettings.find(roadmap.workspaceId, entry.planVersionId);

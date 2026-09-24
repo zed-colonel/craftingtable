@@ -66,7 +66,6 @@ import {
 import {
   requireScope,
   requireTreeScope,
-  scopeAllowsEarlyDevelopment,
   scopedReviewIssue,
   scopePhaseBlockers,
 } from './execution-scope.js';
@@ -75,6 +74,7 @@ import { finalizationForCycle, finalizationHasNoQuestions } from './finalization
 import { assessStageReport, recordStageEvidence } from './finalization-stage-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { cycleOwnership } from './cycle-ownership.js';
+import { predecessorGate } from './transition-gate.js';
 import { PhaseGateError } from './phase-resources.js';
 import { attemptDelegation } from './roadmap-delegation-policy.js';
 import { drainInterrupted } from './restart-resume.js';
@@ -4004,16 +4004,11 @@ export class WorkCycleService {
         'conflict',
         'Automation requires an admitted, incomplete work item',
       );
-    const blocked = this.storage.planning.dependencies
-      .listPredecessors(workspaceId, workItemId)
-      .filter((dependency) => dependency.kind === 'required' && dependency.status !== 'completed');
-    if (
-      blocked.length > 0 &&
-      !scopeAllowsEarlyDevelopment(this.storage, workspaceId, workItemId, scope)
-    )
+    const predecessors = predecessorGate(this.storage, workspaceId, workItemId, scope);
+    if (predecessors.blocked)
       throw new ExecutionRequestError(
         'conflict',
-        `Required predecessors are incomplete: ${blocked.map((dependency) => dependency.sourceId).join(', ')}`,
+        `Required predecessors are incomplete: ${predecessors.pending.map((dependency) => dependency.sourceId).join(', ')}`,
       );
     return item;
   }

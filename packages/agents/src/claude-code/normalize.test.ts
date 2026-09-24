@@ -356,6 +356,26 @@ describe('recorded provider failures', () => {
     expect(send({ ...limited, api_error_status: 402 })[0]?.payload).toMatchObject({
       providerFailure: { kind: 'quota', safeToRetry: false },
     });
+    // Nor does a billing failure that follows a reported reset: it does not end at a reset.
+    const rejected = {
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: 1789483800 },
+    };
+    send(rejected);
+    expect(send({ ...limited, api_error_status: 402 })[0]?.payload).toMatchObject({
+      providerFailure: { kind: 'quota', safeToRetry: false },
+    });
+    send(rejected);
+    send({ type: 'assistant', message: { content: [] }, error: 'billing_error' });
+    const billed = send(limited).at(-1)?.payload;
+    expect(billed).toMatchObject({ providerFailure: { kind: 'quota', safeToRetry: false } });
+    expect(billed).not.toHaveProperty('providerFailure.resetsAt');
+    // A reset reported in milliseconds is not a usable time.
+    send({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: 1789483800000 },
+    });
+    expect(send(limited)[0]?.payload).not.toHaveProperty('providerFailure.resetsAt');
   });
 
   it('classifies a success-subtype API error from its HTTP status alone', () => {

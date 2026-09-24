@@ -174,6 +174,8 @@ export class ClaudeStreamNormalizer {
   private providerFailure: ProviderFailure | undefined;
   /** When the allowance a `rejected` rate-limit report named resets (R-C8). */
   private quotaResetsAt: string | undefined;
+  /** The last assistant message's structured error discriminant, e.g. `billing_error`. */
+  private providerError: string | undefined;
   private interactiveRequest = false;
   private readonly pendingTools = new Set<string>();
   private readonly backgroundTasks = new Set<string>();
@@ -353,9 +355,11 @@ export class ClaudeStreamNormalizer {
   ): readonly NormalizedAgentEvent[] {
     // Only the main thread's messages describe the turn's service state. A sub-agent message
     // (parent_tool_use_id set) neither records nor clears a main-thread failure.
-    if (!message.parent_tool_use_id)
+    if (!message.parent_tool_use_id) {
       this.providerFailure =
         typeof message.error === 'string' ? assistantErrorFailure(message.error) : undefined;
+      this.providerError = typeof message.error === 'string' ? message.error : undefined;
+    }
 
     const inner = isRecord(message.message) ? message.message : {};
     const content = Array.isArray(inner.content) ? inner.content : [];
@@ -431,11 +435,16 @@ export class ClaudeStreamNormalizer {
     );
     // A used-up allowance with a reported reset is safe to retry once it resets; every
     // other condition below (outstanding tools, interaction, background work) still applies.
+    // A billing failure (402, `billing_error`) does not end at a reset: it stays with the
+    // operator even when a rate-limit reset was reported before it.
+    const billing =
+      this.providerError === 'billing_error' || (apiError && message.api_error_status === 402);
     const failure =
-      combined?.kind === 'quota' && this.quotaResetsAt
+      combined?.kind === 'quota' && this.quotaResetsAt && !billing
         ? { ...combined, safeToRetry: true, resetsAt: this.quotaResetsAt }
         : combined;
     this.providerFailure = undefined;
+    this.providerError = undefined;
     this.quotaResetsAt = undefined;
     const pendingBackground = this.hasUncollectedBackgroundWork;
     this.backgroundAfterResult = false;
@@ -492,8 +501,9 @@ export class ClaudeStreamNormalizer {
     }
     if (info.status === 'rejected') {
       const seconds = info.resetsAt;
+      // Epoch seconds; anything past year 5000 (e.g. milliseconds) is not a usable reset.
       this.quotaResetsAt =
-        typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0
+        typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 && seconds < 1e11
           ? new Date(seconds * 1000).toISOString()
           : undefined;
     }

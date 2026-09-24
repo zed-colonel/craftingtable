@@ -40,9 +40,9 @@ export function ProviderRecovery({
         </p>
       )}
       <p className="hint">
-        Service retries wait 1, 5, then 15 minutes. They preserve the original step deadline and do
-        not use remediation attempts or change the model. Every verification and merge gate still
-        applies.
+        Service retries wait 1, 5, then 15 minutes, or until a reported usage-limit reset (at most 6
+        hours); a reset wait moves the step deadline by the time waited. Retries do not use
+        remediation attempts or change the model. Every verification and merge gate still applies.
       </p>
       <div className="inline-actions">
         {pending && (

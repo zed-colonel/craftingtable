@@ -287,9 +287,12 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
         }`,
       );
     // attempts is 0, 1 or 2 here: three and more stopped above.
+    // ADR-062's backoff is the floor for every retry, so a reset time already in the past
+    // cannot use up the three retries within minutes.
+    const backoff = SERVICE_RETRY_DELAYS_MS[attempts] ?? SERVICE_RETRY_DELAYS_MS[2];
     const delay = quotaWait
-      ? Math.max(SERVICE_RETRY_DELAYS_MS[0], resetAt + QUOTA_RESET_MARGIN_MS - facts.now.getTime())
-      : (SERVICE_RETRY_DELAYS_MS[attempts] ?? SERVICE_RETRY_DELAYS_MS[2]);
+      ? Math.max(backoff, resetAt + QUOTA_RESET_MARGIN_MS - facts.now.getTime())
+      : backoff;
     const nextRetryAt = new Date(facts.now.getTime() + delay).toISOString();
     return {
       kind: 'schedule-service-retry',

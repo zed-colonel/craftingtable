@@ -537,9 +537,24 @@ describe('controller step classification (R-B2)', () => {
       safeToRetry: true,
       resetsAt,
     });
-    const decide = (resetsAt: string) =>
+    const decide = (resetsAt: string, attempts = 0) =>
       decideStepOutcome(
-        cycleOf(),
+        cycleOf(
+          attempts
+            ? {
+                providerRecovery: {
+                  attempts,
+                  sourceRunId: 'run-0',
+                  failure: quota(resetsAt),
+                  profile: {
+                    backend: 'claude-code',
+                    permissionMode: 'auto',
+                    model: 'implement-model',
+                  },
+                },
+              }
+            : {},
+        ),
         facts({
           run: failedRun,
           turn: turnOf('API Error', { outcome: 'error', providerFailure: quota(resetsAt) }),
@@ -556,6 +571,10 @@ describe('controller step classification (R-B2)', () => {
       kind: 'schedule-service-retry',
       providerRecovery: { nextRetryAt: '2026-09-23T12:01:00.000Z' },
       runDeadlineAt: '2026-09-23T13:01:00.000Z',
+    });
+    // ADR-062's backoff stays the floor, so a stale reset cannot use up the retries at once.
+    expect(decide('2026-09-23T11:00:00.000Z', 1)).toMatchObject({
+      providerRecovery: { attempts: 1, nextRetryAt: '2026-09-23T12:05:00.000Z' },
     });
     // A weekly allowance is beyond the wait limit and stays with the operator.
     expect(decide('2026-09-28T00:00:00.000Z')).toMatchObject({

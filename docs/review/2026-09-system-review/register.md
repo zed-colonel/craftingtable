@@ -382,6 +382,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** When the vendor reports a reset time, schedule the retry at that time within the step deadline instead of stopping for the operator.
 - **Done when:** A recorded session-limit fixture produces a scheduled retry.
 - **Progress:** `ProviderFailure.resetsAt` (optional). The Claude normalizer keeps the reset time from a `rejected` `rate_limit_event` (`rate_limit_info.resetsAt`) and attaches it to the next `quota` failure, which is then marked safe to retry, subject to the existing checks (no outstanding tools, interaction or background work). The reset time applies to one result, and an `allowed` report clears it. `decideStepOutcome` treats a quota failure with a reset time no more than 6 h away (`QUOTA_WAIT_LIMIT_MS`) as a service retry. The retry is scheduled 2 minutes after the reset, or after 1 minute if the reset has passed, on the same agent. It counts toward ADR-062's three retries, and roadmap pauses hold it. The step deadline moves by the time waited, as `phaseWait` already does, so the wait does not use up the step's time. Weekly allowances, billing failures and quota errors without a reset time still stop for the operator. Codex reports no reset time in its structured errors, so Codex quota failures are unchanged. Not in this change: ending the session promptly on a terminal quota error (run 736446e8 kept running background sub-agents for 31 minutes), and a single "paused until" notification. The wait is a running cycle and does not page. Tests: the recorded `claude-session-limit` fixture now schedules a retry at 14:52 for a 14:50 reset and relaunches the same model (`server-execution.test.ts`); normalizer and decision-table cases.
+- **Amended 2026-09-24 (phase 1 review):** The done-when is met on the fixture, but the incident that motivated AGT-60 would still stop. The `claude-session-limit` fixture is hand-written. Replaying the recorded stream of run 736446e8 through the normalizer marks every quota result unsafe to retry, because tools and background work were still outstanding. So that run would still be `service-failure-not-retryable`. Covering it depends on ending the session promptly on a terminal quota error, which was already out of scope above; it now has to happen before R-C8 helps in practice.
+
+  **Fixed:**
+  - A billing failure (402 or `billing_error`) that followed a reported reset was marked safe to retry and waited for the reset. It now stays with the operator.
+  - A reset time already in the past was retried after 1 minute, so a stale reset could use up the three retries within minutes. ADR-062's 1/5/15-minute backoff is now the floor.
+  - Reset values beyond epoch seconds (for example milliseconds) were turned into dates that could throw. They are now ignored.
+  - The Provider recovery panel and the service-retry brief still said the original step deadline always applies. They now describe the reset wait.
+
+  **Deadline policy.** The step deadline moves by each wait, at most 6 h per wait and 3 waits. That can extend the deadline by up to about 18 h without an operator decision. It is listed as an open operator decision in the phase 1 review, and the code is unchanged until the operator decides.
+
+  Codex quota failures carry no reset time and are unchanged.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

@@ -77,7 +77,8 @@ Exit criteria:
 | R-A3 | Typed attention and blocker codes, owner, and `awaiting-merge` gate subtypes. The keystone for WS-A, WS-C and WS-E. |
 | R-A7 | Action gating and one transition gate. Builds on R-A3's codes. |
 | R-B3 | Cycle owner field; roadmap state references its definition by revision. |
-| R-B8 | Remove the dead CT-04A1 inspector and legacy finalization for new starts. |
+| R-B8 | Remove the dead CT-04A1 inspector and legacy finalization for new starts. (Split on 2026-09-24: the inspector part is done; legacy finalization moved to R-B10, and the registry tables to R-H6.) |
+| R-B10 | Retire legacy finalization for new starts: move its tests to staged finalizations first, then change the start form (walkthrough captures). Split from R-B8. |
 | R-B9, R-I8 | Bounded drain plus automatic vendor-session resume of interrupted steps (or `--when-idle` deploys); `pnpm deploy:daemon <ref>` into a separate deploy checkout, and a data-directory lock so only one daemon can ever use the live database. Together they end "every commit stops the roadmap". |
 | R-C1, R-C2, R-C8 | Measure operator wait; automatic re-prompt on output-format failures; scheduled retry for known quota resets. |
 | R-G7 | Stop cold Rust builds on every step. |
@@ -94,11 +95,55 @@ code removed, about 12k lines; legacy finalization remains), R-A7 (refuses resum
 cannot make progress; the other panels and one shared transition gate remain). `pnpm check`
 passes on the branch: 149 test files and 1,329 unit tests (after R-B8 removed the inspector suites), 22 e2e tests, the scope check. Not yet deployed.
 
+**Phase 1 review (2026-09-24, same branch).** Each landed item was checked against its "done
+when", with a replay on a copy of the 2026-09-23 snapshot. Fixes, each with a dated
+amendment on its item:
+- **R-B9:** a drained daemon that is never restarted now restarts itself; crashes during a deploy
+  drain stay failures.
+- **R-A7:** Pause then Resume no longer reproduces a stop; integration resolution is gated; guidance
+  is offered where Resume redirects.
+- **R-A3:** the prose-branching check is wider, and one prefix match is removed.
+- **R-C2:** spent repairs no longer carry over; the prompt forbids invented evidence; the done-when is
+  restated to `controller:replay --every-run`.
+- **R-C8:** billing failures stay with the operator; the backoff floor applies.
+- **R-C1:** stop kinds and owner changes are attributed correctly; the read is windowed.
+- **R-B8:** removed settings are named at startup.
+- **Gate:** `pnpm test:e2e` now rehearses the UI walkthrough.
+
+R-B8 is closed on its inspector part. Legacy finalization moved to R-B10, and the registry
+tables to R-H6 (they need a journal rebuild). R-C9 is added for the quota incident R-C8 does not
+cover. R-C1 is recorded as done (7689200).
+
+Status at the head of the branch:
+- **Done:** R-B9, R-B2, R-A3, R-C2, R-C8, R-C1, R-B8.
+- **Partial:** R-A7.
+- **Open:** R-B10.
+- `pnpm check` passes: 149 test files and 1,336 unit tests, 22 e2e tests, the walkthrough
+  rehearsal, and the scope check. `pnpm test` took 428 s under load.
+- Not yet deployed.
+
 Exit criteria:
 - Every stop has a code and owner.
 - Operator-wait hours are visible on the dashboard.
 - `pnpm test` runs in under about 90 s.
 - A clean restart does not stop the roadmap.
+
+**Exit-criteria status (2026-09-24).** P1 is not ready to exit.
+- **Every stop has a code and owner: partly met.**
+  - Met for cycles, roadmaps, entry holds and phase blockers.
+  - The stops still without codes are listed in R-A3's amendment: operator-held roadmap pauses,
+    merge operations, baseline preparation, cleanup, finalization removals and manual runs. They
+    move to R-A4, so for P1 this criterion is restated as "every cycle, roadmap, hold and phase
+    blocker stop".
+- **Operator-wait hours on the dashboard: met on the branch.** They are visible once deployed.
+- **`pnpm test` under about 90 s: not met.** It took 428 s with the live daemon loading the machine,
+  against a 346 s baseline. This waits on R-I2.
+- **A clean restart does not stop the roadmap: met in tests, not yet live.** It needs:
+  - a deploy of this branch (the first deploy cannot drain, because the running daemon predates
+    R-B9);
+  - for restarts outside `pnpm deploy:daemon`, the unit change in R-B9's amendment.
+- **Items still open in P1:** R-B3, R-B10, R-G7, R-H2, R-H3, R-I2, R-I3, R-I5, R-I6, R-E6, R-I7,
+  and R-A7's remainder.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 
@@ -109,6 +154,7 @@ Exit criteria:
 | R-E1, R-E2 | Real routes and a `Link` component; split the Roadmaps page into list, board, setup and history. |
 | R-D4, R-D5 | Query store, App.tsx split, server view models, compression and git-fact cache. |
 | R-C3, R-C4, R-C5 | Remove the top operator-stop causes: the design stage, integration-advanced refreshes, and the repair loop. |
+| R-C9 (proposed 2026-09-24) | End the session on a terminal quota error, so R-C8's reset wait applies to incidents like the one that motivated it. |
 | R-G4, R-G5, R-G6, R-G9 | Daemon-owned receipts, agent environment isolation, brief redesign, auth hardening. |
 | R-H4, R-I4 | Lighter evidence storage; structural test and process boundaries. |
 
@@ -128,6 +174,7 @@ Exit criteria:
 | R-C6, R-C7 | Evidence ceremony; verification layering and finalization stops. |
 | R-F2 | Typed feature recognition instead of prose and magic identifiers. |
 | R-G10, R-G11, R-H5 | Git adapter robustness, supervisor loose ends, route rationalization. |
+| R-H6 (proposed 2026-09-24) | Journal cleanup of the empty registry tables. It needs a `workspace_events` rebuild, so it waits for R-H3's preservation tests and should share a rebuild with any other journal change. |
 
 Exit criteria:
 - From the board, the operator can answer "what is this waiting on, and what does this decision
@@ -173,6 +220,9 @@ R-D1/R-D2 ──────────────► R-D4 ─► R-D5 ─► 
 R-B3 ownership ─────────► R-B5, R-B6, R-B7
 R-G4 daemon receipts ───► R-C6 automatic acceptance of controller-verifiable checkpoints
 R-B9 drain + R-I8 deploy ► makes self-hosted remediation (CraftingTable working on itself) practical
+R-H3 upcasters/db:verify ► R-H6 journal rebuild (added 2026-09-24)
+R-C9 terminal quota ────► R-C8 covers the recorded incident (added 2026-09-24)
+R-A6 one decision component per kind ► R-A7's "UI renders only returned actions" (2026-09-24)
 ```
 
 ## Baseline metrics (live data, 2026-09-10 → 2026-09-23)

@@ -49,6 +49,13 @@ keep the explicit operator resume. Migrations on start first copy a populated da
   derived from the interrupted run's typed exit reason and the cycle's parent run.
 - A plain `systemctl stop` drains only with `KillMode=mixed` and a stop timeout above the bound.
 
+## Amendment (2026-09-24)
+
+Two changes followed the phase 1 review.
+
+- **A drain with no restart ends in a restart.** A drain a deploy requested stops the loops and refuses launches. If no restart follows within two minutes, the daemon exits with status 75 so the service manager restarts it and the clean stop resumes automation. That happens when the deploy is interrupted after the drain: a late Ctrl-C, a closed terminal, or a failure before `systemctl restart`. The deploy script also withdraws its request on SIGHUP and SIGTERM.
+- **Only a daemon that is itself stopping treats killed agents as a restart.** An agent killed by a signal counts as a drain interruption only while the daemon is stopping on a signal, because then the service manager's signal can reach the agents' process groups too. During a deploy's drain nothing else stops, so an agent killed by a signal, such as the OOM killer, is a failure and keeps the explicit resume.
+
 ## Alternatives considered
 
 - Resume every interrupted step, including after crashes: a crash can leave Git operations or

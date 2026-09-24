@@ -24,8 +24,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B5](#r-b5) | P4 | L | open | Event-driven controller kernel |
 | [R-B6](#r-b6) | P4 | M-L | open | Scoped consistency instead of whole-roadmap pause |
 | [R-B7](#r-b7) | P4 | L | open | Decompose the controller services along real boundaries |
-| [R-B8](#r-b8) | P1 | M | partial (c0ccf3b) | Remove dead and vestigial paths |
+| [R-B8](#r-b8) | P1 | M | done (c0ccf3b, 9fe2152) | Remove dead and vestigial paths |
 | [R-B9](#r-b9) | P1 | M | done (4d81743) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
+| [R-B10](#r-b10) | P1 | S-M | open | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a) | Re-prompt the agent automatically on output-format validation failures |
@@ -35,6 +36,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | done (5744289) | Schedule automatic retry for quota/session limits with a known reset time |
+| [R-C9](#r-c9) | P2 (proposed) | S-M | open | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -75,6 +77,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H3](#r-h3) | P1 | M | open | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | open | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
+| [R-H6](#r-h6) | P3 (proposed) | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | open | Split the 14k-line execution test file |
@@ -187,6 +190,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Deferred, with reasons:**
     - A `remediation-exhausted` stop raised from housekeeping at an implement or remediate step can be resolved only with Stop. Resume redirects to Authorize, and Authorize requires a review step. It never happened in the live data (0 of 5 limit stops). Fixing it means authorizing remediation outside a review, which changes controller behaviour and belongs behind the R-B4 decision core.
     - A roadmap resume in sequential mode used to fail part-way on a refused cycle. It now skips such cycles, but it still throws on a cycle refused by the launch gates.
+  - **Dependency mismatch (proposed, operator to decide).** The UI half of the done-when ("the UI renders only returned actions") cannot be met in P1. About 21 panels decide their own visibility until R-A6 (P3) consolidates them, and the API does not return actions yet. Proposal: restate R-A7's done-when to the server half plus the cycle panel, and move "each panel renders only returned actions" into R-A6's done-when.
 
 ## Workstream B — Controller core (pain point 3)
 
@@ -207,6 +211,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** Extract reconcile's post-run classification (work-cycle-service.ts ~:1858-2254) verbatim into a pure function of (cycle, facts). Record golden decisions by replaying every cycle in a DB snapshot, and add decision-table tests. Add a deterministic stepping seam (tick once / wait-for-idle) so orchestration tests stop polling wall-clock time.
 - **Done when:** Golden replay test over a fixture snapshot passes; at least the attention codes produced by the live data are covered by table tests; new orchestration tests use the stepping seam.
 - **Progress:** Everything `reconcile` does once the current step has a run (live, drain-interrupted, waiting, provider failure, background-work exit, and the design/implement/review classification) is now `decideStepOutcome(cycle, facts)` in `services/step-outcome.ts`, same checks in the same order; `reconcile` applies the typed decision (`applyStepOutcome`, `approveReview`). Storage-derived facts stay lazy so each is read only on the branch that read it before. Each operator stop carries one of 28 `STEP_ATTENTION_CODES`. Table tests (`step-outcome.test.ts`, 47 rows) cover every code and decision kind. Golden replay: `step-outcome-replay.test.ts` drives eight scripted scenarios through the real controller, replays each snapshot with `replayStepOutcomes`, and compares with `fixtures/controller/step-outcome-replay.golden.json`. `pnpm controller:replay <snapshot> [--record|--check <golden>]` runs the same replay over a copy of a real database; the live baseline (51 cycles, taken 2026-09-23 18:41) and its golden file are kept outside the repository in `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-23/`, because they hold real plans and agent output. Stepping seam: `WorkCycleService.tick()`, `AgentRunService.quiesce()`, `createTestContext({ workers: false })` and `stepController` in `cycle-test-support.ts`; the R-B9 and replay tests use it. Every attention reason in the live audit history that comes from this classification has a code and a table row. The rest come from other controller paths (review remediation limits and stalls, integration refresh and conflicts, clean-worktree and readiness errors, merges, restart) and get codes in R-A3. The 14k-line execution test still polls; moving it onto the seam is R-I2.
+- **Amended 2026-09-24 (phase 1 review):** Verified: `controller:replay --check` against the live golden file reports "51 decisions replayed; 0 changed, 0 missing" at the head of the branch. The extraction is faithful to the pre-extraction `reconcile`. Two corrections:
+  - The facts are not all lazy. `turn` and `ended` are read eagerly, which costs two indexed reads per reconcile of a live run. The claim above that "each is read only on the branch that read it before" does not hold for them.
+  - The live golden covers only each cycle's current run, which is four decision kinds. `--every-run` (added with R-C2's amendment) classifies all 278 recorded runs.
+  - The drain tests still sleep on the drain's fixed 250 ms poll.
 
 ### R-B3
 
@@ -250,7 +258,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B8
 
-**Remove dead and vestigial paths** · Phase P1 · Effort M · Status: partial (c0ccf3b)
+**Remove dead and vestigial paths** · Phase P1 · Effort M · Status: done (c0ccf3b, 9fe2152)
 
 - **Resolves:** [CTRL-15](findings/CTRL-controller.md#ctrl-15-dead-and-vestigial-controller-paths), [GIT-04](findings/AGT-GIT-SEC-agents-git-security.md#git-04-the-ct-04a1-inspector-is-dead-code-about-78k-lines-but-is-still-composed-configured-and-tested), [DATA-09](findings/DATA-storage-domain-contracts.md#data-09-the-dead-ct-04a1a2-repository-inspector-and-registry-are-still-compiled-constructed-and-schema-resident), [QA-10](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-10-test-effort-is-weighted-toward-the-dormant-ct-04a-repository-inspection-feature)
 - **Change:** Delete the CT-04A1/A2 repository inspector, registry, provider, config keys and tests (drop the three empty tables in a forward migration; CRAFTINGTABLE_GIT_BIN currently crashes startup). Stop offering legacy finalization rounds for new finalizations while keeping the completed legacy record readable, then remove the legacy branches. Split WorkCycleRepository.list() into listActive()/listForWorkspace().
@@ -260,6 +268,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Removed settings were ignored silently.** `CRAFTINGTABLE_GIT_BIN` differs from the live `CRAFTINGTABLE_GIT_EXECUTABLE` by one word, so setting it chose nothing, with no signal. Startup now logs a warning that names every removed inspector setting still set (`retiredSettings`, config test).
   - **Stale docs.** ADR-008 still named `command-runner.ts` as the only process authority, and `docs/architecture.md` said there were three modules. Both now point to `PROCESS_AUTHORITY`.
   - **Line counts against the done-when.** From `git show --numstat`: production −6.2k, tests −5.9k. The production target (~7–8k) is not reached without the legacy-finalization removal.
+- **Amended 2026-09-24 (phase 1 review): split.** Two parts of the Change cannot be finished as written in this item, so they move to their own items. The inspector and registry removal is finished, and the item is closed on it.
+  - **The three empty tables.** Dropping them in a forward migration is infeasible. `workspace_events` references them, and SQLite then rejects every insert into it: `no such table: main.project_repository_bindings`, checked again on a snapshot copy. Removing them means rebuilding the journal, which ADR-013 calls the riskiest migration. This moves to [R-H6](#r-h6), after R-H3's preservation tests and `db:verify`.
+  - **Legacy finalization for new starts.** This moves to [R-B10](#r-b10). Its prerequisites are test migration and a UI change with walkthrough captures.
+  - **Restated done-when:** the CT-04A1/A2 inspector, registry, provider, configuration and tests are removed, with a warning for settings that are still set; `pnpm check` is green. **Met:** production −6.2k and tests −5.9k lines.
+  - The original targets (~7–8k production lines; the completed legacy finalization still renders) belong to R-B10.
 
 ### R-B9
 
@@ -279,6 +292,25 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Not fixed (low):**
     - A deadline that passes during a long `--when-idle` drain cancels the resumed turn at once, as a generic incomplete step.
     - The replay tool copies a migrated snapshot twice, because of the pre-migration copy.
+
+### R-B10
+
+**Retire legacy finalization for new starts** · Phase P1 · Effort S-M · Status: open
+
+- **Added 2026-09-24:** split from [R-B8](#r-b8) in the phase 1 review. Its part of the R-B8 Change needs work R-B8 never scoped: moving tests first, and a UI change.
+- **Resolves:** [CTRL-15](findings/CTRL-controller.md#ctrl-15-dead-and-vestigial-controller-paths) (the legacy-finalization part).
+- **Change:**
+  - Move the legacy controller's execution tests (`beginFinalization` with rounds) to staged finalizations first, so staged coverage does not shrink when the legacy branches go.
+  - Stop offering "Legacy improvement rounds" in the finalization start form. Take walkthrough captures before and after this change.
+  - Keep a completed legacy record readable.
+  - Then remove the legacy branches: the `polishPhase` paths in `step-outcome.ts` and `reconcile`, `defer-nits` in `decideFinalizationFindings`, and the legacy parts of `finalizationInstructions`, `finalizationProfile` and `startFinalization`.
+- **Done when:**
+  - A new finalization cannot choose legacy rounds.
+  - The completed legacy finalization (live DB, 2026-09-13) still renders, which a test asserts.
+  - The legacy controller branches are gone.
+  - The walkthrough captures are recorded.
+  - `pnpm check` is green.
+- **Note:** No staged finalization has run on live data yet (CTRL-15). Consider running one live finalization on the staged controller before the legacy branches are deleted.
 
 ## Workstream C — Operator-wait reduction (the vision: minimum operator input)
 
@@ -397,6 +429,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   **Deadline policy.** The step deadline moves by each wait, at most 6 h per wait and 3 waits. That can extend the deadline by up to about 18 h without an operator decision. It is listed as an open operator decision in the phase 1 review, and the code is unchanged until the operator decides.
 
   Codex quota failures carry no reset time and are unchanged.
+
+### R-C9
+
+**End the session on a terminal quota error so the reset wait applies** · Phase P2 (proposed) · Effort S-M · Status: open
+
+- **Added 2026-09-24** in the phase 1 review of R-C8.
+- **Resolves:** [AGT-60](findings/AGT-GIT-SEC-agents-git-security.md#agt-60-quota-and-session-limit-failures-with-a-known-reset-time-always-need-the-operator) (the part R-C8 left out).
+- **Why:** R-C8 schedules the wait only when a quota failure is safe to retry. In the recorded incident (run 736446e8), the session kept background sub-agents and tool calls running for 31 minutes after the terminal quota error, so every quota result was unsafe and the step still stopped for the operator. Only 3 of about 12 quota results in that stream carried a reset time.
+- **Change:** On a terminal quota error that has a reported reset, end the session promptly: stop background sub-agents and let outstanding tool calls settle or be cancelled. Keep the latest reported reset for the turn's final failure, rather than applying it to one result only. Add a recorded-stream fixture of the 736446e8 shape.
+- **Done when:** Replaying the 736446e8 stream through the normalizer and the controller schedules a retry at the reset.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 
@@ -698,6 +740,20 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** Consistent resource naming across the 121 routes; retire panel-specific endpoints as view models (R-D5) and the inbox (R-A5) replace them; make the forbidden-fragment guard check semantics, not names.
 - **Done when:** Route inventory documented and shrinking.
 
+### R-H6
+
+**Journal cleanup: registry tables and `repository-*` vocabulary** · Phase P3 (proposed) · Effort M · Status: open
+
+- **Added 2026-09-24:** split from [R-B8](#r-b8) in the phase 1 review.
+- **Resolves:** [DATA-09](findings/DATA-storage-domain-contracts.md#data-09-the-dead-ct-04a1a2-repository-inspector-and-registry-are-still-compiled-constructed-and-schema-resident) (the schema residue).
+- **Why not in R-B8:** `workspace_events.repository_inspection_id` and `repository_binding_id` are foreign keys into `repository_inspections` and `project_repository_bindings`. With either parent table missing, SQLite rejects every insert into `workspace_events`, even when the keys are NULL (checked on a copy of the 2026-09-23 snapshot). The tables can only go when `workspace_events` is rebuilt without those columns, which is the operation ADR-013 took once and called the riskiest.
+- **Change:**
+  - Rebuild `workspace_events` with ADR-013's procedure, without the two correlation columns and their checks, and drop the three empty registry tables.
+  - The kind and action catalogs are append-only by trigger, so the `repository-*` event kinds and `repository.*` audit actions stay registered. Remove them from the contracts, the web activity rendering and `domain/repository.ts` once `db:verify` shows that no stored row uses them. The 2026-09-23 snapshot has none.
+  - Do this together with any other journal rebuild (for example R-H2's), so the risk is taken once.
+- **Depends on:** R-H3 (table-rebuild preservation tests and `db:verify`).
+- **Done when:** The three tables and the correlation columns are gone. A preservation test proves sequence, trigger and index continuity on a snapshot copy. `db:verify` passes on a live snapshot.
+
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 
 ### R-I1
@@ -804,7 +860,7 @@ All 202 findings, in report order. Severity and status are the reviewer's; "Item
 | [AGT-57](findings/AGT-GIT-SEC-agents-git-security.md#agt-57-briefs-inherit-links-into-other-runs-scratch-and-plan-paths-that-later-expire) | medium | CONFIRMED | S–M | [R-G6](#r-g6) | Briefs inherit links into other runs' scratch and plan paths that later expire |
 | [AGT-58](findings/AGT-GIT-SEC-agents-git-security.md#agt-58-the-scope-section-repeats-the-goal-three-times-and-dumps-internal-id-json) | low | CONFIRMED | S | [R-G6](#r-g6) | The scope section repeats the goal three times and dumps internal-ID JSON |
 | [AGT-59](findings/AGT-GIT-SEC-agents-git-security.md#agt-59-claude-transient-service-failures-never-qualify-for-adr-062-automatic-retry) | high | CONFIRMED | S | [R-G2](#r-g2) | Claude transient service failures never qualify for ADR-062 automatic retry |
-| [AGT-60](findings/AGT-GIT-SEC-agents-git-security.md#agt-60-quota-and-session-limit-failures-with-a-known-reset-time-always-need-the-operator) | medium | CONFIRMED | M | [R-C8](#r-c8) | Quota and session-limit failures with a known reset time always need the operator |
+| [AGT-60](findings/AGT-GIT-SEC-agents-git-security.md#agt-60-quota-and-session-limit-failures-with-a-known-reset-time-always-need-the-operator) | medium | CONFIRMED | M | [R-C8](#r-c8), [R-C9](#r-c9) | Quota and session-limit failures with a known reset time always need the operator |
 | [AGT-61](findings/AGT-GIT-SEC-agents-git-security.md#agt-61-failure-data-is-sparse-and-the-adr-062-path-has-never-run-on-live-data) | low | CONFIRMED | S | [R-G2](#r-g2) | Failure data is sparse, and the ADR-062 path has never run on live data |
 | [AGT-62](findings/AGT-GIT-SEC-agents-git-security.md#agt-62-claude-background-task-notifications-create-streams-of-invalid-review-turns-and-status-churn) | medium | CONFIRMED | S–M | [R-G11](#r-g11) | Claude background-task notifications create streams of invalid review turns and status churn |
 | [GIT-01](findings/AGT-GIT-SEC-agents-git-security.md#git-01-a-merge-that-times-out-in-the-primary-checkout-is-never-aborted) | high | CONFIRMED | S–M | [R-G1](#r-g1) | A merge that times out in the primary checkout is never aborted |
@@ -858,7 +914,7 @@ All 202 findings, in report order. Severity and status are the reviewer's; "Item
 | [DATA-06](findings/DATA-storage-domain-contracts.md#data-06-phone-notifications-are-delivered-for-attention-states-the-daemon-itself-resolves-seconds-later) | high | CONFIRMED | S | [R-A1](#r-a1) | Phone notifications are delivered for attention states the daemon itself resolves seconds later |
 | [DATA-07](findings/DATA-storage-domain-contracts.md#data-07-the-roadmap-state-blob-embeds-a-copy-of-the-immutable-definition-and-keeps-append-only-histories-inside-the-mutable-blob-revision-lookups-load-every-revision) | medium | CONFIRMED | S | [R-B3](#r-b3) | The roadmap state blob embeds a copy of the immutable definition and keeps append-only histories inside the mutable blob; revision lookups load every revision |
 | [DATA-08](findings/DATA-storage-domain-contracts.md#data-08-workspace-event-invalidation-is-coarse-and-every-invalidation-refetches-all-cycles-delivery-bookkeeping-is-journaled-as-a-workspace-event) | medium | CONFIRMED | S | [R-A2](#r-a2) | Workspace-event invalidation is coarse, and every invalidation refetches all cycles; delivery bookkeeping is journaled as a workspace event |
-| [DATA-09](findings/DATA-storage-domain-contracts.md#data-09-the-dead-ct-04a1a2-repository-inspector-and-registry-are-still-compiled-constructed-and-schema-resident) | medium | CONFIRMED |  | [R-B8](#r-b8) | The dead CT-04A1/A2 repository inspector and registry are still compiled, constructed and schema-resident |
+| [DATA-09](findings/DATA-storage-domain-contracts.md#data-09-the-dead-ct-04a1a2-repository-inspector-and-registry-are-still-compiled-constructed-and-schema-resident) | medium | CONFIRMED; remedy amended 2026-09-24 |  | [R-B8](#r-b8), [R-H6](#r-h6) | The dead CT-04A1/A2 repository inspector and registry are still compiled, constructed and schema-resident |
 | [DATA-10](findings/DATA-storage-domain-contracts.md#data-10-contracts-duplicate-domain-types-by-hand-with-no-compile-time-equivalence-check) | medium | CONFIRMED | S–M | [R-H3](#r-h3) | Contracts duplicate domain types by hand, with no compile-time equivalence check |
 | [DATA-11](findings/DATA-storage-domain-contracts.md#data-11-agent-profile-and-selection-shapes-have-multiplied-and-are-stored-in-at-least-12-places) | medium | CONFIRMED | M | [R-E5](#r-e5) | Agent profile and selection shapes have multiplied and are stored in at least 12 places |
 | [DATA-12](findings/DATA-storage-domain-contracts.md#data-12-no-unified-dependency-and-progress-read-model-data-side-of-pain-point-2) | medium | CONFIRMED | M | [R-E3](#r-e3) | No unified dependency and progress read model (data side of pain point #2) |
@@ -979,3 +1035,7 @@ All 202 findings, in report order. Severity and status are the reviewer's; "Item
 | [UI-17](findings/UI-information-architecture.md#ui-17-roadmap-supervision-panels-share-mutable-page-level-dirty-gates-that-disable-unrelated-decisions) | low | CONFIRMED | S | [R-A6](#r-a6), [R-E2](#r-e2) | Roadmap supervision panels share mutable page-level "dirty" gates that disable unrelated decisions |
 | [UI-18](findings/UI-information-architecture.md#ui-18-the-work-item-page-stacks-up-to-about-a-dozen-conditional-panels-in-one-automated-cycle-section-slice-gates-sit-at-the-bottom) | medium | CONFIRMED | M | [R-A6](#r-a6), [R-E4](#r-e4) | The work-item page stacks up to about a dozen conditional panels in one "Automated cycle" section; slice gates sit at the bottom |
 | [UI-19](findings/UI-information-architecture.md#ui-19-the-e2e-and-walkthrough-suites-are-coupled-to-current-accessible-names-so-an-ia-migration-needs-a-test-plan) | low | CONFIRMED | M | [R-A6](#r-a6) | The e2e and walkthrough suites are coupled to current accessible names, so an IA migration needs a test plan |
+
+**Finding-index amendments (2026-09-24, phase 1 review).**
+- **DATA-09.** Its remedy, dropping the three empty registry tables in a forward migration, is infeasible. `workspace_events` has foreign keys into them, and SQLite rejects inserts into it once they are missing. The finding stands. The code and configuration part is resolved by R-B8. The schema part needs a journal rebuild and moved to R-H6.
+- **AGT-60.** The finding stands. R-C8 covers failures that are safe to retry, but the recorded incident was not safe to retry, so the rest is R-C9.

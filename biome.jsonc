@@ -22,7 +22,11 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "style": {
+        // Strict mode with noUncheckedIndexedAccess makes `!` the marker for invariants the compiler cannot prove (R-I6).
+        "noNonNullAssertion": "off"
+      }
     }
   },
   "assist": {

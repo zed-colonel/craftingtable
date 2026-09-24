@@ -862,11 +862,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I6
 
-**Gate on lint** · Phase P1 · Effort S-M · Status: open
+**Gate on lint** · Phase P1 · Effort S-M · Status: partial
 
 - **Resolves:** [QA-09](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-09-lint-warnings-do-not-gate-the-build-and-666-have-accumulated)
 - **Change:** Burn down the 666 Biome warnings (mostly mechanical) and make warnings fail pnpm check.
 - **Done when:** pnpm check fails on a new warning.
+- **Progress:**
+  - **Measured 2026-09-24:** 671 warnings and 11 infos (666 at review). `noNonNullAssertion` accounts for 646 of them (448 in tests, 198 in production).
+  - **Rule turned off.** `noNonNullAssertion` is off in `biome.jsonc`; the config file is renamed from `biome.json` so it can carry the one-line reason. With `strict` and `noUncheckedIndexedAccess`, `!` is how this codebase marks an invariant the compiler cannot prove: index access after a length check, or `Map.get` after `has`. Replacing each one with a runtime check would change behaviour, which is not a mechanical fix.
+  - **Remaining:** 25 warnings and 11 infos.
 
 ### R-I7
 

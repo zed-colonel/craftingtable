@@ -1,5 +1,5 @@
 import { createRuntime } from './composition.js';
-import { configFromEnv } from './config.js';
+import { configFromEnv, retiredSettings } from './config.js';
 import { acquireInstanceLock, InstanceLockedError } from './instance-lock.js';
 
 const config = configFromEnv();
@@ -11,6 +11,12 @@ const lock = await acquireInstanceLock(config.dataDir).catch((error: unknown) =>
   process.exit(1);
 });
 const runtime = await createRuntime(config, { logger: true });
+const retired = retiredSettings();
+if (retired.length > 0)
+  runtime.app.log.warn(
+    { settings: retired },
+    'ignoring settings of the removed repository inspector; use CRAFTINGTABLE_GIT_EXECUTABLE for the git binary',
+  );
 
 let shuttingDown = false;
 async function shutdown(signal: NodeJS.Signals): Promise<void> {

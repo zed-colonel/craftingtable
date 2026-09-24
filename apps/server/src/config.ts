@@ -195,6 +195,31 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
   });
 }
 
+/**
+ * Settings of the removed CT-04A1 repository inspector (R-B8). They no longer do anything;
+ * startup names any that are still set, because `CRAFTINGTABLE_GIT_BIN` differs from the live
+ * `CRAFTINGTABLE_GIT_EXECUTABLE` by one word and would otherwise be ignored silently.
+ */
+const RETIRED_SETTINGS = [
+  'CRAFTINGTABLE_ARTIFACT_ROOT',
+  'CRAFTINGTABLE_GIT_BIN',
+  'CRAFTINGTABLE_GIT_CREATION_TIMEOUT_MS',
+  'CRAFTINGTABLE_GIT_INSPECTION_TIMEOUT_MS',
+  'CRAFTINGTABLE_GIT_SEARCH_PATH',
+  'CRAFTINGTABLE_GIT_STDERR_LIMIT_BYTES',
+  'CRAFTINGTABLE_GIT_STDOUT_LIMIT_BYTES',
+  'CRAFTINGTABLE_GIT_TERMINATION_GRACE_MS',
+  'CRAFTINGTABLE_GIT_TIMEOUT_MS',
+  'CRAFTINGTABLE_MANAGED_WORKTREE_ROOT',
+  'CRAFTINGTABLE_REPOSITORY_PROVIDER_RETRY_DELAY_MS',
+  'CRAFTINGTABLE_REPOSITORY_ROOTS',
+] as const;
+
+/** The retired settings present in `env`, for a startup warning. */
+export function retiredSettings(env: NodeJS.ProcessEnv = process.env): readonly string[] {
+  return RETIRED_SETTINGS.filter((name) => env[name] !== undefined);
+}
+
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const host = env.CRAFTINGTABLE_HOST ?? '127.0.0.1';
   if (!isListenableHost(host)) {

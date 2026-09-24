@@ -165,8 +165,8 @@ uncollected. Review continuations pin the original branch context at reservation
 allowing inspection of untracked test artifacts but rejecting tracked/index edits and changed
 commits; ordinary review and final approval remain clean-worktree gates. See ADR-037.
 
-Both adapters use `packages/agents/src/process.ts`; process authority remains three
-modules. The daemon selects from a backend registry, defaulting to the first available
+Both adapters use `packages/agents/src/process.ts`; process authority is confined to the
+modules listed in `PROCESS_AUTHORITY` in `scripts/check-forbidden-scope.mjs`. The daemon selects from a backend registry, defaulting to the first available
 of Claude Code and Codex. No app-server socket is exposed to the browser or LAN.
 See ADR-023 for permission mapping, lifecycle and metadata behavior.
 

@@ -6,6 +6,8 @@
 - **Amended:** 2026-07-24 for CT-02 native persistence and authenticated E2E
 - **Amended:** 2026-07-24 for CT-03 planning dependencies and DOM component tests
 - **Amended:** 2026-07-26 for CT-04A1 structural Git tests and protected-package verification
+- **Amended:** 2026-09-24: `command-runner.ts` was removed with the CT-04A1 inspector (R-B8);
+  the process authorities are the modules listed in `scripts/check-forbidden-scope.mjs`
 
 ## Context
 
@@ -45,7 +47,8 @@ CT-04A1 additions:
   modules are exact-path allowlisted; a production filename containing
   `test-support` gains no authority.
 - Exactly `packages/git/src/command-runner.ts` may import
-  `node:child_process` in production. Package exports remain `"."` only, and
+  `node:child_process` in production. (Superseded 2026-09-24: that module is gone, and
+  `PROCESS_AUTHORITY` in `scripts/check-forbidden-scope.mjs` lists the modules that may.) Package exports remain `"."` only, and
   emitted-output proof rejects a second process authority or any shipped
   fixture.
 - The former `check:protected` gate verified a CT-04 acceptance package. It was

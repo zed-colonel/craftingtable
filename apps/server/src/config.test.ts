@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { configFromEnv } from './config.js';
+import { configFromEnv, retiredSettings } from './config.js';
 
 describe('configFromEnv', () => {
   it('defaults to loopback, XDG storage, and a 30-day session', () => {
@@ -17,13 +17,18 @@ describe('configFromEnv', () => {
   });
 
   it('ignores the removed repository-inspector settings instead of failing startup (GIT-04)', () => {
-    const config = configFromEnv({
+    const env = {
       CRAFTINGTABLE_DATA_DIR: '/var/lib/craftingtable',
       CRAFTINGTABLE_GIT_BIN: '/usr/bin/git',
       CRAFTINGTABLE_GIT_TIMEOUT_MS: '1',
-    });
+    };
+    const config = configFromEnv(env);
     expect(config.dataDir).toBe('/var/lib/craftingtable');
     expect(config).not.toHaveProperty('repositoryFeature');
+    // The old git binary setting does not choose git; startup names it instead (R-B8).
+    expect(config).not.toHaveProperty('gitExecutable');
+    expect(retiredSettings(env)).toEqual(['CRAFTINGTABLE_GIT_BIN', 'CRAFTINGTABLE_GIT_TIMEOUT_MS']);
+    expect(retiredSettings({ CRAFTINGTABLE_GIT_EXECUTABLE: '/usr/bin/git' })).toEqual([]);
   });
 
   it('accepts explicit loopback hosts, HTTPS origin, and an absolute test directory', () => {

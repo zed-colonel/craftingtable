@@ -27,7 +27,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B8](#r-b8) | P1 | M | partial (c0ccf3b) | Remove dead and vestigial paths |
 | [R-B9](#r-b9) | P1 | M | done (4d81743) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
-| [R-C1](#r-c1) | P1 | S-M | done (pending) | Measure operator-wait as a first-class metric |
+| [R-C1](#r-c1) | P1 | S-M | done (7689200) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a) | Re-prompt the agent automatically on output-format validation failures |
 | [R-C3](#r-c3) | P2 | M | open | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | open | Refresh and re-review automatically when only upstream integration advanced |
@@ -229,7 +229,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C1
 
-**Measure operator-wait as a first-class metric** · Phase P1 · Effort S-M · Status: done (pending)
+**Measure operator-wait as a first-class metric** · Phase P1 · Effort S-M · Status: done (7689200)
 
 - **Resolves:** [HIST-02](findings/HIST-history-and-live-usage.md#hist-02-wall-clock-throughput-is-dominated-by-waiting-for-the-operator-not-by-agent-work-or-controller-latency), [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes), [HIST-09](findings/HIST-history-and-live-usage.md#hist-09-agent-reliability-is-high-stops-are-controller-derived-prioritize-accordingly)
 - **Change:** Record stop openedAt/resolvedAt/owner/kind (falls out of R-A3/R-A4) and show operator-wait hours and stops-by-kind on the dashboard. Use it to rank the remaining automation work.

@@ -24,10 +24,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B5](#r-b5) | P4 | L | open | Event-driven controller kernel |
 | [R-B6](#r-b6) | P4 | M-L | open | Scoped consistency instead of whole-roadmap pause |
 | [R-B7](#r-b7) | P4 | L | open | Decompose the controller services along real boundaries |
-| [R-B8](#r-b8) | P1 | M | partial (pending) | Remove dead and vestigial paths |
+| [R-B8](#r-b8) | P1 | M | partial (c0ccf3b) | Remove dead and vestigial paths |
 | [R-B9](#r-b9) | P1 | M | done (4d81743) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
-| [R-C1](#r-c1) | P1 | S-M | open | Measure operator-wait as a first-class metric |
+| [R-C1](#r-c1) | P1 | S-M | done (pending) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a) | Re-prompt the agent automatically on output-format validation failures |
 | [R-C3](#r-c3) | P2 | M | open | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | open | Refresh and re-review automatically when only upstream integration advanced |
@@ -209,7 +209,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B8
 
-**Remove dead and vestigial paths** · Phase P1 · Effort M · Status: partial (pending)
+**Remove dead and vestigial paths** · Phase P1 · Effort M · Status: partial (c0ccf3b)
 
 - **Resolves:** [CTRL-15](findings/CTRL-controller.md#ctrl-15-dead-and-vestigial-controller-paths), [GIT-04](findings/AGT-GIT-SEC-agents-git-security.md#git-04-the-ct-04a1-inspector-is-dead-code-about-78k-lines-but-is-still-composed-configured-and-tested), [DATA-09](findings/DATA-storage-domain-contracts.md#data-09-the-dead-ct-04a1a2-repository-inspector-and-registry-are-still-compiled-constructed-and-schema-resident), [QA-10](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-10-test-effort-is-weighted-toward-the-dormant-ct-04a-repository-inspection-feature)
 - **Change:** Delete the CT-04A1/A2 repository inspector, registry, provider, config keys and tests (drop the three empty tables in a forward migration; CRAFTINGTABLE_GIT_BIN currently crashes startup). Stop offering legacy finalization rounds for new finalizations while keeping the completed legacy record readable, then remove the legacy branches. Split WorkCycleRepository.list() into listActive()/listForWorkspace().
@@ -229,11 +229,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C1
 
-**Measure operator-wait as a first-class metric** · Phase P1 · Effort S-M · Status: open
+**Measure operator-wait as a first-class metric** · Phase P1 · Effort S-M · Status: done (pending)
 
 - **Resolves:** [HIST-02](findings/HIST-history-and-live-usage.md#hist-02-wall-clock-throughput-is-dominated-by-waiting-for-the-operator-not-by-agent-work-or-controller-latency), [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes), [HIST-09](findings/HIST-history-and-live-usage.md#hist-09-agent-reliability-is-high-stops-are-controller-derived-prioritize-accordingly)
 - **Change:** Record stop openedAt/resolvedAt/owner/kind (falls out of R-A3/R-A4) and show operator-wait hours and stops-by-kind on the dashboard. Use it to rank the remaining automation work.
 - **Done when:** The dashboard shows operator-wait hours for the last 7 days and the top stop kinds; numbers reproduce the HIST baseline on a DB snapshot.
+- **Progress:** Each cycle transition's audit entry now records its attention `{ code, owner, claim }`. The pure function `summarizeOperatorWait` (domain, `operator-wait.ts`) turns cycle transitions and run intervals into four numbers: wall hours with work waiting on the operator, the part of those with no agent running (the HIST-02 headline), agent hours, and operator stop kinds ranked by cycle-hours. A cycle waits on the operator while it is paused or stopped at operator-owned attention; controller-owned stops do not count. Older audit entries recover their code through `effectiveCycleAttention`. `GET /api/workspaces/:id/operator-wait?days=7` (1–30) serves it, and the dashboard's "Operator wait" section shows the hours and the five costliest stop kinds. The section reloads only when a cycle's status changes. Against the 2026-09-23 snapshot, the daily no-agent waiting hours for 09-19..09-22 UTC are 17.3, 17.7, 23.8 and 20.8 (HIST-02: 17.3, 17.6, 23.8, 20.8). 09-17..09-23 Pacific gives 112.7 h waiting with no agent against 31.3 agent-hours (baseline: ~112 h vs ~30 h). The top kinds are design-decision-required (131 cycle-h), paused (75), unrecoverable legacy stops (62), scope-review-recovery (55) and design-investigation-finished (52). Walkthrough captures `2026-09-24-operator-wait-before`/`-after`. The walkthrough script also repeats the recovery guidance with the answered question: guidance is one-shot per step (R-G3), and the capture had been failing since then. Tests: `operator-wait.test.ts` (domain and server), `OperatorWaitSection.test.tsx`.
 
 ### R-C2
 

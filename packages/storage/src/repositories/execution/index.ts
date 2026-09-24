@@ -550,6 +550,28 @@ class SqliteAgentRunRepository implements AgentRunRepository {
     ).count;
   }
 
+  activityBetween(workspaceId: WorkspaceId, from: string, to: string) {
+    return (
+      this.database
+        .prepare(
+          `SELECT started_at, finished_at, status FROM agent_runs
+           WHERE workspace_id = ? AND started_at IS NOT NULL AND started_at < ?
+             AND (finished_at IS NULL OR finished_at > ?)`,
+        )
+        .all(workspaceId, to, from) as {
+        started_at: string;
+        finished_at: string | null;
+        status: AgentRun['status'];
+      }[]
+    ).flatMap((row) =>
+      row.finished_at !== null
+        ? [{ startedAt: row.started_at, endedAt: row.finished_at }]
+        : ['starting', 'running', 'waiting'].includes(row.status)
+          ? [{ startedAt: row.started_at }]
+          : [],
+    );
+  }
+
   transition(input: TransitionAgentRunInput): AgentRun | undefined {
     if (input.expectedStatuses.length === 0) {
       return undefined;

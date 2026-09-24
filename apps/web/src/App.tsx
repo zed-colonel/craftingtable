@@ -68,6 +68,7 @@ import { RoadmapsPage } from './features/planning/RoadmapsPage.js';
 import { SourceText } from './features/planning/SourceText.js';
 import { WorkItemPage } from './features/planning/WorkItemPage.js';
 import { HostSchedulingPanel } from './features/workspace/HostSchedulingPanel.js';
+import { OperatorWaitSection } from './features/workspace/OperatorWaitSection.js';
 import { NotificationPanel } from './features/workspace/NotificationPanel.js';
 import { RoadmapAgentProfilesPanel } from './features/workspace/RoadmapAgentProfilesPanel.js';
 import { SettingsPage } from './features/workspace/SettingsPage.js';
@@ -1326,6 +1327,10 @@ export function App() {
               }
             />
             <AttentionStrip cycles={cycles} variant="section" onOpen={openCycle} />
+            <OperatorWaitSection
+              workspaceId={workspaceId}
+              refreshKey={cycles.map((cycle) => `${cycle.id}:${cycle.status}`).join(',')}
+            />
             <StatusCards
               summary={projection.statusSummary}
               onOpen={(target) => {

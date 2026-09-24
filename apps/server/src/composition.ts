@@ -25,6 +25,7 @@ import { resolveExecutable } from './services/executables.js';
 import { ExecutionService, type ExecutionStatus } from './services/execution-service.js';
 import { FinalizationService } from './services/finalization-service.js';
 import { HostSchedulingService } from './services/host-scheduling-service.js';
+import { OperatorWaitService } from './services/operator-wait-service.js';
 import { MapAmendmentService } from './services/map-amendment-service.js';
 import { NotificationService } from './services/notification-service.js';
 import {
@@ -56,6 +57,7 @@ export interface ServiceSet {
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
   readonly hostSchedulingService: HostSchedulingService;
+  readonly operatorWaitService: OperatorWaitService;
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
@@ -267,6 +269,7 @@ export async function createServices(
     runtimeEvidenceService,
     storageService,
     hostSchedulingService: new HostSchedulingService(storage, workspaceService, notifier, now),
+    operatorWaitService: new OperatorWaitService(storage, workspaceService, now),
     finalizationService: new FinalizationService(
       storage,
       workspaceService,
@@ -357,6 +360,7 @@ export async function createRuntime(
         packageImportService: services.packageImportService,
         storageService: services.storageService,
         hostSchedulingService: services.hostSchedulingService,
+        operatorWaitService: services.operatorWaitService,
         authService: services.authService,
         workspaceService: services.workspaceService,
         planImportService: services.planImportService,

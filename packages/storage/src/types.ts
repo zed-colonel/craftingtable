@@ -184,6 +184,15 @@ export interface WorkspaceRepository {
 export interface AuditRepository {
   append(input: AppendAuditInput): AuditEvent;
   count(): number;
+  /** A workspace's recorded cycle transitions up to `until`, oldest first (R-C1). */
+  listCycleTransitions(
+    workspaceId: WorkspaceId,
+    until: string,
+  ): readonly {
+    readonly cycleId: string;
+    readonly occurredAt: string;
+    readonly metadata: Readonly<Record<string, unknown>>;
+  }[];
   listWorkspace(input: {
     readonly workspaceId: WorkspaceId;
     readonly limit: number;

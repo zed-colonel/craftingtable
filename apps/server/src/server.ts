@@ -14,6 +14,7 @@ import { registerExecutionRoutes } from './routes/execution.js';
 import { registerFinalizationRoutes } from './routes/finalizations.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerHostSchedulingRoutes } from './routes/host-scheduling.js';
+import { registerOperatorWaitRoutes } from './routes/operator-wait.js';
 import { sendApiError } from './routes/http.js';
 import { registerMapAmendmentRoutes } from './routes/map-amendments.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
@@ -39,6 +40,7 @@ import {
 import type { ExecutionService, ExecutionStatus } from './services/execution-service.js';
 import type { FinalizationService } from './services/finalization-service.js';
 import type { HostSchedulingService } from './services/host-scheduling-service.js';
+import type { OperatorWaitService } from './services/operator-wait-service.js';
 import type { MapAmendmentService } from './services/map-amendment-service.js';
 import type { NotificationService } from './services/notification-service.js';
 import type { PackageImportService } from './services/package-import-service.js';
@@ -61,6 +63,7 @@ export interface ServerDependencies {
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
   readonly hostSchedulingService: HostSchedulingService;
+  readonly operatorWaitService: OperatorWaitService;
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
@@ -150,6 +153,7 @@ export function buildServer(
   registerRuntimeEvidenceRoutes(app, deps.authService, deps.runtimeEvidenceService, config);
   registerStorageRoutes(app, deps.authService, deps.storageService, config);
   registerHostSchedulingRoutes(app, deps.authService, deps.hostSchedulingService, config);
+  registerOperatorWaitRoutes(app, deps.authService, deps.operatorWaitService);
   registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);
   registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);
   registerNotificationRoutes(app, deps.authService, deps.notificationService, config);

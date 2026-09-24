@@ -80,6 +80,27 @@ export class SqliteAuditRepository implements AuditRepository {
     return mapAudit(row);
   }
 
+  listCycleTransitions(workspaceId: WorkspaceId, until: string) {
+    return (
+      this.database
+        .prepare(
+          `SELECT target_id, occurred_at, metadata_json FROM audit_events
+           WHERE workspace_id = ? AND action = 'work-cycle.updated' AND target_id IS NOT NULL
+             AND occurred_at <= ?
+           ORDER BY sequence`,
+        )
+        .all(workspaceId, until) as {
+        target_id: string;
+        occurred_at: string;
+        metadata_json: string;
+      }[]
+    ).map((row) => ({
+      cycleId: row.target_id,
+      occurredAt: row.occurred_at,
+      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+    }));
+  }
+
   count(): number {
     return (
       this.database.prepare(`SELECT COUNT(*) AS count FROM audit_events`).get() as {

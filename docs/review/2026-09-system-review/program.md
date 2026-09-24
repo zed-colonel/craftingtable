@@ -88,10 +88,11 @@ Exit criteria:
 **Progress (2026-09-23, branch `remediation/p1-foundations`).** Landed: R-B9 (drained restarts
 and automatic session resume, ADR-066), R-B2 (step classification extracted and characterized,
 golden replay, stepping seam), R-A3 (typed attention on every stop, ADR-067), R-C2 (automatic
-output-format repair through the same agent session), R-C8 (quota waits until a reported reset). Partial: R-B8 (inspector and registry
+output-format repair through the same agent session), R-C8 (quota waits until a reported reset), R-C1 (operator wait on the dashboard;
+reproduces the HIST-02 baseline). Partial: R-B8 (inspector and registry
 code removed, about 12k lines; legacy finalization remains), R-A7 (refuses resumes that
 cannot make progress; the other panels and one shared transition gate remain). `pnpm check`
-passes on the branch: 146 test files and 1,324 unit tests (after R-B8 removed the inspector suites), 22 e2e tests, the scope check. Not yet deployed.
+passes on the branch: 149 test files and 1,329 unit tests (after R-B8 removed the inspector suites), 22 e2e tests, the scope check. Not yet deployed.
 
 Exit criteria:
 - Every stop has a code and owner.

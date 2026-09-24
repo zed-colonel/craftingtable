@@ -50,3 +50,25 @@ export const roadmapAttentionSchema = z
 export const phaseBlockerCodeSchema = z.enum(
   PHASE_BLOCKER_CODES as [PhaseBlockerCode, ...PhaseBlockerCode[]],
 );
+
+/** Operator wait over a recent window (R-C1). */
+export const operatorWaitReportSchema = z.strictObject({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  waitingHours: z.number().nonnegative(),
+  idleWaitingHours: z.number().nonnegative(),
+  agentHours: z.number().nonnegative(),
+  kinds: z
+    .array(
+      z.strictObject({
+        kind: z.union([
+          z.enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]]),
+          z.literal('paused'),
+        ]),
+        stops: z.number().int().nonnegative(),
+        cycleHours: z.number().nonnegative(),
+      }),
+    )
+    .max(200),
+});
+export type OperatorWaitReportResponse = z.infer<typeof operatorWaitReportSchema>;

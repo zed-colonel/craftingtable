@@ -161,6 +161,12 @@ export interface AgentRunRepository {
   /** Live runs first, then the most recent finished ones, for the workspace overview. */
   listRecent(workspaceId: WorkspaceId, limit: number): readonly AgentRun[];
   countLive(workspaceId: WorkspaceId): number;
+  /** When each run that overlaps [from, to) was active; `endedAt` is absent while live (R-C1). */
+  activityBetween(
+    workspaceId: WorkspaceId,
+    from: string,
+    to: string,
+  ): readonly { readonly startedAt: string; readonly endedAt?: string }[];
   transition(input: TransitionAgentRunInput): AgentRun | undefined;
   count(): number;
 }

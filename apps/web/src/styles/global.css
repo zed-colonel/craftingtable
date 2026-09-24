@@ -654,6 +654,13 @@ button:disabled {
 /* ------------------------------------------------------------------------ */
 /* Lists and tables                                                          */
 /* ------------------------------------------------------------------------ */
+.plain-list {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
 
 .table-scroll {
   /* Contain absolutely positioned screen-reader labels as well as table cells. */

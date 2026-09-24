@@ -4125,6 +4125,16 @@ export class WorkCycleService {
         step: cycle.step,
         reason: cycle.reason,
         runId: cycle.currentRunId,
+        // The stop this transition entered, so operator wait can be measured by code (R-C1).
+        ...(cycle.attention
+          ? {
+              attention: {
+                code: cycle.attention.code,
+                owner: cycle.attention.owner,
+                ...(cycle.attention.claim ? { claim: cycle.attention.claim } : {}),
+              },
+            }
+          : {}),
         ...(action === 'approve-plan-change' && cycle.finalizationProgress
           ? {
               approvedObligations: cycle.finalizationProgress.obligations

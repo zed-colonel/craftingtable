@@ -88,6 +88,7 @@ export async function createTestContext(
       packageImportService: services.packageImportService,
       storageService: services.storageService,
       hostSchedulingService: services.hostSchedulingService,
+      operatorWaitService: services.operatorWaitService,
       authService: services.authService,
       workspaceService: services.workspaceService,
       planImportService: services.planImportService,

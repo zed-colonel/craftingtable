@@ -9,7 +9,7 @@ import {
 } from '@craftingtable/domain';
 import { openCraftingTableStorage, openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveScope } from './services/execution-scope.js';
+import { resolveScope, scopeCases, scopeRequirements } from './services/execution-scope.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -22,6 +22,7 @@ import {
   commitFile,
   currentCycle,
   designDone,
+  expectedScopeEvidence,
   git,
   implementationDone,
   launchScoped,
@@ -33,11 +34,13 @@ import {
   roadmapControl,
   roadmapInput,
   saveRoadmapRequest,
+  scopeKey,
   scopeReport,
   scopeTree,
   slicedFixture,
   startCycle,
   storedRoadmap,
+  supervisedMapFixture,
   waitFor,
   withLocalPhaseResources,
 } from './execution-test-support.js';
@@ -708,4 +711,43 @@ it('phase started milestones require a launched run, not a cycle queued for reso
       { resources: false },
     ),
   ).toEqual([]);
+});
+
+// The scenario tests report literal scope evidence; this is the one place the resolver's
+// derivation from the fixture maps is compared with those literals (R-I5, QA-06).
+it('derives from the fixture maps exactly the scope evidence the scenario tests report', {
+  timeout: 30000,
+}, async () => {
+  const sliced = await slicedFixture();
+  const supervised = await supervisedMapFixture(false, 'automatic', true);
+  for (const f of [sliced, supervised]) {
+    const { state } = f;
+    const scopes = [
+      ...f.scopes,
+      ...f.scopes.map((scope) => ({ ...scope, kind: 'slice-verification' as const })),
+      f.parentScope,
+    ];
+    for (const scope of scopes) {
+      const resolved = resolveScope(
+        state.context.storage,
+        state.workspaceId,
+        state.workItemId,
+        scope,
+      );
+      expect(
+        { requirements: scopeRequirements(resolved), caseIds: scopeCases(resolved) },
+        scopeKey(scope),
+      ).toEqual(expectedScopeEvidence(state, scope));
+    }
+  }
+  const second = { ...supervised.parentScope, sourceId: 'AQ-02' };
+  const resolved = resolveScope(
+    supervised.state.context.storage,
+    supervised.state.workspaceId,
+    supervised.second,
+    second,
+  );
+  expect({ requirements: scopeRequirements(resolved), caseIds: scopeCases(resolved) }).toEqual(
+    expectedScopeEvidence(supervised.state, second),
+  );
 });

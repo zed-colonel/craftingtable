@@ -40,7 +40,6 @@ import type { LightMyRequestResponse } from 'fastify';
 import { expect, it } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { resolveExecutable } from './services/executables.js';
-import { resolveScope, scopeCases, scopeRequirements } from './services/execution-scope.js';
 import { PLAN_CRITERIA, PLAN_REQUIREMENTS } from './services/plan-acceptance-policy.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
@@ -1182,6 +1181,8 @@ export async function slicedFixture(
     bindingRevision: 1,
     sourceId: 'AQ-01',
   };
+  // The map above names CASE-PARENT as the parent work item's source-profile case.
+  expectScopeCases(state, { 'parent-acceptance AQ-01': ['CASE-PARENT'] });
   return { ...fixture, auth, scopes, parentScope };
 }
 export async function scopeTree(
@@ -1195,13 +1196,41 @@ export async function scopeTree(
     { repositoryId: f.repository.id, executionScope: scope },
   );
 }
+/**
+ * What each fixture scope must evidence, written out from the fixture maps instead of being
+ * computed by the resolver under test (R-I5, QA-06). Requirements depend only on the scope; case
+ * IDs depend on the fixture's map, so each fixture declares them with `expectScopeCases`. The
+ * focused tests in server-execution-scopes and server-execution-scope-evidence check that the
+ * resolver agrees.
+ */
+export const SCOPE_REQUIREMENTS: Readonly<Record<string, readonly string[]>> = {
+  'slice AQ-01.A': ['Tests passed', 'Complete AQ-01.A'],
+  'slice-verification AQ-01.A': ['Tests passed', 'Complete AQ-01.A'],
+  'slice AQ-01.B': ['Tests passed', 'Complete AQ-01.B'],
+  'slice-verification AQ-01.B': ['Tests passed', 'Complete AQ-01.B'],
+  'parent-acceptance AQ-01': ['Original plan conforms', 'Queue accepts and drains one job.'],
+  'parent-acceptance AQ-02': ['Original plan conforms', 'Done'],
+};
+export const scopeKey = (scope: ExecutionScope): string => `${scope.kind} ${scope.sourceId}`;
+const scopeCaseExpectations = new WeakMap<Ready, Readonly<Record<string, readonly string[]>>>();
+/** The case IDs a fixture's map assigns to its scopes; a scope not named here has none. */
+export function expectScopeCases(state: Ready, cases: Record<string, readonly string[]>): void {
+  scopeCaseExpectations.set(state, { ...scopeCaseExpectations.get(state), ...cases });
+}
+export function expectedScopeEvidence(state: Ready, scope: ExecutionScope) {
+  const key = scopeKey(scope);
+  const requirements = SCOPE_REQUIREMENTS[key];
+  if (requirements === undefined) throw new Error(`No literal scope expectation for ${key}.`);
+  return { requirements, caseIds: scopeCaseExpectations.get(state)?.[key] ?? [] };
+}
+
 export function scopeReport(
   state: Ready,
   scope: ExecutionScope,
   omitRequirement = false,
   omitCase = false,
 ) {
-  const resolved = resolveScope(state.context.storage, state.workspaceId, state.workItemId, scope);
+  const expected = expectedScopeEvidence(state, scope);
   return (
     '```craftingtable-review\n' +
     JSON.stringify({
@@ -1214,11 +1243,11 @@ export function scopeReport(
         scope,
         requirements: omitRequirement
           ? []
-          : scopeRequirements(resolved).map((requirement) => ({
+          : expected.requirements.map((requirement) => ({
               requirement,
               evidence: 'Verified against tests and source.',
             })),
-        caseIds: omitCase ? [] : scopeCases(resolved),
+        caseIds: omitCase ? [] : expected.caseIds,
       },
     }) +
     '\n```\nVERDICT: mergeable'
@@ -1418,6 +1447,8 @@ export async function supervisedMapFixture(
       }),
     true,
   );
+  // Supervised maps carry no source-profile cases on their work items (see above).
+  expectScopeCases(f.state, { 'parent-acceptance AQ-01': [], 'parent-acceptance AQ-02': [] });
   const ws = f.state.workspaceId,
     definitionId = f.parentScope.definitionId;
   const runtime = await f.state.context.services.runtimeEvidenceService.configure(

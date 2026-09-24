@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { registerSourceRepositoryResponseSchema } from '@craftingtable/contracts';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
-import { resolveScope, scopeCases } from './services/execution-scope.js';
+import { resolveScope, scopeCases, scopeRequirements } from './services/execution-scope.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -14,6 +14,8 @@ import { resolveScope, scopeCases } from './services/execution-scope.js';
 import {
   cleanupExecutionFixtures,
   commitFile,
+  expectedScopeEvidence,
+  expectScopeCases,
   fixtureRepository,
   git,
   HOST_CARGO,
@@ -22,6 +24,7 @@ import {
   merge,
   mutationHeaders,
   runToFinish,
+  scopeKey,
   scopeReport,
   scopeTree,
   slicedFixture,
@@ -75,6 +78,8 @@ async function checkpointCandidateFixture() {
       merge_requires: [{ kind: 'checkpoint', id: 'CORE-G1', state: 'passed' }],
     })),
   }));
+  // Each slice's map entry names its baseline case.
+  expectScopeCases(f.state, { 'slice AQ-01.A': ['BASE-A'], 'slice AQ-01.B': ['BASE-B'] });
   const svc = f.state.context.services.runtimeEvidenceService;
   const config = {
     bindingRevision: 1,
@@ -884,3 +889,24 @@ it('binds consumer evidence independently of checkpoint ownership and derives cr
     { alias: 'local', commitSha: f.submission.subjectCommit },
   ]);
 });
+
+// The checkpoint fixture's baseline cases, as the resolver derives them from its map (QA-06).
+itNeedsCargo(
+  'derives the checkpoint fixture’s slice cases exactly as the scenario tests report them',
+  async () => {
+    const f = await checkpointCandidateFixture();
+    const { state } = f;
+    for (const scope of f.scopes) {
+      const resolved = resolveScope(
+        state.context.storage,
+        state.workspaceId,
+        state.workItemId,
+        scope,
+      );
+      expect(
+        { requirements: scopeRequirements(resolved), caseIds: scopeCases(resolved) },
+        scopeKey(scope),
+      ).toEqual(expectedScopeEvidence(state, scope));
+    }
+  },
+);

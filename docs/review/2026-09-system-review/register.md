@@ -871,6 +871,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Verified without Rust.** With PATH stripped of Cargo and HOME pointed at an empty directory, `pnpm test` gives 1,293 passed, 51 skipped, 0 failed. On this workstation it gives 1,344 passed, 0 skipped.
   - **In-repo fixtures.** The Git package's fixture root moved from the checkout to `os.tmpdir()`, and the obsolete `.gitignore` entry is removed.
   - **Leaked fixture.** `.ct04a-git-test-iJlU8M/`, from 2026-09-09, had been committed by accident in c0ccf3b and is removed. Its nested `.git` was broken, so `git log` inside it printed CraftingTable's own history. That is the hazard the finding describes.
+- **Amended 2026-09-24: scope evidence written out (QA-06).**
+  - **Literals.** `scopeReport`, which the scenario tests use to write a reviewer's scope evidence, no longer calls `resolveScope`, `scopeRequirements` or `scopeCases`; `execution-test-support.ts` no longer imports the resolver at all. Requirements come from a literal table keyed by scope kind and source (`SCOPE_REQUIREMENTS`). Case IDs are declared by each fixture from its own map (`expectScopeCases`):
+    - `CASE-PARENT` for the sliced fixture's parent;
+    - none for supervised maps;
+    - `BASE-A` and `BASE-B` for the checkpoint fixture's slices.
+  - **Agreement tests.** Two focused tests, one per fixture file, check that the resolver derives exactly those literals from the fixture maps. If the resolver drops or renames a requirement, those tests fail, and so does every scenario whose review evidence no longer matches.
+  - **Left as they are.** The remaining `resolveScope` calls in scenario tests either build a resolved scope to set up a phase reservation, or assert on production output; neither is expected evidence.
+  - **Verified.** 295 execution tests pass, including the two new ones.
 
 ### R-I6
 

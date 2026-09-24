@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
+import type { WorktreeId } from '@craftingtable/domain';
 import type { StorageRootIdentity } from '@craftingtable/storage';
 import { ExecutionRequestError } from './errors.js';
 import { TOOL_RESULTS_DIRECTORY } from './tool-result-store.js';
@@ -87,9 +88,17 @@ export async function directoryBytes(path: string, device?: number): Promise<num
   for (const name of await readdir(path)) bytes += await directoryBytes(join(path, name), expected);
   return bytes;
 }
+/**
+ * Under the runs root, one shared Cargo target directory per worktree (R-G7), named by
+ * worktree id and registered in `worktree_build_caches`.
+ */
+export const WORKTREE_CACHES_DIRECTORY = 'worktree-caches';
+
 export interface BuildCache {
   readonly path: string;
   readonly runId: string;
+  /** Set on a worktree's shared build cache (R-G7); `runId` is then empty. */
+  readonly worktreeId?: WorktreeId;
   readonly bytes: number;
   readonly device: number;
   readonly inode: number;

@@ -341,6 +341,22 @@ it('passes managed scratch space into the app-server child environment', async (
   });
 });
 
+it('points Cargo at the worktree build cache the daemon names (R-G7)', async () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'craftingtable-scratch-'));
+  directories.push(scratch);
+  const { session, items, done, messages } = await launch('scratch', {
+    temporaryDirectory: scratch,
+    buildCacheDirectory: '/shared/worktree-target',
+    additionalDirectories: [scratch],
+  });
+  await waitFor(() => turns(items).length === 1);
+  session.end();
+  await done;
+  expect(messages()).toContainEqual({
+    temporaryPaths: [scratch, scratch, scratch, '/shared/worktree-target'],
+  });
+});
+
 it('retains a structured temporary failure through terminal process cleanup', async () => {
   const { session, items, done } = await launch('overloaded');
   await done;

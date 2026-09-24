@@ -1,4 +1,4 @@
-import type { AgentRunId, UserId } from '@craftingtable/domain';
+import type { AgentRunId, UserId, WorktreeId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import type {
   DaemonCleanStop,
@@ -6,6 +6,7 @@ import type {
   StorageBackup,
   StorageMaintenanceRepository,
   StoredStorageSettings,
+  WorktreeBuildCache,
 } from '../maintenance-types.js';
 import { parseRecord, type RecordGuard } from '../records.js';
 export class SqliteStorageMaintenanceRepository implements StorageMaintenanceRepository {
@@ -26,6 +27,40 @@ export class SqliteStorageMaintenanceRepository implements StorageMaintenanceRep
         'INSERT INTO storage_settings (id, version, state_json) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version, state_json = excluded.state_json',
       )
       .run(value.version, JSON.stringify(value));
+  }
+  worktreeCache(worktreeId: WorktreeId): WorktreeBuildCache | undefined {
+    return this.database
+      .prepare(
+        'SELECT worktree_id AS worktreeId, workspace_id AS workspaceId, path, device, created_at AS createdAt FROM worktree_build_caches WHERE worktree_id = ?',
+      )
+      .get(worktreeId) as WorktreeBuildCache | undefined;
+  }
+  registerWorktreeCache(cache: WorktreeBuildCache): void {
+    this.database
+      .prepare(
+        'INSERT INTO worktree_build_caches (worktree_id, workspace_id, path, device, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(worktree_id) DO NOTHING',
+      )
+      .run(cache.worktreeId, cache.workspaceId, cache.path, cache.device, cache.createdAt);
+  }
+  worktreeCaches(): readonly (WorktreeBuildCache & { readonly eligible: boolean })[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT c.worktree_id AS worktreeId, c.workspace_id AS workspaceId, c.path, c.device,
+             c.created_at AS createdAt,
+             (w.status = 'removed' AND NOT EXISTS (
+               SELECT 1 FROM agent_runs live WHERE live.worktree_id = w.id
+                 AND live.status NOT IN ('finished','failed','cancelled','interrupted'))) AS eligible
+           FROM worktree_build_caches c JOIN worktrees w ON w.id = c.worktree_id
+           ORDER BY c.created_at`,
+        )
+        .all() as (WorktreeBuildCache & { eligible: number })[]
+    ).map((row) => ({ ...row, eligible: row.eligible === 1 }));
+  }
+  forgetWorktreeCache(worktreeId: WorktreeId): void {
+    this.database
+      .prepare('DELETE FROM worktree_build_caches WHERE worktree_id = ?')
+      .run(worktreeId);
   }
   ownsInstallation(userId: UserId): boolean {
     return !!this.database

@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -388,6 +389,39 @@ it('expires tool-result bodies with the run scratch retention and never through 
   renameSync(bodies, `${bodies}-elsewhere`);
   symlinkSync(`${bodies}-elsewhere`, bodies);
   expect(await cleanupCandidates(run, 30, new Date())).toEqual([]);
+});
+it("removes a worktree's shared build cache only once the worktree is merged, never through a link (R-G7)", async () => {
+  const s = await runFixture();
+  const shared = makeCargo(
+    join(s.service.executionConfig.runsRoot, 'worktree-caches', s.worktreeId),
+  );
+  s.context.storage.maintenance.registerWorktreeCache({
+    worktreeId: s.worktreeId,
+    workspaceId: s.workspaceId,
+    path: realpathSync(shared),
+    device: statSync(shared).dev,
+    createdAt: new Date().toISOString(),
+  });
+  // While the worktree is active, later steps still build into it.
+  await s.service.tick();
+  expect(existsSync(join(shared, 'debug', 'binary'))).toBe(true);
+  // A link planted in its place is never followed or removed.
+  renameSync(shared, `${shared}-elsewhere`);
+  symlinkSync(`${shared}-elsewhere`, shared);
+  s.merge();
+  await s.service.tick();
+  expect(existsSync(join(`${shared}-elsewhere`, 'debug', 'binary'))).toBe(true);
+  rmSync(shared);
+  renameSync(`${shared}-elsewhere`, shared);
+
+  await s.service.tick();
+  expect(existsSync(shared)).toBe(false);
+  expect(s.context.storage.maintenance.worktreeCache(s.worktreeId)).toBeUndefined();
+  const removed = s.context.storage.audit
+    .listWorkspace({ workspaceId: s.workspaceId, limit: 100 })
+    .filter((row) => row.action === 'storage.cleaned' && row.metadata.worktreeId === s.worktreeId)
+    .map((row) => row.metadata.phase);
+  expect(removed.sort()).toEqual(['authorized', 'removed']);
 });
 it('automatic cleanup resumes after restart and daily backups are consistent, private and bounded', async () => {
   const s = await runFixture();

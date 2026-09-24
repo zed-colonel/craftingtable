@@ -146,6 +146,26 @@ describe('ClaudeCodeBackend', () => {
     ).toBe(true);
   });
 
+  it('points Cargo at the worktree build cache the daemon names (R-G7)', async () => {
+    const fake = fakeClaude();
+    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+      cwd: fake.cwd,
+      prompt: 'ENV',
+      permissionMode: 'auto',
+      temporaryDirectory: fake.cwd,
+      buildCacheDirectory: '/shared/worktree-target',
+    });
+    const results: string[] = [];
+    for await (const item of session.items)
+      if (item.type === 'event' && item.event.kind === 'turn-completed') {
+        results.push(item.event.payload.resultText);
+        session.end();
+      }
+    expect(results).toContain(
+      `echo: ${JSON.stringify([fake.cwd, fake.cwd, fake.cwd, '/shared/worktree-target'])}`,
+    );
+  });
+
   it('rejects an invalid launch request without spawning', async () => {
     const fake = fakeClaude();
     const backend = new ClaudeCodeBackend({ executable: fake.executable });

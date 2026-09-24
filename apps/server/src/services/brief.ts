@@ -42,6 +42,8 @@ export interface BriefInput {
     readonly reuseVerification: boolean;
   };
   readonly temporaryDirectory?: string;
+  /** The worktree's shared Cargo target directory, when the daemon provides one (R-G7). */
+  readonly buildCacheDirectory?: string;
   readonly reviewBranchContext?: ReviewBranchContext;
   readonly role: AgentRunRole;
   readonly projectName: string;
@@ -277,7 +279,11 @@ export function composeBrief(input: BriefInput): string {
     sections.push(
       [
         '## Temporary files',
-        `TMPDIR, TMP, and TEMP point to ${input.temporaryDirectory}. Use this controller-owned directory for test temporary files and scratch output. It is outside the Git worktree and available to this run. Do not redirect temporary files to the worktree root. Do not commit test artifacts. Preserve verification results in your final message. CARGO_TARGET_DIR points to this run’s scratch/target build cache. Keep build outputs there; do not reuse earlier runs’ cache directories or put evidence inside a build cache. Recognized build caches are disposable and may be removed when this run ends, including failed or cancelled runs; verification logs and reports belong in separate scratch/verification or scratch/review directories. Other scratch may expire under the storage policy, and source edits remain restricted to the worktree; this directory is for temporary data only.`,
+        `TMPDIR, TMP, and TEMP point to ${input.temporaryDirectory}. Use this controller-owned directory for test temporary files and scratch output. It is outside the Git worktree and available to this run. Do not redirect temporary files to the worktree root. Do not commit test artifacts. Preserve verification results in your final message. ${
+          input.buildCacheDirectory
+            ? `CARGO_TARGET_DIR points to ${input.buildCacheDirectory}, this worktree’s build cache. Earlier steps in this worktree built into it, so builds are incremental; keep build outputs there rather than creating another target directory, and do not put evidence inside it. It is removed when the worktree is merged or removed.`
+            : 'CARGO_TARGET_DIR points to this run’s scratch/target build cache. Keep build outputs there and do not put evidence inside a build cache. Recognized build caches are disposable and may be removed when this run ends, including failed or cancelled runs.'
+        } Verification logs and reports belong in separate scratch/verification or scratch/review directories. Other scratch may expire under the storage policy, and source edits remain restricted to the worktree; this directory is for temporary data only.`,
       ].join('\n\n'),
     );
   }

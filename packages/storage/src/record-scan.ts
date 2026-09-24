@@ -201,6 +201,7 @@ export const RELATIONAL_TABLES: Readonly<Record<string, string>> = {
   run_directories: 'relational bookkeeping for ADR-034 retention',
   storage_backups: 'relational bookkeeping for ADR-034 retention',
   daemon_clean_stop: 'one-row restart bookkeeping (R-B9)',
+  worktree_build_caches: 'relational bookkeeping for ADR-039 cleanup (R-G7)',
   import_archives: 'immutable ZIP bytes as uploaded; imports validate them',
   phase_reservations: 'relational',
   phase_resource_limits: 'relational',

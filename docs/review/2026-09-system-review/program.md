@@ -215,6 +215,11 @@ R-A7's remainder.
   cache. Migration 0029 backfills both and keeps the work-item admission guard working.
   - **Snapshot copy:** both replays report 0 changed, db:verify passes, and the largest control row fell from
     257 KB to 27 KB.
+- **R-G7: partial, pending live measurement.** Each worktree's runs share one Cargo target directory, created
+  by Cargo on first build. It is removed, audited, once the worktree is merged or removed (ADR-039 amended).
+  - **Audit baseline:** 825 GB removed across 101 caches in 25 worktrees over ten days.
+  - **Projection:** at most 219 GB, about 3.8×. An order of magnitude needs a per-repository cache, which is an
+    operator decision.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 

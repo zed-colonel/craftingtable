@@ -1,6 +1,6 @@
 import { decisionPreparationDocuments } from './decision-preparation-policy.js';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   AgentBackend,
@@ -50,6 +50,7 @@ import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/s
 import type { ExecutionConfig } from '../config.js';
 import { cycleAgentSelection } from './agent-profile-policy.js';
 import { cycleOwnership } from './cycle-ownership.js';
+import { WORKTREE_CACHES_DIRECTORY } from './storage-files.js';
 import { offloadToolResult, readToolResult } from './tool-result-store.js';
 import type { AuthContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
@@ -803,6 +804,7 @@ export class AgentRunService {
       const runDirectory = join(this.config.runsRoot, runId);
       const temporaryDirectory = join(runDirectory, 'scratch');
       mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
+      const buildCacheDirectory = this.worktreeBuildCache(prepared.worktree);
       const pinned = await this.runtimeEvidence?.prepare(prepared.worktree, runId, runDirectory);
       const historical =
         cycle?.baselinePreparation?.status === 'prepared'
@@ -1072,6 +1074,7 @@ export class AgentRunService {
         resolvingIntegration: ownsIntegrationResolution(cycle),
         planFinalization: !!prepared.worktree.planVersionId && !preparation,
         temporaryDirectory,
+        ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
         role: input.role,
         projectName: prepared.project.name,
         workItem: {
@@ -1285,6 +1288,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           : {}),
         cwd: prepared.worktree.path,
         temporaryDirectory,
+        ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
         ...(cycle
           ? { deadlineAt: cycle.runDeadlineAt }
           : preparation
@@ -1926,6 +1930,41 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       return offloadToolResult(payload, directory);
     } catch {
       return payload;
+    }
+  }
+
+  /**
+   * The worktree's shared Cargo target directory (R-G7), registered at the worktree's first
+   * launch and reused by every later step, so each step builds incrementally instead of from
+   * cold. Cargo creates the directory on its first build, so a worktree that never builds
+   * Rust leaves nothing behind. Storage cleanup removes it once the worktree is merged or
+   * removed and nothing runs in it (ADR-039). Without a usable location the run builds in
+   * its own scratch, as before.
+   */
+  private worktreeBuildCache(worktree: Worktree): string | undefined {
+    try {
+      const recorded = this.storage.maintenance.worktreeCache(worktree.id);
+      if (recorded) {
+        const usable =
+          !existsSync(recorded.path) ||
+          (lstatSync(recorded.path).isDirectory() &&
+            statSync(recorded.path).dev === recorded.device);
+        return usable ? recorded.path : undefined;
+      }
+      const parent = join(this.config.runsRoot, WORKTREE_CACHES_DIRECTORY);
+      mkdirSync(parent, { recursive: true, mode: 0o700 });
+      const root = realpathSync(parent);
+      const path = join(root, worktree.id);
+      this.storage.maintenance.registerWorktreeCache({
+        worktreeId: worktree.id,
+        workspaceId: worktree.workspaceId,
+        path,
+        device: statSync(root).dev,
+        createdAt: this.now().toISOString(),
+      });
+      return path;
+    } catch {
+      return undefined;
     }
   }
 

@@ -37,6 +37,11 @@ export interface AgentLaunchRequest {
   readonly cwd: string;
   /** Controller-owned scratch directory, outside the Git worktree. */
   readonly temporaryDirectory?: string;
+  /**
+   * The Cargo target directory for this run: the worktree's shared build cache (R-G7).
+   * Without it, builds go to `<temporaryDirectory>/target`.
+   */
+  readonly buildCacheDirectory?: string;
   /** Original automated step deadline, including background drain and continuations. */
   readonly deadlineAt?: string;
   /** The first user message. */

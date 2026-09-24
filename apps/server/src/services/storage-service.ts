@@ -9,7 +9,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { rename, rm, stat } from 'node:fs/promises';
+import { lstat, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   type SaveStorageRequest,
@@ -432,6 +432,9 @@ export class StorageService {
         warnings.push(`Could not fully inspect worktree ${path}.`);
       }
     }
+    caches.push(...(await this.worktreeCacheCandidates()));
+    for (const cache of this.storage.maintenance.worktreeCaches())
+      if (existsSync(cache.path)) runBytes += await directoryBytes(cache.path, cache.device);
     this.candidates = caches;
     this.scanResult = {
       id: randomUUID(),
@@ -463,6 +466,13 @@ export class StorageService {
     this.candidates = [];
     this.scanResult = null;
     for (const candidate of candidates) {
+      if (candidate.worktreeId) {
+        if (await this.removeWorktreeCache(candidate, context, workspaceId)) {
+          count++;
+          bytes += candidate.bytes;
+        }
+        continue;
+      }
       const run = this.storage.maintenance
         .directories()
         .find(
@@ -548,6 +558,107 @@ export class StorageService {
     }
     this.lastCleanup = { completedAt: this.now().toISOString(), cachesRemoved: count, bytes };
   }
+  /**
+   * Shared worktree build caches (R-G7) that cleanup may remove: the worktree is merged or
+   * removed and nothing runs in it. A registration whose directory is already gone is
+   * forgotten; a directory whose identity changed (a link, another device) is left alone.
+   */
+  private async worktreeCacheCandidates(): Promise<BuildCache[]> {
+    const found: BuildCache[] = [];
+    for (const cache of this.storage.maintenance.worktreeCaches()) {
+      if (!cache.eligible) continue;
+      if (!existsSync(cache.path)) {
+        this.storage.maintenance.forgetWorktreeCache(cache.worktreeId);
+        continue;
+      }
+      const entry = await lstat(cache.path);
+      if (
+        !entry.isDirectory() ||
+        entry.dev !== cache.device ||
+        realpathSync(cache.path) !== cache.path
+      )
+        continue;
+      found.push({
+        kind: 'build',
+        path: cache.path,
+        runId: '',
+        worktreeId: cache.worktreeId,
+        device: entry.dev,
+        inode: entry.ino,
+        bytes: await directoryBytes(cache.path, cache.device),
+      });
+    }
+    return found;
+  }
+
+  /** Removes one shared worktree cache under the worktree's mutation guard, audited like run caches. */
+  private async removeWorktreeCache(
+    candidate: BuildCache,
+    context?: AuthContext,
+    workspaceId?: WorkspaceId,
+  ): Promise<boolean> {
+    const worktreeId = candidate.worktreeId;
+    if (!worktreeId) return false;
+    let removed = false;
+    const remove = async () => {
+      const current = this.storage.maintenance
+        .worktreeCaches()
+        .find((cache) => cache.worktreeId === worktreeId);
+      if (!current?.eligible || current.path !== candidate.path) return;
+      const identity = lstatSync(candidate.path);
+      if (
+        realpathSync(candidate.path) !== candidate.path ||
+        identity.ino !== candidate.inode ||
+        identity.dev !== candidate.device
+      )
+        return;
+      const metadata = { worktreeId, path: candidate.path, bytes: candidate.bytes };
+      this.storage.audit.append({
+        id: randomUUID(),
+        occurredAt: this.now().toISOString(),
+        actorKind: context ? 'user' : 'system',
+        ...(context ? { actorUserId: context.user.id, sessionId: context.session.id } : {}),
+        workspaceId: workspaceId ?? current.workspaceId,
+        action: 'storage.cleaned',
+        outcome: 'succeeded',
+        metadata: { phase: 'authorized', ...metadata },
+      });
+      try {
+        await rm(candidate.path, { recursive: true });
+      } catch (error) {
+        this.storage.audit.append({
+          id: randomUUID(),
+          occurredAt: this.now().toISOString(),
+          actorKind: 'system',
+          workspaceId: current.workspaceId,
+          action: 'storage.cleaned',
+          outcome: 'failed',
+          metadata: { phase: 'removal', worktreeId, path: candidate.path },
+        });
+        throw error;
+      }
+      this.storage.transaction((tx) => {
+        tx.maintenance.forgetWorktreeCache(worktreeId);
+        tx.audit.append({
+          id: randomUUID(),
+          occurredAt: this.now().toISOString(),
+          actorKind: 'system',
+          workspaceId: current.workspaceId,
+          action: 'storage.cleaned',
+          outcome: 'succeeded',
+          metadata: { phase: 'removed', ...metadata },
+        });
+      });
+      removed = true;
+    };
+    try {
+      await this.mutations.during(worktreeId, remove);
+    } catch (error) {
+      if (!(error instanceof WorktreeMutationBusyError)) throw error;
+    }
+    return removed;
+  }
+
   async backup(context: AuthContext, workspaceId: WorkspaceId): Promise<StorageStatus> {
     this.authorize(context, workspaceId);
     await this.exclusively(() => this.writeBackup(context, workspaceId));
@@ -676,6 +787,8 @@ export class StorageService {
               failures.push(`Could not inspect eligible scratch for run ${run.runId}; retained.`);
             }
           }
+          if (this.settings.policy.autoCleanBuildCaches)
+            candidates.push(...(await this.worktreeCacheCandidates()));
           const eligible = candidates.filter(
             (candidate) =>
               candidate.kind === 'scratch' || this.settings.policy.autoCleanBuildCaches,

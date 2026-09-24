@@ -19,7 +19,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **B** | | | | **Controller core (pain point 3)** |
 | [R-B1](#r-b1) | P0 | S | done (fd269b6, 012447b) | Controller quick fixes (no schema change) |
 | [R-B2](#r-b2) | P1 | M | done (131a9de) | Characterization harness for the cycle controller |
-| [R-B3](#r-b3) | P1 | M | done (this commit, recorded in the next) | Explicit cycle ownership; roadmap state references its definition |
+| [R-B3](#r-b3) | P1 | M | done (82ae8ab) | Explicit cycle ownership; roadmap state references its definition |
 | [R-B4](#r-b4) | P4 | L | open | Pure cycle decision core with an explicit state machine |
 | [R-B5](#r-b5) | P4 | L | open | Event-driven controller kernel |
 | [R-B6](#r-b6) | P4 | M-L | open | Scoped consistency instead of whole-roadmap pause |
@@ -65,7 +65,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G4](#r-g4) | P2 | M-L | open | Daemon-owned verification receipts |
 | [R-G5](#r-g5) | P2 | M | open | Agent environment and configuration isolation |
 | [R-G6](#r-g6) | P2 | M | open | Redesign briefs around the task |
-| [R-G7](#r-g7) | P1 | M | open | Stop cold-building Rust on every step |
+| [R-G7](#r-g7) | P1 | M | partial (this commit, recorded in the next; live measurement after deploy) | Stop cold-building Rust on every step |
 | [R-G8](#r-g8) | P5 | M-L | open | Backend capability model and persistent-agent seam |
 | [R-G9](#r-g9) | P2 | M | open | Authentication and authorization hardening |
 | [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
@@ -229,7 +229,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B3
 
-**Explicit cycle ownership; roadmap state references its definition** · Phase P1 · Effort M · Status: done (this commit, recorded in the next)
+**Explicit cycle ownership; roadmap state references its definition** · Phase P1 · Effort M · Status: done (82ae8ab)
 
 - **Resolves:** [CTRL-07](findings/CTRL-controller.md#ctrl-07-ownership-of-a-cycle-by-a-roadmap-is-resolved-11-ways-and-the-cycle-has-no-owner-field), [CTRL-09](findings/CTRL-controller.md#ctrl-09-the-roadmap-control-row-embeds-the-whole-definition-and-history-is-parsed-on-hot-paths), [HIST-12](findings/HIST-history-and-live-usage.md#hist-12-roadmap-state-rewrites-a-248-kb-json-blob-including-a-full-definition-copy-on-every-change), [DATA-07](findings/DATA-storage-domain-contracts.md#data-07-the-roadmap-state-blob-embeds-a-copy-of-the-immutable-definition-and-keeps-append-only-histories-inside-the-mutable-blob-revision-lookups-load-every-revision), [PERF-08](findings/PERF-browser-and-read-performance.md#perf-08-map-evaluation-hot-spots-in-roadmap-view-cycles-list-and-cross-project-preview)
 - **Change:** Add optional WorkCycle.owner {roadmapId, attemptId, entryId, definitionRevision}, set on creation and backfilled on read; replace the 11 ownership scans with one memoized cycleOwnership(). Store only definitionRevision in roadmap control state, load definitions through a process-wide immutable cache, and add an indexed single-revision lookup instead of parsing all history.
@@ -722,11 +722,26 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G7
 
-**Stop cold-building Rust on every step** · Phase P1 · Effort M · Status: open
+**Stop cold-building Rust on every step** · Phase P1 · Effort M · Status: partial (this commit, recorded in the next; live measurement after deploy)
 
 - **Resolves:** [AGT-05](findings/AGT-GIT-SEC-agents-git-security.md#agt-05-per-run-cargo_target_dir-forces-a-cold-rust-build-on-every-step-768-gb-written-and-deleted-in-10-days)
 - **Change:** Share a Cargo target directory per worktree (or per repository with a lock) across the steps of a cycle, with the ADR-039 cleanup applied when the worktree is merged/removed.
 - **Done when:** Cache removal volume per day drops by an order of magnitude from the 768 GB/10-day baseline.
+- **Progress (2026-09-24):**
+  - **One Cargo target per worktree.** Each worktree gets one Cargo target directory, `<runs root>/worktree-caches/<worktree id>`, registered in `worktree_build_caches` (migration 0030) at the worktree's first launch. Every run in the worktree gets it as `CARGO_TARGET_DIR`, through the launch request's new `buildCacheDirectory`, so later steps build incrementally.
+    - Cargo creates the directory on its first build, so worktrees that never build Rust leave nothing.
+    - The brief now names the shared cache and asks agents to keep builds there instead of making their own. Eight of the 101 removed caches had been agent-made target directories.
+    - Pinned-evidence and historical-baseline builds keep per-run targets, because their provenance is per run.
+  - **Cleanup (ADR-039, amended).** The shared cache is removed on the storage worker's tick once the worktree is merged or removed and no run in it is live.
+    - Removal is under the worktree mutation guard, with the registered path and device checked and links never followed.
+    - It is audited as `storage.cleaned` with the worktree id. The Storage page's scan counts shared caches.
+  - **Tests:** launch sharing and brief text (`server-execution-runs.test.ts`), cleanup only after merge and never through a link (`storage-management.test.ts`), both adapters' `CARGO_TARGET_DIR`.
+  - **Measured on the 2026-09-23 snapshot's cleanup audit (2026-09-13 to 2026-09-23):**
+    - 101 caches removed from 99 runs in 25 worktrees: 825.1 GB. The review's 768 GB figure predates the last day.
+    - About four cold builds per worktree; the largest single removal was about 131 GB.
+  - **Projection with one cache per worktree.** Removal volume is bounded by each worktree's largest cache: at most 219.3 GB over the same period, a 3.8× reduction. Build writes fall further, because later steps recompile only what changed.
+  - **This does not reach the order-of-magnitude target by itself.** Sharing per repository would, but it serializes parallel worktrees on Cargo's lock and never lets the cache be removed. That choice is raised as an operator decision.
+  - **Status:** partial until removal volume is re-measured on live data after deploy.
 
 ### R-G8
 

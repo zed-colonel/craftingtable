@@ -34,8 +34,8 @@ describe('ordered SQL migrations', () => {
     const database = openDatabase(path);
     const migrations = discoverMigrations();
     expect(runMigrations(database, migrations)).toEqual({
-      currentVersion: 29,
-      supportedVersion: 29,
+      currentVersion: 30,
+      supportedVersion: 30,
       pendingVersions: [],
     });
     const rows = database
@@ -71,6 +71,7 @@ describe('ordered SQL migrations', () => {
       { version: 27, name: 'daemon-stops', checksum: migrations[26]?.checksum },
       { version: 28, name: 'journal-compaction', checksum: migrations[27]?.checksum },
       { version: 29, name: 'roadmap-definition-revision', checksum: migrations[28]?.checksum },
+      { version: 30, name: 'worktree-build-caches', checksum: migrations[29]?.checksum },
     ]);
     database.close();
   });
@@ -108,7 +109,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(29);
+    ).toBe(30);
     second.close();
   });
 
@@ -130,7 +131,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(29);
+    ).toBe(30);
     database.close();
   });
 
@@ -190,10 +191,10 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 29,
+      supportedVersion: 30,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29,
+        26, 27, 28, 29, 30,
       ],
     });
 
@@ -209,10 +210,10 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 29,
+      supportedVersion: 30,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29,
+        26, 27, 28, 29, 30,
       ],
     });
     expect(existsSync(path)).toBe(false);

@@ -101,7 +101,8 @@ export class ClaudeCodeBackend implements AgentBackend {
             : {}),
           ...(request.temporaryDirectory
             ? {
-                CARGO_TARGET_DIR: `${request.temporaryDirectory}/target`,
+                CARGO_TARGET_DIR:
+                  request.buildCacheDirectory ?? `${request.temporaryDirectory}/target`,
                 TMPDIR: request.temporaryDirectory,
                 TMP: request.temporaryDirectory,
                 TEMP: request.temporaryDirectory,

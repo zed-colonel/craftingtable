@@ -745,6 +745,27 @@ describe('agent runs', () => {
     }
   });
 
+  it('gives every run in a worktree the same build cache, outside each run directory (R-G7)', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const first = await runToFinish(state, worktree.id, { instructions: 'Build.' });
+    const second = await runToFinish(state, worktree.id, { instructions: 'Build again.' });
+    const caches = state.backend.launches.map((launch) => launch.buildCacheDirectory);
+    const registered = state.context.storage.maintenance.worktreeCache(worktree.id);
+    expect(registered?.path).toBeDefined();
+    expect(caches).toEqual([registered?.path, registered?.path]);
+    // Cargo creates it on its first build; a worktree that never builds Rust leaves nothing.
+    expect(existsSync(registered?.path ?? '')).toBe(false);
+    for (const runId of [first, second]) {
+      expect(
+        registered?.path.startsWith(join(state.context.config.execution.runsRoot, runId)),
+      ).toBe(false);
+      expect(state.context.storage.execution.runs.find(state.workspaceId, runId)?.brief).toContain(
+        `CARGO_TARGET_DIR points to ${registered?.path}, this worktree’s build cache.`,
+      );
+    }
+  });
+
   it('lists live and recent runs across the workspace with their work item context', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());

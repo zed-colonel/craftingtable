@@ -223,6 +223,38 @@ R-A7's remainder.
 - **R-A7: partial.** The whole-item predecessor rule is one function shared by commands, the launch and the
   roadmap scheduler. Replays report 0 changed. Two remaining differences would change which stop the operator
   sees: scheduler-side Git ancestry, and item-status checks. They are recorded for R-B4.
+- **Defect found along the way:** panels keyed repeated server warnings by their text (duplicate React keys in
+  the e2e log). Fixed with a focused test (485969b).
+- **Gate at the end of the batch:** `pnpm check` passes: 174 test files and 1,379 unit tests, 22 e2e tests, the
+  walkthrough rehearsal, and the scope check. `pnpm test` took 76–84 s at load averages of 1–9.
+- **New operator actions** (all on the live data, none run here):
+  - **Deploy.** Deploying the branch applies migrations 0027–0030 on start. 0029 aborts on a roadmap whose embedded
+    definition differs from its stored revision; the 2026-09-23 data has none.
+  - **Verify first.** Run `pnpm db:verify` on a fresh backup before deploying.
+  - **Compact.** After deploy, compact the journal with the daemon stopped (`docs/operations.md`, "Checking and
+    compacting the database"). Then re-measure database growth per run (R-H2) and cache-removal volume (R-G7).
+- **Decisions for the operator (batch of 2026-09-24):**
+  1. **R-G7 target.** A cache per worktree projects a 3.8× cut in removal volume, not the 10× in the done-when.
+     - Option (a): accept the per-worktree cache and restate the done-when to the measured figure after deploy.
+     - Option (b): add a per-repository cache. It serializes parallel worktrees on Cargo's lock, and it never
+       frees disk unless a size bound is added.
+  2. **R-A7 remainder.** Mark R-A7 done and move to R-B4 the two gate differences that change which stop the
+     operator sees: scheduler-side Git ancestry, and item-status alignment.
+  3. **R-H2 retention settings.**
+     - Tool-result previews are 4 KiB.
+     - Full bodies expire with the run's scratch retention (30 days after the work merges).
+     - Raw lines on failure notices are kept indefinitely.
+     - Confirm these, or set a different window.
+  4. **Contract guard on writes fails closed.** A record that breaks its contract now fails the write, as a 500 on
+     a command or an error in a controller pass, instead of reaching the browser. The live data conforms, but a
+     latent writer bug would now surface as a failed action. The alternative is to log and allow for one release.
+  5. **FMT-15 (R-F3) fixtures.** The scope fixtures store v0.3 sources the importer would reject, so test-cleanup
+     verification skips the format check. Rebuilding those fixtures through the importer makes it strict.
+- **Still open in P1 after this batch:**
+  - R-B10;
+  - R-E6 and R-I7;
+  - R-A7's remainder, unless moved to R-B4;
+  - the post-deploy measurements for R-H2 and R-G7.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 

@@ -15,7 +15,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-A4](#r-a4) | P2 | M-L | open | Durable attention items, delivery log, quiescence and presence |
 | [R-A5](#r-a5) | P2 | L | open | One "Needs you" inbox that every surface reads |
 | [R-A6](#r-a6) | P3 | L | open | Consolidate decision and recovery components; delete per-page hosts |
-| [R-A7](#r-a7) | P1 | M | partial (9339d01, c6e4042, 27266c0, + shared predecessor gate) | Offer only actions that can make progress; one transition gate for commands and launch |
+| [R-A7](#r-a7) | P1 | M | partial (9339d01, c6e4042, 27266c0, 9084e50) | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
 | [R-B1](#r-b1) | P0 | S | done (fd269b6, 012447b) | Controller quick fixes (no schema change) |
 | [R-B2](#r-b2) | P1 | M | done (131a9de) | Characterization harness for the cycle controller |
@@ -175,7 +175,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A7
 
-**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: partial (9339d01, c6e4042, 27266c0, + shared predecessor gate)
+**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: partial (9339d01, c6e4042, 27266c0, 9084e50)
 
 - **Resolves:** [CTRL-04](findings/CTRL-controller.md#ctrl-04-resume-is-accepted-even-when-it-cannot-make-progress), [CTRL-12](findings/CTRL-controller.md#ctrl-12-manual-commands-accept-transitions-that-the-automated-launch-then-rejects)
 - **Change:** Derive the valid operator actions from the attention code (in the same pure code that decides the transition) and return them with the cycle projection; reject Resume when the blocking fact is not transient, with the correct destination. Put whole-item and scoped start/advance gates, including predecessor ancestry, into one transitionGate() used by commands before acceptance and again at launch.

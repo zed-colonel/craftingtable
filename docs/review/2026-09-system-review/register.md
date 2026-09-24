@@ -80,13 +80,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H6](#r-h6) | P3 | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
-| [R-I2](#r-i2) | P1 | M | open | Split the 14k-line execution test file |
-| [R-I3](#r-i3) | P1 | S-M | open | Systematic authorization tests |
+| [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
+| [R-I3](#r-i3) | P1 | S-M | done (2531715) | Systematic authorization tests |
 | [R-I4](#r-i4) | P2 | M | open | Structural test/production and process-authority boundaries |
-| [R-I5](#r-i5) | P1 | S-M | partial (b966dd7) | E2E and fixture reliability |
-| [R-I6](#r-i6) | P1 | S-M | open | Gate on lint |
+| [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d) | E2E and fixture reliability |
+| [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
 | [R-I7](#r-i7) | P1-P3 | M | open | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
+| [R-I9](#r-i9) | P2 | S-M | open | Independent e2e specs: one workspace per spec (added 2026-09-24) |
 
 ## Workstream A — Attention, decisions and notifications (pain points 1 and 3)
 
@@ -265,6 +266,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [CTRL-13](findings/CTRL-controller.md#ctrl-13-layering-is-inverted-and-responsibilities-are-misplaced-across-services), [CTRL-14](findings/CTRL-controller.md#ctrl-14-the-same-gates-and-validations-are-duplicated-with-drift), [AGT-12](findings/AGT-GIT-SEC-agents-git-security.md#agt-12-launchauthorized-is-a-780-line-mixed-responsibility-function-its-side-effects-precede-the-durable-record)
 - **Change:** roadmap-scheduler (admission/attempts, hands the cycle an OwnerPolicy), cycle-core + cycle-effects, run-supervisor (launch/supervise/journal only), run-context (document materialization + brief composition), merge-gate (pure) + merge-executor. Move crossProjectState, milestoneSatisfied and mergeGateFor into policy modules (removes the type-only import cycles). Extract the duplicated authority, instruction-bound, extra-rounds and roadmap-editable validators. Make always-supplied constructor dependencies required.
 - **Done when:** launchAuthorized is split; no service file exceeds ~1,200 lines; no import cycles; each duplicated validator exists once.
+- **Amended 2026-09-24 (operator decision, after R-I6):**
+  - **Why.** R-I6 turned off Biome's `noNonNullAssertion`. In tests, `!` after a setup step is sound. In production, a violated `!` surfaces as an anonymous `TypeError` far from its cause.
+  - **Where.** The 198 production sites are concentrated in the services this item rewrites: roadmap-service 45, runtime-evidence-service 37, work-cycle-service 23 and map-amendment-service 17. Doing it here avoids converting code that is about to be restructured.
+  - **Added to the Change.** Replace production non-null assertions with a named invariant helper that throws with context, and re-enable `noNonNullAssertion` for production files in `biome.jsonc`, keeping it off only for tests.
+  - **Added to the done-when:** `pnpm lint` passes with the rule on for every non-test source file.
 
 ### R-B8
 
@@ -622,6 +628,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [FMT-05](findings/FMT-plan-and-roadmap-formats.md#fmt-05-the-concurrency-map-format-is-hard-wired-to-the-aqwiexo-stack-shape), [FMT-06](findings/FMT-plan-and-roadmap-formats.md#fmt-06-runtime-pinning-is-cargo-only-and-forced-on-every-map), [FMT-11](findings/FMT-plan-and-roadmap-formats.md#fmt-11-the-studio-seam-is-unused-and-produces-a-different-definition-digest), [FMT-18](findings/FMT-plan-and-roadmap-formats.md#fmt-18-canonical-json-for-source-record-fingerprints-is-an-undocumented-cross-language-contract)
 - **Change:** The opening design step of the Development Studio, since these define what the Studio produces (FMT report Appendix A #1, #4, #5, #8, #10): one format family (plan v2 with optional slices, checkpoints, evidence profiles and resources; a stack document that references plan versions by digest and adds only cross-plan edges, targets and upstream bindings; a roadmap = stack/plan + target + settings); structured planning feedback from agents mapped to amendment patches instead of re-imported ZIPs; a generic upstream/baseline model with pluggable runtime pinning instead of the AQ/Cargo-specific shape; machine-readable scheduling hints; RFC 8785 canonicalization with a second digest version so existing digests stay valid. The Studio and ZIP import feed the same validation and adoption path (fixes the FMT-11 seam divergence). v0.3 import stays supported forever through the compiled model.
 - **Done when:** Studio format ADR accepted before Studio UI work begins; the Studio seam and ZIP import produce identical definitions for identical content; v0.3 fixtures still pass.
+- **Amended 2026-09-24 (operator decision, after R-I5):**
+  - **The tests.** 51 unit tests need a Rust toolchain because they exercise the Cargo-specific runtime pinning and historical baselines that today's AQ/WI/EXO roadmaps use:
+    - 7 in `packages/agents` (`pinned-cargo`, `historical-cargo`);
+    - 44 execution cases marked `itNeedsCargo`.
+  - **Why they stay.** They test features the live roadmaps rely on, so they stay until pinning is generic (program rule 2).
+  - **Added to the Change.** When runtime pinning becomes pluggable, Cargo becomes one adapter. Its Cargo-dependent tests move into that adapter's own suite, and the generic controller and scope tests use a toolchain-free fake adapter. R-G4 does the same for verification receipts, which are Cargo-only today (AGT-08).
+  - **Added to the done-when:** outside the Cargo adapter's suite, no unit test needs Cargo or rustc.
 
 ## Workstream G — Agent execution integrity and security
 
@@ -699,6 +712,20 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [SEC-04](findings/AGT-GIT-SEC-agents-git-security.md#sec-04-authentication-hardening-is-weak-for-a-session-that-amounts-to-code-execution), [SEC-05](findings/AGT-GIT-SEC-agents-git-security.md#sec-05-route-authorization-depends-on-every-handler-remembering-to-call-it), [SEC-06](findings/AGT-GIT-SEC-agents-git-security.md#sec-06-the-browser-can-register-any-host-path-as-a-repository), [SEC-07](findings/AGT-GIT-SEC-agents-git-security.md#sec-07-missing-browser-security-headers-and-host-check), [SEC-08](findings/AGT-GIT-SEC-agents-git-security.md#sec-08-stored-credentials-are-readable-by-agents-and-old-db-copies-are-retained), [QA-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-03-the-authorization-surface-has-no-systematic-tests-and-the-no-approve-route-test-checks-spelling)
 - **Change:** Login rate limiting, idle session expiry, step-up authentication for unrestricted runs and final promotion; a global route auth hook with an explicit public allowlist; repository registration limited to configured roots; security headers and Host check; credentials not readable from agent-writable locations; retire old DB copies.
 - **Done when:** A route sweep test asserts 401/403/404 for every route and role.
+- **Amended 2026-09-24 (operator decision, after R-I3):**
+  - **Already done by R-I3 (2531715).** The route-guard part of the Change and the whole done-when:
+    - every API route declares its access, and the daemon refuses to start without it;
+    - one guard applies the declared checks before input validation;
+    - `route-access.test.ts` asserts 401, 403 and 404 for every route and role.
+  - **Added to the Change.** The guard attaches the authenticated context to the request, handlers read it, and the roughly 108 per-handler `authenticate`/`authorizeMutation` calls are deleted. QA-03 recommended this, and no item held it. The sweep is the safety net.
+  - **Restated done-when:**
+    - login is rate-limited;
+    - sessions expire when idle;
+    - unrestricted runs and final promotion require step-up authentication;
+    - repository registration is limited to the configured roots;
+    - security headers and a Host check are sent;
+    - credentials are not readable from agent-writable locations, and old database copies are retired;
+    - no route handler calls `authenticate` or `authorizeMutation`, and the route sweep still passes.
 
 ### R-G10
 
@@ -816,7 +843,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I3
 
-**Systematic authorization tests** · Phase P1 · Effort S-M · Status: done
+**Systematic authorization tests** · Phase P1 · Effort S-M · Status: done (2531715)
 
 - **Resolves:** [QA-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-03-the-authorization-surface-has-no-systematic-tests-and-the-no-approve-route-test-checks-spelling), [SEC-05](findings/AGT-GIT-SEC-agents-git-security.md#sec-05-route-authorization-depends-on-every-handler-remembering-to-call-it)
 - **Change:** A table-driven sweep over every route asserting unauthenticated, wrong-workspace and insufficient-role responses; replace the "no route contains approve" spelling test with a semantic one.
@@ -896,7 +923,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I6
 
-**Gate on lint** · Phase P1 · Effort S-M · Status: done (3ac6242, 1ff9785, a879d09)
+**Gate on lint** · Phase P1 · Effort S-M · Status: done (3ac6242, 1ff9785, a879d09, 1941a71)
 
 - **Resolves:** [QA-09](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-09-lint-warnings-do-not-gate-the-build-and-666-have-accumulated)
 - **Change:** Burn down the 666 Biome warnings (mostly mechanical) and make warnings fail pnpm check.
@@ -936,6 +963,20 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** Run the daemon from a separate deploy checkout updated by an explicit `pnpm deploy:daemon <ref>` command (fetch the exact ref from the dev repo, install, build, restart the single systemd user unit, record the deployed commit; rollback = deploy the previous commit; add the R-B9 drain when it exists), so editing or running tsc in the dev checkout never changes what production loads. Take an exclusive lock on the data directory at daemon start, before migrations and restart recovery: today a stray second daemon on the same data directory (e.g. `pnpm start` in another checkout) would mark live runs interrupted and roadmaps needs-attention before failing to bind the port. `pnpm dev` defaults to its own port and data directory. Archive the CT-01..03 process directories and merged CT-era branches.
 - **Done when:** A tsc -b in the dev checkout cannot affect the running daemon; a second daemon on the same data directory exits before touching the database (test); deploy and rollback are one command each.
 - **Progress:** Deployed 2026-09-23: the daemon runs from $XDG_DATA_HOME/craftingtable-deploy/current (systemd drop-in deploy-checkout.conf) via `pnpm deploy:daemon <ref>` (release per commit, atomic switch, health check with automatic rollback, `--rollback`, `--status`, deploys.jsonl). The data-directory lock was verified against the live daemon: a second daemon exits naming the holder. `pnpm dev` / `pnpm craftingtable:dev` use their own data directory and port 4601. Remaining: archive the CT-01..03 process directories and merged CT-era branches. Deploys drain through R-B9 once a release containing it is running.
+
+### R-I9
+
+**Independent e2e specs: one workspace per spec** · Phase P2 · Effort S-M · Status: open
+
+- **Added 2026-09-24** after R-I5 closed. It holds the part of QA-05 that R-I5 did not do; the operator agreed to proceed with it.
+- **Resolves:** [QA-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-05-e2e-gate-screenshots-are-unasserted-cause-the-known-flake-and-helpers-are-copied-into-8-specs) (the rest: "give each spec its own workspace so specs are independent").
+- **Why:** All specs share one daemon, one admin account and the default workspace. R-I5's ten consecutive passes show this is not a current source of flakes. But specs can see each other's roadmaps, runs and notifications, which is why Playwright is held to `workers: 2` with `fullyParallel: false`, and the gate takes about 4 minutes.
+- **Change:**
+  - `e2e/support.ts` gains a helper that creates a workspace for the calling spec (`POST /api/workspaces`) and opens it. Specs use it instead of waiting on "Default workspace".
+  - Once specs are independent, raise the Playwright worker count.
+  - Storage and host scheduling are installation-wide, so the specs that change them stay serialized.
+  - The walkthrough keeps its own daemon.
+- **Done when:** Every gate spec runs in its own workspace; the gate runs with more than 2 workers; `pnpm test:e2e` passes 10 consecutive runs.
 
 ## Finding index
 
@@ -1112,7 +1153,7 @@ All 202 findings, in report order. Severity and status are the reviewer's; "Item
 | [QA-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-02-orchestration-tests-poll-wall-clock-time-because-the-controller-has-no-deterministic-stepping-seam) | medium | CONFIRMED | M | [R-B2](#r-b2), [R-I2](#r-i2) | Orchestration tests poll wall-clock time because the controller has no deterministic stepping seam |
 | [QA-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-03-the-authorization-surface-has-no-systematic-tests-and-the-no-approve-route-test-checks-spelling) | high | CONFIRMED | S | [R-G9](#r-g9), [R-I3](#r-i3) | The authorization surface has no systematic tests, and the "no approve route" test checks spelling |
 | [QA-04](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-04-checkscope-exemptions-are-filename-patterns-and-several-bypasses-are-open) | medium | CONFIRMED | S–M | [R-I4](#r-i4) | `check:scope` exemptions are filename patterns, and several bypasses are open |
-| [QA-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-05-e2e-gate-screenshots-are-unasserted-cause-the-known-flake-and-helpers-are-copied-into-8-specs) | medium | CONFIRMED | S | [R-I5](#r-i5) | E2E gate screenshots are unasserted, cause the known flake, and helpers are copied into 8 specs |
+| [QA-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-05-e2e-gate-screenshots-are-unasserted-cause-the-known-flake-and-helpers-are-copied-into-8-specs) | medium | CONFIRMED | S | [R-I5](#r-i5), [R-I9](#r-i9) | E2E gate screenshots are unasserted, cause the known flake, and helpers are copied into 8 specs |
 | [QA-06](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-06-the-fixture-derives-expected-scope-evidence-from-the-production-resolver-tautological) | medium | CONFIRMED | S | [R-I5](#r-i5) | The fixture derives expected scope evidence from the production resolver (tautological) |
 | [QA-07](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-07-the-testproduction-boundary-is-structural-only-in-packagesgit-everywhere-else-tests-and-test-support-compile-into-dist) | low | CONFIRMED | M | [R-I4](#r-i4) | The test/production boundary is structural only in `packages/git`; everywhere else tests and test-support compile into `dist` |
 | [QA-08](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-08-unit-tests-depend-on-host-tool-paths-and-create-fixtures-inside-the-repository) | medium | CONFIRMED | S | [R-I5](#r-i5) | Unit tests depend on host tool paths and create fixtures inside the repository |

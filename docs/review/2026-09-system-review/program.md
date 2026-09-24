@@ -186,6 +186,15 @@ Exit criteria:
     tests.
 - **Still open in P1 after this batch:** R-B3, R-B10, R-G7, R-H2, R-H3, R-E6, R-I7, and R-A7's
   remainder.
+- **Operator decisions on the batch (2026-09-24):**
+  - **Route guard: kept.** R-G9 records that its guard and sweep are done. It also takes on
+    deleting the per-handler auth calls, which no item held.
+  - **Production non-null assertions:** they move to R-B7. Its rewrite replaces the 198 production
+    sites with a named invariant helper and re-enables the lint rule for production files.
+  - **The 51 Cargo-dependent tests stay** while the live roadmaps use Cargo pinning. R-F6 moves them
+    into the Cargo adapter's own suite once pinning is pluggable; R-G4 does the same for
+    verification.
+  - **QA-05's per-spec workspaces go ahead as R-I9 (P2).**
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 
@@ -197,8 +206,9 @@ Exit criteria:
 | R-D4, R-D5 | Query store, App.tsx split, server view models, compression and git-fact cache. |
 | R-C3, R-C4, R-C5 | Remove the top operator-stop causes: the design stage, integration-advanced refreshes, and the repair loop. |
 | R-C9 (added 2026-09-24) | End the session on a terminal quota error, so R-C8's reset wait applies to incidents like the one that motivated it. |
-| R-G4, R-G5, R-G6, R-G9 | Daemon-owned receipts, agent environment isolation, brief redesign, auth hardening. |
+| R-G4, R-G5, R-G6, R-G9 | Daemon-owned receipts, agent environment isolation, brief redesign, auth hardening. R-G9's route guard and sweep landed early with R-I3; it now also removes the per-handler auth calls (amended 2026-09-24). |
 | R-H4, R-I4 | Lighter evidence storage; structural test and process boundaries. |
+| R-I9 (added 2026-09-24) | One workspace per e2e spec, so the gate can run with more workers. The rest of QA-05 after R-I5. |
 
 Exit criteria:
 - The push log, rail count, inbox and roadmap page always agree.

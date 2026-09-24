@@ -136,6 +136,11 @@ export class HeldSession implements AgentSession {
     this.exit(1, null);
   }
 
+  /** Something other than the daemon kills the process (OOM killer, service manager). */
+  killedBy(signal: string): void {
+    this.exit(null, signal);
+  }
+
   readonly items: AsyncIterable<AgentSessionItem> = {
     [Symbol.asyncIterator]: () => ({
       next: (): Promise<IteratorResult<AgentSessionItem>> => {

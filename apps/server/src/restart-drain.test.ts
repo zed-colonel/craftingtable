@@ -304,4 +304,47 @@ describe('restart drain and automatic resume (R-B9)', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     expect(status()).toMatchObject({ requestId: 'r3', interruptedRuns: 1 });
   });
+
+  it('treats a signal-killed agent as a failure during a deploy drain, and as the restart on a stop signal', async () => {
+    const f = await fixture();
+    const first = await startLiveCycle(f);
+    const dataDir = f.context.config.dataDir;
+    writeFileSync(
+      join(dataDir, DRAIN_REQUEST_FILE),
+      JSON.stringify({ id: 'r4', mode: 'when-idle' }),
+    );
+    f.services.daemonDrain.poll();
+    // A deploy's drain stops nothing else: a killed agent failed.
+    const firstRun = storedCycle(f, first.id).currentRunId as string;
+    f.backend.sessions[0]?.killedBy('SIGKILL');
+    await f.services.agentRunService.quiesce();
+    expect(storedRun(f, firstRun)?.status).toBe('failed');
+    expect(runFinished(f, firstRun)?.reason).toBeUndefined();
+
+    // A stop signal drains too, and then the service manager's signal is the restart.
+    const g = await fixture();
+    const second = await startLiveCycle(g);
+    const secondRun = storedCycle(g, second.id).currentRunId as string;
+    const stopping = g.services.daemonDrain.drain(60_000);
+    g.backend.sessions[0]?.killedBy('SIGTERM');
+    await stopping;
+    expect(storedRun(g, secondRun)?.status).toBe('interrupted');
+    expect(runFinished(g, secondRun)).toMatchObject({ reason: 'daemon-drain' });
+  });
+
+  it('asks to be restarted when a deploy drained it and no restart followed', async () => {
+    const f = await fixture();
+    await startLiveCycle(f);
+    const dataDir = f.context.config.dataDir;
+    let stranded = 0;
+    f.services.daemonDrain.whenStranded(() => stranded++, 0);
+    writeFileSync(
+      join(dataDir, DRAIN_REQUEST_FILE),
+      JSON.stringify({ id: 'r5', mode: 'bounded', timeoutSeconds: 0 }),
+    );
+    f.services.daemonDrain.poll();
+    for (let turn = 0; turn < 100 && stranded === 0; turn++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(stranded).toBe(1);
+  });
 });

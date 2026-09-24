@@ -83,6 +83,7 @@ export class DaemonDrain {
   private interrupting = false;
   private request: DrainRequest | undefined;
   private watcher: ReturnType<typeof setInterval> | undefined;
+  private stranded: { readonly listener: () => void; readonly afterMs: number } | undefined;
 
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -99,7 +100,17 @@ export class DaemonDrain {
    * it again while a drain runs tightens the bound to the earlier deadline.
    */
   drain(timeoutMs: number | 'until-idle', log?: DrainLog): Promise<number> {
+    this.agentRuns.noteServiceStop();
     return this.begin(timeoutMs, false, log);
+  }
+
+  /**
+   * Called when a deploy's drain finished but no restart followed within `afterMs`: the
+   * deploy was interrupted after the drain (Ctrl-C, a closed terminal, a failed switch).
+   * The daemon has stopped its loops and admits nothing, so it must restart to resume.
+   */
+  whenStranded(listener: () => void, afterMs = 120_000): void {
+    this.stranded = { listener, afterMs };
   }
 
   private begin(
@@ -154,7 +165,10 @@ export class DaemonDrain {
             : request.timeoutSeconds * 1000,
         true,
       ).then(
-        (interrupted) => this.writeStatus('drained', interrupted),
+        (interrupted) => {
+          this.writeStatus('drained', interrupted);
+          if (this.stranded) setTimeout(this.stranded.listener, this.stranded.afterMs).unref();
+        },
         (error: unknown) =>
           this.writeStatus('failed', undefined, error instanceof Error ? error.message : 'failed'),
       );

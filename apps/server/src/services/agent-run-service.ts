@@ -145,6 +145,13 @@ export class AgentRunService {
   private readonly pendingCycleLaunches = new Map<AgentRunId, () => void>();
   /** A restart drain is in progress: no new run may start (R-B9). */
   private draining = false;
+  /**
+   * The daemon itself is being stopped by a signal. The service manager's stop signal may
+   * reach agent process groups too, so a run killed by a signal from now on was stopped by
+   * the restart. A drain a deploy requested stops nothing else, so there a signal is a
+   * failure like any other.
+   */
+  private serviceStopping = false;
   /** Post-run cleanup still running; the controller skips a worktree until it settles. */
   private readonly cleanups = new Set<Promise<unknown>>();
 
@@ -1601,6 +1608,11 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     this.draining = true;
   }
 
+  /** The daemon is stopping on a signal; see `serviceStopping`. */
+  noteServiceStop(): void {
+    this.serviceStopping = true;
+  }
+
   /** Lifts a drain that was cancelled before anything was interrupted. */
   cancelDrain(): void {
     this.draining = false;
@@ -1758,11 +1770,13 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           lastTurn?.kind === 'turn-completed' &&
           lastTurn.payload.outcome === 'error' &&
           !!lastTurn.payload.providerFailure;
-        // During a drain, a signal the daemon did not send is the service manager
-        // stopping the unit's whole process group: that is a restart, not a failure.
+        // While the daemon is stopping on a signal, a signal the daemon did not send is the
+        // service manager stopping the unit's whole process group: that is a restart, not a
+        // failure. During a deploy's drain nothing else is stopping, so a signal-killed
+        // agent (OOM, crash) is a failure and keeps the explicit resume.
         const drained =
           liveRun.drainInterrupted === true ||
-          (this.draining && !liveRun.cancelRequested && item.signal !== null);
+          (this.serviceStopping && !liveRun.cancelRequested && item.signal !== null);
         const status: AgentRunStatus = drained
           ? 'interrupted'
           : liveRun.cancelRequested

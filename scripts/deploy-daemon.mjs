@@ -207,8 +207,8 @@ async function waitHealthy(url) {
 /**
  * Asks the daemon watching `directory` to drain and waits until it has. Resolves to
  * `{ acknowledged: false }` when no daemon answers within `ackTimeoutMs`; the request is
- * then withdrawn. SIGINT withdraws the request too, which cancels a drain that has not
- * interrupted anything yet.
+ * then withdrawn. SIGINT, SIGHUP and SIGTERM withdraw the request too, which cancels a
+ * drain that has not interrupted anything yet.
  */
 export async function drainDaemon(directory, mode, options = {}) {
   const ackTimeoutMs = options.ackTimeoutMs ?? DRAIN_ACK_TIMEOUT_MS;
@@ -221,10 +221,14 @@ export async function drainDaemon(directory, mode, options = {}) {
   renameSync(`${requestPath}.partial`, requestPath);
   const withdraw = () => {
     rmSync(requestPath, { force: true });
-    process.stderr.write('\nDrain request withdrawn; the daemon resumes admissions.\n');
+    process.stderr.write(
+      '\nDrain request withdrawn. The daemon resumes admissions, unless it had already ' +
+        'interrupted live runs; then it restarts itself within two minutes and resumes them.\n',
+    );
     process.exit(130);
   };
-  process.once('SIGINT', withdraw);
+  // A closed terminal or a stopped deploy must not leave a request behind either.
+  for (const signal of ['SIGINT', 'SIGHUP', 'SIGTERM']) process.once(signal, withdraw);
   try {
     const ackDeadline = Date.now() + ackTimeoutMs;
     let reported;
@@ -250,7 +254,7 @@ export async function drainDaemon(directory, mode, options = {}) {
       await new Promise((done) => setTimeout(done, pollMs));
     }
   } finally {
-    process.off('SIGINT', withdraw);
+    for (const signal of ['SIGINT', 'SIGHUP', 'SIGTERM']) process.off(signal, withdraw);
   }
 }
 

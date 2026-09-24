@@ -849,7 +849,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I5
 
-**E2E and fixture reliability** · Phase P1 · Effort S-M · Status: partial (b966dd7)
+**E2E and fixture reliability** · Phase P1 · Effort S-M · Status: done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d)
 
 - **Resolves:** [QA-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-05-e2e-gate-screenshots-are-unasserted-cause-the-known-flake-and-helpers-are-copied-into-8-specs), [QA-06](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-06-the-fixture-derives-expected-scope-evidence-from-the-production-resolver-tautological), [QA-08](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-08-unit-tests-depend-on-host-tool-paths-and-create-fixtures-inside-the-repository)
 - **Change:** Assert or remove the unasserted gate screenshots (including the known amendment-panel flake); dedupe helpers copied into 8 specs; derive expected scope evidence independently of the production resolver; remove hard-coded host tool paths and in-repo temporary repositories.
@@ -888,6 +888,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **A second window.** `MapAmendmentPanel` discarded refreshes that started before a command, but not ones that started while it ran. A jsdom test shows such a refresh, answering after the command, replacing the recorded proposal with the view from before it. The panel now also discards refreshes started during a command.
     - **Probably not the run 3 cause.** The server records the proposal and bumps the roadmap version in one transaction before notifying, so a refresh triggered by that bump reads the proposal. The likelier cause is that proposing pauses the affected cycles serially before it answers, which under load can take more than 5 s.
     - **The spec now waits for the proposal's answer**, as it already did for Inspect, and then expects the notice. A slow command and a UI that fails to show a recorded proposal are no longer the same failure.
+- **Amended 2026-09-24: done.** Both done-when conditions hold:
+  - **10 consecutive e2e runs pass.** At e16001d, `pnpm test:e2e` passed ten times in a row, from a separate worktree on an otherwise idle machine (load average 2.0–4.6, 238–258 s each). Every run was 22 tests plus the walkthrough rehearsal.
+  - **Unit tests pass without Cargo.** With PATH stripped of Cargo and an empty HOME: 1,293 passed, 51 skipped, 0 failed.
+  - **Under heavy load** (8–13, from concurrent suites), the earlier commit failed 2 of 5 runs, which led to the two fixes above.
+  - **Not changed.** Specs still share one daemon and one admin account (QA-05's "give each spec its own workspace"). The ten runs show that this is not currently a source of flakes.
 
 ### R-I6
 

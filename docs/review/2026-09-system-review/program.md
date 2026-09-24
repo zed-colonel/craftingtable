@@ -171,6 +171,21 @@ Exit criteria:
   - 671 Biome warnings are down to 0. `noNonNullAssertion` (646 of them) is turned off with its reason
     in `biome.jsonc`. The other 25 had mechanical, reviewed fixes.
   - `pnpm lint` now fails on any warning.
+- **R-I5: done.**
+  - **Screenshots.** Unasserted e2e screenshots are removed, or replaced by visibility checks.
+  - **Helpers.** Sign-in and `git()` are shared from `e2e/support.ts`.
+  - **Scope evidence.** It is written from the fixture maps, and a focused test checks the resolver
+    agrees with it.
+  - **Host tools.** Git and Cargo are resolved as the daemon resolves them, and the Cargo tests skip
+    without Rust. The Git fixtures live in the temp directory; a committed leaked fixture is
+    removed.
+  - **Result.** Ten consecutive e2e runs pass, and the unit tests pass on a simulated host without
+    Cargo.
+  - **Two UI races fixed.** The repetition found two races where a panel reload overwrote the
+    operator's newer state: runtime-evidence Inspect, and amendment proposals. Both have regression
+    tests.
+- **Still open in P1 after this batch:** R-B3, R-B10, R-G7, R-H2, R-H3, R-E6, R-I7, and R-A7's
+  remainder.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 

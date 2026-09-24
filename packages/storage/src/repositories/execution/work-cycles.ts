@@ -5,6 +5,8 @@ export interface WorkCycleRepository {
   insert(cycle: WorkCycle): WorkCycle;
   find(workspaceId: WorkspaceId, id: string): WorkCycle | undefined;
   list(workspaceId?: WorkspaceId): readonly WorkCycle[];
+  /** Every cycle in every workspace, ended ones included, oldest first (replay, diagnostics). */
+  listAll(): readonly WorkCycle[];
   activeForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): WorkCycle | undefined;
   replace(cycle: WorkCycle, expectedVersion: number): WorkCycle | undefined;
 }
@@ -53,6 +55,12 @@ export class SqliteWorkCycleRepository implements WorkCycleRepository {
             )
             .all(workspaceId);
     return rows.map((row) => map(row) as WorkCycle);
+  }
+  listAll(): readonly WorkCycle[] {
+    return this.database
+      .prepare('SELECT state_json FROM work_cycles ORDER BY rowid')
+      .all()
+      .map((row) => map(row) as WorkCycle);
   }
   activeForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): WorkCycle | undefined {
     return map(

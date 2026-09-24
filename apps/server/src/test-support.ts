@@ -52,6 +52,8 @@ export async function createTestContext(
       AgentBackend
     >;
     readonly env?: Readonly<Record<string, string>>;
+    /** False leaves the controller loops stopped so the test steps them itself. */
+    readonly workers?: boolean;
   } = {},
 ): Promise<TestContext> {
   const directory = mkdtempSync(join(tmpdir(), 'craftingtable-server-test-'));
@@ -102,9 +104,12 @@ export async function createTestContext(
       daemonDrain: services.daemonDrain,
     },
     config,
-    options.loggerStream === undefined
-      ? { logger: false }
-      : { logger: true, loggerStream: options.loggerStream },
+    {
+      ...(options.loggerStream === undefined
+        ? { logger: false }
+        : { logger: true, loggerStream: options.loggerStream }),
+      ...(options.workers === false ? { startWorkers: false } : {}),
+    },
   );
   let closed = false;
   return {

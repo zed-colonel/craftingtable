@@ -109,6 +109,8 @@ interface LiveRun {
   cancelRequested: boolean;
   /** Set when a restart drain terminates the session; it then ends `interrupted`. */
   drainInterrupted?: boolean;
+  /** The consumer is blocked on the session's next item (see `quiesce`). */
+  awaitingItem?: boolean;
   done: Promise<void>;
 }
 
@@ -142,6 +144,8 @@ export class AgentRunService {
   private readonly pendingCycleLaunches = new Map<AgentRunId, () => void>();
   /** A restart drain is in progress: no new run may start (R-B9). */
   private draining = false;
+  /** Post-run cleanup still running; the controller skips a worktree until it settles. */
+  private readonly cleanups = new Set<Promise<unknown>>();
 
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -1597,6 +1601,25 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
   }
 
   /**
+   * Resolves once every item a session has already produced is journaled: no launch or
+   * post-run cleanup is in flight and each live consumer waits on its session. It counts event-loop turns, not
+   * wall-clock time, so tests stepping the controller stay deterministic (R-B2).
+   */
+  async quiesce(maxTurns = 1000): Promise<void> {
+    for (let turn = 0; turn < maxTurns; turn++) {
+      await Promise.allSettled([...this.cleanups]);
+      await new Promise((resolve) => setImmediate(resolve));
+      if (
+        this.pendingCycleLaunches.size === 0 &&
+        this.cleanups.size === 0 &&
+        [...this.live.values()].every((liveRun) => liveRun.awaitingItem === true)
+      )
+        return;
+    }
+    throw new Error('Agent runs did not become quiet');
+  }
+
+  /**
    * Live work a drain waits for: launches in preflight, turns in progress, and sessions
    * still holding background work. A session waiting between turns is at a boundary.
    */
@@ -1705,7 +1728,15 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
    */
   private async consume(liveRun: LiveRun, items: AsyncIterator<AgentSessionItem>): Promise<void> {
     const { workspaceId, runId } = liveRun;
-    for (let next = await items.next(); next.done !== true; next = await items.next()) {
+    const read = async () => {
+      liveRun.awaitingItem = true;
+      try {
+        return await items.next();
+      } finally {
+        liveRun.awaitingItem = false;
+      }
+    };
+    for (let next = await read(); next.done !== true; next = await read()) {
       const item = next.value;
       if (item.type === 'exited') {
         const lastTurn = this.storage.execution.runEvents.latestOfKind(
@@ -1976,14 +2007,18 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     });
     if (changed) {
       const run = this.storage.execution.runs.find(workspaceId, runId);
-      void Promise.resolve(this.runtimeEvidence?.cleanupRun(workspaceId, runId))
+      const cleanup = Promise.resolve(this.runtimeEvidence?.cleanupRun(workspaceId, runId))
         .then(() =>
           run && status !== 'interrupted'
             ? this.storageService?.cleanupAfterRun(run.worktreeId)
             : undefined,
         )
         .catch((error) => this.log.warn('Run cleanup failed', { runId, error: String(error) }))
-        .finally(() => this.notifier.notify());
+        .finally(() => {
+          this.cleanups.delete(cleanup);
+          this.notifier.notify();
+        });
+      this.cleanups.add(cleanup);
       this.notifier.notify();
     }
   }

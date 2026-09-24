@@ -10,7 +10,7 @@ import type {
   ScopeRepairRequest,
   StartWorkCycleRequest,
 } from '@craftingtable/contracts';
-import { parseDesignReport, parseWorkflowReport } from '@craftingtable/contracts';
+import { parseWorkflowReport } from '@craftingtable/contracts';
 import {
   type AgentRun,
   asAgentRunId,
@@ -20,7 +20,6 @@ import {
   currentFinalizationStage,
   DEFAULT_ROADMAP_AUTOMATION,
   DEFAULT_ROADMAP_SCHEDULING,
-  designHasNoOpenQuestions,
   evaluateCycleCompletion,
   type FinalizationProgress,
   finalizationProfile,
@@ -34,6 +33,7 @@ import {
   type WorkCycle,
   type WorkItemId,
   type WorkspaceId,
+  type Worktree,
 } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -67,8 +67,9 @@ import { assessStageReport, recordStageEvidence } from './finalization-stage-pol
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { PhaseGateError } from './phase-resources.js';
 import { attemptDelegation } from './roadmap-delegation-policy.js';
-import { cycleStepRole, drainInterrupted } from './restart-resume.js';
+import { drainInterrupted } from './restart-resume.js';
 import { latestReviewReport, runEvents, runLineage } from './run-handoff.js';
+import { decideStepOutcome, type StepOutcomeDecision, stepOutcomeFacts } from './step-outcome.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
 import { collectScopeRepair, scopeMergeWait, scopeReviewWait } from './scope-repair.js';
@@ -77,7 +78,6 @@ import {
   securityReviewCurrent,
   workflowContext,
   workflowDelegation,
-  workflowQuestions,
 } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -1583,44 +1583,61 @@ export class WorkCycleService {
   private async loop(): Promise<void> {
     while (!this.abort.signal.aborted) {
       const generation = this.notifier.workflowGeneration;
-      for (const cycle of prioritizeRoadmapCycles(
-        this.storage.execution.cycles.list(),
-        this.storage.roadmaps.list(),
-      )) {
-        if (this.abort.signal.aborted) break;
-        try {
-          await this.reconcile(cycle);
-        } catch (error) {
-          if (error instanceof PhaseGateError && error.waiting) {
-            const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-            if (
-              current?.version === cycle.version &&
-              ['running', 'awaiting-merge'].includes(current.status)
-            )
-              this.waitForPhase(current, error.blockers, error.message);
-            continue;
-          }
-          if (retryableControllerError(error)) continue;
-          const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-          if (
-            current?.version === cycle.version &&
-            ['running', 'awaiting-merge'].includes(current.status)
-          ) {
-            this.attention(
-              current,
-              error instanceof ExecutionRequestError
-                ? error.message
-                : 'Controller could not advance this step. Inspect the run before resuming.',
-            );
-          }
-        }
-      }
+      await this.tick();
       await this.notifier.waitForChangeOrTimeout({
         channel: 'workflow',
         generation,
         timeoutMs: 1000,
         signal: this.abort.signal,
       });
+    }
+  }
+
+  /**
+   * One controller pass over every cycle, serialized with the worker loop. Tests step the
+   * controller with it instead of waiting on wall-clock time (R-B2).
+   */
+  async tick(): Promise<void> {
+    while (this.passing) await this.passing;
+    this.passing = this.pass().finally(() => {
+      this.passing = undefined;
+    });
+    await this.passing;
+  }
+  private passing: Promise<void> | undefined;
+
+  private async pass(): Promise<void> {
+    for (const cycle of prioritizeRoadmapCycles(
+      this.storage.execution.cycles.list(),
+      this.storage.roadmaps.list(),
+    )) {
+      if (this.abort.signal.aborted) break;
+      try {
+        await this.reconcile(cycle);
+      } catch (error) {
+        if (error instanceof PhaseGateError && error.waiting) {
+          const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+          if (
+            current?.version === cycle.version &&
+            ['running', 'awaiting-merge'].includes(current.status)
+          )
+            this.waitForPhase(current, error.blockers, error.message);
+          continue;
+        }
+        if (retryableControllerError(error)) continue;
+        const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+        if (
+          current?.version === cycle.version &&
+          ['running', 'awaiting-merge'].includes(current.status)
+        ) {
+          this.attention(
+            current,
+            error instanceof ExecutionRequestError
+              ? error.message
+              : 'Controller could not advance this step. Inspect the run before resuming.',
+          );
+        }
+      }
     }
   }
 
@@ -1938,360 +1955,91 @@ export class WorkCycleService {
       await this.runs.startForCycle(cycle);
       return;
     }
-    if (run.status === 'starting' || run.status === 'running') return;
-    if (drainInterrupted(this.storage.execution, run)) {
-      await this.resumeAfterRestart(cycle, run);
-      return;
-    }
-    if (run.status === 'waiting') {
-      if (!this.ending.has(run.id) && this.runs.finishCycleTurn(cycle)) this.ending.add(run.id);
-      return;
+    await this.applyStepOutcome(
+      cycle,
+      run,
+      worktree,
+      decideStepOutcome(cycle, stepOutcomeFacts(this.storage, cycle, run, this.now())),
+    );
+  }
+
+  /** Carries out what `decideStepOutcome` decided for the current run (R-B2). */
+  private async applyStepOutcome(
+    cycle: WorkCycle,
+    run: AgentRun,
+    worktree: Worktree,
+    decision: StepOutcomeDecision,
+  ): Promise<void> {
+    switch (decision.kind) {
+      case 'wait-for-run':
+        return;
+      case 'resume-after-restart':
+        await this.resumeAfterRestart(cycle, run);
+        return;
+      case 'end-turn':
+        if (!this.ending.has(run.id) && this.runs.finishCycleTurn(cycle)) this.ending.add(run.id);
+        return;
+      case 'attention':
+        // A drain stops the loop before it interrupts runs; this only guards a late pass.
+        if (decision.code === 'restart-session-lost' && this.runs.isDraining()) return;
+        break;
+      default:
+        break;
     }
     this.ending.delete(run.id);
-    const turn = this.storage.execution.runEvents.latestOfKind(
-      cycle.workspaceId,
-      run.id,
-      'turn-completed',
-    );
-    const ended = this.storage.execution.runEvents.latestOfKind(
-      cycle.workspaceId,
-      run.id,
-      'run-finished',
-    );
-    const failure = turn?.kind === 'turn-completed' ? turn.payload.providerFailure : undefined;
-    if (
-      failure &&
-      run.status === 'failed' &&
-      ended?.kind === 'run-finished' &&
-      !ended.payload.reason
-    ) {
-      const attempts = cycle.providerRecovery?.attempts ?? 0;
-      // A backend error message can follow the actual partial outcome. Any unanswered
-      // question or clipped assistant message requires a person, never a service retry.
-      const questions = [...runEvents(this.storage.execution, run)].some(
-        (event) =>
-          event.kind === 'assistant-message' &&
-          (event.payload.truncated ||
-            (/^## Open questions[ \t]*$/m.test(event.payload.text) &&
-              !finalizationHasNoQuestions(event.payload.text))),
-      );
-      const model = cycle.providerRecovery?.profile.model ?? run.model ?? run.resolvedModel;
-      const retryable =
-        failure.safeToRetry &&
-        ['capacity', 'unavailable', 'transport'].includes(failure.kind) &&
-        ended?.kind === 'run-finished' &&
-        turn?.kind === 'turn-completed' &&
-        turn.payload.outcome === 'error' &&
-        !turn.payload.truncated &&
-        !questions &&
-        !ownsIntegrationResolution(cycle) &&
-        !!model &&
-        model !== 'default';
-      if (!retryable || attempts >= 3) {
-        this.attention(
+    if (decision.workflow) cycle = this.change(cycle, { workflow: decision.workflow });
+    switch (decision.kind) {
+      case 'attention':
+        this.attention(cycle, decision.message);
+        return;
+      case 'schedule-service-retry':
+        this.change(
           cycle,
-          `${failure.message} ${
-            attempts >= 3
-              ? 'The three service retries are exhausted. Inspect the outcome; an explicit resume grants a new step window.'
-              : 'Automatic retry is not safe or applicable. Inspect the outcome and provide any required guidance before resuming.'
-          }`,
+          { providerRecovery: decision.providerRecovery, reason: decision.reason },
+          'provider-backoff',
         );
         return;
-      }
-      const nextRetryAt = new Date(
-        this.now().getTime() + [60_000, 300_000, 900_000][attempts]!,
-      ).toISOString();
-      this.change(
-        cycle,
-        {
-          providerRecovery: {
-            attempts,
-            sourceRunId: run.id,
-            failure,
-            profile: cycle.providerRecovery?.profile ?? {
-              backend: run.backend,
-              permissionMode: run.permissionMode,
-              ...(run.reasoningEffort ? { reasoningEffort: run.reasoningEffort } : {}),
-              model,
-            },
-            nextRetryAt,
-          },
-          reason: `${failure.message} Service retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}. Roadmap pauses hold retries.`,
-        },
-        'provider-backoff',
-      );
-      return;
-    }
-    if (ended?.kind === 'run-finished' && ended.payload.reason) {
-      const attempts = cycle.resultContinuations ?? 0;
-      const explicitQuestions =
-        turn?.kind === 'turn-completed' &&
-        /^## Open questions[ \t]*$/m.test(turn.payload.resultText) &&
-        !finalizationHasNoQuestions(turn.payload.resultText);
-      if (
-        run.status !== 'failed' ||
-        ended.payload.reason !== 'background-work-incomplete' ||
-        ended.payload.exitCode !== 0 ||
-        ended.payload.signal ||
-        turn?.kind !== 'turn-completed' ||
-        turn.payload.outcome !== 'success' ||
-        turn.payload.truncated ||
-        explicitQuestions ||
-        ownsIntegrationResolution(cycle) ||
-        attempts >= 2
-      ) {
-        this.attention(
-          cycle,
-          explicitQuestions
-            ? 'The agent exited before completion and reported open questions. Provide guidance before resuming.'
-            : attempts >= 2
-              ? 'Background-work completion recovery exhausted its two continuation attempts. Inspect the latest outcome and resume with guidance.'
-              : (ended.payload.message ??
-                'Background work did not complete safely. Inspect the outcome before resuming.'),
-        );
+      case 'next-step':
+        await this.next(cycle, decision.step, run, undefined, decision.changes, decision.action);
+        return;
+      case 'advance-resolution':
+        await this.advanceResolution(cycle);
+        return;
+      case 'design-wait':
+        this.change(cycle, { designWait: decision.designWait, reason: decision.reason });
+        return;
+      case 'finalize-implementation': {
+        const finalized = await this.finalizeImplementation(cycle, run);
+        if (!finalized) return;
+        if (await this.refreshIntegration(finalized, run)) return;
+        await this.next(finalized, 'review', run, undefined, decision.reviewChanges);
         return;
       }
-      await this.next(
-        cycle,
-        cycle.step,
-        run,
-        undefined,
-        {
-          resultContinuations: attempts + 1,
-          providerRecovery: cycle.providerRecovery ?? null,
-          runDeadlineAt: cycle.runDeadlineAt,
-          instructions: cycle.instructions,
-          housekeepingInstructions: cycle.housekeepingInstructions,
-          reason: `Background work finished after the agent exited. Starting completion continuation ${attempts + 1} of 2 within the original step time limit.`,
-        },
-        'continue-incomplete-result',
-      );
-      return;
-    }
-    if (
-      run.status !== 'finished' ||
-      turn?.kind !== 'turn-completed' ||
-      turn.payload.outcome !== 'success' ||
-      turn.payload.truncated ||
-      !turn.payload.resultText.trim()
-    ) {
-      this.attention(
-        cycle,
-        'The step did not finish with a complete successful result. Inspect it before resuming.',
-      );
-      return;
-    }
-    if (ownsIntegrationResolution(cycle)) {
-      if (!/\n## Resolution status\s*\nready\s*$/i.test(`\n${turn.payload.resultText}`)) {
-        this.attention(
-          cycle,
-          'Resolution needs guidance or verification. Inspect the final outcome, then resume with instructions.',
-        );
+      case 'advance-finalization-stage':
+        await this.advanceFinalizationStage(cycle, run, decision.noQuestions);
         return;
-      }
-      await this.advanceResolution(cycle);
-      return;
-    }
-    if (cycle.executionScope?.kind === 'slice' && cycle.step !== 'design') {
-      const classified = parseWorkflowReport(turn.payload.resultText);
-      if (
-        classified.status === 'invalid' ||
-        (cycle.workflow?.activeReview && classified.status !== 'complete')
-      ) {
-        this.attention(
-          cycle,
-          'Workflow report needs correction. The controller cannot safely classify these questions or accept specialist evidence.',
-        );
+      case 'remediate-review':
+        if (decision.clearActiveReview && cycle.workflow)
+          cycle = this.change(cycle, {
+            workflow: { ...cycle.workflow, activeReview: null, waiting: null },
+          });
+        await this.reviewRemediation(cycle, run);
         return;
-      }
-      if (classified.status === 'complete') {
-        const questions = workflowQuestions(this.storage, cycle, turn.payload.resultText);
-        if ((questions.length === 0) !== finalizationHasNoQuestions(turn.payload.resultText)) {
-          this.attention(
-            cycle,
-            'Workflow report and Open questions disagree. Inspect the unanswered questions before continuing.',
-          );
-          return;
-        }
-        const workflow = {
-          ...(cycle.workflow ?? { reassessments: 0 }),
-          questions,
-          securityRequired:
-            cycle.workflow?.securityRequired || classified.report.securityReview.required,
-        };
-        if (JSON.stringify(workflow) !== JSON.stringify(cycle.workflow))
-          cycle = this.change(cycle, { workflow });
-        if (questions.length) {
-          this.attention(
-            cycle,
-            questions.some((q) => q.destination === 'shared-decision')
-              ? 'Operator decision required. Open Shared architecture decisions for the named ADR; answer any work-item questions in Continue with guidance.'
-              : 'Operator input required. Answer the work-item questions in Continue with guidance.',
-          );
-          return;
-        }
-      }
-    }
-    const finalization = finalizationForCycle(this.storage, cycle);
-    if (
-      finalization &&
-      !(finalization.stages && cycle.step === 'review') &&
-      !finalizationHasNoQuestions(turn.payload.resultText)
-    ) {
-      this.attention(
-        cycle,
-        'Finalization needs your input or a complete Open questions checkpoint. Inspect the outcome and provide guidance before resuming.',
-      );
-      return;
-    }
-    if (cycle.step === 'design') {
-      if (cycle.designRecovery?.runId === run.id && cycle.designRecovery.mode === 'investigate') {
-        this.attention(
-          cycle,
-          'Design investigation finished. Review the evidence and answers, then use Resolve design questions to continue.',
-        );
+      case 'approve-review':
+        await this.approveReview(cycle, run, worktree, decision);
         return;
-      }
-      const classified = parseDesignReport(turn.payload.resultText);
-      if (classified.status === 'invalid') {
-        this.attention(cycle, classified.reason);
+      default:
         return;
-      }
-      if (classified.status === 'complete') {
-        const unresolved = classified.report.items.filter((i) => i.kind !== 'resolved');
-        if (unresolved.length && unresolved.every((i) => i.kind === 'dependency')) {
-          const requirements = unresolved.flatMap((i) => (i.dependency ? [i.dependency] : []));
-          const state = designDependencyState(this.storage, cycle, requirements);
-          if (state.supported && (cycle.designDependencyContinuations ?? 0) < 2) {
-            this.change(cycle, {
-              designWait: { startedAt: this.now().toISOString(), requirements },
-              reason: state.pending.length
-                ? `Design waiting for mapped predecessors: ${state.pending.join(', ')}. It will recheck automatically when ready.`
-                : 'Mapped predecessors are ready; scheduling a bounded design recheck.',
-            });
-            return;
-          }
-          this.attention(
-            cycle,
-            state.supported
-              ? 'Two automatic dependency continuations have been used. Review the latest design and authorize recovery.'
-              : state.pending.join(' '),
-          );
-          return;
-        }
-        if (unresolved.length) {
-          this.attention(
-            cycle,
-            unresolved.some((i) => i.kind === 'planning-conflict')
-              ? 'Design identified a planning conflict. Review its classification and proposed scope change before continuing.'
-              : 'Design needs an operator decision. Use Shared architecture decisions for reusable ADR approvals, then continue design recovery.',
-          );
-          return;
-        }
-      }
-      if (!designHasNoOpenQuestions(turn.payload.resultText)) {
-        this.attention(
-          cycle,
-          'Design has open questions or lacks an explicit “## Open questions” section containing only “none”. Use Resolve design questions to collect evidence and provide guidance.',
-        );
-        return;
-      }
-      await this.next(cycle, 'implement', run);
-      return;
     }
-    if (cycle.step === 'implement' || cycle.step === 'remediate') {
-      if (
-        /^## Open questions[ \t]*$/m.test(turn.payload.resultText) &&
-        !finalizationHasNoQuestions(turn.payload.resultText)
-      ) {
-        this.attention(
-          cycle,
-          'Implementation needs your input. Answer the Open questions using Continue with guidance before another review or remediation.',
-        );
-        return;
-      }
-      const finalized = await this.finalizeImplementation(cycle, run);
-      if (!finalized) return;
-      if (await this.refreshIntegration(finalized, run)) return;
-      await this.next(
-        finalized,
-        'review',
-        run,
-        undefined,
-        finalization && cycle.polishPhase === 'polish' ? { polishPhase: 'verify' } : {},
-      );
-      return;
-    }
-    const assessment = latestReviewReport(this.storage.execution, run);
-    const scopedTree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    const scopeIssue = scopedTree && scopedReviewIssue(this.storage, scopedTree, assessment);
-    const decision = evaluateCycleCompletion(
-      cycle,
-      scopeIssue ? { status: 'invalid', issues: [scopeIssue] } : assessment,
-      run.reviewBranchContext,
-    );
-    if (
-      !finalization &&
-      !reviewOnly &&
-      /^## Open questions[ \t]*$/m.test(turn.payload.resultText) &&
-      !finalizationHasNoQuestions(turn.payload.resultText)
-    ) {
-      this.attention(
-        cycle,
-        decision.action === 'remediate' && remediationUsed(cycle) >= remediationAllowance(cycle)
-          ? 'Remediation limit reached. Review needs your input. Answer the Open questions when authorizing more remediation.'
-          : 'Review needs your input. Answer the Open questions using Continue with guidance before another remediation.',
-      );
-      return;
-    }
-    if (finalization && assessment?.status === 'invalid') {
-      this.attention(
-        cycle,
-        `Review report rejected: ${assessment.issues.join(' ').slice(0, 3500)}`,
-      );
-      return;
-    }
-    if (finalization?.stages) {
-      await this.advanceFinalizationStage(
-        cycle,
-        run,
-        finalizationHasNoQuestions(turn.payload.resultText),
-      );
-      return;
-    }
-    if (finalization && cycle.polishPhase === 'assess') {
-      if (decision.action === 'needs-attention') {
-        this.attention(cycle, decision.reason);
-        return;
-      }
-      await this.next(cycle, 'remediate', run, undefined, { polishPhase: 'polish' });
-      return;
-    }
-    if (
-      reviewOnly &&
-      (!finalizationHasNoQuestions(turn.payload.resultText) || decision.action !== 'awaiting-merge')
-    ) {
-      this.attention(
-        cycle,
-        !finalizationHasNoQuestions(turn.payload.resultText)
-          ? 'Scope review has open questions or lacks its Open questions checkpoint. Pause and provide guidance before resuming.'
-          : `Scope review requires recovery: ${decision.reason} Address findings through the owning slice; this review snapshot cannot implement changes.`,
-      );
-      return;
-    }
-    // Findings can request more work without granting approval to the reviewed state.
-    if (decision.action === 'remediate') {
-      if (cycle.workflow?.activeReview)
-        cycle = this.change(cycle, {
-          workflow: { ...cycle.workflow, activeReview: null, waiting: null },
-        });
-      await this.reviewRemediation(cycle, run);
-      return;
-    }
-    if (decision.action === 'needs-attention') {
-      this.attention(cycle, decision.reason);
-      return;
-    }
+  }
+
+  /** A review met the completion policy: confirm the reviewed state, then await merge. */
+  private async approveReview(
+    cycle: WorkCycle,
+    run: AgentRun,
+    worktree: Worktree,
+    approval: Extract<StepOutcomeDecision, { kind: 'approve-review' }>,
+  ): Promise<void> {
     const changes = await this.git?.inspectWorktreeChanges(worktree.path);
     if (!changes?.ok || changes.value.branch !== worktree.branchName || changes.value.conflicted)
       throw new ExecutionRequestError(
@@ -2299,7 +2047,7 @@ export class WorkCycleService {
         'Review approval requires the managed branch without unresolved Git operations.',
       );
     if (!changes.value.clean || changes.value.headSha !== cycle.reviewHeadSha) {
-      if (reviewOnly) {
+      if (approval.reviewOnly) {
         this.attention(
           cycle,
           'Scope review changed its snapshot. Restore the reviewed integration state before resuming.',
@@ -2326,22 +2074,22 @@ export class WorkCycleService {
     if (reviewedWorktree === undefined) throw new NotFoundError();
     await this.branches?.assertReview(reviewedWorktree, run);
     if (await this.advanceWorkflow(cycle, run)) return;
-    if (finalization && cycle.polishPhase !== 'final-review') {
+    if (approval.finalizationRounds !== undefined && cycle.polishPhase !== 'final-review') {
       const nextRound = (cycle.polishRound ?? 0) + 1;
       await this.next(cycle, 'review', run, undefined, {
         polishRound: nextRound,
-        polishPhase: nextRound < finalization.rounds.length ? 'assess' : 'final-review',
+        polishPhase: nextRound < approval.finalizationRounds ? 'assess' : 'final-review',
         stalledReviews: 0,
       });
       return;
     }
     this.change(cycle, {
       status: 'awaiting-merge',
-      reason: reviewOnly
+      reason: approval.reviewOnly
         ? 'Independent review meets the completion policy. Ready to record scope verification or parent acceptance.'
-        : finalization
+        : approval.finalizationRounds !== undefined
           ? 'Final independent review meets the completion policy. Inspect the conformance assessment, changes and verification; only you can approve promotion.'
-          : decision.reason,
+          : approval.reason,
     });
   }
 
@@ -3799,18 +3547,11 @@ export class WorkCycleService {
   /**
    * Relaunches a step the restart drain interrupted by resuming its vendor session, with
    * the same agent, permissions, guidance and original deadline (R-B9). The source run
-   * becomes the new run's parent, which is what the launch resumes from. Without a
-   * session id there is nothing to resume, so the operator decides.
+   * becomes the new run's parent, which is what the launch resumes from. A run without a
+   * session id is classified as `restart-session-lost` by `decideStepOutcome` instead.
    */
   private async resumeAfterRestart(cycle: WorkCycle, run: AgentRun): Promise<void> {
     if (this.runs.isDraining()) return;
-    if (run.backendSessionId === undefined || run.role !== cycleStepRole(cycle.step)) {
-      this.attention(
-        cycle,
-        'CraftingTable restarted during this step before its agent session could be resumed. Inspect the worktree and resume explicitly.',
-      );
-      return;
-    }
     await this.next(
       cycle,
       cycle.step,

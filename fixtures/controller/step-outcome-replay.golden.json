@@ -1,0 +1,107 @@
+{
+  "design-live": [
+    {
+      "status": "running",
+      "step": "design",
+      "runStatus": "running",
+      "decision": {
+        "kind": "wait-for-run"
+      }
+    }
+  ],
+  "design-open-questions": [
+    {
+      "status": "needs-attention",
+      "step": "design",
+      "runStatus": "finished",
+      "decision": {
+        "kind": "attention",
+        "code": "design-open-questions",
+        "message": "Design has open questions or lacks an explicit “## Open questions” section containing only “none”. Use Resolve design questions to collect evidence and provide guidance."
+      }
+    }
+  ],
+  "implement-open-questions": [
+    {
+      "status": "needs-attention",
+      "step": "implement",
+      "runStatus": "finished",
+      "decision": {
+        "kind": "attention",
+        "code": "implementation-open-questions",
+        "message": "Implementation needs your input. Answer the Open questions using Continue with guidance before another review or remediation."
+      }
+    }
+  ],
+  "implement-crashed": [
+    {
+      "status": "needs-attention",
+      "step": "implement",
+      "runStatus": "failed",
+      "decision": {
+        "kind": "attention",
+        "code": "step-incomplete",
+        "message": "The step did not finish with a complete successful result. Inspect it before resuming."
+      }
+    }
+  ],
+  "implement-service-failure": [
+    {
+      "status": "running",
+      "step": "implement",
+      "runStatus": "failed",
+      "decision": {
+        "kind": "schedule-service-retry",
+        "providerRecovery": {
+          "attempts": 0,
+          "sourceRunId": "<id-1>",
+          "failure": {
+            "kind": "capacity",
+            "safeToRetry": true,
+            "message": "The model is overloaded."
+          },
+          "profile": {
+            "backend": "claude-code",
+            "permissionMode": "auto",
+            "model": "implement-model"
+          },
+          "nextRetryAt": "2000-01-01T00:01:00.000Z"
+        },
+        "reason": "The model is overloaded. Service retry 1 of 3 is scheduled for 2000-01-01T00:01:00.000Z. Roadmap pauses hold retries."
+      }
+    }
+  ],
+  "review-findings": [
+    {
+      "status": "running",
+      "step": "review",
+      "runStatus": "finished",
+      "decision": {
+        "kind": "remediate-review",
+        "clearActiveReview": false
+      }
+    }
+  ],
+  "review-mergeable": [
+    {
+      "status": "awaiting-merge",
+      "step": "review",
+      "runStatus": "finished",
+      "decision": {
+        "kind": "approve-review",
+        "reviewOnly": false,
+        "reason": "Review meets the completion policy (0 open nits, allowance 3). Operator merge approval required."
+      }
+    }
+  ],
+  "design-drain-interrupted": [
+    {
+      "status": "running",
+      "step": "design",
+      "runStatus": "interrupted",
+      "decision": {
+        "kind": "resume-after-restart"
+      }
+    }
+  ]
+}

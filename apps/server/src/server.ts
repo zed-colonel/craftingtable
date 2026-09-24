@@ -80,6 +80,11 @@ export interface ServerDependencies {
 
 export interface BuildServerOptions {
   readonly logger?: boolean;
+  /**
+   * Start the background workers when the server is ready (default). Tests that step the
+   * controller themselves (`WorkCycleService.tick`) leave them stopped.
+   */
+  readonly startWorkers?: boolean;
   readonly loggerStream?: { write(message: string): void };
 }
 
@@ -124,6 +129,7 @@ export function buildServer(
   registerDiagnosticsRoutes(app, deps.authService, deps.workspaceService, new DaemonDiagnostics());
 
   app.addHook('onReady', async () => {
+    if (options.startWorkers === false) return;
     deps.roadmapService.startWorker();
     deps.workCycleService.startWorker();
     deps.notificationService.startWorker();

@@ -232,6 +232,15 @@ An in-flight recovery command owns its preparation until completion or failure. 
 notification delivery defer to it; a failed preparation restores the original attention and reminder
 schedule. Restart releases this transient ownership without replaying the command.
 
+The cycle controller (`WorkCycleService.reconcile`) decides what a step's run outcome means in
+one pure function, `decideStepOutcome` (`services/step-outcome.ts`): it reads facts gathered
+from one cycle and run and returns a typed decision, and every stop for the operator carries an
+attention code. `reconcile` applies the decision. `replayStepOutcomes` runs the same gatherer
+and decision over any database snapshot, which is how controller refactors are checked against
+recorded decisions (`pnpm controller:replay`, and a golden test over scenario snapshots). Tests
+step the controller with `WorkCycleService.tick()` and `AgentRunService.quiesce()` instead of
+waiting on wall-clock time.
+
 The notification service reconciles durable work-item attention into a SQLite outbox,
 claims deliveries with expiring leases, and schedules retries and local-time reminders.
 It wakes from the workspace notifier and a five-second timer; no browser connection is

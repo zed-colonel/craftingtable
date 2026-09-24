@@ -18,7 +18,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-A7](#r-a7) | P1 | M | open | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
 | [R-B1](#r-b1) | P0 | S | done (fd269b6, 012447b) | Controller quick fixes (no schema change) |
-| [R-B2](#r-b2) | P1 | M | open | Characterization harness for the cycle controller |
+| [R-B2](#r-b2) | P1 | M | done | Characterization harness for the cycle controller |
 | [R-B3](#r-b3) | P1 | M | open | Explicit cycle ownership; roadmap state references its definition |
 | [R-B4](#r-b4) | P4 | L | open | Pure cycle decision core with an explicit state machine |
 | [R-B5](#r-b5) | P4 | L | open | Event-driven controller kernel |
@@ -158,11 +158,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B2
 
-**Characterization harness for the cycle controller** · Phase P1 · Effort M · Status: open
+**Characterization harness for the cycle controller** · Phase P1 · Effort M · Status: done
 
 - **Resolves:** [CTRL-18](findings/CTRL-controller.md#ctrl-18-the-controller-has-no-unit-testable-transition-core), [QA-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-02-orchestration-tests-poll-wall-clock-time-because-the-controller-has-no-deterministic-stepping-seam)
 - **Change:** Extract reconcile's post-run classification (work-cycle-service.ts ~:1858-2254) verbatim into a pure function of (cycle, facts). Record golden decisions by replaying every cycle in a DB snapshot, and add decision-table tests. Add a deterministic stepping seam (tick once / wait-for-idle) so orchestration tests stop polling wall-clock time.
 - **Done when:** Golden replay test over a fixture snapshot passes; at least the attention codes produced by the live data are covered by table tests; new orchestration tests use the stepping seam.
+- **Progress:** Everything `reconcile` does once the current step has a run (live, drain-interrupted, waiting, provider failure, background-work exit, and the design/implement/review classification) is now `decideStepOutcome(cycle, facts)` in `services/step-outcome.ts`, same checks in the same order; `reconcile` applies the typed decision (`applyStepOutcome`, `approveReview`). Storage-derived facts stay lazy so each is read only on the branch that read it before. Each operator stop carries one of 28 `STEP_ATTENTION_CODES`. Table tests (`step-outcome.test.ts`, 47 rows) cover every code and decision kind. Golden replay: `step-outcome-replay.test.ts` drives eight scripted scenarios through the real controller, replays each snapshot with `replayStepOutcomes`, and compares with `fixtures/controller/step-outcome-replay.golden.json`. `pnpm controller:replay <snapshot> [--record|--check <golden>]` runs the same replay over a copy of a real database; the live baseline (51 cycles, taken 2026-09-23 18:41) and its golden file are kept outside the repository in `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-23/`, because they hold real plans and agent output. Stepping seam: `WorkCycleService.tick()`, `AgentRunService.quiesce()`, `createTestContext({ workers: false })` and `stepController` in `cycle-test-support.ts`; the R-B9 and replay tests use it. Every attention reason in the live audit history that comes from this classification has a code and a table row. The rest come from other controller paths (review remediation limits and stalls, integration refresh and conflicts, clean-worktree and readiness errors, merges, restart) and get codes in R-A3. The 14k-line execution test still polls; moving it onto the seam is R-I2.
 
 ### R-B3
 

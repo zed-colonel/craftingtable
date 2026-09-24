@@ -17,6 +17,7 @@
     "craftingtable:dev": "pnpm --filter @craftingtable/server cli:dev",
     "db:migrate": "pnpm craftingtable db migrate",
     "deploy:daemon": "node scripts/deploy-daemon.mjs",
+    "controller:replay": "pnpm --filter @craftingtable/server replay",
     "db:status": "pnpm craftingtable db status",
     "build": "tsc -b && pnpm --filter @craftingtable/web build",
     "format": "biome format --write .",

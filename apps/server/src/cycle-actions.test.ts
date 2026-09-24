@@ -65,6 +65,10 @@ describe('offer only actions that can make progress (R-A7)', () => {
 
     // Pausing holds the stop, and resuming returns to it instead of relaunching the design.
     expect((await control(f, started.id, 'pause')).statusCode).toBe(200);
+    expect(storedCycle(f, started.id)).toMatchObject({
+      status: 'paused',
+      attention: { code: 'design-report-invalid' },
+    });
     expect(cycleActions(storedCycle(f, started.id))).toEqual(['resume', 'stop']);
     const lifted = await control(f, started.id, 'resume');
     expect(lifted.statusCode, lifted.body).toBe(200);

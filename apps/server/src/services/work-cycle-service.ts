@@ -4053,11 +4053,17 @@ export class WorkCycleService {
     action = 'advance',
     context?: CommandContext,
   ): WorkCycle {
-    // Entering a stop declares its attention (enforced by CycleChanges); any other status
-    // clears it, so attention always describes the current state (R-A3).
+    // Entering a stop declares its attention (enforced by CycleChanges); a pause keeps the
+    // stop it was taken at (R-A7); any other status clears it, so attention always describes
+    // the current state (R-A3).
     const { attention: declared, ...fields } = input;
     const nextStatus = fields.status ?? cycle.status;
-    let attention = ATTENTION_STATUSES.has(nextStatus) ? (declared ?? cycle.attention) : undefined;
+    let attention =
+      ATTENTION_STATUSES.has(nextStatus) || (nextStatus === 'paused' && cycle.status === 'paused')
+        ? (declared ?? cycle.attention)
+        : nextStatus === 'paused'
+          ? declared
+          : undefined;
     // A new stop is declared complete in the same write: whether automation claims it and
     // whether its merge requirements are met (NOTIF-02).
     if (declared && fields.status !== undefined)

@@ -2,8 +2,8 @@
 /**
  * Deploy the CraftingTable daemon from an exact commit (review item R-I8).
  *
- *   pnpm deploy:daemon <ref> [--yes] [--no-restart] [--keep N]
- *   pnpm deploy:daemon --rollback [--yes]
+ *   pnpm deploy:daemon <ref> [--yes] [--no-restart] [--when-idle | --no-drain] [--keep N]
+ *   pnpm deploy:daemon --rollback [--yes] [--when-idle | --no-drain]
  *   pnpm deploy:daemon --status
  *
  * The daemon never runs from a development checkout. Each deploy builds the
@@ -16,12 +16,19 @@
  *     current -> releases/...         what the unit runs
  *     deploys.jsonl                   append-only record of every switch
  *
- * A failed build leaves `current` untouched. If the restarted daemon does not
- * answer its health check, the previous release is restored and restarted.
+ * A failed build leaves `current` untouched. Before restarting, the running daemon is
+ * asked to drain (R-B9) through a request file in its data directory: it stops starting
+ * new work, gives live agent turns up to its drain bound to finish (`--when-idle`: waits
+ * until none is live), interrupts the rest and records a clean stop, so the restarted
+ * daemon resumes the interrupted steps and running roadmaps without an operator Resume.
+ * Interrupting the script while it waits withdraws the request and changes nothing.
+ * If the restarted daemon does not answer its health check, the previous release is
+ * restored and restarted.
  * Only one daemon can use a data directory (apps/server/src/instance-lock.ts),
  * so nothing here can start a second production daemon.
  */
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
   existsSync,
@@ -32,30 +39,35 @@ import {
   renameSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 
 const HEALTH_TIMEOUT_MS = 90_000;
+/** A daemon that predates drain support never answers; restart it the old way. */
+const DRAIN_ACK_TIMEOUT_MS = 15_000;
 
 function usage(message) {
   if (message) process.stderr.write(`${message}\n\n`);
   process.stderr.write(
-    'Usage: pnpm deploy:daemon <ref> [--yes] [--no-restart] [--keep N]\n' +
-      '       pnpm deploy:daemon --rollback [--yes]\n' +
+    'Usage: pnpm deploy:daemon <ref> [--yes] [--no-restart] [--when-idle | --no-drain] [--keep N]\n' +
+      '       pnpm deploy:daemon --rollback [--yes] [--when-idle | --no-drain]\n' +
       '       pnpm deploy:daemon --status\n',
   );
   process.exit(2);
 }
 
 export function parseArguments(argv) {
-  const options = { restart: true, yes: false, keep: 5, skipBuild: false };
+  const options = { restart: true, yes: false, keep: 5, skipBuild: false, drain: 'bounded' };
   const rest = [...argv];
   while (rest.length) {
     const arg = rest.shift();
     if (arg === '--yes' || arg === '-y') options.yes = true;
     else if (arg === '--no-restart') options.restart = false;
+    else if (arg === '--when-idle') options.drain = 'when-idle';
+    else if (arg === '--no-drain') options.drain = 'none';
     else if (arg === '--rollback') options.mode = 'rollback';
     else if (arg === '--status') options.mode = 'status';
     // Test seam: exercise release bookkeeping without installing and building.
@@ -136,11 +148,9 @@ function checkUnit(root) {
         `Set WorkingDirectory=${expected} in its unit file and run systemctl --user daemon-reload.`;
 }
 
-/** Health URL from the unit's environment file, overridable for unusual setups. */
-function healthUrl(env = process.env) {
-  if (env.CRAFTINGTABLE_DEPLOY_HEALTH_URL) return env.CRAFTINGTABLE_DEPLOY_HEALTH_URL;
-  let host = '127.0.0.1';
-  let port = '4600';
+/** CRAFTINGTABLE_* settings from the unit's environment file; empty when unreadable. */
+function unitEnvironment() {
+  const values = {};
   try {
     const files = run('systemctl', [
       '--user',
@@ -153,14 +163,29 @@ function healthUrl(env = process.env) {
     const path = files.split(' ')[0];
     if (path && existsSync(path)) {
       for (const line of readFileSync(path, 'utf8').split('\n')) {
-        const match = /^\s*(CRAFTINGTABLE_HOST|CRAFTINGTABLE_PORT)\s*=\s*(\S+)/.exec(line);
-        if (match?.[1] === 'CRAFTINGTABLE_HOST') host = match[2];
-        if (match?.[1] === 'CRAFTINGTABLE_PORT') port = match[2];
+        const match = /^\s*(CRAFTINGTABLE_[A-Z_]+)\s*=\s*(\S+)/.exec(line);
+        if (match) values[match[1]] = match[2];
       }
     }
   } catch {
     // Fall back to the defaults.
   }
+  return values;
+}
+
+/** The daemon's data directory, where it watches for a drain request. */
+export function dataDirectory(env = process.env, unit = {}) {
+  if (env.CRAFTINGTABLE_DEPLOY_DATA_DIR) return resolve(env.CRAFTINGTABLE_DEPLOY_DATA_DIR);
+  if (unit.CRAFTINGTABLE_DATA_DIR) return unit.CRAFTINGTABLE_DATA_DIR;
+  return join(env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'craftingtable');
+}
+
+/** Health URL from the unit's environment file, overridable for unusual setups. */
+function healthUrl(env = process.env) {
+  if (env.CRAFTINGTABLE_DEPLOY_HEALTH_URL) return env.CRAFTINGTABLE_DEPLOY_HEALTH_URL;
+  const unit = unitEnvironment();
+  let host = unit.CRAFTINGTABLE_HOST ?? '127.0.0.1';
+  const port = unit.CRAFTINGTABLE_PORT ?? '4600';
   if (host === '0.0.0.0' || host === '::') host = '127.0.0.1';
   return `http://${host.includes(':') ? `[${host}]` : host}:${port}/api/health`;
 }
@@ -177,6 +202,81 @@ async function waitHealthy(url) {
     await new Promise((done) => setTimeout(done, 1_000));
   }
   return false;
+}
+
+/**
+ * Asks the daemon watching `directory` to drain and waits until it has. Resolves to
+ * `{ acknowledged: false }` when no daemon answers within `ackTimeoutMs`; the request is
+ * then withdrawn. SIGINT withdraws the request too, which cancels a drain that has not
+ * interrupted anything yet.
+ */
+export async function drainDaemon(directory, mode, options = {}) {
+  const ackTimeoutMs = options.ackTimeoutMs ?? DRAIN_ACK_TIMEOUT_MS;
+  const pollMs = options.pollMs ?? 1_000;
+  const say = options.log ?? ((line) => process.stdout.write(`${line}\n`));
+  const id = randomUUID();
+  const requestPath = join(directory, 'drain-request.json');
+  const statusPath = join(directory, 'drain-status.json');
+  writeFileSync(`${requestPath}.partial`, `${JSON.stringify({ id, mode })}\n`, { mode: 0o600 });
+  renameSync(`${requestPath}.partial`, requestPath);
+  const withdraw = () => {
+    rmSync(requestPath, { force: true });
+    process.stderr.write('\nDrain request withdrawn; the daemon resumes admissions.\n');
+    process.exit(130);
+  };
+  process.once('SIGINT', withdraw);
+  try {
+    const ackDeadline = Date.now() + ackTimeoutMs;
+    let reported;
+    for (;;) {
+      let status;
+      try {
+        status = JSON.parse(readFileSync(statusPath, 'utf8'));
+      } catch {
+        status = undefined;
+      }
+      if (status?.requestId === id) {
+        if (status.state === 'drained') return { acknowledged: true, ...status };
+        if (status.state === 'failed')
+          throw new Error(`The daemon could not drain: ${status.message ?? 'unknown error'}`);
+        if (status.busyRuns !== reported) {
+          say(`Draining: ${status.busyRuns} live agent turn(s) still working…`);
+          reported = status.busyRuns;
+        }
+      } else if (Date.now() > ackDeadline) {
+        rmSync(requestPath, { force: true });
+        return { acknowledged: false };
+      }
+      await new Promise((done) => setTimeout(done, pollMs));
+    }
+  } finally {
+    process.off('SIGINT', withdraw);
+  }
+}
+
+function unitActive() {
+  try {
+    return run('systemctl', ['--user', 'is-active', unitName()]) === 'active';
+  } catch {
+    return false;
+  }
+}
+
+async function drainBeforeRestart(options) {
+  if (options.drain === 'none' || !unitActive()) return;
+  const directory = dataDirectory(process.env, unitEnvironment());
+  process.stdout.write(
+    options.drain === 'when-idle'
+      ? `Asking the daemon to finish live agent turns before restarting (no new steps start meanwhile)…\n`
+      : `Asking the daemon to drain; live turns get up to its drain bound to finish…\n`,
+  );
+  const result = await drainDaemon(directory, options.drain);
+  process.stdout.write(
+    result.acknowledged
+      ? `Drained. ${result.interruptedRuns ?? 0} interrupted run(s) resume their sessions after the restart.\n`
+      : `The running daemon did not answer the drain request (it predates drain support, or its data directory is not ${directory}).\n` +
+          '  Restarting anyway: live agent runs are interrupted and running roadmaps wait for Resume.\n',
+  );
 }
 
 async function restartAndCheck() {
@@ -263,9 +363,13 @@ async function deploy(options) {
     `Deploy ${subject}\n  from ${source}${dirty ? ' (uncommitted changes there are not deployed)' : ''}\n` +
     `  into ${join(root, 'releases', release)}\n` +
     `  replacing ${current ?? '(nothing deployed yet)'}\n` +
-    (options.restart
-      ? '  then restart the daemon: live agent runs are interrupted and running roadmaps wait for Resume.'
-      : '  without restarting (the next restart picks it up).');
+    (!options.restart
+      ? '  without restarting (the next restart picks it up).'
+      : options.drain === 'none'
+        ? '  then restart the daemon without draining: live agent runs are interrupted and running roadmaps wait for Resume.'
+        : options.drain === 'when-idle'
+          ? '  then wait until no agent turn is live (starting no new steps) and restart the daemon; roadmaps continue.'
+          : '  then drain and restart the daemon: live turns get up to its drain bound, interrupted steps resume their sessions, roadmaps continue.');
   if (unitProblem) throw new Error(unitProblem);
   if (!(await confirm(options, summary))) return 1;
 
@@ -280,6 +384,7 @@ async function deploy(options) {
       throw new Error(`Build failed; ${current ?? 'nothing'} stays deployed. ${error.message}`);
     }
   }
+  if (options.restart) await drainBeforeRestart(options);
   switchTo(root, release);
   record(root, { action: 'deploy', commit, ref: options.ref, source, release, previous: current });
   process.stdout.write(`current -> releases/${release}\n`);
@@ -317,6 +422,7 @@ async function rollback(options) {
   if (problem) throw new Error(problem);
   const restart = options.restart ? ' and restart the daemon' : '';
   if (!(await confirm(options, `Roll back from ${current} to ${target}${restart}.`))) return 1;
+  if (options.restart) await drainBeforeRestart(options);
   switchTo(root, target);
   record(root, { action: 'rollback', release: target, previous: current });
   process.stdout.write(`current -> releases/${target}\n`);
@@ -333,7 +439,28 @@ function status() {
     );
   const problem = checkUnit(root);
   if (problem) process.stdout.write(`\n${problem}\n`);
+  const advice = stopAdvice();
+  if (advice) process.stdout.write(`\n${advice}\n`);
   return 0;
+}
+
+/**
+ * Deploys drain through the request file. A plain `systemctl stop` or a reboot drains
+ * only when systemd signals the daemon alone and waits long enough for it.
+ */
+function stopAdvice() {
+  try {
+    const killMode = run('systemctl', ['--user', 'show', unitName(), '-p', 'KillMode', '--value']);
+    if (killMode === 'mixed') return undefined;
+    return (
+      `Note: the ${unitName()} unit uses KillMode=${killMode}, so a plain systemctl stop or reboot ` +
+      'signals the agents directly and cannot drain them. For drained restarts outside ' +
+      '`pnpm deploy:daemon`, set KillMode=mixed and a TimeoutStopSec above the drain bound ' +
+      '(CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS, default 180) in a drop-in.'
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

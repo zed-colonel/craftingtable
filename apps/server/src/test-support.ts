@@ -61,6 +61,8 @@ export async function createTestContext(
     CRAFTINGTABLE_LOG_LEVEL: 'silent',
     // The API surface under test is the route allowlist; static serving is opt-in.
     CRAFTINGTABLE_WEB_DIST: '',
+    // Closing a test daemon interrupts live fake runs at once instead of draining them.
+    CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '0',
     ...options.env,
   });
   const storage = openCraftingTableStorage(config.databasePath);
@@ -97,6 +99,7 @@ export async function createTestContext(
       roadmapService: services.roadmapService,
       runEventStreamService: services.runEventStreamService,
       executionStatus: services.executionStatus,
+      daemonDrain: services.daemonDrain,
     },
     config,
     options.loggerStream === undefined

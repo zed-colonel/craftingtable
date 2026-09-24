@@ -51,7 +51,7 @@ import { truncateUtf8Bytes } from './bounded-text.js';
 import type { BranchService } from './branch-service.js';
 import { composeBrief } from './brief.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
-import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { DaemonDrainingError, ExecutionRequestError, NotFoundError } from './errors.js';
 import {
   requireTreeScope,
   resolveScope,
@@ -64,6 +64,7 @@ import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { operatorDecisions } from './operator-decisions.js';
 import { reservePhase } from './phase-resources.js';
 import { REPOSITORY_POLICY_GUIDANCE, worktreePlan } from './repository-policy.js';
+import { restartResumePrompt, restartResumeSource } from './restart-resume.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
 import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-handoff.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
@@ -106,6 +107,8 @@ interface LiveRun {
   readonly runId: AgentRunId;
   readonly session: AgentSession;
   cancelRequested: boolean;
+  /** Set when a restart drain terminates the session; it then ends `interrupted`. */
+  drainInterrupted?: boolean;
   done: Promise<void>;
 }
 
@@ -116,6 +119,8 @@ const OUTCOME_SUMMARY_LIMIT_BYTES = 4000;
 const PARENT_MESSAGE_LIMIT_BYTES = 256 * 1024;
 /** The order roles occur in the development loop, for profile listings. */
 const SHUTDOWN_GRACE_MS = 10_000;
+const DRAIN_INTERRUPTED_MESSAGE =
+  'CraftingTable stopped for a restart while this run was live. A cycle step resumes its session automatically after a clean restart.';
 
 function summarise(text: string): string {
   return truncateUtf8Bytes(text, OUTCOME_SUMMARY_LIMIT_BYTES);
@@ -135,6 +140,8 @@ export class AgentRunService {
   /** Runs whose supervision failed; their killed sessions have not reported exit yet. */
   private readonly orphaned = new Set<LiveRun>();
   private readonly pendingCycleLaunches = new Map<AgentRunId, () => void>();
+  /** A restart drain is in progress: no new run may start (R-B9). */
+  private draining = false;
 
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -360,7 +367,21 @@ export class AgentRunService {
         ? cycle.designRecovery
         : undefined;
     const selected = cycleAgentSelection(this.storage, cycle);
+    // A resumed session keeps the agent, model and permissions it was started with.
+    const resumed = restartResumeSource(
+      this.storage.execution,
+      cycle,
+      cycle.parentRunId && this.storage.execution.runs.find(cycle.workspaceId, cycle.parentRunId),
+    )?.run;
     const profile =
+      (resumed
+        ? {
+            backend: resumed.backend,
+            permissionMode: resumed.permissionMode,
+            ...(resumed.model === undefined ? {} : { model: resumed.model }),
+            ...(resumed.reasoningEffort ? { reasoningEffort: resumed.reasoningEffort } : {}),
+          }
+        : undefined) ??
       (recovery
         ? { permissionMode: cycle.profiles.design.permissionMode, ...recovery.profile }
         : undefined) ??
@@ -536,6 +557,7 @@ export class AgentRunService {
     profileSelection?: AgentRun['profileSelection'],
     preparation?: { value: import('@craftingtable/domain').DecisionPreparation; check: () => void },
   ): Promise<AgentRun> {
+    if (this.draining) throw new DaemonDrainingError();
     await this.storageService?.waitForRunCleanup(input.worktreeId);
     const preparationTree = this.storage.roadmaps
       .list(workspaceId)
@@ -667,6 +689,16 @@ export class AgentRunService {
       };
     });
 
+    const resume =
+      cycle === undefined
+        ? undefined
+        : restartResumeSource(this.storage.execution, cycle, prepared.parentRun);
+    if (resume !== undefined && resume.run.backend !== backend.kind)
+      throw new ExecutionRequestError(
+        'conflict',
+        'The interrupted session belongs to another agent backend and cannot be resumed.',
+      );
+
     return this.mutations.during(input.worktreeId, async () => {
       let cancelled = false;
       const cancelPreflight = () => {
@@ -684,7 +716,9 @@ export class AgentRunService {
         else if (input.role !== 'review') await this.branches?.validateLaunch(prepared.worktree);
         if (
           input.role === 'review' &&
-          ((cycle?.resultContinuations ?? 0) > 0 || !!cycle?.providerRecovery)
+          (resume !== undefined ||
+            (cycle?.resultContinuations ?? 0) > 0 ||
+            !!cycle?.providerRecovery)
         ) {
           const baseline = prepared.parentRun?.reviewBranchContext;
           const ended =
@@ -694,17 +728,15 @@ export class AgentRunService {
               prepared.parentRun.id,
               'run-finished',
             );
-          if (
-            !baseline ||
-            prepared.parentRun?.status !== 'failed' ||
-            ended?.kind !== 'run-finished' ||
-            (ended.payload.reason !== 'background-work-incomplete' &&
-              !(
-                cycle?.providerRecovery?.sourceRunId === prepared.parentRun.id &&
-                cycle.providerRecovery.failure.safeToRetry
-              )) ||
-            !this.branches
-          )
+          // A resumed review continues on its pinned baseline, like a completion continuation.
+          const continuable =
+            resume !== undefined ||
+            (prepared.parentRun?.status === 'failed' &&
+              ended?.kind === 'run-finished' &&
+              (ended.payload.reason === 'background-work-incomplete' ||
+                (cycle?.providerRecovery?.sourceRunId === prepared.parentRun.id &&
+                  cycle.providerRecovery.failure.safeToRetry)));
+          if (!baseline || !continuable || !this.branches)
             throw new ExecutionRequestError(
               'conflict',
               'Review continuation requires the interrupted review and its pinned branch context.',
@@ -751,6 +783,8 @@ export class AgentRunService {
           this.pendingCycleLaunches.delete(cycle.currentRunId);
       }
       preparation?.check();
+      // A drain can begin during Git preflight; no run record may start after it.
+      if (this.draining) throw new DaemonDrainingError();
       const runId = cycle?.currentRunId ?? preparation?.value.runId ?? asAgentRunId(randomUUID());
       this.storageService?.requireSpace('runsRoot', prepared.worktree.path);
       const runDirectory = join(this.config.runsRoot, runId);
@@ -1214,6 +1248,15 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         this.finalize(workspaceId, runId, 'failed', { message: 'Could not register run storage.' });
         throw error;
       }
+      const previousRunDirectory = resume && join(this.config.runsRoot, resume.run.id);
+      const prompt =
+        resume && cycle && previousRunDirectory
+          ? restartResumePrompt({
+              deadlineAt: cycle.runDeadlineAt,
+              previousRunDirectory,
+              runDirectory,
+            })
+          : brief;
       const launch: AgentLaunchRequest = {
         ...(pinned
           ? { buildEnvironment: { binDirectory: pinned.binDirectory, namespace: runId } }
@@ -1225,12 +1268,14 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           : preparation
             ? { deadlineAt: preparation.value.deadlineAt, readOnly: true }
             : {}),
-        prompt: brief,
+        prompt,
+        ...(resume ? { resumeSessionId: resume.sessionId } : {}),
         permissionMode: input.permissionMode,
         ...(input.model === undefined ? {} : { model: input.model }),
         ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
         additionalDirectories: [
           runDirectory,
+          ...(previousRunDirectory ? [previousRunDirectory] : []),
           ...(historical ? [historical.cargoHome] : []),
           ...(pinned?.localCi ? [pinned.localCi.cacheRoot] : []),
         ],
@@ -1254,19 +1299,25 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Agent could not be started';
-        this.finalize(
-          workspaceId,
-          runId,
-          error instanceof CycleLaunchCancelledError ? 'cancelled' : 'failed',
-          { message },
-        );
+        if (error instanceof CycleLaunchCancelledError && this.draining)
+          this.finalize(workspaceId, runId, 'interrupted', {
+            reason: 'daemon-drain',
+            message: DRAIN_INTERRUPTED_MESSAGE,
+          });
+        else
+          this.finalize(
+            workspaceId,
+            runId,
+            error instanceof CycleLaunchCancelledError ? 'cancelled' : 'failed',
+            { message },
+          );
         return this.storage.execution.runs.find(workspaceId, runId) ?? run;
       }
 
       this.appendEvent(workspaceId, runId, {
         kind: 'user-message',
         payload: {
-          text: brief,
+          text: prompt,
           ...(handoff === undefined ? {} : { handoffSources: handoff.sources }),
         },
       });
@@ -1531,17 +1582,69 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     return stale.length;
   }
 
-  async shutdown(): Promise<void> {
+  /** Stops admitting new runs for a restart drain (R-B9); live runs continue. */
+  beginDrain(): void {
+    this.draining = true;
+  }
+
+  /** Lifts a drain that was cancelled before anything was interrupted. */
+  cancelDrain(): void {
+    this.draining = false;
+  }
+
+  isDraining(): boolean {
+    return this.draining;
+  }
+
+  /**
+   * Live work a drain waits for: launches in preflight, turns in progress, and sessions
+   * still holding background work. A session waiting between turns is at a boundary.
+   */
+  busyRunCount(): number {
+    let busy = this.pendingCycleLaunches.size;
+    for (const liveRun of this.live.values()) {
+      const run = this.storage.execution.runs.find(liveRun.workspaceId, liveRun.runId);
+      if (run?.status !== 'waiting' || liveRun.session.backgroundWorkPending) busy++;
+    }
+    return busy;
+  }
+
+  /**
+   * Ends every live session for a restart and returns how many were interrupted. A
+   * controller step waiting between turns has finished its work and ends normally, so
+   * the controller classifies its result after the restart; everything else is
+   * terminated and recorded as `interrupted` with reason `daemon-drain`.
+   */
+  async interruptForRestart(): Promise<number> {
+    this.draining = true;
+    for (const cancel of this.pendingCycleLaunches.values()) cancel();
     const pending = [...this.live.values(), ...this.orphaned];
-    for (const liveRun of pending) {
-      liveRun.cancelRequested = true;
+    let interrupted = 0;
+    for (const liveRun of this.live.values()) {
+      const run = this.storage.execution.runs.find(liveRun.workspaceId, liveRun.runId);
+      const cycleTurnDone =
+        run?.status === 'waiting' &&
+        !liveRun.session.backgroundWorkPending &&
+        this.storage.execution.cycles.activeForWorktree(run.workspaceId, run.worktreeId)
+          ?.currentRunId === run.id;
+      if (cycleTurnDone) {
+        liveRun.session.end();
+        continue;
+      }
+      liveRun.drainInterrupted = true;
       liveRun.session.kill();
+      interrupted++;
     }
     const timeout = new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, SHUTDOWN_GRACE_MS);
       timer.unref();
     });
     await Promise.race([Promise.allSettled(pending.map((liveRun) => liveRun.done)), timeout]);
+    return interrupted;
+  }
+
+  async shutdown(): Promise<void> {
+    await this.interruptForRestart();
   }
 
   /* ---------------------------------------------------------------------- */
@@ -1614,23 +1717,32 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           lastTurn?.kind === 'turn-completed' &&
           lastTurn.payload.outcome === 'error' &&
           !!lastTurn.payload.providerFailure;
-        const status: AgentRunStatus = liveRun.cancelRequested
-          ? 'cancelled'
-          : item.exitCode === 0 && !item.reason && !serviceFailed
-            ? 'finished'
-            : 'failed';
+        // During a drain, a signal the daemon did not send is the service manager
+        // stopping the unit's whole process group: that is a restart, not a failure.
+        const drained =
+          liveRun.drainInterrupted === true ||
+          (this.draining && !liveRun.cancelRequested && item.signal !== null);
+        const status: AgentRunStatus = drained
+          ? 'interrupted'
+          : liveRun.cancelRequested
+            ? 'cancelled'
+            : item.exitCode === 0 && !item.reason && !serviceFailed
+              ? 'finished'
+              : 'failed';
         this.finalize(workspaceId, runId, status, {
           ...(item.exitCode === null ? {} : { exitCode: item.exitCode }),
           ...(item.signal === null ? {} : { signal: item.signal }),
-          ...(item.reason
-            ? {
-                reason: item.reason,
-                message:
-                  item.reason === 'background-work-incomplete'
-                    ? 'The agent exited before collecting background work and reporting completion. Its process group has finished; the last message is an incomplete outcome.'
-                    : 'Background work exceeded the step time limit and was terminated. Inspect partial verification results before resuming.',
-              }
-            : {}),
+          ...(drained
+            ? { reason: 'daemon-drain' as const, message: DRAIN_INTERRUPTED_MESSAGE }
+            : item.reason
+              ? {
+                  reason: item.reason,
+                  message:
+                    item.reason === 'background-work-incomplete'
+                      ? 'The agent exited before collecting background work and reporting completion. Its process group has finished; the last message is an incomplete outcome.'
+                      : 'Background work exceeded the step time limit and was terminated. Inspect partial verification results before resuming.',
+                }
+              : {}),
         });
         return;
       }

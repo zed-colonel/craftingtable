@@ -82,6 +82,7 @@ export class RoadmapService {
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
   private ticking = false;
+  private admissionsHeld = false;
   private readonly controlling = new Set<string>();
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -931,8 +932,12 @@ export class RoadmapService {
     }
   }
 
-  /** Returns the roadmaps this restart stopped, so notifications can coalesce them per boot. */
-  recoverInterrupted(): string[] {
+  /**
+   * Returns the roadmaps this restart stopped, so notifications can coalesce them per boot.
+   * After a clean stop (a completed drain, R-B9) running roadmaps keep running; only a
+   * crash leaves them waiting for an explicit resume.
+   */
+  recoverInterrupted(options: { readonly cleanStop?: boolean } = {}): string[] {
     for (const roadmap of this.storage.roadmaps.list()) {
       if (
         roadmap.decisionPreparations?.some(
@@ -956,6 +961,7 @@ export class RoadmapService {
     }
 
     const stopped: string[] = [];
+    if (options.cleanStop) return stopped;
     for (const roadmap of this.storage.roadmaps.list())
       if (roadmap.status === 'running') {
         this.change(roadmap, {
@@ -991,9 +997,14 @@ export class RoadmapService {
       });
     }
   }
+  /** A restart drain holds admissions: running roadmaps start no new work (R-B9). */
+  holdAdmissions(held: boolean): void {
+    this.admissionsHeld = held;
+    if (!held) this.notifier.notify();
+  }
   /** Serialized tick is also the deterministic integration-test seam. */
   async tick(): Promise<void> {
-    if (this.ticking || this.abort.signal.aborted) return;
+    if (this.ticking || this.abort.signal.aborted || this.admissionsHeld) return;
     this.ticking = true;
     try {
       for (const roadmap of this.storage.roadmaps.list()) {

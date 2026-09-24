@@ -65,6 +65,11 @@ export interface ServerConfig {
   readonly logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   readonly repositoryFeature: RepositoryFeatureConfig;
   readonly execution: ExecutionConfig;
+  /**
+   * How long a stop waits for live agent turns to finish before interrupting them for an
+   * automatic resume after restart (R-B9). The service manager's stop timeout must exceed it.
+   */
+  readonly drainTimeoutMs: number;
 }
 
 export const SERVER_VERSION = '0.3.0';
@@ -436,6 +441,15 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     throw new Error(`Invalid CRAFTINGTABLE_LOG_LEVEL "${configuredLogLevel}"`);
   }
 
+  const drainTimeoutSeconds = Number(env.CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS ?? 180);
+  if (
+    !Number.isInteger(drainTimeoutSeconds) ||
+    drainTimeoutSeconds < 0 ||
+    drainTimeoutSeconds > 3600
+  ) {
+    throw new Error('CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS must be an integer between 0 and 3600');
+  }
+
   const dataDir = dataDirectory(env);
   const repositoryFeature = repositoryFeatureConfig(env, dataDir);
   const execution = executionConfig(env, dataDir);
@@ -453,5 +467,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     logLevel: configuredLogLevel as ServerConfig['logLevel'],
     repositoryFeature,
     execution,
+    drainTimeoutMs: drainTimeoutSeconds * 1000,
   };
 }

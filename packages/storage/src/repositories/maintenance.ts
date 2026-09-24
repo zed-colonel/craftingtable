@@ -1,6 +1,7 @@
 import type { AgentRunId, UserId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import type {
+  DaemonCleanStop,
   RunDirectory,
   StorageBackup,
   StorageMaintenanceRepository,
@@ -94,5 +95,21 @@ export class SqliteStorageMaintenanceRepository implements StorageMaintenanceRep
   }
   forgetBackup(path: string): void {
     this.database.prepare('DELETE FROM storage_backups WHERE path = ?').run(path);
+  }
+  recordCleanStop(stop: DaemonCleanStop): void {
+    this.database
+      .prepare(
+        'INSERT INTO daemon_clean_stop (id, stopped_at, interrupted_run_count) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET stopped_at = excluded.stopped_at, interrupted_run_count = excluded.interrupted_run_count',
+      )
+      .run(stop.stoppedAt, stop.interruptedRunCount);
+  }
+  takeCleanStop(): DaemonCleanStop | undefined {
+    const row = this.database
+      .prepare(
+        'SELECT stopped_at AS stoppedAt, interrupted_run_count AS interruptedRunCount FROM daemon_clean_stop WHERE id = 1',
+      )
+      .get() as DaemonCleanStop | undefined;
+    this.database.prepare('DELETE FROM daemon_clean_stop').run();
+    return row;
   }
 }

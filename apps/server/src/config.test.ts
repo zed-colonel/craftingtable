@@ -13,6 +13,7 @@ describe('configFromEnv', () => {
       secureCookies: false,
       sessionLifetimeSeconds: 2_592_000,
       repositoryFeature: { enabled: false },
+      drainTimeoutMs: 180_000,
     });
   });
 
@@ -198,6 +199,9 @@ describe('configFromEnv', () => {
       /origin/,
     );
     expect(() => configFromEnv({ CRAFTINGTABLE_DATA_DIR: './state' })).toThrow(/absolute/);
+    expect(() => configFromEnv({ CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '-1' })).toThrow(/DRAIN/);
+    expect(() => configFromEnv({ CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '1.5' })).toThrow(/DRAIN/);
+    expect(configFromEnv({ CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '0' }).drainTimeoutMs).toBe(0);
   });
 });
 

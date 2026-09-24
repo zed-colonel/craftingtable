@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -10,7 +10,9 @@ import {
   inspectMigrationStatus,
   type MigrationValidationError,
   migrationStatus,
+  PRE_MIGRATION_SNAPSHOTS_KEPT,
   runMigrations,
+  snapshotBeforeMigration,
 } from './migrations.js';
 
 const directories: string[] = [];
@@ -32,8 +34,8 @@ describe('ordered SQL migrations', () => {
     const database = openDatabase(path);
     const migrations = discoverMigrations();
     expect(runMigrations(database, migrations)).toEqual({
-      currentVersion: 26,
-      supportedVersion: 26,
+      currentVersion: 27,
+      supportedVersion: 27,
       pendingVersions: [],
     });
     const rows = database
@@ -66,6 +68,7 @@ describe('ordered SQL migrations', () => {
       { version: 24, name: 'repository-policy', checksum: migrations[23]?.checksum },
       { version: 25, name: 'host-verification-settings', checksum: migrations[24]?.checksum },
       { version: 26, name: 'agent-profiles', checksum: migrations[25]?.checksum },
+      { version: 27, name: 'daemon-stops', checksum: migrations[26]?.checksum },
     ]);
     database.close();
   });
@@ -103,7 +106,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(26);
+    ).toBe(27);
     second.close();
   });
 
@@ -125,7 +128,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(26);
+    ).toBe(27);
     database.close();
   });
 
@@ -136,7 +139,7 @@ describe('ordered SQL migrations', () => {
     database
       .prepare(
         `INSERT INTO schema_migrations (version, name, checksum, applied_at)
-         VALUES (27, 'future', ?, ?)`,
+         VALUES (28, 'future', ?, ?)`,
       )
       .run('f'.repeat(64), new Date().toISOString());
     expect(() => migrationStatus(database)).toThrow(/newer than or unknown/);
@@ -185,10 +188,10 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 26,
+      supportedVersion: 27,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26,
+        26, 27,
       ],
     });
 
@@ -204,10 +207,10 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 26,
+      supportedVersion: 27,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26,
+        26, 27,
       ],
     });
     expect(existsSync(path)).toBe(false);
@@ -246,4 +249,39 @@ it('upgrades legacy workspace profiles without changing models or permissions', 
   );
   expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   database.close();
+});
+
+describe('pre-migration snapshots (R-B9)', () => {
+  it('copies a populated database aside before pending migrations and keeps the newest few', () => {
+    const path = databasePath();
+    const migrations = discoverMigrations();
+    const database = openDatabase(path);
+    expect(snapshotBeforeMigration(database, path, migrations)).toBeUndefined();
+    runMigrations(database, migrations.slice(0, -1));
+    database.exec(`CREATE TABLE snapshot_marker (value TEXT) STRICT`);
+    database.prepare(`INSERT INTO snapshot_marker VALUES ('before')`).run();
+
+    let second = 0;
+    const clock = () => new Date(Date.UTC(2026, 8, 23, 12, 0, second++));
+    const first = snapshotBeforeMigration(database, path, migrations, clock);
+    expect(first).toMatch(
+      new RegExp(
+        `pre-migration/craftingtable-schema-${migrations.length - 1}-2026-09-23T12-00-00-000Z\\.sqlite$`,
+      ),
+    );
+    expect(statSync(first as string).mode & 0o777).toBe(0o600);
+    const copy = new Database(first as string, { readonly: true });
+    expect(copy.prepare(`SELECT value FROM snapshot_marker`).get()).toEqual({ value: 'before' });
+    copy.close();
+
+    for (let index = 0; index < PRE_MIGRATION_SNAPSHOTS_KEPT + 1; index++)
+      snapshotBeforeMigration(database, path, migrations, clock);
+    const kept = readdirSync(join(path, '..', 'pre-migration')).toSorted();
+    expect(kept).toHaveLength(PRE_MIGRATION_SNAPSHOTS_KEPT);
+    expect(kept).not.toContain(first?.split('/').at(-1));
+
+    runMigrations(database, migrations);
+    expect(snapshotBeforeMigration(database, path, migrations, clock)).toBeUndefined();
+    database.close();
+  });
 });

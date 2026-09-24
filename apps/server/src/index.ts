@@ -15,18 +15,21 @@ const runtime = await createRuntime(config, { logger: true });
 let shuttingDown = false;
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) {
+    // A second signal stops waiting for live turns; they are interrupted for resume.
+    runtime.app.log.info({ signal }, 'stop requested again; interrupting live runs now');
+    runtime.services.daemonDrain.expedite();
     return;
   }
   shuttingDown = true;
-  runtime.app.log.info({ signal }, 'shutting down');
+  runtime.app.log.info({ signal }, 'shutting down: draining live agent turns');
   await runtime.close();
   await lock.release();
 }
 
-process.once('SIGINT', () => {
+process.on('SIGINT', () => {
   void shutdown('SIGINT');
 });
-process.once('SIGTERM', () => {
+process.on('SIGTERM', () => {
   void shutdown('SIGTERM');
 });
 

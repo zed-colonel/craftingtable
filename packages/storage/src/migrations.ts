@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import type { MigrationStatus } from './types.js';
@@ -194,4 +195,37 @@ export function runMigrations(
     }
   }
   return migrationStatus(database, migrations);
+}
+
+/** Pre-migration snapshots kept per database directory; older ones are removed. */
+export const PRE_MIGRATION_SNAPSHOTS_KEPT = 3;
+const SNAPSHOT_FILE = /^craftingtable-schema-\d+-[0-9TZ-]+\.sqlite$/;
+
+/**
+ * Copies a populated database aside before pending migrations change it (HIST-13, R-B9).
+ * The copy sits in `pre-migration/` next to the database and is consistent, because
+ * `VACUUM INTO` reads one snapshot of the live file. Returns the copy's path, or
+ * undefined when nothing is pending or the database is new.
+ */
+export function snapshotBeforeMigration(
+  database: Database.Database,
+  databasePath: string,
+  migrations: readonly MigrationDefinition[] = discoverMigrations(),
+  now: () => Date = () => new Date(),
+): string | undefined {
+  const status = migrationStatus(database, migrations);
+  if (status.currentVersion === 0 || status.pendingVersions.length === 0) return undefined;
+  const directory = join(dirname(databasePath), 'pre-migration');
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const stamp = now().toISOString().replace(/[:.]/g, '-');
+  const path = join(directory, `craftingtable-schema-${status.currentVersion}-${stamp}.sqlite`);
+  database.prepare('VACUUM INTO ?').run(path);
+  chmodSync(path, 0o600);
+  const snapshots = readdirSync(directory)
+    .filter((name) => SNAPSHOT_FILE.test(name))
+    .map((name) => ({ name, stamp: name.replace(/^craftingtable-schema-\d+-/, '') }))
+    .toSorted((left, right) => right.stamp.localeCompare(left.stamp));
+  for (const expired of snapshots.slice(PRE_MIGRATION_SNAPSHOTS_KEPT))
+    rmSync(join(directory, expired.name), { force: true });
+  return path;
 }

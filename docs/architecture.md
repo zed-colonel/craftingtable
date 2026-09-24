@@ -37,8 +37,10 @@ AgentRunEvent      the normalized per-run journal: session-started, user-message
 
 Run status: `starting → running ⇄ waiting → finished | failed | cancelled | interrupted`.
 Transitions are guarded by expected-status sets so a late process callback can never
-regress a run the operator already cancelled. A daemon restart moves every live run to
-`interrupted`.
+regress a run the operator already cancelled. A stop drains live turns for a bounded time and
+records the runs it interrupts as `interrupted` with reason `daemon-drain`; after that clean
+stop the controller resumes their vendor sessions (ADR-066). A crash leaves live runs
+`interrupted` without a reason, for explicit resume.
 
 Roles (`implement`, `review`, `design`) select a brief template. Together with
 `parentRunId` they are the composition seam for orchestrated design/implement/review

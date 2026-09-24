@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
+  existsSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -11,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { dataDirectory, drainDaemon } from './deploy-daemon.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./deploy-daemon.mjs', import.meta.url));
 const GIT_ENV = {
@@ -128,5 +130,51 @@ describe('deploy:daemon', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Re-run with --yes');
     expect(readdirSync(root)).not.toContain('current');
+  });
+});
+
+describe('deploy:daemon drain handshake (R-B9)', () => {
+  it('waits for the daemon to report the drain for its request', async () => {
+    const directory = scratch('craftingtable-deploy-data-');
+    const lines = [];
+    // A stand-in daemon: acknowledges the request, reports progress, then drains.
+    const daemon = setInterval(() => {
+      const path = join(directory, 'drain-request.json');
+      if (!existsSync(path)) return;
+      const { id, mode } = JSON.parse(readFileSync(path, 'utf8'));
+      const status = lines.length === 0 ? 'draining' : 'drained';
+      writeFileSync(
+        join(directory, 'drain-status.json'),
+        JSON.stringify({
+          requestId: id,
+          state: status,
+          busyRuns: status === 'draining' ? 2 : 0,
+          interruptedRuns: mode === 'bounded' ? 1 : 0,
+        }),
+      );
+    }, 5);
+    try {
+      const result = await drainDaemon(directory, 'bounded', {
+        pollMs: 10,
+        log: (line) => lines.push(line),
+      });
+      expect(result).toMatchObject({ acknowledged: true, state: 'drained', interruptedRuns: 1 });
+      expect(lines).toEqual(['Draining: 2 live agent turn(s) still working…']);
+    } finally {
+      clearInterval(daemon);
+    }
+  });
+
+  it('withdraws the request when no daemon answers', async () => {
+    const directory = scratch('craftingtable-deploy-data-');
+    const result = await drainDaemon(directory, 'when-idle', { ackTimeoutMs: 30, pollMs: 10 });
+    expect(result).toEqual({ acknowledged: false });
+    expect(existsSync(join(directory, 'drain-request.json'))).toBe(false);
+  });
+
+  it('finds the data directory from the unit environment, then XDG', () => {
+    expect(dataDirectory({ CRAFTINGTABLE_DEPLOY_DATA_DIR: '/x/y' }, {})).toBe('/x/y');
+    expect(dataDirectory({}, { CRAFTINGTABLE_DATA_DIR: '/srv/ct' })).toBe('/srv/ct');
+    expect(dataDirectory({ XDG_DATA_HOME: '/xdg' }, {})).toBe('/xdg/craftingtable');
   });
 });

@@ -53,3 +53,5 @@ concerns stay deferred rather than being designed prematurely.
 - [ADR-052: Historical baseline preparation](ADR-052-historical-baseline-preparation.md)
 
 - [ADR-053: Scoped verification and local CI](ADR-053-scoped-verification-and-local-ci.md)
+
+- [ADR-066: Drained restarts and session resume](ADR-066-drained-restarts-and-session-resume.md)

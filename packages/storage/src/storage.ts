@@ -5,7 +5,7 @@ import { SqliteScopeReceiptRepository } from './repositories/scope-receipts.js';
 import { chmodSync } from 'node:fs';
 import type Database from 'better-sqlite3';
 import { openDatabase } from './database.js';
-import { discoverMigrations, runMigrations } from './migrations.js';
+import { discoverMigrations, runMigrations, snapshotBeforeMigration } from './migrations.js';
 import { SqliteAuditRepository } from './repositories/audit.js';
 import { executionRepositories } from './repositories/execution/index.js';
 import { SqliteImportRepository } from './repositories/imports.js';
@@ -109,7 +109,9 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
 export function openCraftingTableStorage(databasePath: string): CraftingTableStorage {
   const database = openDatabase(databasePath);
   try {
-    const status = runMigrations(database, discoverMigrations());
+    const migrations = discoverMigrations();
+    snapshotBeforeMigration(database, databasePath, migrations);
+    const status = runMigrations(database, migrations);
     return new SqliteCraftingTableStorage(databasePath, database, status);
   } catch (error) {
     database.close();

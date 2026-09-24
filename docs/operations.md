@@ -101,8 +101,8 @@ future-allocation settings, not an unattended migration command.
 Add `ConditionPathIsMountPoint=/mnt/<volume>` to the user service's `[Unit]` section (or a
 private drop-in) so an absent data volume cannot lead to a fresh database on the OS disk.
 Reload the service definition, start the daemon, and verify the Storage panel and active work.
-Keep the original copy until the move is accepted. Interrupted runs remain interrupted until
-explicitly resumed.
+Keep the original copy until the move is accepted. Runs interrupted by a stop that was not a
+completed drain remain interrupted until explicitly resumed.
 
 ## Running the daemon
 
@@ -124,9 +124,10 @@ editing, building or checking out branches there cannot change what it runs. Dep
 through one command, run from any clone of the repository:
 
 ```sh
-pnpm deploy:daemon <ref>        # build <ref> into a new release, switch to it, restart, check health
-pnpm deploy:daemon --rollback   # switch back to the previous release and restart (no rebuild)
-pnpm deploy:daemon --status     # current release, recent deploys, unit check
+pnpm deploy:daemon <ref>             # build <ref>, drain, switch to it, restart, check health
+pnpm deploy:daemon <ref> --when-idle # same, but wait until no agent turn is live instead of a bound
+pnpm deploy:daemon --rollback        # drain, switch back to the previous release and restart (no rebuild)
+pnpm deploy:daemon --status          # current release, recent deploys, unit check
 ```
 
 The deploy root (`$CRAFTINGTABLE_DEPLOY_ROOT`, default `$XDG_DATA_HOME/craftingtable-deploy`)
@@ -136,8 +137,32 @@ leaves `current` untouched. After the restart the command polls `/api/health` (h
 from the unit's environment file, or `CRAFTINGTABLE_DEPLOY_HEALTH_URL`); if the new release
 does not answer within 90 seconds, it switches back to the previous release and restarts that.
 The five newest releases are kept (`--keep N`). The command asks for confirmation unless given
-`--yes`. A restart interrupts live agent runs, and running roadmaps wait for an explicit
-Resume, so deploy when the daemon is idle or paused.
+`--yes`.
+
+**Restarts drain instead of stopping the roadmap.** Before switching releases the command asks
+the running daemon to drain by writing a request file into its data directory. The daemon then
+starts no new agent run and no roadmap admission, lets live turns finish for up to its drain
+bound (`CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS`, default 180; `--when-idle` waits without a
+bound), then interrupts what is still live and records a clean stop in the database. The
+restarted daemon reads that record: running roadmaps and cycles keep running, a step whose
+turn finished is classified as usual, and a step the drain interrupted resumes its vendor
+session (`claude --resume`, Codex thread resume) in the same worktree with its original agent,
+permissions, guidance and deadline, so only the in-flight tool call is redone. Pressing Ctrl-C
+while the command waits withdraws the request; the daemon resumes admissions and nothing is
+switched. `--no-drain` restarts the old way. A daemon that predates drain support does not
+answer within 15 seconds, and the command then restarts it without draining.
+
+A crash, a stop that did not finish draining, a step whose agent never reported a session id,
+and a resume that fails all still stop for the operator: the cycle or roadmap needs attention
+and waits for an explicit Resume. A migration on start first copies the populated database to
+`state/pre-migration/` (the three newest copies are kept), so manual pre-upgrade backups are no
+longer needed.
+
+`SIGTERM` (a plain `systemctl stop` or a reboot) runs the same bounded drain and a second signal
+interrupts at once. That path drains only when systemd signals the daemon alone and waits for
+it: add `KillMode=mixed` and a `TimeoutStopSec` above the drain bound in a drop-in, and prefer an
+`ExecStart` that runs the daemon without a signal-forwarding wrapper. `pnpm deploy:daemon
+--status` notes when the unit's kill mode cannot drain.
 
 A `systemd --user` unit runs whatever `current` points at:
 
@@ -351,8 +376,9 @@ all prior definitions. A branch-settings change before dispatch needs an explici
 revision; starting work never follows a silently changed integration target.
 
 **Stop roadmap** ends its current cycle and leaves existing worktrees for manual work. An
-ended roadmap is historical; create a new one for remaining items. After a daemon restart,
-inspect the current item and explicitly resume the roadmap. A completed operator merge is
+ended roadmap is historical; create a new one for remaining items. After a drained restart the
+roadmap continues on its own; after a crash, inspect the current item and explicitly resume
+the roadmap. A completed operator merge is
 recognized without rerunning that item. Reserved preparation IDs prevent replay from creating
 another recorded worktree or cycle. Git and SQLite still do not form an atomic transaction:
 if Git succeeded but its record was never committed, inspect the managed worktree/branch

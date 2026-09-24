@@ -54,6 +54,7 @@ import {
 } from './services/workspace-event-stream-service.js';
 import { WorkspaceService } from './services/workspace-service.js';
 import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
+import { DaemonDrain } from './services/daemon-drain.js';
 
 export interface ServiceSet {
   readonly crossProjectService: CrossProjectService;
@@ -79,6 +80,7 @@ export interface ServiceSet {
   readonly workCycleService: WorkCycleService;
   readonly runEventStreamService: RunEventStreamService;
   readonly executionStatus: () => ExecutionStatus;
+  readonly daemonDrain: DaemonDrain;
 }
 
 export interface ServiceOverrides {
@@ -224,7 +226,10 @@ export async function createServices(
       config.execution.verificationCapacity ?? 1,
     );
   });
-  agentRunService.recoverInterrupted();
+  // A completed drain left a clean-stop record (R-B9). It only counts when no run was
+  // still live in the database, i.e. the drain really finished before the process ended.
+  const previousStop = storage.transaction((tx) => tx.maintenance.takeCleanStop());
+  const cleanStop = agentRunService.recoverInterrupted() === 0 && previousStop !== undefined;
   const workCycleService = new WorkCycleService(
     storage,
     workspaceService,
@@ -238,7 +243,7 @@ export async function createServices(
     executionService,
     runtimeEvidenceService,
   );
-  const restartedCycleIds = workCycleService.recoverInterrupted();
+  const restartedCycleIds = workCycleService.recoverInterrupted({ cleanStop });
   const roadmapService = new RoadmapService(
     storage,
     workspaceService,
@@ -251,7 +256,7 @@ export async function createServices(
     agentRunService,
     gitOperations,
   );
-  const restartedRoadmapIds = roadmapService.recoverInterrupted();
+  const restartedRoadmapIds = roadmapService.recoverInterrupted({ cleanStop });
   const crossProjectService = new CrossProjectService(
     storage,
     workspaceService,
@@ -341,6 +346,15 @@ export async function createServices(
       overrides.streamHooks,
     ),
     executionStatus,
+    daemonDrain: new DaemonDrain(
+      storage,
+      agentRunService,
+      workCycleService,
+      roadmapService,
+      config.dataDir,
+      config.drainTimeoutMs,
+      now,
+    ),
   };
 }
 
@@ -380,6 +394,7 @@ export async function createRuntime(
         roadmapService: services.roadmapService,
         runEventStreamService: services.runEventStreamService,
         executionStatus: services.executionStatus,
+        daemonDrain: services.daemonDrain,
       },
       config,
       { logger: options.logger ?? true },

@@ -45,6 +45,7 @@ import type { PackageImportService } from './services/package-import-service.js'
 import type { PlanImportService } from './services/plan-import-service.js';
 import type { PlanningQueryService } from './services/planning-query-service.js';
 import type { RoadmapService } from './services/roadmap-service.js';
+import type { DaemonDrain } from './services/daemon-drain.js';
 import type { RunEventStreamService } from './services/run-event-stream-service.js';
 import type { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import type { StorageService } from './services/storage-service.js';
@@ -74,6 +75,7 @@ export interface ServerDependencies {
   readonly workCycleService: WorkCycleService;
   readonly runEventStreamService: RunEventStreamService;
   readonly executionStatus: () => ExecutionStatus;
+  readonly daemonDrain: DaemonDrain;
 }
 
 export interface BuildServerOptions {
@@ -126,12 +128,15 @@ export function buildServer(
     deps.workCycleService.startWorker();
     deps.notificationService.startWorker();
     deps.storageService.startWorker();
+    deps.daemonDrain.startWatching();
   });
+  // A stop drains live agent turns before the HTTP server closes, so the browser keeps
+  // showing progress; the drain then records a clean stop for automatic resume (R-B9).
   app.addHook('preClose', async () => {
+    deps.daemonDrain.stopWatching();
     await deps.storageService.shutdown();
-    await deps.roadmapService.shutdown();
+    await deps.daemonDrain.drain(config.drainTimeoutMs, app.log);
     await deps.notificationService.shutdown();
-    await deps.workCycleService.shutdown();
   });
   registerPackageImportRoutes(app, deps.authService, deps.packageImportService, config);
   registerCrossProjectRoutes(app, deps.authService, deps.crossProjectService, config);

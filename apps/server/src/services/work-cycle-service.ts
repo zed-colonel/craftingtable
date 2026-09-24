@@ -48,7 +48,12 @@ import {
 import { prioritizeRoadmapCycles } from './cycle-priority.js';
 import { designDependencyState } from './design-dependency-policy.js';
 import { collectDesignRecovery } from './design-recovery.js';
-import { ConcurrentModificationError, ExecutionRequestError, NotFoundError } from './errors.js';
+import {
+  ConcurrentModificationError,
+  DaemonDrainingError,
+  ExecutionRequestError,
+  NotFoundError,
+} from './errors.js';
 import {
   requireScope,
   requireTreeScope,
@@ -62,6 +67,7 @@ import { assessStageReport, recordStageEvidence } from './finalization-stage-pol
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { PhaseGateError } from './phase-resources.js';
 import { attemptDelegation } from './roadmap-delegation-policy.js';
+import { cycleStepRole, drainInterrupted } from './restart-resume.js';
 import { latestReviewReport, runEvents, runLineage } from './run-handoff.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
@@ -84,6 +90,7 @@ const TERMINAL_CYCLE_STATUSES: ReadonlySet<WorkCycle['status']> = new Set(['comp
 /** Contention another pass resolves by itself: never a reason to stop for the operator. */
 function retryableControllerError(error: unknown): boolean {
   return (
+    error instanceof DaemonDrainingError ||
     error instanceof ConcurrentModificationError ||
     error instanceof RepositoryMutationBusyError ||
     error instanceof WorktreeMutationBusyError
@@ -1528,8 +1535,13 @@ export class WorkCycleService {
     );
   }
 
-  /** Returns the cycles this restart stopped, so notifications can coalesce them per boot. */
-  recoverInterrupted(): string[] {
+  /**
+   * Returns the cycles this restart stopped, so notifications can coalesce them per boot.
+   * After a clean stop (a completed drain, R-B9) running cycles keep running: a step the
+   * drain interrupted resumes its session, a reserved step launches, and a finished run
+   * is classified as usual. After a crash every running cycle waits for the operator.
+   */
+  recoverInterrupted(options: { readonly cleanStop?: boolean } = {}): string[] {
     const stopped: string[] = [];
     for (let cycle of this.storage.execution.cycles.list()) {
       if (cycle.baselinePreparation?.status === 'preparing')
@@ -1545,7 +1557,7 @@ export class WorkCycleService {
           },
           'baseline-preparation-interrupted',
         );
-      if (cycle.status === 'running' && !cycle.designWait) {
+      if (cycle.status === 'running' && !cycle.designWait && !options.cleanStop) {
         this.attention(
           cycle,
           'Daemon restarted. Inspect the interrupted step and resume explicitly; no process was relaunched.',
@@ -1560,11 +1572,12 @@ export class WorkCycleService {
     if (this.task !== undefined) return;
     this.task = this.loop();
   }
+  /**
+   * Stops the controller loop. Live sessions are not touched here: the restart drain
+   * interrupts them afterwards and records them for resume (AgentRunService).
+   */
   async shutdown(): Promise<void> {
     this.abort.abort();
-    for (const cycle of this.storage.execution.cycles.list()) {
-      if (cycle.status === 'running') this.runs.finishCycleTurn(cycle, true);
-    }
     await this.task;
   }
   private async loop(): Promise<void> {
@@ -1920,10 +1933,16 @@ export class WorkCycleService {
         ))
       )
         return;
+      // A drain admits no launches; the reservation survives the restart and launches then.
+      if (this.runs.isDraining()) return;
       await this.runs.startForCycle(cycle);
       return;
     }
     if (run.status === 'starting' || run.status === 'running') return;
+    if (drainInterrupted(this.storage.execution, run)) {
+      await this.resumeAfterRestart(cycle, run);
+      return;
+    }
     if (run.status === 'waiting') {
       if (!this.ending.has(run.id) && this.runs.finishCycleTurn(cycle)) this.ending.add(run.id);
       return;
@@ -3777,6 +3796,39 @@ export class WorkCycleService {
     });
   }
 
+  /**
+   * Relaunches a step the restart drain interrupted by resuming its vendor session, with
+   * the same agent, permissions, guidance and original deadline (R-B9). The source run
+   * becomes the new run's parent, which is what the launch resumes from. Without a
+   * session id there is nothing to resume, so the operator decides.
+   */
+  private async resumeAfterRestart(cycle: WorkCycle, run: AgentRun): Promise<void> {
+    if (this.runs.isDraining()) return;
+    if (run.backendSessionId === undefined || run.role !== cycleStepRole(cycle.step)) {
+      this.attention(
+        cycle,
+        'CraftingTable restarted during this step before its agent session could be resumed. Inspect the worktree and resume explicitly.',
+      );
+      return;
+    }
+    await this.next(
+      cycle,
+      cycle.step,
+      run,
+      undefined,
+      {
+        runDeadlineAt: cycle.runDeadlineAt,
+        resultContinuations: cycle.resultContinuations ?? 0,
+        providerRecovery: cycle.providerRecovery ?? null,
+        stepGuidance: cycle.stepGuidance,
+        instructions: cycle.instructions,
+        housekeepingInstructions: cycle.housekeepingInstructions,
+        reason: `Resuming the ${cycle.step} session that the daemon restart interrupted.`,
+      },
+      'resume-after-restart',
+    );
+  }
+
   private async next(
     cycle: WorkCycle,
     step: CycleStep,
@@ -3789,23 +3841,30 @@ export class WorkCycleService {
     const ended =
       parent &&
       this.storage.execution.runEvents.latestOfKind(cycle.workspaceId, parent.id, 'run-finished');
-    const collectingReview =
+    const resumingReview =
       step === 'review' &&
       cycle.step === 'review' &&
-      parent !== undefined &&
-      (parent.id === cycle.currentRunId ||
-        ((cycle.resultContinuations ?? 0) > 0 &&
-          parent.id === cycle.parentRunId &&
-          !this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId))) &&
-      parent.role === 'review' &&
-      parent.status === 'failed' &&
-      !ownsIntegrationResolution(cycle) &&
-      ended?.kind === 'run-finished' &&
-      ((ended.payload.reason === 'background-work-incomplete' &&
-        (!!context || (changes.resultContinuations ?? 0) > 0)) ||
-        (changes.providerRecovery?.sourceRunId === parent.id &&
-          changes.providerRecovery.failure.safeToRetry &&
-          (changes.providerRecovery.attempts ?? 0) > 0));
+      parent?.role === 'review' &&
+      parent.id === cycle.currentRunId &&
+      drainInterrupted(this.storage.execution, parent);
+    const collectingReview =
+      resumingReview ||
+      (step === 'review' &&
+        cycle.step === 'review' &&
+        parent !== undefined &&
+        (parent.id === cycle.currentRunId ||
+          ((cycle.resultContinuations ?? 0) > 0 &&
+            parent.id === cycle.parentRunId &&
+            !this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId))) &&
+        parent.role === 'review' &&
+        parent.status === 'failed' &&
+        !ownsIntegrationResolution(cycle) &&
+        ended?.kind === 'run-finished' &&
+        ((ended.payload.reason === 'background-work-incomplete' &&
+          (!!context || (changes.resultContinuations ?? 0) > 0)) ||
+          (changes.providerRecovery?.sourceRunId === parent.id &&
+            changes.providerRecovery.failure.safeToRetry &&
+            (changes.providerRecovery.attempts ?? 0) > 0)));
     let reviewHeadSha: string | undefined;
     if (collectingReview) {
       const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);

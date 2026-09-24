@@ -66,3 +66,17 @@ export class ConcurrentModificationError extends ExecutionRequestError {
     this.name = 'ConcurrentModificationError';
   }
 }
+
+/**
+ * The daemon is draining for a restart (R-B9) and admits no new agent runs. Controller
+ * loops treat it as a wait; a command receives 503 and can be retried after the restart.
+ */
+export class DaemonDrainingError extends ExecutionRequestError {
+  constructor() {
+    super(
+      'unavailable',
+      'CraftingTable is draining for a restart and is not starting new agent runs. Try again after it restarts.',
+    );
+    this.name = 'DaemonDrainingError';
+  }
+}

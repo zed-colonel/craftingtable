@@ -286,7 +286,8 @@ it is mergeable.
   stalled reviews show **Continue with guidance**: supply answers or a changed approach to continue
   without increasing the budget. Recovery preserves report, conflict and independent-review gates.
   Other cycle settings stay fixed after start. Workspace notices persist
-  across reloads, and daemon restart requires explicit resume. Review and merge check
+  across reloads. A deploy drains live turns and the restarted daemon resumes interrupted
+  steps on its own; a crash requires explicit resume. Review and merge check
   the reviewed source and target commits. Standalone cycles stop for your merge approval;
   roadmaps can delegate integration merges explicitly.
 - **Roadmaps.** Open **Roadmaps** to select and order imported work items,
@@ -295,7 +296,8 @@ it is mergeable.
   branches, and delegates existing automated cycles. Each completed integration merge releases
   the next eligible item. Dependencies outside the roadmap and existing unmerged worktrees remain
   visible blockers. Pause supports manual work and queued edits; immutable revisions
-  retain started settings and execution history. Restart requires explicit roadmap resume.
+  retain started settings and execution history. Roadmaps keep running across a drained
+  restart; after a crash they wait for explicit resume.
   Sequential mode preserves strict order. Parallel mode uses order as priority, with bounded
   in-flight items, repository capacity, and per-entry exclusion groups. Items needing attention
   pause independently. Sibling merges trigger an idle worktree update and fresh review; conflicts
@@ -380,8 +382,9 @@ it is mergeable.
 - **Workspaces and account.** Several workspaces per user, created and renamed from the
   browser; password change from the account page; dark theme by default with a light
   option.
-- **Durability.** Runs, events, worktrees, and repositories live in SQLite. A daemon
-  restart marks runs that were live as interrupted; nothing is lost.
+- **Durability.** Runs, events, worktrees, and repositories live in SQLite. A restart drains
+  live turns and resumes the interrupted steps' sessions afterwards (ADR-066); a crash marks
+  live runs interrupted for explicit resume. Migrations copy the database aside first.
 
 Not yet: a Planning Studio editor, remote qualification execution,
 email/SMS notifications, additional backends, or interactive permission prompts.

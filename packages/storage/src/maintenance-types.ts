@@ -30,6 +30,11 @@ export interface StorageBackup {
   readonly createdAt: string;
   readonly bytes: number;
 }
+/** Written by a controlled drain; its presence at the next start means the stop was clean. */
+export interface DaemonCleanStop {
+  readonly stoppedAt: string;
+  readonly interruptedRunCount: number;
+}
 export interface StorageMaintenanceRepository {
   settings(): StoredStorageSettings | undefined;
   saveSettings(value: StoredStorageSettings): void;
@@ -43,4 +48,7 @@ export interface StorageMaintenanceRepository {
   backups(): readonly StorageBackup[];
   saveBackup(backup: StorageBackup): void;
   forgetBackup(path: string): void;
+  recordCleanStop(stop: DaemonCleanStop): void;
+  /** Returns and removes the clean-stop record, so each start consumes it once. */
+  takeCleanStop(): DaemonCleanStop | undefined;
 }

@@ -117,6 +117,12 @@ export type AgentRunRole = (typeof AGENT_RUN_ROLES)[number];
 export const AGENT_EXIT_REASONS = [
   'background-work-incomplete',
   'background-work-timeout',
+  /**
+   * The daemon stopped for a controlled restart (bounded drain, R-B9) while this run
+   * was live. A cycle step interrupted this way resumes its vendor session after a
+   * clean restart instead of waiting for the operator.
+   */
+  'daemon-drain',
 ] as const;
 export type AgentExitReason = (typeof AGENT_EXIT_REASONS)[number];
 

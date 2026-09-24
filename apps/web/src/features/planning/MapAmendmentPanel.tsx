@@ -81,6 +81,9 @@ export function MapAmendmentPanel({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Request failed.');
     } finally {
+      // A refresh that started while the command ran may have read state from before it
+      // committed; the command's own response is newer, so that refresh is discarded too.
+      refreshSequence.current++;
       setBusy(false);
     }
   };

@@ -883,6 +883,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **The defect.** One failure ("Supplied crates: aq_e2e_pin" never appeared after Inspect) is a product race. Saving plan bindings makes `RuntimeEvidencePanel` reload, and that reload replaced the whole setup form when it answered. When it answered after the operator's Inspect, the inspected dependency was discarded.
   - **The fix.** The panel's automation refresh already keeps an unsaved draft and replaces only the view under it; the explicit reload now does the same. A stale revision still fails the save through the existing optimistic check.
   - **Test.** A jsdom test holds the reload until after Inspect; it failed before the fix and passes after.
+  - **Correction.** The Inspect failure was run 4, not run 3 as b5da9a0's message says.
+  - **The other failure (run 3).** "Execution held:" did not appear within 5 s after "Propose and hold roadmap". The cause is not proven.
+    - **A second window.** `MapAmendmentPanel` discarded refreshes that started before a command, but not ones that started while it ran. A jsdom test shows such a refresh, answering after the command, replacing the recorded proposal with the view from before it. The panel now also discards refreshes started during a command.
+    - **Probably not the run 3 cause.** The server records the proposal and bumps the roadmap version in one transaction before notifying, so a refresh triggered by that bump reads the proposal. The likelier cause is that proposing pauses the affected cycles serially before it answers, which under load can take more than 5 s.
 
 ### R-I6
 

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, it, expect, vi } from 'vitest';
 import { asWorkspaceId, type Roadmap } from '@craftingtable/domain';
 import { MapAmendmentPanel } from './MapAmendmentPanel.js';
@@ -129,4 +129,47 @@ it('allows rejection while active work blocks apply, with no code reuse on rejec
       String(vi.mocked(request).mock.calls.find(([url]) => url.endsWith('/decision'))![2]?.body),
     ).reuseIntegrationIds,
   ).toEqual([]);
+});
+
+it('keeps a recorded proposal when a refresh that started during the proposal lands after it', async () => {
+  const before = { history: [], candidates: view.candidates };
+  const held: Array<(value: unknown) => void> = [];
+  let proposing = false;
+  vi.mocked(request).mockImplementation(async (url) => {
+    if (url.endsWith('/finalization-readiness')) return { projects: [] };
+    if (url.endsWith('/amendments/preview')) return impact;
+    if (!proposing) return before;
+    // While proposing, hold both the POST and any refresh until the test answers them.
+    return new Promise((resolve) => held.push(resolve));
+  });
+  const rendered = render(
+    <MapAmendmentPanel
+      workspaceId={asWorkspaceId('workspace')}
+      roadmap={roadmap}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  fireEvent.change(await screen.findByLabelText('Planning proposal'), {
+    target: { value: 'Reconcile revised plan' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview amendment impact' }));
+  await screen.findByRole('button', { name: 'Propose and hold roadmap' });
+  proposing = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Propose and hold roadmap' }));
+  // The roadmap changes while the proposal is in flight, which starts a refresh.
+  rendered.rerender(
+    <MapAmendmentPanel
+      workspaceId={asWorkspaceId('workspace')}
+      roadmap={{ ...roadmap, version: roadmap.version + 1 } as Roadmap}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  await act(async () => {});
+  expect(held).toHaveLength(2);
+  await act(async () => held[0]?.(view));
+  expect(await screen.findByText('Execution held:')).toBeTruthy();
+  await act(async () => held[1]?.(before));
+  expect(screen.getByText('Execution held:')).toBeTruthy();
 });

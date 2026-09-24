@@ -31,7 +31,7 @@ async function fixture(): Promise<CycleFixture> {
   return f;
 }
 
-function control(f: CycleFixture, id: string, action: 'resume' | 'stop') {
+function control(f: CycleFixture, id: string, action: 'pause' | 'resume' | 'stop') {
   return f.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${f.workspaceId}/cycles/${id}/control`,
@@ -60,6 +60,19 @@ describe('offer only actions that can make progress (R-A7)', () => {
     expect(resumed.statusCode).toBe(409);
     expect(resumed.json().error.message).toContain('Use Resolve design questions');
     expect(storedCycle(f, started.id).version).toBe(stopped.version);
+    await stepController(f.services, 2);
+    expect(f.backend.sessions).toHaveLength(3);
+
+    // Pausing holds the stop, and resuming returns to it instead of relaunching the design.
+    expect((await control(f, started.id, 'pause')).statusCode).toBe(200);
+    expect(cycleActions(storedCycle(f, started.id))).toEqual(['resume', 'stop']);
+    const lifted = await control(f, started.id, 'resume');
+    expect(lifted.statusCode, lifted.body).toBe(200);
+    expect(storedCycle(f, started.id)).toMatchObject({
+      status: 'needs-attention',
+      attention: { code: 'design-report-invalid' },
+      reason: expect.stringContaining('Use Resolve design questions'),
+    });
     await stepController(f.services, 2);
     expect(f.backend.sessions).toHaveLength(3);
     expect((await control(f, started.id, 'stop')).statusCode).toBe(200);
@@ -122,6 +135,38 @@ describe('offer only actions that can make progress (R-A7)', () => {
     const resumed = await control(f, cycle.id, 'resume');
     expect(resumed.statusCode).toBe(409);
     expect(resumed.json().error.message).toContain("AQ-01's merge is absent");
+    expect(storedCycle(f, cycle.id).status).toBe('needs-attention');
+    expect(f.backend.sessions).toHaveLength(1);
+
+    // The recorded sequence went through integration resolution: a resolution pinned to
+    // an incoming commit without the predecessor is refused before it is accepted.
+    const stopped = storedCycle(f, cycle.id);
+    const tree = f.context.storage.execution.worktrees.find(f.workspaceId, worktree.id);
+    f.context.storage.execution.cycles.replace(
+      {
+        ...stopped,
+        integrationResolution: {
+          id: 'resolution-1',
+          status: 'detected',
+          headSha: git(['rev-parse', 'HEAD'], tree?.path as string).trim(),
+          targetSha: git(['rev-parse', 'HEAD'], root).trim(),
+          targetBranch: tree?.integrationBranch as string,
+          paths: ['aq-01.txt'],
+          diagnostics: '',
+          createdAt: new Date().toISOString(),
+          attempts: 0,
+        },
+      },
+      stopped.version,
+    );
+    const started = await f.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.workspaceId}/cycles/${cycle.id}/integration-resolution`,
+      headers: f.headers,
+      payload: { action: 'start', expectedVersion: stopped.version },
+    });
+    expect(started.statusCode).toBe(409);
+    expect(started.json().error.message).toContain("AQ-01's merge is absent");
     expect(storedCycle(f, cycle.id).status).toBe('needs-attention');
     expect(f.backend.sessions).toHaveLength(1);
   });

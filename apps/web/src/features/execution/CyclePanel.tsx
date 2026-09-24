@@ -165,8 +165,7 @@ export function CyclePanel({
     ['paused', 'needs-attention'].includes(active.status) &&
     (!!active.workflow?.questions.length ||
       stop === 'remediation-stalled' ||
-      stop === 'implementation-open-questions' ||
-      stop === 'review-open-questions');
+      cycleActions(active, latestTreeRun?.id).includes('continue-with-guidance'));
   const attention =
     active !== undefined &&
     !active.scopeReviewWait &&

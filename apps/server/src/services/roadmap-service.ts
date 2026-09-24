@@ -37,7 +37,9 @@ import {
   PHASE_BLOCKERS,
   phaseBlockerCode,
   SETUP_BLOCKER_CODES,
+  resumeRedirect,
   sameExecutionScope,
+  type WorkCycle,
   type WorkspaceId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -818,7 +820,11 @@ export class RoadmapService {
             ))
         )
           continue;
-        if (cycle && ['paused', 'needs-attention'].includes(cycle.status)) {
+        if (
+          cycle &&
+          ['paused', 'needs-attention'].includes(cycle.status) &&
+          this.resumable(cycle)
+        ) {
           const worktree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
           if (
             !worktree?.mergedAt &&
@@ -873,6 +879,19 @@ export class RoadmapService {
     return this.view(this.find(workspaceId, id));
   }
 
+  /**
+   * A stop that a plain resume would only reproduce keeps its attention when the roadmap
+   * or its item resumes; the operator resolves it with the control it names (R-A7).
+   */
+  private resumable(cycle: WorkCycle): boolean {
+    return (
+      cycle.status !== 'needs-attention' ||
+      resumeRedirect(
+        cycle,
+        this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId)[0]?.id,
+      ) === undefined
+    );
+  }
   async controlEntry(
     context: AuthContext,
     workspaceId: WorkspaceId,
@@ -923,6 +942,7 @@ export class RoadmapService {
         if (
           cycle &&
           ['paused', 'needs-attention'].includes(cycle.status) &&
+          this.resumable(cycle) &&
           !(
             roadmap.scopeRecovery?.enabled &&
             cycle.executionScope &&

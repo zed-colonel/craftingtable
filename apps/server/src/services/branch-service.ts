@@ -458,6 +458,34 @@ export class BranchService {
     }
   }
 
+  /**
+   * The launch's own gates for an integration-resolution command, checked before the
+   * command is accepted (R-A7, cycle 2f1ab211). While an agent resolves the pinned merge
+   * they are the resolution launch's checks; before the merge is prepared, the pinned
+   * incoming commit must already carry the item's predecessors. A resolution that is
+   * committing launches no agent; its reserved Git operation is only finished.
+   */
+  async validateResolutionCommand(
+    worktree: Worktree,
+    resolution: IntegrationResolution,
+  ): Promise<void> {
+    if (resolution.status === 'committing') return;
+    if (resolution.status === 'resolving')
+      return this.validateResolutionLaunch(worktree, resolution);
+    if (worktree.integrationBranch !== resolution.targetBranch)
+      conflict('Resolution integration binding changed');
+    if (!worktree.workItemId) return;
+    const repo = this.repository(worktree.workspaceId, worktree.repositoryId);
+    await this.requirePredecessors(
+      worktree.workspaceId,
+      worktree.workItemId,
+      repo.rootPath,
+      resolution.targetSha,
+      repo.id,
+      worktree.executionScope,
+    );
+  }
+
   async validateLaunch(worktree: Worktree): Promise<void> {
     if (worktree.integrationBranch === undefined)
       conflict('Adopt an integration branch for this existing worktree before launching an agent');

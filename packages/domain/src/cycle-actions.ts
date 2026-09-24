@@ -75,10 +75,16 @@ export function resumeRedirect(
   cycle: Parameters<typeof effectiveCycleAttention>[0] & Pick<WorkCycle, 'currentRunId'>,
   latestRunId?: string,
 ): { readonly action: CycleAction; readonly message: string } | undefined {
-  if (cycle.status !== 'needs-attention') return undefined;
+  // A pause taken at a stop keeps that stop's attention; resuming it faces the same stop.
+  const code =
+    cycle.status === 'paused'
+      ? cycle.attention?.code
+      : cycle.status === 'needs-attention'
+        ? effectiveCycleAttention(cycle)?.code
+        : undefined;
+  if (code === undefined) return undefined;
   // A newer manual run in the worktree is new input: resume adopts it.
   if (latestRunId !== undefined && latestRunId !== cycle.currentRunId) return undefined;
-  const code = effectiveCycleAttention(cycle)?.code;
   const resolution = code && RESOLUTION[code];
   return resolution ? { action: resolution[0], message: resolution[1] } : undefined;
 }

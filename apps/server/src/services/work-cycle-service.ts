@@ -109,7 +109,8 @@ type CycleFieldChanges = Omit<Partial<WorkCycle>, 'status' | 'attention'>;
 /**
  * A cycle write. Entering `needs-attention` or `awaiting-merge` must declare its attention,
  * so a new stop cannot be written without a code; attention alone may be refreshed while
- * the status stays; any other status clears it.
+ * the status stays; a pause taken at a stop keeps that stop's attention, so resuming can
+ * return to it (R-A7); any other status clears it.
  */
 type CycleChanges = CycleFieldChanges &
   (
@@ -117,8 +118,12 @@ type CycleChanges = CycleFieldChanges &
         readonly status: 'needs-attention' | 'awaiting-merge';
         readonly attention: CycleAttention;
       }
+    | { readonly status: 'paused'; readonly attention?: CycleAttention }
     | {
-        readonly status?: Exclude<WorkCycle['status'], 'needs-attention' | 'awaiting-merge'>;
+        readonly status?: Exclude<
+          WorkCycle['status'],
+          'needs-attention' | 'awaiting-merge' | 'paused'
+        >;
         readonly attention?: undefined;
       }
     | { readonly status?: undefined; readonly attention: CycleAttention }
@@ -1326,10 +1331,14 @@ export class WorkCycleService {
       return stopped;
     }
     if (action === 'pause') {
+      // Pausing a stop holds it: the stop is kept so Resume returns to it rather than
+      // relaunching a step the controller would stop again (R-A7, cycle d148f0a4).
+      const held = cycle.status === 'needs-attention' ? effectiveCycleAttention(cycle) : undefined;
       return this.change(
         cycle,
         {
           status: 'paused',
+          ...(held ? { attention: held } : {}),
           reason:
             'Automation paused by operator. The current session remains available for manual work.',
         },
@@ -1415,14 +1424,29 @@ export class WorkCycleService {
             this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId)[0]?.id,
           )
         : undefined;
-    if (redirect) throw new ExecutionRequestError('conflict', redirect.message);
+    if (redirect) {
+      // A paused stop that a plain resume would only reproduce returns to the stop, where
+      // its own control resolves it.
+      if (cycle.status === 'paused' && cycle.attention)
+        return this.change(
+          cycle,
+          {
+            status: 'needs-attention',
+            attention: cycle.attention,
+            reason: `Pause lifted. ${redirect.message}`,
+          },
+          action,
+          context,
+        );
+      throw new ExecutionRequestError('conflict', redirect.message);
+    }
     if (cycle.integrationResolution?.status === 'detected')
       throw new ExecutionRequestError(
         'conflict',
         'Use Resolve integration conflicts to delegate the detected conflict.',
       );
     if (ownsIntegrationResolution(cycle)) {
-      await this.transitionGate(cycle);
+      // resolveIntegration runs the launch gates itself.
       return this.resolveIntegration(context, workspaceId, id, {
         action: 'resume',
         expectedVersion,
@@ -1431,9 +1455,11 @@ export class WorkCycleService {
     this.mutations.requireAvailable(cycle.worktreeId);
     if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     else finalizationForCycle(this.storage, cycle);
-    await this.transitionGate(cycle);
     const allRuns = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
     const run = allRuns[0];
+    // Adopting a newer manual run launches nothing, so the launch gates do not apply.
+    if (!run || run.id === cycle.currentRunId || run.id === cycle.parentRunId)
+      await this.transitionGate(cycle);
     const currentTurn =
       run && this.storage.execution.runEvents.latestOfKind(workspaceId, run.id, 'turn-completed');
     if (
@@ -3514,6 +3540,10 @@ export class WorkCycleService {
       }
       if (!resolution)
         throw new ExecutionRequestError('conflict', 'Inspect integration conflicts first');
+      // Starting or resuming a resolution launches an agent: run the launch's own gates
+      // before accepting it, so it cannot be accepted and then bounce (R-A7).
+      if (input.action !== 'abandon' && this.branches)
+        await this.branches.validateResolutionCommand(tree, resolution);
       if (input.action === 'abandon') {
         if (!ownsIntegrationResolution(cycle))
           throw new ExecutionRequestError(
@@ -3991,11 +4021,8 @@ export class WorkCycleService {
    */
   private async transitionGate(cycle: WorkCycle): Promise<void> {
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    // An owned integration resolution is gated by resolveIntegration itself.
     if (!tree || tree.status !== 'active' || !this.branches || !cycle.workItemId) return;
-    if (ownsIntegrationResolution(cycle) && cycle.integrationResolution) {
-      await this.branches.validateResolutionLaunch(tree, cycle.integrationResolution);
-      return;
-    }
     // Only a resume that relaunches the same step goes straight to launch; a finished
     // step first refreshes integration, which can bring the predecessors in.
     const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);

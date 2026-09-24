@@ -1160,6 +1160,25 @@ describe('automated cycle controls', () => {
       'resume',
       'Use the corrected controller launcher; retain the checks.',
     );
+    // An invalid workflow report can only be continued with guidance (R-A7): the panel
+    // offers it even when the report raised no workflow questions.
+    view.rerender(
+      <CyclePanel
+        {...recoveryProps}
+        cycles={[
+          {
+            ...cycle,
+            status: 'needs-attention' as const,
+            step: 'implement' as const,
+            reason: 'Workflow report needs correction.',
+            attention: { code: 'workflow-report-invalid', owner: 'operator' },
+          },
+        ]}
+        runs={[run({ status: 'finished', role: 'implement' })]}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Continue with guidance' })).toBeTruthy();
     const sibling = {
       ...cycle,
       id: 'second-cycle',

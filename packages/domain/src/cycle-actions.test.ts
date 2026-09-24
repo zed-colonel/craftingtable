@@ -34,6 +34,9 @@ describe('cycle actions (R-A7)', () => {
   ] as const)('sends %s to %s instead of a resume', (code, action) => {
     expect(cycleActions(cycle('needs-attention', code))).toEqual([action, 'stop']);
     expect(resumeRedirect(cycle('needs-attention', code))?.message).toBeTruthy();
+    // A pause taken at the stop keeps it: resume is offered, and returns to the stop.
+    expect(cycleActions(cycle('paused', code))).toEqual(['resume', 'stop']);
+    expect(resumeRedirect(cycle('paused', code))?.action).toBe(action);
   });
 
   it('lets a resume adopt a newer manual run whatever the stop', () => {

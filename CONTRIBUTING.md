@@ -19,7 +19,9 @@ for the areas you touch.
 
 ```text
 pnpm install       install workspace dependencies
-pnpm dev           server (127.0.0.1:4600) + web (Vite) with watch
+pnpm dev           development server (127.0.0.1:4601, own data dir) + web (Vite) with watch
+pnpm craftingtable:dev  the CLI against the development server's data dir
+pnpm deploy:daemon <ref>  build <ref> into a release and restart the systemd daemon (docs/operations.md)
 pnpm start         daemon only, serving the built web app (run pnpm build first)
 pnpm build         type-build all packages, bundle the web app
 pnpm format        format with Biome
@@ -47,7 +49,7 @@ directory.
 The E2E gate always starts fresh servers from the current source on ports of its
 own (`4610` for the daemon, `5183` for Vite), creates a unique temporary
 database, and fails explicitly if those ports are occupied. It runs happily
-beside an operator daemon or `pnpm dev` on 4600/5173, and never reuses either
+beside the operator daemon (4600) or `pnpm dev` (4601/5173), and never reuses either
 those servers or a normal data directory.
 
 The browser gate uses desktop Chromium plus Chromium with an iPhone-sized touch

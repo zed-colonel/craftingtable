@@ -6,6 +6,7 @@ import {
   openCraftingTableStorage,
 } from '@craftingtable/storage';
 import { configFromEnv } from './config.js';
+import { acquireInstanceLock, InstanceLockedError } from './instance-lock.js';
 import { Argon2PasswordHasher } from './security/password-hasher.js';
 import { BootstrapService } from './services/bootstrap-service.js';
 import { BootstrapRefusedError } from './services/errors.js';
@@ -166,8 +167,22 @@ export function runDatabaseCommand(
 export async function runCli(args: readonly string[]): Promise<number> {
   const parsed = parseCliArguments(args);
   const config = configFromEnv();
-  if (parsed.command === 'db-status' || parsed.command === 'db-migrate') {
-    return runDatabaseCommand(parsed.command, config.databasePath);
+  if (parsed.command === 'db-status') return runDatabaseCommand('db-status', config.databasePath);
+  if (parsed.command === 'db-migrate') {
+    // Migrating under a running daemon would change its schema beneath it.
+    let lock: Awaited<ReturnType<typeof acquireInstanceLock>>;
+    try {
+      lock = await acquireInstanceLock(config.dataDir);
+    } catch (error) {
+      if (!(error instanceof InstanceLockedError)) throw error;
+      process.stderr.write(`${error.message} Stop it before migrating.\n`);
+      return 1;
+    }
+    try {
+      return runDatabaseCommand('db-migrate', config.databasePath);
+    } finally {
+      await lock.release();
+    }
   }
 
   if (parsed.command === 'reset-password') {

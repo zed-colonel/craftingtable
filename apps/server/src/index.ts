@@ -1,7 +1,15 @@
 import { createRuntime } from './composition.js';
 import { configFromEnv } from './config.js';
+import { acquireInstanceLock, InstanceLockedError } from './instance-lock.js';
 
 const config = configFromEnv();
+// Taken before any database work: restart recovery would otherwise rewrite a
+// running daemon's live state before this process failed to bind its port.
+const lock = await acquireInstanceLock(config.dataDir).catch((error: unknown) => {
+  if (!(error instanceof InstanceLockedError)) throw error;
+  process.stderr.write(`${error.message} Refusing to start a second daemon on it.\n`);
+  process.exit(1);
+});
 const runtime = await createRuntime(config, { logger: true });
 
 let shuttingDown = false;
@@ -12,6 +20,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   shuttingDown = true;
   runtime.app.log.info({ signal }, 'shutting down');
   await runtime.close();
+  await lock.release();
 }
 
 process.once('SIGINT', () => {

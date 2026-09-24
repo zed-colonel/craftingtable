@@ -106,12 +106,40 @@ explicitly resumed.
 
 ## Running the daemon
 
-Development: `pnpm dev` runs the daemon on 127.0.0.1:4600 and the Vite UI on 5173.
+**Development:** `pnpm dev` runs a development daemon on 127.0.0.1:4601 with its own data
+directory (`$XDG_DATA_HOME/craftingtable-dev`) and the Vite UI on 5173, so it can run beside
+the installed daemon. `pnpm craftingtable:dev <command>` runs the CLI against that data
+directory (for example `pnpm craftingtable:dev admin bootstrap --username <name>` once).
+Set `CRAFTINGTABLE_DATA_DIR`/`CRAFTINGTABLE_PORT` to override either.
 
-Standalone: `pnpm build` once, then `pnpm start`. The daemon serves the built UI itself
-when `apps/web/dist` exists (or `CRAFTINGTABLE_WEB_DIST` points at a build).
+**One daemon per data directory.** At start, before touching the database, a daemon takes
+an exclusive lock on its data directory (an abstract Unix socket on Linux, released by the
+kernel the moment the process exits). A second daemon on the same directory, for example a
+stray `pnpm start` in another checkout, exits with a message naming the holder instead of
+marking the live daemon's runs interrupted. `pnpm craftingtable db migrate` takes the same
+lock, so stop the daemon before migrating by hand (the daemon also migrates on start).
 
-A `systemd --user` unit keeps it running across logins:
+**The installed daemon** runs from a deploy checkout, never from a development checkout, so
+editing, building or checking out branches there cannot change what it runs. Deploys go
+through one command, run from any clone of the repository:
+
+```sh
+pnpm deploy:daemon <ref>        # build <ref> into a new release, switch to it, restart, check health
+pnpm deploy:daemon --rollback   # switch back to the previous release and restart (no rebuild)
+pnpm deploy:daemon --status     # current release, recent deploys, unit check
+```
+
+The deploy root (`$CRAFTINGTABLE_DEPLOY_ROOT`, default `$XDG_DATA_HOME/craftingtable-deploy`)
+holds a bare clone (`repo.git`), one directory per release (`releases/<time>-<commit>`, each
+installed and built), a `current` symlink and an append-only `deploys.jsonl`. A failed build
+leaves `current` untouched. After the restart the command polls `/api/health` (host and port
+from the unit's environment file, or `CRAFTINGTABLE_DEPLOY_HEALTH_URL`); if the new release
+does not answer within 90 seconds, it switches back to the previous release and restarts that.
+The five newest releases are kept (`--keep N`). The command asks for confirmation unless given
+`--yes`. A restart interrupts live agent runs, and running roadmaps wait for an explicit
+Resume, so deploy when the daemon is idle or paused.
+
+A `systemd --user` unit runs whatever `current` points at:
 
 ```ini
 # ~/.config/systemd/user/craftingtable.service
@@ -120,10 +148,11 @@ Description=CraftingTable daemon
 After=network-online.target
 
 [Service]
-WorkingDirectory=%h/src/craftingtable
+WorkingDirectory=%h/.local/share/craftingtable-deploy/current
 EnvironmentFile=%h/.config/craftingtable/env
 ExecStart=/usr/bin/env pnpm start
 Restart=on-failure
+RestartSec=2
 KillSignal=SIGTERM
 TimeoutStopSec=30
 
@@ -132,8 +161,10 @@ WantedBy=default.target
 ```
 
 with `~/.config/craftingtable/env` holding the `CRAFTINGTABLE_*` variables for the
-route you chose below. Enable it with `systemctl --user enable --now craftingtable`
-and `loginctl enable-linger $USER` so it survives logout.
+route you chose below. Run the first `pnpm deploy:daemon <ref> --no-restart` to create
+`current`, then enable the unit with `systemctl --user enable --now craftingtable` and
+`loginctl enable-linger $USER` so it survives logout. `pnpm deploy:daemon --status` reports
+when the unit does not run from `current`.
 
 The daemon's environment is the environment agents inherit: PATH must reach `git` and
 `claude` and/or `codex` (or set the explicit executable variables), and HOME must be
@@ -143,11 +174,8 @@ using Codex. Tool status reports executable availability, not authentication hea
 replaces its model picker list. Codex app-server behavior was verified with CLI 0.153.4. The adapter communicates
 over local stdio; do not start a separate app-server listener for CraftingTable.
 
-The unit owns port 4600, which `pnpm dev` also binds, so stop the service
-(`systemctl --user stop craftingtable`) before a dev session; `pnpm check` needs no such
-care, because the end-to-end suite uses ports of its own. The unit serves whatever
-`apps/web/dist` holds, so a web change needs `pnpm build` and
-`systemctl --user restart craftingtable` to appear.
+`pnpm check` needs no care around a running daemon: the end-to-end suite uses ports and
+data directories of its own.
 
 ## Reaching the daemon from another machine
 

@@ -18,8 +18,11 @@ export default defineConfig({
     host: '127.0.0.1',
     proxy: {
       '/api': {
-        // The daemon's default port; the e2e run points this at its own daemon.
-        target: process.env.CRAFTINGTABLE_DEV_API_TARGET ?? 'http://127.0.0.1:4600',
+        // The development daemon's port (`pnpm dev`, see apps/server/src/dev.ts); the
+        // e2e run points this at its own daemon.
+        target:
+          process.env.CRAFTINGTABLE_DEV_API_TARGET ??
+          `http://127.0.0.1:${process.env.CRAFTINGTABLE_PORT ?? '4601'}`,
       },
     },
   },

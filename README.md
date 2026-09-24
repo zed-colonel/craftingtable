@@ -404,9 +404,9 @@ downloaded by pnpm automatically.
 
 ```sh
 pnpm install
-pnpm db:migrate
-pnpm craftingtable admin bootstrap --username keith   # prompts for a password
-pnpm dev            # daemon on http://127.0.0.1:4600 + Vite UI on http://127.0.0.1:5173
+pnpm craftingtable:dev db migrate
+pnpm craftingtable:dev admin bootstrap --username keith   # prompts for a password
+pnpm dev            # daemon on http://127.0.0.1:4601 + Vite UI on http://127.0.0.1:5173
 ```
 
 Sign in at http://127.0.0.1:5173, import a plan (or use `fixtures/plan-bundles/aq-cont-1`
@@ -418,8 +418,15 @@ on the workstation as the daemon's OS user. It prompts for a new password twice,
 preserves your data, and revokes existing login sessions. Use the daemon's data-directory
 environment if you configured a custom location; the command prints the database path.
 
-Upgrading from an earlier build: `pnpm db:migrate` applies schema 22 (the daemon also
-migrates on start). Existing runs and their event journals are preserved.
+`pnpm dev` keeps its own state (`~/.local/share/craftingtable-dev`, port 4601), so it can
+run beside the installed daemon; `pnpm craftingtable:dev` runs the CLI against that state.
+The installed daemon runs from a deploy checkout, never from a development checkout:
+`pnpm deploy:daemon <ref>` builds that commit and restarts it, and
+`pnpm deploy:daemon --rollback` returns to the previous build (see `docs/operations.md`).
+Only one daemon can use a data directory at a time.
+
+Upgrading: the daemon migrates its database on start. Existing runs and their event
+journals are preserved.
 
 `pnpm check` is the CI-equivalent local gate (format, lint, types, build, unit tests,
 browser end-to-end tests with a scripted agent, and the forbidden-scope check).

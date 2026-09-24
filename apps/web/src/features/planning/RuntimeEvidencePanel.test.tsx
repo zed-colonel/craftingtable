@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { asWorkspaceId } from '@craftingtable/domain';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
@@ -380,4 +380,55 @@ it('disables unchanged dependency saves and prevents generating plan evidence wi
       .hasAttribute('disabled'),
   ).toBe(true);
   expect(request).toHaveBeenCalledTimes(1);
+});
+
+it('keeps an inspected pin when a reload started before the inspection lands after it', async () => {
+  // The e2e flake behind R-I5: saving plan bindings reloads this panel, and under load that
+  // reload answered after the operator's Inspect and discarded the inspected dependency.
+  const initial = {
+    ...view(),
+    current: undefined,
+    submissions: [],
+    subjects: [],
+    repositories: [
+      {
+        alias: 'aq',
+        role: 'implemented_upstream',
+        configured: true,
+        integrationBranch: 'main',
+        requiredUpstreams: [],
+        conformanceRevision: '16',
+      },
+    ],
+  };
+  let finishReload: (value: unknown) => void = () => undefined;
+  let finishInspect: (value: unknown) => void = () => undefined;
+  vi.mocked(request)
+    .mockResolvedValueOnce(initial)
+    .mockImplementationOnce(() => new Promise((resolve) => (finishReload = resolve)))
+    .mockImplementationOnce(() => new Promise((resolve) => (finishInspect = resolve)));
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up dependencies' }));
+  act(() => {
+    window.dispatchEvent(
+      new CustomEvent('craftingtable:saved-plan-changed', { detail: runtimeId }),
+    );
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect aq' }));
+  await act(async () => {
+    finishInspect({ commitSha: 'd'.repeat(40), packages: [{ name: 'aq_e2e_pin', path: '' }] });
+  });
+  expect(await screen.findByText('Supplied crates: aq_e2e_pin')).toBeTruthy();
+  await act(async () => {
+    finishReload(initial);
+  });
+  expect(screen.getByText('Supplied crates: aq_e2e_pin')).toBeTruthy();
 });

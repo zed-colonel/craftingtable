@@ -53,6 +53,8 @@ export function RuntimeEvidencePanel({
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
   const [savedConfig, setSavedConfig] = useState('');
+  /** Whether the setup form holds unsaved edits; set on every render below. */
+  const setupDirty = useRef(false);
   const revealedDecisionLink = useRef(false);
   useEffect(() => {
     const id = `architecture-decisions-${definitionId}`;
@@ -99,7 +101,11 @@ export function RuntimeEvidencePanel({
     const load = () =>
       void request(base, runtimeEvidenceViewSchema)
         .then((v) => {
-          if (alive) adopt(v);
+          if (!alive) return;
+          // A reload can land after the operator has inspected or edited the setup; keep that
+          // draft, as the automation refresh below does.
+          if (setupDirty.current) setView(v);
+          else adopt(v);
         })
         .catch((e) => {
           if (alive) setError(e instanceof Error ? e.message : 'Could not load runtime evidence.');
@@ -141,7 +147,6 @@ export function RuntimeEvidencePanel({
   }, [roadmapId, dependencyDirty, onDraftChange]);
   // Evidence recorded by automation shows without navigation (PERF-03, UI-13).
   // An unsaved setup draft is kept: only the view is replaced under it.
-  const setupDirty = useRef(false);
   setupDirty.current = dependencyDirty;
   useRefreshOn('roadmaps', () => {
     const requested = base;

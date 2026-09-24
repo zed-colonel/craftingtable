@@ -879,6 +879,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Agreement tests.** Two focused tests, one per fixture file, check that the resolver derives exactly those literals from the fixture maps. If the resolver drops or renames a requirement, those tests fail, and so does every scenario whose review evidence no longer matches.
   - **Left as they are.** The remaining `resolveScope` calls in scenario tests either build a resolved scope to set up a phase reservation, or assert on production output; neither is expected evidence.
   - **Verified.** 295 execution tests pass, including the two new ones.
+- **Amended 2026-09-24: defect found by the e2e repetition.** Runs 3 and 4 of ten consecutive `pnpm test:e2e` runs failed in `package-imports.spec.ts`; the load average was 8–13, because unit suites were running at the same time.
+  - **The defect.** One failure ("Supplied crates: aq_e2e_pin" never appeared after Inspect) is a product race. Saving plan bindings makes `RuntimeEvidencePanel` reload, and that reload replaced the whole setup form when it answered. When it answered after the operator's Inspect, the inspected dependency was discarded.
+  - **The fix.** The panel's automation refresh already keeps an unsaved draft and replaces only the view under it; the explicit reload now does the same. A stale revision still fails the save through the existing optimistic check.
+  - **Test.** A jsdom test holds the reload until after Inspect; it failed before the fix and passes after.
 
 ### R-I6
 

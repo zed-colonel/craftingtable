@@ -43,14 +43,14 @@ export function registerWorkspaceRoutes(
   workspaceService: WorkspaceService,
   config: ServerConfig,
 ): void {
-  app.get('/api/workspaces', async (request, reply) => {
+  app.get('/api/workspaces', { config: { access: 'session' } }, async (request, reply) => {
     const context = authenticate(request, authService);
     return noStore(reply).send(
       workspaceListResponseSchema.parse({ workspaces: workspaceService.list(context) }),
     );
   });
 
-  app.post('/api/workspaces', async (request, reply) => {
+  app.post('/api/workspaces', { config: { access: 'session' } }, async (request, reply) => {
     const context = authorizeMutation(request, authService, config);
     const body = createWorkspaceRequestSchema.safeParse(request.body ?? {});
     if (!body.success) {
@@ -62,6 +62,7 @@ export function registerWorkspaceRoutes(
 
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/rename',
+    { config: { access: 'owner' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const parsed = workspaceId(request.params.workspaceId);
@@ -82,6 +83,7 @@ export function registerWorkspaceRoutes(
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/snapshot',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const parsed = workspaceId(request.params.workspaceId);
@@ -99,30 +101,34 @@ export function registerWorkspaceRoutes(
   app.get<{
     Params: { workspaceId: string };
     Querystring: { limit?: string; before?: string };
-  }>('/api/workspaces/:workspaceId/audit', async (request, reply) => {
-    const context = authenticate(request, authService);
-    const parsed = workspaceId(request.params.workspaceId);
-    if (!parsed.success) {
-      return sendApiError(reply, 404, 'not-found', 'Resource not found');
-    }
-    const limit = Number(request.query.limit ?? 50);
-    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-      return sendApiError(reply, 400, 'invalid-request', 'Invalid audit pagination');
-    }
-    let before: number | undefined;
-    try {
-      before = positiveCursor(request.query.before);
-    } catch {
-      return sendApiError(reply, 400, 'invalid-request', 'Invalid audit pagination');
-    }
-    return noStore(reply).send(
-      workspaceAuditPageResponseSchema.parse(
-        workspaceService.auditPage(context, parsed.data, {
-          limit,
-          ...(before === undefined ? {} : { before }),
-          requestId: request.id,
-        }),
-      ),
-    );
-  });
+  }>(
+    '/api/workspaces/:workspaceId/audit',
+    { config: { access: 'owner' } },
+    async (request, reply) => {
+      const context = authenticate(request, authService);
+      const parsed = workspaceId(request.params.workspaceId);
+      if (!parsed.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      const limit = Number(request.query.limit ?? 50);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid audit pagination');
+      }
+      let before: number | undefined;
+      try {
+        before = positiveCursor(request.query.before);
+      } catch {
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid audit pagination');
+      }
+      return noStore(reply).send(
+        workspaceAuditPageResponseSchema.parse(
+          workspaceService.auditPage(context, parsed.data, {
+            limit,
+            ...(before === undefined ? {} : { before }),
+            requestId: request.id,
+          }),
+        ),
+      );
+    },
+  );
 }

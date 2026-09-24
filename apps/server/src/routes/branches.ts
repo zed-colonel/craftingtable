@@ -1,13 +1,13 @@
 import {
   createWorktreeResponseSchema,
-  repositoryPolicyEvidenceSchema,
-  saveRepositoryPolicyRequestSchema,
   gitBranchNameSchema,
   planBranchSettingsResponseSchema,
   planVersionIdSchema,
   recordIntegrationEvidenceRequestSchema,
+  repositoryPolicyEvidenceSchema,
   retargetWorktreeRequestSchema,
   savePlanBranchSettingsRequestSchema,
+  saveRepositoryPolicyRequestSchema,
   updateWorktreeRequestSchema,
   workItemIdSchema,
   workspaceIdSchema,
@@ -32,6 +32,7 @@ export function registerBranchRoutes(
     Querystring: { freezeBranch?: string };
   }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -50,6 +51,7 @@ export function registerBranchRoutes(
   );
   app.post<{ Params: { workspaceId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/repository-policy',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -68,6 +70,7 @@ export function registerBranchRoutes(
   );
   app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -83,6 +86,7 @@ export function registerBranchRoutes(
   );
   app.post<{ Params: { workspaceId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/plan-versions/:planVersionId/branch-settings',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -101,6 +105,7 @@ export function registerBranchRoutes(
   );
   app.get<{ Params: { workspaceId: string; worktreeId: string } }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/branch-status',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -114,6 +119,7 @@ export function registerBranchRoutes(
   );
   app.post<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/integration-evidence',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -133,6 +139,7 @@ export function registerBranchRoutes(
   for (const action of ['retarget', 'update'] as const) {
     app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
       `/api/workspaces/:workspaceId/worktrees/:worktreeId/${action}`,
+      { config: { access: 'editor' } },
       async (request, reply) => {
         const context = authorizeMutation(request, auth, config);
         const ws = workspaceIdSchema.safeParse(request.params.workspaceId);

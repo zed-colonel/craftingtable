@@ -68,6 +68,7 @@ export function registerAgentRunRoutes(
 
   app.post<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/runs',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -92,6 +93,7 @@ export function registerAgentRunRoutes(
 
   app.get<{ Params: { workspaceId: string; runId: string } }>(
     '/api/workspaces/:workspaceId/runs/:runId',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -118,38 +120,42 @@ export function registerAgentRunRoutes(
   app.get<{
     Params: { workspaceId: string; runId: string };
     Querystring: { after?: string; includeRaw?: string };
-  }>('/api/workspaces/:workspaceId/runs/:runId/event-page', async (request, reply) => {
-    const context = authenticate(request, authService);
-    const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
-    const runId = agentRunIdSchema.safeParse(request.params.runId);
-    if (!workspaceId.success || !runId.success) {
-      return sendApiError(reply, 404, 'not-found', 'Resource not found');
-    }
-    let after: number;
-    try {
-      after = parseEventCursor(request.query.after, 'after') ?? 0;
-    } catch {
-      return sendApiError(reply, 400, 'invalid-request', 'Invalid event cursor');
-    }
-    const includeRaw = request.query.includeRaw;
-    if (includeRaw !== undefined && includeRaw !== 'true' && includeRaw !== 'false') {
-      return sendApiError(reply, 400, 'invalid-request', 'Invalid raw-line option');
-    }
-    const events = agentRunService.listEvents(
-      context,
-      workspaceId.data,
-      runId.data,
-      after,
-      EVENT_PAGE_LIMIT,
-      request.id,
-    );
-    return noStore(reply).send(
-      runEventPageResponseSchema.parse({
-        events: includeRaw === 'true' ? events : events.map(withoutRaw),
-        nextAfter: events.at(-1)?.sequence ?? after,
-      }),
-    );
-  });
+  }>(
+    '/api/workspaces/:workspaceId/runs/:runId/event-page',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = authenticate(request, authService);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const runId = agentRunIdSchema.safeParse(request.params.runId);
+      if (!workspaceId.success || !runId.success) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      let after: number;
+      try {
+        after = parseEventCursor(request.query.after, 'after') ?? 0;
+      } catch {
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid event cursor');
+      }
+      const includeRaw = request.query.includeRaw;
+      if (includeRaw !== undefined && includeRaw !== 'true' && includeRaw !== 'false') {
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid raw-line option');
+      }
+      const events = agentRunService.listEvents(
+        context,
+        workspaceId.data,
+        runId.data,
+        after,
+        EVENT_PAGE_LIMIT,
+        request.id,
+      );
+      return noStore(reply).send(
+        runEventPageResponseSchema.parse({
+          events: includeRaw === 'true' ? events : events.map(withoutRaw),
+          nextAfter: events.at(-1)?.sequence ?? after,
+        }),
+      );
+    },
+  );
 
   for (const [action, schema, handler] of [
     ['messages', sendAgentRunMessageRequestSchema, 'message'],
@@ -158,6 +164,7 @@ export function registerAgentRunRoutes(
   ] as const) {
     app.post<{ Params: { workspaceId: string; runId: string } }>(
       `/api/workspaces/:workspaceId/runs/:runId/${action}`,
+      { config: { access: 'editor' } },
       async (request, reply) => {
         const context = authorizeMutation(request, authService, config);
         const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -193,6 +200,7 @@ export function registerAgentRunRoutes(
 
   app.get<{ Params: { workspaceId: string; runId: string }; Querystring: { after?: string } }>(
     '/api/workspaces/:workspaceId/runs/:runId/events',
+    { config: { access: 'member' } },
     (request, reply) => {
       const rawSessionToken = request.cookies[SESSION_COOKIE_NAME];
       const context = authService.authenticate(rawSessionToken);

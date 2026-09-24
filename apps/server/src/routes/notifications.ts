@@ -1,7 +1,7 @@
 import {
   notificationStatusSchema,
-  testNotificationsRequestSchema,
   saveNotificationsRequestSchema,
+  testNotificationsRequestSchema,
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
@@ -18,6 +18,7 @@ export function registerNotificationRoutes(
 ): void {
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/notifications',
+    { config: { access: 'owner' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -29,6 +30,7 @@ export function registerNotificationRoutes(
   );
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/notifications',
+    { config: { access: 'owner' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -43,6 +45,7 @@ export function registerNotificationRoutes(
   );
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/notifications/test',
+    { config: { access: 'owner' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

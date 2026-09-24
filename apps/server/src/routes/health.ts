@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { SERVER_VERSION } from '../config.js';
 
 export function registerHealthRoute(app: FastifyInstance): void {
-  app.get('/api/health', async () =>
+  app.get('/api/health', { config: { access: 'public' } }, async () =>
     healthResponseSchema.parse({
       status: 'ok',
       service: 'craftingtable-server',

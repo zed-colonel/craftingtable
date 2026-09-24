@@ -1,29 +1,29 @@
 import {
-  checkpointRecoverySchema,
-  prepareCheckpointRequestSchema,
-  proposeArchitectureDecisionSchema,
-  nativeAuditSchema,
-  nativeApprovalRequestSchema,
-  configureRuntimeSchema,
-  runtimeRefreshRequestSchema,
   applyRuntimeRefreshSchema,
-  runtimeRefreshPreviewSchema,
-  generatePlanEvidenceRequestSchema,
+  checkpointRecoverySchema,
+  configureRuntimeSchema,
   discoverRuntimeRequestSchema,
   discoverRuntimeResponseSchema,
-  evidenceSubmissionRequestSchema,
   evidenceDecisionRequestSchema,
-  runtimeEvidenceViewSchema,
+  evidenceSubmissionRequestSchema,
+  generatePlanEvidenceRequestSchema,
   inspectDependencyRequestSchema,
   inspectDependencyResponseSchema,
+  nativeApprovalRequestSchema,
+  nativeAuditSchema,
+  prepareCheckpointRequestSchema,
+  proposeArchitectureDecisionSchema,
+  runtimeEvidenceViewSchema,
+  runtimeRefreshPreviewSchema,
+  runtimeRefreshRequestSchema,
   workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from '../config.js';
 import type { AuthService } from '../services/auth-service.js';
 import type { RuntimeEvidenceService } from '../services/runtime-evidence-service.js';
-import { authenticate, authorizeMutation } from './request-security.js';
 import { noStore, sendApiError } from './http.js';
+import { authenticate, authorizeMutation } from './request-security.js';
 export function registerRuntimeEvidenceRoutes(
   app: FastifyInstance,
   auth: AuthService,
@@ -33,6 +33,7 @@ export function registerRuntimeEvidenceRoutes(
   const base = '/api/workspaces/:workspaceId/concurrency-definitions/:id/runtime';
   app.get<{ Params: { workspaceId: string; id: string; worktreeId: string } }>(
     `${base}/checkpoint-recovery/:worktreeId`,
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authenticate(request, auth),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -49,16 +50,21 @@ export function registerRuntimeEvidenceRoutes(
       );
     },
   );
-  app.get<{ Params: { workspaceId: string; id: string } }>(base, async (request, reply) => {
-    const context = authenticate(request, auth),
-      ws = workspaceIdSchema.safeParse(request.params.workspaceId);
-    if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
-    return noStore(reply).send(
-      runtimeEvidenceViewSchema.parse(await service.view(context, ws.data, request.params.id)),
-    );
-  });
+  app.get<{ Params: { workspaceId: string; id: string } }>(
+    base,
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = authenticate(request, auth),
+        ws = workspaceIdSchema.safeParse(request.params.workspaceId);
+      if (!ws.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      return noStore(reply).send(
+        runtimeEvidenceViewSchema.parse(await service.view(context, ws.data, request.params.id)),
+      );
+    },
+  );
   app.get<{ Params: { workspaceId: string; id: string; runId: string } }>(
     `${base}/runs/:runId/build-record`,
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -88,7 +94,7 @@ export function registerRuntimeEvidenceRoutes(
   ] as const)
     app.post<{ Params: { workspaceId: string; id: string } }>(
       `${base}/${action}`,
-      { bodyLimit: 5 * 1024 * 1024 },
+      { config: { access: 'editor' }, bodyLimit: 5 * 1024 * 1024 },
       async (request, reply) => {
         const context = authorizeMutation(request, auth, config),
           ws = workspaceIdSchema.safeParse(request.params.workspaceId);

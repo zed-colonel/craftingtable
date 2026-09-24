@@ -1,11 +1,11 @@
 import {
-  roadmapIdSchema,
-  workspaceIdSchema,
-  mapSelectionSchema,
   adoptMapSchema,
-  saveCrossProjectSchema,
   crossProjectViewSchema,
+  mapSelectionSchema,
+  roadmapIdSchema,
   roadmapViewSchema,
+  saveCrossProjectSchema,
+  workspaceIdSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from '../config.js';
@@ -21,6 +21,7 @@ export function registerCrossProjectRoutes(
 ) {
   app.post<{ Params: { workspaceId: string; id: string } }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/preview',
+    { config: { access: 'editor' } },
     async (req, reply) => {
       const context = authorizeMutation(req, auth, config),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
@@ -39,6 +40,7 @@ export function registerCrossProjectRoutes(
   );
   app.post<{ Params: { workspaceId: string; id: string } }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/adopt',
+    { config: { access: 'editor' } },
     async (req, reply) => {
       const context = authorizeMutation(req, auth, config),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),
@@ -56,7 +58,7 @@ export function registerCrossProjectRoutes(
   );
   app.post<{ Params: { workspaceId: string; id: string } }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/supervision/roadmap',
-    { bodyLimit: 2 * 1024 * 1024 },
+    { config: { access: 'editor' }, bodyLimit: 2 * 1024 * 1024 },
     async (req, reply) => {
       const context = authorizeMutation(req, auth, config),
         ws = workspaceIdSchema.safeParse(req.params.workspaceId),

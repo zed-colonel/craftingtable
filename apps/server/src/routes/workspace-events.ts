@@ -39,7 +39,7 @@ export function registerWorkspaceEventRoute(
   app.get<{
     Params: { workspaceId: string };
     Querystring: { after?: string };
-  }>('/api/workspaces/:workspaceId/events', (request, reply) => {
+  }>('/api/workspaces/:workspaceId/events', { config: { access: 'member' } }, (request, reply) => {
     const rawSessionToken = request.cookies[SESSION_COOKIE_NAME];
     const context = authService.authenticate(rawSessionToken);
     if (

@@ -1,15 +1,13 @@
 import {
-  executionScopeChoicesSchema,
   authorizeScopeSchedulingRequestSchema,
-  recordScopeReceiptRequestSchema,
-  recordScopeReceiptResponseSchema,
-} from '@craftingtable/contracts';
-import {
   createWorktreeRequestSchema,
   createWorktreeResponseSchema,
+  executionScopeChoicesSchema,
   executionStatusResponseSchema,
   mergeWorktreeRequestSchema,
   mergeWorktreeResponseSchema,
+  recordScopeReceiptRequestSchema,
+  recordScopeReceiptResponseSchema,
   registerSourceRepositoryRequestSchema,
   registerSourceRepositoryResponseSchema,
   removeWorktreeRequestSchema,
@@ -58,6 +56,7 @@ export function registerExecutionRoutes(
   registerBranchRoutes(app, authService, executionService.branches, config);
   app.get<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/execution-scopes',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -73,6 +72,7 @@ export function registerExecutionRoutes(
   );
   app.post<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/scope-scheduling',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -91,6 +91,7 @@ export function registerExecutionRoutes(
   );
   app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/scope-evidence',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -112,13 +113,14 @@ export function registerExecutionRoutes(
       );
     },
   );
-  app.get('/api/execution-status', async (request, reply) => {
+  app.get('/api/execution-status', { config: { access: 'session' } }, async (request, reply) => {
     authenticate(request, authService);
     return noStore(reply).send(executionStatusResponseSchema.parse(status()));
   });
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/run-profiles',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -135,6 +137,7 @@ export function registerExecutionRoutes(
 
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/run-profiles',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -160,6 +163,7 @@ export function registerExecutionRoutes(
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/repositories',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -176,6 +180,7 @@ export function registerExecutionRoutes(
 
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/repositories',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -198,6 +203,7 @@ export function registerExecutionRoutes(
 
   app.post<{ Params: { workspaceId: string; repositoryId: string } }>(
     '/api/workspaces/:workspaceId/repositories/:repositoryId/retire',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -220,6 +226,7 @@ export function registerExecutionRoutes(
 
   app.get<{ Params: { workspaceId: string; repositoryId: string } }>(
     '/api/workspaces/:workspaceId/repositories/:repositoryId/branches',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -239,6 +246,7 @@ export function registerExecutionRoutes(
 
   app.get<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/execution',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -267,6 +275,7 @@ export function registerExecutionRoutes(
   // `?status=live` returns only the runs the dashboard shows.
   app.get<{ Params: { workspaceId: string }; Querystring: { status?: string } }>(
     '/api/workspaces/:workspaceId/runs',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -297,6 +306,7 @@ export function registerExecutionRoutes(
 
   app.post<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/worktrees',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -321,6 +331,7 @@ export function registerExecutionRoutes(
 
   app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/remove',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -350,6 +361,7 @@ export function registerExecutionRoutes(
    */
   app.post<{ Params: { workspaceId: string; worktreeId: string } }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/merge',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -374,6 +386,7 @@ export function registerExecutionRoutes(
 
   app.get<{ Params: { workspaceId: string; worktreeId: string } }>(
     '/api/workspaces/:workspaceId/worktrees/:worktreeId/diff',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);

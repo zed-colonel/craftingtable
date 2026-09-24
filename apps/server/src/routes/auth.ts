@@ -29,7 +29,7 @@ export function registerAuthRoutes(
   authService: AuthService,
   config: ServerConfig,
 ): void {
-  app.post('/api/auth/login', async (request, reply) => {
+  app.post('/api/auth/login', { config: { access: 'public' } }, async (request, reply) => {
     if (!isAllowedBrowserRequest(browserHeaders(request), config.publicOrigin)) {
       return sendApiError(
         reply,
@@ -62,7 +62,7 @@ export function registerAuthRoutes(
     );
   });
 
-  app.get('/api/auth/session', async (request, reply) => {
+  app.get('/api/auth/session', { config: { access: 'session' } }, async (request, reply) => {
     const context = authenticate(request, authService);
     return noStore(reply).send(
       authenticatedSessionResponseSchema.parse(
@@ -71,7 +71,7 @@ export function registerAuthRoutes(
     );
   });
 
-  app.get('/api/auth/sessions', async (request, reply) => {
+  app.get('/api/auth/sessions', { config: { access: 'session' } }, async (request, reply) => {
     const context = authenticate(request, authService);
     return noStore(reply).send(
       sessionListResponseSchema.parse({
@@ -82,7 +82,7 @@ export function registerAuthRoutes(
     );
   });
 
-  app.post('/api/auth/logout', async (request, reply) => {
+  app.post('/api/auth/logout', { config: { access: 'session' } }, async (request, reply) => {
     const context = authorizeMutation(request, authService, config);
     if (!logoutRequestSchema.safeParse(request.body).success) {
       return sendApiError(reply, 400, 'invalid-request', 'Invalid logout request');
@@ -97,7 +97,7 @@ export function registerAuthRoutes(
     return noStore(reply).send(logoutResponseSchema.parse({ success: true }));
   });
 
-  app.post('/api/auth/password', async (request, reply) => {
+  app.post('/api/auth/password', { config: { access: 'session' } }, async (request, reply) => {
     const context = authorizeMutation(request, authService, config);
     const parsed = changePasswordRequestSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -114,6 +114,7 @@ export function registerAuthRoutes(
 
   app.post<{ Params: { sessionId: string } }>(
     '/api/auth/sessions/:sessionId/revoke',
+    { config: { access: 'session' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       if (!revokeSessionRequestSchema.safeParse(request.body).success) {

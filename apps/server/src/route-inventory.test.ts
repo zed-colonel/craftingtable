@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createTestContext } from './test-support.js';
+import { createTestContext, routeTable } from './test-support.js';
 
 /**
  * The registered route table is an allowlist. A new route must be added here
- * deliberately, which keeps the daemon's command surface reviewable.
+ * deliberately, which keeps the daemon's command surface reviewable. Who may call
+ * each route is declared with the route and swept in route-access.test.ts (R-I3).
  */
 
 const EXPECTED_ROUTES = [
@@ -132,41 +133,6 @@ const EXPECTED_ROUTES = [
   'POST /api/workspaces/:workspaceId/worktrees/:worktreeId/remove',
 ] as const;
 
-/**
- * Capabilities the browser must never be able to reach directly. Merging is
- * deliberately not in this list any more: the single merge route takes no
- * arguments and the daemon refuses it unless a review run returned a
- * mergeable verdict (see ExecutionService.mergeWorktree).
- */
-const FORBIDDEN_ROUTE_FRAGMENTS = ['exec/', 'command', 'shell', 'approve'] as const;
-
-/**
- * Rebuilds full route paths from Fastify's prefix-nested route tree.
- *
- * Each nesting level is four characters of indent, and each node contributes a
- * path fragment that must be concatenated with its ancestors.
- */
-function routeTable(printed: string): readonly string[] {
-  const stack: string[] = [];
-  const routes: string[] = [];
-  for (const line of printed.split('\n')) {
-    const match = /^([│\s]*)(?:├──|└──)\s(\S*)\s\(([^)]+)\)\s*$/.exec(line);
-    if (match === null) {
-      continue;
-    }
-    const depth = (match[1] as string).length / 4;
-    stack.length = depth;
-    stack[depth] = match[2] as string;
-    const url = stack.join('');
-    for (const method of (match[3] as string).split(', ')) {
-      if (method !== 'HEAD' && method !== 'OPTIONS') {
-        routes.push(`${method} ${url}`);
-      }
-    }
-  }
-  return routes;
-}
-
 describe('route inventory', () => {
   it('registers exactly the accepted routes', async () => {
     const context = await createTestContext();
@@ -175,23 +141,6 @@ describe('route inventory', () => {
       expect(routeTable(context.app.printRoutes({ commonPrefix: false })).toSorted()).toEqual(
         [...EXPECTED_ROUTES].toSorted(),
       );
-    } finally {
-      await context.cleanup();
-    }
-  });
-
-  it('exposes no route that could run a command or approve', async () => {
-    const context = await createTestContext();
-    try {
-      await context.app.ready();
-      const urls = routeTable(context.app.printRoutes({ commonPrefix: false })).map(
-        (route) => route.split(' ')[1]?.toLowerCase() ?? '',
-      );
-      for (const url of urls) {
-        for (const fragment of FORBIDDEN_ROUTE_FRAGMENTS) {
-          expect(url.includes(fragment), `${url} contains "${fragment}"`).toBe(false);
-        }
-      }
     } finally {
       await context.cleanup();
     }

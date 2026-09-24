@@ -1,9 +1,9 @@
 import {
   applyRoadmapAgentsSchema,
   applyRoadmapDelegationSchema,
-  prepareRoadmapDecisionSchema,
-  decisionPreparationSettingsSchema,
   controlRoadmapRequestSchema,
+  decisionPreparationSettingsSchema,
+  prepareRoadmapDecisionSchema,
   roadmapAgentsSchema,
   roadmapCapacitiesSchema,
   roadmapHistoryResponseSchema,
@@ -29,6 +29,7 @@ export function registerRoadmapRoutes(
 ): void {
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparations',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -44,6 +45,7 @@ export function registerRoadmapRoutes(
   );
   app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/prepare-decision',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -67,6 +69,7 @@ export function registerRoadmapRoutes(
   );
   app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/delegation',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -88,6 +91,7 @@ export function registerRoadmapRoutes(
   );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/agent-profiles',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -99,6 +103,7 @@ export function registerRoadmapRoutes(
   );
   app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config),
         ws = workspaceIdSchema.safeParse(request.params.workspaceId),
@@ -122,6 +127,7 @@ export function registerRoadmapRoutes(
   );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/capacities',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -133,6 +139,7 @@ export function registerRoadmapRoutes(
   );
   app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/capacity',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -156,6 +163,7 @@ export function registerRoadmapRoutes(
   );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -167,6 +175,7 @@ export function registerRoadmapRoutes(
   );
   app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/history',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -180,6 +189,7 @@ export function registerRoadmapRoutes(
   );
   app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/scope-recovery',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -201,7 +211,7 @@ export function registerRoadmapRoutes(
   );
   app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId',
-    { bodyLimit: 2 * 1024 * 1024 },
+    { config: { access: 'editor' }, bodyLimit: 2 * 1024 * 1024 },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -223,6 +233,7 @@ export function registerRoadmapRoutes(
   );
   app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
     '/api/workspaces/:workspaceId/roadmaps/:roadmapId/control',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

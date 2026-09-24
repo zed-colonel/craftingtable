@@ -276,6 +276,11 @@ export class WorkspaceService {
    * non-disclosure posture. A member with an insufficient role gets 403: they
    * already know the workspace exists, so there is nothing to conceal.
    */
+  /** The installation's owner owns every active workspace; host-level settings are theirs. */
+  ownsInstallation(context: CommandContext): boolean {
+    return this.storage.maintenance.ownsInstallation(context.user.id);
+  }
+
   requireRole(
     context: CommandContext,
     workspaceId: WorkspaceId,

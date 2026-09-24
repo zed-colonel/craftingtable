@@ -85,7 +85,7 @@ export function registerPackageImportRoutes(
   for (const action of ['preview', 'import'] as const)
     app.post<{ Params: { workspaceId: string } }>(
       `/api/workspaces/:workspaceId/plan-archives/${action}`,
-      { bodyLimit: ARCHIVE_LIMITS.maxCompressedBytes + 16384 },
+      { config: { access: 'editor' }, bodyLimit: ARCHIVE_LIMITS.maxCompressedBytes + 16384 },
       async (request, reply) => {
         const context = authorizeMutation(request, auth, config);
         const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -147,7 +147,7 @@ export function registerPackageImportRoutes(
     );
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/concurrency-imports',
-    { bodyLimit: ARCHIVE_LIMITS.maxCompressedBytes + 16384 },
+    { config: { access: 'editor' }, bodyLimit: ARCHIVE_LIMITS.maxCompressedBytes + 16384 },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -169,6 +169,7 @@ export function registerPackageImportRoutes(
   );
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/concurrency-imports',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -180,6 +181,7 @@ export function registerPackageImportRoutes(
   );
   app.get<{ Params: { workspaceId: string; id: string } }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -191,6 +193,7 @@ export function registerPackageImportRoutes(
   );
   app.post<{ Params: { workspaceId: string; id: string } }>(
     '/api/workspaces/:workspaceId/concurrency-definitions/:id/bindings',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -207,6 +210,7 @@ export function registerPackageImportRoutes(
   );
   app.get<{ Params: { workspaceId: string; id: string } }>(
     '/api/workspaces/:workspaceId/import-archives/:id',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

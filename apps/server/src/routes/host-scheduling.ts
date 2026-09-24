@@ -17,6 +17,7 @@ export function registerHostSchedulingRoutes(
 ) {
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/host-scheduling',
+    { config: { access: 'installation' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const id = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -26,6 +27,7 @@ export function registerHostSchedulingRoutes(
   );
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/host-scheduling',
+    { config: { access: 'installation' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const id = workspaceIdSchema.safeParse(request.params.workspaceId);

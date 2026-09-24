@@ -15,6 +15,26 @@ your repositories.
   match; cross-site fetch metadata is rejected.
 - The built browser app can be served by the daemon so one TLS origin carries UI and API.
 
+## Route access
+
+Every API route declares who may call it where it is registered (`config.access` in
+`routes/route-access.ts`):
+- `public`: health and login only.
+- `session`: any signed-in user, outside a workspace.
+- `member`, `editor`, `owner`: the least workspace role.
+- `installation`: host-level settings; the user must own every active workspace.
+
+The daemon refuses to start when a route has no declaration, when a workspace mutation admits
+viewers, or when a mutation other than login is public. One guard runs the declared check before
+the handler validates input:
+- no session: 401;
+- a mutation without the CSRF header or from another origin: 403;
+- a non-member: 404, recorded as a denied access;
+- a member below the declared role: 403.
+
+Handlers and services keep their own checks. `route-access.test.ts` requests every live route as
+each kind of caller and compares the answer with the declaration.
+
 ## Secrets and credentials
 
 - Bootstrap is interactive and refuses password arguments; there is no registration route.

@@ -109,6 +109,7 @@ export function registerPlanningRoutes(
 
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/plan-imports',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const parsedWorkspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -176,6 +177,7 @@ export function registerPlanningRoutes(
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/projects',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -192,6 +194,7 @@ export function registerPlanningRoutes(
 
   app.get<{ Params: { workspaceId: string; projectId: string } }>(
     '/api/workspaces/:workspaceId/projects/:projectId',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -209,6 +212,7 @@ export function registerPlanningRoutes(
 
   app.get<{ Params: { workspaceId: string; projectId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/projects/:projectId/plan-versions/:planVersionId',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -233,6 +237,7 @@ export function registerPlanningRoutes(
 
   app.get<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -250,6 +255,7 @@ export function registerPlanningRoutes(
 
   app.get<{ Params: { workspaceId: string }; Querystring: { filter?: string } }>(
     '/api/workspaces/:workspaceId/work-items',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -270,6 +276,7 @@ export function registerPlanningRoutes(
 
   app.post<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/complete',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -298,6 +305,7 @@ export function registerPlanningRoutes(
 
   app.post<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/remove-from-agenda',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -326,6 +334,7 @@ export function registerPlanningRoutes(
 
   app.post<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/admit',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, authService, config);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -349,6 +358,7 @@ export function registerPlanningRoutes(
 
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/plan-imports',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -372,6 +382,7 @@ export function registerPlanningRoutes(
    */
   app.get<{ Params: { workspaceId: string; artifactId: string } }>(
     '/api/workspaces/:workspaceId/plan-artifacts/:artifactId',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, authService);
       const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);

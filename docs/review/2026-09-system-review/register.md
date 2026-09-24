@@ -794,7 +794,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I2
 
-**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: done (7bb4562, b0a0c0d)
+**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: done (7bb4562, b0a0c0d, d08a143)
 
 - **Resolves:** [QA-01](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-01-server-executiontestts-is-the-whole-critical-path-of-the-unit-suite-and-should-be-split-by-aggregate), [QA-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-02-orchestration-tests-poll-wall-clock-time-because-the-controller-has-no-deterministic-stepping-seam)
 - **Change:** Split server-execution.test.ts by aggregate (runs, merge gate, cycles, roadmaps, finalization, execution scopes) so files run in parallel; use the R-B2 stepping seam to remove wall-clock polling.
@@ -816,11 +816,28 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I3
 
-**Systematic authorization tests** · Phase P1 · Effort S-M · Status: open
+**Systematic authorization tests** · Phase P1 · Effort S-M · Status: done
 
 - **Resolves:** [QA-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-03-the-authorization-surface-has-no-systematic-tests-and-the-no-approve-route-test-checks-spelling), [SEC-05](findings/AGT-GIT-SEC-agents-git-security.md#sec-05-route-authorization-depends-on-every-handler-remembering-to-call-it)
 - **Change:** A table-driven sweep over every route asserting unauthenticated, wrong-workspace and insufficient-role responses; replace the "no route contains approve" spelling test with a semantic one.
 - **Done when:** Adding a route without an auth decision fails the sweep.
+- **Progress:**
+  - **Declarations.** All 123 API routes declare their access where they are registered (`config.access`, `routes/route-access.ts`): public 2, session 8, member 42, editor 61, owner 6, installation 7. `installation` covers storage and host scheduling, whose services also require the user to own every active workspace.
+  - **Startup refusal.** An `onRoute` check refuses to start the daemon when a route has no declaration, when a workspace mutation admits viewers, when a mutation other than login is public, or when a workspace route declares a non-workspace access (or the reverse). A route added without an auth decision therefore fails at registration, in every test.
+  - **One guard.** A `preHandler` runs the declared check before the handler validates input: authentication, CSRF and origin for mutations, then `requireRole` for workspace routes (it also records the denied-access audit), then installation ownership. Handlers and services keep their own checks.
+  - **The sweep.** `route-access.test.ts` requests every route in the live table (the printed route tree, compared with the declarations) as each kind of caller. It expects:
+    - no session: 401;
+    - a mutation without CSRF, or from another origin: 403;
+    - a non-member: 404;
+    - each role below the declaration: 403;
+    - the declared role: not refused.
+  - **Spelling test replaced.** The "no route contains approve" test is gone. Its replacement is semantic: every approving, merging or deciding route is a declared editor or owner mutation, which the sweep exercises.
+  - **Operator wait.** `GET …/operator-wait` has its own test: 401 without a session, 200 for a viewer, 404 for an outsider.
+  - **What the probe found.** No route was unprotected: every non-public route already returned 401 without a session, and every mutation returned 403 without CSRF. But 57 workspace mutations validated the body before checking membership or role, so a non-member or a viewer got 400 with an invalid body. The guard now answers 404 or 403 first.
+  - **Two behaviour changes.**
+    - A non-owner member reading the audit log gets 403 instead of 404, matching `requireRole`'s documented posture (non-members 404, members 403). `server-reads.test.ts` is updated.
+    - Denied reads by non-members are now always audited, including reads whose service used `findAuthorized` and did not record them.
+  - **Verified.** `pnpm test` 1,345 → 1,344 tests (the spelling test removed, four sweep tests added); `pnpm test:e2e` 22 passed plus the walkthrough rehearsal. `docs/security.md` has a "Route access" section.
 
 ### R-I4
 

@@ -10,8 +10,8 @@ import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from '../config.js';
 import type { AuthService } from '../services/auth-service.js';
 import type { FinalizationService } from '../services/finalization-service.js';
-import { authenticate, authorizeMutation } from './request-security.js';
 import { noStore, sendApiError } from './http.js';
+import { authenticate, authorizeMutation } from './request-security.js';
 export function registerFinalizationRoutes(
   app: FastifyInstance,
   auth: AuthService,
@@ -20,6 +20,7 @@ export function registerFinalizationRoutes(
 ): void {
   app.get<{ Params: { workspaceId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/plans/:planVersionId/finalizations',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -35,6 +36,7 @@ export function registerFinalizationRoutes(
   );
   app.post<{ Params: { workspaceId: string; planVersionId: string } }>(
     '/api/workspaces/:workspaceId/plans/:planVersionId/finalizations',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -53,6 +55,7 @@ export function registerFinalizationRoutes(
   );
   app.post<{ Params: { workspaceId: string; finalizationId: string } }>(
     '/api/workspaces/:workspaceId/finalizations/:finalizationId/control',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

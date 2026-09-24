@@ -160,6 +160,13 @@ Exit criteria:
   - `pnpm test` fell from 426 s to 71–76 s over six readings, with the machine loaded (load average
     6–20). 1,341 tests pass before and after.
   - The exit criterion "`pnpm test` under about 90 s" is met.
+- **R-I3: done.**
+  - Every API route declares its access, and the daemon will not start with an undeclared one.
+  - One guard applies the declared checks before input validation.
+  - A sweep requests all 123 routes as an anonymous caller, a cross-origin caller, a non-member and
+    each role.
+  - No unprotected route was found. 57 mutations answered outsiders with a validation error before
+    refusing them; the guard now refuses them first.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 

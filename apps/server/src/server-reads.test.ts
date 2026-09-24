@@ -404,6 +404,6 @@ describe('non-owner members (PERF-15)', () => {
       expect(response.statusCode, `${path}: ${response.body}`).toBe(200);
     }
     expect((await f.get('/api/workspaces', editor)).statusCode).toBe(200);
-    expect((await f.get(`/api/workspaces/${f.workspaceId}/audit`, editor)).statusCode).toBe(404);
+    expect((await f.get(`/api/workspaces/${f.workspaceId}/audit`, editor)).statusCode).toBe(403);
   });
 });

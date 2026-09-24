@@ -12,6 +12,7 @@ export function registerOperatorWaitRoutes(
 ) {
   app.get<{ Params: { workspaceId: string }; Querystring: { days?: string } }>(
     '/api/workspaces/:workspaceId/operator-wait',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const id = workspaceIdSchema.safeParse(request.params.workspaceId);

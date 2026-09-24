@@ -203,6 +203,7 @@ export function registerDiagnosticsRoutes(
   });
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/diagnostics',
+    { config: { access: 'owner' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

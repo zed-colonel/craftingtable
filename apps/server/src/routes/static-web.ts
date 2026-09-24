@@ -59,7 +59,7 @@ export function registerStaticWebRoutes(app: FastifyInstance, distDir: string): 
       .send(createReadStream(path));
   };
 
-  app.get('/*', (request, reply) => {
+  app.get('/*', { config: { access: 'public' } }, (request, reply) => {
     const requestPath = request.url.split('?')[0] ?? '/';
     if (requestPath === '/api' || requestPath.startsWith('/api/')) {
       return reply.code(404).send({ error: { code: 'not-found', message: 'Resource not found' } });

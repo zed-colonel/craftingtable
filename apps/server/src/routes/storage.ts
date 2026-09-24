@@ -19,6 +19,7 @@ export function registerStorageRoutes(
 ): void {
   app.get<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/storage',
+    { config: { access: 'installation' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -28,6 +29,7 @@ export function registerStorageRoutes(
   );
   app.post<{ Params: { workspaceId: string } }>(
     '/api/workspaces/:workspaceId/storage',
+    { config: { access: 'installation' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -43,6 +45,7 @@ export function registerStorageRoutes(
   for (const action of ['scan', 'clean', 'backup'] as const) {
     app.post<{ Params: { workspaceId: string } }>(
       `/api/workspaces/:workspaceId/storage/${action}`,
+      { config: { access: 'installation' } },
       async (request, reply) => {
         const context = authorizeMutation(request, auth, config);
         const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

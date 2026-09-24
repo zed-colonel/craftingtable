@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentBackend } from '@craftingtable/agents';
-import type { GitOperations } from '@craftingtable/git';
 import { CYCLE_ATTENTION } from '@craftingtable/domain';
+import type { GitOperations } from '@craftingtable/git';
 import { openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import { createServices, type ServiceSet } from './composition.js';
@@ -184,4 +184,31 @@ export function untypedStops(storage: ReturnType<typeof openCraftingTableStorage
         problems.push(`entry hold: ${hold.reason.slice(0, 80)}`);
   }
   return problems;
+}
+
+/**
+ * Rebuilds full route paths from Fastify's prefix-nested route tree.
+ *
+ * Each nesting level is four characters of indent, and each node contributes a
+ * path fragment that must be concatenated with its ancestors.
+ */
+export function routeTable(printed: string): readonly string[] {
+  const stack: string[] = [];
+  const routes: string[] = [];
+  for (const line of printed.split('\n')) {
+    const match = /^([│\s]*)(?:├──|└──)\s(\S*)\s\(([^)]+)\)\s*$/.exec(line);
+    if (match === null) {
+      continue;
+    }
+    const depth = (match[1] as string).length / 4;
+    stack.length = depth;
+    stack[depth] = match[2] as string;
+    const url = stack.join('');
+    for (const method of (match[3] as string).split(', ')) {
+      if (method !== 'HEAD' && method !== 'OPTIONS') {
+        routes.push(`${method} ${url}`);
+      }
+    }
+  }
+  return routes;
 }

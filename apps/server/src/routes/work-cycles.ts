@@ -1,18 +1,18 @@
 import {
-  controlWorkCycleRequestSchema,
-  baselinePreviewSchema,
   baselineEvidenceSchema,
-  prepareBaselineRequestSchema,
-  recoverDesignRequestSchema,
+  baselinePreviewSchema,
+  controlWorkCycleRequestSchema,
   designRecoveryPreviewSchema,
   integrationResolutionRequestSchema,
+  prepareBaselineRequestSchema,
+  recoverDesignRequestSchema,
+  scopeRepairPreviewSchema,
+  scopeRepairRequestSchema,
   startWorkCycleRequestSchema,
   workCycleResponseSchema,
   workCyclesResponseSchema,
   workItemIdSchema,
   workspaceIdSchema,
-  scopeRepairPreviewSchema,
-  scopeRepairRequestSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from '../config.js';
@@ -29,6 +29,7 @@ export function registerWorkCycleRoutes(
 ): void {
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -42,6 +43,7 @@ export function registerWorkCycleRoutes(
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -65,6 +67,7 @@ export function registerWorkCycleRoutes(
   // detail (the shell's attention list). With it: that work item's full cycles.
   app.get<{ Params: { workspaceId: string }; Querystring: { workItemId?: string } }>(
     '/api/workspaces/:workspaceId/cycles',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -88,6 +91,7 @@ export function registerWorkCycleRoutes(
   );
   app.post<{ Params: { workspaceId: string; workItemId: string } }>(
     '/api/workspaces/:workspaceId/work-items/:workItemId/cycles',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -106,6 +110,7 @@ export function registerWorkCycleRoutes(
   );
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-evidence',
+    { config: { access: 'member' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -119,6 +124,7 @@ export function registerWorkCycleRoutes(
   );
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -132,6 +138,7 @@ export function registerWorkCycleRoutes(
   );
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authenticate(request, auth);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -145,6 +152,7 @@ export function registerWorkCycleRoutes(
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -166,7 +174,7 @@ export function registerWorkCycleRoutes(
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/design-recovery',
-    { bodyLimit: 2 * 1024 * 1024 },
+    { config: { access: 'editor' }, bodyLimit: 2 * 1024 * 1024 },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -185,6 +193,7 @@ export function registerWorkCycleRoutes(
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/control',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
@@ -221,6 +230,7 @@ export function registerWorkCycleRoutes(
   );
   app.post<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/integration-resolution',
+    { config: { access: 'editor' } },
     async (request, reply) => {
       const context = authorizeMutation(request, auth, config);
       const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);

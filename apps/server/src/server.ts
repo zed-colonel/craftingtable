@@ -22,6 +22,7 @@ import { registerPackageImportRoutes } from './routes/package-imports.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerRoadmapRoutes } from './routes/roadmaps.js';
 import { registerRuntimeEvidenceRoutes } from './routes/runtime-evidence.js';
+import { installRouteAccess } from './routes/route-access.js';
 import { registerStaticWebRoutes } from './routes/static-web.js';
 import { registerStorageRoutes } from './routes/storage.js';
 import { registerWorkCycleRoutes } from './routes/work-cycles.js';
@@ -129,6 +130,7 @@ export function buildServer(
           },
         }) as unknown as FastifyInstance);
   void app.register(cookie);
+  installRouteAccess(app, deps.authService, deps.workspaceService, config);
   registerDiagnosticsRoutes(app, deps.authService, deps.workspaceService, new DaemonDiagnostics());
 
   app.addHook('onReady', async () => {

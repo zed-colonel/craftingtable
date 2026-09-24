@@ -862,7 +862,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I6
 
-**Gate on lint** · Phase P1 · Effort S-M · Status: partial
+**Gate on lint** · Phase P1 · Effort S-M · Status: done (3ac6242, 1ff9785, a879d09)
 
 - **Resolves:** [QA-09](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-09-lint-warnings-do-not-gate-the-build-and-666-have-accumulated)
 - **Change:** Burn down the 666 Biome warnings (mostly mechanical) and make warnings fail pnpm check.
@@ -881,6 +881,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Amended 2026-09-24: optional chains.** The 16 `useOptionalChain` sites were reviewed one by one. Each tested value is an object or `undefined`, where `!x || x.p` and `x?.p` agree. Two exceptions:
   - Two `ancestor` checks cover `'' | false | GitResult`, where TypeScript refuses `?.`. They became `typeof ancestor !== 'object' || …`, which is equivalent, and the compiler confirms `null` is not possible.
   - `repo?.defaultBranch` differs from `repo && repo.defaultBranch` only for an empty repository id, which validation never admits.
+- **Amended 2026-09-24: gated; done.**
+  - `noBannedTypes`: `{}`, used as "no fields yet", is now `Record<string, never>`.
+  - `noDescendingSpecificity`: the general `.section-body` rule moves above the two more specific `.section-body` rules. Specificity decides between them either way, so rendering is unchanged.
+  - **The gate.** `pnpm lint` (part of `pnpm check`) now runs `biome lint --error-on-warnings`. The count is 0 warnings and 2 infos (the `useLiteralKeys` private reach above). Adding an unused import made the command exit 1.
 
 ### R-I7
 

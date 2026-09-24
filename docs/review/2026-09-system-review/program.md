@@ -167,6 +167,10 @@ Exit criteria:
     each role.
   - No unprotected route was found. 57 mutations answered outsiders with a validation error before
     refusing them; the guard now refuses them first.
+- **R-I6: done.**
+  - 671 Biome warnings are down to 0. `noNonNullAssertion` (646 of them) is turned off with its reason
+    in `biome.jsonc`. The other 25 had mechanical, reviewed fixes.
+  - `pnpm lint` now fails on any warning.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 

@@ -1379,7 +1379,7 @@ export class RuntimeEvidenceService {
       (input.subjectCommit && requiredCode.length === 1
         ? [{ alias: requiredCode[0]!, commitSha: input.subjectCommit }]
         : []);
-    let source: {} | { sourceRunDigest: string; sourceRunCommit: string } = {};
+    let source: Record<string, never> | { sourceRunDigest: string; sourceRunCommit: string } = {};
     if (input.sourceRunId) {
       const run = this.storage.execution.runs.find(ws, asAgentRunId(input.sourceRunId));
       const turn =

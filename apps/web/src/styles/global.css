@@ -1996,16 +1996,16 @@ button:disabled {
   justify-content: flex-end;
 }
 
-.section-head + .section-body,
-.section-details > .section-body {
-  margin-top: var(--space-3);
-}
-
 .section-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
   min-width: 0;
+}
+
+.section-head + .section-body,
+.section-details > .section-body {
+  margin-top: var(--space-3);
 }
 
 .section-body > h4:first-child {

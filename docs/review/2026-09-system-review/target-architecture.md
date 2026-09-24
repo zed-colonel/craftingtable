@@ -268,4 +268,9 @@ requirement evaluator, instead of 22 services reading raw JSON (R-F1). Features 
 from typed fields with explicit defaults, not from English strings and magic identifiers
 (R-F2). Today's identifiers remain the defaults, so the live map behaves identically.
 
-Format changes themselves are the last resort (R-F5, FMT Appendix A).
+Format changes are scheduled in two steps:
+- **R-F5:** backward-compatible typed additions (decision points, capabilities, cardinalities),
+  after the compiled model exists.
+- **R-F6:** the Studio's format family.
+
+Both follow FMT Appendix A. v0.3 stays supported through the compiled model.

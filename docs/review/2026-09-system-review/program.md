@@ -75,7 +75,7 @@ Exit criteria:
 | R-A7 | Action gating and one transition gate. Builds on R-A3's codes. |
 | R-B3 | Cycle owner field; roadmap state references its definition by revision. |
 | R-B8 | Remove the dead CT-04A1 inspector and legacy finalization for new starts. |
-| R-B9, R-I8 | Drain and auto-resume on clean restart; deploy from a build, not the development checkout. Together they end "every commit stops the roadmap". |
+| R-B9, R-I8 | Drain and auto-resume on clean restart; `pnpm deploy:daemon <ref>` into a separate deploy checkout, and a data-directory lock so only one daemon can ever use the live database. Together they end "every commit stops the roadmap". |
 | R-C1, R-C2, R-C8 | Measure operator wait; automatic re-prompt on output-format failures; scheduled retry for known quota resets. |
 | R-G7 | Stop cold Rust builds on every step. |
 | R-H2, R-H3 | Stop storing raw vendor lines; add upcasters, write validation and `db:verify`. |
@@ -126,7 +126,9 @@ Exit criteria:
 
 R-B4 (pure decision core, stop record and step history), R-B5 (event-driven kernel), R-B6
 (scoped consistency instead of whole-roadmap pause), R-B7 (service decomposition), R-F1 full
-(compiled map model and one evaluator), R-D6 (only if measurements still call for it).
+(compiled map model and one evaluator), R-F5 (backward-compatible format additions: explicit
+operator decision points, typed capabilities, relaxed cardinalities; format ADR, v0.3 keeps
+working), R-D6 (only if measurements still call for it).
 
 Exit criteria:
 - `reconcile` is a thin shell.
@@ -135,16 +137,20 @@ Exit criteria:
 - `WorkCycle` optional-field count has fallen.
 - The golden replay and format tests are unchanged.
 
-### P5: Generalization for the Development Studio (last resort for formats)
+### P5: The Development Studio's foundations
 
-R-F5 (format generalization; operator ADR required) and R-G8 (backend capability model and
-persistent-agent seam). Only after P0–P4, and only where the Studio's first real plans show
-the need.
+R-F6 (the Studio format family: plan v2 and stack documents, planning feedback as amendment
+patches, generic upstream model, scheduling hints, canonicalization v2) is the Studio's opening
+design step, recorded as an operator-approved format ADR before Studio UI work begins. R-G8
+(backend capability model and persistent-agent seam) follows where the Studio's first real
+plans show the need. The operator decided on 2026-09-23 that the Appendix A format improvements
+are scheduled work, split between R-F5 (P4) and R-F6 (P5), not last-resort items.
 
 ## Dependencies worth knowing
 
 ```text
 R-F4 golden format tests ─► every item that touches map/plan interpretation (R-F1, R-F2, R-C6, R-C7)
+R-F1 compiled map model ─► R-F5 format additions ─► R-F6 Studio format family
 R-B2 harness ───────────► R-B4, R-B5, R-B7, R-I2
 R-A3 typed attention ───► R-A4 ─► R-A5 ─► R-A6
                      ├──► R-A7, R-C1, R-E6 labels, R-E3 attention overlay

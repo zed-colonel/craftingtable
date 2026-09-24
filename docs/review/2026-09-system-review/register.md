@@ -54,7 +54,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-F2](#r-f2) | P3 | M | open | Typed feature recognition instead of prose and magic identifiers |
 | [R-F3](#r-f3) | P0/P1 | S-M | partial (7d44b42, 0ef1c95) | Format ingestion bugs and test honesty |
 | [R-F4](#r-f4) | P0 | S | partial (9b4be64) | Commit the format specification and golden conformance tests |
-| [R-F5](#r-f5) | P5 | L | open | (Last resort) format generalization for the Development Studio |
+| [R-F5](#r-f5) | P4 | M | open | Backward-compatible format additions before the Studio |
+| [R-F6](#r-f6) | P5 | L | open | The Studio format family (first step of the Development Studio) |
 | **G** | | | | **Agent execution integrity and security** |
 | [R-G1](#r-g1) | P0 | S-M | done (3e34531, c57c51a) | Execution safety fixes that can lose or corrupt work |
 | [R-G2](#r-g2) | P0 | S | done (d0f66ef) | Make automatic provider retry actually fire |
@@ -81,7 +82,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I5](#r-i5) | P1 | S-M | open | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | open | Gate on lint |
 | [R-I7](#r-i7) | P1-P3 | M | open | Documentation reset to current state |
-| [R-I8](#r-i8) | P1 | S-M | open | Deploy from a build, not the development checkout |
+| [R-I8](#r-i8) | P1 | S-M | open | Deploy from a separate checkout; one daemon per data directory |
 
 ## Workstream A — Attention, decisions and notifications (pain points 1 and 3)
 
@@ -426,11 +427,19 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-F5
 
-**(Last resort) format generalization for the Development Studio** · Phase P5 · Effort L · Status: open
+**Backward-compatible format additions before the Studio** · Phase P4 · Effort M · Status: open
 
-- **Resolves:** [FMT-05](findings/FMT-plan-and-roadmap-formats.md#fmt-05-the-concurrency-map-format-is-hard-wired-to-the-aqwiexo-stack-shape), [FMT-06](findings/FMT-plan-and-roadmap-formats.md#fmt-06-runtime-pinning-is-cargo-only-and-forced-on-every-map), [FMT-19](findings/FMT-plan-and-roadmap-formats.md#fmt-19-operator-decision-points-are-implicit-in-the-formats)
-- **Change:** See Appendix A of the FMT report: allow single-repository slicing and first-ever maps without a previous-definition snapshot or implemented upstream; make runtime pinning optional and pluggable; declare operator decision points explicitly; add decomposition-feedback records. v0.3 must keep importing and executing unchanged.
-- **Done when:** Operator-approved format ADR; v0.3 fixtures still pass.
+- **Resolves:** [FMT-19](findings/FMT-plan-and-roadmap-formats.md#fmt-19-operator-decision-points-are-implicit-in-the-formats), [FMT-04](findings/FMT-plan-and-roadmap-formats.md#fmt-04-automation-features-are-enabled-by-matching-prose-and-magic-identifiers-in-the-map), [FMT-05](findings/FMT-plan-and-roadmap-formats.md#fmt-05-the-concurrency-map-format-is-hard-wired-to-the-aqwiexo-stack-shape)
+- **Change:** Operator-approved on 2026-09-23 (no longer a last resort). After the compiled map model (R-F1) exists, add optional, typed fields so maps declare what code currently infers (FMT report Appendix A #2, #3, #6, #7, #9): explicit operator decision points {id, question, options, authority, blocks, evidence_contract, default}; typed evidence review contracts, reviewer-role purposes, resource adapters, slice verification mode and repository build system instead of prose signatures and magic ids; relaxed cardinalities (no mandatory previous definition, zero resource locks, single-repository stacks); map ids that accept every valid plan id; bounded plan-bundle strings with explicit errors and recognized repository/baseline/integration-branch fields. Record it as a format ADR (v0.3 superset or v0.4); every v0.3 map and plan bundle keeps importing and executing unchanged, and a missing field falls back to today's inference in one place.
+- **Done when:** Format ADR accepted; golden conformance tests (R-F4) unchanged for v0.3; a map using the new fields drives decision points, reviewer roles and resources without any prose matching; operator decision points feed the typed attention/inbox (R-A3/R-A5).
+
+### R-F6
+
+**The Studio format family (first step of the Development Studio)** · Phase P5 · Effort L · Status: open
+
+- **Resolves:** [FMT-05](findings/FMT-plan-and-roadmap-formats.md#fmt-05-the-concurrency-map-format-is-hard-wired-to-the-aqwiexo-stack-shape), [FMT-06](findings/FMT-plan-and-roadmap-formats.md#fmt-06-runtime-pinning-is-cargo-only-and-forced-on-every-map), [FMT-11](findings/FMT-plan-and-roadmap-formats.md#fmt-11-the-studio-seam-is-unused-and-produces-a-different-definition-digest), [FMT-18](findings/FMT-plan-and-roadmap-formats.md#fmt-18-canonical-json-for-source-record-fingerprints-is-an-undocumented-cross-language-contract)
+- **Change:** The opening design step of the Development Studio, since these define what the Studio produces (FMT report Appendix A #1, #4, #5, #8, #10): one format family (plan v2 with optional slices, checkpoints, evidence profiles and resources; a stack document that references plan versions by digest and adds only cross-plan edges, targets and upstream bindings; a roadmap = stack/plan + target + settings); structured planning feedback from agents mapped to amendment patches instead of re-imported ZIPs; a generic upstream/baseline model with pluggable runtime pinning instead of the AQ/Cargo-specific shape; machine-readable scheduling hints; RFC 8785 canonicalization with a second digest version so existing digests stay valid. The Studio and ZIP import feed the same validation and adoption path (fixes the FMT-11 seam divergence). v0.3 import stays supported forever through the compiled model.
+- **Done when:** Studio format ADR accepted before Studio UI work begins; the Studio seam and ZIP import produce identical definitions for identical content; v0.3 fixtures still pass.
 
 ## Workstream G — Agent execution integrity and security
 
@@ -629,11 +638,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I8
 
-**Deploy from a build, not the development checkout** · Phase P1 · Effort S-M · Status: open
+**Deploy from a separate checkout; one daemon per data directory** · Phase P1 · Effort S-M · Status: open
 
 - **Resolves:** [REPO-04](findings/QA-DOC-REPO-tests-docs-hygiene.md#repo-04-the-production-daemon-runs-from-the-development-checkout-and-its-build-output), [SEC-10](findings/AGT-GIT-SEC-agents-git-security.md#sec-10-the-daemon-runs-straight-from-the-editable-development-checkout), [REPO-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#repo-03-legacy-process-directories-and-branches-are-still-at-top-level)
-- **Change:** Run the daemon from a separate checkout or built artifact updated by an explicit deploy command (with the R-B9 drain), so editing or running tsc in the dev checkout never changes what production loads; archive the CT-01..03 process directories and merged CT-era branches.
-- **Done when:** A tsc -b in the dev checkout cannot affect the running daemon.
+- **Change:** Run the daemon from a separate deploy checkout updated by an explicit `pnpm deploy:daemon <ref>` command (fetch the exact ref from the dev repo, install, build, restart the single systemd user unit, record the deployed commit; rollback = deploy the previous commit; add the R-B9 drain when it exists), so editing or running tsc in the dev checkout never changes what production loads. Take an exclusive lock on the data directory at daemon start, before migrations and restart recovery: today a stray second daemon on the same data directory (e.g. `pnpm start` in another checkout) would mark live runs interrupted and roadmaps needs-attention before failing to bind the port. `pnpm dev` defaults to its own port and data directory. Archive the CT-01..03 process directories and merged CT-era branches.
+- **Done when:** A tsc -b in the dev checkout cannot affect the running daemon; a second daemon on the same data directory exits before touching the database (test); deploy and rollback are one command each.
 
 ## Finding index
 
@@ -732,21 +741,21 @@ All 202 findings, in report order. Severity and status are the reviewer's; "Item
 | [FMT-01](findings/FMT-plan-and-roadmap-formats.md#fmt-01-no-compiled-format-model--22-services-re-interpret-raw-map-json) | high | CONFIRMED | L | [R-F1](#r-f1) | No compiled format model — 22 services re-interpret raw map JSON |
 | [FMT-02](findings/FMT-plan-and-roadmap-formats.md#fmt-02-requirement-satisfaction-is-implemented-three-times-with-drift) | high | CONFIRMED | M | [R-F1](#r-f1) | Requirement satisfaction is implemented three times, with drift |
 | [FMT-03](findings/FMT-plan-and-roadmap-formats.md#fmt-03-validator-milestone-graph-differs-from-the-domain-milestone-model-demonstrated) | medium | CONFIRMED | S | [R-F1](#r-f1) | Validator milestone graph differs from the domain milestone model (demonstrated) |
-| [FMT-04](findings/FMT-plan-and-roadmap-formats.md#fmt-04-automation-features-are-enabled-by-matching-prose-and-magic-identifiers-in-the-map) | high | CONFIRMED |  | [R-F2](#r-f2) | Automation features are enabled by matching prose and magic identifiers in the map |
-| [FMT-05](findings/FMT-plan-and-roadmap-formats.md#fmt-05-the-concurrency-map-format-is-hard-wired-to-the-aqwiexo-stack-shape) | high | CONFIRMED | L | [R-F5](#r-f5) | The concurrency-map format is hard-wired to the AQ/WI/EXO stack shape |
-| [FMT-06](findings/FMT-plan-and-roadmap-formats.md#fmt-06-runtime-pinning-is-cargo-only-and-forced-on-every-map) | medium | CONFIRMED | M | [R-F5](#r-f5) | Runtime pinning is Cargo-only and forced on every map |
+| [FMT-04](findings/FMT-plan-and-roadmap-formats.md#fmt-04-automation-features-are-enabled-by-matching-prose-and-magic-identifiers-in-the-map) | high | CONFIRMED |  | [R-F2](#r-f2), [R-F5](#r-f5) | Automation features are enabled by matching prose and magic identifiers in the map |
+| [FMT-05](findings/FMT-plan-and-roadmap-formats.md#fmt-05-the-concurrency-map-format-is-hard-wired-to-the-aqwiexo-stack-shape) | high | CONFIRMED | L | [R-F5](#r-f5), [R-F6](#r-f6) | The concurrency-map format is hard-wired to the AQ/WI/EXO stack shape |
+| [FMT-06](findings/FMT-plan-and-roadmap-formats.md#fmt-06-runtime-pinning-is-cargo-only-and-forced-on-every-map) | medium | CONFIRMED | M | [R-F6](#r-f6) | Runtime pinning is Cargo-only and forced on every map |
 | [FMT-07](findings/FMT-plan-and-roadmap-formats.md#fmt-07-effective-roadmap-automation-is-resolved-three-different-ways) | medium | CONFIRMED | S | [R-B1](#r-b1) | Effective roadmap automation is resolved three different ways |
 | [FMT-08](findings/FMT-plan-and-roadmap-formats.md#fmt-08-work-item-phase-is-unbounded-in-the-normalizer-but-64-in-the-database-and-wire-contract) | medium | CONFIRMED | S | [R-F3](#r-f3) | Work-item `phase` is unbounded in the normalizer but ≤64 in the database and wire contract |
 | [FMT-09](findings/FMT-plan-and-roadmap-formats.md#fmt-09-required-dependency-depends_on-enforcement-is-duplicated-in-six-places) | medium | CONFIRMED | M | [R-F1](#r-f1) | Required-dependency (`depends_on`) enforcement is duplicated in six places |
 | [FMT-10](findings/FMT-plan-and-roadmap-formats.md#fmt-10-producer-sets-and-scope-requirementcase-sets-are-re-derived-in-several-places) | low | CONFIRMED | S | [R-F1](#r-f1) | Producer sets and scope requirement/case sets are re-derived in several places |
-| [FMT-11](findings/FMT-plan-and-roadmap-formats.md#fmt-11-the-studio-seam-is-unused-and-produces-a-different-definition-digest) | medium | CONFIRMED | M | [R-F3](#r-f3) | The "Studio seam" is unused and produces a different definition digest |
+| [FMT-11](findings/FMT-plan-and-roadmap-formats.md#fmt-11-the-studio-seam-is-unused-and-produces-a-different-definition-digest) | medium | CONFIRMED | M | [R-F3](#r-f3), [R-F6](#r-f6) | The "Studio seam" is unused and produces a different definition digest |
 | [FMT-12](findings/FMT-plan-and-roadmap-formats.md#fmt-12-no-in-repo-format-specification-dead-and-misleading-format-codedocs) | low | CONFIRMED | S | [R-F4](#r-f4) | No in-repo format specification; dead and misleading format code/docs |
 | [FMT-13](findings/FMT-plan-and-roadmap-formats.md#fmt-13-the-same-plan-imported-by-discrete-upload-and-by-zip-gets-different-digests) | low | CONFIRMED | S | [R-F3](#r-f3) | The same plan imported by discrete upload and by ZIP gets different digests |
 | [FMT-14](findings/FMT-plan-and-roadmap-formats.md#fmt-14-silent-truncation-of-plan-fields-that-agents-treat-as-the-contract) | low | CONFIRMED | S | [R-F3](#r-f3) | Silent truncation of plan fields that agents treat as the contract |
 | [FMT-15](findings/FMT-plan-and-roadmap-formats.md#fmt-15-execution-tests-bypass-the-importer-with-definitions-it-would-reject) | medium | CONFIRMED | M | [R-F3](#r-f3) | Execution tests bypass the importer with definitions it would reject |
 | [FMT-16](findings/FMT-plan-and-roadmap-formats.md#fmt-16-roadmap-entry-limits-are-inconsistent-and-settings-are-duplicated-in-every-entry-and-revision) | low | CONFIRMED | M | [R-F3](#r-f3) | Roadmap entry limits are inconsistent and settings are duplicated in every entry and revision |
 | [FMT-17](findings/FMT-plan-and-roadmap-formats.md#fmt-17-stack-plan-accepted-evidence-is-bound-to-a-digest-of-the-whole-roadmap-definition) | medium | CONFIRMED | S | [R-C6](#r-c6) | STACK-PLAN-ACCEPTED evidence is bound to a digest of the whole roadmap definition |
-| [FMT-18](findings/FMT-plan-and-roadmap-formats.md#fmt-18-canonical-json-for-source-record-fingerprints-is-an-undocumented-cross-language-contract) | low | CONFIRMED | S | [R-F4](#r-f4) | Canonical JSON for source-record fingerprints is an undocumented cross-language contract |
+| [FMT-18](findings/FMT-plan-and-roadmap-formats.md#fmt-18-canonical-json-for-source-record-fingerprints-is-an-undocumented-cross-language-contract) | low | CONFIRMED | S | [R-F4](#r-f4), [R-F6](#r-f6) | Canonical JSON for source-record fingerprints is an undocumented cross-language contract |
 | [FMT-19](findings/FMT-plan-and-roadmap-formats.md#fmt-19-operator-decision-points-are-implicit-in-the-formats) | medium | CONFIRMED | M | [R-F5](#r-f5) | Operator decision points are implicit in the formats |
 | [HIST-01](findings/HIST-history-and-live-usage.md#hist-01-development-proceeded-by-patching-each-live-blockage-with-new-state-panels-and-vocabulary-spaghetti-fication-measured) | high | CONFIRMED | L | [R-B4](#r-b4) | Development proceeded by patching each live blockage with new state, panels and vocabulary ("spaghetti-fication" measured) |
 | [HIST-02](findings/HIST-history-and-live-usage.md#hist-02-wall-clock-throughput-is-dominated-by-waiting-for-the-operator-not-by-agent-work-or-controller-latency) | high | CONFIRMED | M | [R-A4](#r-a4), [R-C1](#r-c1) | Wall-clock throughput is dominated by waiting for the operator, not by agent work or controller latency |

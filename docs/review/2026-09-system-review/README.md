@@ -17,7 +17,7 @@ work lands. Do not rewrite the findings files; they are evidence captured at `bf
 
 | File | Use it for |
 |---|---|
-| [register.md](register.md) | The backlog: 65 remediation items (`R-A1` … `R-I8`) with phase, effort, status, the findings each resolves, what to change, and a testable "done when". Also indexes all 202 findings. |
+| [register.md](register.md) | The backlog: 66 remediation items (`R-A1` … `R-I8`) with phase, effort, status, the findings each resolves, what to change, and a testable "done when". Also indexes all 202 findings. |
 | [program.md](program.md) | The order of work: phases, dependencies, and baseline metrics that show whether remediation is working. |
 | [target-architecture.md](target-architecture.md) | The target controller, attention model and read side the items converge on. |
 | [target-ui.md](target-ui.md) | The target information architecture: the "Needs you" inbox, the roadmap board, and the routes. |
@@ -215,5 +215,8 @@ you" inbox, ordered by how much work each one unblocks. Give progress one home, 
 board that overlays live activity and attention on the dependency graph. Then shrink the
 controller behind a characterization harness into a pure decision core and an event-driven
 kernel. Make the read side cheap and event-scoped. None of this changes the plan-bundle or
-v0.3 map formats. Format changes are confined to a last-resort appendix
-([FMT report, Appendix A](findings/FMT-plan-and-roadmap-formats.md)).
+v0.3 map formats. The format improvements in
+[FMT report, Appendix A](findings/FMT-plan-and-roadmap-formats.md) are scheduled work, which
+the operator approved on 2026-09-23. Additions that make execution explicit come after the
+compiled map model (R-F5). The format family the Studio will produce is the Studio's first
+design step (R-F6). v0.3 keeps importing and executing throughout.

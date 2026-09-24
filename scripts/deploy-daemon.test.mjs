@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { dataDirectory, drainDaemon } from './deploy-daemon.mjs';
+import { dataDirectory, drainDaemon, timeSpanSeconds, unitStopProblems } from './deploy-daemon.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./deploy-daemon.mjs', import.meta.url));
 const GIT_ENV = {
@@ -176,5 +176,26 @@ describe('deploy:daemon drain handshake (R-B9)', () => {
     expect(dataDirectory({ CRAFTINGTABLE_DEPLOY_DATA_DIR: '/x/y' }, {})).toBe('/x/y');
     expect(dataDirectory({}, { CRAFTINGTABLE_DATA_DIR: '/srv/ct' })).toBe('/srv/ct');
     expect(dataDirectory({ XDG_DATA_HOME: '/xdg' }, {})).toBe('/xdg/craftingtable');
+  });
+});
+
+describe('unit stop settings (R-B9)', () => {
+  it('names what keeps a plain systemctl stop from draining', () => {
+    expect(
+      unitStopProblems({
+        killMode: 'control-group',
+        timeoutStop: '30s',
+        execStart: '{ path=/usr/bin/env ; argv[]=/usr/bin/env pnpm start ; }',
+      }),
+    ).toHaveLength(3);
+    expect(
+      unitStopProblems({
+        killMode: 'mixed',
+        timeoutStop: '5min',
+        execStart: '{ path=/usr/bin/env ; argv[]=/usr/bin/env node apps/server/dist/index.js ; }',
+      }),
+    ).toEqual([]);
+    expect(timeSpanSeconds('1min 30s')).toBe(90);
+    expect(timeSpanSeconds('infinity')).toBe(Number.POSITIVE_INFINITY);
   });
 });

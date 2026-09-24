@@ -302,6 +302,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Not fixed (low):**
     - A deadline that passes during a long `--when-idle` drain cancels the resumed turn at once, as a generic incomplete step.
     - The replay tool copies a migrated snapshot twice, because of the pre-migration copy.
+- **Amended 2026-09-24 (operator decision: "your best recommendation"):**
+  - **The unit should run node directly**, `ExecStart=/usr/bin/env node apps/server/dist/index.js`. This was verified: the built daemon starts, drains on SIGTERM and exits.
+  - **It should also set** `KillMode=mixed` and `TimeoutStopSec=300`.
+  - **Where it is recorded.** `docs/operations.md` has the unit and the `drain.conf` drop-in. `pnpm deploy:daemon --status` checks all three settings (`unitStopProblems`) and prints the drop-in.
+  - **The live unit is unchanged**, because the operator deploys only after P1 lands. Apply the drop-in, then `systemctl --user daemon-reload`, together with that deploy.
 
 ### R-B10
 

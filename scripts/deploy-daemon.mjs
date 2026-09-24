@@ -448,19 +448,73 @@ function status() {
   return 0;
 }
 
+/** The drop-in that lets a plain `systemctl stop`, restart or reboot drain (R-B9). */
+export const DRAIN_DROP_IN = `[Service]
+# Run node itself so SIGTERM reaches the daemon, not a pnpm wrapper.
+ExecStart=
+ExecStart=/usr/bin/env node apps/server/dist/index.js
+# Signal only the daemon; it drains and ends its agents itself.
+KillMode=mixed
+# Above the drain bound (CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS, default 180) plus shutdown.
+TimeoutStopSec=300
+`;
+
+/**
+ * What keeps a stop outside `pnpm deploy:daemon` from draining, for the unit's current
+ * settings: a wrapper that may not forward SIGTERM, a kill mode that signals the agents
+ * directly, or a stop timeout shorter than the drain bound.
+ */
+export function unitStopProblems({ killMode, timeoutStop, execStart, drainSeconds = 180 }) {
+  const problems = [];
+  if (/\bpnpm\b/.test(execStart ?? ''))
+    problems.push('ExecStart runs pnpm, which may not forward SIGTERM');
+  if (killMode !== 'mixed')
+    problems.push(`KillMode=${killMode || 'control-group'} signals the agents directly`);
+  const seconds = timeSpanSeconds(timeoutStop);
+  if (seconds < drainSeconds + 30)
+    problems.push(
+      `TimeoutStopSec=${timeoutStop || 'unknown'} is below the ${drainSeconds} s drain bound plus shutdown`,
+    );
+  return problems;
+}
+
+/** Seconds in a systemd time span as `systemctl show` prints it ("30s", "5min", "1min 30s"). */
+export function timeSpanSeconds(span) {
+  if (span === 'infinity') return Number.POSITIVE_INFINITY;
+  const units = { us: 1e-6, ms: 1e-3, s: 1, min: 60, h: 3600 };
+  let total = 0;
+  let matched = false;
+  for (const [, value, unit] of String(span ?? '').matchAll(
+    /(\d+(?:\.\d+)?)\s*(us|ms|min|s|h)\b/g,
+  )) {
+    total += Number(value) * units[unit];
+    matched = true;
+  }
+  return matched ? total : 0;
+}
+
 /**
  * Deploys drain through the request file. A plain `systemctl stop` or a reboot drains
  * only when systemd signals the daemon alone and waits long enough for it.
  */
 function stopAdvice() {
   try {
-    const killMode = run('systemctl', ['--user', 'show', unitName(), '-p', 'KillMode', '--value']);
-    if (killMode === 'mixed') return undefined;
+    const show = (property) =>
+      run('systemctl', ['--user', 'show', unitName(), '-p', property, '--value']);
+    const drainSeconds = Number(unitEnvironment().CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS ?? 180);
+    const problems = unitStopProblems({
+      killMode: show('KillMode'),
+      timeoutStop: show('TimeoutStopUSec'),
+      execStart: show('ExecStart'),
+      drainSeconds,
+    });
+    if (problems.length === 0) return undefined;
     return (
-      `Note: the ${unitName()} unit uses KillMode=${killMode}, so a plain systemctl stop or reboot ` +
-      'signals the agents directly and cannot drain them. For drained restarts outside ' +
-      '`pnpm deploy:daemon`, set KillMode=mixed and a TimeoutStopSec above the drain bound ' +
-      '(CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS, default 180) in a drop-in.'
+      `Note: a plain systemctl stop, restart or reboot of ${unitName()} cannot drain live agents ` +
+      `(${problems.join('; ')}). Deploys still drain through their request file. To drain on ` +
+      `every stop, add ~/.config/systemd/user/${unitName().replace(/\.service$/, '')}.service.d/drain.conf:\n\n${DRAIN_DROP_IN}\n` +
+      'then run systemctl --user daemon-reload. It takes effect at the next restart; apply it ' +
+      'with a deploy of a release that has drain support.'
     );
   } catch {
     return undefined;

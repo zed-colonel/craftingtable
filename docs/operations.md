@@ -148,8 +148,11 @@ restarted daemon reads that record: running roadmaps and cycles keep running, a 
 turn finished is classified as usual, and a step the drain interrupted resumes its vendor
 session (`claude --resume`, Codex thread resume) in the same worktree with its original agent,
 permissions, guidance and deadline, so only the in-flight tool call is redone. Pressing Ctrl-C
-while the command waits withdraws the request; the daemon resumes admissions and nothing is
-switched. `--no-drain` restarts the old way. A daemon that predates drain support does not
+while the command waits, closing its terminal or stopping it withdraws the request; the daemon
+resumes admissions and nothing is switched. If the daemon had already interrupted live runs,
+or the command dies after the drain but before the restart, the drained daemon exits with
+status 75 after two minutes and `Restart=on-failure` brings it back, so automation resumes
+from the clean stop. `--no-drain` restarts the old way. A daemon that predates drain support does not
 answer within 15 seconds, and the command then restarts it without draining.
 
 A crash, a stop that did not finish draining, a step whose agent never reported a session id,
@@ -158,11 +161,14 @@ and waits for an explicit Resume. A migration on start first copies the populate
 `state/pre-migration/` (the three newest copies are kept), so manual pre-upgrade backups are no
 longer needed.
 
-`SIGTERM` (a plain `systemctl stop` or a reboot) runs the same bounded drain and a second signal
-interrupts at once. That path drains only when systemd signals the daemon alone and waits for
-it: add `KillMode=mixed` and a `TimeoutStopSec` above the drain bound in a drop-in, and prefer an
-`ExecStart` that runs the daemon without a signal-forwarding wrapper. `pnpm deploy:daemon
---status` notes when the unit's kill mode cannot drain.
+`SIGTERM` (a plain `systemctl stop`, `restart` or a reboot) runs the same bounded drain and a
+second signal interrupts at once. That path drains only when systemd signals the daemon alone
+and waits for it, which the unit below does: node runs the built daemon directly (a `pnpm`
+wrapper may not forward the signal), `KillMode=mixed` signals only the daemon, which ends its
+agents itself, and `TimeoutStopSec` is above the drain bound. For an existing unit, put the
+three settings in `~/.config/systemd/user/craftingtable.service.d/drain.conf` (an empty
+`ExecStart=` line first clears the old command). `pnpm deploy:daemon --status` checks all three
+and prints the drop-in.
 
 A `systemd --user` unit runs whatever `current` points at:
 
@@ -175,11 +181,12 @@ After=network-online.target
 [Service]
 WorkingDirectory=%h/.local/share/craftingtable-deploy/current
 EnvironmentFile=%h/.config/craftingtable/env
-ExecStart=/usr/bin/env pnpm start
+ExecStart=/usr/bin/env node apps/server/dist/index.js
 Restart=on-failure
 RestartSec=2
 KillSignal=SIGTERM
-TimeoutStopSec=30
+KillMode=mixed
+TimeoutStopSec=300
 
 [Install]
 WantedBy=default.target

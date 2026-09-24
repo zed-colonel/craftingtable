@@ -51,14 +51,17 @@ done: R-D3, R-F1 (FMT-03 only), R-F3 and R-F4.
 - 22 e2e tests;
 - the scope check.
 
+**Deployment (2026-09-23).** The walkthrough images are out of history and live in an
+external store (R-I1). The reviewed work was fast-forwarded into `main` and deployed with
+`pnpm deploy:daemon` from a release checkout, with the single-instance lock in place (R-I8,
+from phase 1). The daemon no longer runs from the development checkout.
+
 Still open in P0:
-- **R-I1 (operator action):** push or back up the local commits; decide on the walkthrough
-  PNGs.
 - **R-D3:** read-budget tests.
 - **R-F3:** FMT-11, FMT-15 and FMT-16.
 - **R-F4:** promote the format specification to `docs/formats.md` after operator review.
-- **Re-measurement:** the P0 metrics below have not been re-measured against the live
-  daemon. That needs a deploy, which is the operator's call.
+- **Re-measurement:** re-measure the P0 metrics below against the deployed daemon after a
+  few days of real use.
 
 Exit criteria:
 - No confirmed false-alarm sequence from the HIST and NOTIF reports reproduces in tests.

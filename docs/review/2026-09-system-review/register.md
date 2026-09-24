@@ -82,7 +82,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I5](#r-i5) | P1 | S-M | open | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | open | Gate on lint |
 | [R-I7](#r-i7) | P1-P3 | M | open | Documentation reset to current state |
-| [R-I8](#r-i8) | P1 | S-M | open | Deploy from a separate checkout; one daemon per data directory |
+| [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 
 ## Workstream A — Attention, decisions and notifications (pain points 1 and 3)
 
@@ -638,11 +638,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I8
 
-**Deploy from a separate checkout; one daemon per data directory** · Phase P1 · Effort S-M · Status: open
+**Deploy from a separate checkout; one daemon per data directory** · Phase P1 · Effort S-M · Status: partial (943fb8d)
 
 - **Resolves:** [REPO-04](findings/QA-DOC-REPO-tests-docs-hygiene.md#repo-04-the-production-daemon-runs-from-the-development-checkout-and-its-build-output), [SEC-10](findings/AGT-GIT-SEC-agents-git-security.md#sec-10-the-daemon-runs-straight-from-the-editable-development-checkout), [REPO-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#repo-03-legacy-process-directories-and-branches-are-still-at-top-level)
 - **Change:** Run the daemon from a separate deploy checkout updated by an explicit `pnpm deploy:daemon <ref>` command (fetch the exact ref from the dev repo, install, build, restart the single systemd user unit, record the deployed commit; rollback = deploy the previous commit; add the R-B9 drain when it exists), so editing or running tsc in the dev checkout never changes what production loads. Take an exclusive lock on the data directory at daemon start, before migrations and restart recovery: today a stray second daemon on the same data directory (e.g. `pnpm start` in another checkout) would mark live runs interrupted and roadmaps needs-attention before failing to bind the port. `pnpm dev` defaults to its own port and data directory. Archive the CT-01..03 process directories and merged CT-era branches.
 - **Done when:** A tsc -b in the dev checkout cannot affect the running daemon; a second daemon on the same data directory exits before touching the database (test); deploy and rollback are one command each.
+- **Progress:** Deployed 2026-09-23: the daemon runs from $XDG_DATA_HOME/craftingtable-deploy/current (systemd drop-in deploy-checkout.conf) via `pnpm deploy:daemon <ref>` (release per commit, atomic switch, health check with automatic rollback, `--rollback`, `--status`, deploys.jsonl). The data-directory lock was verified against the live daemon: a second daemon exits naming the holder. `pnpm dev` / `pnpm craftingtable:dev` use their own data directory and port 4601. Remaining: archive the CT-01..03 process directories and merged CT-era branches. Deploys still interrupt live runs until R-B9 (drain and auto-resume) lands.
 
 ## Finding index
 

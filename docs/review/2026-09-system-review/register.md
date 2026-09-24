@@ -871,6 +871,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Measured 2026-09-24:** 671 warnings and 11 infos (666 at review). `noNonNullAssertion` accounts for 646 of them (448 in tests, 198 in production).
   - **Rule turned off.** `noNonNullAssertion` is off in `biome.jsonc`; the config file is renamed from `biome.json` so it can carry the one-line reason. With `strict` and `noUncheckedIndexedAccess`, `!` is how this codebase marks an invariant the compiler cannot prove: index access after a length check, or `Map.get` after `has`. Replacing each one with a runtime check would change behaviour, which is not a mechanical fix.
   - **Remaining:** 25 warnings and 11 infos.
+- **Amended 2026-09-24: mechanical fixes.** Biome's own fixes, applied one rule at a time and reviewed:
+  - `noUnusedImports`: 5.
+  - `useImportType`: 1.
+  - `useConst`: 1.
+  - `useTemplate`: 9 infos.
+  - Not applied: the two `useLiteralKeys` fixes. They would turn `service['deferredEntries']`, a test's deliberate reach into a private method, into a type error. They stay as infos, which do not gate.
+  - **Remaining:** 18 warnings: 16 `useOptionalChain`, 1 `noBannedTypes`, 1 `noDescendingSpecificity`.
 
 ### R-I7
 

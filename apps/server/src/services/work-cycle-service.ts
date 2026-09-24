@@ -76,7 +76,7 @@ import { mapReadSnapshot } from './map-read-snapshot.js';
 import { PhaseGateError } from './phase-resources.js';
 import { attemptDelegation } from './roadmap-delegation-policy.js';
 import { drainInterrupted } from './restart-resume.js';
-import { latestReviewReport, runEvents, runLineage } from './run-handoff.js';
+import { latestReviewReport, runLineage } from './run-handoff.js';
 import { decideStepOutcome, type StepOutcomeDecision, stepOutcomeFacts } from './step-outcome.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';

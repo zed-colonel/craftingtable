@@ -132,7 +132,7 @@ export function localActArguments(
   )
     throw new Error('Unsupported Git metadata path for local CI.');
   const gitMounts = gitPaths
-    .filter((path, i) => !gitPaths.some((parent, j) => i !== j && path.startsWith(parent + '/')))
+    .filter((path, i) => !gitPaths.some((parent, j) => i !== j && path.startsWith(`${parent}/`)))
     .map((path) => `${mount(path)},readonly`)
     .join(' ');
   return [
@@ -383,7 +383,7 @@ export async function runLocalCheck(
     writeFileSync(logPath, `${log}\n${diagnostic}\n`, { mode: 0o600 });
     appendFileSync(
       m.receiptPath,
-      JSON.stringify({
+      `${JSON.stringify({
         kind: isNative ? 'native-check' : isCi ? 'local-ci' : 'scoped-check',
         ...(isNative ? { nativeVerification: m.nativeVerification } : {}),
         runtimeId: m.runtimeId,
@@ -402,7 +402,7 @@ export async function runLocalCheck(
         logDigest: hash(readFileSync(logPath)),
         ...(isCi ? { image: m.localCi?.image } : {}),
         at: new Date().toISOString(),
-      }) + '\n',
+      })}\n`,
       { mode: 0o600 },
     );
     if (diagnostic) console.error(diagnostic);

@@ -66,7 +66,7 @@ describe('design question classification', () => {
   it('retains legacy reports but rejects incomplete, duplicate and uncited classifications', () => {
     expect(parseDesignReport('## Open questions\nnone').status).toBe('absent');
     expect(parseDesignReport('```craftingtable-design\n{}').status).toBe('invalid');
-    expect(parseDesignReport(block([]) + '\n' + block([])).status).toBe('invalid');
+    expect(parseDesignReport(`${block([])}\n${block([])}`).status).toBe('invalid');
     expect(
       parseDesignReport(
         block([{ kind: 'resolved', question: 'Encoding?', answer: 'JSON', sources: [] }]),

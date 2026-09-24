@@ -149,7 +149,7 @@ export function runPinnedCargo(path: string, expectedDigest: string, args: strin
   const before = gitState();
   const options = ['--config', m.configPath];
   const env = { ...process.env, CARGO_TARGET_DIR: m.targetDirectory };
-  let resolvedPackages: { name: string; path: string }[] = [];
+  const resolvedPackages: { name: string; path: string }[] = [];
   if (builds.has(command) || command === 'metadata' || command === 'tree') {
     const metadataArgs = ['metadata', '--format-version', '1', ...options];
     for (let i = 1; i < args.length && args[i] !== '--'; i++) {
@@ -216,7 +216,7 @@ export function runPinnedCargo(path: string, expectedDigest: string, args: strin
   if (builds.has(command))
     appendFileSync(
       m.receiptPath,
-      JSON.stringify({
+      `${JSON.stringify({
         // Supplementary checks may legitimately have no upstream dependency. They
         // remain pinned and auditable, but cannot establish integration evidence.
         ...(m.verification?.mode !== 'scoped-checks' &&
@@ -242,7 +242,7 @@ export function runPinnedCargo(path: string, expectedDigest: string, args: strin
         packages: resolvedPackages,
         success: result.status === 0,
         at: new Date().toISOString(),
-      }) + '\n',
+      })}\n`,
       { mode: 0o600 },
     );
   process.exitCode = result.status ?? 1;

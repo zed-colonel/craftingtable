@@ -25,7 +25,6 @@ import {
   asAuditEventId,
   asEventId,
   asWorktreeId,
-  DEFAULT_ROADMAP_AUTOMATION,
   DEFAULT_ROADMAP_SCHEDULING,
   type Roadmap,
   type RoadmapAttempt,

@@ -119,7 +119,7 @@ export function scopeRepairPacket(tx: StorageRepositories, cycle: WorkCycle) {
         .filter((f) => f.status === 'open')
         .map((f) => ({
           ...f,
-          id: `${source.label}.${f.id.length <= 58 ? f.id : f.id.slice(0, 45) + '.' + createHash('sha256').update(f.id).digest('hex').slice(0, 8)}`,
+          id: `${source.label}.${f.id.length <= 58 ? f.id : `${f.id.slice(0, 45)}.${createHash('sha256').update(f.id).digest('hex').slice(0, 8)}`}`,
           originalId: f.id,
         })),
       report: read.report,

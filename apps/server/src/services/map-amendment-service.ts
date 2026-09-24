@@ -26,7 +26,11 @@ import type { AuthContext } from './auth-service.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkCycleService } from './work-cycle-service.js';
-import { CrossProjectService, bindingIssues, milestoneSatisfied } from './cross-project-service.js';
+import {
+  type CrossProjectService,
+  bindingIssues,
+  milestoneSatisfied,
+} from './cross-project-service.js';
 import { integratedSlice, amendmentHoldingScope } from './scope-lineage.js';
 import { activeRuntime, currentScopeReceipt, acceptedEvidence } from './runtime-evidence-policy.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';

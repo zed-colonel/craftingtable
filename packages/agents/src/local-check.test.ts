@@ -164,7 +164,7 @@ it('binds act to one repository workflow, pinned image, local storage and no aut
     ['-W', '.github/workflows/ci.yml', '-j', 'contracts'],
     f.directory,
   );
-  expect(args).toContain('ubuntu-latest=' + localCi.image);
+  expect(args).toContain(`ubuntu-latest=${localCi.image}`);
   expect(args).toContain('--container-daemon-socket=-');
   expect(args).toContain('--concurrent-jobs=1');
   expect(args.slice(args.indexOf('--secret-file'), args.indexOf('--secret-file') + 2)).toEqual([

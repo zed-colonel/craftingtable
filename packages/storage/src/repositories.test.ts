@@ -1,8 +1,6 @@
 import {
   asAuditEventId,
   asEventId,
-  asProjectId,
-  asProjectRepositoryBindingId,
   asRepositoryId,
   asRepositoryInspectionId,
   asUserId,
@@ -13,11 +11,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configureDatabase } from './database.js';
 import { type TemporaryStorage, temporaryStorage } from './test-support.js';
-import type {
-  AppendWorkspaceEventInput,
-  WorkspaceEventAppendError,
-  WorkspaceEventMappingError,
-} from './types.js';
+import type { WorkspaceEventAppendError, WorkspaceEventMappingError } from './types.js';
 
 const temporaries: TemporaryStorage[] = [];
 afterEach(() => {

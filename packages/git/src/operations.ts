@@ -1733,7 +1733,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     const batch = await run(
       ['cat-file', '--batch'],
       repo.value,
-      entries.map((e) => e!.sha).join('\n') + '\n',
+      `${entries.map((e) => e!.sha).join('\n')}\n`,
       64 * 1024 * 1024,
     );
     if (!batch.ok) return batch;

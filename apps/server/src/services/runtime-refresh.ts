@@ -3,7 +3,6 @@ import {
   asEventId,
   type ConcurrencyDefinition,
   type RuntimeGeneration,
-  type WorkspaceId,
 } from '@craftingtable/domain';
 import { randomUUID } from 'node:crypto';
 import type { RuntimeRefreshPreview } from '@craftingtable/contracts';

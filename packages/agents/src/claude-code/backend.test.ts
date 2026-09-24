@@ -255,7 +255,7 @@ describe('Claude background lifecycle', () => {
       writeFileSync(
         fake.executable,
         `#!${process.execPath}
-      process.stdin.once('data', () => process.stdout.write(${JSON.stringify(events.map((e) => JSON.stringify(e)).join('\n') + '\n')}, () => process.exit(0)));`,
+      process.stdin.once('data', () => process.stdout.write(${JSON.stringify(`${events.map((e) => JSON.stringify(e)).join('\n')}\n`)}, () => process.exit(0)));`,
       );
       const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
         cwd: fake.cwd,

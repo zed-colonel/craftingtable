@@ -48,7 +48,7 @@ describe('workflow report authority', () => {
     expect(parseWorkflowReport(block(value)).status).toBe('invalid');
   });
   it('fails closed on duplicate or unfinished reports and preserves legacy absence', () => {
-    expect(parseWorkflowReport(block(report) + '\n' + block(report)).status).toBe('invalid');
+    expect(parseWorkflowReport(`${block(report)}\n${block(report)}`).status).toBe('invalid');
     expect(parseWorkflowReport('```craftingtable-workflow\n{}').status).toBe('invalid');
     expect(parseWorkflowReport('## Open questions\nNeeds an answer').status).toBe('absent');
   });

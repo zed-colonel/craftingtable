@@ -794,11 +794,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I2
 
-**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: open
+**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: partial
 
 - **Resolves:** [QA-01](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-01-server-executiontestts-is-the-whole-critical-path-of-the-unit-suite-and-should-be-split-by-aggregate), [QA-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-02-orchestration-tests-poll-wall-clock-time-because-the-controller-has-no-deterministic-stepping-seam)
 - **Change:** Split server-execution.test.ts by aggregate (runs, merge gate, cycles, roadmaps, finalization, execution scopes) so files run in parallel; use the R-B2 stepping seam to remove wall-clock polling.
 - **Done when:** pnpm test under ~90 s (from 5 min 46 s).
+- **Progress:** Split mechanically, one step. `server-execution.test.ts` (14,792 lines, 293 tests) is now 15 files by aggregate: runs, merge gate, cycles, cycle recovery, sequential and parallel roadmaps, integration resolution and delegation, finalization, staged finalization, execution scopes, scope evidence, supervised maps, plan evidence, scope verification, and reviews and decisions. Helpers used by more than one file are in `execution-test-support.ts`; helpers used by one file stay in it. Test bodies are unchanged, apart from `export` and rewrapped signatures, and all 293 tests remain; none were dropped as duplicates. Timings on a 16-core workstation with the live daemon running (load average 1–8):
+  - Before: `pnpm test` 426 s. The execution file alone took 423 s; the next slowest file took 11 s.
+  - After: 104 s. The slowest files are scope verification (101 s, 12 tests) and supervised maps (86 s).
+  - Not yet under the ~90 s target. The remaining work is rebalancing the slow files and moving the controller-transition tests from wall-clock polling onto the R-B2 stepping seam.
 
 ### R-I3
 

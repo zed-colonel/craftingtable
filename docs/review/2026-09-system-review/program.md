@@ -153,6 +153,10 @@ Exit criteria:
 - **Items still open in P1:** R-B3, R-B10, R-G7, R-H2, R-H3, R-I2, R-I3, R-I5, R-I6, R-E6, R-I7,
   and R-A7's remainder.
 
+**Test and safety-net batch (2026-09-24, same branch).** R-I2: the execution test file is split
+by aggregate into 15 files that run in parallel. `pnpm test` fell from 426 s to 104 s on the
+loaded workstation, with 1,341 tests before and after. This is not yet under 90 s.
+
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 
 | Item | Notes |

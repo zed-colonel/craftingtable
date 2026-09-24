@@ -2,6 +2,7 @@ import type { StorageStatus } from '@craftingtable/contracts';
 import type { StoragePolicy, WorkspaceId } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
 import { loadStorage, saveStorage, storageCommand } from '../../lib/storage-api.js';
+import { distinct } from '../../lib/distinct.js';
 
 const size = (bytes: number | null) =>
   bytes === null
@@ -251,7 +252,7 @@ export function StoragePanel({
                 Scanned {new Date(status.scan.completedAt).toLocaleString()}. Sizes count allocated
                 file blocks; compressed or shared files can differ from physical disk usage.
               </p>
-              {status.scan.warnings.map((warning) => (
+              {distinct(status.scan.warnings).map((warning) => (
                 <p className="hint" key={warning}>
                   {warning}
                 </p>

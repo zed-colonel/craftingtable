@@ -15,6 +15,7 @@ import {
 import { buildPath } from '../../lib/route.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { ImportIssues } from './import-issues.js';
+import { distinct } from '../../lib/distinct.js';
 
 export function ConcurrencyImports({
   workspaceId,
@@ -468,7 +469,7 @@ export function ConcurrencyImports({
                 <summary>{e.id}</summary>
                 <p>Independent reviewer roles: {e.reviewerRoles.join(', ')}</p>
                 <ul>
-                  {e.requiredEvidence.map((text) => (
+                  {distinct(e.requiredEvidence).map((text) => (
                     <li key={text}>{text}</li>
                   ))}
                 </ul>

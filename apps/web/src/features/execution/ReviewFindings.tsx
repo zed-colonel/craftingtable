@@ -1,5 +1,6 @@
 import type { ReviewReportAssessment } from '@craftingtable/domain';
 import { FINDING_SEVERITIES } from '@craftingtable/domain';
+import { distinct } from '../../lib/distinct.js';
 
 export function ReviewFindings({ assessment }: { assessment: ReviewReportAssessment }) {
   if (assessment.status !== 'complete') {
@@ -10,7 +11,7 @@ export function ReviewFindings({ assessment }: { assessment: ReviewReportAssessm
             ? 'Review report needs attention'
             : 'Unstructured review'}
         </h2>
-        {assessment.issues.map((issue) => (
+        {distinct(assessment.issues).map((issue) => (
           <p key={issue}>{issue}</p>
         ))}
         <p className="hint">

@@ -17,6 +17,7 @@ import {
 } from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
 import { buildPath } from '../../lib/route.js';
+import { distinct } from '../../lib/distinct.js';
 export function MapAmendmentPanel({
   workspaceId,
   roadmap,
@@ -295,7 +296,7 @@ export function MapAmendmentPanel({
             </ul>
           )}
           <ul>
-            {impact.warnings.map((w) => (
+            {distinct(impact.warnings).map((w) => (
               <li key={w}>{w}</li>
             ))}
           </ul>

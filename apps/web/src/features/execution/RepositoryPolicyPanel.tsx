@@ -2,6 +2,7 @@ import type { RepositoryPolicyEvidence } from '@craftingtable/contracts';
 import type { PlanVersionId, WorkspaceId } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
 import { loadRepositoryPolicy, saveRepositoryPolicy } from '../../lib/branch-api.js';
+import { distinct } from '../../lib/distinct.js';
 
 const INTERPRETATION =
   'For this plan, integration branch protection means CraftingTable-controlled work-item/slice branches, review of exact source and target commits, and controller-mediated integration under the configured merge policy. Where an experimental freeze is recorded below, that baseline receives no further feature work; evidence extraction remains permitted. Final promotion remains an explicit operator decision. These are local workflow controls, not a claim that remote hosting protections have been configured.';
@@ -86,7 +87,7 @@ export function RepositoryPolicyPanel({
           {error}
         </p>
       )}
-      {data?.issues.map((issue) => (
+      {distinct(data?.issues ?? []).map((issue) => (
         <p key={issue} className="warning-state">
           {issue}
         </p>

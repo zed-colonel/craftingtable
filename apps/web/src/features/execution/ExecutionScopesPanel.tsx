@@ -20,6 +20,7 @@ import {
   loadExecutionScopes,
   recordScopeEvidence,
 } from '../../lib/execution-scope-api.js';
+import { distinct } from '../../lib/distinct.js';
 
 export function ExecutionScopesPanel({
   workspaceId,
@@ -154,7 +155,7 @@ export function ExecutionScopesPanel({
               <details>
                 <summary>Excluded from this slice</summary>
                 <ul>
-                  {choice.excludes.map((e) => (
+                  {distinct(choice.excludes).map((e) => (
                     <li key={e}>{e}</li>
                   ))}
                 </ul>

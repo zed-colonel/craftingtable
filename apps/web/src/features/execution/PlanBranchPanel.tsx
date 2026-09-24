@@ -12,6 +12,7 @@ import {
 } from '../../lib/branch-api.js';
 import { loadRepositories, loadRepositoryBranches } from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
+import { distinct } from '../../lib/distinct.js';
 
 export function PlanBranchPanel({
   workspaceId,
@@ -189,7 +190,7 @@ export function PlanBranchPanel({
           choose an existing branch before starting further work.
         </p>
       )}
-      {data?.issues.map((issue) => (
+      {distinct(data?.issues ?? []).map((issue) => (
         <p className="warning-state" key={issue}>
           {issue}
         </p>

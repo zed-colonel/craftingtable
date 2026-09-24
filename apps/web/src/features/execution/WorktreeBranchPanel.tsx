@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { changeWorktreeBranch, loadWorktreeBranchStatus } from '../../lib/branch-api.js';
 import { loadRepositoryBranches } from '../../lib/execution-api.js';
 import { shortSha } from '../../lib/execution-labels.js';
+import { distinct } from '../../lib/distinct.js';
 
 export function WorktreeBranchPanel({
   workspaceId,
@@ -86,7 +87,7 @@ export function WorktreeBranchPanel({
           </>
         )}
       </p>
-      {data?.issues.map((issue) => (
+      {distinct(data?.issues ?? []).map((issue) => (
         <p key={issue} className="warning-state">
           {issue}
         </p>

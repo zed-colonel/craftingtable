@@ -19,6 +19,7 @@ import type { WorkspaceId } from '@craftingtable/domain';
 import { revealElement } from '../../lib/reveal-element.js';
 import { request } from '../../lib/api-client.js';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
+import { distinct } from '../../lib/distinct.js';
 export function RuntimeEvidencePanel({
   workspaceId,
   definitionId,
@@ -265,7 +266,7 @@ export function RuntimeEvidencePanel({
                 </p>
                 {r.issues.length > 0 && (
                   <ul>
-                    {r.issues.map((issue) => (
+                    {distinct(r.issues).map((issue) => (
                       <li key={issue}>{issue}</li>
                     ))}
                   </ul>

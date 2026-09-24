@@ -10,6 +10,7 @@ import { Section } from '../../components/Section.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { About } from '../../components/About.js';
 import { request } from '../../lib/api-client.js';
+import { distinct } from '../../lib/distinct.js';
 
 type Card = ArchitectureDecisionInbox['decisions'][number];
 type Record = Card['records'][number];
@@ -526,7 +527,7 @@ function DecisionCard({
                 {r.issues.length ? ' · requires fresh approval' : ''}
               </p>
               <DecisionText record={r} />
-              {r.issues.map((issue) => (
+              {distinct(r.issues).map((issue) => (
                 <p key={issue}>{issue}</p>
               ))}
             </div>

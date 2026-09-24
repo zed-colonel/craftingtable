@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { ReviewFindings } from './ReviewFindings.js';
 
 afterEach(cleanup);
@@ -55,4 +55,23 @@ it('presents invalid and legacy reports as needing reconciliation, never as zero
     <ReviewFindings assessment={{ status: 'unstructured', issues: ['No structured report.'] }} />,
   );
   expect(screen.getByText('Unstructured review')).toBeTruthy();
+});
+
+it('shows a message the report repeats once, without colliding keys', () => {
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    render(
+      <ReviewFindings
+        assessment={{
+          status: 'invalid',
+          issues: ['Repository path does not exist', 'Repository path does not exist', 'Other'],
+        }}
+      />,
+    );
+    expect(screen.getAllByText('Repository path does not exist')).toHaveLength(1);
+    expect(screen.getByText('Other')).toBeDefined();
+    expect(errors).not.toHaveBeenCalled();
+  } finally {
+    errors.mockRestore();
+  }
 });

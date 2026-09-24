@@ -35,6 +35,7 @@ import {
   type ScriptedReply,
   saveRoadmapRequest,
   startCycle,
+  stepDaemons,
   storedRoadmap,
   waitFor,
 } from './execution-test-support.js';
@@ -211,7 +212,7 @@ describe('collecting background review results', () => {
         'waiting',
       'background wait',
     );
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await stepDaemons(3);
     const session = present(backend.sessions[0]);
     expect(session.endCount).toBe(0);
     expect(backend.launches).toHaveLength(1);

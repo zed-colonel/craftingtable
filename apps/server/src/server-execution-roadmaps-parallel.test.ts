@@ -320,6 +320,7 @@ it('parallel refresh cannot launch a review after stop supersedes in-flight Git'
     release = resolve;
   });
   const { state, input, root, backend } = await parallelFixture({
+    workers: true,
     gitOperations: {
       ...realGit,
       updateWorktree: async (request) => {

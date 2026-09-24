@@ -38,6 +38,7 @@ import {
   roadmapInput,
   saveRoadmapRequest,
   startCycle,
+  stepDaemons,
   storedRoadmap,
   useIntegration,
   waitFor,
@@ -53,11 +54,15 @@ async function resolutionCommand(state: Ready, cycle: WorkCycle, input: Record<s
     payload: { expectedVersion: cycle.version, ...input },
   });
 }
-async function resolutionFixture(gitOperations?: GitOperations) {
+async function resolutionFixture(
+  gitOperations?: GitOperations,
+  options: { readonly workers?: boolean } = {},
+) {
   const fixture = await cycleFixture(
     [designDone, implementationDone, { resultText: reviewText([]) }],
     undefined,
     gitOperations,
+    options,
   );
   const { state, backend, worktree, root } = fixture;
   backend.onLaunch = (request) => {
@@ -298,18 +303,21 @@ it.each(['preparing', 'committing'] as const)(
       }
       return result;
     };
-    const fixture = await resolutionFixture({
-      ...real,
-      ...(phase === 'preparing'
-        ? {
-            prepareIntegrationResolution: async (input) =>
-              pauseResult(await real.prepareIntegrationResolution(input)),
-          }
-        : {
-            finishIntegrationResolution: async (input) =>
-              pauseResult(await real.finishIntegrationResolution(input)),
-          }),
-    });
+    const fixture = await resolutionFixture(
+      {
+        ...real,
+        ...(phase === 'preparing'
+          ? {
+              prepareIntegrationResolution: async (input) =>
+                pauseResult(await real.prepareIntegrationResolution(input)),
+            }
+          : {
+              finishIntegrationResolution: async (input) =>
+                pauseResult(await real.finishIntegrationResolution(input)),
+            }),
+      },
+      { workers: true },
+    );
     const { state, backend, cycle, worktree, root } = fixture;
     backend.replyForRequest = (request) =>
       request.model === 'review-model'
@@ -368,15 +376,18 @@ it('stop during resolution preparation preserves ownership and supports explicit
   const barrier = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const { state, backend, worktree, root, cycle } = await resolutionFixture({
-    ...real,
-    prepareIntegrationResolution: async (input) => {
-      const result = await real.prepareIntegrationResolution(input);
-      enter?.();
-      await barrier;
-      return result;
+  const { state, backend, worktree, root, cycle } = await resolutionFixture(
+    {
+      ...real,
+      prepareIntegrationResolution: async (input) => {
+        const result = await real.prepareIntegrationResolution(input);
+        enter?.();
+        await barrier;
+        return result;
+      },
     },
-  });
+    { workers: true },
+  );
   expect(
     (await resolutionCommand(state, currentCycle(state, cycle), { action: 'start' })).statusCode,
   ).toBe(200);
@@ -718,7 +729,7 @@ it('neither refreshes nor merges a started automatic entry once a delegation gra
   const launches = backend.launches.length;
   await roadmapControl(state, 'resume');
   await state.context.services.roadmapService.tick();
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+  await stepDaemons(3);
   await state.context.services.roadmapService.tick();
   const cycle = present(state.context.storage.execution.cycles.find(ws, first.cycleId));
   expect(cycle.status).toBe('awaiting-merge');

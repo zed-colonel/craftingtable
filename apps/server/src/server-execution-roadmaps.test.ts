@@ -290,6 +290,7 @@ describe('sequential roadmaps', () => {
       release = resolve;
     });
     const { state, backend } = await roadmapFixture(undefined, {
+      workers: true,
       gitOperations: {
         ...real,
         async createWorktree(input) {
@@ -328,6 +329,7 @@ it('resumes a paused preparation without duplicating its worktree or losing a ne
     release = resolve;
   });
   const { state, backend } = await roadmapFixture(undefined, {
+    workers: true,
     gitOperations: {
       ...real,
       async createWorktree(input) {

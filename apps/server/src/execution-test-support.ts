@@ -331,6 +331,12 @@ export async function ready(
     readonly backend?: ScriptedBackend | null;
     readonly backends?: ReadonlyMap<AgentBackendKind, AgentBackend>;
     readonly gitOperations?: GitOperations;
+    /**
+     * Keeps the daemon's own controller loops running. Only for tests that race operator
+     * commands against a controller pass held inside a Git operation or a launch; every
+     * other daemon is stepped by `waitFor` and `stepDaemons` (R-B2 seam).
+     */
+    readonly workers?: boolean;
   } = {},
 ): Promise<Ready> {
   const backend = options.backend === undefined ? new ScriptedBackend() : options.backend;
@@ -338,8 +344,10 @@ export async function ready(
     ...(options.now === undefined ? {} : { now: options.now }),
     gitOperations: options.gitOperations ?? createGitOperations({ gitExecutable: 'git' }),
     agentBackends: options.backends ?? new Map(backend === null ? [] : [[backend.kind, backend]]),
+    workers: options.workers ?? false,
   });
   contexts.push(context);
+  if (options.workers) freeRunning.add(context);
   await context.bootstrap();
   const login = await context.login();
   const user = context.storage.users.findByNormalizedUsername('test-user');
@@ -459,6 +467,29 @@ export async function registerAndWorktree(
   return { repository: repository.repository, worktree };
 }
 
+/**
+ * One pass of every open test daemon's controllers (R-B2 seam): live runs settle, then the
+ * roadmap scheduler, the cycle controller and notification delivery each run once.
+ */
+export async function stepDaemons(steps = 1): Promise<void> {
+  for (let step = 0; step < steps; step++)
+    for (const context of contexts) {
+      if (freeRunning.has(context)) continue;
+      const { services } = context;
+      await services.agentRunService.quiesce();
+      await services.roadmapService.tick();
+      await services.workCycleService.tick();
+      await services.agentRunService.quiesce();
+      await services.notificationService.tick();
+    }
+}
+/** Daemons created with `workers: true`, whose own loops run; stepping skips them. */
+const freeRunning = new WeakSet<TestContext>();
+
+/**
+ * Steps the daemons until the predicate holds. Their loops are stopped, so state changes
+ * only here; real time still passes between steps for sessions that answer on a timer.
+ */
 export async function waitFor(
   predicate: () => boolean,
   label: string,
@@ -469,6 +500,8 @@ export async function waitFor(
     if (Date.now() > deadline) {
       throw new Error(`Timed out waiting for ${label}`);
     }
+    await stepDaemons();
+    if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
@@ -645,12 +678,14 @@ export async function cycleFixture(
   outputs: readonly ScriptedReply[],
   now?: () => Date,
   gitOperations?: GitOperations,
+  options: { readonly workers?: boolean } = {},
 ) {
   const backend = new CycleBackend(outputs);
   const state = await ready({
     backend,
     ...(now === undefined ? {} : { now }),
     ...(gitOperations ? { gitOperations } : {}),
+    ...(options.workers ? { workers: true } : {}),
   });
   const root = fixtureRepository();
   const { worktree } = await registerAndWorktree(state, root);
@@ -691,6 +726,7 @@ export async function roadmapFixture(
     gitOperations?: GitOperations;
     keepWorktree?: boolean;
     alternateBackend?: AgentBackend;
+    workers?: boolean;
   } = {},
 ) {
   const backend = new CycleBackend(outputs);
@@ -705,6 +741,7 @@ export async function roadmapFixture(
         }
       : {}),
     ...(options.gitOperations ? { gitOperations: options.gitOperations } : {}),
+    ...(options.workers ? { workers: true } : {}),
   });
   const root = fixtureRepository();
   const { repository, worktree } = await registerAndWorktree(state, root);
@@ -843,6 +880,7 @@ export async function parallelFixture(
     gitOperations?: GitOperations;
     keepWorktree?: boolean;
     independentThird?: boolean;
+    workers?: boolean;
   } = {},
 ) {
   const fixture = await roadmapFixture(undefined, options);

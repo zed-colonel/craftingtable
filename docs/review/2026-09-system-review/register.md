@@ -794,7 +794,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I2
 
-**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: partial
+**Split the 14k-line execution test file** · Phase P1 · Effort M · Status: done (7bb4562, b0a0c0d)
 
 - **Resolves:** [QA-01](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-01-server-executiontestts-is-the-whole-critical-path-of-the-unit-suite-and-should-be-split-by-aggregate), [QA-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-02-orchestration-tests-poll-wall-clock-time-because-the-controller-has-no-deterministic-stepping-seam)
 - **Change:** Split server-execution.test.ts by aggregate (runs, merge gate, cycles, roadmaps, finalization, execution scopes) so files run in parallel; use the R-B2 stepping seam to remove wall-clock polling.
@@ -804,6 +804,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - After: 104 s. The slowest files are scope verification (101 s, 12 tests) and supervised maps (86 s).
   - Not yet under the ~90 s target. The remaining work is rebalancing the slow files and moving the controller-transition tests from wall-clock polling onto the R-B2 stepping seam.
 - **Amended 2026-09-24: rebalanced.** Three groups moved to their own files, making 18: bounded scope recovery, delegated scope findings and supervised-map amendments. They were regenerated from the original file by the same mechanical split, so test bodies are unchanged. `pnpm test`: 89 s by Vitest's clock (about 92 s wall), still with no margin.
+- **Amended 2026-09-24: stepping seam; done.**
+  - **Stepping.** Every execution test daemon now starts with `workers: false`. The shared `waitFor` steps each open daemon until the predicate holds, using `stepDaemons()` in `execution-test-support.ts`. Each step quiesces runs, then ticks the roadmap scheduler, the cycle controller and notification delivery. It sleeps 10 ms between steps only for sessions that answer on a timer.
+  - **Why stepping.** The free-running loops woke on every journaled write and re-inspected repositories each time; one amendment test made 844 Git calls.
+  - **Opt-in `workers: true`.** Ten test cases (eight tests) race operator commands against a controller pass held inside a Git operation or a launch. The live loop is what they race, so they keep it. A stepped `tick()` would wait on the held operation and deadlock.
+  - **Sleeps replaced.** Five fixed sleeps (100 ms to 2.5 s) let the loops run before asserting that nothing changed. They are now `stepDaemons(3)`, which provably runs the passes.
+  - **Implicit pass made explicit.** One notification assertion relied on an implicit pass between HTTP calls; it now steps first.
+  - **Timeout.** The node project's default test timeout is 15 s. `recovers parent review with durable guidance…` took 4.7 s against the 5 s default before this change, and it timed out once under load average 20. Several other tests take 4–5 s under load.
+  - **Result.** `pnpm test`: 72, 74, 74, 71, 72 and 76 s in six readings. The live daemon and back-to-back runs loaded the machine (load average 6–20). The third reading, before the timeout change, failed only that test on the 5 s timeout. The fourth to sixth readings ran with the new timeout. All 1,341 tests passed in every reading except the third.
+  - **CPU.** Total CPU is unchanged, about 940–970 s of user and system time. Most of it is real Git process spawns. The gain is no longer idling on loop timeouts and polls. The floor is about 60 s on 16 cores unless the controller makes fewer Git calls per pass (R-B5).
 
 ### R-I3
 

@@ -27,6 +27,7 @@ import {
   scopeTree,
   slicedFixture,
   startCycle,
+  stepDaemons,
   storedRoadmap,
   supervisedMapFixture,
   waitFor,
@@ -363,7 +364,7 @@ it('waits for an exact mapped slice merge, survives recovery, then bounds automa
   const initial = f.backend.launches.length;
   f.state.context.services.workCycleService.recoverInterrupted();
   expect(currentCycle(f.state, cycle).status).toBe('running');
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await stepDaemons(3);
   expect(f.backend.launches).toHaveLength(initial);
   commitFile(a.path, 'prerequisite.txt', 'Complete the independent predecessor.');
   await reviewScope(f, a);
@@ -651,7 +652,7 @@ it('shows a reassessment that cannot be prepared once instead of retrying it on 
   );
   expect(surfaced.status).toBe('needs-attention');
   expect(surfaced.reason).toContain('Controller reassessment could not be prepared');
-  await new Promise((resolve) => setTimeout(resolve, 2500));
+  await stepDaemons(3);
   expect(attempts).toBe(1);
   expect(present(tx.execution.cycles.find(ws, surfaced.id)).version).toBe(surfaced.version);
 });

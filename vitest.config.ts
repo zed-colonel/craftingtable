@@ -25,6 +25,9 @@ export default defineConfig({
         test: {
           name: 'node',
           environment: 'node',
+          // The server tests drive real Git and a test daemon. On a loaded workstation several
+          // took 4.5-5 s against the 5 s default, so the timeout is a hang guard only (R-I2).
+          testTimeout: 15_000,
           include: [
             'packages/*/src/**/*.test.ts',
             'packages/*/test/**/*.test.ts',

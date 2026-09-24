@@ -22,6 +22,7 @@ import {
   roadmapControl,
   runScopedFixtureCheck,
   scopeReport,
+  stepDaemons,
   storedRoadmap,
   structuredFinding,
   supervisedMapFixture,
@@ -268,6 +269,7 @@ it.each([false, true])(
       'active owning-slice',
     );
     expect(tx.execution.cycles.find(ws, parent.id)?.reason).toBe(parent.reason);
+    await stepDaemons();
     await notifications.tick();
     expect(
       tx.notifications

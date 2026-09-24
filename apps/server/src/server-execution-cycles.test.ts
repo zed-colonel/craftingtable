@@ -38,6 +38,7 @@ import {
   runToFinish,
   ScriptedBackend,
   startCycle,
+  stepDaemons,
   structuredFinding,
   waitFor,
 } from './execution-test-support.js';
@@ -1049,7 +1050,7 @@ describe('cycle supervision and operator races', () => {
       }
     }
     const backend = new DelayedBackend();
-    const state = await ready({ backend });
+    const state = await ready({ backend, workers: true });
     const { worktree } = await registerAndWorktree(state, fixtureRepository());
     await admit(state);
     const cycle = await startCycle(state, worktree.id);
@@ -1123,7 +1124,7 @@ it('refreshes a phase wait when its blockers change and records nothing for a co
     'wait',
   );
   const first = currentCycle(state, cycle);
-  await new Promise((resolve) => setTimeout(resolve, 1200));
+  await stepDaemons(3);
   expect(currentCycle(state, cycle).version).toBe(first.version);
   blockers = [{ kind: 'dependency', message: 'Predecessor AQ-00 is not merged yet.' }];
   await waitFor(
@@ -1155,6 +1156,7 @@ it.each(['pause', 'stop'] as const)(
       release = resolve;
     });
     const state = await ready({
+      workers: true,
       gitOperations: {
         ...realGit,
         resolveBranch: async (path, branch) => {
@@ -1377,6 +1379,7 @@ it('a stop during an automatic checkpoint cannot launch a late review', async ()
     { resultText: reviewText([]) },
   ]);
   const state = await ready({
+    workers: true,
     backend,
     gitOperations: {
       ...real,

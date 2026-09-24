@@ -579,8 +579,10 @@ it('alerts for an eligible missing native environment, not future dependency wai
   tx.roadmaps.save(
     {
       ...draft,
+      // A changed definition is a new revision (R-B3).
       definition: {
         ...draft.definition,
+        revision: draft.definition.revision + 1,
         entries: draft.definition.entries.map((e) => ({
           ...e,
           executionScope: { ...f.scopes[0]!, kind: 'slice-verification' as const },

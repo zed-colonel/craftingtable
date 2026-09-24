@@ -49,6 +49,7 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import { cycleAgentSelection } from './agent-profile-policy.js';
+import { cycleOwnership } from './cycle-ownership.js';
 import { offloadToolResult, readToolResult } from './tool-result-store.js';
 import type { AuthContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
@@ -349,9 +350,7 @@ export class AgentRunService {
       );
     if (
       cycle.providerRecovery &&
-      this.storage.roadmaps
-        .list(cycle.workspaceId)
-        .some((r) => r.status !== 'running' && r.attempts.some((a) => a.cycleId === cycle.id))
+      (cycleOwnership(this.storage, cycle)?.roadmap.status ?? 'running') !== 'running'
     )
       throw new ExecutionRequestError(
         'conflict',

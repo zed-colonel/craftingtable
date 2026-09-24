@@ -51,6 +51,15 @@ describe('sequential roadmaps', () => {
     const first = await awaitRoadmapMerge(state, 0);
     expect(backend.launches).toHaveLength(3);
     expect(storedRoadmap(state).attempts).toHaveLength(1);
+    // The cycle records the attempt that created it (R-B3).
+    expect(
+      state.context.storage.execution.cycles.find(state.workspaceId, first.cycleId)?.owner,
+    ).toEqual({
+      roadmapId: storedRoadmap(state).id,
+      attemptId: first.id,
+      entryId: first.entryId,
+      definitionRevision: 1,
+    });
     expect(state.context.storage.planning.workItems.find(state.workspaceId, second)?.status).toBe(
       'proposed',
     );

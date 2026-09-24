@@ -2,6 +2,12 @@ import type { Roadmap, WorkCycle } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { prioritizeRoadmapCycles } from './cycle-priority.js';
 
+/** Resolves each cycle to the attempt that names it, as `cycleOwnership` does. */
+const ownedBy = (roadmap: Roadmap) => (cycle: WorkCycle) => {
+  const attempt = roadmap.attempts.find((a) => a.cycleId === cycle.id);
+  return attempt && { roadmap, attempt };
+};
+
 it('dispatches reserved cycles in roadmap priority order while leaving unrelated work in place', () => {
   const cycles = ['later', 'manual', 'earlier', 'repair'].map((id) => ({ id }) as WorkCycle);
   const roadmap = {
@@ -17,16 +23,19 @@ it('dispatches reserved cycles in roadmap priority order while leaving unrelated
       { cycleId: 'repair', entryId: 'first', status: 'active', recovery: { phase: 'repair' } },
     ],
   } as unknown as Roadmap;
-  expect(prioritizeRoadmapCycles(cycles, [roadmap]).map((c) => c.id)).toEqual([
+  expect(prioritizeRoadmapCycles(cycles, ownedBy(roadmap)).map((c) => c.id)).toEqual([
     'repair',
     'manual',
     'earlier',
     'later',
   ]);
-  expect(prioritizeRoadmapCycles(cycles, [{ ...roadmap, status: 'paused' }])).toEqual(cycles);
+  expect(prioritizeRoadmapCycles(cycles, ownedBy({ ...roadmap, status: 'paused' }))).toEqual(
+    cycles,
+  );
   expect(
-    prioritizeRoadmapCycles(cycles, [
-      {
+    prioritizeRoadmapCycles(
+      cycles,
+      ownedBy({
         ...roadmap,
         definition: {
           ...roadmap.definition,
@@ -37,7 +46,7 @@ it('dispatches reserved cycles in roadmap priority order while leaving unrelated
             maxIntegrationRefreshes: 3,
           },
         },
-      },
-    ]),
+      }),
+    ),
   ).toEqual(cycles);
 });

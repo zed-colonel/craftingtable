@@ -18,22 +18,23 @@ import {
   prerequisiteIssues,
   subjectRequirements,
 } from './runtime-evidence-policy.js';
+import { cycleOwnership } from './cycle-ownership.js';
 
 export function workflowDelegation(tx: StorageRepositories, cycle: WorkCycle) {
-  for (const roadmap of tx.roadmaps.list(cycle.workspaceId)) {
-    const attempt = roadmap.attempts.find((a) => a.cycleId === cycle.id);
-    if (!attempt || !roadmap.definition.crossProject) continue;
-    const saved = attemptDefinition(tx, roadmap, attempt);
-    const entry = saved?.entries.find((e) => e.id === attempt.entryId);
-    if (entry)
-      return {
+  const owner = cycleOwnership(tx, cycle);
+  if (!owner?.roadmap.definition.crossProject) return undefined;
+  const { roadmap, attempt } = owner;
+  const saved = attemptDefinition(tx, roadmap, attempt);
+  const entry = saved?.entries.find((e) => e.id === attempt.entryId);
+  return entry
+    ? {
         roadmap,
+        attempt,
         entry,
         roles: effectiveDelegation(roadmap, entry, saved!).reviewerRoles,
         runnable: roadmap.status === 'running' && !roadmap.entryHolds?.[entry.id],
-      };
-  }
-  return undefined;
+      }
+    : undefined;
 }
 export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
   tx = mapReadSnapshot(tx);

@@ -180,8 +180,10 @@ it('rejects unauthenticated, CSRF-less, invalid, running, and ended capacity edi
 it('evaluates the whole roadmap list in one read snapshot (PERF-08)', async () => {
   const s = await fixture();
   // Whole-item entries: this fixture binds no map, so slice scopes cannot resolve.
+  // A changed definition is a new revision (R-B3).
   const definition = {
     ...s.roadmap.definition,
+    revision: s.roadmap.definition.revision + 1,
     entries: s.roadmap.definition.entries.map(({ executionScope: _scope, ...entry }) => entry),
   };
   s.c.storage.roadmaps.save({ ...s.roadmap, version: 2, definition }, 1);

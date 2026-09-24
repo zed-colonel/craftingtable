@@ -1262,8 +1262,7 @@ export class RuntimeEvidenceService {
         delegatedReview: {
           cycleId: cycle.id,
           roadmapId: delegation.roadmap.id,
-          definitionRevision: delegation.roadmap.attempts.find((a) => a.cycleId === cycle.id)!
-            .definitionRevision,
+          definitionRevision: delegation.attempt.definitionRevision,
           roles: checkpoint.roles,
         },
       },

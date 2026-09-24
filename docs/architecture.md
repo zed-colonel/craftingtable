@@ -304,7 +304,11 @@ whole-item or slice execution to `WorkCycleService`. Sequential mode preserves s
 mode scans in priority order under dependency, in-flight, repository, and exclusion constraints. Schema 12 separates immutable roadmap
 revisions from mutable, versioned control state and independently identified attempts.
 Each attempt reserves its worktree and cycle IDs before Git work; cycle creation and
-attempt attachment commit together. Branch targets and effective step settings are bound
+attempt attachment commit together. The control row stores only `definitionRevision`; the
+repository rehydrates the immutable definition from `roadmap_definitions` through a
+per-database cache, so a state change no longer rewrites the definition (schema 29). A
+cycle records the attempt that created it as `owner`, or `null` when no roadmap owns it, and
+every "which roadmap owns this cycle" question goes through `cycleOwnership` (R-B3). Branch targets and effective step settings are bound
 explicitly. The scheduler calls the shared merge command only under the effective policy
 from the attempt's immutable definition revision. See ADR-029 for admission, capacity, recovery,
 and manual takeover behavior; ADR-028 preserves the later slice and Studio boundaries.

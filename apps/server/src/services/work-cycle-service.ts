@@ -41,6 +41,7 @@ import {
   cycleAttention,
   effectiveCycleAttention,
   resumeRedirect,
+  type CycleOwner,
 } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -73,6 +74,7 @@ import type { ExecutionService } from './execution-service.js';
 import { finalizationForCycle, finalizationHasNoQuestions } from './finalization-policy.js';
 import { assessStageReport, recordStageEvidence } from './finalization-stage-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
+import { cycleOwnership } from './cycle-ownership.js';
 import { PhaseGateError } from './phase-resources.js';
 import { attemptDelegation } from './roadmap-delegation-policy.js';
 import { drainInterrupted } from './restart-resume.js';
@@ -295,6 +297,8 @@ export class WorkCycleService {
     delegation?: {
       worktreeId: import('@craftingtable/domain').WorktreeId;
       cycleId: string;
+      /** The recovery attempt the new repair cycle belongs to (R-B3). */
+      owner: CycleOwner;
       profiles: WorkCycle['profiles'];
       policy: WorkCycle['policy'];
       check: () => void;
@@ -416,6 +420,8 @@ export class WorkCycleService {
               instructions: input.instructions,
             },
             delegation?.cycleId,
+            false,
+            delegation?.owner ?? null,
           );
           const sources = selectedSources.map((s) => ({
             runId: s.runId,
@@ -641,6 +647,7 @@ export class WorkCycleService {
     input: StartWorkCycleRequest,
     reservedId?: string,
     allowScopeReview = false,
+    owner: CycleOwner | null = null,
   ): WorkCycle {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     this.validateSettings(input);
@@ -681,6 +688,7 @@ export class WorkCycleService {
     const occurredAt = this.now().toISOString();
     const cycle: WorkCycle = {
       id: reservedId ?? randomUUID(),
+      owner,
       workspaceId,
       workItemId,
       ...(worktree.executionScope ? { executionScope: worktree.executionScope } : {}),
@@ -734,6 +742,8 @@ export class WorkCycleService {
     this.validateSettings({ profiles });
     const cycle: WorkCycle = {
       id: value.cycleId,
+      // A plan finalization is its own subject; no roadmap attempt owns it.
+      owner: null,
       workspaceId: value.workspaceId,
       finalizationId: value.id,
       planVersionId: value.planVersionId,
@@ -1738,9 +1748,10 @@ export class WorkCycleService {
   private async pass(): Promise<void> {
     // Attention depends only on stored state, so refresh it when that state has changed.
     if (this.notifier.workflowGeneration !== this.attentionGeneration) this.declareAttention();
+    const snapshot = mapReadSnapshot(this.storage);
     for (const cycle of prioritizeRoadmapCycles(
       this.storage.execution.cycles.listActive(),
-      this.storage.roadmaps.list(),
+      (cycle) => cycleOwnership(snapshot, cycle),
     )) {
       if (this.abort.signal.aborted) break;
       try {
@@ -1864,9 +1875,8 @@ export class WorkCycleService {
   }
 
   private providerRoadmapPaused(cycle: WorkCycle): boolean {
-    return this.storage.roadmaps
-      .list(cycle.workspaceId)
-      .some((r) => r.status !== 'running' && r.attempts.some((a) => a.cycleId === cycle.id));
+    const owner = cycleOwnership(this.storage, cycle);
+    return !!owner && owner.roadmap.status !== 'running';
   }
 
   private async reconcile(cycle: WorkCycle): Promise<void> {
@@ -2022,9 +2032,7 @@ export class WorkCycleService {
         return;
       }
       if (state.pending.length) return;
-      const roadmap = this.storage.roadmaps
-        .list(cycle.workspaceId)
-        .find((r) => r.attempts.some((a) => a.cycleId === cycle.id));
+      const roadmap = cycleOwnership(this.storage, cycle)?.roadmap;
       if (roadmap && roadmap.status !== 'running') return;
       const parent = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
       if (parent?.status !== 'finished') {
@@ -3224,12 +3232,10 @@ export class WorkCycleService {
         context: { user },
       };
     }
-    const roadmap = this.storage.roadmaps
-      .list(cycle.workspaceId)
-      .find((r) => r.attempts.some((a) => a.cycleId === cycle.id && a.status === 'active'));
-    if (roadmap?.status !== 'running') return;
-    const attempt = roadmap.attempts.find((a) => a.cycleId === cycle.id);
-    if (!attempt || roadmap.entryHolds?.[attempt.entryId]) return;
+    const owner = cycleOwnership(this.storage, cycle);
+    if (owner?.attempt.status !== 'active' || owner.roadmap.status !== 'running') return;
+    const { roadmap, attempt } = owner;
+    if (roadmap.entryHolds?.[attempt.entryId]) return;
     if (
       attempt.recovery &&
       (!roadmap.scopeRecovery?.enabled || roadmap.entryHolds?.[attempt.recovery.sourceEntryId])

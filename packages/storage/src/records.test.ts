@@ -223,7 +223,8 @@ describe('persisted record registry (R-H3)', () => {
         tx.roadmaps.save(value, 0);
         tx.roadmaps.addDefinition(value.definition);
       });
-      expect(refused).toEqual(['roadmap', 'roadmap', 'roadmap-definition']);
+      // Saving stores the new revision; adding it again is a checked no-op.
+      expect(refused).toEqual(['roadmap', 'roadmap', 'roadmap-definition', 'roadmap-definition']);
       expect(storage.roadmaps.find(seed.workspaceId, value.id)).toEqual(value);
     } finally {
       storage.close();

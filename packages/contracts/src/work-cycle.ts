@@ -204,6 +204,15 @@ export type BaselinePreview = z.infer<typeof baselinePreviewSchema>;
 export type PrepareBaselineRequest = z.infer<typeof prepareBaselineRequestSchema>;
 export const workCycleSchema = z
   .strictObject({
+    owner: z
+      .strictObject({
+        roadmapId: z.uuid(),
+        attemptId: z.uuid(),
+        entryId: z.string().min(1),
+        definitionRevision: z.number().int().positive(),
+      })
+      .nullable()
+      .optional(),
     nextAgentSelections: agentSelectionsSchema.optional(),
     scopeReviewWait: z.string().optional(),
     mergeRequirementsWait: z.string().optional(),

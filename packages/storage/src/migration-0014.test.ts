@@ -95,8 +95,9 @@ describe('migration 0014 preserves the three execution tables it rebuilds (R-H3)
       ).toThrow(/UNIQUE/);
       expect(() => database.prepare('DELETE FROM agent_run_events').run()).toThrow(/append-only/);
 
-      // And the rest of the chain carries the same rows to the current schema.
-      runMigrations(database, discoverMigrations());
+      // And the rest of the chain carries the same rows up to schema 28. Schema 29 then
+      // records each cycle's owner by design (migration-0029.test.ts).
+      runMigrations(database, discoverMigrations().slice(0, 28));
       expect(
         preservationProblems(before, imageOf(database), {
           // 0026 rebuilt the run-profile table; nothing here seeded it.

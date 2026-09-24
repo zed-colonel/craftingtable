@@ -1,5 +1,8 @@
 import type Database from 'better-sqlite3';
+import type { WorkspaceId } from '@craftingtable/domain';
+import { SqliteRoadmapRepository } from './repositories/roadmaps.js';
 import {
+  acceptAnyRecord,
   observeUpcasts,
   type PersistedRecordKind,
   type PersistedRecords,
@@ -51,7 +54,9 @@ interface Source {
   readonly table: string;
   /** Rows as the repository selects them, with a `scan_key` column for reports. */
   readonly sql: string;
-  readonly read: (row: never) => unknown;
+  readonly read: (row: never, database: Database.Database) => unknown;
+  /** Journals are streamed row by row; other tables are small and read at once. */
+  readonly stream?: boolean;
 }
 
 const documents = (
@@ -73,7 +78,14 @@ const documents = (
  */
 const SOURCES: readonly Source[] = [
   documents('work-cycle', 'work_cycles', 'id', 'state_json'),
-  documents('roadmap', 'roadmaps', 'id', 'state_json'),
+  {
+    // The control row holds only the revision; the repository rehydrates the definition.
+    kind: 'roadmap',
+    table: 'roadmaps',
+    sql: 'SELECT workspace_id, id, id AS scan_key FROM roadmaps ORDER BY rowid',
+    read: (row: { workspace_id: WorkspaceId; id: string }, database) =>
+      new SqliteRoadmapRepository(database, acceptAnyRecord).find(row.workspace_id, row.id),
+  },
   documents(
     'roadmap-definition',
     'roadmap_definitions',
@@ -111,18 +123,21 @@ const SOURCES: readonly Source[] = [
   },
   {
     kind: 'run-event',
+    stream: true,
     table: 'agent_run_events',
     sql: 'SELECT *, sequence AS scan_key FROM agent_run_events ORDER BY sequence',
     read: (row: AgentRunEventRow) => mapAgentRunEvent(row),
   },
   {
     kind: 'workspace-event',
+    stream: true,
     table: 'workspace_events',
     sql: 'SELECT *, sequence AS scan_key FROM workspace_events ORDER BY sequence',
     read: (row: WorkspaceEventRow) => mapWorkspaceEvent(row),
   },
   {
     kind: 'audit-event',
+    stream: true,
     table: 'audit_events',
     sql: 'SELECT *, sequence AS scan_key FROM audit_events ORDER BY sequence',
     read: (row: AuditRow) => mapAudit(row),
@@ -222,14 +237,15 @@ export function scanRecords(
 ): void {
   const run = () => {
     for (const source of SOURCES) {
-      for (const row of database.prepare(source.sql).iterate() as Iterable<{
+      const statement = database.prepare(source.sql);
+      for (const row of (source.stream ? statement.iterate() : statement.all()) as Iterable<{
         scan_key: string | number;
       }>) {
         const { scan_key: scanKey, ...columns } = row;
         const key = String(scanKey);
         let record: unknown;
         try {
-          record = source.read(columns as never);
+          record = source.read(columns as never, database);
         } catch (error) {
           unreadable({ kind: source.kind, key, error: (error as Error).message });
           continue;

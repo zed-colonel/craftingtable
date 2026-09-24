@@ -19,7 +19,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **B** | | | | **Controller core (pain point 3)** |
 | [R-B1](#r-b1) | P0 | S | done (fd269b6, 012447b) | Controller quick fixes (no schema change) |
 | [R-B2](#r-b2) | P1 | M | done (131a9de) | Characterization harness for the cycle controller |
-| [R-B3](#r-b3) | P1 | M | open | Explicit cycle ownership; roadmap state references its definition |
+| [R-B3](#r-b3) | P1 | M | done (this commit, recorded in the next) | Explicit cycle ownership; roadmap state references its definition |
 | [R-B4](#r-b4) | P4 | L | open | Pure cycle decision core with an explicit state machine |
 | [R-B5](#r-b5) | P4 | L | open | Event-driven controller kernel |
 | [R-B6](#r-b6) | P4 | M-L | open | Scoped consistency instead of whole-roadmap pause |
@@ -73,7 +73,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
-| [R-H2](#r-h2) | P1 | M | partial (cae7827 + compaction; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
+| [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
 | [R-H3](#r-h3) | P1 | M | done (41a5a56, f63b908) | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | open | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
@@ -229,11 +229,38 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B3
 
-**Explicit cycle ownership; roadmap state references its definition** · Phase P1 · Effort M · Status: open
+**Explicit cycle ownership; roadmap state references its definition** · Phase P1 · Effort M · Status: done (this commit, recorded in the next)
 
 - **Resolves:** [CTRL-07](findings/CTRL-controller.md#ctrl-07-ownership-of-a-cycle-by-a-roadmap-is-resolved-11-ways-and-the-cycle-has-no-owner-field), [CTRL-09](findings/CTRL-controller.md#ctrl-09-the-roadmap-control-row-embeds-the-whole-definition-and-history-is-parsed-on-hot-paths), [HIST-12](findings/HIST-history-and-live-usage.md#hist-12-roadmap-state-rewrites-a-248-kb-json-blob-including-a-full-definition-copy-on-every-change), [DATA-07](findings/DATA-storage-domain-contracts.md#data-07-the-roadmap-state-blob-embeds-a-copy-of-the-immutable-definition-and-keeps-append-only-histories-inside-the-mutable-blob-revision-lookups-load-every-revision), [PERF-08](findings/PERF-browser-and-read-performance.md#perf-08-map-evaluation-hot-spots-in-roadmap-view-cycles-list-and-cross-project-preview)
 - **Change:** Add optional WorkCycle.owner {roadmapId, attemptId, entryId, definitionRevision}, set on creation and backfilled on read; replace the 11 ownership scans with one memoized cycleOwnership(). Store only definitionRevision in roadmap control state, load definitions through a process-wide immutable cache, and add an indexed single-revision lookup instead of parsing all history.
 - **Done when:** No call site scans roadmaps.list() for a cycleId; roadmap row size no longer scales with the definition; roadmaps.history() is not called on hot paths.
+- **Progress (2026-09-24):**
+  - **Cycle owner.** `WorkCycle.owner` is optional: `{ roadmapId, attemptId, entryId, definitionRevision }`, or `null` when no roadmap owns the cycle.
+    - Set on creation: the roadmap passes it when it starts an entry's cycle or a scope-recovery repair cycle. Manual starts and finalizations record `null`.
+    - Backfilled by migration 0029 from the attempts. It refuses a database where one cycle is named by two attempts. Each attempt reserves a fresh cycle id, so none is.
+    - A record still without it (a hand-built test record) is resolved from the attempts inside `cycleOwnership`. That is the only remaining search over roadmaps for a cycle.
+  - **One ownership lookup.** `cycleOwnership(tx, cycle)` (`services/cycle-ownership.ts`) reads the owner by primary key and is memoized inside a read snapshot. It replaces the attempt scans in:
+    - `workflowDelegation`, the two agent-profile resolutions and `roadmapClaim`;
+    - cycle priority;
+    - `providerRoadmapPaused`, the design-wait owner check and `refreshOwner`;
+    - the agent-run service's provider-retry guard;
+    - the runtime-evidence attempt lookup.
+
+    Each site keeps its own conditions (running, cross-project, active attempt, holds) applied to the single owner. `scope-recovery-policy` and `map-adoption-policy` still list roadmaps, but they match entries by execution scope, not by cycle. The remaining `roadmaps.list()` calls iterate roadmaps for scheduling and views.
+  - **Definition by revision.** A roadmap's control row stores `definitionRevision` instead of the definition. The repository rehydrates the definition from `roadmap_definitions` through a per-database `DefinitionCache`: deep-frozen, and discarded with a rolled-back transaction so a reused revision number cannot go stale.
+    - `save` stores a revision not yet stored, and refuses one that differs from the stored revision. Definitions change only through a new revision.
+    - `addDefinition` is idempotent for identical content.
+    - `definition(ws, id, revision)` is the indexed lookup. `history()` is called only by the history route.
+  - **Migration 0029.**
+    - A roadmap whose embedded definition was never stored gets that revision stored. One that differs from its stored revision aborts the migration instead of losing a definition.
+    - It recreates `work_items_admission_only`. That trigger read `$.definition.entries` from the control row, so after stripping it would silently have stopped refusing to return an admitted item to proposed. It now reads the stored revision.
+    - Tests: `migration-0029.test.ts` (backfill, stored draft revision, abort on drift, the trigger still refusing).
+  - **Evidence, on a copy of the 2026-09-23 snapshot:**
+    - `controller:replay --check`: 51 decisions, 0 changed. `--every-run --check` against the golden taken before this work: 278 decisions, 0 changed.
+    - `db:verify` on the migrated copy passes (54,152 records).
+    - The cross-project roadmap's control row fell from 257,480 bytes to 26,686, which is now attempts and holds only. The other three fell from 3,912–5,262 bytes to 1,368–1,704.
+    - All 35 attempt cycles got their owner; the 16 other cycles recorded `null`.
+    - Two tests that rewrote a definition in place under the same revision now save a new revision.
 
 ### R-B4
 
@@ -769,7 +796,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H2
 
-**Journal retention: stop storing raw vendor lines by default** · Phase P1 · Effort M · Status: partial (cae7827 + compaction; live measurement after deploy)
+**Journal retention: stop storing raw vendor lines by default** · Phase P1 · Effort M · Status: partial (cae7827, d8cedea; live measurement after deploy)
 
 - **Resolves:** [DATA-01](findings/DATA-storage-domain-contracts.md#data-01-agent_run_eventsraw_json-is-278-mb-of-never-read-data-that-is-also-shipped-to-the-browser), [DATA-02](findings/DATA-storage-domain-contracts.md#data-02-the-journal-can-never-be-pruned-growth-is-unbounded-and-every-byte-is-duplicated-about-8-by-backups), [AGT-03](findings/AGT-GIT-SEC-agents-git-security.md#agt-03-raw-vendor-lines-take-about-half-the-database-and-are-shipped-to-the-browser-which-never-reads-them), [HIST-11](findings/HIST-history-and-live-usage.md#hist-11-run-event-storage-is-dominated-by-duplicated-raw-vendor-json)
 - **Change:** Store raw only when normalization fails (or for a bounded window); move large tool-result bodies to compressed per-run files with a digest and preview in SQLite; add an explicit, audited compaction command (the append-only trigger stays for normal writes) and a retention policy aligned with run-directory cleanup.

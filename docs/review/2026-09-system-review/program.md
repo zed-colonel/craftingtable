@@ -210,6 +210,11 @@ R-A7's remainder.
     file fell from 547 MB to 137 MB.
   - **Checks:** db:verify and both replays unchanged.
   - **Operator action:** compact the live journal after deploy (`docs/operations.md`).
+- **R-B3: done.** Cycles record their owning attempt, and one memoized `cycleOwnership` replaces the attempt
+  scans. Roadmap control rows store only `definitionRevision`; definitions come from a per-database immutable
+  cache. Migration 0029 backfills both and keeps the work-item admission guard working.
+  - **Snapshot copy:** both replays report 0 changed, db:verify passes, and the largest control row fell from
+    257 KB to 27 KB.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 

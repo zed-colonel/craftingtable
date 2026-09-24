@@ -54,9 +54,10 @@ it('retains definitions across reopen, rejects stale writes, and rolls back revi
   expect(() =>
     f.storage.transaction((tx) => {
       tx.roadmaps.save(next, 1);
-      tx.roadmaps.addDefinition(roadmap.definition);
+      // A revision is immutable: storing different content under revision 1 fails.
+      tx.roadmaps.addDefinition({ ...roadmap.definition, name: 'Rewritten' });
     }),
-  ).toThrow();
+  ).toThrow(/different definition/);
   expect(f.storage.roadmaps.find(seed.workspaceId, id)).toEqual(roadmap);
   expect(f.storage.roadmaps.save(next, 9)).toBe(false);
   f.storage.close();

@@ -2,6 +2,7 @@ import {
   decisionBindingDigest,
   supportsArchitectureDecision,
 } from './architecture-decision-policy.js';
+import { ownerOf } from './cycle-ownership.js';
 import { currentDecisionPreparation } from './decision-preparation-policy.js';
 import {
   attemptDefinition,
@@ -1585,6 +1586,7 @@ export class RoadmapService {
         },
         reserved.cycleId,
         !!roadmap.definition.crossProject,
+        ownerOf(roadmap, reserved),
       );
       this.change(roadmap, {
         attempts: roadmap.attempts.map((a) =>
@@ -1746,6 +1748,7 @@ export class RoadmapService {
           {
             worktreeId: reserved.worktreeId,
             cycleId: reserved.cycleId,
+            owner: ownerOf(roadmap, reserved),
             profiles: frozen.profiles,
             policy: frozen.policy,
             check: () => {

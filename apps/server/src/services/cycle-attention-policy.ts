@@ -11,6 +11,7 @@ import { mapReadSnapshot } from './map-read-snapshot.js';
 import { attemptDelegation } from './roadmap-delegation-policy.js';
 import { scopeMergeWait, scopeReviewWait } from './scope-repair.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
+import { cycleOwnership } from './cycle-ownership.js';
 
 /**
  * The attention a stopped cycle declares right now (R-A3, NOTIF-02).
@@ -56,11 +57,10 @@ export function currentCycleAttention(
 
 /** A running roadmap whose policy completes this stop itself, exactly as it schedules it. */
 function roadmapClaim(tx: StorageRepositories, cycle: WorkCycle): AttentionClaim | undefined {
-  const roadmap = tx.roadmaps
-    .list(cycle.workspaceId)
-    .find((r) => r.status === 'running' && r.attempts.some((a) => a.cycleId === cycle.id));
-  const attempt = roadmap?.attempts.find((a) => a.cycleId === cycle.id);
-  if (!roadmap || !attempt || roadmap.entryHolds?.[attempt.entryId]) return undefined;
+  const owner = cycleOwnership(tx, cycle);
+  if (owner?.roadmap.status !== 'running') return undefined;
+  const { roadmap, attempt } = owner;
+  if (roadmap.entryHolds?.[attempt.entryId]) return undefined;
   if (
     attempt.recovery &&
     (!roadmap.scopeRecovery?.enabled || roadmap.entryHolds?.[attempt.recovery.sourceEntryId])

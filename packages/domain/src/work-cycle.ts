@@ -102,7 +102,21 @@ export interface BaselinePreparation {
   readonly consumerAlias: string;
   readonly message: string;
 }
+/** The roadmap attempt that created a cycle (R-B3), fixed when the cycle is created. */
+export interface CycleOwner {
+  readonly roadmapId: string;
+  readonly attemptId: string;
+  readonly entryId: string;
+  /** The definition revision the attempt was scheduled under. */
+  readonly definitionRevision: number;
+}
 export interface WorkCycle {
+  /**
+   * Which roadmap attempt created this cycle, or `null` when no roadmap owns it (started by
+   * hand, or a finalization). Absent only on records written before schema 29 that nothing
+   * has backfilled; `cycleOwnership` derives those from the roadmaps' attempts.
+   */
+  readonly owner?: CycleOwner | null;
   /** Read projection: future model selections, never persisted as original settings. */
   readonly nextAgentSelections?: import('./agent-profiles.js').AgentSelections;
   readonly workflow?: import('./workflow.js').CycleWorkflow;

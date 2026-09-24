@@ -17,7 +17,7 @@ import { SqliteMapAmendmentRepository } from './repositories/map-amendments.js';
 import { SqliteNotificationRepository } from './repositories/notifications.js';
 import { SqlitePhaseSchedulingRepository } from './repositories/phase-reservations.js';
 import { planningRepositories } from './repositories/planning/index.js';
-import { SqliteRoadmapRepository } from './repositories/roadmaps.js';
+import { DefinitionCache, SqliteRoadmapRepository } from './repositories/roadmaps.js';
 import { SqliteRuntimeEvidenceRepository } from './repositories/runtime-evidence.js';
 import { SqliteScopeReceiptRepository } from './repositories/scope-receipts.js';
 import { SqliteSessionRepository } from './repositories/sessions.js';
@@ -26,7 +26,11 @@ import { SqliteWorkspaceEventRepository } from './repositories/workspace-events.
 import { SqliteWorkspaceRepository } from './repositories/workspaces.js';
 import type { CraftingTableStorage, MigrationStatus, StorageRepositories } from './types.js';
 
-function repositories(database: Database.Database, guard: RecordGuard): StorageRepositories {
+function repositories(
+  database: Database.Database,
+  guard: RecordGuard,
+  definitions: DefinitionCache,
+): StorageRepositories {
   return {
     amendments: new SqliteMapAmendmentRepository(database, guard),
     runtimeEvidence: new SqliteRuntimeEvidenceRepository(database, guard),
@@ -34,7 +38,7 @@ function repositories(database: Database.Database, guard: RecordGuard): StorageR
     scopeReceipts: new SqliteScopeReceiptRepository(database, guard),
     imports: new SqliteImportRepository(database, guard),
     maintenance: new SqliteStorageMaintenanceRepository(database, guard),
-    roadmaps: new SqliteRoadmapRepository(database, guard),
+    roadmaps: new SqliteRoadmapRepository(database, guard, definitions),
     notifications: new SqliteNotificationRepository(database, guard),
     users: new SqliteUserRepository(database),
     sessions: new SqliteSessionRepository(database),
@@ -64,6 +68,8 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   readonly execution;
 
   private closed = false;
+  /** Parsed roadmap definitions, shared by every transaction on this database (R-B3). */
+  private readonly definitions = new DefinitionCache();
 
   constructor(
     readonly databasePath: string,
@@ -71,7 +77,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     readonly migrationStatus: MigrationStatus,
     private readonly guard: RecordGuard,
   ) {
-    const repos = repositories(database, guard);
+    const repos = repositories(database, guard, this.definitions);
     this.amendments = repos.amendments;
     this.runtimeEvidence = repos.runtimeEvidence;
     this.phaseScheduling = repos.phaseScheduling;
@@ -90,14 +96,22 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   }
 
   transaction<T>(operation: (tx: StorageRepositories) => T): T {
-    return this.database
-      .transaction(() => operation(repositories(this.database, this.guard)))
-      .immediate();
+    this.definitions.begin();
+    try {
+      const result = this.database
+        .transaction(() => operation(repositories(this.database, this.guard, this.definitions)))
+        .immediate();
+      this.definitions.commit();
+      return result;
+    } catch (error) {
+      this.definitions.rollback();
+      throw error;
+    }
   }
 
   readTransaction<T>(operation: (tx: StorageRepositories) => T): T {
     return this.database
-      .transaction(() => operation(repositories(this.database, this.guard)))
+      .transaction(() => operation(repositories(this.database, this.guard, this.definitions)))
       .deferred();
   }
 

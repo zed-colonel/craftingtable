@@ -11,6 +11,7 @@ import {
   type WorkCycle,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
+import { cycleOwnership } from './cycle-ownership.js';
 export function entryAgentSelections(roadmap: Roadmap, entry: RoadmapEntry) {
   const assignment = roadmap.agentAssignments?.findLast((a) => a.entryIds.includes(entry.id));
   return { selections: assignment?.selections ?? agentSelections(entry.profiles), assignment };
@@ -29,9 +30,9 @@ export function cycleAgentSelection(
     permissionMode:
       cycle.profiles[purpose === 'conflict' ? 'remediate' : cycle.step].permissionMode,
   };
-  for (const roadmap of tx.roadmaps.list(cycle.workspaceId)) {
-    const attempt = roadmap.attempts.find((a) => a.cycleId === cycle.id);
-    if (!attempt) continue;
+  const owner = cycleOwnership(tx, cycle);
+  if (owner) {
+    const { roadmap, attempt } = owner;
     const assignment = roadmap.agentAssignments?.findLast((a) =>
       a.entryIds.includes(attempt.entryId),
     );
@@ -75,16 +76,11 @@ export function assignedReviewMatches(
 }
 
 export function effectiveCycleProfiles(tx: StorageRepositories, cycle: WorkCycle) {
-  let selections = agentSelections(cycle.profiles);
-  for (const roadmap of tx.roadmaps.list(cycle.workspaceId)) {
-    const attempt = roadmap.attempts.find((a) => a.cycleId === cycle.id);
-    const assignment =
-      attempt && roadmap.agentAssignments?.findLast((a) => a.entryIds.includes(attempt.entryId));
-    if (assignment) {
-      selections = assignment.selections;
-      break;
-    }
-  }
+  const owner = cycleOwnership(tx, cycle);
+  const assignment = owner?.roadmap.agentAssignments?.findLast((a) =>
+    a.entryIds.includes(owner.attempt.entryId),
+  );
+  const selections = assignment?.selections ?? agentSelections(cycle.profiles);
   return {
     ...selections,
     design: { ...selections.design, permissionMode: cycle.profiles.design.permissionMode },

@@ -313,6 +313,26 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** When a design classification, structured review report or "## Open questions" section fails validation, send one bounded follow-up turn to the same session quoting the validator errors (up to 2 attempts) before stopping for the operator. Record the attempts in the stop record.
 - **Done when:** Replaying the WI-09 and finalization invalid-output stops produces automatic repair turns, not needs-attention.
 - **Progress:** `decideStepOutcome` returns `repair-output` instead of a stop when a finished run's final report fails a structural check: an invalid design classification, an invalid or missing workflow report, a review report that is unstructured or invalid (including a missing scope evidence entry), or an Open questions checkpoint that is missing, repeated, empty, not last in a design report, or "none" followed by more text (`openQuestionsCheckpoint`, domain). A checkpoint that lists questions still stops at once, as do findings, decisions and dependencies. The controller records `outputRepair { attempts, sourceRunId, code, issues }` on the cycle and relaunches the step resuming the run's vendor session (`sessionResumeSource`, the R-B9 path generalized) with a message quoting the validator issues and asking for the whole corrected report; reviews stay on their pinned baseline, guidance is kept, and the turn gets at least 20 minutes. After `OUTPUT_REPAIR_LIMIT` (2) failed repairs, or when the run has no session id, it stops with the same code as before and `attention.repairAttempts`. No new attention codes or operator surfaces. Live history (snapshot 2026-09-23): the two finalization review reports rejected on 09-13 (finding ids that break the id pattern; `exitGate.evidence` over 20,000 characters) now classify as repairs, with those issues quoted. The four WI-09 stops (cycle d148f0a4) came from a design validator that f574029 later relaxed. Today both runs parse as complete and end with a real ADR approval request, so they correctly stop for the operator. All 18 recorded design stops for open questions list real questions and still stop. Tests: `step-outcome.test.ts` (table rows and R-C2 block), `output-repair.test.ts` (resume and continue, exhaustion, real questions, review on pinned baseline).
+- **Amended 2026-09-24 (phase 1 review): done-when restated.** The original done-when, "replaying the WI-09 and finalization invalid-output stops produces automatic repair turns", cannot be met as written, for two reasons:
+  - f574029 relaxed the design validator, so WI-09's reports are now valid. Its runs correctly stop for the ADR decision.
+  - `controller:replay` classified only each cycle's current run, so no recorded stop could be replayed.
+
+  **Restated done-when:** `pnpm controller:replay <snapshot> --every-run` classifies every finished or failed run as if it were current, and every recorded report that still fails a structural check comes out as `repair-output`, not a stop. Stepped tests show that a repair turn resumes the session and that a corrected report continues.
+
+  **Met.** On the 2026-09-23 snapshot, 278 runs were replayed:
+  - The two 09-13 finalization review reports (cycle caf76f40: finding ids breaking the pattern; `exitGate.evidence` over 20,000 characters) and two finalization implement reports without an Open questions checkpoint classify as `repair-output`.
+  - d148f0a4's two design runs classify as `design-decision-required` and `design-investigation-finished`.
+  - Every run that lists real questions still stops.
+  - `--check` against the live golden file still reports 0 changed.
+
+  **Fixed:**
+  - **Spent repairs carried into later runs.** A stop, a pause or any operator command left `outputRepair` on the cycle. After Resolve design questions or a manual resume, the next run's malformed report got fewer repairs, or none, and stopped with "2 automatic format repairs did not produce a valid report". The budget now ends with any stop, pause, end or operator command. The stop records the attempts in `attention.repairAttempts`.
+  - **The repair prompt said only the format was wrong.** Some issues ask for evidence, such as a missing required check, a gate that needs passing checks, or a plan-change decision. The prompt now forbids filling those in from memory. It allows read-only verification and sends anything unestablished, or any operator decision, to Open questions.
+
+  **Deferred, with reasons:**
+  - A repair turn that hits a retryable provider failure gets an ADR-062 service retry. That retry reruns the whole step and starts a fresh repair budget: at most two repairs per retry, and three retries. Resuming the repair instead needs the service retry to carry the repair's session source and its review continuation, and that path should change behind the R-B4 decision core.
+  - If a sibling merge moves the integration branch while a review repair is pending, the repair's continuation capture fails as `controller-error`, and the typed code is lost. That is also for R-B4.
+  - Letting the agent repair evidence and completeness issues automatically is an operator policy question; see the phase 1 review's open decisions.
 
 ### R-C3
 

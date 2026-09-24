@@ -4074,7 +4074,18 @@ export class WorkCycleService {
       } catch {
         attention = declared;
       }
-    let changes: Partial<WorkCycle> = { ...fields, ...(attention ? { attention } : {}) };
+    // A repair budget belongs to the run it repairs (R-C2). Leaving automation (a stop, a
+    // pause, an end) or an operator command ends it, so a later run never inherits spent
+    // repairs; the stop itself records them in `attention.repairAttempts`.
+    const repairEnded =
+      !!cycle.outputRepair &&
+      !('outputRepair' in fields) &&
+      (nextStatus !== 'running' || context !== undefined);
+    let changes: Partial<WorkCycle> = {
+      ...fields,
+      ...(attention ? { attention } : {}),
+      ...(repairEnded ? { outputRepair: null } : {}),
+    };
     // Keep lifetime totals and independent stage allowance/usage together in the same transaction.
     if (
       cycle.finalizationProgress &&

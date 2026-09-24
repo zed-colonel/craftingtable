@@ -3,6 +3,7 @@ import {
   type AgentRun,
   type AgentRunEvent,
   type CycleAttentionCode,
+  type CycleStep,
   designHasNoOpenQuestions,
   evaluateCycleCompletion,
   OUTPUT_REPAIR_LIMIT,
@@ -657,4 +658,56 @@ export function replayStepOutcomes(
     }
   }
   return outcomes.toSorted((left, right) => left.cycleId.localeCompare(right.cycleId));
+}
+
+/**
+ * Classifies every finished or failed run of every cycle as if it were the cycle's current
+ * run, with today's rules (R-C2). This answers "what would the controller decide now for
+ * that recorded stop?" for runs that are no longer current. A finalization run is read with
+ * its stored finalization even after the finalization ended. A run's step is taken from its
+ * role, so an implement run stands for its remediation too.
+ */
+export function replayEveryRun(
+  storage: CraftingTableStorage,
+  now: Date,
+): readonly ReplayedStepOutcome[] {
+  const outcomes: ReplayedStepOutcome[] = [];
+  for (const cycle of storage.execution.cycles.listAll()) {
+    for (const run of storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId)) {
+      if (run.status !== 'finished' && run.status !== 'failed') continue;
+      if (run.createdAt < cycle.createdAt) continue;
+      const step: CycleStep | undefined =
+        run.role === 'design' || run.role === 'implement' || run.role === 'review'
+          ? run.role
+          : undefined;
+      if (step === undefined) continue;
+      const replayed: WorkCycle = { ...cycle, step, currentRunId: run.id, outputRepair: null };
+      const base = {
+        cycleId: cycle.id,
+        status: cycle.status,
+        step,
+        runId: run.id,
+        runStatus: run.status,
+      };
+      try {
+        const facts = stepOutcomeFacts(storage, replayed, run, now);
+        outcomes.push({
+          ...base,
+          decision: decideStepOutcome(replayed, {
+            ...facts,
+            finalization: (current) =>
+              current.finalizationId
+                ? storage.execution.finalizations.find(current.workspaceId, current.finalizationId)
+                : undefined,
+          }),
+        });
+      } catch (error) {
+        outcomes.push({ ...base, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }
+  return outcomes.toSorted(
+    (left, right) =>
+      left.cycleId.localeCompare(right.cycleId) || left.runId.localeCompare(right.runId),
+  );
 }

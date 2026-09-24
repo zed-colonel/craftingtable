@@ -13,6 +13,7 @@ import {
   storedCycle,
   storedRun,
 } from './cycle-test-support.js';
+import { replayEveryRun } from './services/step-outcome.js';
 
 /**
  * R-C2: a final report that fails a structural check is sent back to the same agent
@@ -64,6 +65,14 @@ describe('automatic output-format repair (R-C2)', () => {
     expect(advanced.step).toBe('implement');
     expect(advanced.outputRepair ?? null).toBeNull();
     expect(f.backend.launches[2]?.resumeSessionId).toBeUndefined();
+
+    // Replaying every recorded run, not only the current one, shows the repair decision for
+    // the report that is no longer current (`controller:replay --every-run`).
+    const replayed = replayEveryRun(f.context.storage, new Date());
+    expect(replayed.find((outcome) => outcome.runId === designRunId)?.decision).toMatchObject({
+      kind: 'repair-output',
+      code: 'design-open-questions',
+    });
   });
 
   it('stops for the operator after two failed repairs and records them', async () => {
@@ -90,6 +99,20 @@ describe('automatic output-format repair (R-C2)', () => {
     const stopped = storedCycle(f, started.id);
     expect(stopped.attention).toMatchObject({ code: 'design-open-questions' });
     expect(stopped.attention?.repairAttempts).toBeUndefined();
+  });
+
+  it('does not carry spent repairs past the stop they ended in', async () => {
+    const { f, started } = await liveDesign();
+    f.backend.latest.release('Design settled; nothing to ask.');
+    await stepController(f.services, 3);
+    expect(storedCycle(f, started.id).outputRepair?.attempts).toBe(1);
+    // The repaired report lists real questions: the step stops, and the budget ends with it,
+    // so the run the operator's answer starts gets its own two repairs.
+    f.backend.latest.release(openQuestions);
+    await stepController(f.services, 3);
+    const stopped = storedCycle(f, started.id);
+    expect(stopped.attention).toMatchObject({ code: 'design-open-questions' });
+    expect(stopped.outputRepair ?? null).toBeNull();
   });
 
   it('repairs a review report on its pinned review baseline', async () => {

@@ -1,0 +1,112 @@
+import type { CycleAttentionCode } from './attention.js';
+import { effectiveCycleAttention } from './attention-legacy.js';
+import type { WorkCycle } from './work-cycle.js';
+
+/**
+ * The operator actions that can make progress on a cycle (R-A7, CTRL-04).
+ *
+ * Derived from the cycle's typed stop, so the daemon's commands and the browser offer the
+ * same actions: a plain Resume is offered only when the blocking fact is transient (an
+ * interrupted, failed or timed-out step, a restart, a cleared gate, a pause). A stop that a
+ * plain resume would only reproduce names the control that can resolve it instead.
+ */
+export const CYCLE_ACTIONS = [
+  'pause',
+  'resume',
+  'stop',
+  'continue-with-guidance',
+  'authorize-remediation',
+  'resolve-design',
+  'resolve-integration',
+  'merge',
+  'record-scope-evidence',
+  'approve-promotion',
+] as const;
+export type CycleAction = (typeof CYCLE_ACTIONS)[number];
+
+/**
+ * Stops a plain resume can only reproduce: the controller would classify the same run's
+ * text the same way. Stops that depend on state changed elsewhere (a shared decision, a
+ * reviewer grant, scope recovery, dependencies) stay resumable once that change is made.
+ */
+const RESOLUTION: Partial<Record<CycleAttentionCode, readonly [CycleAction, string]>> = {
+  'design-investigation-finished': ['resolve-design', 'Use Resolve design questions to continue.'],
+  'design-report-invalid': [
+    'resolve-design',
+    'Resuming would reclassify the same design. Use Resolve design questions to correct it.',
+  ],
+  'design-open-questions': ['resolve-design', 'Use Resolve design questions to answer them.'],
+  'design-decision-required': [
+    'resolve-design',
+    'Approve the decision in Shared architecture decisions, then use Resolve design questions.',
+  ],
+  'design-planning-conflict': [
+    'resolve-design',
+    'Review the planning conflict with Resolve design questions.',
+  ],
+  'implementation-open-questions': [
+    'continue-with-guidance',
+    'This step has open questions. Use Continue with guidance to supply answers.',
+  ],
+  'review-open-questions': [
+    'continue-with-guidance',
+    'This step has open questions. Use Continue with guidance to supply answers.',
+  ],
+  'workflow-report-invalid': [
+    'continue-with-guidance',
+    'Resuming would reclassify the same report. Use Continue with guidance.',
+  ],
+  'review-open-questions-at-limit': [
+    'authorize-remediation',
+    'The remediation limit is reached. Answer the questions when authorizing more remediation.',
+  ],
+  'remediation-exhausted': [
+    'authorize-remediation',
+    'The remediation limit is reached. Use Authorize more remediation.',
+  ],
+  'integration-conflict': [
+    'resolve-integration',
+    'Use Resolve integration conflicts to delegate the detected conflict.',
+  ],
+};
+
+/** The action and message that replace a plain Resume for this stop, if any. */
+export function resumeRedirect(
+  cycle: Parameters<typeof effectiveCycleAttention>[0] & Pick<WorkCycle, 'currentRunId'>,
+  latestRunId?: string,
+): { readonly action: CycleAction; readonly message: string } | undefined {
+  if (cycle.status !== 'needs-attention') return undefined;
+  // A newer manual run in the worktree is new input: resume adopts it.
+  if (latestRunId !== undefined && latestRunId !== cycle.currentRunId) return undefined;
+  const code = effectiveCycleAttention(cycle)?.code;
+  const resolution = code && RESOLUTION[code];
+  return resolution ? { action: resolution[0], message: resolution[1] } : undefined;
+}
+
+export function cycleActions(
+  cycle: Parameters<typeof effectiveCycleAttention>[0] & Pick<WorkCycle, 'status' | 'currentRunId'>,
+  latestRunId?: string,
+): readonly CycleAction[] {
+  switch (cycle.status) {
+    case 'running':
+      return ['pause', 'stop'];
+    case 'paused':
+      return ['resume', 'stop'];
+    case 'awaiting-merge': {
+      const code = effectiveCycleAttention(cycle)?.code;
+      return code === 'merge-approval'
+        ? ['merge', 'stop']
+        : code === 'record-scope-evidence'
+          ? ['record-scope-evidence', 'stop']
+          : code === 'final-promotion'
+            ? ['approve-promotion', 'stop']
+            : ['stop'];
+    }
+    case 'needs-attention': {
+      const redirect = resumeRedirect(cycle, latestRunId);
+      return redirect ? [redirect.action, 'stop'] : ['resume', 'stop'];
+    }
+    default:
+      return [];
+  }
+}

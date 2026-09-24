@@ -15,6 +15,7 @@ import {
   CYCLE_STEPS,
   type CycleProfiles,
   cycleProfilesFromDefaults,
+  cycleActions,
   DEFAULT_COMPLETION_POLICY,
   effectiveCycleAttention,
   remediationAllowance,
@@ -133,6 +134,15 @@ export function CyclePanel({
   const unavailable = CYCLE_STEPS.some(
     (step) => !backends.find((backend) => backend.kind === choices[step].backend)?.available,
   );
+  // The worktree's newest run: a manual run newer than the cycle's can be adopted by Resume.
+  const latestTreeRun = active
+    ? runs
+        .filter((run) => run.worktreeId === active.worktreeId)
+        .reduce<(typeof runs)[number] | undefined>(
+          (latest, run) => (!latest || run.createdAt > latest.createdAt ? run : latest),
+          undefined,
+        )
+    : undefined;
   const liveRun = runs.some(
     (run) => run.worktreeId === selected && ['starting', 'running', 'waiting'].includes(run.status),
   );
@@ -258,7 +268,7 @@ export function CyclePanel({
                 Pause automation
               </button>
             )}
-            {['paused', 'needs-attention'].includes(active.status) &&
+            {cycleActions(active, latestTreeRun?.id).includes('resume') &&
               !exhaustedReview &&
               !guidedRecovery &&
               !(readOnly && renderReviewRecovery) &&

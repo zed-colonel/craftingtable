@@ -2446,11 +2446,16 @@ describe('single work-item automation', () => {
     );
     expect(currentCycle(state, cycle).reason).toContain('investigation finished');
     expect(backend.launches).toHaveLength(2);
-    await controlCycle(state, currentCycle(state, cycle), 'resume');
-    await waitFor(
-      () => currentCycle(state, cycle).status === 'needs-attention',
-      'investigation cannot bypass review',
-    );
+    // A plain resume cannot bypass the review: it is refused up front (R-A7).
+    const refused = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: { action: 'resume', expectedVersion: currentCycle(state, cycle).version },
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain('Resolve design questions');
+    expect(currentCycle(state, cycle).status).toBe('needs-attention');
     expect(backend.launches).toHaveLength(2);
     const next = (
       await state.context.app.inject({ method: 'GET', url, headers: { cookie: state.cookie } })
@@ -6207,8 +6212,10 @@ it('authorizes bounded extra finalization remediation, preserves counts and roun
   const before = finalizationCycle(state, value);
   expect(before).toMatchObject({ remediationRounds: 1, polishRound: 0, polishPhase: 'verify' });
   const count = backend.launches.length;
+  // A plain resume cannot add remediation rounds: it is refused and names the control (R-A7).
   const unchanged = await finalizationCommand(state, value, 'resume');
-  expect(unchanged.statusCode).toBe(200);
+  expect(unchanged.statusCode).toBe(409);
+  expect(unchanged.body).toContain('Authorize more remediation');
   expect(backend.launches).toHaveLength(count);
   const versions = finalizationCycle(state, value);
   const requests = await Promise.all([
@@ -12214,6 +12221,16 @@ it.each([false, true])(
       'verification finding',
     );
     const latestVerification = currentCycle(state, verification);
+    // Resuming without guidance would review the unchanged snapshot again (R-A7, 10dbc912).
+    const repeat = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/cycles/${verification.id}/control`,
+      headers: mutationHeaders(state),
+      payload: { action: 'resume', expectedVersion: latestVerification.version },
+    });
+    expect(repeat.statusCode, repeat.body).toBe(409);
+    expect(repeat.body).toContain('has not changed since this review');
+    expect(currentCycle(state, verification).version).toBe(latestVerification.version);
     const { scopeRecoveryDecision } = await import('./services/scope-recovery-policy.js');
     const roadmap = storedRoadmap(state);
     const verificationEntry = roadmap.definition.entries.find(

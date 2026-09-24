@@ -1,0 +1,57 @@
+import { describe, expect, it } from 'vitest';
+import { cycleAttention } from './attention.js';
+import { cycleActions, resumeRedirect } from './cycle-actions.js';
+import type { WorkCycle } from './work-cycle.js';
+
+const cycle = (status: WorkCycle['status'], code?: Parameters<typeof cycleAttention>[0]) =>
+  ({ status, reason: '', ...(code ? { attention: cycleAttention(code) } : {}) }) as WorkCycle;
+
+describe('cycle actions (R-A7)', () => {
+  it('offers resume only for stops a resume can move', () => {
+    for (const code of [
+      'restart-resume',
+      'step-incomplete',
+      'step-time-limit',
+      'controller-error',
+      'service-retries-exhausted',
+      'review-baseline-changed',
+      'shared-decision-required',
+      'scope-review-recovery',
+      'workflow-obligation',
+    ] as const)
+      expect(cycleActions(cycle('needs-attention', code))).toEqual(['resume', 'stop']);
+    expect(cycleActions(cycle('paused'))).toEqual(['resume', 'stop']);
+    expect(cycleActions(cycle('running'))).toEqual(['pause', 'stop']);
+  });
+
+  it.each([
+    ['design-report-invalid', 'resolve-design'],
+    ['design-open-questions', 'resolve-design'],
+    ['implementation-open-questions', 'continue-with-guidance'],
+    ['remediation-exhausted', 'authorize-remediation'],
+    ['review-open-questions-at-limit', 'authorize-remediation'],
+    ['integration-conflict', 'resolve-integration'],
+  ] as const)('sends %s to %s instead of a resume', (code, action) => {
+    expect(cycleActions(cycle('needs-attention', code))).toEqual([action, 'stop']);
+    expect(resumeRedirect(cycle('needs-attention', code))?.message).toBeTruthy();
+  });
+
+  it('lets a resume adopt a newer manual run whatever the stop', () => {
+    const stopped = {
+      ...cycle('needs-attention', 'design-open-questions'),
+      currentRunId: 'r1',
+    } as WorkCycle;
+    expect(cycleActions(stopped, 'r1')).toEqual(['resolve-design', 'stop']);
+    expect(cycleActions(stopped, 'manual-r2')).toEqual(['resume', 'stop']);
+  });
+
+  it('names the merge-boundary action from the gate', () => {
+    expect(cycleActions(cycle('awaiting-merge', 'merge-approval'))).toEqual(['merge', 'stop']);
+    expect(cycleActions(cycle('awaiting-merge', 'final-promotion'))).toEqual([
+      'approve-promotion',
+      'stop',
+    ]);
+    expect(cycleActions(cycle('awaiting-merge', 'controller-wait'))).toEqual(['stop']);
+    expect(cycleActions(cycle('completed'))).toEqual([]);
+  });
+});

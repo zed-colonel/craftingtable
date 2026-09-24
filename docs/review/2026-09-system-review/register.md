@@ -15,7 +15,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-A4](#r-a4) | P2 | M-L | open | Durable attention items, delivery log, quiescence and presence |
 | [R-A5](#r-a5) | P2 | L | open | One "Needs you" inbox that every surface reads |
 | [R-A6](#r-a6) | P3 | L | open | Consolidate decision and recovery components; delete per-page hosts |
-| [R-A7](#r-a7) | P1 | M | open | Offer only actions that can make progress; one transition gate for commands and launch |
+| [R-A7](#r-a7) | P1 | M | partial | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
 | [R-B1](#r-b1) | P0 | S | done (fd269b6, 012447b) | Controller quick fixes (no schema change) |
 | [R-B2](#r-b2) | P1 | M | done | Characterization harness for the cycle controller |
@@ -140,11 +140,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A7
 
-**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: open
+**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: partial
 
 - **Resolves:** [CTRL-04](findings/CTRL-controller.md#ctrl-04-resume-is-accepted-even-when-it-cannot-make-progress), [CTRL-12](findings/CTRL-controller.md#ctrl-12-manual-commands-accept-transitions-that-the-automated-launch-then-rejects)
 - **Change:** Derive the valid operator actions from the attention code (in the same pure code that decides the transition) and return them with the cycle projection; reject Resume when the blocking fact is not transient, with the correct destination. Put whole-item and scoped start/advance gates, including predecessor ancestry, into one transitionGate() used by commands before acceptance and again at launch.
 - **Done when:** Replaying the recorded live sequences (cycles d148f0a4, 10dbc912, 2f1ab211) no longer produces accepted-then-bounced resumes; the UI renders only returned actions.
+- **Progress:** `cycleActions`/`resumeRedirect` (domain, `cycle-actions.ts`) derive the actions from the typed stop (R-A3). A plain resume is refused with the control to use when the controller would classify the same run's text the same way: design stops (d148f0a4's invalid classification), open questions, invalid workflow reports, an exhausted remediation limit, a detected integration conflict. A newer manual run is always adoptable. A plain resume of a scope review is refused while the integration branch still has the reviewed commit (10dbc912). Before accepting a resume that relaunches the step or an integration resolution, the command runs the launch's own gates, including predecessor ancestry (2f1ab211). Stops that depend on state changed elsewhere (shared decisions, reviewer grants, dependencies, scope recovery, finalization continuations) stay resumable. The browser shows Resume only when `cycleActions` offers it. Tests: `cycle-actions.test.ts` (domain and server), plus the unchanged-snapshot case in the scope repair test. Two tests that asserted the old accepted-then-bounced resume were updated. Remaining: other panels still decide their own visibility (R-A6 consolidates them onto `cycleActions`); one `transitionGate` shared by the roadmap scheduler's whole-item and scoped gates (`RoadmapService.blocker`, `requireReady`, `scopePhaseBlockers`) is not unified yet, and the duplicated remediation-grant validators (CTRL-12) remain for R-B7.
 
 ## Workstream B — Controller core (pain point 3)
 

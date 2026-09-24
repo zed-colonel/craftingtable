@@ -39,6 +39,7 @@ import {
   type CycleAttentionCode,
   cycleAttention,
   effectiveCycleAttention,
+  resumeRedirect,
 } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -1402,19 +1403,32 @@ export class WorkCycleService {
       );
     if (!['paused', 'needs-attention'].includes(cycle.status))
       throw new ExecutionRequestError('conflict', 'Only a paused cycle can resume');
+    // A plain resume that would only reproduce this stop is refused with the control that
+    // can resolve it (R-A7, CTRL-04); guided resumes carry the missing input.
+    const redirect =
+      reviewGuidance === undefined
+        ? resumeRedirect(
+            cycle,
+            this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId)[0]?.id,
+          )
+        : undefined;
+    if (redirect) throw new ExecutionRequestError('conflict', redirect.message);
     if (cycle.integrationResolution?.status === 'detected')
       throw new ExecutionRequestError(
         'conflict',
         'Use Resolve integration conflicts to delegate the detected conflict.',
       );
-    if (ownsIntegrationResolution(cycle))
+    if (ownsIntegrationResolution(cycle)) {
+      await this.transitionGate(cycle);
       return this.resolveIntegration(context, workspaceId, id, {
         action: 'resume',
         expectedVersion,
       });
+    }
     this.mutations.requireAvailable(cycle.worktreeId);
     if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     else finalizationForCycle(this.storage, cycle);
+    await this.transitionGate(cycle);
     const allRuns = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
     const run = allRuns[0];
     const currentTurn =
@@ -1494,6 +1508,23 @@ export class WorkCycleService {
       const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
       if (!tree || !this.branches)
         throw new ExecutionRequestError('unavailable', 'Review snapshot is unavailable.');
+      // Reviewing the same integration snapshot again reproduces the same findings (CTRL-04,
+      // cycle 10dbc912): a plain resume waits until the owning slice has changed it.
+      const reviewed = run?.reviewBranchContext;
+      const stop = effectiveCycleAttention(cycle)?.code;
+      if (
+        reviewGuidance === undefined &&
+        reviewed &&
+        this.git &&
+        (stop === 'scope-review-recovery' || stop === 'scope-review-open-questions')
+      ) {
+        const target = await this.git.resolveBranch(tree.path, reviewed.targetBranch);
+        if (target.ok && target.value === reviewed.targetSha)
+          throw new ExecutionRequestError(
+            'conflict',
+            'The integration snapshot has not changed since this review, so resuming would repeat it. Repair the findings in the owning slice, or give review guidance.',
+          );
+      }
       const check = () => {
         delegationCheck?.();
         if (this.storage.execution.cycles.find(workspaceId, id)?.version !== expectedVersion)
@@ -3896,6 +3927,28 @@ export class WorkCycleService {
   private deadline(minutes: number): string {
     return new Date(this.now().getTime() + minutes * 60_000).toISOString();
   }
+  /**
+   * The launch gates a resumed step must pass, checked before the command is accepted so
+   * the operator sees the real blocker instead of a resume that bounces seconds later
+   * (R-A7, CTRL-12). The launch checks them again at the mutation boundary.
+   */
+  private async transitionGate(cycle: WorkCycle): Promise<void> {
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    if (!tree || tree.status !== 'active' || !this.branches || !cycle.workItemId) return;
+    if (ownsIntegrationResolution(cycle) && cycle.integrationResolution) {
+      await this.branches.validateResolutionLaunch(tree, cycle.integrationResolution);
+      return;
+    }
+    // Only a resume that relaunches the same step goes straight to launch; a finished
+    // step first refreshes integration, which can bring the predecessors in.
+    const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+    if (
+      cycle.step !== 'review' &&
+      (!run || ['failed', 'cancelled', 'interrupted'].includes(run.status))
+    )
+      await this.branches.validateLaunch(tree);
+  }
+
   /** Stops for someone to act: the code says what the stop is, the reason says it in words. */
   private attention(
     cycle: WorkCycle,

@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { expect, type Page, test } from '@playwright/test';
+import { signIn } from './support';
 
 /**
  * CT03-A61, A63, A64, A65, and the browser-refresh half of A50.
@@ -8,19 +9,8 @@ import { expect, type Page, test } from '@playwright/test';
  * admit, and reload.
  */
 
-const USERNAME = 'e2e-admin';
-const PASSWORD = 'correct horse battery staple';
-
 const fixture = (name: string): string =>
   fileURLToPath(new URL(`../fixtures/plan-bundles/${name}`, import.meta.url));
-
-async function signIn(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.getByLabel('Username').fill(USERNAME);
-  await page.getByLabel('Password').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { name: 'Default workspace' })).toBeVisible();
-}
 
 async function importAqBundle(page: Page, projectName = 'ActionQueue — AQ-CONT-1'): Promise<void> {
   await page.getByRole('link', { name: 'Import plan' }).click();

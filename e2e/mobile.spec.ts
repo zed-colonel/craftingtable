@@ -1,34 +1,16 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
+import { git, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 test.use({ actionTimeout: 15_000 });
 
 const TARGET = 'revision/integration-with-a-long-branch-name-for-phone-layout-checks';
 
-function git(args: readonly string[], cwd: string): string {
-  return execFileSync('git', [...args], {
-    cwd,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      GIT_CONFIG_NOSYSTEM: '1',
-      GIT_CONFIG_GLOBAL: '/dev/null',
-      GIT_AUTHOR_NAME: 'T',
-      GIT_AUTHOR_EMAIL: 't@example.invalid',
-      GIT_COMMITTER_NAME: 'T',
-      GIT_COMMITTER_EMAIL: 't@example.invalid',
-    },
-  }).trim();
-}
-
 async function signIn(page: Page) {
-  await page.getByLabel('Username').fill('e2e-admin');
-  await page.getByLabel('Password').fill('correct horse battery staple');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page);
   await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeVisible();
 }
 
@@ -46,9 +28,7 @@ async function fitsPhone(page: Page) {
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
 }
 
-test('phone navigation, review findings, diff, and explicit merge approval', async ({
-  page,
-}, info) => {
+test('phone navigation, review findings, diff, and explicit merge approval', async ({ page }) => {
   test.setTimeout(90_000);
   const repository = mkdtempSync(join(tmpdir(), 'craftingtable-mobile-repo-'));
   try {
@@ -65,7 +45,6 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await expect(page.getByRole('heading', { name: 'Default workspace' })).toBeVisible();
     await fitsPhone(page);
     expect((await page.locator('main').boundingBox())?.y).toBeLessThan(100);
-    await page.screenshot({ path: info.outputPath('phone-dashboard.png') });
 
     // The closed menu removes links from keyboard navigation. Escape restores focus.
     const menu = page.getByRole('button', { name: 'Menu', exact: true });
@@ -107,7 +86,6 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await tableScroll.evaluate((el) => {
       el.scrollLeft = 0;
     });
-    await page.screenshot({ path: info.outputPath('phone-plan.png') });
 
     await navigate(page, 'Repositories');
     await page.getByLabel('Absolute path to the checkout').fill(repository);
@@ -132,9 +110,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
       page.getByRole('button', { name: 'Adopt repository policy', exact: true }),
     ).toBeDisabled();
     await fitsPhone(page);
-    await page
-      .getByRole('form', { name: 'Adopt repository policy' })
-      .screenshot({ path: info.outputPath('phone-repository-policy.png') });
+    await expect(page.getByRole('form', { name: 'Adopt repository policy' })).toBeVisible();
     await page
       .getByRole('checkbox', {
         name: 'I adopt this interpretation and the displayed freeze, where selected, for this plan.',
@@ -163,7 +139,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     const outcome = page.getByRole('region', { name: 'Run outcome' });
     await expect(outcome.getByRole('heading', { name: 'Final outcome' })).toBeVisible();
     await expect(outcome.locator('.run-outcome-prose')).toContainText('fake agent finished turn 2');
-    await outcome.screenshot({ path: info.outputPath('phone-final-outcome.png') });
+    await expect(outcome).toBeVisible();
     await fitsPhone(page);
     await page.getByRole('button', { name: 'Work item', exact: true }).click();
     const cycle = page.getByRole('region', { name: 'Automated cycle', exact: true });
@@ -178,7 +154,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     });
     await expect(cycle.getByRole('button', { name: 'Resume automation' })).toHaveCount(0);
     await fitsPhone(page);
-    await cycle.screenshot({ path: info.outputPath('phone-remediation-recovery.png') });
+    await expect(cycle).toBeVisible();
     await cycle
       .getByLabel('Guidance for the next run (optional)')
       .fill('E2E-AUTHORIZED-RECOVERY: Address the remaining regression.');
@@ -210,7 +186,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
       await page.setViewportSize(viewport);
       await fitsPhone(page);
     }
-    await findings.screenshot({ path: info.outputPath('phone-findings.png') });
+    await expect(findings).toBeVisible();
     await page.getByRole('button', { name: 'View diff', exact: true }).click();
     const diff = page.getByTestId('diff-text');
     await expect(diff).toContainText('Long diff line');
@@ -220,9 +196,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
       el.scrollLeft = el.scrollWidth;
     });
     expect(await diff.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
-    await page
-      .getByRole('region', { name: 'Worktree diff' })
-      .screenshot({ path: info.outputPath('phone-diff.png') });
+    await expect(page.getByRole('region', { name: 'Worktree diff' })).toBeVisible();
 
     // A notification URL must survive login and open the item with the menu closed.
     await navigate(page, 'Account · e2e-admin');
@@ -248,7 +222,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
       await page.setViewportSize(viewport);
       await fitsPhone(page);
     }
-    await merge.screenshot({ path: info.outputPath('phone-merge.png') });
+    await expect(merge).toBeVisible();
     await merge.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(git(['rev-parse', TARGET], repository)).toBe(initial);
     await page.getByRole('button', { name: 'Merge…', exact: true }).click();

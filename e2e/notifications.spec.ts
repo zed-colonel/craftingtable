@@ -1,12 +1,11 @@
 import { expect, test } from '@playwright/test';
+import { submitSignIn } from './support';
 
 test('owners configure write-only Pushover credentials and test delivery on desktop and phone', async ({
   page,
 }, info) => {
   await page.goto('/');
-  await page.getByLabel('Username').fill('e2e-admin');
-  await page.getByLabel('Password').fill('correct horse battery staple');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page);
   // Wait for the initial redirect before opening the mobile navigation menu.
   await expect(page.getByRole('heading', { name: 'Default workspace', exact: true })).toBeVisible();
   const navigate = async (name: string) => {
@@ -44,7 +43,6 @@ test('owners configure write-only Pushover credentials and test delivery on desk
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
   await panel.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: info.outputPath('notification-settings.png'), fullPage: true });
   await panel.getByRole('button', { name: 'Save notifications', exact: true }).click();
   await page.reload();
   await expect(panel.getByLabel('Device name (optional)')).toHaveValue('iphone');

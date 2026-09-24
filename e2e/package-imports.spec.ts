@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as base, expect } from '@playwright/test';
+import { submitSignIn } from './support';
 
 const test = base.extend<{ upstreamRepository: string }>({
   upstreamRepository: async ({ browserName }, use) => {
@@ -54,9 +55,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     console.error('Browser page error:', String(e));
   });
   await page.goto('/');
-  await page.getByLabel('Username').fill('e2e-admin');
-  await page.getByLabel('Password').fill('correct horse battery staple');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page);
   await expect(page.getByRole('heading', { name: 'Default workspace', exact: true })).toBeVisible();
   const navigate = async (name: string) => {
     if (info.project.name === 'mobile-chromium')
@@ -100,7 +99,6 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-  await page.screenshot({ path: info.outputPath('agenda-removal.png') });
   await page.getByRole('button', { name: 'Remove from agenda', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Admit into agenda', exact: true })).toBeVisible();
   await page.reload();
@@ -235,7 +233,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-  await runtime.screenshot({ path: info.outputPath('runtime-evidence.png') });
+  await expect(runtime).toBeVisible();
 
   await expect(maps.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
   await expect(aq.getByText('Repository selection saved.', { exact: true })).toBeVisible();
@@ -322,12 +320,12 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-  await supervisor.screenshot({ path: info.outputPath('cross-project-supervision.png') });
+  await expect(supervisor).toBeVisible();
 
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-  await maps.screenshot({ path: info.outputPath('cross-project-import.png') });
+  await expect(maps).toBeVisible();
   await page.reload();
   const select = page.getByLabel('Imported roadmap draft');
   await select.selectOption({
@@ -370,7 +368,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect(
     scopes.getByText(/controlled-native-test-host needs a qualified environment/).first(),
   ).toBeVisible();
-  await scopes.screenshot({ path: info.outputPath('execution-scopes.png') });
+  await expect(scopes).toBeVisible();
   await navigate('Roadmaps');
   await page.getByRole('button', { name: 'New roadmap', exact: true }).click();
   const editor = page.getByRole('region', { name: 'Roadmap editor' });
@@ -464,7 +462,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect(
     saved.getByText('Saved · revision 2. No settings save needed.', { exact: false }),
   ).toBeVisible();
-  await saved.screenshot({ path: info.outputPath('roadmap-next-actions.png') });
+  await expect(saved).toBeVisible();
   await saved.getByRole('button', { name: 'Resolve dependency setup', exact: true }).click();
   const savedRuntime = saved.getByRole('region', {
     name: 'Dependency environments and evidence',
@@ -528,6 +526,6 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-  await amendments.screenshot({ path: info.outputPath('map-amendments.png') });
+  await expect(amendments).toBeVisible();
   expect(errors).toEqual([]);
 });

@@ -1,24 +1,10 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
+import { git, submitSignIn } from './support';
+
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
-function git(args: string[], cwd: string) {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      GIT_CONFIG_NOSYSTEM: '1',
-      GIT_CONFIG_GLOBAL: '/dev/null',
-      GIT_AUTHOR_NAME: 'T',
-      GIT_AUTHOR_EMAIL: 't@example.invalid',
-      GIT_COMMITTER_NAME: 'T',
-      GIT_COMMITTER_EMAIL: 't@example.invalid',
-    },
-  }).trim();
-}
 for (const mode of ['sequential', 'parallel'] as const) {
   test(`builds and supervises a ${mode} roadmap through explicit merges`, async ({
     page,
@@ -33,9 +19,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
       git(['branch', 'revision-roadmap'], repository);
       const initial = git(['rev-parse', 'revision-roadmap'], repository);
       await page.goto('/');
-      await page.getByLabel('Username').fill('e2e-admin');
-      await page.getByLabel('Password').fill('correct horse battery staple');
-      await page.getByRole('button', { name: 'Sign in' }).click();
+      await submitSignIn(page);
       await expect(
         page.getByRole('heading', { name: 'Default workspace', exact: true }),
       ).toBeVisible();
@@ -122,10 +106,6 @@ for (const mode of ['sequential', 'parallel'] as const) {
       await expect
         .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
         .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-      await page.screenshot({
-        path: info.outputPath(`roadmap-${mode}-editor.png`),
-        fullPage: true,
-      });
       await editor.getByRole('button', { name: 'Save roadmap', exact: true }).click();
       const roadmap = page.getByRole('region', { name: `AQ ${mode}`, exact: true });
       await expect(roadmap.getByText('Draft', { exact: true })).toBeVisible();
@@ -172,7 +152,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
         await expect
           .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-        await agents.screenshot({ path: info.outputPath('roadmap-agent-profiles.png') });
+        await expect(agents).toBeVisible();
         await navigate('Roadmaps');
       }
       await expect(roadmap.getByText('Draft', { exact: true })).toBeVisible();
@@ -181,10 +161,6 @@ for (const mode of ['sequential', 'parallel'] as const) {
         timeout: 20000,
       });
       expect(git(['rev-parse', 'revision-roadmap'], repository)).toBe(initial);
-      await page.screenshot({
-        path: info.outputPath(`roadmap-${mode}-awaiting-merge.png`),
-        fullPage: true,
-      });
       for (const sourceId of sourceIds) {
         await roadmap.getByRole('link', { name: new RegExp(`^${sourceId} ·`) }).click();
         await expect(
@@ -216,9 +192,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
           await expect
             .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
             .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-          await conflicts.screenshot({
-            path: info.outputPath('integration-conflict-resolution.png'),
-          });
+          await expect(conflicts).toBeVisible();
           const targetBefore = git(['rev-parse', 'revision-roadmap'], repository);
           await conflicts.getByRole('button', { name: 'Launch', exact: true }).click();
           await expect(

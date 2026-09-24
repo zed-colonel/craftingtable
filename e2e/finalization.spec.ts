@@ -1,25 +1,10 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
+import { git, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
-function git(args: string[], cwd: string) {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      GIT_CONFIG_NOSYSTEM: '1',
-      GIT_CONFIG_GLOBAL: '/dev/null',
-      GIT_AUTHOR_NAME: 'T',
-      GIT_AUTHOR_EMAIL: 't@example.invalid',
-      GIT_COMMITTER_NAME: 'T',
-      GIT_COMMITTER_EMAIL: 't@example.invalid',
-    },
-  }).trim();
-}
 for (const decision of ['remediate', 'defer', 'staged'] as const) {
   test(`automates integration and performs plan finalization with explicit final approval (${decision})`, async ({
     page,
@@ -35,9 +20,7 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
       git(['branch', 'revision'], repository);
       const main = git(['rev-parse', 'main'], repository);
       await page.goto('/');
-      await page.getByLabel('Username').fill('e2e-admin');
-      await page.getByLabel('Password').fill('correct horse battery staple');
-      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+      await submitSignIn(page);
       await expect(
         page.getByRole('heading', { name: 'Default workspace', exact: true }),
       ).toBeVisible();
@@ -156,7 +139,6 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
       await expect
         .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
         .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-      await page.screenshot({ path: info.outputPath('finalization-setup.png'), fullPage: true });
       await finalization.getByRole('button', { name: 'Start finalization', exact: true }).click();
       if (decision === 'staged') {
         const selection = finalization.getByRole('form', { name: 'Finalization next step' });
@@ -173,10 +155,6 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
           .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
         await selection.scrollIntoViewIfNeeded();
-        await page.screenshot({
-          path: info.outputPath('staged-finalization-selection.png'),
-          fullPage: true,
-        });
         await selection.getByRole('button', { name: 'Authorize selected stage batch' }).click();
       } else if (decision === 'defer') {
         const checkpoint = finalization.getByRole('form', { name: 'Finalization next step' });
@@ -192,10 +170,6 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
         await expect
           .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-        await page.screenshot({
-          path: info.outputPath('finalization-finding-decision.png'),
-          fullPage: true,
-        });
         await checkpoint
           .getByRole('button', { name: 'Defer selected nits and review', exact: true })
           .click();
@@ -251,10 +225,6 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
           .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
         await recovery.scrollIntoViewIfNeeded();
-        await page.screenshot({
-          path: info.outputPath('finalization-remediation-authorization.png'),
-          fullPage: true,
-        });
         const request = page.waitForRequest(
           (r) =>
             r.method() === 'POST' &&
@@ -308,10 +278,6 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
         await finalization
           .getByText('Plan obligations and evidence (2 of 2 current)', { exact: true })
           .click();
-        await page.screenshot({
-          path: info.outputPath('staged-finalization-evidence.png'),
-          fullPage: true,
-        });
       }
       expect(git(['rev-parse', 'revision'], repository)).toBe(integration);
       await page.reload();
@@ -333,7 +299,6 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
       });
       await expect(removeIntegration).not.toBeChecked();
       if (decision === 'defer') await removeIntegration.check();
-      await page.screenshot({ path: info.outputPath('finalization-approval.png'), fullPage: true });
       await finalization
         .getByRole('button', { name: 'Approve merge into main', exact: true })
         .click();
@@ -346,7 +311,7 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
       const cleanup = finalization.getByRole('group', { name: 'Integration branch cleanup' });
       if (decision !== 'defer') {
         expect(git(['rev-parse', 'revision'], repository)).toBe(integration);
-        await cleanup.screenshot({ path: info.outputPath('completed-plan-retained-branch.png') });
+        await expect(cleanup).toBeVisible();
         await cleanup
           .getByRole('button', { name: 'Remove integration branch revision', exact: true })
           .click();
@@ -363,7 +328,6 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
       await expect(
         page.getByText('Integration branch removed after final promotion.', { exact: false }),
       ).toBeVisible();
-      await page.screenshot({ path: info.outputPath('completed-plan.png'), fullPage: true });
       expect(readFileSync(join(repository, 'POLISH-1.md'), 'utf8')).toContain('Plan finalization');
     } finally {
       rmSync(repository, { recursive: true, force: true });

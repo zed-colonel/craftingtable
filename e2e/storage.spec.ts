@@ -1,12 +1,11 @@
 import { expect, test } from '@playwright/test';
+import { submitSignIn } from './support';
 
 test('storage settings, cleanup preview and private backups work on desktop and phone', async ({
   page,
 }, info) => {
   await page.goto('/');
-  await page.getByLabel('Username').fill('e2e-admin');
-  await page.getByLabel('Password').fill('correct horse battery staple');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page);
   await expect(page.getByRole('region', { name: 'Work summary', exact: true })).toBeVisible();
   if (info.project.name === 'mobile-chromium')
     await page.getByRole('button', { name: 'Menu', exact: true }).click();
@@ -21,7 +20,7 @@ test('storage settings, cleanup preview and private backups work on desktop and 
   await expect(host.getByRole('status')).toContainText('Reservations and settings refreshed.');
   await expect(capacity).toHaveValue('0');
   await capacity.fill('2');
-  await host.screenshot({ path: info.outputPath('host-verification-settings.png') });
+  await expect(host).toBeVisible();
   await host.getByRole('button', { name: 'Cancel capacity edit' }).click();
   const panel = page.getByRole('region', { name: 'Storage', exact: true });
   await expect(panel.getByText('Database and history', { exact: true })).toBeVisible();
@@ -59,7 +58,7 @@ test('storage settings, cleanup preview and private backups work on desktop and 
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-  await panel.screenshot({ path: info.outputPath('storage-settings.png') });
+  await expect(panel).toBeVisible();
   await page.reload();
   await panel.getByText('Locations and retention', { exact: true }).click();
   await expect(panel.getByLabel('Other scratch files')).toHaveValue('30');

@@ -1,9 +1,9 @@
-import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Browser, devices, expect, type Page, test } from '@playwright/test';
+import { E2E_USERNAME, git, signIn } from './support';
 
 /**
  * The UI walkthrough: seed one workspace with every kind of state the app can
@@ -37,22 +37,6 @@ const OUTPUT_ROOT =
 const INDEX_FILE = join(REPOSITORY_ROOT, 'docs', 'ui-walkthrough', 'INDEX.md');
 /** Photograph and record; otherwise only rehearse the walk. */
 const RECORDING = process.env.CRAFTINGTABLE_WALKTHROUGH === '1';
-const USERNAME = 'e2e-admin';
-const PASSWORD = 'correct horse battery staple';
-
-const GIT_ENV = {
-  ...process.env,
-  GIT_CONFIG_NOSYSTEM: '1',
-  GIT_CONFIG_GLOBAL: '/dev/null',
-  GIT_AUTHOR_NAME: 'T',
-  GIT_AUTHOR_EMAIL: 't@example.invalid',
-  GIT_COMMITTER_NAME: 'T',
-  GIT_COMMITTER_EMAIL: 't@example.invalid',
-};
-
-function git(args: readonly string[], cwd: string): string {
-  return execFileSync('git', [...args], { cwd, encoding: 'utf8', env: GIT_ENV }).trim();
-}
 
 function captureDirectory(): { label: string; directory: string; commit: string } {
   const commit = git(['rev-parse', '--short', 'HEAD'], REPOSITORY_ROOT);
@@ -66,14 +50,6 @@ interface Shot {
   readonly title: string;
   readonly path: string;
   readonly viewports: 'both' | 'phone';
-}
-
-async function signIn(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.getByLabel('Username').fill(USERNAME);
-  await page.getByLabel('Password').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Default workspace', exact: true })).toBeVisible();
 }
 
 /** Rail links carry a live count in their name ("Runs 1"), so match the label prefix. */
@@ -867,7 +843,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await walk.capture('execution-capacity', 'Unified execution capacity controls', async (p) => {
       await p.getByRole('button', { name: 'Change workstation capacity' }).click();
     });
-    await navigate(page, `Account · ${USERNAME}`);
+    await navigate(page, `Account · ${E2E_USERNAME}`);
     await expect(page.getByRole('heading', { name: 'Account', exact: true })).toBeVisible();
     await walk.capture('account', 'Account');
     await navigate(page, 'All workspaces');

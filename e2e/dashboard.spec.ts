@@ -1,13 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { submitSignIn } from './support';
 
-const USERNAME = 'e2e-admin';
-const PASSWORD = 'correct horse battery staple';
 const EVENT_ROUTE = '**/api/workspaces/*/events*';
 
 async function signIn(page: import('@playwright/test').Page): Promise<void> {
-  await page.getByLabel('Username').fill(USERNAME);
-  await page.getByLabel('Password').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page);
   await expect(page.getByRole('heading', { name: 'Default workspace' })).toBeVisible();
 }
 
@@ -18,9 +15,7 @@ test('authenticated snapshot, replay, outage recovery, and logout', async ({ pag
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Sign in to CraftingTable' })).toBeVisible();
 
-  await page.getByLabel('Username').fill(USERNAME);
-  await page.getByLabel('Password').fill('incorrect password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page, 'incorrect password');
   await expect(page.getByRole('alert')).toContainText('Sign-in failed');
 
   await signIn(page);

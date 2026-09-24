@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
+import { git, submitSignIn } from './support';
 
 /**
  * The first useful loop, driven from the browser: register a repository, open
@@ -13,25 +14,9 @@ import { expect, test } from '@playwright/test';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 
-function git(args: readonly string[], cwd: string): void {
-  execFileSync('git', [...args], {
-    cwd,
-    env: {
-      ...process.env,
-      GIT_CONFIG_NOSYSTEM: '1',
-      GIT_CONFIG_GLOBAL: '/dev/null',
-      GIT_AUTHOR_NAME: 'T',
-      GIT_AUTHOR_EMAIL: 't@example.invalid',
-      GIT_COMMITTER_NAME: 'T',
-      GIT_COMMITTER_EMAIL: 't@example.invalid',
-    },
-    stdio: 'ignore',
-  });
-}
-
 test('registers a repository, delegates a work item, follows the run, and reads the diff', async ({
   page,
-}, testInfo) => {
+}) => {
   test.setTimeout(60_000);
   const repository = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-repo-'));
   try {
@@ -41,9 +26,7 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     git(['commit', '--no-gpg-sign', '-m', 'initial'], repository);
 
     await page.goto('/');
-    await page.getByLabel('Username').fill('e2e-admin');
-    await page.getByLabel('Password').fill('correct horse battery staple');
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await submitSignIn(page);
     await expect(page.getByRole('status')).toHaveText('Live');
 
     // A plan so there is a work item to delegate.
@@ -77,10 +60,9 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await branchPanel.getByRole('combobox', { name: 'Branch action' }).selectOption('create');
     await branchPanel.getByLabel('Integration branch', { exact: true }).fill('revision-test');
     await branchPanel.getByRole('combobox', { name: 'Create from branch' }).selectOption('main');
-    await branchPanel.screenshot({ path: testInfo.outputPath('branch-settings-form.png') });
+    await expect(branchPanel).toBeVisible();
     await branchPanel.getByRole('button', { name: 'Save branch settings' }).click();
     await expect(branchPanel.getByText('revision-test', { exact: true })).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath('branch-settings.png'), fullPage: true });
     await page.reload();
     await expect(branchPanel.getByText('revision-test', { exact: true })).toBeVisible();
 
@@ -283,7 +265,7 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     }
     await expect(cyclePanel.getByLabel('Allowed nits')).toHaveValue('3');
     await cyclePanel.getByLabel('Allowed nits').fill('0');
-    await cyclePanel.screenshot({ path: testInfo.outputPath('cycle-settings.png') });
+    await expect(cyclePanel).toBeVisible();
     const beforeCycle = execFileSync('git', ['rev-parse', 'revision-test'], {
       cwd: repository,
       encoding: 'utf8',
@@ -300,7 +282,7 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(page.getByRole('region', { name: 'Cycles needing attention' })).toContainText(
       'AQ-02: Awaiting merge approval',
     );
-    await cyclePanel.screenshot({ path: testInfo.outputPath('cycle-approval.png') });
+    await expect(cyclePanel).toBeVisible();
     // A sibling merge advances integration while this item waits for approval.
     git(['checkout', 'revision-test'], repository);
     writeFileSync(join(repository, 'PARALLEL.md'), 'Sibling integration change\n');
@@ -319,10 +301,7 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     await expect(cyclePanel.getByText('Paused', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Update from integration' }).click();
     await expect(page.getByText(/Includes the current integration commit/)).toBeVisible();
-    await page
-      .locator('.worktree-item')
-      .first()
-      .screenshot({ path: testInfo.outputPath('branch-update.png') });
+    await expect(page.locator('.worktree-item').first()).toBeVisible();
     await cyclePanel.getByRole('button', { name: 'Resume automation' }).click();
     await expect(cyclePanel.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
       timeout: 15_000,

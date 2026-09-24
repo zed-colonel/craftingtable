@@ -859,6 +859,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **The fix.** `pnpm test:e2e` now rehearses the walkthrough (`CRAFTINGTABLE_WALKTHROUGH=rehearse`) in its own Playwright run on a fresh daemon. The rehearsal does the same seeding and navigation on both viewports, but takes no screenshots, writes no images and adds no INDEX row. It adds about 1.8 minutes to `pnpm check`.
   - **Why not something cheaper.** A page-visit smoke test would not have caught the R-G3 breakage, which was in the seeding flow.
   - **Capture.** `2026-09-24-p1-review-after` records the UI after the phase 1 review fixes.
+- **Amended 2026-09-24: gate screenshots and copied helpers.**
+  - **Screenshots.** The 35 unasserted gate screenshots are gone. The 14 full-page ones assert nothing and are removed. The 21 element screenshots also implied that the element was visible; they became `await expect(element).toBeVisible()`, which retries instead of failing when a panel re-renders. That was the package-imports amendment-panel flake ("Element is not attached to the DOM"). The 3 s roadmap poll that remounted the panel is already gone; panels refresh from workspace events, with a 15 s safety check. The walkthrough stays the only capture mechanism.
+  - **Helpers.** `e2e/support.ts` now holds the admin sign-in (`submitSignIn`, `signIn`) and the fixture `git()` helper. They were copied into 10 specs (sign-in) and 5 specs (`git`). Each spec keeps its own wait after signing in.
+  - **Verified.** `pnpm test:e2e`: 22 passed, plus the walkthrough rehearsal.
 
 ### R-I6
 

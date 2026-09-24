@@ -85,6 +85,13 @@ Exit criteria:
 | R-I2, R-I3, R-I5, R-I6 | Fast, deterministic tests, an auth sweep, reliable e2e, and a lint gate. These make the later phases safe to execute quickly. |
 | R-E6, R-I7 (start) | Glossary and vocabulary; README and architecture reset. Doing the docs early stops agents from following the accreted rules. |
 
+**Progress (2026-09-23, branch `remediation/p1-foundations`).** Landed: R-B9 (drained restarts
+and automatic session resume, ADR-066), R-B2 (step classification extracted and characterized,
+golden replay, stepping seam), R-A3 (typed attention on every stop, ADR-067). Partial: R-A7
+(refuses resumes that cannot make progress; the other panels and one shared transition gate
+remain). `pnpm check` passes on the branch: 158 test files and 1,469 unit tests, 22 e2e tests,
+the scope check. Not yet deployed.
+
 Exit criteria:
 - Every stop has a code and owner.
 - Operator-wait hours are visible on the dashboard.

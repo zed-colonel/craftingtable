@@ -11,21 +11,21 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **A** | | | | **Attention, decisions and notifications (pain points 1 and 3)** |
 | [R-A1](#r-a1) | P0 | S | done (012447b) | Stop notification noise without a redesign |
 | [R-A2](#r-a2) | P0 | S | done (012447b, 67e2e9b) | Stop journaling notification delivery bookkeeping as workspace events |
-| [R-A3](#r-a3) | P1 | M-L | done | Controller-declared, typed attention on every blocking transition |
+| [R-A3](#r-a3) | P1 | M-L | done (eb757da) | Controller-declared, typed attention on every blocking transition |
 | [R-A4](#r-a4) | P2 | M-L | open | Durable attention items, delivery log, quiescence and presence |
 | [R-A5](#r-a5) | P2 | L | open | One "Needs you" inbox that every surface reads |
 | [R-A6](#r-a6) | P3 | L | open | Consolidate decision and recovery components; delete per-page hosts |
-| [R-A7](#r-a7) | P1 | M | partial | Offer only actions that can make progress; one transition gate for commands and launch |
+| [R-A7](#r-a7) | P1 | M | partial (9339d01) | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
 | [R-B1](#r-b1) | P0 | S | done (fd269b6, 012447b) | Controller quick fixes (no schema change) |
-| [R-B2](#r-b2) | P1 | M | done | Characterization harness for the cycle controller |
+| [R-B2](#r-b2) | P1 | M | done (131a9de) | Characterization harness for the cycle controller |
 | [R-B3](#r-b3) | P1 | M | open | Explicit cycle ownership; roadmap state references its definition |
 | [R-B4](#r-b4) | P4 | L | open | Pure cycle decision core with an explicit state machine |
 | [R-B5](#r-b5) | P4 | L | open | Event-driven controller kernel |
 | [R-B6](#r-b6) | P4 | M-L | open | Scoped consistency instead of whole-roadmap pause |
 | [R-B7](#r-b7) | P4 | L | open | Decompose the controller services along real boundaries |
 | [R-B8](#r-b8) | P1 | M | open | Remove dead and vestigial paths |
-| [R-B9](#r-b9) | P1 | M | done | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
+| [R-B9](#r-b9) | P1 | M | done (4d81743) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | open | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | open | Re-prompt the agent automatically on output-format validation failures |
@@ -107,7 +107,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A3
 
-**Controller-declared, typed attention on every blocking transition** · Phase P1 · Effort M-L · Status: done
+**Controller-declared, typed attention on every blocking transition** · Phase P1 · Effort M-L · Status: done (eb757da)
 
 - **Resolves:** [CTRL-05](findings/CTRL-controller.md#ctrl-05-at-least-10-separate-places-decide-needs-the-operator-with-different-rules), [CTRL-10](findings/CTRL-controller.md#ctrl-10-awaiting-merge-is-overloaded-with-six-meanings), [CTRL-11](findings/CTRL-controller.md#ctrl-11-control-flow-depends-on-the-wording-of-human-readable-messages), [CTRL-22](findings/CTRL-controller.md#ctrl-22-the-api-returns-projection-fields-mixed-into-the-domain-workcycle), [NOTIF-02](findings/NOTIF-attention-notifications.md#notif-02-attention-is-inferred-by-predicting-automation-each-new-automation-needs-a-matching-suppression-clause), [DATA-05](findings/DATA-storage-domain-contracts.md#data-05-attention-and-operator-decisions-are-not-first-class-identity-is-keyed-on-versions-or-text-hashes-and-behavior-branches-on-english-reason-prefixes), [UI-02](findings/UI-information-architecture.md#ui-02-recovery-routing-depends-on-english-prose-reason-prefix-regexes-in-the-ui-and-navigation-prose-in-daemon-blocker-messages), [UI-09](findings/UI-information-architecture.md#ui-09-the-waiting-on-other-work-classification-hides-operator-owned-evidence), [UI-16](findings/UI-information-architecture.md#ui-16-attentionstrip-and-the-notification-service-disagree-about-merge-approvals)
 - **Change:** Add an optional `attention {owner: operator|controller, code, subject refs, message, actions[]}` to cycles, roadmap entries/holds and roadmap status, written in the same transaction as the status change by the code that makes the decision. Add `code` and `owner` to PhaseBlocker; add a typed restart flag; add an `awaiting-merge` gate subtype (operator-merge, promotion, record-evidence, automatic-merge, controller-wait, scheduling-held). Map legacy reason strings to codes once, in one tested function. Replace every reason/message prefix match on the server and in the web with code switches, and remove navigation prose from daemon messages. NotificationService then selects owner=operator items and imports no policy modules.
@@ -140,7 +140,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A7
 
-**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: partial
+**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: partial (9339d01)
 
 - **Resolves:** [CTRL-04](findings/CTRL-controller.md#ctrl-04-resume-is-accepted-even-when-it-cannot-make-progress), [CTRL-12](findings/CTRL-controller.md#ctrl-12-manual-commands-accept-transitions-that-the-automated-launch-then-rejects)
 - **Change:** Derive the valid operator actions from the attention code (in the same pure code that decides the transition) and return them with the cycle projection; reject Resume when the blocking fact is not transient, with the correct destination. Put whole-item and scoped start/advance gates, including predecessor ancestry, into one transitionGate() used by commands before acceptance and again at launch.
@@ -160,7 +160,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B2
 
-**Characterization harness for the cycle controller** · Phase P1 · Effort M · Status: done
+**Characterization harness for the cycle controller** · Phase P1 · Effort M · Status: done (131a9de)
 
 - **Resolves:** [CTRL-18](findings/CTRL-controller.md#ctrl-18-the-controller-has-no-unit-testable-transition-core), [QA-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-02-orchestration-tests-poll-wall-clock-time-because-the-controller-has-no-deterministic-stepping-seam)
 - **Change:** Extract reconcile's post-run classification (work-cycle-service.ts ~:1858-2254) verbatim into a pure function of (cycle, facts). Record golden decisions by replaying every cycle in a DB snapshot, and add decision-table tests. Add a deterministic stepping seam (tick once / wait-for-idle) so orchestration tests stop polling wall-clock time.
@@ -217,7 +217,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B9
 
-**Low-disruption restarts: bounded drain plus automatic resume of interrupted steps** · Phase P1 · Effort M · Status: done
+**Low-disruption restarts: bounded drain plus automatic resume of interrupted steps** · Phase P1 · Effort M · Status: done (4d81743)
 
 - **Resolves:** [HIST-06](findings/HIST-history-and-live-usage.md#hist-06-deploy--restart-and-every-restart-stops-running-roadmaps-and-live-runs), [CTRL-20](findings/CTRL-controller.md#ctrl-20-every-restart-stops-all-automation-and-kills-in-flight-agent-work), [HIST-13](findings/HIST-history-and-live-usage.md#hist-13-schema-and-adr-churn-rate-22-migrations-46-adrs-in-18-days-with-manual-pre-migration-backups)
 - **Change:** Agents are child processes of the daemon, connected only by stdio pipes, so a restarted daemon cannot re-attach to a run that is still going. Combine two mechanisms (operator decision 2026-09-23). (1) Bounded drain: on stop or deploy, stop admitting new steps and wait up to a configurable bound (a few minutes) for live turns to finish; then interrupt what is left, recording which runs were interrupted by a controlled drain (as opposed to a crash). `pnpm deploy:daemon --when-idle` instead waits until nothing is live before switching and restarting. (2) Automatic resume: on a clean start, relaunch each step interrupted by the drain by resuming its vendor session (Claude `--resume <session>`, Codex app-server thread resume; both adapters already have resume paths) in the same worktree, with the original deadline and permissions, so conversation and worktree edits survive and only the in-flight tool call is redone; roadmaps and cycles that were running continue without an operator Resume. Unclean interruptions (crash, kill, lost session id) and failed resumes keep today's explicit-resume attention. Also take the pre-migration DB snapshot automatically in the migration runner. Truly surviving a restart (agents that outlive the daemon) is R-G12.

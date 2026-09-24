@@ -878,6 +878,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - `useTemplate`: 9 infos.
   - Not applied: the two `useLiteralKeys` fixes. They would turn `service['deferredEntries']`, a test's deliberate reach into a private method, into a type error. They stay as infos, which do not gate.
   - **Remaining:** 18 warnings: 16 `useOptionalChain`, 1 `noBannedTypes`, 1 `noDescendingSpecificity`.
+- **Amended 2026-09-24: optional chains.** The 16 `useOptionalChain` sites were reviewed one by one. Each tested value is an object or `undefined`, where `!x || x.p` and `x?.p` agree. Two exceptions:
+  - Two `ancestor` checks cover `'' | false | GitResult`, where TypeScript refuses `?.`. They became `typeof ancestor !== 'object' || …`, which is equivalent, and the compiler confirms `null` is not possible.
+  - `repo?.defaultBranch` differs from `repo && repo.defaultBranch` only for an empty repository id, which validation never admits.
 
 ### R-I7
 

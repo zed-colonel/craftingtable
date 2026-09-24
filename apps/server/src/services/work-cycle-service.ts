@@ -1076,7 +1076,7 @@ export class WorkCycleService {
     const assessment = latestReviewReport(this.storage.execution, run);
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     const scopeIssue = tree && scopedReviewIssue(this.storage, tree, assessment);
-    if (!tree || tree.status !== 'active' || scopeIssue)
+    if (tree?.status !== 'active' || scopeIssue)
       return scopeIssue ?? 'The managed worktree must be active before authorizing remediation.';
     if (
       assessment?.status !== 'complete' ||
@@ -1225,7 +1225,7 @@ export class WorkCycleService {
           'Cycle changed; refresh before requesting another review.',
         );
       const currentTree = this.storage.execution.worktrees.find(workspaceId, tree.id);
-      if (!currentTree || currentTree.status !== 'active')
+      if (currentTree?.status !== 'active')
         throw new ExecutionRequestError('conflict', 'The review worktree is no longer active.');
       requireTreeScope(this.storage, currentTree, 'start');
       this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
@@ -2027,7 +2027,7 @@ export class WorkCycleService {
         .find((r) => r.attempts.some((a) => a.cycleId === cycle.id));
       if (roadmap && roadmap.status !== 'running') return;
       const parent = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
-      if (!parent || parent.status !== 'finished') {
+      if (parent?.status !== 'finished') {
         this.attention(
           cycle,
           'design-recheck-unavailable',
@@ -2320,7 +2320,7 @@ export class WorkCycleService {
       return;
     }
     const user = this.storage.users.findById(cycle.createdByUserId);
-    if (!user || user.status !== 'active')
+    if (user?.status !== 'active')
       throw new ExecutionRequestError('conflict', 'Delegating user is no longer active.');
     this.workspaceService.requireRole({ user }, cycle.workspaceId, ['owner', 'editor']);
     const workflow = cycle.workflow ?? { reassessments: 0, questions: [] };
@@ -4022,7 +4022,7 @@ export class WorkCycleService {
   private async transitionGate(cycle: WorkCycle): Promise<void> {
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     // An owned integration resolution is gated by resolveIntegration itself.
-    if (!tree || tree.status !== 'active' || !this.branches || !cycle.workItemId) return;
+    if (tree?.status !== 'active' || !this.branches || !cycle.workItemId) return;
     // Only a resume that relaunches the same step goes straight to launch; a finished
     // step first refreshes integration, which can bring the predecessors in.
     const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);

@@ -547,7 +547,7 @@ export class MapAmendmentService {
       const head = await this.git.resolveBranch(repo.rootPath, target.integrationBranch);
       const ancestor =
         head.ok && (await this.git.isAncestor(repo.rootPath, reuse.mergeSha, head.value));
-      if (!ancestor || !ancestor.ok || !ancestor.value)
+      if (typeof ancestor !== 'object' || !ancestor.ok || !ancestor.value)
         conflict(
           `Integrated code ${reuse.sourceId} is absent from the candidate integration branch.`,
         );

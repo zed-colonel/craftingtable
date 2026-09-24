@@ -703,7 +703,7 @@ export class ExecutionService {
               const ancestor =
                 merged?.mergeSha &&
                 (await git.isAncestor(repo.rootPath, merged.mergeSha, head.value));
-              if (!ancestor || !ancestor.ok || !ancestor.value)
+              if (typeof ancestor !== 'object' || !ancestor.ok || !ancestor.value)
                 throw new ExecutionRequestError(
                   'conflict',
                   `Required slice ${sourceId} is absent from the reviewed integration snapshot.`,

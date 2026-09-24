@@ -221,7 +221,7 @@ export class RuntimeEvidenceService {
     );
     const repo =
       b?.repositoryId && this.storage.execution.sourceRepositories.find(ws, b.repositoryId);
-    if (!repo || repo.status !== 'active') conflict('Choose an active repository binding first.');
+    if (repo?.status !== 'active') conflict('Choose an active repository binding first.');
     const commit = await this.requireGit().resolveCommit(repo.rootPath, input.ref);
     if (!commit.ok) conflict(commit.failure.message);
     const exported = await this.requireGit().exportCommit(repo.rootPath, commit.value.commitSha);
@@ -302,7 +302,7 @@ export class RuntimeEvidenceService {
       const b = binding.bindings.find((b) => b.alias === consumer.alias);
       const repo =
         b?.repositoryId && this.storage.execution.sourceRepositories.find(ws, b.repositoryId);
-      if (!repo || repo.status !== 'active')
+      if (repo?.status !== 'active')
         conflict(
           `Configure the ${consumer.alias} plan repository and integration branch before discovery.`,
         );
@@ -777,7 +777,7 @@ export class RuntimeEvidenceService {
         repo = this.storage.execution.sourceRepositories.find(ws, pin.repositoryId);
       const ref = (b && providerBranch(this.storage, ws, b)) ?? pin.ref;
       const status = { alias: pin.alias, ref, savedCommitSha: pin.commitSha };
-      if (!repo || repo.status !== 'active' || b?.repositoryId !== repo.id) {
+      if (repo?.status !== 'active' || b?.repositoryId !== repo.id) {
         result.push({ ...status, issue: `Pinned repository ${pin.alias} is unavailable.` });
         continue;
       }
@@ -938,8 +938,7 @@ export class RuntimeEvidenceService {
     if (tree.mergeSha)
       commonIssues.push('This candidate has already merged; use its retained checkpoint evidence.');
     if (
-      !run ||
-      run.role !== 'review' ||
+      run?.role !== 'review' ||
       run.status !== 'finished' ||
       run.verdict !== 'mergeable' ||
       !run.reviewBranchContext ||
@@ -1182,8 +1181,7 @@ export class RuntimeEvidenceService {
     const checkpoint = candidateContext?.checkpoints.find((c) => c.id === active?.checkpointId);
     const user = this.storage.users.findById(cycle.createdByUserId);
     if (
-      !user ||
-      user.status !== 'active' ||
+      user?.status !== 'active' ||
       !cycle.executionScope ||
       !delegation ||
       !delegation.runnable ||
@@ -1387,8 +1385,7 @@ export class RuntimeEvidenceService {
       const turn =
         run && this.storage.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
       if (
-        !run ||
-        run.status !== 'finished' ||
+        run?.status !== 'finished' ||
         run.role !== 'review' ||
         !run.reviewBranchContext ||
         turn?.kind !== 'turn-completed' ||
@@ -1575,8 +1572,7 @@ export class RuntimeEvidenceService {
           preparation.checkpointId === input.checkpointId &&
           currentDecisionPreparation(tx, preparation);
         if (
-          !run ||
-          run.status !== 'finished' ||
+          run?.status !== 'finished' ||
           !tree ||
           (!preparedHere &&
             (tree.executionScope?.definitionId !== id ||
@@ -2042,8 +2038,7 @@ export class RuntimeEvidenceService {
         const b = binding?.bindings.find((b) => b.alias === r.id);
         const repo =
           b?.repositoryId && this.storage.execution.sourceRepositories.find(ws, b.repositoryId);
-        const integrationBranch =
-          b && (providerBranch(this.storage, ws, b) || (repo && repo.defaultBranch));
+        const integrationBranch = b && (providerBranch(this.storage, ws, b) || repo?.defaultBranch);
         return {
           alias: r.id,
           role: r.role,

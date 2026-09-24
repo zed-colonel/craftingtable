@@ -18,8 +18,7 @@ export function scopeRecoveryDecision(
   const turn = run && tx.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
   if (run && !isTerminalAgentRunStatus(run.status)) return { waiting: true };
   if (
-    !run ||
-    run.status !== 'finished' ||
+    run?.status !== 'finished' ||
     turn?.kind !== 'turn-completed' ||
     turn.payload.outcome !== 'success' ||
     turn.payload.truncated ||

@@ -19,6 +19,7 @@ import {
   migrationStatus,
   runMigrations,
 } from './migrations.js';
+import { acceptAnyRecord } from './records.js';
 import { planningRepositories } from './repositories/planning/index.js';
 import { SqliteUserRepository } from './repositories/users.js';
 import { SqliteWorkspaceRepository } from './repositories/workspaces.js';
@@ -60,7 +61,7 @@ function seedGraph(database: Database.Database, suffix: string): Graph {
   const projectId = asProjectId(`project-${suffix}`);
   const users = new SqliteUserRepository(database);
   const workspaces = new SqliteWorkspaceRepository(database);
-  const planning = planningRepositories(database);
+  const planning = planningRepositories(database, acceptAnyRecord);
 
   users.insert({
     id: userId,

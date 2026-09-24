@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { architectureRecommendationSchema } from './design-report.js';
+import { sourceRepositoryIdSchema, userIdSchema, workspaceIdSchema } from './ids.js';
+
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const name = z.string().trim().min(1).max(200);
 const text = z.string().trim().min(1).max(16000);
@@ -58,7 +60,7 @@ export const configureRuntimeSchema = z.strictObject({
 const runtimePinSchema = z.strictObject({
   alias: name,
   ref: name,
-  repositoryId: z.string(),
+  repositoryId: sourceRepositoryIdSchema,
   commitSha: name,
   treeSha: name,
   conformanceRevision: name,
@@ -66,13 +68,13 @@ const runtimePinSchema = z.strictObject({
 });
 export const runtimeGenerationSchema = z.strictObject({
   id: z.uuid(),
-  workspaceId: z.string(),
+  workspaceId: workspaceIdSchema,
   definitionId: z.uuid(),
   bindingRevision: z.number(),
   generation: z.number(),
   digest,
   createdAt: z.iso.datetime(),
-  createdByUserId: z.string(),
+  createdByUserId: userIdSchema,
   pins: z.array(runtimePinSchema),
   consumers: z.array(z.strictObject({ alias: name, upstreams: z.array(name) })),
   environments: z.array(qualificationEnvironmentSchema),
@@ -222,11 +224,11 @@ export const evidenceSubmissionSchema = evidenceSubmissionRequestSchema.safeExte
     .array(z.strictObject({ identity: name, roles: z.array(name).min(1).max(20), artifact: name }))
     .max(20),
   id: z.uuid(),
-  workspaceId: z.string(),
+  workspaceId: workspaceIdSchema,
   definitionId: z.uuid(),
   bindingRevision: z.number(),
   createdAt: z.iso.datetime(),
-  createdByUserId: z.string(),
+  createdByUserId: userIdSchema,
   artifacts: z.array(z.strictObject({ name, content: z.string(), digest })),
   sourceRunDigest: digest.optional(),
   sourceRunCommit: name.optional(),
@@ -235,12 +237,12 @@ export const evidenceSubmissionSchema = evidenceSubmissionRequestSchema.safeExte
 export const evidenceDecisionSchema = z.strictObject({
   checkpointReviewRoles: z.array(name).readonly().optional(),
   id: z.uuid(),
-  workspaceId: z.string(),
+  workspaceId: workspaceIdSchema,
   submissionId: z.uuid(),
   outcome: z.enum(['accepted', 'rejected']),
   rationale: text,
   decidedAt: z.iso.datetime(),
-  decidedByUserId: z.string(),
+  decidedByUserId: userIdSchema,
 });
 export const checkpointRecoverySchema = z.strictObject({
   worktreeId: z.uuid(),
@@ -329,7 +331,7 @@ export const nativeApprovalRequestSchema = z.strictObject({
 export type NativeApprovalRequest = z.infer<typeof nativeApprovalRequestSchema>;
 export const nativeApprovalSchema = z.strictObject({
   id: z.uuid(),
-  workspaceId: z.string(),
+  workspaceId: workspaceIdSchema,
   definitionId: z.string(),
   bindingRevision: z.number(),
   runtimeId: z.string(),
@@ -339,7 +341,7 @@ export const nativeApprovalSchema = z.strictObject({
   audit: z.string(),
   rationale: z.string(),
   createdAt: z.string(),
-  createdByUserId: z.string(),
+  createdByUserId: userIdSchema,
 });
 export const runtimePinStatusSchema = z.strictObject({
   alias: name,

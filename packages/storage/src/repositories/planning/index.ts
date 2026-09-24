@@ -39,6 +39,7 @@ import type {
   WorkspaceWorkItemFilter,
   WorkspaceWorkItemRow,
 } from '../../planning-types.js';
+import type { RecordGuard } from '../../records.js';
 import {
   mapArtifact,
   mapAttempt,
@@ -184,7 +185,10 @@ class SqlitePlanBundleRepository implements PlanBundleRepository {
 }
 
 class SqlitePlanVersionRepository implements PlanVersionRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
 
   insert(input: CreatePlanVersionInput) {
     this.database
@@ -217,6 +221,7 @@ class SqlitePlanVersionRepository implements PlanVersionRepository {
     if (version === undefined) {
       throw new Error('Plan version insert did not produce a readable row');
     }
+    this.guard('plan-version', version);
     return version;
   }
 
@@ -470,7 +475,10 @@ class SqlitePlanImportDiagnosticRepository implements PlanImportDiagnosticReposi
 }
 
 class SqliteWorkItemRepository implements WorkItemRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
 
   insertMany(inputs: readonly CreateWorkItemInput[]) {
     const statement = this.database.prepare(
@@ -500,7 +508,9 @@ class SqliteWorkItemRepository implements WorkItemRepository {
       const row = this.database
         .prepare(`SELECT ${WORK_ITEM_SELECT} ${WORK_ITEM_FROM} WHERE w.id = ?`)
         .get(input.id) as WorkItemDbRow;
-      return mapWorkItem(row);
+      const item = mapWorkItem(row);
+      this.guard('work-item', item);
+      return item;
     });
   }
 
@@ -935,15 +945,18 @@ class SqlitePlanningQueryRepository implements PlanningQueryRepository {
   }
 }
 
-export function planningRepositories(database: Database.Database): PlanningRepositories {
+export function planningRepositories(
+  database: Database.Database,
+  guard: RecordGuard,
+): PlanningRepositories {
   return {
     projects: new SqliteProjectRepository(database),
     bundles: new SqlitePlanBundleRepository(database),
-    versions: new SqlitePlanVersionRepository(database),
+    versions: new SqlitePlanVersionRepository(database, guard),
     importAttempts: new SqlitePlanImportAttemptRepository(database),
     artifacts: new SqlitePlanArtifactRepository(database),
     diagnostics: new SqlitePlanImportDiagnosticRepository(database),
-    workItems: new SqliteWorkItemRepository(database),
+    workItems: new SqliteWorkItemRepository(database, guard),
     dependencies: new SqliteWorkItemDependencyRepository(database),
     queries: new SqlitePlanningQueryRepository(database),
   };

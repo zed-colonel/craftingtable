@@ -7,8 +7,8 @@ import {
 } from '@craftingtable/agents';
 import { agentRunDetailResponseSchema } from '@craftingtable/contracts';
 import { asAgentRunId, DEFAULT_COMPLETION_POLICY, type WorkCycle } from '@craftingtable/domain';
-import { openCraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -102,7 +102,7 @@ describe('background-work completion recovery', () => {
       remediationRounds: 0,
     });
     expect(currentCycle(state, cycle).reason).toContain('exhausted its two continuation');
-    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    const reopened = openDaemonStorage(state.context.storage.databasePath);
     try {
       expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)).toMatchObject({
         resultContinuations: 2,
@@ -479,7 +479,7 @@ describe('bounded model service recovery', () => {
       nextRetryAt: '2026-09-22T12:01:00.000Z',
     });
     expect(backend.launches).toHaveLength(2);
-    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    const reopened = openDaemonStorage(state.context.storage.databasePath);
     try {
       expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)?.providerRecovery).toEqual(
         waiting.providerRecovery,

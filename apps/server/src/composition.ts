@@ -10,9 +10,10 @@ import {
 } from '@craftingtable/agents';
 import { AGENT_BACKEND_LABELS, AGENT_BACKENDS, type AgentBackendKind } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
-import { type CraftingTableStorage, openCraftingTableStorage } from '@craftingtable/storage';
+import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from './config.js';
+import { openDaemonStorage } from './persisted-records.js';
 import { Argon2PasswordHasher, type PasswordHasher } from './security/password-hasher.js';
 import { SessionTokenService } from './security/session-tokens.js';
 import { buildServer } from './server.js';
@@ -21,17 +22,18 @@ import { AuthService } from './services/auth-service.js';
 import { BaselinePreparationService } from './services/baseline-preparation.js';
 import { BootstrapService } from './services/bootstrap-service.js';
 import { CrossProjectService } from './services/cross-project-service.js';
+import { DaemonDrain } from './services/daemon-drain.js';
 import { resolveExecutable } from './services/executables.js';
 import { ExecutionService, type ExecutionStatus } from './services/execution-service.js';
 import { FinalizationService } from './services/finalization-service.js';
 import { HostSchedulingService } from './services/host-scheduling-service.js';
-import { OperatorWaitService } from './services/operator-wait-service.js';
 import { MapAmendmentService } from './services/map-amendment-service.js';
 import { NotificationService } from './services/notification-service.js';
 import {
   type NotificationTransport,
   PushoverTransport,
 } from './services/notification-transport.js';
+import { OperatorWaitService } from './services/operator-wait-service.js';
 import { PackageImportService } from './services/package-import-service.js';
 import { PlanImportService } from './services/plan-import-service.js';
 import { PlanningQueryService } from './services/planning-query-service.js';
@@ -48,7 +50,6 @@ import {
 } from './services/workspace-event-stream-service.js';
 import { WorkspaceService } from './services/workspace-service.js';
 import { WorktreeMutationGuard } from './services/worktree-mutation-guard.js';
-import { DaemonDrain } from './services/daemon-drain.js';
 
 export interface ServiceSet {
   readonly crossProjectService: CrossProjectService;
@@ -349,7 +350,7 @@ export async function createRuntime(
   config: ServerConfig,
   options: { readonly logger?: boolean; readonly overrides?: ServiceOverrides } = {},
 ): Promise<CraftingTableRuntime> {
-  const storage = openCraftingTableStorage(config.databasePath);
+  const storage = openDaemonStorage(config.databasePath);
   try {
     const services = await createServices(storage, config, options.overrides);
     const app = buildServer(

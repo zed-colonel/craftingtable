@@ -1,7 +1,14 @@
 import { z } from 'zod';
 import { mapSelectionSchema } from './cross-project.js';
+import {
+  planVersionIdSchema,
+  projectIdSchema,
+  userIdSchema,
+  workItemIdSchema,
+  workspaceIdSchema,
+  worktreeIdSchema,
+} from './ids.js';
 import { roadmapSchema } from './roadmap.js';
-import { worktreeIdSchema, workItemIdSchema, projectIdSchema, planVersionIdSchema } from './ids.js';
 export const proposeMapAmendmentSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
   candidate: mapSelectionSchema,
@@ -75,20 +82,20 @@ export const amendmentImpactSchema = z.strictObject({
 });
 export const mapAmendmentSchema = z.strictObject({
   id: z.uuid(),
-  workspaceId: z.string(),
+  workspaceId: workspaceIdSchema,
   roadmapId: z.uuid(),
   baseRevision: z.number(),
   candidate: mapSelectionSchema,
   summary: z.string(),
   sourceRunId: z.string().optional(),
   createdAt: z.string(),
-  createdByUserId: z.string(),
+  createdByUserId: userIdSchema,
   decision: z
     .strictObject({
       outcome: z.enum(['applied', 'rejected']),
       rationale: z.string(),
       decidedAt: z.string(),
-      decidedByUserId: z.string(),
+      decidedByUserId: userIdSchema,
       impactDigest: z.string(),
       previous: roadmapSchema,
       resultingRevision: z.number().optional(),

@@ -1,12 +1,9 @@
 import { existsSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
-import {
-  inspectMigrationStatus,
-  MigrationValidationError,
-  openCraftingTableStorage,
-} from '@craftingtable/storage';
+import { inspectMigrationStatus, MigrationValidationError } from '@craftingtable/storage';
 import { configFromEnv } from './config.js';
 import { acquireInstanceLock, InstanceLockedError } from './instance-lock.js';
+import { openDaemonStorage } from './persisted-records.js';
 import { Argon2PasswordHasher } from './security/password-hasher.js';
 import { BootstrapService } from './services/bootstrap-service.js';
 import { BootstrapRefusedError } from './services/errors.js';
@@ -152,7 +149,7 @@ export function runDatabaseCommand(
   }
 
   try {
-    const storage = openCraftingTableStorage(databasePath);
+    const storage = openDaemonStorage(databasePath);
     try {
       output.stdout.write(`schema migrated to version ${storage.migrationStatus.currentVersion}\n`);
       return 0;
@@ -197,7 +194,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
   if (firstPassword !== secondPassword) {
     throw new Error('Passwords do not match');
   }
-  const storage = openCraftingTableStorage(config.databasePath);
+  const storage = openDaemonStorage(config.databasePath);
   try {
     if (parsed.command === 'reset-password') {
       const result = await new PasswordResetService(storage, new Argon2PasswordHasher()).reset(

@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { openCraftingTableStorage } from '@craftingtable/storage';
+import { openDaemonStorage } from './persisted-records.js';
 import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
 
 /**
@@ -32,7 +32,7 @@ export function replaySnapshot(snapshot: string, everyRun = false) {
   try {
     const copy = join(directory, 'snapshot.sqlite');
     copyFileSync(snapshot, copy);
-    const storage = openCraftingTableStorage(copy);
+    const storage = openDaemonStorage(copy);
     try {
       return (everyRun ? replayEveryRun : replayStepOutcomes)(storage, REPLAY_NOW);
     } finally {

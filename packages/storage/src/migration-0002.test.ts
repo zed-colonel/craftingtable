@@ -18,6 +18,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from './database.js';
 import { discoverMigrations, runMigrations } from './migrations.js';
+import { acceptAnyRecord } from './records.js';
 import { SqliteAuditRepository } from './repositories/audit.js';
 import { SqliteSessionRepository } from './repositories/sessions.js';
 import { SqliteUserRepository } from './repositories/users.js';
@@ -64,8 +65,8 @@ function seedSchemaOne(): Seeded {
   const users = new SqliteUserRepository(database);
   const workspaces = new SqliteWorkspaceRepository(database);
   const sessions = new SqliteSessionRepository(database);
-  const audit = new SqliteAuditRepository(database);
-  const events = new SqliteWorkspaceEventRepository(database);
+  const audit = new SqliteAuditRepository(database, acceptAnyRecord);
+  const events = new SqliteWorkspaceEventRepository(database, acceptAnyRecord);
 
   const userId = asUserId('user-ct02');
   const workspaceId = asWorkspaceId('workspace-ct02');
@@ -181,8 +182,8 @@ describe('migration 0002 journal preservation', () => {
   it('gives the next appended event a greater sequence (CT03-A06)', () => {
     const seeded = seedSchemaOne();
     migrateToTwo(seeded.database);
-    const events = new SqliteWorkspaceEventRepository(seeded.database);
-    const audit = new SqliteAuditRepository(seeded.database);
+    const events = new SqliteWorkspaceEventRepository(seeded.database, acceptAnyRecord);
+    const audit = new SqliteAuditRepository(seeded.database, acceptAnyRecord);
 
     seeded.database
       .prepare(

@@ -1,14 +1,31 @@
 import type {
-  RepositoryPolicy,
   PlanBranchSettings,
   PlanVersionId,
+  RepositoryPolicy,
   SourceRepositoryId,
   UserId,
   WorkItemId,
   WorkspaceId,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
+import { parseRecord, type RecordGuard, readRecord } from '../../records.js';
 
+export const PLAN_BRANCH_SETTINGS_SELECT = `workspace_id AS workspaceId,
+  plan_version_id AS planVersionId, repository_id AS repositoryId,
+  integration_branch AS integrationBranch, updated_at AS updatedAt,
+  updated_by_user_id AS updatedByUserId, manual_merge_branches_json AS manualMergeBranchesJson,
+  version`;
+export type PlanBranchSettingsRow = Omit<PlanBranchSettings, 'manualMergeBranches'> & {
+  readonly manualMergeBranchesJson: string;
+};
+export function mapPlanBranchSettings(row: PlanBranchSettingsRow): PlanBranchSettings {
+  const { manualMergeBranchesJson, ...settings } = row;
+  const branches = JSON.parse(manualMergeBranchesJson) as string[];
+  return readRecord('plan-branch-settings', {
+    ...settings,
+    ...(branches.length ? { manualMergeBranches: branches } : {}),
+  });
+}
 export interface PlanBranchSettingsRepository {
   policy(workspaceId: WorkspaceId, planVersionId: PlanVersionId): RepositoryPolicy | undefined;
   savePolicy(policy: RepositoryPolicy, expectedVersion: number): boolean;
@@ -30,14 +47,17 @@ export interface PlanBranchSettingsRepository {
   save(settings: PlanBranchSettings, expectedVersion: number): PlanBranchSettings | undefined;
 }
 export class SqlitePlanBranchSettingsRepository implements PlanBranchSettingsRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
   policy(workspaceId: WorkspaceId, planVersionId: PlanVersionId): RepositoryPolicy | undefined {
     const row = this.database
       .prepare(
         'SELECT state_json FROM plan_repository_policies WHERE workspace_id = ? AND plan_version_id = ? ORDER BY version DESC LIMIT 1',
       )
       .get(workspaceId, planVersionId) as { state_json: string } | undefined;
-    return row ? (JSON.parse(row.state_json) as RepositoryPolicy) : undefined;
+    return row ? parseRecord('repository-policy', row.state_json) : undefined;
   }
   savePolicy(policy: RepositoryPolicy, expectedVersion: number): boolean {
     if (
@@ -45,6 +65,7 @@ export class SqlitePlanBranchSettingsRepository implements PlanBranchSettingsRep
       policy.version !== expectedVersion + 1
     )
       return false;
+    this.guard('repository-policy', policy);
     this.database
       .prepare(
         'INSERT INTO plan_repository_policies (workspace_id, plan_version_id, version, state_json) VALUES (?, ?, ?, ?)',
@@ -90,22 +111,16 @@ export class SqlitePlanBranchSettingsRepository implements PlanBranchSettingsRep
   }
   find(workspaceId: WorkspaceId, planVersionId: PlanVersionId): PlanBranchSettings | undefined {
     const row = this.database
-      .prepare(`SELECT workspace_id AS workspaceId, plan_version_id AS planVersionId,
-      repository_id AS repositoryId, integration_branch AS integrationBranch, updated_at AS updatedAt,
-      updated_by_user_id AS updatedByUserId, manual_merge_branches_json AS manualMergeBranchesJson, version FROM plan_branch_settings
+      .prepare(`SELECT ${PLAN_BRANCH_SETTINGS_SELECT} FROM plan_branch_settings
       WHERE workspace_id = ? AND plan_version_id = ?`)
-      .get(workspaceId, planVersionId) as
-      | (PlanBranchSettings & { manualMergeBranchesJson: string })
-      | undefined;
-    if (!row) return undefined;
-    const { manualMergeBranchesJson, ...settings } = row;
-    const branches = JSON.parse(manualMergeBranchesJson) as string[];
-    return { ...settings, ...(branches.length ? { manualMergeBranches: branches } : {}) };
+      .get(workspaceId, planVersionId) as PlanBranchSettingsRow | undefined;
+    return row && mapPlanBranchSettings(row);
   }
   save(settings: PlanBranchSettings, expectedVersion: number): PlanBranchSettings | undefined {
     const current = this.find(settings.workspaceId, settings.planVersionId);
     if ((current?.version ?? 0) !== expectedVersion || settings.version !== expectedVersion + 1)
       return undefined;
+    this.guard('plan-branch-settings', settings);
     this.database
       .prepare(`INSERT INTO plan_branch_settings
       (workspace_id, plan_version_id, repository_id, integration_branch, updated_at, updated_by_user_id, version, manual_merge_branches_json)

@@ -1,5 +1,6 @@
 import type { Finalization, WorkspaceId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
+import { parseRecord, type RecordGuard } from '../../records.js';
 export interface FinalizationRepository {
   save(value: Finalization, expectedVersion: number): boolean;
   find(workspaceId: WorkspaceId, id: string): Finalization | undefined;
@@ -8,11 +9,15 @@ export interface FinalizationRepository {
 function map(row: unknown): Finalization | undefined {
   return row === undefined
     ? undefined
-    : (JSON.parse((row as { state_json: string }).state_json) as Finalization);
+    : parseRecord('finalization', (row as { state_json: string }).state_json);
 }
 export class SqliteFinalizationRepository implements FinalizationRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
   save(value: Finalization, expectedVersion: number): boolean {
+    this.guard('finalization', value);
     if (!expectedVersion) {
       this.database
         .prepare(

@@ -99,14 +99,12 @@ export const workItemAdmittedEventSchema = workspaceEventBaseSchema.extend({
     planVersionId: planVersionIdSchema,
     workItemId: workItemIdSchema,
     sourceWorkItemId: z.string().min(1).max(64),
-    /** Retired with the work-contract draft; present only on schema-2 events. */
-    workContractDraftId: z.string().min(1).max(200).optional(),
   }),
 });
 
 export const workItemRemovedFromAgendaEventSchema = workItemAdmittedEventSchema.extend({
   kind: z.literal('work-item-removed-from-agenda'),
-  payload: workItemAdmittedEventSchema.shape.payload.omit({ workContractDraftId: true }),
+  payload: workItemAdmittedEventSchema.shape.payload,
 });
 
 export const repositoryRegisteredEventSchema = workspaceEventBaseSchema

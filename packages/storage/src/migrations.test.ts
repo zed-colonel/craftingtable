@@ -251,6 +251,37 @@ it('upgrades legacy workspace profiles without changing models or permissions', 
   database.close();
 });
 
+/**
+ * Table rebuilds are the riskiest migrations (ADR-013). Each one has a preservation test,
+ * and each written after R-H3 also carries an in-migration count guard, as 0002 does, so a
+ * truncated copy rolls the migration back instead of losing rows.
+ */
+it('pairs every table-rebuild migration with a preservation test and later ones with a guard (R-H3)', () => {
+  const preservationTests: Record<number, string> = {
+    2: 'migration-0002.test.ts',
+    4: 'migration-0004.test.ts',
+    7: 'migration-0007.test.ts',
+    14: 'migration-0014.test.ts',
+    26: 'migrations.test.ts',
+  };
+  const rebuilds = discoverMigrations().filter((migration) =>
+    /ALTER\s+TABLE\s+\w+\s+RENAME\s+TO/i.test(migration.sql),
+  );
+  for (const migration of rebuilds) {
+    const test = preservationTests[migration.version];
+    expect(
+      test,
+      `migration ${migration.version} rebuilds a table without a preservation test`,
+    ).toBeDefined();
+    expect(existsSync(new URL(`./${test}`, import.meta.url))).toBe(true);
+    if (migration.version > 27)
+      expect(migration.sql).toMatch(
+        /CREATE\s+TABLE\s+migration_\d{4}_guard[\s\S]*CHECK\s*\(\s*ok\s*=\s*1\s*\)/i,
+      );
+  }
+  expect(rebuilds.map((migration) => migration.version)).toEqual([2, 4, 7, 14, 26]);
+});
+
 describe('pre-migration snapshots (R-B9)', () => {
   it('copies a populated database aside before pending migrations and keeps the newest few', () => {
     const path = databasePath();

@@ -11,8 +11,8 @@ import {
   type WorkCycle,
 } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
-import { openCraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -612,7 +612,7 @@ describe('single work-item automation', () => {
     // cycle's own instructions.
     expect(backend.launches[6]?.prompt).toContain('Keep the approved API.');
     expect(backend.launches[6]?.prompt).not.toContain('Concentrate on the remaining regression.');
-    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    const reopened = openDaemonStorage(state.context.storage.databasePath);
     try {
       expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)).toMatchObject({
         remediationRounds: 2,

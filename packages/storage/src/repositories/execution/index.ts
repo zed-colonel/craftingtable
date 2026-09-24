@@ -3,12 +3,12 @@ import {
   type AgentRunEvent,
   type AgentRunEventKind,
   type AgentRunId,
-  type WorkspaceAgentProfile,
   isAgentRunEventKind,
   isTerminalAgentRunStatus,
   type SourceRepository,
   type SourceRepositoryId,
   type WorkItemId,
+  type WorkspaceAgentProfile,
   type WorkspaceId,
   type Worktree,
   type WorktreeId,
@@ -28,6 +28,7 @@ import type {
   TransitionAgentRunInput,
   WorktreeRepository,
 } from '../../execution-types.js';
+import { type RecordGuard, readRecord } from '../../records.js';
 import { SqlitePlanBranchSettingsRepository } from './branch-settings.js';
 import { SqliteFinalizationRepository } from './finalizations.js';
 import { SqliteMergeOperationRepository } from './merges.js';
@@ -67,7 +68,7 @@ function mapSourceRepository(row: SourceRepositoryRow): SourceRepository {
   };
 }
 
-interface WorktreeRow {
+export interface WorktreeRow {
   execution_scope_json: string | null;
   id: string;
   workspace_id: string;
@@ -89,8 +90,8 @@ interface WorktreeRow {
   version: number;
 }
 
-function mapWorktree(row: WorktreeRow): Worktree {
-  return {
+export function mapWorktree(row: WorktreeRow): Worktree {
+  return readRecord('worktree', {
     ...(row.execution_scope_json ? { executionScope: JSON.parse(row.execution_scope_json) } : {}),
     id: row.id as Worktree['id'],
     workspaceId: row.workspace_id as Worktree['workspaceId'],
@@ -111,10 +112,10 @@ function mapWorktree(row: WorktreeRow): Worktree {
     ...(row.merged_at === null ? {} : { mergedAt: row.merged_at }),
     ...(row.merge_sha === null ? {} : { mergeSha: row.merge_sha }),
     version: row.version,
-  };
+  });
 }
 
-interface AgentRunRow {
+export interface AgentRunRow {
   reasoning_effort: AgentRun['reasoningEffort'] | null;
   profile_selection_json: string | null;
   id: string;
@@ -147,8 +148,8 @@ interface AgentRunRow {
   version: number;
 }
 
-function mapAgentRun(row: AgentRunRow): AgentRun {
-  return {
+export function mapAgentRun(row: AgentRunRow): AgentRun {
+  return readRecord('agent-run', {
     ...(row.reasoning_effort ? { reasoningEffort: row.reasoning_effort } : {}),
     ...(row.profile_selection_json
       ? { profileSelection: JSON.parse(row.profile_selection_json) }
@@ -186,10 +187,10 @@ function mapAgentRun(row: AgentRunRow): AgentRun {
     ...(row.cost_usd === null ? {} : { costUsd: row.cost_usd }),
     turnCount: row.turn_count,
     version: row.version,
-  };
+  });
 }
 
-interface AgentRunEventRow {
+export interface AgentRunEventRow {
   sequence: number;
   id: string;
   workspace_id: string;
@@ -200,30 +201,11 @@ interface AgentRunEventRow {
   raw_json: string | null;
 }
 
-/**
- * Brings a stored payload written by an older daemon up to the current event
- * shape. Session-started events recorded before billing was observed carry no
- * `billing`; they read back as `unknown`, which is what the daemon records when
- * it cannot tell.
- */
-function upcastRunEventPayload(kind: AgentRunEventKind, payload: unknown): unknown {
-  if (
-    kind === 'session-started' &&
-    typeof payload === 'object' &&
-    payload !== null &&
-    !('billing' in payload)
-  ) {
-    return { ...payload, billing: 'unknown' };
-  }
-  return payload;
-}
-
-function mapAgentRunEvent(row: AgentRunEventRow): AgentRunEvent {
+export function mapAgentRunEvent(row: AgentRunEventRow): AgentRunEvent {
   if (!isAgentRunEventKind(row.kind)) {
     throw new Error(`Agent run event ${row.id} has an unregistered kind`);
   }
-  const payload = upcastRunEventPayload(row.kind, JSON.parse(row.payload_json)) as never;
-  return {
+  return readRecord('run-event', {
     sequence: row.sequence,
     id: row.id as AgentRunEvent['id'],
     workspaceId: row.workspace_id as AgentRunEvent['workspaceId'],
@@ -231,8 +213,8 @@ function mapAgentRunEvent(row: AgentRunEventRow): AgentRunEvent {
     occurredAt: row.occurred_at,
     ...(row.raw_json === null ? {} : { raw: row.raw_json }),
     kind: row.kind,
-    payload,
-  } as AgentRunEvent;
+    payload: JSON.parse(row.payload_json),
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -321,7 +303,17 @@ class SqliteSourceRepositoryRepository implements SourceRepositoryRepository {
 }
 
 class SqliteWorktreeRepository implements WorktreeRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
+
+  /** Reads a worktree back after a write and guards it, inside the write's transaction. */
+  private written(workspaceId: WorkspaceId, worktreeId: WorktreeId): Worktree | undefined {
+    const worktree = this.find(workspaceId, worktreeId);
+    if (worktree) this.guard('worktree', worktree);
+    return worktree;
+  }
 
   insert(input: CreateWorktreeInput): Worktree {
     this.database
@@ -347,7 +339,7 @@ class SqliteWorktreeRepository implements WorktreeRepository {
         input.createdByUserId,
         input.executionScope ? JSON.stringify(input.executionScope) : null,
       );
-    const created = this.find(input.workspaceId, input.id);
+    const created = this.written(input.workspaceId, input.id);
     if (created === undefined) {
       throw new Error('Worktree insert did not produce a readable row');
     }
@@ -399,7 +391,7 @@ class SqliteWorktreeRepository implements WorktreeRepository {
       .prepare(`UPDATE worktrees SET integration_branch = ?, version = version + 1
       WHERE workspace_id = ? AND id = ? AND status = 'active' AND version = ?`)
       .run(input.integrationBranch, input.workspaceId, input.worktreeId, input.expectedVersion);
-    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.worktreeId);
+    return result.changes === 0 ? undefined : this.written(input.workspaceId, input.worktreeId);
   }
 
   markRemoved(input: {
@@ -414,7 +406,7 @@ class SqliteWorktreeRepository implements WorktreeRepository {
          WHERE workspace_id = ? AND id = ? AND status = 'active'`,
       )
       .run(input.occurredAt, input.workspaceId, input.worktreeId);
-    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.worktreeId);
+    return result.changes === 0 ? undefined : this.written(input.workspaceId, input.worktreeId);
   }
 
   markMerged(input: {
@@ -431,7 +423,7 @@ class SqliteWorktreeRepository implements WorktreeRepository {
          WHERE workspace_id = ? AND id = ? AND status = 'active'`,
       )
       .run(input.occurredAt, input.occurredAt, input.mergeSha, input.workspaceId, input.worktreeId);
-    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.worktreeId);
+    return result.changes === 0 ? undefined : this.written(input.workspaceId, input.worktreeId);
   }
 
   count(): number {
@@ -444,7 +436,17 @@ class SqliteWorktreeRepository implements WorktreeRepository {
 }
 
 class SqliteAgentRunRepository implements AgentRunRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
+
+  /** Reads a run back after a write and guards it, inside the write's transaction. */
+  private written(workspaceId: WorkspaceId, runId: AgentRunId): AgentRun | undefined {
+    const run = this.find(workspaceId, runId);
+    if (run) this.guard('agent-run', run);
+    return run;
+  }
 
   insert(input: CreateAgentRunInput): AgentRun {
     this.database
@@ -475,7 +477,7 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         input.createdByUserId,
         input.reviewBranchContext === undefined ? null : JSON.stringify(input.reviewBranchContext),
       );
-    const created = this.find(input.workspaceId, input.id);
+    const created = this.written(input.workspaceId, input.id);
     if (created === undefined) {
       throw new Error('Agent run insert did not produce a readable row');
     }
@@ -613,7 +615,7 @@ class SqliteAgentRunRepository implements AgentRunRepository {
         input.runId,
         ...input.expectedStatuses,
       );
-    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.runId);
+    return result.changes === 0 ? undefined : this.written(input.workspaceId, input.runId);
   }
 
   count(): number {
@@ -626,7 +628,10 @@ class SqliteAgentRunRepository implements AgentRunRepository {
 }
 
 class SqliteAgentRunEventRepository implements AgentRunEventRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
 
   append(input: AppendAgentRunEventInput): AgentRunEvent {
     const result = this.database
@@ -650,7 +655,9 @@ class SqliteAgentRunEventRepository implements AgentRunEventRepository {
     if (row === undefined) {
       throw new Error('Agent run event append did not produce a readable row');
     }
-    return mapAgentRunEvent(row);
+    const event = mapAgentRunEvent(row);
+    this.guard('run-event', event);
+    return event;
   }
 
   listAfter(input: {
@@ -747,16 +754,19 @@ class SqliteRunProfileRepository implements RunProfileRepository {
   }
 }
 
-export function executionRepositories(database: Database.Database): ExecutionRepositories {
+export function executionRepositories(
+  database: Database.Database,
+  guard: RecordGuard,
+): ExecutionRepositories {
   return {
-    finalizations: new SqliteFinalizationRepository(database),
-    merges: new SqliteMergeOperationRepository(database),
-    cycles: new SqliteWorkCycleRepository(database),
-    branchSettings: new SqlitePlanBranchSettingsRepository(database),
+    finalizations: new SqliteFinalizationRepository(database, guard),
+    merges: new SqliteMergeOperationRepository(database, guard),
+    cycles: new SqliteWorkCycleRepository(database, guard),
+    branchSettings: new SqlitePlanBranchSettingsRepository(database, guard),
     sourceRepositories: new SqliteSourceRepositoryRepository(database),
-    worktrees: new SqliteWorktreeRepository(database),
-    runs: new SqliteAgentRunRepository(database),
-    runEvents: new SqliteAgentRunEventRepository(database),
+    worktrees: new SqliteWorktreeRepository(database, guard),
+    runs: new SqliteAgentRunRepository(database, guard),
+    runEvents: new SqliteAgentRunEventRepository(database, guard),
     runProfiles: new SqliteRunProfileRepository(database),
   };
 }

@@ -1,18 +1,19 @@
 import type {
-  MapAdoption,
   ArchiveImportAttempt,
   ConcurrencyBindingRevision,
   ConcurrencyDefinition,
   ImportedArchive,
+  MapAdoption,
   PlanArchiveLink,
   PlanVersionId,
   ProjectId,
   WorkspaceId,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
+import { type PersistedRecordKind, parseRecord, type RecordGuard } from '../records.js';
 
-const record = <T>(row: unknown): T | undefined =>
-  row === undefined ? undefined : (JSON.parse((row as { record_json: string }).record_json) as T);
+const record = <K extends PersistedRecordKind>(kind: K, row: unknown) =>
+  row === undefined ? undefined : parseRecord(kind, (row as { record_json: string }).record_json);
 export interface ImportRepository {
   addAdoption(adoption: MapAdoption): void;
   adoptions(workspaceId: WorkspaceId, definitionId: string): readonly MapAdoption[];
@@ -42,8 +43,12 @@ export interface ImportRepository {
   ): boolean;
 }
 export class SqliteImportRepository implements ImportRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(
+    private readonly db: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
   addAdoption(a: MapAdoption) {
+    this.guard('map-adoption', a);
     this.db
       .prepare(
         'INSERT INTO map_adoptions(id,workspace_id,definition_id,binding_revision,record_json) VALUES(?,?,?,?,?)',
@@ -56,7 +61,7 @@ export class SqliteImportRepository implements ImportRepository {
         'SELECT record_json FROM map_adoptions WHERE workspace_id=? AND definition_id=? ORDER BY rowid DESC',
       )
       .all(ws, id)
-      .map((r) => record<MapAdoption>(r)!);
+      .map((r) => record('map-adoption', r)!);
   }
   addArchive(archive: ImportedArchive, bytes: Uint8Array): ImportedArchive {
     this.db
@@ -111,6 +116,7 @@ export class SqliteImportRepository implements ImportRepository {
     );
   }
   addAttempt(attempt: ArchiveImportAttempt) {
+    this.guard('archive-import-attempt', attempt);
     this.db
       .prepare(
         'INSERT INTO archive_import_attempts(id, workspace_id, archive_id, kind, record_json) VALUES (?, ?, ?, ?, ?)',
@@ -129,9 +135,10 @@ export class SqliteImportRepository implements ImportRepository {
         'SELECT record_json FROM archive_import_attempts WHERE workspace_id = ? AND kind = ? ORDER BY rowid DESC LIMIT 50',
       )
       .all(workspaceId, kind)
-      .map((r) => record<ArchiveImportAttempt>(r) as ArchiveImportAttempt);
+      .map((r) => record('archive-import-attempt', r) as ArchiveImportAttempt);
   }
   addDefinition(d: ConcurrencyDefinition) {
+    this.guard('concurrency-definition', d);
     this.db
       .prepare(
         'INSERT INTO concurrency_definitions(id, workspace_id, archive_id, map_id, revision, digest, record_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -144,10 +151,11 @@ export class SqliteImportRepository implements ImportRepository {
         'SELECT record_json FROM concurrency_definitions WHERE workspace_id = ? ORDER BY rowid DESC',
       )
       .all(workspaceId)
-      .map((r) => record<ConcurrencyDefinition>(r) as ConcurrencyDefinition);
+      .map((r) => record('concurrency-definition', r) as ConcurrencyDefinition);
   }
   definition(workspaceId: WorkspaceId, id: string) {
-    return record<ConcurrencyDefinition>(
+    return record(
+      'concurrency-definition',
       this.db
         .prepare(
           'SELECT record_json FROM concurrency_definitions WHERE workspace_id = ? AND id = ?',
@@ -156,6 +164,7 @@ export class SqliteImportRepository implements ImportRepository {
     );
   }
   addBindings(b: ConcurrencyBindingRevision) {
+    this.guard('concurrency-binding', b);
     this.db
       .prepare(
         'INSERT INTO concurrency_bindings(workspace_id, definition_id, revision, record_json) VALUES (?, ?, ?, ?)',
@@ -168,9 +177,10 @@ export class SqliteImportRepository implements ImportRepository {
         'SELECT record_json FROM concurrency_bindings WHERE workspace_id = ? AND definition_id = ? ORDER BY revision DESC',
       )
       .all(workspaceId, definitionId)
-      .map((r) => record<ConcurrencyBindingRevision>(r) as ConcurrencyBindingRevision);
+      .map((r) => record('concurrency-binding', r) as ConcurrencyBindingRevision);
   }
   linkPlan(link: PlanArchiveLink) {
+    this.guard('plan-archive-link', link);
     this.db
       .prepare(
         'INSERT INTO plan_archive_links(workspace_id, plan_version_id, archive_id, record_json) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING',
@@ -183,7 +193,7 @@ export class SqliteImportRepository implements ImportRepository {
         'SELECT record_json FROM plan_archive_links WHERE workspace_id = ? AND plan_version_id = ? ORDER BY rowid',
       )
       .all(workspaceId, planVersionId)
-      .map((r) => record<PlanArchiveLink>(r) as PlanArchiveLink);
+      .map((r) => record('plan-archive-link', r) as PlanArchiveLink);
   }
   activatePlan(
     workspaceId: WorkspaceId,

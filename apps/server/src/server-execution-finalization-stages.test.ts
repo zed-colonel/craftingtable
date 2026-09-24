@@ -9,8 +9,8 @@ import {
   FINALIZATION_STAGE_KINDS,
 } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
-import { openCraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 import { assessStageReport, stagedPromotionIssue } from './services/finalization-stage-policy.js';
 import { requiredFindingIds } from './services/run-handoff.js';
 
@@ -143,7 +143,7 @@ describe('finalization finding decisions', () => {
       finding: { id: nit.id, status: 'open' },
       createdByUserId: state.userId,
     });
-    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    const reopened = openDaemonStorage(state.context.storage.databasePath);
     try {
       expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)?.deferredNits).toEqual(
         cycle.deferredNits,
@@ -320,7 +320,7 @@ describe('finalization recovery agent selection', () => {
           .some((r) => r.backend === 'codex' && r.parentRunId === parent),
       ).toBe(true);
       const cycle = finalizationCycle(state, value);
-      const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+      const reopened = openDaemonStorage(state.context.storage.databasePath);
       try {
         expect(
           reopened.execution.cycles.find(state.workspaceId, cycle.id)?.finalizationAgentOverride,
@@ -514,7 +514,7 @@ describe('completed plan and integration branch cleanup', () => {
       ).statusCode,
     ).toBe(500);
     const main = git(['rev-parse', 'main'], root);
-    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    const reopened = openDaemonStorage(state.context.storage.databasePath);
     try {
       expect(reopened.execution.merges.latest(state.workspaceId, value.worktreeId)).toMatchObject({
         status: 'reserved',
@@ -557,7 +557,7 @@ describe('completed plan and integration branch cleanup', () => {
       integrationCleanup: { status: 'blocked' },
     });
     const main = git(['rev-parse', 'main'], root);
-    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    const reopened = openDaemonStorage(state.context.storage.databasePath);
     try {
       expect(
         reopened.execution.finalizations.find(state.workspaceId, value.id)?.integrationCleanup
@@ -790,7 +790,7 @@ describe('staged finalization', () => {
       finalizationsResponseSchema.parse(response.json()).finalizations[0]?.cycle
         ?.finalizationProgress,
     ).toEqual(progress);
-    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    const reopened = openDaemonStorage(state.context.storage.databasePath);
     expect(
       reopened.execution.cycles.find(state.workspaceId, cycle.id)?.finalizationProgress,
     ).toEqual(progress);

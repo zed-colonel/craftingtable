@@ -1,5 +1,6 @@
 import type { WorkCycle, WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
+import { parseRecord, type RecordGuard } from '../../records.js';
 
 export interface WorkCycleRepository {
   insert(cycle: WorkCycle): WorkCycle;
@@ -16,12 +17,16 @@ export interface WorkCycleRepository {
 function map(row: unknown): WorkCycle | undefined {
   return row === undefined
     ? undefined
-    : (JSON.parse((row as { state_json: string }).state_json) as WorkCycle);
+    : parseRecord('work-cycle', (row as { state_json: string }).state_json);
 }
 export class SqliteWorkCycleRepository implements WorkCycleRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
   insert(cycle: WorkCycle): WorkCycle {
     const state = cycle;
+    this.guard('work-cycle', state);
     this.database
       .prepare(
         'INSERT INTO work_cycles (id, workspace_id, work_item_id, worktree_id, status, version, state_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -75,6 +80,7 @@ export class SqliteWorkCycleRepository implements WorkCycleRepository {
   }
   replace(cycle: WorkCycle, expectedVersion: number): WorkCycle | undefined {
     const state = cycle;
+    this.guard('work-cycle', state);
     const result = this.database
       .prepare(
         'UPDATE work_cycles SET status = ?, version = ?, state_json = ? WHERE workspace_id = ? AND id = ? AND version = ?',

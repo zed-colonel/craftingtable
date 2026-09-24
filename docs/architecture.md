@@ -22,6 +22,31 @@ Only `storage` owns SQL. Only the explicitly listed adapter modules may spawn a 
 and the local-check/act adapter. No package depends
 on ActionQueue, WorldInterface, Exoskeleton, or any other supervised project.
 
+### Persisted records
+
+Every record storage keeps has a kind in `packages/storage/src/records.ts` (work cycles,
+roadmaps, runs, journal events, evidence and so on). Three rules hold at the storage
+boundary:
+
+- **Reads upcast.** Every repository mapper ends in `readRecord`, which applies the kind's
+  upcasters, so the rest of the daemon sees one current shape. When a stored shape stops
+  matching the current contract, add an upcaster there instead of teaching readers about the
+  old shape.
+- **Writes are guarded.** Storage hands every record to the `RecordGuard` it was opened with
+  before writing it. The daemon opens storage with `openDaemonStorage`, which checks the
+  record against its contract schema (`apps/server/src/persisted-records.ts`), so an
+  out-of-bounds record fails where it is created, not in a browser response.
+- **Contracts match the domain.** Each kind's schema is pinned to the type storage reads with
+  `equivalentSchema`, so a field added to a domain type and not to its schema, or the reverse,
+  fails `pnpm typecheck`.
+
+`pnpm db:verify <database>` copies a database with the backup API, migrates the copy and checks
+every record against its contract, plus the v0.3 map format and SQLite's integrity and
+foreign-key checks. Run it on a snapshot before deploying a contract or schema change. Every
+test daemon runs the same check on its database at cleanup. A table-rebuild migration needs a
+preservation test (`migration-preservation.ts`) and, from schema 28, an in-migration count
+guard (ADR-002).
+
 ## The execution model
 
 ```text
@@ -160,7 +185,8 @@ exit. The supervisor keeps that run live until the group drains or is terminated
 deadline; cancellation escalation survives the leader's exit. The daemon journals the
 reason, rejects its review authority, and can reserve two same-step continuations with
 the original deadline and handoff. Optional cycle JSON and event fields preserve old
-records without a migration. Waiting turns keep input open while background work remains
+records without a migration; shapes that no longer match are brought forward by upcasters
+(see "Persisted records"). Waiting turns keep input open while background work remains
 uncollected. Review continuations pin the original branch context at reservation and launch,
 allowing inspection of untracked test artifacts but rejecting tracked/index edits and changed
 commits; ordinary review and final approval remain clean-worktree gates. See ADR-037.

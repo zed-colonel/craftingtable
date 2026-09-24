@@ -50,7 +50,6 @@ const NINE_KIND_FIXTURE = [
       planVersionId: 'plan-version-1',
       workItemId: 'work-item-1',
       sourceWorkItemId: 'CT-01',
-      workContractDraftId: 'draft-1',
     },
   },
   {

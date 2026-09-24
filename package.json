@@ -19,6 +19,7 @@
     "deploy:daemon": "node scripts/deploy-daemon.mjs",
     "controller:replay": "pnpm --filter @craftingtable/server replay",
     "db:status": "pnpm craftingtable db status",
+    "db:verify": "pnpm --filter @craftingtable/server db-verify",
     "build": "tsc -b && pnpm --filter @craftingtable/web build",
     "format": "biome format --write .",
     "format:check": "biome format .",

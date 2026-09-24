@@ -1,5 +1,6 @@
 import type { MergeOperation, WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
+import { parseRecord, type RecordGuard } from '../../records.js';
 export interface MergeOperationRepository {
   save(operation: MergeOperation): void;
   latest(workspaceId: WorkspaceId, worktreeId: WorktreeId): MergeOperation | undefined;
@@ -8,11 +9,15 @@ export interface MergeOperationRepository {
 function map(row: unknown): MergeOperation | undefined {
   return row === undefined
     ? undefined
-    : (JSON.parse((row as { state_json: string }).state_json) as MergeOperation);
+    : parseRecord('merge-operation', (row as { state_json: string }).state_json);
 }
 export class SqliteMergeOperationRepository implements MergeOperationRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
   save(operation: MergeOperation): void {
+    this.guard('merge-operation', operation);
     this.database
       .prepare(`INSERT INTO merge_operations (id, workspace_id, worktree_id, status, state_json)
       VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status = excluded.status, state_json = excluded.state_json`)

@@ -4,7 +4,7 @@
 - **Date:** 2026-07-24
 - **Amended:** 2026-07-24 for CT-03 schema version 2, and again after the second
   remediation re-review (CT03-R2R1, CT03-R2R2); 2026-07-28 for CT-04A2a
-  schema version 3
+  schema version 3; 2026-09-24 for table rebuilds (R-H3)
 
 ## Context
 
@@ -60,6 +60,21 @@ on both:
 Any constraint kept for defence in depth that is strictly weaker than another is
 labelled as such in the migration, because its removal is not falsifiable by
 test.
+
+**Table rebuilds (amended 2026-09-24, R-H3).** The CT-03 amendment says no
+foreign-key toggle is possible inside a migration. Since schema 7 the runner has
+one anyway: a migration whose SQL contains the line `-- requires: foreign_keys=off`
+must be the outermost transaction. The runner turns foreign keys off before the
+transaction, runs the migration, fails it if `PRAGMA foreign_key_check` then
+reports any violation, and turns foreign keys back on whatever happens. Migrations
+0007 and 0014 use it to rebuild tables that other tables reference.
+
+A rebuild must preserve every row, its rowid order, its indexes, triggers and
+AUTOINCREMENT sequence. From schema 28 each rebuild also carries an in-migration
+count guard like 0002's (a `migration_NNNN_guard` table whose `CHECK (ok = 1)`
+fails on a count or sequence mismatch). Each rebuild has a preservation test built
+on `packages/storage/src/migration-preservation.ts`, and `migrations.test.ts`
+fails on a rebuild migration without one.
 
 ## Consequences
 

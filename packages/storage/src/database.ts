@@ -46,3 +46,17 @@ export function openDatabase(databasePath: string): Database.Database {
     throw error;
   }
 }
+
+/**
+ * Copies a database with SQLite's online backup API. The source is opened read-only, so a
+ * verification or replay never migrates or otherwise writes the file it was given.
+ */
+export async function copyDatabase(source: string, destination: string): Promise<void> {
+  const database = new Database(source, { readonly: true, fileMustExist: true });
+  try {
+    await database.backup(destination);
+  } finally {
+    database.close();
+  }
+  chmodSync(destination, 0o600);
+}

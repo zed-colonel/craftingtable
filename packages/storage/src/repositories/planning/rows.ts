@@ -14,6 +14,7 @@ import type {
   WorkItemRisk,
   WorkItemStatus,
 } from '@craftingtable/domain';
+import { readRecord } from '../../records.js';
 
 /**
  * Row shapes and mappers shared by the planning repositories.
@@ -93,7 +94,7 @@ export interface PlanVersionRow {
 }
 
 export function mapVersion(row: PlanVersionRow): PlanVersion {
-  return {
+  return readRecord('plan-version', {
     id: row.id as PlanVersion['id'],
     workspaceId: row.workspace_id as PlanVersion['workspaceId'],
     projectId: row.project_id as PlanVersion['projectId'],
@@ -109,7 +110,7 @@ export function mapVersion(row: PlanVersionRow): PlanVersion {
     requiredDependencyCount: row.required_dependency_count,
     createdAt: row.created_at,
     createdByUserId: row.created_by_user_id as PlanVersion['createdByUserId'],
-  };
+  });
 }
 
 export interface PlanImportAttemptRow {
@@ -260,7 +261,7 @@ export const WORK_ITEM_FROM = `
 
 export function mapWorkItem(row: WorkItemDbRow): WorkItem {
   const completedAt = row.completed_at ?? null;
-  return {
+  return readRecord('work-item', {
     id: row.id as WorkItem['id'],
     workspaceId: row.workspace_id as WorkItem['workspaceId'],
     projectId: row.project_id as WorkItem['projectId'],
@@ -293,7 +294,7 @@ export function mapWorkItem(row: WorkItemDbRow): WorkItem {
         }),
     ...(row.merge_sha === undefined || row.merge_sha === null ? {} : { mergeSha: row.merge_sha }),
     version: row.version,
-  };
+  });
 }
 
 export interface WorkItemDependencyRow {

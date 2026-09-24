@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { ExecutionScope } from '@craftingtable/domain';
-import { openCraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, expect } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -246,7 +246,7 @@ itNeedsCargo.each([
     expect(tx.execution.merges.latest(ws, round.worktreeId)?.roadmapId).toBe(roadmapId);
     expect(round.definitionRevision).toBe(prior.definition.revision);
   }
-  const reopened = openCraftingTableStorage(tx.databasePath);
+  const reopened = openDaemonStorage(tx.databasePath);
   try {
     expect(reopened.roadmaps.find(ws, roadmapId)?.attempts).toEqual(storedRoadmap(state).attempts);
   } finally {

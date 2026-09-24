@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { asWorkItemId, cycleActions, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { createWorktreeResponseSchema, workCycleResponseSchema } from '@craftingtable/contracts';
+import { asWorkItemId, cycleActions, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   type CycleFixture,
@@ -150,7 +151,7 @@ describe('offer only actions that can make progress (R-A7)', () => {
       {
         ...stopped,
         integrationResolution: {
-          id: 'resolution-1',
+          id: randomUUID(),
           status: 'detected',
           headSha: git(['rev-parse', 'HEAD'], tree?.path as string).trim(),
           targetSha: git(['rev-parse', 'HEAD'], root).trim(),

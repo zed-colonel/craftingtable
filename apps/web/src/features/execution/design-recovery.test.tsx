@@ -1,5 +1,11 @@
 import type { DesignRecoveryPreview } from '@craftingtable/contracts';
-import { CYCLE_STEPS, DEFAULT_COMPLETION_POLICY, type WorkCycle } from '@craftingtable/domain';
+import {
+  asUserId,
+  asWorkspaceId,
+  CYCLE_STEPS,
+  DEFAULT_COMPLETION_POLICY,
+  type WorkCycle,
+} from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
@@ -167,12 +173,12 @@ it('shows accepted shared decisions after discovery without resuming or requirin
               },
               decision: {
                 id: 'approval',
-                workspaceId: 'ws',
+                workspaceId: asWorkspaceId('ws'),
                 submissionId: 'proposal',
                 outcome: 'accepted',
                 rationale: 'Meets my requirements.',
                 decidedAt: '2026-09-20T00:00:00Z',
-                decidedByUserId: 'owner',
+                decidedByUserId: asUserId('owner'),
               },
             },
           ],

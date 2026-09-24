@@ -10,7 +10,8 @@
     "cli": "tsx src/cli.ts",
     "cli:dev": "tsx src/dev-cli.ts",
     "e2e:start": "tsx src/e2e-entry.ts",
-    "replay": "tsx src/controller-replay.ts"
+    "replay": "tsx src/controller-replay.ts",
+    "db-verify": "tsx src/db-verify.ts"
   },
   "dependencies": {
     "@craftingtable/agents": "workspace:*",

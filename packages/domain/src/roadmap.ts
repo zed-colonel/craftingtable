@@ -80,7 +80,7 @@ export interface RoadmapAttempt {
   readonly dependencyRefresh?: {
     readonly runtimeId: string;
     readonly generation: number;
-    readonly sourceRunId: string;
+    readonly sourceRunId: import('./ids.js').AgentRunId;
   };
   /** Additional owning-slice attempt; the original entry and reviewer assignments stay intact. */
   readonly recovery?: {

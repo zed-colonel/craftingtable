@@ -7,8 +7,9 @@ import {
   asWorkItemDependencyId,
   asWorkItemId,
 } from '@craftingtable/domain';
-import { openCraftingTableStorage, openDatabase } from '@craftingtable/storage';
+import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 import { resolveScope, scopeCases, scopeRequirements } from './services/execution-scope.js';
 
 /* -------------------------------------------------------------------------- */
@@ -123,7 +124,7 @@ describe('execution slices and parent acceptance', () => {
       state.context.storage.planning.dependencies.listPredecessors(state.workspaceId, f.second)[0]
         ?.status,
     ).toBe('completed');
-    const reopened = openCraftingTableStorage(state.context.config.databasePath);
+    const reopened = openDaemonStorage(state.context.config.databasePath);
     try {
       expect(reopened.scopeReceipts.list(state.workspaceId, state.workItemId)).toHaveLength(3);
       expect(reopened.execution.worktrees.find(state.workspaceId, a.id)?.executionScope).toEqual(
@@ -340,7 +341,7 @@ it('phase reservations serialize competing launches and release on terminal fail
   expect(state.context.storage.phaseScheduling.active()).toHaveLength(0);
   const fresh = await launchScoped(f, free);
   expect(fresh.statusCode, fresh.body).toBe(200);
-  const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+  const reopened = openDaemonStorage(state.context.storage.databasePath);
   expect(reopened.phaseScheduling.active()).toHaveLength(1);
   reopened.close();
   state.context.services.agentRunService.recoverInterrupted();

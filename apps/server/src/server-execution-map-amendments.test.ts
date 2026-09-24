@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { openCraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -243,7 +243,7 @@ itNeedsCargo(
         storage.execution.cycles.find(ws, cycle.id)!.version,
       ),
     ).rejects.toThrow();
-    const reopened = openCraftingTableStorage(state.context.config.databasePath);
+    const reopened = openDaemonStorage(state.context.config.databasePath);
     try {
       expect(reopened.amendments.retired(ws, cycle.worktreeId)).toBe(true);
       expect(reopened.amendments.list(ws)[0]?.decision?.outcome).toBe('applied');
@@ -376,7 +376,7 @@ itNeedsCargo(
     expect(storedRoadmap(state).attempts.filter((a) => a.dependencyRefresh)).toHaveLength(3);
     state.context.services.workCycleService.recoverInterrupted();
     state.context.services.roadmapService.recoverInterrupted();
-    const reopened = openCraftingTableStorage(tx.databasePath);
+    const reopened = openDaemonStorage(tx.databasePath);
     try {
       expect(
         reopened.roadmaps.find(ws, roadmapId)?.attempts.filter((a) => a.dependencyRefresh),

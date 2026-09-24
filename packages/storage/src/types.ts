@@ -255,6 +255,17 @@ export interface CraftingTableStorage extends StorageRepositories {
   transaction<T>(operation: (tx: StorageRepositories) => T): T;
   readTransaction<T>(operation: (tx: StorageRepositories) => T): T;
   backup(destination: string): Promise<void>;
+  /** Every stored record, read as the repositories read it (R-H3, `pnpm db:verify`). */
+  scanRecords(
+    visit: (record: import('./record-scan.js').ScannedRecord) => void,
+    unreadable: (record: import('./record-scan.js').UnreadableRecord) => void,
+    observe?: import('./records.js').UpcastObserver,
+  ): void;
+  /**
+   * SQLite's integrity and foreign-key checks, and any row left in a retired table. Empty
+   * when the file is sound.
+   */
+  integrityProblems(): readonly string[];
   close(): void;
 }
 

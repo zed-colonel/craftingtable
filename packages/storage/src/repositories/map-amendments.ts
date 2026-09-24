@@ -1,13 +1,27 @@
 import type {
+  ExecutionScope,
   MapAmendment,
   ScopeIntegrationReuse,
-  ExecutionScope,
-  WorkspaceId,
   WorkItemId,
+  WorkspaceId,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
+import { parseRecord, type RecordGuard, readRecord } from '../records.js';
+/** One amendment: the proposal document, plus its decision once one is recorded. */
+export function mapAmendment(row: {
+  readonly proposal_json: string;
+  readonly decision_json: string | null;
+}): MapAmendment {
+  return readRecord('map-amendment', {
+    ...JSON.parse(row.proposal_json),
+    ...(row.decision_json ? { decision: JSON.parse(row.decision_json) } : {}),
+  });
+}
 export class SqliteMapAmendmentRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(
+    private readonly db: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
   list(ws: WorkspaceId, roadmapId?: string): readonly MapAmendment[] {
     const rows = roadmapId
       ? this.db
@@ -20,12 +34,10 @@ export class SqliteMapAmendmentRepository {
             'SELECT proposal_json,decision_json FROM map_amendments WHERE workspace_id=? ORDER BY rowid DESC',
           )
           .all(ws);
-    return (rows as { proposal_json: string; decision_json: string | null }[]).map((r) => ({
-      ...JSON.parse(r.proposal_json),
-      ...(r.decision_json ? { decision: JSON.parse(r.decision_json) } : {}),
-    }));
+    return (rows as { proposal_json: string; decision_json: string | null }[]).map(mapAmendment);
   }
   add(a: MapAmendment) {
+    this.guard('map-amendment', a);
     this.db
       .prepare(
         'INSERT INTO map_amendments(id,workspace_id,roadmap_id,proposal_json) VALUES(?,?,?,?)',
@@ -33,6 +45,12 @@ export class SqliteMapAmendmentRepository {
       .run(a.id, a.workspaceId, a.roadmapId, JSON.stringify(a));
   }
   decide(ws: WorkspaceId, id: string, decision: NonNullable<MapAmendment['decision']>) {
+    const proposal = this.db
+      .prepare(
+        'SELECT proposal_json, NULL AS decision_json FROM map_amendments WHERE workspace_id=? AND id=?',
+      )
+      .get(ws, id) as { proposal_json: string; decision_json: null } | undefined;
+    if (proposal) this.guard('map-amendment', { ...mapAmendment(proposal), decision });
     return (
       this.db
         .prepare(
@@ -67,6 +85,7 @@ export class SqliteMapAmendmentRepository {
       .get(ws, id, revision);
   }
   addIntegration(r: ScopeIntegrationReuse) {
+    this.guard('scope-integration-reuse', r);
     this.db
       .prepare('INSERT INTO scope_integration_reuse VALUES(?,?,?,?,?,?,?,?)')
       .run(
@@ -93,7 +112,7 @@ export class SqliteMapAmendmentRepository {
         .all(ws, item, scope.definitionId, scope.bindingRevision, scope.sourceId) as {
         record_json: string;
       }[]
-    ).map((r) => JSON.parse(r.record_json));
+    ).map((r) => parseRecord('scope-integration-reuse', r.record_json));
   }
 }
 export type MapAmendmentRepository = Pick<

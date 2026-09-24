@@ -17,12 +17,13 @@ import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   effectiveCycleAttention,
   type Roadmap,
-  roadmapAttention,
   type RoadmapDefinition,
+  roadmapAttention,
   type WorkCycle,
 } from '@craftingtable/domain';
-import { openCraftingTableStorage, openDatabase } from '@craftingtable/storage';
+import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 import {
   NOTIFICATION_SETTLE_MS,
   NotificationService,
@@ -341,7 +342,7 @@ describe('persistent notifications', () => {
       leaseUntil: new Date(f.now().getTime() + 4 * 3_600_000).toISOString(),
     });
     f.advance(200);
-    const reopened = openCraftingTableStorage(f.context.storage.databasePath);
+    const reopened = openDaemonStorage(f.context.storage.databasePath);
     const notifier = new WorkspaceEventNotifier();
     const restarted = new NotificationService(
       reopened,
@@ -598,7 +599,7 @@ it('preserves a provider cooldown after resolution during delivery and across da
   await attempt;
   expect(f.status().retryAt).toBe('2026-09-10T16:00:00.000Z');
   f.setCycle('needs-attention');
-  const reopened = openCraftingTableStorage(f.context.storage.databasePath);
+  const reopened = openDaemonStorage(f.context.storage.databasePath);
   const resumed = new NotificationService(
     reopened,
     new WorkspaceService(reopened),
@@ -932,7 +933,7 @@ it('retains parallel item reminder timing while siblings progress and resolves a
       version: 4,
       attempts: [
         {
-          id: 'attempt',
+          id: randomUUID(),
           entryId,
           definitionRevision: 1,
           cycleId: cycle.id,
@@ -1207,7 +1208,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
       delegatedByUserId: f.auth.user.id,
       attempts: [
         {
-          id: 'attempt',
+          id: randomUUID(),
           entryId,
           definitionRevision: 1,
           cycleId: cycle.id,
@@ -1234,7 +1235,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
         version: 2,
         delegationAssignments: [
           {
-            id: 'grant-1',
+            id: randomUUID(),
             entryIds: [entryId],
             automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
             reviewerRoles: [],

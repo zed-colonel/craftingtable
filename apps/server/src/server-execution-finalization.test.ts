@@ -2,8 +2,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createWorktreeResponseSchema } from '@craftingtable/contracts';
 import { createGitOperations } from '@craftingtable/git';
-import { openCraftingTableStorage, openDatabase } from '@craftingtable/storage';
+import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 import { recordedFindings, requiredFindingIds } from './services/run-handoff.js';
 
 /* -------------------------------------------------------------------------- */
@@ -439,7 +440,7 @@ it('authorizes bounded extra finalization remediation, preserves counts and roun
     additionalRemediationRounds: 1,
     policy: { maxRemediationRounds: 1 },
   });
-  const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+  const reopened = openDaemonStorage(state.context.storage.databasePath);
   try {
     expect(reopened.execution.cycles.find(state.workspaceId, value.cycleId)).toMatchObject({
       remediationRounds: 2,

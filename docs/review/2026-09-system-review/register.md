@@ -74,7 +74,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | open | Journal retention: stop storing raw vendor lines by default |
-| [R-H3](#r-h3) | P1 | M | open | Read-side upcasters, write-side validation and db:verify |
+| [R-H3](#r-h3) | P1 | M | in progress | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | open | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
@@ -603,6 +603,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** Diagnose over-long phase at import instead of failing in storage; one digest for the same content regardless of transport (discrete vs ZIP, Studio seam vs ZIP); make truncation of agent-contract fields explicit; make execution tests build maps through the importer; align roadmap entry limits.
 - **Done when:** Each reproduction script from the FMT report fails before and passes after.
 - **Progress:** FMT-08 and FMT-14 fixed. FMT-13 cannot be fixed without changing existing digests (the live AQ-CONT-1 identity); needs a dual digest / digest v2, which is a schema decision; current behaviour pinned by tests. FMT-11, FMT-15, FMT-16 open.
+- **Amended 2026-09-24 (R-H3 measured FMT-15).**
+  - With the write guard applying the v0.3 source schema, 63 server tests failed: every one stored a definition built by `slicedFixture` or `supervisedMapFixture`. The sources carry local ids such as `AQ-01` without a repository prefix, and checkpoints with no requirement. The importer rejects both.
+  - R-H3 therefore leaves the format check to the importer and to `db:verify`. The test-cleanup verification skips it; see R-H3's progress.
+  - FMT-15's fix stands: build these fixtures through the importer, or with ids that conform. Then turn the format check on in `unverifiedRecords` (`apps/server/src/test-support.ts`).
 
 ### R-F4
 
@@ -777,6 +781,32 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [DATA-03](findings/DATA-storage-domain-contracts.md#data-03-a-strict-response-schema-combined-with-no-read-side-upgrade-makes-the-first-runs-events-unreadable-live-bug-and-all-persisted-json-is-read-with-bare-casts), [DATA-10](findings/DATA-storage-domain-contracts.md#data-10-contracts-duplicate-domain-types-by-hand-with-no-compile-time-equivalence-check), [DATA-14](findings/DATA-storage-domain-contracts.md#data-14-table-rebuild-migrations-lack-preservation-tests-the-runners-fk-off-directive-contradicts-adr-002)
 - **Change:** Upcast every JSON-bearing record at the storage read boundary to one current shape; validate with the contract schema at each aggregate's single save path; `pnpm db:verify <path>` validates every persisted aggregate and event against current contracts (run before deploying a contract change); compile-time equivalence checks between domain types and contract schemas; preservation tests for table-rebuild migrations.
 - **Done when:** db:verify passes on a live snapshot and runs in CI against fixtures.
+- **Progress (2026-09-24):**
+  - **Record registry.** `packages/storage/src/records.ts` names 31 record kinds, one for each shape the storage boundary hands out: cycles, roadmaps, definitions, runs, worktrees, the three journals, evidence, imports, maps, plan versions and work items.
+  - **Reads upcast.** Every repository mapper ends in `readRecord`, which applies the kind's upcasters. There are two:
+    - `session-started` without billing, moved here from the event mapper;
+    - `work-item-admitted` carrying the retired `workContractDraftId`, one live event. The contract no longer lists the field.
+  - **Writes are guarded.** Storage must be opened with a `RecordGuard`, and every record write passes through it inside the write's transaction. The daemon (`openDaemonStorage`) checks each record against its contract schema (`apps/server/src/persisted-records.ts`), so an out-of-bounds record fails where it is written.
+  - **New contract schemas.** Records with no wire schema got one in `packages/contracts/src/persisted-records.ts`: merge operations, run environments and builds, scope receipts, stored import attempts, map definitions and bindings, archive links, map adoptions, integration reuse, plan versions, work items, notification records and settings, storage settings, and stored runs and worktrees.
+  - **Domain/contract equivalence.** Every kind's schema is pinned to the type storage reads with `equivalentSchema` (`type-equivalence.ts`). A missing, extra or differently typed field fails `pnpm typecheck` with a report of the drift. Pinning found and fixed:
+    - branded IDs typed as plain strings in the runtime-evidence and map-amendment schemas;
+    - `jsonValueSchema` typed `unknown`;
+    - `RoadmapAttempt.dependencyRefresh.sourceRunId` typed as a plain string.
+  - **`pnpm db:verify <path>`.** It copies the file with SQLite's backup API, migrates the copy and scans every record through the repositories' own mappers. It checks:
+    - each record against its contract;
+    - saved v0.3 map sources against the planning package's reviewed JSON Schema;
+    - SQLite's quick check and foreign-key check, and that the retired registry tables are empty.
+
+    It reports counts per kind, upcasts per upcaster, and violations grouped by field.
+  - **Coverage is structural.** A storage test fails on any table that is neither a record source nor listed as relational with a reason. A second test fails on any `_json` column in a relational table.
+  - **In `pnpm check`.** Every test daemon runs the verification on its database at cleanup, the same way the R-A3 typed-stop check runs. `db-verify.test.ts` covers the command on a real cycle's database: it passes, leaves the input byte-identical, and reports planted legacy and invalid rows. Four test fixtures that stored non-UUID ids were corrected.
+  - **Table rebuilds.**
+    - `migration-preservation.ts` compares a database image before and after a migration: rows in rowid order, values, indexes, triggers and sequences.
+    - `migration-0014.test.ts` proves the unguarded 0014 rebuild on seeded schema-13 rows, and that the chain to schema 27 preserves them.
+    - `migrations.test.ts` fails on a rebuild migration without a preservation test, and on one after schema 27 without a count guard.
+    - ADR-002 is amended to document the `foreign_keys=off` directive.
+  - **Snapshot result (copy of the 2026-09-23 snapshot, schema 26 to 27).** 54,152 records read in 3.7 s. Two upcasts, as above. One invalid record: agent run `73a606f5` has a 4,014-byte `outcomeSummary`, written before the byte bound. It is fixed in the next commit.
+  - **Known gap, recorded under R-F3.** The scope fixtures (`slicedFixture`, `supervisedMapFixture`; about 70 uses in 9 files) store hand-built v0.3 sources that the importer would reject, such as work item ids without a repository prefix. The write guard therefore leaves the format check to the importer, the only production writer of map definitions, and the test-cleanup verification skips it. `db:verify` applies it.
 
 ### R-H4
 

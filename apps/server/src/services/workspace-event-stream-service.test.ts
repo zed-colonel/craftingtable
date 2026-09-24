@@ -17,7 +17,7 @@ afterEach(async () => {
 
 describe('WorkspaceEventStreamService', () => {
   it('B1-STO-009 rejects a poisoned batch before yielding its valid prefix', async () => {
-    const context = await createTestContext();
+    const context = await createTestContext({ verifyRecords: false });
     contexts.push(context);
     const bootstrap = await context.services.bootstrapService.bootstrap(
       TEST_USERNAME,

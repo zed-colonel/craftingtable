@@ -36,6 +36,18 @@ const validate = new Ajv2020({
   allErrors: false,
   validateFormats: false,
 }).compile<ConcurrencySource>(concurrencySourceSchema);
+/**
+ * Checks a stored map source against the reviewed v0.3 schema, the format's ground truth
+ * (R-H3). Returns the violations; empty when the source conforms.
+ */
+export function concurrencySourceIssues(value: unknown): readonly string[] {
+  return validate(value)
+    ? []
+    : (validate.errors ?? []).map(
+        (e) =>
+          `${e.instancePath || '/'} ${e.message ?? 'is invalid'} (${JSON.stringify(e.params)})`,
+      );
+}
 const obj = (value: JsonValue | undefined): Record<string, JsonValue> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, JsonValue>)

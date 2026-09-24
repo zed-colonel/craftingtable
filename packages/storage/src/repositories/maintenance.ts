@@ -7,15 +7,20 @@ import type {
   StorageMaintenanceRepository,
   StoredStorageSettings,
 } from '../maintenance-types.js';
+import { parseRecord, type RecordGuard } from '../records.js';
 export class SqliteStorageMaintenanceRepository implements StorageMaintenanceRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
   settings(): StoredStorageSettings | undefined {
     const row = this.database
       .prepare('SELECT state_json FROM storage_settings WHERE id = 1')
       .get() as { state_json: string } | undefined;
-    return row ? (JSON.parse(row.state_json) as StoredStorageSettings) : undefined;
+    return row ? parseRecord('storage-settings', row.state_json) : undefined;
   }
   saveSettings(value: StoredStorageSettings): void {
+    this.guard('storage-settings', value);
     this.database
       .prepare(
         'INSERT INTO storage_settings (id, version, state_json) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version, state_json = excluded.state_json',

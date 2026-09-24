@@ -7,8 +7,8 @@ import {
   workCycleResponseSchema,
 } from '@craftingtable/contracts';
 import { asAgentRunId, asPlanVersionId, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
-import { openCraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 import { resolveScope, scopeEvidenceLedger } from './services/execution-scope.js';
 import { operatorDecisions } from './services/operator-decisions.js';
 import { acceptedEvidence } from './services/runtime-evidence-policy.js';
@@ -774,7 +774,7 @@ it('adopts immutable repository policy, packages fresh evidence, and expires pri
     experimentalFreeze: input.experimentalFreeze,
   });
   expect(evidence.limitations.join(' ')).toContain('No remote protection');
-  const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+  const reopened = openDaemonStorage(state.context.storage.databasePath);
   try {
     expect(
       reopened.execution.branchSettings.policy(state.workspaceId, asPlanVersionId('version-1'))

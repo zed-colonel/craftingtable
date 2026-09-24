@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { workCycleResponseSchema } from '@craftingtable/contracts';
 import type { ExecutionScope, WorkCycle } from '@craftingtable/domain';
-import { openCraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, expect } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 import { latestReviewReport } from './services/run-handoff.js';
 
 /* -------------------------------------------------------------------------- */
@@ -246,7 +246,7 @@ itNeedsCargo.each([false, true])(
     expect(repair.scopeRepair?.sources).toEqual(
       preview.sources.map((s) => ({ runId: s.runId, sequence: s.sequence, label: s.label })),
     );
-    const reopened = openCraftingTableStorage(state.context.storage.databasePath);
+    const reopened = openDaemonStorage(state.context.storage.databasePath);
     try {
       expect(reopened.execution.cycles.find(ws, repair.id)?.scopeRepair).toEqual(
         repair.scopeRepair,

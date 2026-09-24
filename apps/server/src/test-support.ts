@@ -4,10 +4,11 @@ import { join } from 'node:path';
 import type { AgentBackend } from '@craftingtable/agents';
 import { CYCLE_ATTENTION } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
-import { openCraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import { createServices, type ServiceSet } from './composition.js';
 import { configFromEnv, SESSION_COOKIE_NAME, type ServerConfig } from './config.js';
+import { groupedIssues } from './db-verify.js';
+import { openDaemonStorage, verified, verifyRecords } from './persisted-records.js';
 import type { PasswordHasher } from './security/password-hasher.js';
 import { buildServer } from './server.js';
 import type { NotificationTransport } from './services/notification-transport.js';
@@ -33,7 +34,7 @@ export interface TestContext {
   readonly config: ServerConfig;
   readonly app: FastifyInstance;
   readonly services: ServiceSet;
-  readonly storage: ReturnType<typeof openCraftingTableStorage>;
+  readonly storage: ReturnType<typeof openDaemonStorage>;
   bootstrap(): Promise<void>;
   login(): Promise<{ cookie: string; csrfToken: string; sessionId: string }>;
   cleanup(): Promise<void>;
@@ -55,6 +56,8 @@ export async function createTestContext(
     readonly env?: Readonly<Record<string, string>>;
     /** False leaves the controller loops stopped so the test steps them itself. */
     readonly workers?: boolean;
+    /** False skips the cleanup's record check, for tests that store invalid rows on purpose. */
+    readonly verifyRecords?: boolean;
   } = {},
 ): Promise<TestContext> {
   const directory = mkdtempSync(join(tmpdir(), 'craftingtable-server-test-'));
@@ -68,7 +71,7 @@ export async function createTestContext(
     CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '0',
     ...options.env,
   });
-  const storage = openCraftingTableStorage(config.databasePath);
+  const storage = openDaemonStorage(config.databasePath);
   const services = await createServices(storage, config, {
     notificationTransport: options.notificationTransport ?? {
       send: async () => ({ status: 'accepted' }),
@@ -153,9 +156,12 @@ export async function createTestContext(
       closed = true;
       await app.close();
       const untyped = untypedStops(storage);
+      const unverified = options.verifyRecords === false ? [] : unverifiedRecords(storage);
       storage.close();
       if (untyped.length)
         throw new Error(`Stops written without typed attention (R-A3): ${untyped.join('; ')}`);
+      if (unverified.length)
+        throw new Error(`Stored records break their contracts (R-H3): ${unverified.join('; ')}`);
       rmSync(directory, { recursive: true, force: true });
     },
   };
@@ -166,7 +172,7 @@ export async function createTestContext(
  * each cycle it left needs-attention or awaiting-merge, and each roadmap or entry hold it
  * left needs-attention, carries typed attention whose owner is the one its code declares.
  */
-export function untypedStops(storage: ReturnType<typeof openCraftingTableStorage>): string[] {
+export function untypedStops(storage: ReturnType<typeof openDaemonStorage>): string[] {
   const problems: string[] = [];
   for (const cycle of storage.execution.cycles.listAll())
     if (
@@ -184,6 +190,22 @@ export function untypedStops(storage: ReturnType<typeof openCraftingTableStorage
         problems.push(`entry hold: ${hold.reason.slice(0, 80)}`);
   }
   return problems;
+}
+
+/**
+ * Contract check run by every test daemon on cleanup (R-H3): every record the test left,
+ * whichever path wrote it, reads back through the storage upcasters and conforms to its
+ * contract, as `pnpm db:verify` checks a live snapshot. The v0.3 format check is left out:
+ * scope fixtures store hand-built local map sources the importer would reject (recorded
+ * under R-F3).
+ */
+export function unverifiedRecords(storage: ReturnType<typeof openDaemonStorage>): string[] {
+  const verification = verifyRecords(storage, false);
+  return verified(verification)
+    ? []
+    : groupedIssues(verification)
+        .map((group) => `${group.count}x ${group.issue} (${group.example})`)
+        .concat(verification.integrity);
 }
 
 /**

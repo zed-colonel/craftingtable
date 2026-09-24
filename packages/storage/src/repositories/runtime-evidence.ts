@@ -1,14 +1,16 @@
 import type {
-  NativeVerificationApproval,
-  RuntimeGeneration,
-  EvidenceSubmission,
   EvidenceDecision,
-  RunEnvironment,
+  EvidenceSubmission,
+  NativeVerificationApproval,
   RunBuildRecord,
+  RunEnvironment,
+  RuntimeGeneration,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
-const decode = <T>(rows: unknown[]) =>
-  rows.map((row) => JSON.parse((row as { record_json: string }).record_json) as T);
+import { type PersistedRecordKind, parseRecord, type RecordGuard } from '../records.js';
+
+const decode = <K extends PersistedRecordKind>(kind: K, rows: unknown[]) =>
+  rows.map((row) => parseRecord(kind, (row as { record_json: string }).record_json));
 export interface RuntimeEvidenceRepository {
   nativeApprovals(
     ws: string,
@@ -32,13 +34,17 @@ export interface RuntimeEvidenceRepository {
   addBuild(value: RunBuildRecord): void;
 }
 export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(
+    private readonly db: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
   nativeApprovals(
     ws: string,
     definitionId: string,
     bindingRevision: number,
   ): readonly NativeVerificationApproval[] {
     return decode(
+      'native-approval',
       this.db
         .prepare(
           'SELECT record_json FROM native_verification_approvals WHERE workspace_id=? AND definition_id=? AND binding_revision=? ORDER BY rowid DESC',
@@ -47,6 +53,7 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     );
   }
   addNativeApproval(v: NativeVerificationApproval): void {
+    this.guard('native-approval', v);
     this.db
       .prepare('INSERT INTO native_verification_approvals VALUES (?,?,?,?,?)')
       .run(v.id, v.workspaceId, v.definitionId, v.bindingRevision, JSON.stringify(v));
@@ -57,6 +64,7 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     bindingRevision: number,
   ): readonly RuntimeGeneration[] {
     return decode(
+      'runtime-generation',
       this.db
         .prepare(
           'SELECT record_json FROM runtime_generations WHERE workspace_id=? AND definition_id=? AND binding_revision=? ORDER BY generation DESC',
@@ -65,12 +73,14 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     );
   }
   addGeneration(v: RuntimeGeneration): void {
+    this.guard('runtime-generation', v);
     this.db
       .prepare('INSERT INTO runtime_generations VALUES (?,?,?,?,?,?)')
       .run(v.id, v.workspaceId, v.definitionId, v.bindingRevision, v.generation, JSON.stringify(v));
   }
   submissions(ws: string, definitionId: string): readonly EvidenceSubmission[] {
     return decode(
+      'evidence-submission',
       this.db
         .prepare(
           "SELECT record_json FROM evidence_submissions WHERE workspace_id=? AND json_extract(record_json,'$.definitionId')=? ORDER BY rowid DESC",
@@ -79,12 +89,14 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     );
   }
   addSubmission(v: EvidenceSubmission): void {
+    this.guard('evidence-submission', v);
     this.db
       .prepare('INSERT INTO evidence_submissions VALUES (?,?,?,?)')
       .run(v.id, v.workspaceId, v.runtimeId, JSON.stringify(v));
   }
   decisions(ws: string): readonly EvidenceDecision[] {
     return decode(
+      'evidence-decision',
       this.db
         .prepare(
           'SELECT record_json FROM evidence_decisions WHERE workspace_id=? ORDER BY rowid DESC',
@@ -93,30 +105,35 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     );
   }
   addDecision(v: EvidenceDecision): void {
+    this.guard('evidence-decision', v);
     this.db
       .prepare('INSERT INTO evidence_decisions VALUES (?,?,?,?)')
       .run(v.id, v.workspaceId, v.submissionId, JSON.stringify(v));
   }
   run(ws: string, id: string): RunEnvironment | undefined {
-    return decode<RunEnvironment>(
+    return decode(
+      'run-environment',
       this.db
         .prepare('SELECT record_json FROM run_environments WHERE workspace_id=? AND run_id=?')
         .all(ws, id),
     )[0];
   }
   build(ws: string, id: string): RunBuildRecord | undefined {
-    return decode<RunBuildRecord>(
+    return decode(
+      'run-build-record',
       this.db
         .prepare('SELECT record_json FROM run_build_records WHERE workspace_id=? AND run_id=?')
         .all(ws, id),
     )[0];
   }
   addBuild(v: RunBuildRecord): void {
+    this.guard('run-build-record', v);
     this.db
       .prepare('INSERT INTO run_build_records VALUES (?,?,?)')
       .run(v.runId, v.workspaceId, JSON.stringify(v));
   }
   addRun(v: RunEnvironment): void {
+    this.guard('run-environment', v);
     this.db
       .prepare('INSERT INTO run_environments VALUES (?,?,?,?)')
       .run(v.runId, v.workspaceId, v.runtimeId, JSON.stringify(v));

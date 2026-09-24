@@ -8,6 +8,7 @@ import {
   AGENT_RUN_ROLES,
   AGENT_RUN_STATUSES,
   AGENT_RUN_VERDICTS,
+  type JsonValue,
   SOURCE_REPOSITORY_STATUSES,
   WORKTREE_STATUSES,
 } from '@craftingtable/domain';
@@ -44,7 +45,8 @@ const nonNegativeSafeInteger = z.number().int().nonnegative().safe();
 const positiveSafeInteger = z.number().int().positive().safe();
 
 /** JSON value schema for bounded tool inputs; the adapter truncates before this. */
-const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
+/** Any JSON value, typed as the domain's `JsonValue`. */
+export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
     z.null(),
     z.boolean(),
@@ -149,28 +151,37 @@ function hasExecutionSubject(value: { workItemId?: string; planVersionId?: strin
   return (value.workItemId !== undefined) !== (value.planVersionId !== undefined);
 }
 
+const worktreeRecordShape = {
+  executionScope: executionScopeSchema.optional(),
+  id: worktreeIdSchema,
+  workspaceId: workspaceIdSchema,
+  repositoryId: sourceRepositoryIdSchema,
+  projectId: projectIdSchema,
+  workItemId: workItemIdSchema.optional(),
+  planVersionId: planVersionIdSchema.optional(),
+  branchName: gitBranchNameSchema,
+  baseSha: gitShaSchema,
+  baseBranch: gitBranchNameSchema,
+  integrationBranch: gitBranchNameSchema.optional(),
+  path: sourceRepositoryPathSchema,
+  status: z.enum(WORKTREE_STATUSES),
+  createdAt: z.iso.datetime(),
+  createdByUserId: userIdSchema,
+  removedAt: z.iso.datetime().optional(),
+  mergedAt: z.iso.datetime().optional(),
+  mergeSha: gitShaSchema.optional(),
+  version: positiveSafeInteger,
+};
+/** A worktree as storage keeps it (R-H3). */
+export const worktreeRecordSchema = z
+  .strictObject(worktreeRecordShape)
+  .refine(hasExecutionSubject, {
+    message: 'Execution must have exactly one work-item or plan-version subject',
+  });
 export const worktreeSummarySchema = z
   .strictObject({
-    executionScope: executionScopeSchema.optional(),
-    id: worktreeIdSchema,
-    workspaceId: workspaceIdSchema,
-    repositoryId: sourceRepositoryIdSchema,
-    projectId: projectIdSchema,
-    workItemId: workItemIdSchema.optional(),
-    planVersionId: planVersionIdSchema.optional(),
-    branchName: gitBranchNameSchema,
-    baseSha: gitShaSchema,
-    baseBranch: gitBranchNameSchema,
-    integrationBranch: gitBranchNameSchema.optional(),
-    path: sourceRepositoryPathSchema,
-    status: z.enum(WORKTREE_STATUSES),
-    createdAt: z.iso.datetime(),
-    createdByUserId: userIdSchema,
-    removedAt: z.iso.datetime().optional(),
-    mergedAt: z.iso.datetime().optional(),
-    mergeSha: gitShaSchema.optional(),
+    ...worktreeRecordShape,
     mergeCleanupError: z.string().max(4000).optional(),
-    version: positiveSafeInteger,
   })
   .refine(hasExecutionSubject, {
     message: 'Execution must have exactly one work-item or plan-version subject',

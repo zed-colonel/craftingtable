@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { asEventId, asUserId, asWorkspaceId, asWorkspaceMembershipId } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
+import { acceptAnyRecord } from './records.js';
 import { openCraftingTableStorage } from './storage.js';
 import { temporaryStorage } from './test-support.js';
 
 describe('snapshot consistency', () => {
   it('keeps asOfSequence and activity in one read view during a concurrent WAL commit', () => {
     const first = temporaryStorage();
-    const second = openCraftingTableStorage(first.storage.databasePath);
+    const second = openCraftingTableStorage(first.storage.databasePath, acceptAnyRecord);
     try {
       const userId = asUserId(randomUUID());
       const workspaceId = asWorkspaceId(randomUUID());

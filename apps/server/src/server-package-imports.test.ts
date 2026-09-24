@@ -10,10 +10,10 @@ import {
   inspectPlanArchive,
   readArchive,
 } from '@craftingtable/planning';
-import { openCraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { zipFixture } from '../../../packages/planning/src/archive-test-support.js';
 import { buildMultipartBody } from './multipart-test-support.js';
+import { openDaemonStorage } from './persisted-records.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
 const contexts: TestContext[] = [];
@@ -250,7 +250,7 @@ describe('package import HTTP flow', () => {
       headers: { cookie: r.session.cookie },
     });
     expect(foreign.statusCode).toBe(404);
-    const reopened = openCraftingTableStorage(r.context.config.databasePath);
+    const reopened = openDaemonStorage(r.context.config.databasePath);
     try {
       expect(reopened.imports.bindings(r.workspaceId, id)[0]?.revision).toBe(1);
       expect(reopened.imports.definition(r.workspaceId, id)?.source.slices).toHaveLength(69);

@@ -1,5 +1,6 @@
 import type { Roadmap, RoadmapDefinition, WorkspaceId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
+import { parseRecord, type RecordGuard } from '../records.js';
 export interface RoadmapRepository {
   list(workspaceId?: WorkspaceId): readonly Roadmap[];
   find(workspaceId: WorkspaceId, id: string): Roadmap | undefined;
@@ -12,10 +13,13 @@ export interface RoadmapRepository {
 function map(row: unknown): Roadmap | undefined {
   return row === undefined
     ? undefined
-    : (JSON.parse((row as { state_json: string }).state_json) as Roadmap);
+    : parseRecord('roadmap', (row as { state_json: string }).state_json);
 }
 export class SqliteRoadmapRepository implements RoadmapRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(
+    private readonly db: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
   list(workspaceId?: WorkspaceId): readonly Roadmap[] {
     const rows =
       workspaceId === undefined
@@ -33,6 +37,7 @@ export class SqliteRoadmapRepository implements RoadmapRepository {
     );
   }
   save(roadmap: Roadmap, expectedVersion: number): boolean {
+    this.guard('roadmap', roadmap);
     if (expectedVersion === 0)
       return (
         this.db
@@ -63,6 +68,7 @@ export class SqliteRoadmapRepository implements RoadmapRepository {
     );
   }
   addDefinition(definition: RoadmapDefinition): void {
+    this.guard('roadmap-definition', definition);
     this.db
       .prepare(
         'INSERT INTO roadmap_definitions(roadmap_id, revision, definition_json) VALUES (?, ?, ?)',
@@ -75,9 +81,8 @@ export class SqliteRoadmapRepository implements RoadmapRepository {
         'SELECT definition_json FROM roadmap_definitions d JOIN roadmaps r ON r.id = d.roadmap_id WHERE r.workspace_id = ? AND r.id = ? ORDER BY revision DESC',
       )
       .all(workspaceId, id)
-      .map(
-        (row) =>
-          JSON.parse((row as { definition_json: string }).definition_json) as RoadmapDefinition,
+      .map((row) =>
+        parseRecord('roadmap-definition', (row as { definition_json: string }).definition_json),
       );
   }
   definition(workspaceId: WorkspaceId, id: string, revision: number) {
@@ -86,6 +91,6 @@ export class SqliteRoadmapRepository implements RoadmapRepository {
         'SELECT definition_json FROM roadmap_definitions d JOIN roadmaps r ON r.id = d.roadmap_id WHERE r.workspace_id = ? AND r.id = ? AND d.revision = ?',
       )
       .get(workspaceId, id, revision) as { definition_json: string } | undefined;
-    return row && (JSON.parse(row.definition_json) as RoadmapDefinition);
+    return row && parseRecord('roadmap-definition', row.definition_json);
   }
 }

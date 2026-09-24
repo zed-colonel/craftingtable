@@ -7,6 +7,7 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
+import { type RecordGuard, readRecord } from '../records.js';
 import {
   type AppendWorkspaceCreatedInput,
   type AppendWorkspaceEventInput,
@@ -15,7 +16,7 @@ import {
   type WorkspaceEventRepository,
 } from '../types.js';
 
-interface WorkspaceEventRow {
+export interface WorkspaceEventRow {
   sequence: number;
   id: string;
   schema_version: 1;
@@ -344,6 +345,10 @@ function mapPayload<K extends WorkspaceEventKind>(
  * invalid retirement coupling before a snapshot or SSE query can observe a
  * partial mapped batch.
  */
+export function mapWorkspaceEvent(row: WorkspaceEventRow): WorkspaceEvent {
+  return readRecord('workspace-event', mapEvent(row));
+}
+
 function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
   if (!isWorkspaceEventKind(row.kind)) {
     throw new WorkspaceEventMappingError(
@@ -600,7 +605,16 @@ function assertAppendAgreement(input: AppendWorkspaceEventInput): void {
 }
 
 export class SqliteWorkspaceEventRepository implements WorkspaceEventRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
+
+  private written(row: WorkspaceEventRow): WorkspaceEvent {
+    const event = mapWorkspaceEvent(row);
+    this.guard('workspace-event', event);
+    return event;
+  }
 
   private hasRepositoryCorrelationColumns(): boolean {
     return (
@@ -633,7 +647,7 @@ export class SqliteWorkspaceEventRepository implements WorkspaceEventRepository 
         input.actorUserId ?? null,
         JSON.stringify(payload),
       );
-    return {
+    const event: WorkspaceEvent = {
       id: input.id,
       sequence: Number(result.lastInsertRowid),
       occurredAt: input.occurredAt,
@@ -643,6 +657,8 @@ export class SqliteWorkspaceEventRepository implements WorkspaceEventRepository 
       kind: 'workspace-created',
       payload,
     };
+    this.guard('workspace-event', event);
+    return event;
   }
 
   appendEvent(input: AppendWorkspaceEventInput): WorkspaceEvent {
@@ -683,7 +699,7 @@ export class SqliteWorkspaceEventRepository implements WorkspaceEventRepository 
                FROM workspace_events WHERE sequence = ?`,
             )
             .get(Number(result.lastInsertRowid)) as WorkspaceEventRow;
-          return mapEvent(row);
+          return this.written(row);
         })
         .immediate();
     }
@@ -714,7 +730,7 @@ export class SqliteWorkspaceEventRepository implements WorkspaceEventRepository 
         const row = this.database
           .prepare(`SELECT * FROM workspace_events WHERE sequence = ?`)
           .get(Number(result.lastInsertRowid)) as WorkspaceEventRow;
-        return mapEvent(row);
+        return this.written(row);
       })
       .immediate();
   }
@@ -746,7 +762,7 @@ export class SqliteWorkspaceEventRepository implements WorkspaceEventRepository 
          ORDER BY sequence ASC LIMIT ?`,
       )
       .all(input.workspaceId, input.after, input.limit) as WorkspaceEventRow[];
-    return rows.map(mapEvent);
+    return rows.map(mapWorkspaceEvent);
   }
 
   listRecentAtOrBefore(input: {
@@ -763,6 +779,6 @@ export class SqliteWorkspaceEventRepository implements WorkspaceEventRepository 
          ) ORDER BY sequence ASC`,
       )
       .all(input.workspaceId, input.asOfSequence, input.limit) as WorkspaceEventRow[];
-    return rows.map(mapEvent);
+    return rows.map(mapWorkspaceEvent);
   }
 }

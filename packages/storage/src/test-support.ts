@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { acceptAnyRecord } from './records.js';
 import { openCraftingTableStorage } from './storage.js';
 import type { CraftingTableStorage } from './types.js';
 
@@ -14,7 +15,7 @@ export interface TemporaryStorage {
 export function temporaryStorage(): TemporaryStorage {
   const directory = mkdtempSync(join(tmpdir(), 'craftingtable-storage-test-'));
   const databasePath = join(directory, 'state', 'craftingtable.sqlite');
-  const storage = openCraftingTableStorage(databasePath);
+  const storage = openCraftingTableStorage(databasePath, acceptAnyRecord);
   return {
     directory,
     databasePath,

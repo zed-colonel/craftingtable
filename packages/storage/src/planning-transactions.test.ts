@@ -12,6 +12,7 @@ import {
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SEED_NOW, seedWorkspace } from './planning-test-support.js';
+import { acceptAnyRecord } from './records.js';
 import { type TemporaryStorage, temporaryStorage } from './test-support.js';
 import type { CraftingTableStorage } from './types.js';
 
@@ -431,7 +432,7 @@ describe('planning import transaction', () => {
     temporary.storage.close();
 
     const { openCraftingTableStorage } = await import('./storage.js');
-    const reopened = openCraftingTableStorage(path);
+    const reopened = openCraftingTableStorage(path, acceptAnyRecord);
     try {
       expect(planningCounts(reopened)).toEqual(before);
       expect(

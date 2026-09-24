@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { Roadmap } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import { openDatabase } from './database.js';
+import { SEED_NOW, seedWorkspace } from './planning-test-support.js';
+import { acceptAnyRecord } from './records.js';
 import { openCraftingTableStorage } from './storage.js';
-import { seedWorkspace, SEED_NOW } from './planning-test-support.js';
-import { temporaryStorage, type TemporaryStorage } from './test-support.js';
+import { type TemporaryStorage, temporaryStorage } from './test-support.js';
+
 const fixtures: TemporaryStorage[] = [];
 afterEach(() => {
   for (const fixture of fixtures.splice(0)) fixture.cleanup();
@@ -58,7 +60,7 @@ it('retains definitions across reopen, rejects stale writes, and rolls back revi
   expect(f.storage.roadmaps.find(seed.workspaceId, id)).toEqual(roadmap);
   expect(f.storage.roadmaps.save(next, 9)).toBe(false);
   f.storage.close();
-  const reopened = openCraftingTableStorage(f.databasePath);
+  const reopened = openCraftingTableStorage(f.databasePath, acceptAnyRecord);
   try {
     expect(reopened.roadmaps.find(seed.workspaceId, id)).toEqual(roadmap);
     expect(reopened.roadmaps.history(seed.workspaceId, id)).toEqual([roadmap.definition]);

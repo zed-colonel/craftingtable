@@ -1,8 +1,9 @@
 import type { AuditEvent, WorkspaceId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
+import { type RecordGuard, readRecord } from '../records.js';
 import type { AppendAuditInput, AuditRepository } from '../types.js';
 
-interface AuditRow {
+export interface AuditRow {
   sequence: number;
   id: string;
   occurred_at: string;
@@ -20,8 +21,8 @@ interface AuditRow {
   metadata_json: string;
 }
 
-function mapAudit(row: AuditRow): AuditEvent {
-  return {
+export function mapAudit(row: AuditRow): AuditEvent {
+  return readRecord('audit-event', {
     sequence: row.sequence,
     id: row.id as AuditEvent['id'],
     occurredAt: row.occurred_at,
@@ -42,12 +43,15 @@ function mapAudit(row: AuditRow): AuditEvent {
     outcome: row.outcome,
     ...(row.prior_version === null ? {} : { priorVersion: row.prior_version }),
     ...(row.resulting_version === null ? {} : { resultingVersion: row.resulting_version }),
-    metadata: JSON.parse(row.metadata_json) as AuditEvent['metadata'],
-  };
+    metadata: JSON.parse(row.metadata_json),
+  });
 }
 
 export class SqliteAuditRepository implements AuditRepository {
-  constructor(private readonly database: Database.Database) {}
+  constructor(
+    private readonly database: Database.Database,
+    private readonly guard: RecordGuard,
+  ) {}
 
   append(input: AppendAuditInput): AuditEvent {
     const result = this.database
@@ -77,7 +81,9 @@ export class SqliteAuditRepository implements AuditRepository {
     const row = this.database
       .prepare(`SELECT * FROM audit_events WHERE sequence = ?`)
       .get(Number(result.lastInsertRowid)) as AuditRow;
-    return mapAudit(row);
+    const event = mapAudit(row);
+    this.guard('audit-event', event);
+    return event;
   }
 
   /**

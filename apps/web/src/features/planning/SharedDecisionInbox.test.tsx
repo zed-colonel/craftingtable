@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ArchitectureDecisionInbox, RuntimeEvidenceView } from '@craftingtable/contracts';
+import { asUserId, asWorkspaceId } from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
 import { SharedDecisionInbox } from './SharedDecisionInbox.js';
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
@@ -75,12 +76,12 @@ it('collects references, reviews an immutable proposal, and requires explicit ap
     ...decisionRecord,
     decision: {
       id: 'approval',
-      workspaceId: 'ws',
+      workspaceId: asWorkspaceId('ws'),
       submissionId: decisionRecord.id,
       outcome: 'accepted' as const,
       rationale: 'Fits replay needs.',
       decidedAt: '2026-09-20T00:00:00Z',
-      decidedByUserId: 'owner',
+      decidedByUserId: asUserId('owner'),
     },
   };
   vi.mocked(request)
@@ -198,12 +199,12 @@ it('shows limited approval separately and keeps live scheduling blockers beside 
     },
     decision: {
       id: 'approval',
-      workspaceId: 'ws',
+      workspaceId: asWorkspaceId('ws'),
       submissionId: decisionRecord.id,
       outcome: 'accepted' as const,
       rationale: 'Identifiers only.',
       decidedAt: '2026-09-20T00:00:00Z',
-      decidedByUserId: 'owner',
+      decidedByUserId: asUserId('owner'),
     },
   };
   const data = {

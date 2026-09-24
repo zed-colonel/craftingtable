@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { asPlanVersionId, asWorkItemId, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
-import { openCraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
+import { openDaemonStorage } from './persisted-records.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -130,7 +130,7 @@ it('adopts exact map decisions separately, previews exclusions, guards HTTP auth
   ).toBe(409);
   expect(f.backend.launches).toHaveLength(0);
   expect(f.state.context.storage.scopeReceipts.list(ws, f.state.workItemId)).toHaveLength(0);
-  const reopened = openCraftingTableStorage(f.state.context.config.databasePath);
+  const reopened = openDaemonStorage(f.state.context.config.databasePath);
   try {
     expect(reopened.imports.adoptions(ws, f.parentScope.definitionId)).toHaveLength(1);
   } finally {

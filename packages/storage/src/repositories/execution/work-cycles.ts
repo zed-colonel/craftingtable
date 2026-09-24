@@ -4,7 +4,10 @@ import type Database from 'better-sqlite3';
 export interface WorkCycleRepository {
   insert(cycle: WorkCycle): WorkCycle;
   find(workspaceId: WorkspaceId, id: string): WorkCycle | undefined;
-  list(workspaceId?: WorkspaceId): readonly WorkCycle[];
+  /** Every non-terminal cycle in every workspace, oldest first. */
+  listActive(): readonly WorkCycle[];
+  /** Every cycle in one workspace, ended ones included, newest first. */
+  listForWorkspace(workspaceId: WorkspaceId): readonly WorkCycle[];
   /** Every cycle in every workspace, ended ones included, oldest first (replay, diagnostics). */
   listAll(): readonly WorkCycle[];
   activeForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): WorkCycle | undefined;
@@ -41,20 +44,19 @@ export class SqliteWorkCycleRepository implements WorkCycleRepository {
         .get(workspaceId, id),
     );
   }
-  list(workspaceId?: WorkspaceId): readonly WorkCycle[] {
-    const rows =
-      workspaceId === undefined
-        ? this.database
-            .prepare(
-              "SELECT state_json FROM work_cycles WHERE status NOT IN ('stopped', 'completed') ORDER BY rowid",
-            )
-            .all()
-        : this.database
-            .prepare(
-              'SELECT state_json FROM work_cycles WHERE workspace_id = ? ORDER BY rowid DESC',
-            )
-            .all(workspaceId);
-    return rows.map((row) => map(row) as WorkCycle);
+  listActive(): readonly WorkCycle[] {
+    return this.database
+      .prepare(
+        "SELECT state_json FROM work_cycles WHERE status NOT IN ('stopped', 'completed') ORDER BY rowid",
+      )
+      .all()
+      .map((row) => map(row) as WorkCycle);
+  }
+  listForWorkspace(workspaceId: WorkspaceId): readonly WorkCycle[] {
+    return this.database
+      .prepare('SELECT state_json FROM work_cycles WHERE workspace_id = ? ORDER BY rowid DESC')
+      .all(workspaceId)
+      .map((row) => map(row) as WorkCycle);
   }
   listAll(): readonly WorkCycle[] {
     return this.database

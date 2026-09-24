@@ -11,15 +11,14 @@ domain      pure TypeScript records, branded identifiers, closed vocabularies
 contracts   strict Zod HTTP/SSE schemas (depends on domain)
 planning    pure plan-bundle parsing, validation, graph, digest (depends on domain)
 storage     SQLite, migrations, repositories (depends on domain)
-git         worktree/diff operations and the read-only inspector (depends on domain)
+git         worktree, diff and merge operations (depends on domain)
 agents      agent backend seam and Claude Code and Codex adapters (depends on domain)
 server      Fastify routes, services, composition (depends on all of the above)
 web         React projection (depends on domain + contracts only)
 ```
 
 Only `storage` owns SQL. Only the explicitly listed adapter modules may spawn a process, and
-`scripts/check-forbidden-scope.mjs` enforces that list: the Git inspector runner,
-the Git operations module, the shared agent process supervisor, the pinned Cargo adapter,
+`scripts/check-forbidden-scope.mjs` enforces that list: the Git operations module, the shared agent process supervisor, the pinned Cargo adapter,
 and the local-check/act adapter. No package depends
 on ActionQueue, WorldInterface, Exoskeleton, or any other supervised project.
 
@@ -188,9 +187,9 @@ recorded integration evidence is checked by ancestry. Commands are owner/editor 
 the shared review-gated merge command advances an integration branch, under explicit
 operator action or delegated roadmap policy. See ADR-026 and ADR-033.
 
-The CT-04A1 read-only inspector and its repository-evidence persistence remain in the
-tree, uncomposed. They are superseded for the working loop by the simpler source
-repository model and are candidates for removal.
+The CT-04A1 read-only inspector and its repository registry were removed (R-B8). Their three
+empty tables and the journal's `repository-*` event kinds stay in the schema because
+`workspace_events` foreign keys reference the tables; nothing writes them.
 
 ## Events
 

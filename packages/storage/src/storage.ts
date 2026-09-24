@@ -12,7 +12,6 @@ import { SqliteImportRepository } from './repositories/imports.js';
 import { SqliteStorageMaintenanceRepository } from './repositories/maintenance.js';
 import { SqliteNotificationRepository } from './repositories/notifications.js';
 import { planningRepositories } from './repositories/planning/index.js';
-import { repositoryRegistryRepositories } from './repositories/repository-registry/index.js';
 import { SqliteRoadmapRepository } from './repositories/roadmaps.js';
 import { SqliteSessionRepository } from './repositories/sessions.js';
 import { SqliteUserRepository } from './repositories/users.js';
@@ -36,7 +35,6 @@ function repositories(database: Database.Database): StorageRepositories {
     audit: new SqliteAuditRepository(database),
     workspaceEvents: new SqliteWorkspaceEventRepository(database),
     planning: planningRepositories(database),
-    repositoryRegistry: repositoryRegistryRepositories(database),
     execution: executionRepositories(database),
   };
 }
@@ -56,7 +54,6 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   readonly audit;
   readonly workspaceEvents;
   readonly planning;
-  readonly repositoryRegistry;
   readonly execution;
 
   private closed = false;
@@ -81,7 +78,6 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     this.audit = repos.audit;
     this.workspaceEvents = repos.workspaceEvents;
     this.planning = repos.planning;
-    this.repositoryRegistry = repos.repositoryRegistry;
     this.execution = repos.execution;
   }
 

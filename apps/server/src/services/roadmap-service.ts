@@ -376,7 +376,9 @@ export class RoadmapService {
       conflict('Decide the pending planning amendment first.');
     if (
       this.storage.execution.runs.listLive().some((r) => r.workspaceId === workspaceId) ||
-      this.storage.execution.cycles.list(workspaceId).some((c) => c.status === 'running')
+      this.storage.execution.cycles
+        .listForWorkspace(workspaceId)
+        .some((c) => c.status === 'running')
     )
       conflict('Wait for running agents and cycles to finish before changing delegation.');
     if (

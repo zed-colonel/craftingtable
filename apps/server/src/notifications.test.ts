@@ -844,7 +844,7 @@ it('retains parallel item reminder timing while siblings progress and resolves a
   f.setCycle('paused');
   const id = randomUUID();
   const entryId = randomUUID();
-  const cycle = f.context.storage.execution.cycles.list(f.workspaceId)[0];
+  const cycle = f.context.storage.execution.cycles.listForWorkspace(f.workspaceId)[0];
   if (!cycle) throw new Error('Missing fixture cycle');
   const roadmap: import('@craftingtable/domain').Roadmap = {
     id,

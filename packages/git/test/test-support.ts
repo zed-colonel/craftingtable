@@ -10,13 +10,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { delimiter, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import type { GitCeilingDirectory } from '../src/environment.js';
-import { createGitCeilingDirectory } from '../src/environment.js';
-import type { CanonicalPath } from '../src/path-policy.js';
-import { asCanonicalPath } from '../src/path-policy.js';
-
-export const FIXED_OBSERVED_AT = new Date('2026-07-26T12:00:00.000Z');
 
 export const FIXTURE_GIT_ENVIRONMENT = Object.freeze({
   LC_ALL: 'C',
@@ -48,24 +41,12 @@ export function findGitExecutable(): string {
 
 export const GIT_EXECUTABLE = findGitExecutable();
 
-export function canonicalPathForTest(path: string): CanonicalPath {
-  return asCanonicalPath(path);
-}
-
-export function gitCeilingDirectoryForTest(cwd: string): GitCeilingDirectory {
-  const ceilingDirectory = createGitCeilingDirectory(canonicalPathForTest(cwd));
-  if (ceilingDirectory === undefined) {
-    throw new Error('Test path cannot produce an unambiguous Git ceiling.');
-  }
-  return ceilingDirectory;
-}
-
 export function runFixtureGit(
   args: readonly string[],
   options: { readonly cwd?: string; readonly environment?: Readonly<Record<string, string>> } = {},
 ): Buffer {
   // Fixture commits must not leave background maintenance changing the tree
-  // after setup returns: inspection tests compare exact before/after evidence.
+  // after setup returns.
   const result = spawnSync(GIT_EXECUTABLE, ['-c', 'maintenance.auto=false', ...args], {
     cwd: options.cwd,
     env: { ...FIXTURE_GIT_ENVIRONMENT, ...options.environment },
@@ -88,7 +69,7 @@ export interface RepositoryFixture {
 }
 
 export function createRepositoryFixture(name = 'repository'): RepositoryFixture {
-  const root = realpathSync(mkdtempSync(join(process.cwd(), '.ct04a-git-test-')));
+  const root = realpathSync(mkdtempSync(join(process.cwd(), '.git-operations-test-')));
   const sourceRoot = join(root, 'sources');
   const repository = join(sourceRoot, name);
   mkdirSync(sourceRoot);
@@ -136,14 +117,3 @@ export function makeExecutableProxy(directory: string, name: string, body: strin
   chmodSync(path, 0o755);
   return realpathSync(path);
 }
-
-export function repositoryInspectorOptions(fixture: RepositoryFixture) {
-  return {
-    allowedSourceRoots: [fixture.sourceRoot],
-    gitExecutable: GIT_EXECUTABLE,
-  } as const;
-}
-
-export const repositoryInspectorModuleUrl = fileURLToPath(
-  new URL('../src/repository-inspector.ts', import.meta.url),
-);

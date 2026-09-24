@@ -495,7 +495,7 @@ export class MapAmendmentService {
       this.record(tx, context, ws, id, a.id, 'proposed', at);
     });
     this.notifier.notify();
-    for (const cycle of this.storage.execution.cycles.list(ws)) {
+    for (const cycle of this.storage.execution.cycles.listForWorkspace(ws)) {
       if (
         cycle.status === 'running' &&
         cycle.executionScope &&

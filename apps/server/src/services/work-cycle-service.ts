@@ -232,7 +232,7 @@ export class WorkCycleService {
   ): readonly WorkCycle[] {
     this.workspaceService.requireAuthorized(context, workspaceId);
     const tx = mapReadSnapshot(this.storage);
-    const stored = this.storage.execution.cycles.list(workspaceId);
+    const stored = this.storage.execution.cycles.listForWorkspace(workspaceId);
     const selected =
       filter.workItemId === undefined
         ? stored
@@ -654,7 +654,7 @@ export class WorkCycleService {
       throw new ExecutionRequestError('conflict', 'Worktree has been removed');
     if (
       this.storage.execution.cycles
-        .list(workspaceId)
+        .listForWorkspace(workspaceId)
         .some(
           (cycle) =>
             cycle.workItemId === workItemId &&
@@ -1633,7 +1633,7 @@ export class WorkCycleService {
    */
   recoverInterrupted(options: { readonly cleanStop?: boolean } = {}): string[] {
     const stopped: string[] = [];
-    for (let cycle of this.storage.execution.cycles.list()) {
+    for (let cycle of this.storage.execution.cycles.listActive()) {
       if (cycle.baselinePreparation?.status === 'preparing')
         cycle = this.change(
           cycle,
@@ -1705,7 +1705,7 @@ export class WorkCycleService {
    */
   declareAttention(): void {
     this.attentionGeneration = this.notifier.workflowGeneration;
-    for (const cycle of this.storage.execution.cycles.list())
+    for (const cycle of this.storage.execution.cycles.listActive())
       if (ATTENTION_STATUSES.has(cycle.status)) this.refreshAttention(cycle);
   }
 
@@ -1713,7 +1713,7 @@ export class WorkCycleService {
     // Attention depends only on stored state, so refresh it when that state has changed.
     if (this.notifier.workflowGeneration !== this.attentionGeneration) this.declareAttention();
     for (const cycle of prioritizeRoadmapCycles(
-      this.storage.execution.cycles.list(),
+      this.storage.execution.cycles.listActive(),
       this.storage.roadmaps.list(),
     )) {
       if (this.abort.signal.aborted) break;

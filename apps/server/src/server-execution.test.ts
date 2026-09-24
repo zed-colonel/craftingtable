@@ -3986,9 +3986,9 @@ describe('sequential roadmaps', () => {
     await roadmapControl(state, 'stop');
     expect(storedRoadmap(state).status).toBe('stopped');
     expect(state.context.storage.execution.worktrees.listActive(state.workspaceId)).toHaveLength(1);
-    expect(state.context.storage.execution.cycles.list(state.workspaceId)[0]?.status).toBe(
-      'stopped',
-    );
+    expect(
+      state.context.storage.execution.cycles.listForWorkspace(state.workspaceId)[0]?.status,
+    ).toBe('stopped');
   });
 
   it('does not accept manual completion as a substitute for merging its current worktree', async () => {
@@ -4080,7 +4080,9 @@ describe('sequential roadmaps', () => {
     );
     expect(storedRoadmap(state).status).toBe('stopped');
     expect(backend.launches).toHaveLength(0);
-    expect(state.context.storage.execution.cycles.list(state.workspaceId)).toHaveLength(0);
+    expect(state.context.storage.execution.cycles.listForWorkspace(state.workspaceId)).toHaveLength(
+      0,
+    );
   });
 });
 
@@ -5412,7 +5414,7 @@ it('automatically resolves parallel integration conflicts and freshly reviews be
   expect(git(['rev-parse', 'main'], root)).toBe(base);
   expect(backend.launches.some((r) => r.model === 'resolution-auto')).toBe(true);
   const resolved = state.context.storage.execution.cycles
-    .list(state.workspaceId)
+    .listForWorkspace(state.workspaceId)
     .find((c) => c.integrationResolution?.status === 'completed');
   expect(resolved?.status).toBe('completed');
   expect(
@@ -8036,7 +8038,7 @@ it('keeps all selected stage findings required when recovery temporarily focuses
       if (implementations > 1) {
         const cycle = present(
           state.context.storage.execution.cycles
-            .list(state.workspaceId)
+            .listForWorkspace(state.workspaceId)
             .find((c) => c.finalizationId),
         );
         for (const id of cycle.findingFocus ?? []) fixed.add(id);
@@ -8493,11 +8495,11 @@ describe('execution slices and parent acceptance', () => {
     expect(saved.statusCode, saved.body).toBe(200);
     await roadmapControl(state, 'start');
     await waitFor(
-      () => state.context.storage.execution.cycles.list(state.workspaceId).length === 2,
+      () => state.context.storage.execution.cycles.listForWorkspace(state.workspaceId).length === 2,
       'two sibling cycles',
       8000,
     );
-    const cycles = state.context.storage.execution.cycles.list(state.workspaceId);
+    const cycles = state.context.storage.execution.cycles.listForWorkspace(state.workspaceId);
     expect(new Set(cycles.map((c) => c.executionScope?.sourceId)).size).toBe(2);
     expect(new Set(cycles.map((c) => c.worktreeId)).size).toBe(2);
     for (const cycle of cycles)
@@ -8884,7 +8886,7 @@ it('phase merge dependencies let an independent sibling integrate first and then
     () => {
       const r = storedRoadmap(state);
       const stalled = state.context.storage.execution.cycles
-        .list(state.workspaceId)
+        .listForWorkspace(state.workspaceId)
         .find((c) => c.status === 'needs-attention');
       if (stalled) throw new Error(stalled.reason);
       if (
@@ -8906,7 +8908,7 @@ it('phase merge dependencies let an independent sibling integrate first and then
   expect(git(['merge-base', '--is-ancestor', b.mergeSha!, a.mergeSha!], f.root)).toBe('');
   expect(
     state.context.storage.execution.cycles
-      .list(state.workspaceId)
+      .listForWorkspace(state.workspaceId)
       .find((c) => c.worktreeId === a.id)?.integrationRefreshes,
   ).toBeGreaterThanOrEqual(1);
   expect(state.context.storage.phaseScheduling.active()).toHaveLength(0);
@@ -8976,7 +8978,7 @@ it('phase verification worktrees do not consume roadmap development capacity', a
   await waitFor(
     () =>
       state.context.storage.execution.cycles
-        .list(state.workspaceId)
+        .listForWorkspace(state.workspaceId)
         .some((c) => c.status === 'awaiting-merge'),
     'development beside pending verification',
     6000,
@@ -10232,7 +10234,7 @@ it('supervises slices, fresh verification and independent parent acceptance with
         bad = Object.values(r.entryHolds ?? {}).find((h) => h.status === 'needs-attention');
       if (bad) throw new Error(bad.reason);
       const cycle = state.context.storage.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .find((c) => c.status === 'needs-attention');
       if (cycle) throw new Error(cycle.reason);
       return (
@@ -10321,7 +10323,7 @@ it('keeps parent approval manual and preserves attempts across restart without r
   await waitFor(
     () =>
       state.context.storage.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .some(
           (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
         ),
@@ -10369,7 +10371,7 @@ it('pauses a verification question without authorizing implementation in the rev
   await waitFor(
     () =>
       state.context.storage.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .some(
           (c) => c.executionScope?.kind === 'slice-verification' && c.status === 'needs-attention',
         ),
@@ -10538,11 +10540,11 @@ it('keeps live runs in their original context and retires idle attempts only aft
   await waitFor(
     () =>
       storage.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .some((c) => storage.execution.runs.find(ws, c.currentRunId)?.status === 'running'),
     'live cycle',
   );
-  const cycle = storage.execution.cycles.list(ws)[0]!,
+  const cycle = storage.execution.cycles.listForWorkspace(ws)[0]!,
     run = storage.execution.runs.find(ws, cycle.currentRunId)!;
   const original = storage.imports.definition(ws, f.parentScope.definitionId)!,
     binding = storage.imports.bindings(ws, original.id)[0]!,
@@ -10790,7 +10792,9 @@ it.each(['manual', 'roadmap'] as const)(
     expect(policy.statusCode, policy.body).toBe(200);
     await roadmapControl(state, 'start');
     const parent = () =>
-      tx.execution.cycles.list(ws).find((c) => c.executionScope?.kind === 'parent-acceptance');
+      tx.execution.cycles
+        .listForWorkspace(ws)
+        .find((c) => c.executionScope?.kind === 'parent-acceptance');
     await waitFor(
       () => parent()?.status === 'needs-attention',
       'unstarted parent preflight',
@@ -10861,7 +10865,9 @@ it('refreshes a positive review awaiting manual parent acceptance without granti
   await adoptSupervisedMap(f);
   await roadmapControl(state, 'start');
   const parent = () =>
-    tx.execution.cycles.list(ws).find((c) => c.executionScope?.kind === 'parent-acceptance');
+    tx.execution.cycles
+      .listForWorkspace(ws)
+      .find((c) => c.executionScope?.kind === 'parent-acceptance');
   await waitFor(() => parent()?.status === 'awaiting-merge', 'manual parent review', 15000);
   await roadmapControl(state, 'pause');
   const old = parent()!,
@@ -12045,7 +12051,7 @@ it('repeats completed verification in its existing worktree with the assigned ro
   await waitFor(
     () =>
       state.context.storage.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .some(
           (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
         ),
@@ -12054,7 +12060,7 @@ it('repeats completed verification in its existing worktree with the assigned ro
   );
   await roadmapControl(state, 'pause');
   const cycle = state.context.storage.execution.cycles
-    .list(ws)
+    .listForWorkspace(ws)
     .find((c) => c.executionScope?.kind === 'slice-verification' && c.status === 'completed')!;
   expect(cycle).toBeDefined();
   const tree = state.context.storage.execution.worktrees.find(ws, cycle.worktreeId)!;
@@ -12077,7 +12083,7 @@ it('repeats completed verification in its existing worktree with the assigned ro
   expect((await command(cycle.id, cycle.version, { cookie: state.cookie })).statusCode).toBe(403);
   expect((await command(cycle.id, cycle.version + 1)).statusCode).toBe(409);
   const implementation = state.context.storage.execution.cycles
-    .list(ws)
+    .listForWorkspace(ws)
     .find((c) => c.executionScope?.kind === 'slice')!;
   expect((await command(implementation.id, implementation.version)).statusCode).toBe(409);
   const policy = await branchCommand(state, 'plan-versions/version-1/repository-policy', {
@@ -12192,7 +12198,7 @@ it.each([false, true])(
     await waitFor(
       () =>
         tx.execution.cycles
-          .list(ws)
+          .listForWorkspace(ws)
           .some(
             (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'needs-attention',
           ),
@@ -12201,7 +12207,7 @@ it.each([false, true])(
     );
     await roadmapControl(state, 'pause');
     const parent = tx.execution.cycles
-      .list(ws)
+      .listForWorkspace(ws)
       .find((c) => c.executionScope?.kind === 'parent-acceptance')!;
     const notifications = state.context.services.notificationService;
     const { DEFAULT_NOTIFICATION_PREFERENCES } = await import('@craftingtable/domain');
@@ -12218,10 +12224,10 @@ it.each([false, true])(
         .some((n) => n.sourceKey.startsWith(`cycle:${parent.id}:`) && n.state === 'active'),
     ).toBe(true);
     const verification = tx.execution.cycles
-      .list(ws)
+      .listForWorkspace(ws)
       .find((c) => c.executionScope?.kind === 'slice-verification')!;
     const originalOwner = tx.execution.cycles
-      .list(ws)
+      .listForWorkspace(ws)
       .find(
         (c) =>
           c.executionScope?.kind === 'slice' &&
@@ -12459,7 +12465,7 @@ it.each([false, true])(
     expect(recorded.statusCode, recorded.body).toBe(200);
     // Refresh sibling verification too: integration moved, and the parent gate must stay exact.
     for (const sibling of tx.execution.cycles
-      .list(ws)
+      .listForWorkspace(ws)
       .filter((c) => c.executionScope?.kind === 'slice-verification' && c.id !== verification.id)) {
       const result = await command(
         sibling,
@@ -12577,7 +12583,7 @@ it.each([
   await waitFor(
     () =>
       tx.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .some(
           (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'needs-attention',
         ),
@@ -12622,7 +12628,7 @@ it.each([
   expect(storedRoadmap(state).definition).toEqual(prior.definition);
   expect(parentReviews).toBe(1);
   const stoppedParent = tx.execution.cycles
-    .list(ws)
+    .listForWorkspace(ws)
     .find((c) => c.executionScope?.kind === 'parent-acceptance')!;
   const assessment = tx.execution.runEvents.latestOfKind(
     ws,
@@ -12807,7 +12813,7 @@ it('recovers a verification defect, survives pause/restart, and preserves manual
   const repair = storedRoadmap(state).attempts.find((a) => a.recovery)!;
   expect(tx.execution.worktrees.find(ws, repair.worktreeId)?.mergedAt).toBeUndefined();
   const source = tx.execution.cycles
-    .list(ws)
+    .listForWorkspace(ws)
     .find((c) => c.executionScope?.kind === 'slice-verification')!;
   expect(
     state.context.services.workCycleService.list(f.auth, ws).find((c) => c.id === source.id)
@@ -12827,7 +12833,7 @@ it('recovers a verification defect, survives pause/restart, and preserves manual
   await waitFor(
     () =>
       tx.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .some(
           (c) => c.executionScope?.kind === 'parent-acceptance' && c.status === 'awaiting-merge',
         ),
@@ -12837,7 +12843,7 @@ it('recovers a verification defect, survives pause/restart, and preserves manual
   expect(verifications).toBe(2);
   expect(tx.planning.workItems.find(ws, state.workItemId)?.status).not.toBe('completed');
   const parent = tx.execution.cycles
-    .list(ws)
+    .listForWorkspace(ws)
     .find((c) => c.executionScope?.kind === 'parent-acceptance')!;
   await recordScope(f, tx.execution.worktrees.find(ws, parent.worktreeId)!);
   await waitFor(
@@ -13554,12 +13560,12 @@ it('holds provider backoff after a daemon restart and while its roadmap is pause
   await waitFor(
     () =>
       state.context.storage.execution.cycles
-        .list(state.workspaceId)
+        .listForWorkspace(state.workspaceId)
         .some((c) => c.providerRecovery?.nextRetryAt),
     'roadmap service backoff',
   );
   const cycle = state.context.storage.execution.cycles
-    .list(state.workspaceId)
+    .listForWorkspace(state.workspaceId)
     .find((c) => c.providerRecovery)!;
   state.context.services.workCycleService.recoverInterrupted();
   expect(currentCycle(state, cycle).status).toBe('needs-attention');
@@ -13675,14 +13681,14 @@ it('schedules a distinct security review after a source-required review and reta
   await waitFor(
     () =>
       f.state.context.storage.execution.cycles
-        .list(f.state.workspaceId)
+        .listForWorkspace(f.state.workspaceId)
         .some((c) => c.executionScope?.kind === 'slice' && c.status === 'completed'),
     'specialist-reviewed integration',
     12000,
   );
   expect(security).toHaveLength(1);
   const cycle = f.state.context.storage.execution.cycles
-    .list(f.state.workspaceId)
+    .listForWorkspace(f.state.workspaceId)
     .find((c) => c.executionScope?.kind === 'slice')!;
   expect(cycle.workflow?.securityReceipt?.runId).toBeTruthy();
   expect(cycle.remediationRounds).toBe(0);
@@ -13766,7 +13772,7 @@ it.each([
     await waitFor(
       () =>
         f.state.context.storage.execution.cycles
-          .list(f.state.workspaceId)
+          .listForWorkspace(f.state.workspaceId)
           .some(
             (c) =>
               c.executionScope?.kind === 'slice' &&
@@ -13776,13 +13782,13 @@ it.each([
       12000,
     ).catch((error) => {
       throw new Error(
-        `${error.message}: ${JSON.stringify(f.state.context.storage.execution.cycles.list(f.state.workspaceId).map((c) => ({ status: c.status, reason: c.reason, workflow: c.workflow })))}`,
+        `${error.message}: ${JSON.stringify(f.state.context.storage.execution.cycles.listForWorkspace(f.state.workspaceId).map((c) => ({ status: c.status, reason: c.reason, workflow: c.workflow })))}`,
       );
     });
     expect(independent).toBe(1);
     if (!valid) {
       const cycle = f.state.context.storage.execution.cycles
-        .list(f.state.workspaceId)
+        .listForWorkspace(f.state.workspaceId)
         .find((c) => c.status === 'needs-attention')!;
       expect(cycle.reason).toContain('attestation');
       expect(
@@ -13845,13 +13851,13 @@ it('reassesses an older implementation question read-only and leaves a genuine o
   await waitFor(
     () =>
       f.state.context.storage.execution.cycles
-        .list(f.state.workspaceId)
+        .listForWorkspace(f.state.workspaceId)
         .some((c) => c.workflow?.questions.length === 1 && c.status === 'needs-attention'),
     'genuine question',
     12000,
   );
   const cycle = f.state.context.storage.execution.cycles
-    .list(f.state.workspaceId)
+    .listForWorkspace(f.state.workspaceId)
     .find((c) => c.workflow?.questions.length)!;
   expect(cycle.workflow?.reassessments).toBe(1);
   expect(cycle.workflow?.questions[0]?.destination).toBe('work-item');
@@ -13898,10 +13904,12 @@ it('shows a reassessment that cannot be prepared once instead of retrying it on 
     ws = f.state.workspaceId;
   await waitFor(() => attempts > 0, 'controller reassessment', 12000);
   await waitFor(
-    () => tx.execution.cycles.list(ws).some((c) => c.reason.includes('reassessment')),
+    () => tx.execution.cycles.listForWorkspace(ws).some((c) => c.reason.includes('reassessment')),
     'surfaced reassessment failure',
   );
-  const surfaced = present(tx.execution.cycles.list(ws).find((c) => c.status !== 'completed'));
+  const surfaced = present(
+    tx.execution.cycles.listForWorkspace(ws).find((c) => c.status !== 'completed'),
+  );
   expect(surfaced.status).toBe('needs-attention');
   expect(surfaced.reason).toContain('Controller reassessment could not be prepared');
   await new Promise((resolve) => setTimeout(resolve, 2500));
@@ -13965,13 +13973,13 @@ it('repairs code findings before the separate security review without spending r
   await waitFor(
     () =>
       f.state.context.storage.execution.cycles
-        .list(f.state.workspaceId)
+        .listForWorkspace(f.state.workspaceId)
         .some((c) => c.executionScope?.kind === 'slice' && c.status === 'completed'),
     'repair then security review',
     12000,
   );
   const cycle = f.state.context.storage.execution.cycles
-    .list(f.state.workspaceId)
+    .listForWorkspace(f.state.workspaceId)
     .find((c) => c.executionScope?.kind === 'slice')!;
   expect(cycle.remediationRounds).toBe(1);
   expect(securityRuns).toBe(1);
@@ -14022,13 +14030,13 @@ it('holds a technical checkpoint for its mapped prerequisite without launching r
   await waitFor(
     () =>
       f.state.context.storage.execution.cycles
-        .list(f.state.workspaceId)
+        .listForWorkspace(f.state.workspaceId)
         .some((c) => !!c.workflow?.waiting),
     'checkpoint dependency wait',
     6000,
   );
   const cycle = f.state.context.storage.execution.cycles
-    .list(f.state.workspaceId)
+    .listForWorkspace(f.state.workspaceId)
     .find((c) => c.workflow?.waiting)!;
   expect(cycle.status).toBe('awaiting-merge');
   expect(cycle.workflow?.waiting).toContain('LOCAL-ADR-01');
@@ -14064,7 +14072,8 @@ it('holds specialist review while scheduling is paused and invalidates its recei
   await adoptSupervisedMap(f);
   f.service.save(f.auth, f.state.workspaceId, f.input);
   await roadmapControl(f.state, 'start');
-  const cycles = () => f.state.context.storage.execution.cycles.list(f.state.workspaceId);
+  const cycles = () =>
+    f.state.context.storage.execution.cycles.listForWorkspace(f.state.workspaceId);
   await waitFor(
     () => cycles().some((c) => c.status === 'awaiting-merge'),
     'paused specialist review',
@@ -14166,12 +14175,15 @@ it('routes a classified review question into the shared ADR inbox without approv
   await roadmapControl(f.state, 'start');
   const tx = f.state.context.storage;
   await waitFor(
-    () => tx.execution.cycles.list(f.state.workspaceId).some((c) => c.workflow?.questions.length),
+    () =>
+      tx.execution.cycles
+        .listForWorkspace(f.state.workspaceId)
+        .some((c) => c.workflow?.questions.length),
     'shared question',
     8000,
   );
   const cycle = tx.execution.cycles
-    .list(f.state.workspaceId)
+    .listForWorkspace(f.state.workspaceId)
     .find((c) => c.workflow?.questions.length)!;
   expect(cycle.status).toBe('needs-attention');
   const { architectureDecisionInbox } = await import('./services/architecture-decision-inbox.js');
@@ -14531,7 +14543,7 @@ it('prepares a decision before gated development, keeps it proposal-only, and bi
   expect(updated.definition).toEqual(saved.definition);
   expect(updated.attempts).toHaveLength(0);
   expect(updated.status).toBe('draft');
-  expect(tx.execution.cycles.list(ws)).toHaveLength(0);
+  expect(tx.execution.cycles.listForWorkspace(ws)).toHaveLength(0);
   expect(
     tx.planning.workItems.listForVersion(ws, saved.definition.entries[0]!.planVersionId),
   ).toEqual(beforeItems);
@@ -14695,7 +14707,7 @@ it('explicitly updates future delegation of started work without rewriting defin
   await waitFor(
     () =>
       tx.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .some((c) => ['needs-attention', 'awaiting-merge'].includes(c.status)),
     'missing reviewer delegation',
     10000,
@@ -14770,7 +14782,7 @@ it('explicitly updates future delegation of started work without rewriting defin
     10000,
   ).catch((error) => {
     throw new Error(
-      `${error.message}: ${JSON.stringify(tx.execution.cycles.list(ws).map((c) => ({ status: c.status, reason: c.reason, workflow: c.workflow })))}; roadmap=${JSON.stringify(storedRoadmap(f.state).entryHolds)}`,
+      `${error.message}: ${JSON.stringify(tx.execution.cycles.listForWorkspace(ws).map((c) => ({ status: c.status, reason: c.reason, workflow: c.workflow })))}; roadmap=${JSON.stringify(storedRoadmap(f.state).entryHolds)}`,
     );
   });
   const checkpoint = tx.runtimeEvidence

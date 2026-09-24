@@ -186,7 +186,7 @@ export function crossProjectState(
     const cycle =
       id &&
       tx.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .find(
           (c) =>
             c.workItemId === id &&

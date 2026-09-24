@@ -466,7 +466,7 @@ export class RuntimeEvidenceService {
         .filter((r) => r.definition.crossProject?.definitionId === id)
         .map((r) => ({ id: r.id, version: r.version })),
       cycles: this.storage.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .filter((c) => c.executionScope?.definitionId === id)
         .map((c) => ({ id: c.id, version: c.version, runId: c.currentRunId })),
       approval: this.storage.runtimeEvidence.nativeApprovals(ws, id, current.bindingRevision)[0],
@@ -2122,7 +2122,7 @@ export class RuntimeEvidenceService {
     const preparations =
       verification.mode === 'scoped-checks'
         ? this.storage.execution.cycles
-            .list(tree.workspaceId)
+            .listForWorkspace(tree.workspaceId)
             .filter(
               (c) =>
                 c.baselinePreparation?.status === 'prepared' &&

@@ -12,121 +12,18 @@ describe('configFromEnv', () => {
       publicOrigin: 'http://127.0.0.1:5173',
       secureCookies: false,
       sessionLifetimeSeconds: 2_592_000,
-      repositoryFeature: { enabled: false },
       drainTimeoutMs: 180_000,
     });
   });
 
-  const enabledRepositoryEnv = {
-    CRAFTINGTABLE_DATA_DIR: '/var/lib/craftingtable',
-    CRAFTINGTABLE_REPOSITORY_ROOTS: '/srv/repositories',
-    CRAFTINGTABLE_GIT_BIN: '/usr/bin/git',
-  } as const;
-
-  it('parses bin-only, search-only, and both explicit Git resolution forms (B2-CFG-003 A2B-CFG-003 A2B-CFG-005)', () => {
-    const binOnly = configFromEnv(enabledRepositoryEnv).repositoryFeature;
-    expect(binOnly).toMatchObject({
-      enabled: true,
-      allowedSourceRoots: ['/srv/repositories'],
-      reservedDataRoot: '/var/lib/craftingtable',
-      artifactRoot: '/var/lib/craftingtable/artifacts',
-      managedWorktreeRoot: '/var/lib/craftingtable/worktrees',
-      gitExecutable: '/usr/bin/git',
-      commandTimeoutMs: 5000,
-      creationTimeoutMs: 15000,
-      inspectionTimeoutMs: 15000,
-      retryDelayMs: 5000,
+  it('ignores the removed repository-inspector settings instead of failing startup (GIT-04)', () => {
+    const config = configFromEnv({
+      CRAFTINGTABLE_DATA_DIR: '/var/lib/craftingtable',
+      CRAFTINGTABLE_GIT_BIN: '/usr/bin/git',
+      CRAFTINGTABLE_GIT_TIMEOUT_MS: '1',
     });
-    expect(
-      configFromEnv({
-        ...enabledRepositoryEnv,
-        CRAFTINGTABLE_GIT_BIN: undefined,
-        CRAFTINGTABLE_GIT_SEARCH_PATH: '/opt/git/bin:/usr/local/bin',
-      }).repositoryFeature,
-    ).toMatchObject({ enabled: true, executableSearchPath: '/opt/git/bin:/usr/local/bin' });
-    expect(
-      configFromEnv({
-        ...enabledRepositoryEnv,
-        CRAFTINGTABLE_GIT_SEARCH_PATH: '/opt/git/bin',
-      }).repositoryFeature,
-    ).toMatchObject({
-      enabled: true,
-      gitExecutable: '/usr/bin/git',
-      executableSearchPath: '/opt/git/bin',
-    });
-  });
-
-  it('rejects absent roots, absent explicit Git resolution, and every empty explicit field (B2-CFG-004 A2B-CFG-004)', () => {
-    expect(() => configFromEnv({ CRAFTINGTABLE_GIT_BIN: '/usr/bin/git' })).toThrow(/ROOTS/);
-    expect(() =>
-      configFromEnv({
-        CRAFTINGTABLE_DATA_DIR: '/var/lib/craftingtable',
-        CRAFTINGTABLE_REPOSITORY_ROOTS: '/srv/repositories',
-      }),
-    ).toThrow(/GIT_BIN or CRAFTINGTABLE_GIT_SEARCH_PATH/);
-    for (const key of [
-      'CRAFTINGTABLE_REPOSITORY_ROOTS',
-      'CRAFTINGTABLE_ARTIFACT_ROOT',
-      'CRAFTINGTABLE_MANAGED_WORKTREE_ROOT',
-      'CRAFTINGTABLE_GIT_BIN',
-      'CRAFTINGTABLE_GIT_SEARCH_PATH',
-      'CRAFTINGTABLE_GIT_TIMEOUT_MS',
-      'CRAFTINGTABLE_GIT_CREATION_TIMEOUT_MS',
-      'CRAFTINGTABLE_GIT_INSPECTION_TIMEOUT_MS',
-      'CRAFTINGTABLE_GIT_STDOUT_LIMIT_BYTES',
-      'CRAFTINGTABLE_GIT_STDERR_LIMIT_BYTES',
-      'CRAFTINGTABLE_GIT_TERMINATION_GRACE_MS',
-      'CRAFTINGTABLE_REPOSITORY_PROVIDER_RETRY_DELAY_MS',
-    ] as const) {
-      expect(() => configFromEnv({ ...enabledRepositoryEnv, [key]: '' })).toThrow();
-    }
-  });
-
-  it('fails closed on every lexical root-policy error (B2-CFG-005)', () => {
-    for (const roots of [
-      'relative',
-      '/srv/repositories/../repositories',
-      '/srv/repositories\0child',
-      '/srv/repositories:colon',
-      '/srv/repositories:/srv/repositories',
-      '/srv:/srv/repositories',
-      '/var/lib/craftingtable/source',
-      `/srv/${'x'.repeat(4097)}`,
-    ]) {
-      expect(() =>
-        configFromEnv({ ...enabledRepositoryEnv, CRAFTINGTABLE_REPOSITORY_ROOTS: roots }),
-      ).toThrow(/ROOTS/);
-    }
-    expect(() =>
-      configFromEnv({
-        ...enabledRepositoryEnv,
-        CRAFTINGTABLE_REPOSITORY_ROOTS: Array.from(
-          { length: 33 },
-          (_, index) => `/srv/repository-${index}`,
-        ).join(':'),
-      }),
-    ).toThrow(/ROOTS/);
-    for (const dataDir of ['/var/lib/craftingtable/', '/var/lib/other/../craftingtable']) {
-      expect(() =>
-        configFromEnv({ ...enabledRepositoryEnv, CRAFTINGTABLE_DATA_DIR: dataDir }),
-      ).toThrow(/normalized/);
-    }
-  });
-
-  it('enforces exact numeric bounds and coherence (B2-CFG-004 B2-CFG-005)', () => {
-    const invalid = [
-      ['CRAFTINGTABLE_GIT_TIMEOUT_MS', '99'],
-      ['CRAFTINGTABLE_GIT_TIMEOUT_MS', '1.5'],
-      ['CRAFTINGTABLE_GIT_CREATION_TIMEOUT_MS', '4999'],
-      ['CRAFTINGTABLE_GIT_INSPECTION_TIMEOUT_MS', '9999'],
-      ['CRAFTINGTABLE_GIT_STDOUT_LIMIT_BYTES', '16383'],
-      ['CRAFTINGTABLE_GIT_STDERR_LIMIT_BYTES', '1023'],
-      ['CRAFTINGTABLE_GIT_TERMINATION_GRACE_MS', '49'],
-      ['CRAFTINGTABLE_REPOSITORY_PROVIDER_RETRY_DELAY_MS', '99'],
-    ] as const;
-    for (const [key, value] of invalid) {
-      expect(() => configFromEnv({ ...enabledRepositoryEnv, [key]: value })).toThrow();
-    }
+    expect(config.dataDir).toBe('/var/lib/craftingtable');
+    expect(config).not.toHaveProperty('repositoryFeature');
   });
 
   it('accepts explicit loopback hosts, HTTPS origin, and an absolute test directory', () => {

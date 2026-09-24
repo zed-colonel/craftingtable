@@ -258,7 +258,7 @@ export class NotificationService {
   }
   private attention(tx: StorageRepositories, settings: StoredNotificationSettings): Attention[] {
     const workspaceId = settings.workspaceId;
-    const cycles = tx.execution.cycles.list(workspaceId);
+    const cycles = tx.execution.cycles.listForWorkspace(workspaceId);
     const roadmaps = tx.roadmaps.list(workspaceId);
     const result: Attention[] = [];
     // Restart-stopped work is held in one per-boot message until it is seen leaving that state.

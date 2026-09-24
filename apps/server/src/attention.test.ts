@@ -125,7 +125,9 @@ describe('typed attention (R-A3)', () => {
     await f.services.roadmapService.tick();
     await stepController(f.services);
     await toMergeBoundary(f);
-    const cycle = f.context.storage.execution.cycles.list(f.workspaceId)[0] as WorkCycle;
+    const cycle = f.context.storage.execution.cycles.listForWorkspace(
+      f.workspaceId,
+    )[0] as WorkCycle;
     expect(storedCycle(f, cycle.id)).toMatchObject({
       status: 'awaiting-merge',
       attention: { code: 'merge-approval', owner: 'controller', claim: 'roadmap-merge' },

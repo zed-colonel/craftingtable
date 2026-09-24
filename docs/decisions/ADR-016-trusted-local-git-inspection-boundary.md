@@ -1,6 +1,6 @@
 # ADR-016 — Trusted local Git inspection boundary
 
-- **Status:** accepted
+- **Status:** superseded (2026-09-23, register item R-B8): the inspector was removed; live Git runs through `packages/git/src/operations.ts`
 - **Date:** 2026-07-26
 - **Amended:** 2026-07-26 after CT-04A1 initial review
 - **Amended:** 2026-07-27 after CT-04A1 remediation review

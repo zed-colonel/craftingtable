@@ -24,7 +24,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B5](#r-b5) | P4 | L | open | Event-driven controller kernel |
 | [R-B6](#r-b6) | P4 | M-L | open | Scoped consistency instead of whole-roadmap pause |
 | [R-B7](#r-b7) | P4 | L | open | Decompose the controller services along real boundaries |
-| [R-B8](#r-b8) | P1 | M | open | Remove dead and vestigial paths |
+| [R-B8](#r-b8) | P1 | M | partial (pending) | Remove dead and vestigial paths |
 | [R-B9](#r-b9) | P1 | M | done (4d81743) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | open | Measure operator-wait as a first-class metric |
@@ -34,7 +34,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C5](#r-c5) | P2 | M | open | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
-| [R-C8](#r-c8) | P1 | S | done (pending) | Schedule automatic retry for quota/session limits with a known reset time |
+| [R-C8](#r-c8) | P1 | S | done (5744289) | Schedule automatic retry for quota/session limits with a known reset time |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -209,11 +209,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B8
 
-**Remove dead and vestigial paths** · Phase P1 · Effort M · Status: open
+**Remove dead and vestigial paths** · Phase P1 · Effort M · Status: partial (pending)
 
 - **Resolves:** [CTRL-15](findings/CTRL-controller.md#ctrl-15-dead-and-vestigial-controller-paths), [GIT-04](findings/AGT-GIT-SEC-agents-git-security.md#git-04-the-ct-04a1-inspector-is-dead-code-about-78k-lines-but-is-still-composed-configured-and-tested), [DATA-09](findings/DATA-storage-domain-contracts.md#data-09-the-dead-ct-04a1a2-repository-inspector-and-registry-are-still-compiled-constructed-and-schema-resident), [QA-10](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-10-test-effort-is-weighted-toward-the-dormant-ct-04a-repository-inspection-feature)
 - **Change:** Delete the CT-04A1/A2 repository inspector, registry, provider, config keys and tests (drop the three empty tables in a forward migration; CRAFTINGTABLE_GIT_BIN currently crashes startup). Stop offering legacy finalization rounds for new finalizations while keeping the completed legacy record readable, then remove the legacy branches. Split WorkCycleRepository.list() into listActive()/listForWorkspace().
 - **Done when:** ~7-8k production and ~4.5k test lines removed; pnpm check green; the completed legacy finalization still renders.
+- **Progress:** The CT-04A1/A2 inspector is gone: `packages/git` keeps only `operations.ts`; the server observation port, adapter, policy and `RepositoryInspectorProvider` are removed; so are the storage registry repositories and write types, the domain and contract inspection model, and their tests. About 6.2k production and 5.9k test lines. `command-runner.ts` is off the process-authority list. The repository-feature configuration is removed, so `CRAFTINGTABLE_GIT_BIN` and the other inspector variables no longer enable a feature that crashes startup; they are ignored (config test). ADR-016, 017 and 019 are marked superseded and ADR-018 partly superseded. `WorkCycleRepository.list()` is split into `listActive()` and `listForWorkspace()`. **Not dropped:** the three empty tables. `workspace_events` has foreign keys into them, and SQLite refuses every insert into a child table whose parent table is missing, even with NULL keys (tried on a snapshot copy). Dropping them therefore needs the journal rebuild ADR-013 warns about. The journal keeps the `repository-*` kinds, correlation columns and checks, the status vocabulary they name (trimmed `domain/repository.ts`) and the display-name schema, and nothing writes them. Journal tests that used registry rows now use live kinds, or insert raw rows with foreign keys off. The 0004 migration tests keep schema preservation only. **Remaining:** stop offering legacy finalization rounds for new finalizations and remove the legacy branches. The legacy controller's execution tests (`beginFinalization` with rounds) must move to staged finalizations first; that also changes the finalization start form, so it needs walkthrough captures. The GIT-04 hardening harvest into the live runner is tracked under SEC-03.
 
 ### R-B9
 
@@ -285,7 +286,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C8
 
-**Schedule automatic retry for quota/session limits with a known reset time** · Phase P1 · Effort S · Status: done (pending)
+**Schedule automatic retry for quota/session limits with a known reset time** · Phase P1 · Effort S · Status: done (5744289)
 
 - **Resolves:** [AGT-60](findings/AGT-GIT-SEC-agents-git-security.md#agt-60-quota-and-session-limit-failures-with-a-known-reset-time-always-need-the-operator)
 - **Change:** When the vendor reports a reset time, schedule the retry at that time within the step deadline instead of stopping for the operator.

@@ -1,6 +1,6 @@
 # ADR-018 — Repository journal correlation
 
-- **Status:** accepted
+- **Status:** accepted; partly superseded (2026-09-23, register item R-B8): the journal keeps these kinds, correlation columns and checks, but nothing writes them since the registry was removed
 - **Date:** 2026-07-29
 
 ## Context

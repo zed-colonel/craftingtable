@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   asProjectId,
-  asProjectRepositoryBindingId,
   asUserId,
   asWorkspaceId,
   asWorkspaceMembershipId,
@@ -21,10 +20,8 @@ import {
   runMigrations,
 } from './migrations.js';
 import { planningRepositories } from './repositories/planning/index.js';
-import { repositoryRegistryRepositories } from './repositories/repository-registry/index.js';
 import { SqliteUserRepository } from './repositories/users.js';
 import { SqliteWorkspaceRepository } from './repositories/workspaces.js';
-import { repositoryRegistrationInspection } from './repository-test-support.js';
 
 const NOW = '2026-07-29T00:00:00.000Z';
 const directories: string[] = [];
@@ -39,9 +36,6 @@ interface Graph {
   readonly userId: ReturnType<typeof asUserId>;
   readonly workspaceId: ReturnType<typeof asWorkspaceId>;
   readonly projectId: ReturnType<typeof asProjectId>;
-  readonly repositoryId: ReturnType<typeof repositoryRegistrationInspection>['repositoryId'];
-  readonly inspectionId: ReturnType<typeof repositoryRegistrationInspection>['id'];
-  readonly bindingId: ReturnType<typeof asProjectRepositoryBindingId>;
 }
 
 function databasePath(): string {
@@ -64,11 +58,9 @@ function seedGraph(database: Database.Database, suffix: string): Graph {
   const userId = asUserId(`user-${suffix}`);
   const workspaceId = asWorkspaceId(`workspace-${suffix}`);
   const projectId = asProjectId(`project-${suffix}`);
-  const bindingId = asProjectRepositoryBindingId(`binding-${suffix}`);
   const users = new SqliteUserRepository(database);
   const workspaces = new SqliteWorkspaceRepository(database);
   const planning = planningRepositories(database);
-  const registry = repositoryRegistryRepositories(database);
 
   users.insert({
     id: userId,
@@ -100,94 +92,7 @@ function seedGraph(database: Database.Database, suffix: string): Graph {
     createdByUserId: userId,
   });
 
-  const inspection = repositoryRegistrationInspection({
-    suffix,
-    workspaceId,
-    actorUserId: userId,
-    createdAt: NOW,
-  });
-  const repository = registry.repositories.register({
-    id: inspection.repositoryId,
-    workspaceId,
-    displayName: `Repository ${suffix}`,
-    actorUserId: userId,
-    inspection,
-  });
-  if (repository.kind !== 'created') {
-    throw new Error(`Expected created repository, got ${repository.kind}`);
-  }
-  const binding = registry.bindings.insert({
-    id: bindingId,
-    workspaceId,
-    projectId,
-    repositoryId: inspection.repositoryId,
-    expectedRepositoryVersion: 1,
-    actorUserId: userId,
-    boundAt: NOW,
-  });
-  if (binding.kind !== 'created') {
-    throw new Error(`Expected created binding, got ${binding.kind}`);
-  }
-
-  return {
-    userId,
-    workspaceId,
-    projectId,
-    repositoryId: inspection.repositoryId,
-    inspectionId: inspection.id,
-    bindingId,
-  };
-}
-
-function seedSiblingGraph(database: Database.Database, parent: Graph, suffix: string): Graph {
-  const projectId = asProjectId(`project-${suffix}`);
-  const bindingId = asProjectRepositoryBindingId(`binding-${suffix}`);
-  const planning = planningRepositories(database);
-  const registry = repositoryRegistryRepositories(database);
-  planning.projects.insert({
-    id: projectId,
-    workspaceId: parent.workspaceId,
-    name: `Project ${suffix}`,
-    slug: `project-${suffix}`,
-    createdAt: NOW,
-    createdByUserId: parent.userId,
-  });
-  const inspection = repositoryRegistrationInspection({
-    suffix,
-    workspaceId: parent.workspaceId,
-    actorUserId: parent.userId,
-    createdAt: NOW,
-  });
-  const repository = registry.repositories.register({
-    id: inspection.repositoryId,
-    workspaceId: parent.workspaceId,
-    displayName: `Repository ${suffix}`,
-    actorUserId: parent.userId,
-    inspection,
-  });
-  if (repository.kind !== 'created') {
-    throw new Error(`Expected sibling repository, got ${repository.kind}`);
-  }
-  const binding = registry.bindings.insert({
-    id: bindingId,
-    workspaceId: parent.workspaceId,
-    projectId,
-    repositoryId: inspection.repositoryId,
-    expectedRepositoryVersion: 1,
-    actorUserId: parent.userId,
-    boundAt: NOW,
-  });
-  if (binding.kind !== 'created') {
-    throw new Error(`Expected sibling binding, got ${binding.kind}`);
-  }
-  return {
-    userId: parent.userId,
-    workspaceId: parent.workspaceId,
-    projectId,
-    repositoryId: inspection.repositoryId,
-    inspectionId: inspection.id,
-    bindingId,
-  };
+  return { userId, workspaceId, projectId };
 }
 
 function migrateToFour(
@@ -281,15 +186,6 @@ function workspaceEventSchemaObjects(database: Database.Database) {
        ORDER BY type, name`,
     )
     .all();
-}
-
-function correlationContext() {
-  const { database, migrations } = schemaThreeDatabase();
-  const first = seedGraph(database, 'first');
-  const foreign = seedGraph(database, 'foreign');
-  const sibling = seedSiblingGraph(database, first, 'sibling');
-  migrateToFour(database, migrations);
-  return { database, first, foreign, sibling };
 }
 
 describe('migration 0004 repository journal', () => {
@@ -684,242 +580,6 @@ describe('migration 0004 repository journal', () => {
     ).toEqual([]);
     expect(workspaceEventSchemaObjects(database)).toHaveLength(3);
     expect(database.pragma('foreign_key_check')).toEqual([]);
-    database.close();
-  });
-
-  it('B1-COR-001 accepts every legal same-workspace structural correlation', () => {
-    const { database, migrations } = schemaThreeDatabase();
-    const graph = seedGraph(database, 'legal');
-    migrateToFour(database, migrations);
-
-    expect(() =>
-      insertEvent(database, {
-        id: 'registered-legal',
-        workspaceId: graph.workspaceId,
-        kind: 'repository-registered',
-        repositoryId: graph.repositoryId,
-        inspectionId: graph.inspectionId,
-      }),
-    ).not.toThrow();
-    expect(() =>
-      insertEvent(database, {
-        id: 'status-inspection-legal',
-        workspaceId: graph.workspaceId,
-        kind: 'repository-status-changed',
-        repositoryId: graph.repositoryId,
-        inspectionId: graph.inspectionId,
-      }),
-    ).not.toThrow();
-    expect(() =>
-      insertEvent(database, {
-        id: 'evidence-legal',
-        workspaceId: graph.workspaceId,
-        kind: 'repository-evidence-changed',
-        repositoryId: graph.repositoryId,
-        inspectionId: graph.inspectionId,
-      }),
-    ).not.toThrow();
-    for (const kind of [
-      'project-repository-bound',
-      'project-repository-binding-retired',
-    ] as const) {
-      expect(() =>
-        insertEvent(database, {
-          id: `${kind}-legal`,
-          workspaceId: graph.workspaceId,
-          kind,
-          projectId: graph.projectId,
-          repositoryId: graph.repositoryId,
-          bindingId: graph.bindingId,
-        }),
-      ).not.toThrow();
-    }
-    database.close();
-  });
-
-  it('B1-COR-002 and A2B-JRN-002 reject a repository owned by a foreign workspace', () => {
-    const { database, first, foreign } = correlationContext();
-    expect(() =>
-      insertEvent(database, {
-        id: 'foreign-repository',
-        workspaceId: first.workspaceId,
-        kind: 'repository-status-changed',
-        repositoryId: foreign.repositoryId,
-      }),
-    ).toThrow(/FOREIGN KEY/);
-    database.close();
-  });
-
-  it('B1-COR-003 rejects a missing repository parent', () => {
-    const { database, first } = correlationContext();
-    expect(() =>
-      insertEvent(database, {
-        id: 'missing-repository',
-        workspaceId: first.workspaceId,
-        kind: 'repository-status-changed',
-        repositoryId: 'repository-missing',
-      }),
-    ).toThrow(/FOREIGN KEY/);
-    database.close();
-  });
-
-  it('B1-COR-004 and A2B-JRN-003 reject an inspection owned by a sibling repository', () => {
-    const { database, first, sibling } = correlationContext();
-    expect(() =>
-      insertEvent(database, {
-        id: 'sibling-inspection',
-        workspaceId: first.workspaceId,
-        kind: 'repository-evidence-changed',
-        repositoryId: first.repositoryId,
-        inspectionId: sibling.inspectionId,
-      }),
-    ).toThrow(/FOREIGN KEY/);
-    database.close();
-  });
-
-  it('B1-COR-005 rejects an inspection correlation without a repository', () => {
-    const { database, first } = correlationContext();
-    expect(() =>
-      insertEvent(database, {
-        id: 'inspection-without-repository',
-        workspaceId: first.workspaceId,
-        kind: 'repository-evidence-changed',
-        inspectionId: first.inspectionId,
-      }),
-    ).toThrow(/CHECK/);
-    database.close();
-  });
-
-  it('B1-COR-006 and A2B-JRN-004 reject a binding owned by a sibling project and repository', () => {
-    const { database, first, sibling } = correlationContext();
-    expect(() =>
-      insertEvent(database, {
-        id: 'sibling-project-binding',
-        workspaceId: first.workspaceId,
-        kind: 'project-repository-bound',
-        projectId: first.projectId,
-        repositoryId: sibling.repositoryId,
-        bindingId: sibling.bindingId,
-      }),
-    ).toThrow(/FOREIGN KEY/);
-    database.close();
-  });
-
-  it('B1-COR-007 rejects a binding correlation without its project', () => {
-    const { database, first } = correlationContext();
-    expect(() =>
-      insertEvent(database, {
-        id: 'binding-without-project',
-        workspaceId: first.workspaceId,
-        kind: 'project-repository-bound',
-        repositoryId: first.repositoryId,
-        bindingId: first.bindingId,
-      }),
-    ).toThrow(/CHECK/);
-    database.close();
-  });
-
-  it('B1-COR-008 rejects repository correlations on legacy event kinds', () => {
-    const { database, first } = correlationContext();
-    expect(() =>
-      insertEvent(database, {
-        id: 'legacy-with-repository',
-        workspaceId: first.workspaceId,
-        kind: 'workspace-created',
-        repositoryId: first.repositoryId,
-      }),
-    ).toThrow(/CHECK/);
-    database.close();
-  });
-
-  it('B1-COR-009 rejects repository registration without an inspection', () => {
-    const { database, first } = correlationContext();
-    expect(() =>
-      insertEvent(database, {
-        id: 'registration-without-inspection',
-        workspaceId: first.workspaceId,
-        kind: 'repository-registered',
-        repositoryId: first.repositoryId,
-      }),
-    ).toThrow(/CHECK/);
-    database.close();
-  });
-
-  it('B1-COR-010 rejects repository evidence change without an inspection', () => {
-    const { database, first } = correlationContext();
-    expect(() =>
-      insertEvent(database, {
-        id: 'evidence-without-inspection',
-        workspaceId: first.workspaceId,
-        kind: 'repository-evidence-changed',
-        repositoryId: first.repositoryId,
-      }),
-    ).toThrow(/CHECK/);
-    database.close();
-  });
-
-  it('B1-COR-011 permits status correlation without inspection while Zod proves retirement', () => {
-    const { database, first } = correlationContext();
-    expect(() =>
-      insertEvent(database, {
-        id: 'status-without-inspection',
-        workspaceId: first.workspaceId,
-        kind: 'repository-status-changed',
-        repositoryId: first.repositoryId,
-      }),
-    ).not.toThrow();
-    database.close();
-  });
-
-  it('B1-COR-012 rejects binding work-item, inspection, and run correlations', () => {
-    const { database, first } = correlationContext();
-    const illegalDimensions = [
-      { inspectionId: first.inspectionId },
-      { workItemId: 'work-item-illegal' },
-      { runId: 'run-illegal' },
-    ];
-    for (const [index, illegal] of illegalDimensions.entries()) {
-      expect(() =>
-        insertEvent(database, {
-          id: `binding-illegal-dimension-${index}`,
-          workspaceId: first.workspaceId,
-          kind: 'project-repository-bound',
-          projectId: first.projectId,
-          repositoryId: first.repositoryId,
-          bindingId: first.bindingId,
-          ...illegal,
-        }),
-      ).toThrow();
-    }
-    database.close();
-  });
-
-  it('B1-COR-014 forces repository correlations NULL for an unlisted future kind', () => {
-    const { database, migrations } = schemaThreeDatabase();
-    const graph = seedGraph(database, 'future');
-    migrateToFour(database, migrations);
-    database
-      .prepare(
-        `INSERT INTO workspace_event_kinds (kind, introduced_in_schema)
-         VALUES ('future-schema-five-kind', 5)`,
-      )
-      .run();
-
-    expect(() =>
-      insertEvent(database, {
-        id: 'future-with-repository',
-        workspaceId: graph.workspaceId,
-        kind: 'future-schema-five-kind',
-        repositoryId: graph.repositoryId,
-      }),
-    ).toThrow(/CHECK/);
-    expect(() =>
-      insertEvent(database, {
-        id: 'future-without-repository',
-        workspaceId: graph.workspaceId,
-        kind: 'future-schema-five-kind',
-      }),
-    ).not.toThrow();
     database.close();
   });
 });

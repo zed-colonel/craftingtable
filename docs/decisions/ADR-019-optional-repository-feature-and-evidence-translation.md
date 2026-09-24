@@ -1,6 +1,6 @@
 # ADR-019 — Optional repository feature and evidence translation
 
-- **Status:** accepted
+- **Status:** superseded (2026-09-23, register item R-B8): the optional feature and its configuration were removed; its environment variables are ignored
 - **Date:** 2026-08-11
 
 ## Context

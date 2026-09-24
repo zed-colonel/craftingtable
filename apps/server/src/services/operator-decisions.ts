@@ -11,7 +11,7 @@ export function operatorDecisions(
 ) {
   const ids = new Set(workItemIds);
   const records = tx.execution.cycles
-    .list(workspaceId)
+    .listForWorkspace(workspaceId)
     .filter(
       (c) =>
         c.workItemId &&

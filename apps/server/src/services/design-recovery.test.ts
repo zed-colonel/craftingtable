@@ -50,7 +50,7 @@ function fixture() {
       artifacts: { listForVersion: () => [], findWithContent: () => undefined },
     },
     execution: {
-      cycles: { list: () => [] },
+      cycles: { listActive: () => [], listForWorkspace: () => [] },
       branchSettings: {},
       sourceRepositories: {},
       worktrees: {

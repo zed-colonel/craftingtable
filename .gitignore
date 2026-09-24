@@ -24,7 +24,7 @@ tmp/
 *.sqlite-shm
 
 # Git package test scratch
-.ct04a-*/
+.git-operations-test-*/
 
 # Editor and OS files
 .DS_Store

@@ -160,7 +160,7 @@ export function collectScopeRepair(tx: StorageRepositories, cycle: WorkCycle) {
     .map((s) => {
       const ownerScope: ExecutionScope = { ...scope, kind: 'slice', sourceId: s.id };
       const prior = tx.execution.cycles
-        .list(ws)
+        .listForWorkspace(ws)
         .find((c) => c.workItemId === itemId && sameExecutionScope(c.executionScope, ownerScope));
       const existing = tx.execution.worktrees
         .listForWorkItem(ws, itemId)
@@ -193,7 +193,7 @@ export function collectScopeRepair(tx: StorageRepositories, cycle: WorkCycle) {
       };
     });
   const reviewCycles = tx.execution.cycles
-    .list(ws)
+    .listForWorkspace(ws)
     .filter(
       (c) =>
         c.workItemId === itemId &&

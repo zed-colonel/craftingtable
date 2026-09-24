@@ -1371,7 +1371,7 @@ export class ExecutionService {
             const review = this.storage.execution.runs.find(workspaceId, gate.reviewRunId);
             const reviewed = await this.branches.assertReview(worktree, review);
             const securityCycle = this.storage.execution.cycles
-              .list(workspaceId)
+              .listForWorkspace(workspaceId)
               .find((c) => c.worktreeId === worktree.id && c.workflow?.securityRequired);
             if (securityCycle) {
               const receipt = securityCycle.workflow?.securityReceipt;

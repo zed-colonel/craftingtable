@@ -34,13 +34,6 @@ import {
 import { PackageImportService } from './services/package-import-service.js';
 import { PlanImportService } from './services/plan-import-service.js';
 import { PlanningQueryService } from './services/planning-query-service.js';
-import {
-  type MonotonicClock,
-  PERFORMANCE_MONOTONIC_CLOCK,
-  RepositoryInspectorProvider,
-  type RepositoryObservationPortFactory,
-} from './services/repository-inspector-provider.js';
-import { createRepositoryObservationPort } from './services/repository-observation-adapter.js';
 import { RoadmapService } from './services/roadmap-service.js';
 import { RunEventStreamService } from './services/run-event-stream-service.js';
 import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
@@ -74,7 +67,6 @@ export interface ServiceSet {
   readonly workItemService: WorkItemService;
   readonly workspaceEventNotifier: WorkspaceEventNotifier;
   readonly workspaceEventStreamService: WorkspaceEventStreamService;
-  readonly repositoryInspectorProvider: RepositoryInspectorProvider;
   readonly executionService: ExecutionService;
   readonly agentRunService: AgentRunService;
   readonly workCycleService: WorkCycleService;
@@ -88,9 +80,6 @@ export interface ServiceOverrides {
   readonly passwordHasher?: PasswordHasher;
   readonly now?: () => Date;
   readonly streamHooks?: WorkspaceEventStreamHooks;
-  readonly repositoryInspectorProvider?: RepositoryInspectorProvider;
-  readonly repositoryObservationPortFactory?: RepositoryObservationPortFactory;
-  readonly repositoryProviderClock?: MonotonicClock;
   /** Test seam: a Git operations implementation or `null` to simulate no Git. */
   readonly gitOperations?: GitOperations | null;
   /** Test seam: an agent backend or `null` to simulate a missing executable. */
@@ -120,20 +109,6 @@ export async function createServices(
   const planImportService = new PlanImportService(storage, workspaceService, notifier, now);
   const workItemService = new WorkItemService(storage, workspaceService, notifier, now);
   const planningQueryService = new PlanningQueryService(storage, workspaceService, workItemService);
-  const repositoryFeature = config.repositoryFeature;
-  const repositoryInspectorProvider =
-    overrides.repositoryInspectorProvider ??
-    new RepositoryInspectorProvider(
-      repositoryFeature,
-      overrides.repositoryObservationPortFactory ??
-        (repositoryFeature.enabled
-          ? async (onInvariantFault) =>
-              await createRepositoryObservationPort(repositoryFeature, onInvariantFault)
-          : async () => {
-              throw new Error('Disabled repository provider factory must not be called');
-            }),
-      overrides.repositoryProviderClock ?? PERFORMANCE_MONOTONIC_CLOCK,
-    );
   const gitExecutable =
     overrides.gitOperations === undefined
       ? resolveExecutable('git', config.execution.gitExecutable)
@@ -337,7 +312,6 @@ export async function createServices(
       notifier,
       overrides.streamHooks,
     ),
-    repositoryInspectorProvider,
     executionService,
     agentRunService,
     workCycleService,

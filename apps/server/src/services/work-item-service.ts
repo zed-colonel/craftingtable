@@ -146,7 +146,7 @@ export class WorkItemService {
     else if (this.preparing.has(item.id)) reason = 'A worktree is being prepared for this item.';
     else if (
       tx.execution.runs.listForWorkItem(workspaceId, item.id).length ||
-      tx.execution.cycles.list(workspaceId).some((c) => c.workItemId === item.id)
+      tx.execution.cycles.listForWorkspace(workspaceId).some((c) => c.workItemId === item.id)
     )
       reason = 'This item has run or automation history and has already started.';
     else if (

@@ -1,6 +1,6 @@
 # ADR-017 — Repository evidence and persistence
 
-- **Status:** accepted
+- **Status:** superseded (2026-09-23, register item R-B8): the registry code was removed. Its three tables stay, empty, because `workspace_events` foreign keys reference them
 - **Date:** 2026-07-28
 
 ## Context

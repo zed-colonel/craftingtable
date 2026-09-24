@@ -27,7 +27,7 @@ export class HostSchedulingService {
     this.authorize(context, workspaceId);
     const setting = this.storage.phaseScheduling.setting('local-verification');
     const development = this.storage.phaseScheduling.setting('local-development');
-    const cycles = this.storage.execution.cycles.list();
+    const cycles = this.storage.execution.cycles.listActive();
     const reservations = this.storage.phaseScheduling
       .active()
       .filter((r) => ['local-development', 'local-verification'].includes(r.resourceKey));

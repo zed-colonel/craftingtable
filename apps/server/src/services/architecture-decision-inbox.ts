@@ -57,7 +57,7 @@ export function architectureDecisionInbox(
     }
   >();
   const cycles = tx.execution.cycles
-    .list(ws)
+    .listForWorkspace(ws)
     .filter((c) => c.executionScope?.definitionId === d.id);
   // Include stopped designs even after substantial activity elsewhere pushes them off the recent list.
   const runs = [

@@ -282,6 +282,11 @@ export interface ProviderFailure {
   readonly message: string;
   /** False for outstanding tools, interactive requests, or an unconfirmed terminal failure. */
   readonly safeToRetry: boolean;
+  /**
+   * For `quota`: when the provider said the exhausted allowance resets, from its structured
+   * rate-limit report. The controller waits until then instead of stopping (R-C8).
+   */
+  readonly resetsAt?: string;
 }
 
 export interface AgentRunEventPayloads {

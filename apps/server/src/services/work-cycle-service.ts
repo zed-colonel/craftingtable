@@ -2147,7 +2147,11 @@ export class WorkCycleService {
       case 'schedule-service-retry':
         this.change(
           cycle,
-          { providerRecovery: decision.providerRecovery, reason: decision.reason },
+          {
+            providerRecovery: decision.providerRecovery,
+            ...(decision.runDeadlineAt ? { runDeadlineAt: decision.runDeadlineAt } : {}),
+            reason: decision.reason,
+          },
           'provider-backoff',
         );
         return;

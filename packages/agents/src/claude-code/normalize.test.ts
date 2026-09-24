@@ -311,13 +311,50 @@ describe('recorded provider failures', () => {
     ['claude-server-error', 'unavailable', true],
     ['claude-error-during-execution', 'unavailable', true],
     ['claude-overloaded-pending-tool', 'capacity', false],
-    ['claude-session-limit', 'quota', false],
+    ['claude-session-limit', 'quota', true],
     ['claude-authentication', 'authentication', false],
     ['claude-invalid-request', 'unknown', false],
   ] as const)('%s is classified as %s (retry %s)', (name, kind, safeToRetry) => {
     expect(replay(name)).toMatchObject({
       outcome: 'error',
       providerFailure: { kind, safeToRetry },
+    });
+  });
+
+  it('carries the reset time of a rejected allowance so the controller can wait for it', () => {
+    expect(replay('claude-session-limit')).toMatchObject({
+      providerFailure: { kind: 'quota', safeToRetry: true, resetsAt: '2026-09-15T14:50:00.000Z' },
+    });
+    const subject = normalizer();
+    const send = (message: unknown) => subject.normalizeLine(JSON.stringify(message));
+    const limited = {
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      api_error_status: 429,
+      terminal_reason: 'api_error',
+    };
+    // Without a reported reset, or after the allowance is restored, the operator decides.
+    expect(send(limited)[0]?.payload).toMatchObject({
+      providerFailure: { kind: 'quota', safeToRetry: false },
+    });
+    send({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: 1789483800 },
+    });
+    send({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } });
+    expect(send(limited)[0]?.payload).not.toHaveProperty('providerFailure.resetsAt');
+    // A reset applies to one result only.
+    send({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: 1789483800 },
+    });
+    expect(send(limited)[0]?.payload).toHaveProperty('providerFailure.resetsAt');
+    expect(send(limited)[0]?.payload).not.toHaveProperty('providerFailure.resetsAt');
+    // A billing failure with no reset stays with the operator.
+    send({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected' } });
+    expect(send({ ...limited, api_error_status: 402 })[0]?.payload).toMatchObject({
+      providerFailure: { kind: 'quota', safeToRetry: false },
     });
   });
 

@@ -102,6 +102,8 @@ export type StepOutcomeDecision = {
   | {
       readonly kind: 'schedule-service-retry';
       readonly providerRecovery: NonNullable<WorkCycle['providerRecovery']>;
+      /** Present for a quota wait: the step deadline moved by the time spent waiting (R-C8). */
+      readonly runDeadlineAt?: string;
       readonly reason: string;
     }
   | {
@@ -196,6 +198,12 @@ const CHECKPOINT_ISSUE =
 const REVIEW_REPORT_ISSUE = 'A complete, valid structured review report is required.';
 /** ADR-062: same-step service retries after 1, 5 and 15 minutes. */
 const SERVICE_RETRY_DELAYS_MS = [60_000, 300_000, 900_000] as const;
+/**
+ * R-C8: a used-up allowance with a reported reset is retried this long after the reset. A
+ * reset further away than the limit (a weekly allowance) stops for the operator.
+ */
+const QUOTA_RESET_MARGIN_MS = 120_000;
+export const QUOTA_WAIT_LIMIT_MS = 6 * 60 * 60_000;
 
 function attention(code: StepAttentionCode, message: string, workflow?: WorkCycle['workflow']) {
   return { kind: 'attention' as const, code, message, ...(workflow ? { workflow } : {}) };
@@ -254,9 +262,13 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
           (OPEN_QUESTIONS.test(message.text) && !finalizationHasNoQuestions(message.text)),
       );
     const model = cycle.providerRecovery?.profile.model ?? run.model ?? run.resolvedModel;
+    const resetAt =
+      failure.kind === 'quota' && failure.resetsAt ? Date.parse(failure.resetsAt) : Number.NaN;
+    const quotaWait =
+      Number.isFinite(resetAt) && resetAt - facts.now.getTime() <= QUOTA_WAIT_LIMIT_MS;
     const retryable =
       failure.safeToRetry &&
-      ['capacity', 'unavailable', 'transport'].includes(failure.kind) &&
+      (['capacity', 'unavailable', 'transport'].includes(failure.kind) || quotaWait) &&
       turn !== undefined &&
       turn.payload.outcome === 'error' &&
       !turn.payload.truncated &&
@@ -274,10 +286,16 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
         }`,
       );
     // attempts is 0, 1 or 2 here: three and more stopped above.
-    const delay = SERVICE_RETRY_DELAYS_MS[attempts] ?? SERVICE_RETRY_DELAYS_MS[2];
+    const delay = quotaWait
+      ? Math.max(SERVICE_RETRY_DELAYS_MS[0], resetAt + QUOTA_RESET_MARGIN_MS - facts.now.getTime())
+      : (SERVICE_RETRY_DELAYS_MS[attempts] ?? SERVICE_RETRY_DELAYS_MS[2]);
     const nextRetryAt = new Date(facts.now.getTime() + delay).toISOString();
     return {
       kind: 'schedule-service-retry',
+      // A resource-free wait for the allowance does not use up the step's own time.
+      ...(quotaWait
+        ? { runDeadlineAt: new Date(Date.parse(cycle.runDeadlineAt) + delay).toISOString() }
+        : {}),
       providerRecovery: {
         attempts,
         sourceRunId: run.id,
@@ -290,7 +308,9 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
         },
         nextRetryAt,
       },
-      reason: `${failure.message} Service retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}. Roadmap pauses hold retries.`,
+      reason: quotaWait
+        ? `${failure.message} The allowance resets at ${failure.resetsAt}; retry ${attempts + 1} of 3 on the same agent is scheduled for ${nextRetryAt}, and the step time limit moves with the wait. Roadmap pauses hold retries.`
+        : `${failure.message} Service retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}. Roadmap pauses hold retries.`,
     };
   }
   if (ended?.payload.reason) {

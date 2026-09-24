@@ -172,6 +172,8 @@ export interface ClaudeNormalizerOptions {
 export class ClaudeStreamNormalizer {
   private sessionStarted = false;
   private providerFailure: ProviderFailure | undefined;
+  /** When the allowance a `rejected` rate-limit report named resets (R-C8). */
+  private quotaResetsAt: string | undefined;
   private interactiveRequest = false;
   private readonly pendingTools = new Set<string>();
   private readonly backgroundTasks = new Set<string>();
@@ -423,11 +425,18 @@ export class ClaudeStreamNormalizer {
     // Claude Code reports an API failure as `terminal_reason: 'api_error'` with the HTTP status,
     // even when the result subtype is `success` (with `is_error: true`).
     const apiError = message.terminal_reason === 'api_error';
-    const failure = combineFailures(
+    const combined = combineFailures(
       this.providerFailure,
       apiError ? apiStatusFailure(message.api_error_status) : undefined,
     );
+    // A used-up allowance with a reported reset is safe to retry once it resets; every
+    // other condition below (outstanding tools, interaction, background work) still applies.
+    const failure =
+      combined?.kind === 'quota' && this.quotaResetsAt
+        ? { ...combined, safeToRetry: true, resetsAt: this.quotaResetsAt }
+        : combined;
     this.providerFailure = undefined;
+    this.quotaResetsAt = undefined;
     const pendingBackground = this.hasUncollectedBackgroundWork;
     this.backgroundAfterResult = false;
     const isError = message.is_error === true || message.subtype !== 'success';
@@ -478,7 +487,15 @@ export class ClaudeStreamNormalizer {
   ): readonly NormalizedAgentEvent[] {
     const info = isRecord(message.rate_limit_info) ? message.rate_limit_info : {};
     if (info.status === 'allowed') {
+      this.quotaResetsAt = undefined;
       return [];
+    }
+    if (info.status === 'rejected') {
+      const seconds = info.resetsAt;
+      this.quotaResetsAt =
+        typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0
+          ? new Date(seconds * 1000).toISOString()
+          : undefined;
     }
     return [
       {

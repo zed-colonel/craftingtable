@@ -28,13 +28,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B9](#r-b9) | P1 | M | done (4d81743) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | open | Measure operator-wait as a first-class metric |
-| [R-C2](#r-c2) | P1 | S-M | done (pending) | Re-prompt the agent automatically on output-format validation failures |
+| [R-C2](#r-c2) | P1 | S-M | done (f049b3a) | Re-prompt the agent automatically on output-format validation failures |
 | [R-C3](#r-c3) | P2 | M | open | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | open | Refresh and re-review automatically when only upstream integration advanced |
 | [R-C5](#r-c5) | P2 | M | open | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
-| [R-C8](#r-c8) | P1 | S | open | Schedule automatic retry for quota/session limits with a known reset time |
+| [R-C8](#r-c8) | P1 | S | done (pending) | Schedule automatic retry for quota/session limits with a known reset time |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -236,7 +236,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C2
 
-**Re-prompt the agent automatically on output-format validation failures** · Phase P1 · Effort S-M · Status: done (pending)
+**Re-prompt the agent automatically on output-format validation failures** · Phase P1 · Effort S-M · Status: done (f049b3a)
 
 - **Resolves:** [HIST-10](findings/HIST-history-and-live-usage.md#hist-10-agent-output-format-validation-becomes-operator-stops-instead-of-automatic-re-prompts), [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes)
 - **Change:** When a design classification, structured review report or "## Open questions" section fails validation, send one bounded follow-up turn to the same session quoting the validator errors (up to 2 attempts) before stopping for the operator. Record the attempts in the stop record.
@@ -285,11 +285,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C8
 
-**Schedule automatic retry for quota/session limits with a known reset time** · Phase P1 · Effort S · Status: open
+**Schedule automatic retry for quota/session limits with a known reset time** · Phase P1 · Effort S · Status: done (pending)
 
 - **Resolves:** [AGT-60](findings/AGT-GIT-SEC-agents-git-security.md#agt-60-quota-and-session-limit-failures-with-a-known-reset-time-always-need-the-operator)
 - **Change:** When the vendor reports a reset time, schedule the retry at that time within the step deadline instead of stopping for the operator.
 - **Done when:** A recorded session-limit fixture produces a scheduled retry.
+- **Progress:** `ProviderFailure.resetsAt` (optional). The Claude normalizer keeps the reset time from a `rejected` `rate_limit_event` (`rate_limit_info.resetsAt`) and attaches it to the next `quota` failure, which is then marked safe to retry, subject to the existing checks (no outstanding tools, interaction or background work). The reset time applies to one result, and an `allowed` report clears it. `decideStepOutcome` treats a quota failure with a reset time no more than 6 h away (`QUOTA_WAIT_LIMIT_MS`) as a service retry. The retry is scheduled 2 minutes after the reset, or after 1 minute if the reset has passed, on the same agent. It counts toward ADR-062's three retries, and roadmap pauses hold it. The step deadline moves by the time waited, as `phaseWait` already does, so the wait does not use up the step's time. Weekly allowances, billing failures and quota errors without a reset time still stop for the operator. Codex reports no reset time in its structured errors, so Codex quota failures are unchanged. Not in this change: ending the session promptly on a terminal quota error (run 736446e8 kept running background sub-agents for 31 minutes), and a single "paused until" notification. The wait is a running cycle and does not page. Tests: the recorded `claude-session-limit` fixture now schedules a retry at 14:52 for a 14:50 reset and relaunches the same model (`server-execution.test.ts`); normalizer and decision-table cases.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

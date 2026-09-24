@@ -13482,7 +13482,6 @@ describe('bounded model service recovery', () => {
   });
 
   it.each([
-    'claude-session-limit',
     'claude-overloaded-pending-tool',
     'codex-usage-limit',
     'codex-delegated-then-overloaded',
@@ -13494,6 +13493,41 @@ describe('bounded model service recovery', () => {
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'safe hold');
     expect(backend.launches).toHaveLength(1);
     expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
+  });
+
+  it('waits for a recorded session limit to reset, then retries the same agent (R-C8)', async () => {
+    // The fixture's rate-limit report says the five-hour allowance resets at 14:50 UTC.
+    let now = new Date('2026-09-15T12:00:00Z');
+    const failure = recordedFailure('claude-session-limit');
+    expect(failure).toMatchObject({
+      kind: 'quota',
+      safeToRetry: true,
+      resetsAt: '2026-09-15T14:50:00.000Z',
+    });
+    const { state, backend, worktree } = await cycleFixture(
+      [{ resultText: 'API Error', providerFailure: failure }, designDone],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id);
+    const deadline = Date.parse(currentCycle(state, cycle).runDeadlineAt);
+    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'quota wait');
+    const waiting = currentCycle(state, cycle);
+    expect(waiting).toMatchObject({
+      status: 'running',
+      providerRecovery: { attempts: 0, failure, nextRetryAt: '2026-09-15T14:52:00.000Z' },
+    });
+    expect(waiting.attention).toBeUndefined();
+    // The wait does not use up the step's own time.
+    expect(Date.parse(waiting.runDeadlineAt) - deadline).toBe(172 * 60_000);
+    expect(waiting.reason).toContain('resets at 2026-09-15T14:50:00.000Z');
+
+    now = new Date('2026-09-15T14:52:00Z');
+    await waitFor(() => backend.launches.length === 3, 'retried design, then implementation');
+    expect(backend.launches.map((launch) => launch.model)).toEqual([
+      'design-model',
+      'design-model',
+      'implement-model',
+    ]);
   });
 
   it('does not extend the deadline for a provider retry', async () => {

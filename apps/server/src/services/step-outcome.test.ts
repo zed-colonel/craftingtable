@@ -530,6 +530,40 @@ describe('controller step classification (R-B2)', () => {
     );
   });
 
+  it('waits for a reported allowance reset and moves the step deadline with it (R-C8)', () => {
+    const quota = (resetsAt: string) => ({
+      kind: 'quota',
+      message: 'The model service reported an allowance or rate limit.',
+      safeToRetry: true,
+      resetsAt,
+    });
+    const decide = (resetsAt: string) =>
+      decideStepOutcome(
+        cycleOf(),
+        facts({
+          run: failedRun,
+          turn: turnOf('API Error', { outcome: 'error', providerFailure: quota(resetsAt) }),
+          ended: endedOf({ status: 'failed', exitCode: 1 }),
+        }),
+      );
+    expect(decide('2026-09-23T14:50:00.000Z')).toMatchObject({
+      kind: 'schedule-service-retry',
+      providerRecovery: { attempts: 0, nextRetryAt: '2026-09-23T14:52:00.000Z' },
+      runDeadlineAt: '2026-09-23T15:52:00.000Z',
+    });
+    // An allowance that has already reset is retried after the shortest backoff.
+    expect(decide('2026-09-23T11:00:00.000Z')).toMatchObject({
+      kind: 'schedule-service-retry',
+      providerRecovery: { nextRetryAt: '2026-09-23T12:01:00.000Z' },
+      runDeadlineAt: '2026-09-23T13:01:00.000Z',
+    });
+    // A weekly allowance is beyond the wait limit and stays with the operator.
+    expect(decide('2026-09-28T00:00:00.000Z')).toMatchObject({
+      kind: 'attention',
+      code: 'service-failure-not-retryable',
+    });
+  });
+
   it('records a changed workflow classification with the decision that follows it', () => {
     const decision = decideStepOutcome(
       cycleOf({ executionScope: { kind: 'slice' } }),

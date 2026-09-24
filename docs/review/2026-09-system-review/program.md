@@ -198,9 +198,10 @@ Exit criteria:
 
 **Data and controller batch (2026-09-24, same branch).** Working through R-H3, R-H2, R-B3 and R-G7, then
 R-A7's remainder.
-- **R-H3: in progress.** The core is in: upcasters at the read boundary, contract-guarded writes, domain/contract
-  equivalence, `pnpm db:verify` and rebuild preservation tests. On a copy of the 2026-09-23 snapshot it reads
-  54,152 records and finds one invalid, which is fixed in the next commit.
+- **R-H3: done.** Upcasters at the read boundary, contract-guarded writes, domain/contract equivalence,
+  `pnpm db:verify` and rebuild preservation tests. On a copy of the 2026-09-23 snapshot it passes: 54,152 records,
+  three upcasts, one invalid record found and fixed with an upcaster (a run summary bounded in characters). Every
+  test daemon verifies its database at cleanup. `pnpm test`: 1,359 tests in 76 s, load average about 4.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 

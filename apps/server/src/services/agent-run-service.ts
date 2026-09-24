@@ -42,13 +42,14 @@ import {
   type WorkspaceId,
   type Worktree,
   type WorktreeId,
+  OUTCOME_SUMMARY_LIMIT_BYTES,
+  truncateUtf8Bytes,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import { cycleAgentSelection } from './agent-profile-policy.js';
 import type { AuthContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
-import { truncateUtf8Bytes } from './bounded-text.js';
 import type { BranchService } from './branch-service.js';
 import { composeBrief } from './brief.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
@@ -117,7 +118,6 @@ interface LiveRun {
 
 const LIVE_STATUSES: readonly AgentRunStatus[] = ['starting', 'running', 'waiting'];
 /** Bytes, matching the wire contract and the storage CHECK. */
-const OUTCOME_SUMMARY_LIMIT_BYTES = 4000;
 /** A parent run's findings are reproduced in the brief up to this size. */
 const PARENT_MESSAGE_LIMIT_BYTES = 256 * 1024;
 /** The order roles occur in the development loop, for profile listings. */

@@ -1,32 +1,35 @@
-import type {
-  AgentRun,
-  AgentRunEvent,
-  ArchiveImportAttempt,
-  AuditEvent,
-  ConcurrencyBindingRevision,
-  ConcurrencyDefinition,
-  EvidenceDecision,
-  EvidenceSubmission,
-  Finalization,
-  MapAdoption,
-  MapAmendment,
-  MergeOperation,
-  NativeVerificationApproval,
-  PlanArchiveLink,
-  PlanBranchSettings,
-  PlanVersion,
-  RepositoryPolicy,
-  Roadmap,
-  RoadmapDefinition,
-  RunBuildRecord,
-  RunEnvironment,
-  RuntimeGeneration,
-  ScopeIntegrationReuse,
-  ScopeReceipt,
-  WorkCycle,
-  WorkItem,
-  WorkspaceEvent,
-  Worktree,
+import {
+  type AgentRun,
+  type AgentRunEvent,
+  type ArchiveImportAttempt,
+  type AuditEvent,
+  type ConcurrencyBindingRevision,
+  type ConcurrencyDefinition,
+  type EvidenceDecision,
+  type EvidenceSubmission,
+  type Finalization,
+  type MapAdoption,
+  type MapAmendment,
+  type MergeOperation,
+  type NativeVerificationApproval,
+  type PlanArchiveLink,
+  type PlanBranchSettings,
+  type PlanVersion,
+  type RepositoryPolicy,
+  type Roadmap,
+  type RoadmapDefinition,
+  type RunBuildRecord,
+  type RunEnvironment,
+  type RuntimeGeneration,
+  type ScopeIntegrationReuse,
+  type ScopeReceipt,
+  type WorkCycle,
+  type WorkItem,
+  type WorkspaceEvent,
+  type Worktree,
+  fitsUtf8Bytes,
+  OUTCOME_SUMMARY_LIMIT_BYTES,
+  truncateUtf8Bytes,
 } from '@craftingtable/domain';
 import type { StoredStorageSettings } from './maintenance-types.js';
 import type { NotificationRecord, StoredNotificationSettings } from './notification-types.js';
@@ -127,7 +130,22 @@ export const RECORD_UPCASTERS: { readonly [K in PersistedRecordKind]: readonly R
     'notification-record': [],
     'storage-settings': [],
     worktree: [],
-    'agent-run': [],
+    'agent-run': [
+      {
+        // Builds before 2026-09-05 bounded the summary in characters, not bytes.
+        name: 'outcomeSummary bounded in characters (before 2026-09-05)',
+        applies: (run) =>
+          typeof run.outcomeSummary === 'string' &&
+          !fitsUtf8Bytes(run.outcomeSummary, OUTCOME_SUMMARY_LIMIT_BYTES),
+        upcast: (run) => ({
+          ...run,
+          outcomeSummary: truncateUtf8Bytes(
+            run.outcomeSummary as string,
+            OUTCOME_SUMMARY_LIMIT_BYTES,
+          ),
+        }),
+      },
+    ],
     'run-event': [
       {
         // Session-started events recorded before billing was observed carry no `billing`;

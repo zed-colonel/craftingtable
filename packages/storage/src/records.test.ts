@@ -11,9 +11,11 @@ import {
 } from './record-scan.js';
 import {
   acceptAnyRecord,
+  observeUpcasts,
   type PersistedRecordKind,
   RECORD_UPCASTERS,
   type RecordGuard,
+  readRecord,
 } from './records.js';
 import { openCraftingTableStorage } from './storage.js';
 import { type TemporaryStorage, temporaryStorage } from './test-support.js';
@@ -173,6 +175,25 @@ describe('persisted record registry (R-H3)', () => {
         (record) => record.kind === 'workspace-event' && record.key === String(admission?.sequence),
       )?.record,
     ).toEqual(admission);
+  });
+
+  it('bounds a run summary stored in characters to the byte bound (73a606f5)', () => {
+    // A 2026-09-05 review run stored 4,000 characters that are 4,014 UTF-8 bytes.
+    const stored = `${'a'.repeat(3986)}${'→'.repeat(7)}`;
+    expect(stored.length).toBeLessThanOrEqual(4000);
+    const upcasts: string[] = [];
+    const run = observeUpcasts(
+      (kind, upcaster) => upcasts.push(`${kind}: ${upcaster.name}`),
+      () => readRecord('agent-run', { id: 'run', outcomeSummary: stored } as never),
+    );
+    expect(new TextEncoder().encode(run.outcomeSummary).byteLength).toBeLessThanOrEqual(4000);
+    expect(run.outcomeSummary?.endsWith('…')).toBe(true);
+    expect(upcasts).toEqual([
+      'agent-run: outcomeSummary bounded in characters (before 2026-09-05)',
+    ]);
+    // A summary within the bound is the same object, untouched.
+    const current = { id: 'run', outcomeSummary: '→ done' };
+    expect(readRecord('agent-run', current as never)).toBe(current);
   });
 
   it('refuses a write the guard rejects and leaves nothing behind', () => {

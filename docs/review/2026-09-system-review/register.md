@@ -74,7 +74,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | open | Journal retention: stop storing raw vendor lines by default |
-| [R-H3](#r-h3) | P1 | M | in progress | Read-side upcasters, write-side validation and db:verify |
+| [R-H3](#r-h3) | P1 | M | done (41a5a56 + outcome-summary upcaster) | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | open | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
@@ -765,6 +765,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** Make `billing` optional (or default it to unknown) in the run-event envelope so the 2026-09-04 run's events load again.
 - **Done when:** All 46k live events validate against the response contract (verify script from R-H3).
 - **Progress:** Missing billing reads as unknown. Validating all live events awaits the R-H3 verify script.
+- **Amended 2026-09-24 (R-H3):** Done-when verified. `pnpm db:verify` on a copy of the 2026-09-23 snapshot validates all 46,713 run events against the response contract. One is upcast: the missing billing, now handled in `packages/storage/src/records.ts`.
 
 ### R-H2
 
@@ -776,7 +777,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-H3
 
-**Read-side upcasters, write-side validation and db:verify** · Phase P1 · Effort M · Status: open
+**Read-side upcasters, write-side validation and db:verify** · Phase P1 · Effort M · Status: done (41a5a56 + outcome-summary upcaster)
 
 - **Resolves:** [DATA-03](findings/DATA-storage-domain-contracts.md#data-03-a-strict-response-schema-combined-with-no-read-side-upgrade-makes-the-first-runs-events-unreadable-live-bug-and-all-persisted-json-is-read-with-bare-casts), [DATA-10](findings/DATA-storage-domain-contracts.md#data-10-contracts-duplicate-domain-types-by-hand-with-no-compile-time-equivalence-check), [DATA-14](findings/DATA-storage-domain-contracts.md#data-14-table-rebuild-migrations-lack-preservation-tests-the-runners-fk-off-directive-contradicts-adr-002)
 - **Change:** Upcast every JSON-bearing record at the storage read boundary to one current shape; validate with the contract schema at each aggregate's single save path; `pnpm db:verify <path>` validates every persisted aggregate and event against current contracts (run before deploying a contract change); compile-time equivalence checks between domain types and contract schemas; preservation tests for table-rebuild migrations.
@@ -806,6 +807,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - `migrations.test.ts` fails on a rebuild migration without a preservation test, and on one after schema 27 without a count guard.
     - ADR-002 is amended to document the `foreign_keys=off` directive.
   - **Snapshot result (copy of the 2026-09-23 snapshot, schema 26 to 27).** 54,152 records read in 3.7 s. Two upcasts, as above. One invalid record: agent run `73a606f5` has a 4,014-byte `outcomeSummary`, written before the byte bound. It is fixed in the next commit.
+  - **Amended 2026-09-24: the invalid record is fixed. The done-when is met.**
+    - **Upcaster.** Run `73a606f5`'s summary came from a build that bounded it in characters. A third upcaster now brings such summaries within the byte bound at the read boundary.
+    - **Shared bound.** The bound is `OUTCOME_SUMMARY_LIMIT_BYTES` in the domain, next to `truncateUtf8Bytes` (moved from the server). The writer, the contract and the upcaster all use it.
+    - **Route patch removed.** The run-summary route's re-bound only covered HTTP responses; handoffs and design recovery read the raw value.
+    - **Snapshot result.** `pnpm db:verify` on a copy of the 2026-09-23 snapshot reads 54,152 records: 0 invalid, 0 unreadable, integrity ok. Three records were upcast, one per upcaster (billing, retired draft id, summary bound).
+    - **Invalid records found:** 1, which was this summary.
   - **Known gap, recorded under R-F3.** The scope fixtures (`slicedFixture`, `supervisedMapFixture`; about 70 uses in 9 files) store hand-built v0.3 sources that the importer would reject, such as work item ids without a repository prefix. The write guard therefore leaves the format check to the importer, the only production writer of map definitions, and the test-cleanup verification skips it. `db:verify` applies it.
 
 ### R-H4

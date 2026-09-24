@@ -9,6 +9,7 @@ import {
   AGENT_RUN_STATUSES,
   AGENT_RUN_VERDICTS,
   type JsonValue,
+  OUTCOME_SUMMARY_LIMIT_BYTES,
   SOURCE_REPOSITORY_STATUSES,
   WORKTREE_STATUSES,
 } from '@craftingtable/domain';
@@ -329,7 +330,7 @@ export const agentRunSummarySchema = z
     startedAt: z.iso.datetime().optional(),
     finishedAt: z.iso.datetime().optional(),
     exitCode: z.number().int().optional(),
-    outcomeSummary: boundedUtf8(4000).optional(),
+    outcomeSummary: boundedUtf8(OUTCOME_SUMMARY_LIMIT_BYTES).optional(),
     costUsd: z.number().nonnegative().optional(),
     turnCount: nonNegativeSafeInteger,
     version: positiveSafeInteger,

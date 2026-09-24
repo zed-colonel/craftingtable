@@ -435,6 +435,46 @@ describe('RunPage', () => {
     expect(onSend).toHaveBeenCalledWith('Add a test');
   });
 
+  it('links a tool result whose full output left the journal (R-H2)', () => {
+    const digest = 'c'.repeat(64);
+    render(
+      <RunPage
+        detail={detail}
+        events={[
+          event(1, {
+            kind: 'tool-result',
+            payload: {
+              toolUseId: 't1',
+              content: 'first lines…',
+              isError: false,
+              truncated: false,
+              body: { digest, bytes: 20_000 },
+            },
+          }),
+          event(2, {
+            kind: 'tool-result',
+            payload: { toolUseId: 't2', content: 'small', isError: false, truncated: false },
+          }),
+        ]}
+        connection="open"
+        canMutate={true}
+        busy={false}
+        onSend={vi.fn()}
+        onEnd={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenWorkItem={vi.fn()}
+        onLoadDiff={vi.fn()}
+        onCloseDiff={vi.fn()}
+      />,
+    );
+    const links = screen.getAllByRole('link', { name: /^Full output/ });
+    expect(links).toHaveLength(1);
+    expect(links[0]?.textContent).toBe('Full output (20 KB)');
+    expect(links[0]?.getAttribute('href')).toMatch(
+      new RegExp(`/runs/[^/]+/tool-results/${digest}$`),
+    );
+  });
+
   it('filters the feed by group and keeps tool output collapsed by default', () => {
     render(
       <RunPage

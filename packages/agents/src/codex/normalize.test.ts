@@ -52,7 +52,7 @@ it('normalizes tool lifecycle once, ignores deltas and user echoes, and keeps fi
   );
 });
 
-it('bounds multibyte content and raw output including the truncation marker', () => {
+it('bounds multibyte content including the truncation marker, keeping no raw line', () => {
   const normalizer = new CodexStreamNormalizer();
   const events = normalizer.normalize('item/completed', {
     item: {
@@ -68,8 +68,21 @@ it('bounds multibyte content and raw output including the truncation marker', ()
   expect(result.payload.isError).toBe(true);
   expect(result.payload.truncated).toBe(true);
   expect(Buffer.byteLength(result.payload.content)).toBeLessThanOrEqual(TOOL_RESULT_LIMIT_BYTES);
-  expect(Buffer.byteLength(result.raw ?? '')).toBeLessThanOrEqual(RAW_LINE_LIMIT_BYTES);
   expect(result.payload.content).not.toContain('�');
+  // A normalized tool call and result carry no copy of the vendor notification (R-H2).
+  expect(events.map((event) => event.raw)).toEqual([undefined, undefined]);
+});
+
+it('keeps a bounded raw notification only for an item it cannot represent (R-H2)', () => {
+  const normalizer = new CodexStreamNormalizer();
+  const [unknown] = normalizer.normalize('item/completed', {
+    item: { id: 'new', type: 'hologram', payload: 'x'.repeat(100_000) },
+  });
+  expect(unknown?.kind === 'notice' && unknown.payload.message).toBe('Backend item: hologram');
+  expect(unknown?.raw).toMatch(/^\{"method":"item\/completed"/);
+  expect(Buffer.byteLength(unknown?.raw ?? '')).toBeLessThanOrEqual(RAW_LINE_LIMIT_BYTES);
+  const [failure] = normalizer.normalize('error', { error: { message: 'boom' }, willRetry: true });
+  expect(failure?.raw).toBeUndefined();
 });
 
 it('handles tools, compaction, failures and malformed optional usage without inventing metadata', () => {

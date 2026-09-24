@@ -71,7 +71,8 @@ export class CodexStreamNormalizer {
     this.completedItems.clear();
   }
   normalize(method: string, params: Record<string, unknown>): readonly NormalizedAgentEvent[] {
-    const raw = boundedRaw(JSON.stringify({ method, params }));
+    // The notification travels with an event only when this adapter cannot represent it (R-H2).
+    const raw = () => boundedRaw(JSON.stringify({ method, params }));
     if (method === 'thread/tokenUsage/updated') {
       const last = isRecord(params.tokenUsage) ? params.tokenUsage.last : undefined;
       const total = isRecord(params.tokenUsage) ? params.tokenUsage.total : undefined;
@@ -123,7 +124,6 @@ export class CodexStreamNormalizer {
               {
                 kind: 'notice',
                 payload: { category: 'compaction', message: 'Codex compacted the conversation' },
-                raw,
               },
             ]
           : [];
@@ -136,11 +136,11 @@ export class CodexStreamNormalizer {
       );
       this.failure = { ...failure, safeToRetry: failure.safeToRetry && params.willRetry === false };
       return [
-        this.notice(isRecord(params.error) ? stringOf(params.error.message) : 'Codex error', raw),
+        this.notice(isRecord(params.error) ? stringOf(params.error.message) : 'Codex error'),
       ];
     }
     if (method === 'turn/plan/updated') {
-      return [this.notice(`Plan: ${JSON.stringify(boundedJson(params.plan, 3500))}`, raw)];
+      return [this.notice(`Plan: ${JSON.stringify(boundedJson(params.plan, 3500))}`)];
     }
     // Deltas are transient; completed items provide bounded, replayable messages/results.
     return [];
@@ -189,7 +189,7 @@ export class CodexStreamNormalizer {
       },
     };
   }
-  private notice(message: string, raw: string): NormalizedAgentEvent {
+  private notice(message: string, raw?: string): NormalizedAgentEvent {
     return {
       kind: 'notice',
       payload: {
@@ -198,14 +198,14 @@ export class CodexStreamNormalizer {
           : 'other',
         message: truncateUtf8(message, 4000).text,
       },
-      raw,
+      ...(raw === undefined ? {} : { raw }),
     };
   }
 
   private item(
     item: Record<string, unknown>,
     completed: boolean,
-    raw: string,
+    raw: () => string,
   ): readonly NormalizedAgentEvent[] {
     const type = stringOf(item.type);
     if (type === 'reasoning' || type === 'userMessage' || INFORMATIONAL_ITEM_TYPES.has(type))
@@ -219,11 +219,10 @@ export class CodexStreamNormalizer {
         {
           kind: 'assistant-message',
           payload: { text: bounded.text, ...(bounded.truncated ? { truncated: true } : {}) },
-          raw,
         },
       ];
     }
-    if (type === 'error') return completed ? [this.notice(stringOf(item.message), raw)] : [];
+    if (type === 'error') return completed ? [this.notice(stringOf(item.message))] : [];
     // Scope vendor ids to a turn, including tools from resumed sessions.
     const toolUseId = `${this.turns + 1}:${stringOf(item.id) || 'unknown'}`.slice(0, 200);
     let name: string;
@@ -294,7 +293,7 @@ export class CodexStreamNormalizer {
         )
           return [];
         this.reportedUnknownItems.add(label);
-        return [this.notice(`Backend item: ${label}`, raw)];
+        return [this.notice(`Backend item: ${label}`, raw())];
       }
     }
     const events: NormalizedAgentEvent[] = [];
@@ -304,7 +303,6 @@ export class CodexStreamNormalizer {
       events.push({
         kind: 'tool-call',
         payload: { toolUseId, name, input: boundedJson(input, TOOL_INPUT_LIMIT_BYTES), summary },
-        raw,
       });
     }
     if (completed) {
@@ -313,7 +311,6 @@ export class CodexStreamNormalizer {
       events.push({
         kind: 'tool-result',
         payload: { toolUseId, content: bounded.text, isError, truncated: bounded.truncated },
-        raw,
       });
     }
     return events;

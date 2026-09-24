@@ -73,8 +73,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
-| [R-H2](#r-h2) | P1 | M | open | Journal retention: stop storing raw vendor lines by default |
-| [R-H3](#r-h3) | P1 | M | done (41a5a56 + outcome-summary upcaster) | Read-side upcasters, write-side validation and db:verify |
+| [R-H2](#r-h2) | P1 | M | in progress | Journal retention: stop storing raw vendor lines by default |
+| [R-H3](#r-h3) | P1 | M | done (41a5a56, f63b908) | Read-side upcasters, write-side validation and db:verify |
 | [R-H4](#r-h4) | P2 | M | open | Lighter evidence and definition storage |
 | [R-H5](#r-h5) | P3 | M | open | Rationalize the route surface |
 | [R-H6](#r-h6) | P3 | M | open | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
@@ -774,10 +774,19 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [DATA-01](findings/DATA-storage-domain-contracts.md#data-01-agent_run_eventsraw_json-is-278-mb-of-never-read-data-that-is-also-shipped-to-the-browser), [DATA-02](findings/DATA-storage-domain-contracts.md#data-02-the-journal-can-never-be-pruned-growth-is-unbounded-and-every-byte-is-duplicated-about-8-by-backups), [AGT-03](findings/AGT-GIT-SEC-agents-git-security.md#agt-03-raw-vendor-lines-take-about-half-the-database-and-are-shipped-to-the-browser-which-never-reads-them), [HIST-11](findings/HIST-history-and-live-usage.md#hist-11-run-event-storage-is-dominated-by-duplicated-raw-vendor-json)
 - **Change:** Store raw only when normalization fails (or for a bounded window); move large tool-result bodies to compressed per-run files with a digest and preview in SQLite; add an explicit, audited compaction command (the append-only trigger stays for normal writes) and a retention policy aligned with run-directory cleanup.
 - **Done when:** DB growth per run drops by >50%; backups shrink accordingly.
+- **Progress (2026-09-24), new writes:**
+  - **Raw lines only when normalization fails.** Both adapters attach the bounded vendor line only to an event they cannot represent: an unparseable line, or an unknown message or item kind. Every normalized event carries its whole meaning in its payload. Codex no longer re-serializes each notification. The Claude adapter bounds a line only when it keeps it.
+  - **Large tool-result bodies leave the journal.** A tool result over `TOOL_RESULT_PREVIEW_BYTES` (4 KiB) is journaled as a preview plus `body: { digest, bytes }`. The full output is gzipped under `<run directory>/tool-results/<sha256>.txt.gz`, written then renamed.
+    - The agent can reach its run directory, so a body is checked against its digest when read, and the daemon refuses to write through a linked directory.
+    - Without a registered run directory, or when the write fails, the whole output is journaled as before. The field is optional, so older events keep their full `content`.
+  - **Reading a body.** `GET …/runs/:runId/tool-results/:digest` (member access) serves the body as plain text, with 404 once it has expired or no longer matches. The run page's tool result links to it as "Full output (N KB)".
+  - **Retention.** Bodies expire with the run's scratch retention: `cleanupCandidates` offers `tool-results` as expired run files once the run is eligible and past `scratchRetentionDays`, and never through a link.
+  - **Tests:** adapter tests (raw only on failures), server offload/route/tamper test, retention test, run-page link test.
+  - **Remaining:** the audited compaction command for stored rows, and the before/after measurement.
 
 ### R-H3
 
-**Read-side upcasters, write-side validation and db:verify** · Phase P1 · Effort M · Status: done (41a5a56 + outcome-summary upcaster)
+**Read-side upcasters, write-side validation and db:verify** · Phase P1 · Effort M · Status: done (41a5a56, f63b908)
 
 - **Resolves:** [DATA-03](findings/DATA-storage-domain-contracts.md#data-03-a-strict-response-schema-combined-with-no-read-side-upgrade-makes-the-first-runs-events-unreadable-live-bug-and-all-persisted-json-is-read-with-bare-casts), [DATA-10](findings/DATA-storage-domain-contracts.md#data-10-contracts-duplicate-domain-types-by-hand-with-no-compile-time-equivalence-check), [DATA-14](findings/DATA-storage-domain-contracts.md#data-14-table-rebuild-migrations-lack-preservation-tests-the-runners-fk-off-directive-contradicts-adr-002)
 - **Change:** Upcast every JSON-bearing record at the storage read boundary to one current shape; validate with the contract schema at each aggregate's single save path; `pnpm db:verify <path>` validates every persisted aggregate and event against current contracts (run before deploying a contract change); compile-time equivalence checks between domain types and contract schemas; preservation tests for table-rebuild migrations.

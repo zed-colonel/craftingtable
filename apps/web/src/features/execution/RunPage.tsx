@@ -131,6 +131,22 @@ const COLLAPSED_KINDS = new Set<RunEventEnvelope['kind']>([
   'user-message',
 ]);
 
+/** A tool result whose full output left the journal links to it (R-H2); the body is a preview. */
+function FullOutput({ event }: { event: RunEventEnvelope }) {
+  if (event.kind !== 'tool-result' || event.payload.body === undefined) return null;
+  const { digest, bytes } = event.payload.body;
+  return (
+    <a
+      className="run-event-full-output"
+      href={`/api/workspaces/${event.workspaceId}/runs/${event.runId}/tool-results/${digest}`}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      Full output ({Math.ceil(bytes / 1024).toLocaleString()} KB)
+    </a>
+  );
+}
+
 function RunEventItem({ event, expanded }: { event: RunEventEnvelope; expanded: boolean }) {
   const body = eventBody(event);
   const collapsed = !expanded && COLLAPSED_KINDS.has(event.kind);
@@ -148,6 +164,7 @@ function RunEventItem({ event, expanded }: { event: RunEventEnvelope; expanded: 
           <details className="run-event-details">
             <summary>{body.split('\n')[0]?.slice(0, 160)}</summary>
             <pre className="run-event-body">{body}</pre>
+            <FullOutput event={event} />
           </details>
         ) : (
           <pre
@@ -158,6 +175,7 @@ function RunEventItem({ event, expanded }: { event: RunEventEnvelope; expanded: 
             {body}
           </pre>
         ))}
+      {!collapsed && <FullOutput event={event} />}
     </li>
   );
 }

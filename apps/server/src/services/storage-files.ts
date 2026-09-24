@@ -12,6 +12,7 @@ import { lstat, readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import type { StorageRootIdentity } from '@craftingtable/storage';
 import { ExecutionRequestError } from './errors.js';
+import { TOOL_RESULTS_DIRECTORY } from './tool-result-store.js';
 export const GiB = 1024 ** 3;
 export function within(path: string, parent: string): boolean {
   const delta = relative(parent, path);
@@ -170,31 +171,44 @@ export async function cleanupCandidates(
 ): Promise<BuildCache[]> {
   if (!existsSync(run.path)) return [];
   checkRoot({ path: run.path, device: run.device });
+  const cutoff = now.getTime() - retentionDays * 86_400_000;
+  const expired = retentionDays > 0 && Date.parse(run.retainedSince) <= cutoff;
+  const plainDirectory = (path: string) =>
+    existsSync(path) && !lstatSync(path).isSymbolicLink() && realpathSync(path) === path;
+  const expiredFiles: BuildCache[] = [];
+  // Tool-result bodies moved out of the journal share the run's scratch retention (R-H2).
+  const bodies = join(run.path, TOOL_RESULTS_DIRECTORY);
+  if (expired && plainDirectory(bodies)) {
+    const entry = await lstat(bodies);
+    if (entry.isDirectory())
+      expiredFiles.push({
+        kind: 'scratch',
+        path: bodies,
+        runId: run.runId,
+        device: entry.dev,
+        inode: entry.ino,
+        bytes: await directoryBytes(bodies, run.device),
+      });
+  }
   const scratch = join(run.path, 'scratch');
   if (
-    retentionDays &&
-    existsSync(scratch) &&
-    !lstatSync(scratch).isSymbolicLink() &&
-    realpathSync(scratch) === scratch
+    expired &&
+    plainDirectory(scratch) &&
+    (await latestModification(scratch, run.device)) <= cutoff
   ) {
-    const cutoff = now.getTime() - retentionDays * 86_400_000;
-    if (
-      Date.parse(run.retainedSince) <= cutoff &&
-      (await latestModification(scratch, run.device)) <= cutoff
-    ) {
-      const entry = await lstat(scratch);
-      if (entry.isDirectory())
-        return [
-          {
-            kind: 'scratch',
-            path: scratch,
-            runId: run.runId,
-            device: entry.dev,
-            inode: entry.ino,
-            bytes: await directoryBytes(scratch, run.device),
-          },
-        ];
-    }
+    const entry = await lstat(scratch);
+    if (entry.isDirectory())
+      return [
+        ...expiredFiles,
+        {
+          kind: 'scratch',
+          path: scratch,
+          runId: run.runId,
+          device: entry.dev,
+          inode: entry.ino,
+          bytes: await directoryBytes(scratch, run.device),
+        },
+      ];
   }
-  return cargoCaches(run);
+  return [...expiredFiles, ...(await cargoCaches(run))];
 }

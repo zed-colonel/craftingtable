@@ -364,6 +364,31 @@ it('expires other scratch after 30 days and protects recent edits and interrupte
   writeFileSync(join(scratch, 'verification.log'), 'recently inspected');
   expect(await cleanupCandidates(run, 30, new Date())).toEqual([]);
 });
+it('expires tool-result bodies with the run scratch retention and never through a link (R-H2)', async () => {
+  const s = await runFixture();
+  rmSync(s.cache, { recursive: true });
+  const bodies = join(s.runPath, 'tool-results');
+  mkdirSync(bodies);
+  writeFileSync(join(bodies, `${'a'.repeat(64)}.txt.gz`), 'body');
+  const old = new Date(Date.now() - 40 * 86_400_000);
+  const run = {
+    path: s.runPath,
+    runId: s.runId,
+    device: statSync(s.runPath).dev,
+    retainedSince: old.toISOString(),
+  };
+  // The scratch was just touched, so only the bodies have expired.
+  expect((await cleanupCandidates(run, 30, new Date())).map((c) => [c.kind, c.path])).toEqual([
+    ['scratch', bodies],
+  ]);
+  expect(await cleanupCandidates(run, 0, new Date())).toEqual([]);
+  expect(
+    await cleanupCandidates({ ...run, retainedSince: new Date().toISOString() }, 30, new Date()),
+  ).toEqual([]);
+  renameSync(bodies, `${bodies}-elsewhere`);
+  symlinkSync(`${bodies}-elsewhere`, bodies);
+  expect(await cleanupCandidates(run, 30, new Date())).toEqual([]);
+});
 it('automatic cleanup resumes after restart and daily backups are consistent, private and bounded', async () => {
   const s = await runFixture();
   s.merge();

@@ -116,6 +116,32 @@ export function registerAgentRunRoutes(
     },
   );
 
+  // The full output of a tool result the journal keeps as a preview (R-H2). Plain text, so
+  // the browser shows it as-is; 404 once it expires with the run's scratch retention.
+  app.get<{ Params: { workspaceId: string; runId: string; digest: string } }>(
+    '/api/workspaces/:workspaceId/runs/:runId/tool-results/:digest',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = authenticate(request, authService);
+      const workspaceId = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const runId = agentRunIdSchema.safeParse(request.params.runId);
+      if (!workspaceId.success || !runId.success || !/^[a-f0-9]{64}$/.test(request.params.digest)) {
+        return sendApiError(reply, 404, 'not-found', 'Resource not found');
+      }
+      const body = agentRunService.toolResult(
+        context,
+        workspaceId.data,
+        runId.data,
+        request.params.digest,
+        request.id,
+      );
+      return noStore(reply)
+        .header('content-type', 'text/plain; charset=utf-8')
+        .header('x-content-type-options', 'nosniff')
+        .send(body);
+    },
+  );
+
   // `?includeRaw=true` is the explicit diagnostics read of the retained vendor lines.
   app.get<{
     Params: { workspaceId: string; runId: string };

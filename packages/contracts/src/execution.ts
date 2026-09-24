@@ -495,6 +495,12 @@ export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
       content: z.string(),
       isError: z.boolean(),
       truncated: z.boolean(),
+      body: z
+        .strictObject({
+          digest: z.string().regex(/^[a-f0-9]{64}$/),
+          bytes: positiveSafeInteger,
+        })
+        .optional(),
     }),
   }),
   runEventBaseSchema.extend({

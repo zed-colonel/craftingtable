@@ -59,7 +59,11 @@ export type NormalizedAgentEvent = {
   [K in AgentRunEventKind]: {
     readonly kind: K;
     readonly payload: AgentRunEventPayload<K>;
-    /** The raw vendor line, bounded, for diagnostics. */
+    /**
+     * The raw vendor line, bounded, only when the adapter could not represent it: an
+     * unparseable line or an unknown message kind. Normalized events carry everything in
+     * their payload, so their lines are not kept (R-H2).
+     */
     readonly raw?: string;
   };
 }[AgentRunEventKind];

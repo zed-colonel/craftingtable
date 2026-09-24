@@ -117,7 +117,8 @@ describe('ClaudeStreamNormalizer', () => {
       resultText: 'done',
       turns: 3,
     });
-    expect(completed?.raw).toBeDefined();
+    // Every line here normalized fully, so none keeps its vendor line (R-H2).
+    expect(events.filter((event) => event.raw !== undefined)).toEqual([]);
   });
 
   it('emits session-started once even though every turn re-inits', () => {
@@ -184,10 +185,13 @@ describe('ClaudeStreamNormalizer', () => {
     const subject = normalizer();
     const garbage = subject.normalizeLine('{not json');
     expect(garbage[0]?.kind).toBe('notice');
+    // A line the normalizer cannot represent keeps its raw text for diagnosis (R-H2).
+    expect(garbage[0]?.raw).toBe('{not json');
     const unknown = subject.normalizeLine(
       JSON.stringify({ type: 'mystery', big: 'x'.repeat(100_000) }),
     );
     expect(unknown[0]?.kind).toBe('notice');
+    expect(unknown[0]?.raw).toMatch(/^\{"type":"mystery"/);
     expect(Buffer.byteLength(unknown[0]?.raw ?? '', 'utf8')).toBeLessThan(70_000);
     expect(subject.normalizeLine('')).toEqual([]);
     expect(subject.normalizeLine('[1,2,3]')).toEqual([]);

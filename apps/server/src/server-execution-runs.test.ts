@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import type {
   AgentBackend,
   AgentLaunchRequest,
@@ -28,6 +29,7 @@ import {
   type AgentBackendKind,
   asAgentRunEventId,
   asWorktreeId,
+  TOOL_RESULT_PREVIEW_BYTES,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { recordedFindings } from './services/run-handoff.js';
@@ -682,6 +684,64 @@ describe('agent runs', () => {
         headers: { cookie: state.cookie },
       });
       expect(response.statusCode, url).toBe(200);
+    }
+  });
+
+  it('keeps a large tool output out of the journal and serves it from the run directory (R-H2)', async () => {
+    const state = await ready();
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const output = `${'line of test output →\n'.repeat(900)}done`;
+    state.backend.repliesForNextRun = [{ resultText: 'done', toolOutput: output }];
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, instructions: 'Print a lot.' },
+    });
+    const { run } = startAgentRunResponseSchema.parse(started.json());
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'waiting',
+      'turn',
+    );
+    const page = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/event-page?includeRaw=true`,
+      headers: { cookie: state.cookie },
+    });
+    const events = runEventPageResponseSchema.parse(page.json()).events;
+    const result = events.find((event) => event.kind === 'tool-result');
+    if (result?.kind !== 'tool-result') throw new Error('Missing tool result');
+    const digest = createHash('sha256').update(output).digest('hex');
+    expect(result.payload.body).toEqual({ digest, bytes: Buffer.byteLength(output) });
+    expect(Buffer.byteLength(result.payload.content)).toBeLessThanOrEqual(
+      TOOL_RESULT_PREVIEW_BYTES,
+    );
+    expect(output.startsWith(result.payload.content.slice(0, -1))).toBe(true);
+    // Normalized events keep no vendor line.
+    expect(events.filter((event) => event.raw !== undefined)).toEqual([]);
+
+    const directory = join(state.context.config.execution.runsRoot, run.id, 'tool-results');
+    expect(readdirSync(directory)).toEqual([`${digest}.txt.gz`]);
+    const full = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/tool-results/${digest}`,
+      headers: { cookie: state.cookie },
+    });
+    expect(full.statusCode).toBe(200);
+    expect(full.headers['content-type']).toBe('text/plain; charset=utf-8');
+    expect(full.headers['x-content-type-options']).toBe('nosniff');
+    expect(full.body).toBe(output);
+
+    // A body altered on disk, a digest that is not stored, and a malformed one read as absent.
+    writeFileSync(join(directory, `${digest}.txt.gz`), gzipSync('tampered'));
+    for (const suffix of [digest, 'd'.repeat(64), 'not-a-digest']) {
+      const missing = await state.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/tool-results/${suffix}`,
+        headers: { cookie: state.cookie },
+      });
+      expect(missing.statusCode, suffix).toBe(404);
     }
   });
 

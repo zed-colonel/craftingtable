@@ -202,6 +202,9 @@ R-A7's remainder.
   `pnpm db:verify` and rebuild preservation tests. On a copy of the 2026-09-23 snapshot it passes: 54,152 records,
   three upcasts, one invalid record found and fixed with an upcaster (a run summary bounded in characters). Every
   test daemon verifies its database at cleanup. `pnpm test`: 1,359 tests in 76 s, load average about 4.
+- **R-H2: in progress.** New runs keep raw vendor lines only for events the adapter could not normalize, and
+  move tool-result bodies over 4 KiB into gzipped per-run files, keeping a preview and a digest. The bodies expire
+  with the run's scratch. The compaction command and the measurement follow.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 

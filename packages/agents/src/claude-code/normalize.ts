@@ -25,7 +25,9 @@ import type { NormalizedAgentEvent } from '../index.js';
  * The vendor format is treated as untrusted input: unknown shapes become
  * bounded `notice` events rather than exceptions, and every string that could
  * be large (tool inputs, tool results, raw lines) is truncated to a fixed
- * ceiling before it can reach storage.
+ * ceiling before it can reach storage. The raw line travels only with an event
+ * the normalizer could not represent: an unparseable line or an unknown message
+ * kind (R-H2). Everything else is fully described by its normalized payload.
  */
 
 /** Flattens tool_result content, which may be a string or an array of blocks. */
@@ -222,24 +224,23 @@ export class ClaudeStreamNormalizer {
     if (!isRecord(parsed)) {
       return [];
     }
-    const raw = boundedRaw(trimmed);
     switch (parsed.type) {
       case 'system':
-        return this.normalizeSystem(parsed, raw);
+        return this.normalizeSystem(parsed, trimmed);
       case 'assistant':
-        return this.normalizeAssistant(parsed, raw);
+        return this.normalizeAssistant(parsed);
       case 'user':
-        return this.normalizeUser(parsed, raw);
+        return this.normalizeUser(parsed);
       case 'result':
-        return this.normalizeResult(parsed, raw);
+        return this.normalizeResult(parsed);
       case 'rate_limit_event':
-        return this.normalizeRateLimit(parsed, raw);
+        return this.normalizeRateLimit(parsed);
       case 'stream_event':
         return [];
       default:
         return this.unknownOnce(
           `Backend message: ${firstLine(stringOf(parsed.type) || 'unknown', 100)}`,
-          raw,
+          trimmed,
         );
     }
   }
@@ -248,16 +249,16 @@ export class ClaudeStreamNormalizer {
    * New CLI releases add progress-style messages. Report each unrecognized kind once per run,
    * with one bounded raw sample for diagnosis, instead of journaling every occurrence.
    */
-  private unknownOnce(message: string, raw: string): readonly NormalizedAgentEvent[] {
+  private unknownOnce(message: string, line: string): readonly NormalizedAgentEvent[] {
     if (this.reportedUnknown.has(message) || this.reportedUnknown.size >= UNKNOWN_REPORT_LIMIT)
       return [];
     this.reportedUnknown.add(message);
-    return [{ kind: 'notice', payload: { category: 'other', message }, raw }];
+    return [{ kind: 'notice', payload: { category: 'other', message }, raw: boundedRaw(line) }];
   }
 
   private normalizeSystem(
     message: Record<string, unknown>,
-    raw: string,
+    line: string,
   ): readonly NormalizedAgentEvent[] {
     switch (message.subtype) {
       case 'init': {
@@ -280,7 +281,6 @@ export class ClaudeStreamNormalizer {
               cwd: stringOf(message.cwd) || this.options.cwd,
               billing: billingOf(message.apiKeySource),
             },
-            raw,
           },
         ];
       }
@@ -303,7 +303,6 @@ export class ClaudeStreamNormalizer {
               category: 'task',
               message: `Background task started: ${firstLine(stringOf(message.description) || stringOf(message.task_type) || 'task')}`,
             },
-            raw,
           },
         ];
       }
@@ -318,7 +317,6 @@ export class ClaudeStreamNormalizer {
               category: 'task',
               message: `Background task ${stringOf(message.status) || 'updated'}: ${firstLine(stringOf(message.summary) || stringOf(message.task_id) || 'task', 300)}`,
             },
-            raw,
           },
         ];
       case 'hook_started':
@@ -338,21 +336,17 @@ export class ClaudeStreamNormalizer {
           {
             kind: 'notice',
             payload: { category: 'compaction', message: 'Context compacted' },
-            raw,
           },
         ];
       default:
         return this.unknownOnce(
           `Backend system message: ${firstLine(stringOf(message.subtype) || 'unknown', 100)}`,
-          raw,
+          line,
         );
     }
   }
 
-  private normalizeAssistant(
-    message: Record<string, unknown>,
-    raw: string,
-  ): readonly NormalizedAgentEvent[] {
+  private normalizeAssistant(message: Record<string, unknown>): readonly NormalizedAgentEvent[] {
     // Only the main thread's messages describe the turn's service state. A sub-agent message
     // (parent_tool_use_id set) neither records nor clears a main-thread failure.
     if (!message.parent_tool_use_id) {
@@ -373,7 +367,6 @@ export class ClaudeStreamNormalizer {
         events.push({
           kind: 'assistant-message',
           payload: { text: bounded.text, ...(bounded.truncated ? { truncated: true } : {}) },
-          raw,
         });
       } else if (block.type === 'tool_use') {
         this.pendingTools.add(stringOf(block.id) || 'unknown');
@@ -387,17 +380,13 @@ export class ClaudeStreamNormalizer {
             input: boundedJson(block.input ?? null, TOOL_INPUT_LIMIT_BYTES),
             summary: summarizeToolCall(name, block.input),
           },
-          raw,
         });
       }
     }
     return events;
   }
 
-  private normalizeUser(
-    message: Record<string, unknown>,
-    raw: string,
-  ): readonly NormalizedAgentEvent[] {
+  private normalizeUser(message: Record<string, unknown>): readonly NormalizedAgentEvent[] {
     const inner = isRecord(message.message) ? message.message : {};
     const content = Array.isArray(inner.content) ? inner.content : [];
     const events: NormalizedAgentEvent[] = [];
@@ -414,7 +403,6 @@ export class ClaudeStreamNormalizer {
             isError: block.is_error === true,
             truncated: bounded.truncated,
           },
-          raw,
         });
       }
       // Echoed user text is ignored: the daemon records what it sent.
@@ -422,10 +410,7 @@ export class ClaudeStreamNormalizer {
     return events;
   }
 
-  private normalizeResult(
-    message: Record<string, unknown>,
-    raw: string,
-  ): readonly NormalizedAgentEvent[] {
+  private normalizeResult(message: Record<string, unknown>): readonly NormalizedAgentEvent[] {
     // Claude Code reports an API failure as `terminal_reason: 'api_error'` with the HTTP status,
     // even when the result subtype is `success` (with `is_error: true`).
     const apiError = message.terminal_reason === 'api_error';
@@ -485,15 +470,11 @@ export class ClaudeStreamNormalizer {
           turns,
           durationMs: duration,
         },
-        raw,
       },
     ];
   }
 
-  private normalizeRateLimit(
-    message: Record<string, unknown>,
-    raw: string,
-  ): readonly NormalizedAgentEvent[] {
+  private normalizeRateLimit(message: Record<string, unknown>): readonly NormalizedAgentEvent[] {
     const info = isRecord(message.rate_limit_info) ? message.rate_limit_info : {};
     if (info.status === 'allowed') {
       this.quotaResetsAt = undefined;
@@ -514,7 +495,6 @@ export class ClaudeStreamNormalizer {
           category: 'rate-limit',
           message: `Rate limit ${stringOf(info.status) || 'event'} (${stringOf(info.rateLimitType) || 'unknown window'})`,
         },
-        raw,
       },
     ];
   }

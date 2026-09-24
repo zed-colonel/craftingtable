@@ -125,6 +125,8 @@ export interface ScriptedReply {
   readonly messages?: readonly string[];
   readonly resultText: string;
   readonly truncated?: boolean;
+  /** What the turn's one tool call prints; `README.md` when absent. */
+  readonly toolOutput?: string;
 }
 
 export class ScriptedSession implements AgentSession {
@@ -209,7 +211,7 @@ export class ScriptedSession implements AgentSession {
         kind: 'tool-result',
         payload: {
           toolUseId: `t${this.turns}`,
-          content: 'README.md',
+          content: reply?.toolOutput ?? 'README.md',
           isError: false,
           truncated: false,
         },

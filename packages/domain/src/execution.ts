@@ -244,6 +244,12 @@ export interface AgentRun {
 /* Normalized run events                                                       */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Tool results larger than this keep only a preview of this size in the journal; the full
+ * output is stored compressed in the run's directory (R-H2).
+ */
+export const TOOL_RESULT_PREVIEW_BYTES = 4096;
+
 export const AGENT_RUN_EVENT_KINDS = [
   'session-started',
   'user-message',
@@ -313,9 +319,17 @@ export interface AgentRunEventPayloads {
   };
   readonly 'tool-result': {
     readonly toolUseId: string;
+    /** The output, or with `body` its first `TOOL_RESULT_PREVIEW_BYTES`. */
     readonly content: string;
     readonly isError: boolean;
+    /** The adapter cut the output at its own bound before the daemon saw it. */
     readonly truncated: boolean;
+    /**
+     * Present when the full output is kept outside the journal, compressed in the run's
+     * directory under its SHA-256 (R-H2). Absent on smaller results and older events, whose
+     * `content` is the whole output. The body expires with the run's scratch retention.
+     */
+    readonly body?: { readonly digest: string; readonly bytes: number };
   };
   readonly 'turn-completed': {
     readonly providerFailure?: ProviderFailure;

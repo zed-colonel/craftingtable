@@ -19,6 +19,7 @@ import {
   type AgentPermissionMode,
   type AgentRun,
   type AgentRunEvent,
+  type AgentRunEventPayload,
   type AgentRunId,
   type AgentRunRole,
   type AgentRunStatus,
@@ -48,6 +49,7 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import { cycleAgentSelection } from './agent-profile-policy.js';
+import { offloadToolResult, readToolResult } from './tool-result-store.js';
 import type { AuthContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
@@ -1895,7 +1897,10 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         runId,
         occurredAt,
         kind: event.kind,
-        payload: event.payload,
+        payload:
+          event.kind === 'tool-result'
+            ? this.journalToolResult(tx, runId, event.payload)
+            : event.payload,
         ...(event.raw === undefined ? {} : { raw: event.raw }),
       } as Parameters<typeof tx.execution.runEvents.append>[0]);
     });
@@ -1904,6 +1909,41 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         ? 'workflow'
         : 'activity',
     );
+  }
+
+  /**
+   * A large tool result keeps only a preview in the journal; its body goes to the run's
+   * directory (R-H2). Without a registered directory, or when the write fails, the whole
+   * output is journaled as before.
+   */
+  private journalToolResult(
+    tx: StorageRepositories,
+    runId: AgentRunId,
+    payload: AgentRunEventPayload<'tool-result'>,
+  ): AgentRunEventPayload<'tool-result'> {
+    const directory = tx.maintenance.directory(runId)?.path;
+    if (directory === undefined) return payload;
+    try {
+      return offloadToolResult(payload, directory);
+    } catch {
+      return payload;
+    }
+  }
+
+  /** The full output of a tool result whose body left the journal (R-H2). */
+  toolResult(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    runId: AgentRunId,
+    digest: string,
+    requestId?: string,
+  ): string {
+    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
+    const run = this.storage.execution.runs.find(workspaceId, runId);
+    const directory = run && this.storage.maintenance.directory(run.id)?.path;
+    const body = directory === undefined ? undefined : readToolResult(directory, digest);
+    if (body === undefined) throw new NotFoundError();
+    return body;
   }
 
   /**

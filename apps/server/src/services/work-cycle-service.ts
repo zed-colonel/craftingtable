@@ -1759,9 +1759,14 @@ export class WorkCycleService {
       // A derived annotation, not a transition: written in place so an operator command
       // holding this version stays valid, with an event so open browsers show the owner.
       const updated: WorkCycle = { ...cycle, attention: current };
+      const at = this.now().toISOString();
       const written = this.storage.transaction((tx) => {
         if (!tx.execution.cycles.replace(updated, cycle.version)) return false;
-        this.appendCycleEvent(tx, updated, this.now().toISOString());
+        this.appendCycleEvent(tx, updated, at);
+        // A change of owner or code changes who the stop waits on, so it is audited like a
+        // transition for operator-wait measurement (R-C1); claim details alone are not.
+        if (current.code !== cycle.attention?.code || current.owner !== cycle.attention?.owner)
+          this.record(tx, { ...updated, updatedAt: at }, 'attention-refreshed');
         return true;
       });
       if (!written) return cycle;

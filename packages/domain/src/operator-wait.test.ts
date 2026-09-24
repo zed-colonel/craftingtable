@@ -88,4 +88,36 @@ describe('operator wait (R-C1)', () => {
     expect(report).toMatchObject({ waitingHours: 7, idleWaitingHours: 5, agentHours: 2 });
     expect(report.kinds).toEqual([{ kind: 'merge-approval', stops: 1, cycleHours: 7 }]);
   });
+
+  it('counts a stop whose first record lasts no time, and follows an owner change', () => {
+    const report = summarizeOperatorWait(
+      [
+        {
+          cycleId: 'a',
+          at: at(2),
+          status: 'needs-attention',
+          attention: operator('merge-approval'),
+        },
+        // Written in the same millisecond: the first record has no duration.
+        {
+          cycleId: 'a',
+          at: at(2),
+          status: 'needs-attention',
+          attention: operator('merge-approval'),
+        },
+        // A roadmap claims the merge: the controller owns it from here.
+        {
+          cycleId: 'a',
+          at: at(4),
+          status: 'needs-attention',
+          attention: { code: 'merge-approval', owner: 'controller' },
+        },
+        { cycleId: 'a', at: at(6), status: 'running' },
+      ],
+      [],
+      window,
+    );
+    expect(report).toMatchObject({ waitingHours: 2, idleWaitingHours: 2 });
+    expect(report.kinds).toEqual([{ kind: 'merge-approval', stops: 1, cycleHours: 2 }]);
+  });
 });

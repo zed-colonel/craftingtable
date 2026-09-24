@@ -148,6 +148,22 @@ describe('typed attention (R-A3)', () => {
     });
     await f.services.notificationService.tick();
     expect(cycleAlerts(f, cycle)).toMatchObject([{ kind: 'merge' }]);
+    // The owner change is audited, so operator wait starts counting here (R-C1).
+    const transitions = f.context.storage.audit
+      .listCycleTransitions(
+        f.workspaceId,
+        new Date(0).toISOString(),
+        new Date(Date.now() + 60_000).toISOString(),
+      )
+      .filter((row) => row.cycleId === cycle.id);
+    expect(transitions.at(-1)?.metadata).toMatchObject({
+      action: 'attention-refreshed',
+      status: 'awaiting-merge',
+      attention: { code: 'merge-approval', owner: 'operator' },
+    });
+    expect(transitions.at(-2)?.metadata).toMatchObject({
+      attention: { owner: 'controller', claim: 'roadmap-merge' },
+    });
   });
 
   it('accepts on the wire only the owner a code or claim declares', () => {

@@ -1329,7 +1329,12 @@ export function App() {
             <AttentionStrip cycles={cycles} variant="section" onOpen={openCycle} />
             <OperatorWaitSection
               workspaceId={workspaceId}
-              refreshKey={cycles.map((cycle) => `${cycle.id}:${cycle.status}`).join(',')}
+              refreshKey={cycles
+                .map(
+                  (cycle) =>
+                    `${cycle.id}:${cycle.status}:${cycle.attention?.code ?? ''}:${cycle.attention?.owner ?? ''}`,
+                )
+                .join(',')}
             />
             <StatusCards
               summary={projection.statusSummary}

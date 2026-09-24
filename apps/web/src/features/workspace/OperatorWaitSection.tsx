@@ -2,7 +2,7 @@ import {
   type OperatorWaitReportResponse,
   operatorWaitReportSchema,
 } from '@craftingtable/contracts';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { request } from '../../lib/api-client.js';
@@ -15,22 +15,40 @@ function kindLabel(kind: string): string {
 
 const hours = (value: number) => `${value.toFixed(1)} h`;
 
+/** A report older than this is reloaded when the tab becomes visible again. */
+const STALE_MS = 5 * 60_000;
+
 /**
  * How long work waited on the operator over the last week, and which stops cost the most
- * (R-C1). It reloads when a cycle changes status, not on every workspace event.
+ * (R-C1). It reloads when a cycle enters or leaves a stop and when a hidden tab returns
+ * after a while, not on every workspace event and not on a timer, so an idle tab makes no
+ * requests. The time it was measured is shown, since an open stop keeps accruing.
  */
 export function OperatorWaitSection({
   workspaceId,
   refreshKey,
 }: {
   workspaceId: string;
-  /** Changes when any cycle enters or leaves a stop. */
+  /** Changes when any cycle enters or leaves a stop, or a stop changes code or owner. */
   refreshKey: string;
 }) {
   const [report, setReport] = useState<OperatorWaitReportResponse>();
   const [error, setError] = useState<string>();
+  const [returns, setReturns] = useState(0);
+  const measuredAt = useRef<string>(undefined);
+  measuredAt.current = report?.to;
+  useEffect(() => {
+    const visible = () => {
+      const at = measuredAt.current;
+      if (document.visibilityState === 'visible' && at && Date.now() - Date.parse(at) > STALE_MS)
+        setReturns((n) => n + 1);
+    };
+    document.addEventListener('visibilitychange', visible);
+    return () => document.removeEventListener('visibilitychange', visible);
+  }, []);
   useEffect(() => {
     void refreshKey;
+    void returns;
     let alive = true;
     void request(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/operator-wait?days=7`,
@@ -48,7 +66,7 @@ export function OperatorWaitSection({
     return () => {
       alive = false;
     };
-  }, [workspaceId, refreshKey]);
+  }, [workspaceId, refreshKey, returns]);
 
   const top = report?.kinds.slice(0, 5) ?? [];
   return (
@@ -56,7 +74,7 @@ export function OperatorWaitSection({
       title="Operator wait"
       summary={
         report
-          ? `Last 7 days: ${hours(report.idleWaitingHours)} with work waiting on you and no agent running.`
+          ? `Last 7 days: ${hours(report.idleWaitingHours)} with work waiting on you and no agent running (as of ${new Date(report.to).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).`
           : undefined
       }
       collapsible

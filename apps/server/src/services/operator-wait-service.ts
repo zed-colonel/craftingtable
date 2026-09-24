@@ -7,6 +7,7 @@ import {
   effectiveCycleAttention,
   type OperatorWaitReport,
   summarizeOperatorWait,
+  type WorkCycle,
   type WorkspaceId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
@@ -39,9 +40,21 @@ export function operatorWaitReport(
   workspaceId: WorkspaceId,
   window: { readonly from: Date; readonly to: Date },
 ): OperatorWaitReport {
+  const from = window.from.toISOString();
   const to = window.to.toISOString();
+  // What an older awaiting-merge record meant depends on the kind of cycle, which never
+  // changes, so it is read from the cycle (only when such a record needs it). Whether the
+  // controller was still waiting on the step (`workflow.waiting`) was not recorded, so
+  // such a transition counts as the operator's.
+  let cycles: ReadonlyMap<string, WorkCycle> | undefined;
+  const cycleOf = (id: string) => {
+    cycles ??= new Map(
+      storage.execution.cycles.listForWorkspace(workspaceId).map((cycle) => [cycle.id, cycle]),
+    );
+    return cycles.get(id);
+  };
   const transitions = storage.audit
-    .listCycleTransitions(workspaceId, to)
+    .listCycleTransitions(workspaceId, from, to)
     .flatMap((row): CycleTransitionRecord[] => {
       const status = row.metadata.status;
       if (!CYCLE_STATUSES.includes(status as CycleStatus)) return [];
@@ -50,7 +63,7 @@ export function operatorWaitReport(
           cycleId: row.cycleId,
           at: row.occurredAt,
           status: status as CycleStatus,
-          ...recordedAttention(status as CycleStatus, row.metadata),
+          ...recordedAttention(status as CycleStatus, row.metadata, () => cycleOf(row.cycleId)),
         },
       ];
     });
@@ -64,17 +77,21 @@ export function operatorWaitReport(
 function recordedAttention(
   status: CycleStatus,
   metadata: Readonly<Record<string, unknown>>,
+  cycleOf: () => Pick<WorkCycle, 'executionScope' | 'finalizationId'> | undefined,
 ): Pick<CycleTransitionRecord, 'attention'> {
   const declared = metadata.attention as { code?: unknown; owner?: unknown } | undefined;
   if (
     typeof declared?.code === 'string' &&
-    declared.code in CYCLE_ATTENTION &&
+    Object.hasOwn(CYCLE_ATTENTION, declared.code) &&
     (declared.owner === 'operator' || declared.owner === 'controller')
   )
     return { attention: { code: declared.code as CycleAttentionCode, owner: declared.owner } };
+  const cycle = status === 'awaiting-merge' ? cycleOf() : undefined;
   const recovered = effectiveCycleAttention({
     status,
     reason: typeof metadata.reason === 'string' ? metadata.reason : '',
+    ...(cycle?.executionScope ? { executionScope: cycle.executionScope } : {}),
+    ...(cycle?.finalizationId ? { finalizationId: cycle.finalizationId } : {}),
   });
   return recovered ? { attention: { code: recovered.code, owner: recovered.owner } } : {};
 }

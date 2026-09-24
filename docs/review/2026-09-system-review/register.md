@@ -235,6 +235,24 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** Record stop openedAt/resolvedAt/owner/kind (falls out of R-A3/R-A4) and show operator-wait hours and stops-by-kind on the dashboard. Use it to rank the remaining automation work.
 - **Done when:** The dashboard shows operator-wait hours for the last 7 days and the top stop kinds; numbers reproduce the HIST baseline on a DB snapshot.
 - **Progress:** Each cycle transition's audit entry now records its attention `{ code, owner, claim }`. The pure function `summarizeOperatorWait` (domain, `operator-wait.ts`) turns cycle transitions and run intervals into four numbers: wall hours with work waiting on the operator, the part of those with no agent running (the HIST-02 headline), agent hours, and operator stop kinds ranked by cycle-hours. A cycle waits on the operator while it is paused or stopped at operator-owned attention; controller-owned stops do not count. Older audit entries recover their code through `effectiveCycleAttention`. `GET /api/workspaces/:id/operator-wait?days=7` (1–30) serves it, and the dashboard's "Operator wait" section shows the hours and the five costliest stop kinds. The section reloads only when a cycle's status changes. Against the 2026-09-23 snapshot, the daily no-agent waiting hours for 09-19..09-22 UTC are 17.3, 17.7, 23.8 and 20.8 (HIST-02: 17.3, 17.6, 23.8, 20.8). 09-17..09-23 Pacific gives 112.7 h waiting with no agent against 31.3 agent-hours (baseline: ~112 h vs ~30 h). The top kinds are design-decision-required (131 cycle-h), paused (75), unrecoverable legacy stops (62), scope-review-recovery (55) and design-investigation-finished (52). Walkthrough captures `2026-09-24-operator-wait-before`/`-after`. The walkthrough script also repeats the recovery guidance with the answered question: guidance is one-shot per step (R-G3), and the capture had been failing since then. Tests: `operator-wait.test.ts` (domain and server), `OperatorWaitSection.test.tsx`.
+- **Amended 2026-09-24 (phase 1 review):** Fixes, with the done-when unchanged.
+  - **Older `awaiting-merge` records.** They recovered their stop kind from `status` and `reason` alone. Recovery now also reads the cycle's `executionScope` and `finalizationId`, as `effectiveCycleAttention` does for live cycles. Before the fix, 30 of the 68 `awaiting-merge` transitions in the snapshot were scope-verification or parent-acceptance records counted as `merge-approval`. `workflow.waiting` was never recorded, so a historical `controller-wait` still counts as the operator's.
+  - **Owner and code changes.** `refreshAttention` changes a stop's owner or code in place, for example when a roadmap claim lapses or is taken. Those changes are now audited as `attention-refreshed` transitions, so the wait starts and ends when the owner changes, not at the original transition.
+  - **Windowed read.** The endpoint reads the transitions inside the window plus each cycle's last transition before it. It no longer parses the whole history.
+  - **Other fixes:**
+    - A stop whose first record lasted no time (two writes in the same millisecond) is now counted.
+    - A stored code is checked with `Object.hasOwn`.
+    - The dashboard reloads when a stop's code or owner changes, and when a hidden tab returns more than 5 minutes after the last measurement. It shows when the numbers were measured and never polls, so an idle tab stays silent.
+  - **Correction to the Progress numbers above.** 112.7 h against 31.3 agent-hours is the window 09-17 00:00 to 09-23 00:00 Pacific, six days, which is how HIST-02 counts "09-17 → 09-23". The top kinds quoted above came from a different window, 09-17 to 09-24 UTC. For the HIST-02 window, after these fixes, the top kinds are:
+    - design-decision-required: 131 h
+    - legacy-attention: 62 h
+    - scope-review-recovery: 55 h
+    - paused: 41 h
+    - design-open-questions: 38 h
+  - **How HIST-02 compares.** The daily UTC figures and the 09-10..09-23 total still reproduce HIST-02: 160.1 h idle-waiting against 86.0 agent-hours. The definitions differ in one way: HIST-02 counted every `needs-attention`, `awaiting-merge` or `paused` interval, while R-C1 leaves out controller-owned stops. No historical record resolves to a controller owner, so the numbers agree on the snapshot, but they will diverge from now on.
+  - **Deferred, with reasons:**
+    - The `legacy-attention` hours (15 older stops the legacy map names no code for) are not mapped further. They leave the 7-day window a week after deploy.
+    - Open manual sessions count as agent time, as in HIST-02. Counting turn intervals instead is left for R-A4's occurrence rows.
 
 ### R-C2
 

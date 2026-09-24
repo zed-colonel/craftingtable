@@ -80,16 +80,26 @@ export class SqliteAuditRepository implements AuditRepository {
     return mapAudit(row);
   }
 
-  listCycleTransitions(workspaceId: WorkspaceId, until: string) {
+  /**
+   * Cycle transitions recorded up to `until`: every one from `from` on, plus each cycle's
+   * last transition before `from`, which gives the state the cycle was in when the window
+   * opened. Older rows are not read or parsed.
+   */
+  listCycleTransitions(workspaceId: WorkspaceId, from: string, until: string) {
     return (
       this.database
         .prepare(
           `SELECT target_id, occurred_at, metadata_json FROM audit_events
            WHERE workspace_id = ? AND action = 'work-cycle.updated' AND target_id IS NOT NULL
              AND occurred_at <= ?
+             AND (occurred_at >= ? OR sequence IN (
+               SELECT MAX(sequence) FROM audit_events
+               WHERE workspace_id = ? AND action = 'work-cycle.updated'
+                 AND target_id IS NOT NULL AND occurred_at < ?
+               GROUP BY target_id))
            ORDER BY sequence`,
         )
-        .all(workspaceId, until) as {
+        .all(workspaceId, until, from, workspaceId, from) as {
         target_id: string;
         occurred_at: string;
         metadata_json: string;

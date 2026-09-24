@@ -22,7 +22,9 @@ it('shows the week of operator wait and the costliest stops, reloading only on a
   });
   const { rerender } = render(<OperatorWaitSection workspaceId="ws" refreshKey="a:running" />);
   expect(
-    await screen.findByText('Last 7 days: 132.2 h with work waiting on you and no agent running.'),
+    await screen.findByText(
+      /^Last 7 days: 132\.2 h with work waiting on you and no agent running \(as of .+\)\.$/,
+    ),
   ).toBeTruthy();
   const rows = within(
     screen.getByRole('list', { name: 'Stops that cost the most waiting' }),
@@ -35,4 +37,25 @@ it('shows the week of operator wait and the costliest stops, reloading only on a
   rerender(<OperatorWaitSection workspaceId="ws" refreshKey="a:running" />);
   rerender(<OperatorWaitSection workspaceId="ws" refreshKey="a:needs-attention" />);
   await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+});
+
+it('reloads a stale report when the tab becomes visible again', async () => {
+  const report = {
+    from: '2026-09-16T12:00:00.000Z',
+    to: new Date(Date.now() - 10 * 60_000).toISOString(),
+    waitingHours: 1,
+    idleWaitingHours: 1,
+    agentHours: 0,
+    kinds: [],
+  };
+  vi.mocked(request).mockResolvedValue(report);
+  render(<OperatorWaitSection workspaceId="ws" refreshKey="a:running" />);
+  await screen.findByText('Nothing waited on you in the last 7 days.');
+  vi.mocked(request).mockResolvedValue({ ...report, to: new Date().toISOString() });
+  document.dispatchEvent(new Event('visibilitychange'));
+  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  // A fresh report is not reloaded again.
+  document.dispatchEvent(new Event('visibilitychange'));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(request).toHaveBeenCalledTimes(2);
 });

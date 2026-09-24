@@ -116,14 +116,18 @@ export function summarizeOperatorWait(
       const start = Date.parse(record.at);
       const next = ordered[index + 1];
       const interval = clip(start, next ? Date.parse(next.at) : to);
-      if (interval[1] <= interval[0]) continue;
-      waiting.push(interval);
       const entry = kinds.get(kind) ?? { stops: 0, ms: 0 };
-      entry.ms += interval[1] - interval[0];
       // A stop that continues under the same kind across a bookkeeping write is one stop.
+      // It is counted even when its first record lasts no time at all (two writes in the
+      // same millisecond), because the records after it continue it.
       const previous = ordered[index - 1];
-      if (start >= from && (!previous || waitKind(previous) !== kind)) entry.stops += 1;
-      kinds.set(kind, entry);
+      if (start >= from && start < to && (!previous || waitKind(previous) !== kind))
+        entry.stops += 1;
+      if (interval[1] > interval[0]) {
+        waiting.push(interval);
+        entry.ms += interval[1] - interval[0];
+      }
+      if (entry.stops > 0 || entry.ms > 0) kinds.set(kind, entry);
     }
   }
   const waitingUnion = union(waiting);

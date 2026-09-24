@@ -17,7 +17,7 @@ work lands. Do not rewrite the findings files; they are evidence captured at `bf
 
 | File | Use it for |
 |---|---|
-| [register.md](register.md) | The backlog: 66 remediation items (`R-A1` … `R-I8`) with phase, effort, status, the findings each resolves, what to change, and a testable "done when". Also indexes all 202 findings. |
+| [register.md](register.md) | The backlog: 67 remediation items (`R-A1` … `R-I8`) with phase, effort, status, the findings each resolves, what to change, and a testable "done when". Also indexes all 202 findings. |
 | [program.md](program.md) | The order of work: phases, dependencies, and baseline metrics that show whether remediation is working. |
 | [target-architecture.md](target-architecture.md) | The target controller, attention model and read side the items converge on. |
 | [target-ui.md](target-ui.md) | The target information architecture: the "Needs you" inbox, the roadmap board, and the routes. |

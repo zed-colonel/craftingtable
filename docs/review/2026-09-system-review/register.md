@@ -25,7 +25,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B6](#r-b6) | P4 | M-L | open | Scoped consistency instead of whole-roadmap pause |
 | [R-B7](#r-b7) | P4 | L | open | Decompose the controller services along real boundaries |
 | [R-B8](#r-b8) | P1 | M | open | Remove dead and vestigial paths |
-| [R-B9](#r-b9) | P1 | M | open | Graceful drain and automatic resume after clean restarts |
+| [R-B9](#r-b9) | P1 | M | open | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | open | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | open | Re-prompt the agent automatically on output-format validation failures |
@@ -68,6 +68,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G9](#r-g9) | P2 | M | open | Authentication and authorization hardening |
 | [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
+| [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | open | Journal retention: stop storing raw vendor lines by default |
@@ -213,11 +214,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B9
 
-**Graceful drain and automatic resume after clean restarts** · Phase P1 · Effort M · Status: open
+**Low-disruption restarts: bounded drain plus automatic resume of interrupted steps** · Phase P1 · Effort M · Status: open
 
 - **Resolves:** [HIST-06](findings/HIST-history-and-live-usage.md#hist-06-deploy--restart-and-every-restart-stops-running-roadmaps-and-live-runs), [CTRL-20](findings/CTRL-controller.md#ctrl-20-every-restart-stops-all-automation-and-kills-in-flight-agent-work), [HIST-13](findings/HIST-history-and-live-usage.md#hist-13-schema-and-adr-churn-rate-22-migrations-46-adrs-in-18-days-with-manual-pre-migration-backups)
-- **Change:** A "drain then restart" path: stop admitting new steps, let live turns reach a boundary (bounded), record a clean shutdown. On a clean start with no reserved-but-unlaunched runs and no Git operation in flight, resume roadmaps and cycles automatically; keep explicit resume for unclean interruptions. Take the pre-migration snapshot automatically in the migration runner.
-- **Done when:** systemctl restart of an idle-or-drained daemon leaves running roadmaps running and sends no page; a restart during a live run still requires resume.
+- **Change:** Agents are child processes of the daemon, connected only by stdio pipes, so a restarted daemon cannot re-attach to a run that is still going. Combine two mechanisms (operator decision 2026-09-23). (1) Bounded drain: on stop or deploy, stop admitting new steps and wait up to a configurable bound (a few minutes) for live turns to finish; then interrupt what is left, recording which runs were interrupted by a controlled drain (as opposed to a crash). `pnpm deploy:daemon --when-idle` instead waits until nothing is live before switching and restarting. (2) Automatic resume: on a clean start, relaunch each step interrupted by the drain by resuming its vendor session (Claude `--resume <session>`, Codex app-server thread resume; both adapters already have resume paths) in the same worktree, with the original deadline and permissions, so conversation and worktree edits survive and only the in-flight tool call is redone; roadmaps and cycles that were running continue without an operator Resume. Unclean interruptions (crash, kill, lost session id) and failed resumes keep today's explicit-resume attention. Also take the pre-migration DB snapshot automatically in the migration runner. Truly surviving a restart (agents that outlive the daemon) is R-G12.
+- **Done when:** A deploy while a long run is live either waits (`--when-idle`) or drains within the bound and, after restart, the interrupted step resumes its vendor session automatically with no operator action and no page; running roadmaps keep running; a crash or failed resume still requires explicit resume (tests with the fake backends for both paths).
 
 ## Workstream C — Operator-wait reduction (the vision: minimum operator input)
 
@@ -534,6 +535,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** Persist process identity for restart recovery; fix the smaller supervisor defects; stop Claude background-task notifications from producing invalid review turns; update agent seam docs.
 - **Done when:** See the AGT report entries.
 
+### R-G12
+
+**(Future) agent runs that outlive the daemon** · Phase P5 · Effort L · Status: open
+
+- **Resolves:** [AGT-02](findings/AGT-GIT-SEC-agents-git-security.md#agt-02-restart-recovery-relies-entirely-on-systemd-no-process-identity-is-persisted), [AGT-11](findings/AGT-GIT-SEC-agents-git-security.md#agt-11-the-seam-cannot-host-persistent-hermesopenclaw-style-agents-without-redesign)
+- **Change:** Recorded 2026-09-23 as a future item, to be designed together with persistent (Hermes/OpenClaw-style) agents (R-G8). Give each run a small supervisor in its own transient systemd user unit that owns the agent process and its stdio, persists process identity, and appends normalized events to a durable per-run file or socket; the daemon becomes a client that re-attaches to live supervisors on start and replays their events from its last journal cursor. This removes restart as a source of interruption entirely (R-B9 only shortens and repairs it) and is the same decoupling a persistent agent needs. Preserve today's authority boundaries: process spawning stays in the listed adapter modules, cancellation and deadlines stay daemon-owned.
+- **Done when:** A daemon restart during a live run loses no events and needs no resume; the design ADR covers persistent agents as well.
+
 ## Workstream H — Data lifecycle and integrity
 
 ### R-H1
@@ -652,7 +661,7 @@ All 202 findings, in report order. Severity and status are the reviewer's; "Item
 | Finding | Severity | Evidence | Effort | Item | Title |
 |---|---|---|---|---|---|
 | [AGT-01](findings/AGT-GIT-SEC-agents-git-security.md#agt-01-a-supervision-failure-leaves-the-agent-process-running-while-the-run-is-marked-failed) | high | CONFIRMED | S | [R-G1](#r-g1) | A supervision failure leaves the agent process running while the run is marked failed |
-| [AGT-02](findings/AGT-GIT-SEC-agents-git-security.md#agt-02-restart-recovery-relies-entirely-on-systemd-no-process-identity-is-persisted) | medium | CONFIRMED | S–M | [R-G11](#r-g11) | Restart recovery relies entirely on systemd; no process identity is persisted |
+| [AGT-02](findings/AGT-GIT-SEC-agents-git-security.md#agt-02-restart-recovery-relies-entirely-on-systemd-no-process-identity-is-persisted) | medium | CONFIRMED | S–M | [R-G11](#r-g11), [R-G12](#r-g12) | Restart recovery relies entirely on systemd; no process identity is persisted |
 | [AGT-03](findings/AGT-GIT-SEC-agents-git-security.md#agt-03-raw-vendor-lines-take-about-half-the-database-and-are-shipped-to-the-browser-which-never-reads-them) | high | CONFIRMED | S | [R-D1](#r-d1), [R-H2](#r-h2) | Raw vendor lines take about half the database and are shipped to the browser, which never reads them |
 | [AGT-04](findings/AGT-GIT-SEC-agents-git-security.md#agt-04-the-adapters-hard-code-cargo-and-controller-build-concepts) | medium | CONFIRMED | S–M | [R-G4](#r-g4) | The adapters hard-code Cargo and controller build concepts |
 | [AGT-05](findings/AGT-GIT-SEC-agents-git-security.md#agt-05-per-run-cargo_target_dir-forces-a-cold-rust-build-on-every-step-768-gb-written-and-deleted-in-10-days) | high | CONFIRMED | S–M | [R-G7](#r-g7) | Per-run `CARGO_TARGET_DIR` forces a cold Rust build on every step (768 GB written and deleted in 10 days) |
@@ -661,7 +670,7 @@ All 202 findings, in report order. Severity and status are the reviewer's; "Item
 | [AGT-08](findings/AGT-GIT-SEC-agents-git-security.md#agt-08-verification-exists-only-for-cargo-non-rust-repositories-get-no-controller-supplied-verification) | medium | CONFIRMED | L | [R-G4](#r-g4) | Verification exists only for Cargo; non-Rust repositories get no controller-supplied verification |
 | [AGT-09](findings/AGT-GIT-SEC-agents-git-security.md#agt-09-a-ct-check-or-ct-act-timeout-kills-only-the-direct-child-not-its-process-tree) | medium | CONFIRMED | S | [R-G1](#r-g1) | A ct-check or ct-act timeout kills only the direct child, not its process tree |
 | [AGT-10](findings/AGT-GIT-SEC-agents-git-security.md#agt-10-backend-capabilities-are-expressed-as-backend--codex-checks-scattered-across-daemon-domain-contracts-and-web) | medium | CONFIRMED | M | [R-G8](#r-g8) | Backend capabilities are expressed as `backend === 'codex'` checks scattered across daemon, domain, contracts and web |
-| [AGT-11](findings/AGT-GIT-SEC-agents-git-security.md#agt-11-the-seam-cannot-host-persistent-hermesopenclaw-style-agents-without-redesign) | medium | CONFIRMED | M | [R-G8](#r-g8) | The seam cannot host persistent (Hermes/OpenClaw-style) agents without redesign |
+| [AGT-11](findings/AGT-GIT-SEC-agents-git-security.md#agt-11-the-seam-cannot-host-persistent-hermesopenclaw-style-agents-without-redesign) | medium | CONFIRMED | M | [R-G8](#r-g8), [R-G12](#r-g12) | The seam cannot host persistent (Hermes/OpenClaw-style) agents without redesign |
 | [AGT-12](findings/AGT-GIT-SEC-agents-git-security.md#agt-12-launchauthorized-is-a-780-line-mixed-responsibility-function-its-side-effects-precede-the-durable-record) | medium | CONFIRMED | M | [R-B7](#r-b7) | `launchAuthorized` is a ~780-line mixed-responsibility function; its side effects precede the durable record |
 | [AGT-13](findings/AGT-GIT-SEC-agents-git-security.md#agt-13-manual-launches-allow-two-live-agents-in-the-same-worktree) | medium | CONFIRMED | S | [R-G1](#r-g1) | Manual launches allow two live agents in the same worktree |
 | [AGT-14](findings/AGT-GIT-SEC-agents-git-security.md#agt-14-supervised-agents-inherit-the-operators-personal-claudecodex-configuration-hooks-plugins-skills-memory-mcp) | medium | CONFIRMED | S–M | [R-G5](#r-g5) | Supervised agents inherit the operator's personal Claude/Codex configuration (hooks, plugins, skills, memory, MCP) |

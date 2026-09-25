@@ -151,10 +151,13 @@ describe('finalization finding decisions', () => {
     async (questions) => {
       const { state, backend, value, nit } = await findingCheckpointFixture('minor', questions);
       const prompts: string[] = [];
+      const focusWhileImplementing: (readonly string[] | undefined)[] = [];
       backend.replyForRequest = (request) => {
         prompts.push(request.prompt);
-        if (implementsFinalization(request))
+        if (implementsFinalization(request)) {
+          focusWhileImplementing.push(finalizationCycle(state, value).findingFocus);
           return { resultText: 'Completed selected cleanup.\n\n## Open questions\nnone' };
+        }
         return {
           resultText: stagedText(request, [
             { ...nit, status: 'resolved', disposition: 'Selected cleanup verified.' },
@@ -175,6 +178,8 @@ describe('finalization finding decisions', () => {
       );
       // The focus belongs to its stage: it is implemented and verified there, then cleared so
       // the later stages review the whole candidate.
+      // The selected finding is the focus while its stage implements it.
+      expect(focusWhileImplementing).toEqual([[nit.id]]);
       expect(finalizationCycle(state, value)).toMatchObject({
         remediationRounds: 1,
         additionalRemediationRounds: 1,
@@ -255,7 +260,7 @@ describe('finalization recovery agent selection', () => {
       expect(codex.launches.every((r) => r.model === 'astra-fixture')).toBe(true);
       expect(
         codex.launches.filter((r) => /^Role: review$/m.test(r.prompt)).map((r) => r.permissionMode),
-      ).toEqual(Array(action === 'resume' ? 1 + later : 1 + later).fill('edit-only'));
+      ).toEqual(Array(1 + later).fill('edit-only'));
       expect(
         state.context.storage.execution.runs
           .listForWorktree(state.workspaceId, value.worktreeId)

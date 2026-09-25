@@ -390,6 +390,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Where staged differs by design, the tests assert the staged behaviour: a reopened correctness finding returns to the correctness stage, a staged report retry never reuses verification, and a finding focus ends with its stage.
   - **Defect found by the migration (adeb4cf).** A staged review with no structured report stopped for the operator at once, while legacy reviews got R-C2's two format repairs. `decideStepOutcome` now repairs it under `finalization-report-rejected`. The staged invalid-report test gets 0 repairs without the fix and 2 with it. This changes controller decisions for staged cycles only. On the 2026-09-23 snapshot copy, `controller:replay --check` reports 51 decisions, 0 changed, and `--every-run --check` against the 5e0c638 baseline reports 278 decisions, 0 changed.
   - **Deviation: the register update follows in a separate commit.** adeb4cf was cherry-picked from a delegated worktree that had no register access. Rewriting it would rewrite history.
+  - **Review 2026-09-25 (independent reviewer; no correctness or safety defects):**
+    - **The legacy record test now goes through the real read path.** It seeds the 2026-09-13 records into a test daemon and reads them back through `GET …/finalizations`, which runs `FinalizationService.view()`. Before, both tests parsed the schema directly, so a `view()` helper that failed on a stage-less record would have gone unnoticed.
+    - **The focused-attempts test checks the focus again.** The selected finding must be the cycle's `findingFocus` while its stage implements it.
+    - **Table row.** `step-outcome.test.ts` has a row for a staged review with no structured report: repair, not a stop. It fails on the code before adeb4cf.
+    - A redundant ternary is removed. Not changed: the web test does not click Start, because the e2e spec covers the whole start flow.
   - **Still to do:** delete the legacy branches after a staged finalization completes on live data. On 2026-09-25 the operator reported no plan is ready to finalize, so the deletion is left as the last step.
 
 ## Workstream C — Operator-wait reduction (the vision: minimum operator input)

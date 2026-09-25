@@ -426,6 +426,16 @@ const rows: readonly Row[] = [
     expected: { kind: 'advance-finalization-stage', noQuestions: false },
   },
   {
+    name: 'a staged finalization review without a structured report is sent back for repair',
+    cycle: { step: 'review' },
+    facts: {
+      run: reviewRun,
+      turn: turnOf(noQuestions),
+      finalization: finalization({ stages: [{}] }),
+    },
+    expected: { kind: 'repair-output', code: 'finalization-report-rejected', attempt: 1 },
+  },
+  {
     name: 'a polish assessment without a usable report is sent back for repair',
     cycle: { step: 'review', polishPhase: 'assess' },
     facts: { run: reviewRun, turn: turnOf(noQuestions), finalization: finalization() },

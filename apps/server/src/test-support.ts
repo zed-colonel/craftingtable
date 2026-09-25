@@ -195,12 +195,11 @@ export function untypedStops(storage: ReturnType<typeof openDaemonStorage>): str
 /**
  * Contract check run by every test daemon on cleanup (R-H3): every record the test left,
  * whichever path wrote it, reads back through the storage upcasters and conforms to its
- * contract, as `pnpm db:verify` checks a live snapshot. The v0.3 format check is left out:
- * scope fixtures store hand-built local map sources the importer would reject (recorded
- * under R-F3).
+ * contract, as `pnpm db:verify` checks a live snapshot, including the v0.3 format check on
+ * saved map sources (R-F3, FMT-15).
  */
 export function unverifiedRecords(storage: ReturnType<typeof openDaemonStorage>): string[] {
-  const verification = verifyRecords(storage, false);
+  const verification = verifyRecords(storage);
   return verified(verification)
     ? []
     : groupedIssues(verification)

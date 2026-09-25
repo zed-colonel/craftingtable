@@ -35,13 +35,13 @@ afterEach(cleanupExecutionFixtures);
 async function checkpointCandidateFixture() {
   const f = await slicedFixture((source) => ({
     ...source,
-    repositories: source.repositories.map((r) => ({ ...r, id: 'local' })),
     work_items: source.work_items.map((w) => ({
       ...w,
       repository: 'local',
       aq_baseline_case_ids: ['BASE-A', 'BASE-B'],
     })),
     checkpoints: [
+      ...source.checkpoints,
       {
         ...source.checkpoints[0]!,
         id: 'CORE-G1',
@@ -66,7 +66,7 @@ async function checkpointCandidateFixture() {
       id: index === 0 ? 'BASE-A' : 'BASE-B',
       source_id: 'local',
       source_record_sha256: (index === 0 ? 'a' : 'b').repeat(64),
-      owner_work_item: 'AQ-01',
+      owner_work_item: 'local/AQ-01',
       producing_slice: slice.id,
       capability_gate: 'CORE-G1',
       status_on_import: 'unresolved',
@@ -79,7 +79,11 @@ async function checkpointCandidateFixture() {
     })),
   }));
   // Each slice's map entry names its baseline case.
-  expectScopeCases(f.state, { 'slice AQ-01.A': ['BASE-A'], 'slice AQ-01.B': ['BASE-B'] });
+  // Slice a also produces the base map's CASE-PARENT.
+  expectScopeCases(f.state, {
+    'slice local/AQ-01/a': ['BASE-A', 'CASE-PARENT'],
+    'slice local/AQ-01/b': ['BASE-B'],
+  });
   const svc = f.state.context.services.runtimeEvidenceService;
   const config = {
     bindingRevision: 1,
@@ -138,7 +142,7 @@ itNeedsCargo(
     const preview = checkpointRecoverySchema.parse(previewResponse.json()).candidates[0]!;
     expect(preview.issues).toEqual([]);
     expect(preview.cases.map((c) => c.id)).toEqual(['BASE-A']);
-    expect(preview.laterCases).toEqual([{ id: 'BASE-B', sliceId: 'AQ-01.B' }]);
+    expect(preview.laterCases).toEqual([{ id: 'BASE-B', sliceId: 'local/AQ-01/b' }]);
     const input = {
       worktreeId: f.tree.id,
       checkpointId: 'CORE-G1',
@@ -228,9 +232,12 @@ itNeedsCargo.each(['candidate', 'integration', 'dirty', 'run', 'runtime'] as con
 async function evidenceFixture(checkpointOwner = 'local') {
   const f = await slicedFixture((source) => ({
     ...source,
-    repositories: source.repositories.map((r) => ({ ...r, id: 'local' })),
-    work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
+    work_items: source.work_items.map((w) => ({
+      ...w,
+      source_profile_case_ids: [...w.source_profile_case_ids, 'CASE-LOCAL'],
+    })),
     checkpoints: [
+      ...source.checkpoints,
       {
         ...source.checkpoints[0]!,
         id: 'LOCAL-QUALIFIED',
@@ -253,12 +260,13 @@ async function evidenceFixture(checkpointOwner = 'local') {
       },
     ],
     acceptance_coverage: [
+      ...source.acceptance_coverage,
       {
         id: 'CASE-LOCAL',
         source_id: 'local',
         source_record_sha256: 'c'.repeat(64),
-        owner_work_item: 'AQ-01',
-        producing_slices: ['AQ-01.A'],
+        owner_work_item: 'local/AQ-01',
+        producing_slices: ['local/AQ-01/a'],
         checkpoint: 'LOCAL-QUALIFIED',
         requires_kata_host: true,
         evidence_status_on_import: 'unresolved',
@@ -436,7 +444,6 @@ it('checks actual Git freshness at evidence review and keeps decisions immutable
 it('previews exact dependency refreshes, rejects stale approval and retains unchanged native authority', async () => {
   const f = await slicedFixture((source) => ({
     ...source,
-    checkpoints: [],
     repositories: [
       { ...source.repositories[0]!, id: 'local' },
       { ...source.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
@@ -637,7 +644,6 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
   async (mode) => {
     const f = await slicedFixture((source) => ({
       ...source,
-      checkpoints: [],
       slices: source.slices.map((s) => ({ ...s, mode })),
       repositories: [
         { ...source.repositories[0]!, id: 'local' },
@@ -856,13 +862,27 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
 );
 
 it('binds consumer evidence independently of checkpoint ownership and derives cross-project build providers', async () => {
-  const f = await evidenceFixture('aq');
+  // The checkpoints belong to the map's implemented upstream, not to the tested consumer.
+  const f = await evidenceFixture('base');
   const { testedRepositories, requiredUpstreams } = await import(
     './services/runtime-evidence-policy.js'
   );
-  const imported = f.state.context.storage.imports
-    .definitions(f.state.workspaceId)
-    .find((d) => d.id !== f.definitionId)!;
+  // Cross-project providers are derived from the real v0.3 map.
+  const real = f.state.context.services.packageImportService.importConcurrency(
+    f.auth,
+    f.state.workspaceId,
+    'map.zip',
+    readFileSync(
+      new URL(
+        '../../../fixtures/concurrency/cross-stack-concurrency-draft-v0.3.0-aq-baseline-alignment.zip',
+        import.meta.url,
+      ),
+    ),
+  );
+  const imported = f.state.context.storage.imports.definition(
+    f.state.workspaceId,
+    real.attempt.definitionId!,
+  )!;
   expect(testedRepositories(imported, { kind: 'checkpoint', sourceId: 'WI-AQ-G1' })).toEqual([
     'wi',
   ]);

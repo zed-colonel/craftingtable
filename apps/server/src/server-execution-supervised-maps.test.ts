@@ -36,7 +36,7 @@ it('adopts exact map decisions separately, previews exclusions, guards HTTP auth
   const f = await supervisedMapFixture(true),
     ws = f.state.workspaceId;
   const preview = f.service.view(f.auth, ws, f.input.configuration);
-  expect(preview.nodes.some((n) => n.sourceId === 'AQ-01.B' && !n.included)).toBe(true);
+  expect(preview.nodes.some((n) => n.sourceId === 'local/AQ-01/b' && !n.included)).toBe(true);
   expect(preview.nodes.some((n) => n.kind === 'work_item' && n.included)).toBe(false);
   expect(
     (
@@ -87,7 +87,7 @@ it('adopts exact map decisions separately, previews exclusions, guards HTTP auth
         },
         {
           level: 'individual',
-          key: 'development:AQ-01.A',
+          key: 'development:local/AQ-01/a',
           settings: { ...f.input.configuration.defaults, instructions: 'Specific slice' },
         },
       ],
@@ -539,7 +539,7 @@ itNeedsCargo(
       () =>
         storage.scopeReceipts
           .list(ws, state.workItemId)
-          .some((r) => r.scope.sourceId === 'AQ-01.A'),
+          .some((r) => r.scope.sourceId === 'local/AQ-01/a'),
       'slice independently verified',
       10000,
     );
@@ -573,14 +573,14 @@ itNeedsCargo(
       outcome: 'apply',
       impactDigest: impact.digest,
       rationale: 'Ancestry checked; no approval migration.',
-      reuseIntegrationIds: ['AQ-01.A'],
+      reuseIntegrationIds: ['local/AQ-01/a'],
     });
     const view = f.service.view(f.auth, ws, candidate);
     expect(
-      view.nodes.find((n) => n.sourceId === 'AQ-01.A' && n.state === 'merged')?.satisfied,
+      view.nodes.find((n) => n.sourceId === 'local/AQ-01/a' && n.state === 'merged')?.satisfied,
     ).toBe(true);
     expect(
-      view.nodes.find((n) => n.sourceId === 'AQ-01.A' && n.state === 'verified')?.satisfied,
+      view.nodes.find((n) => n.sourceId === 'local/AQ-01/a' && n.state === 'verified')?.satisfied,
     ).toBe(false);
     expect(
       storage.scopeReceipts.list(ws, state.workItemId).every((r) => r.scope.definitionId !== id),

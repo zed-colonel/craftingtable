@@ -41,13 +41,12 @@ itNeedsCargo(
   async () => {
     const f = await slicedFixture((source) => ({
       ...source,
-      decisions: [],
       planning_targets: [
         { id: 'LOCAL', checkpoint: 'LOCAL-ADR-01', scope: 'Local proof', is_release: false },
       ],
       terminal_checkpoint: 'LOCAL-ADR-01',
-      repositories: [{ ...source.repositories[0]!, id: 'local' }],
       checkpoints: [
+        ...source.checkpoints,
         {
           ...source.checkpoints[0]!,
           id: 'LOCAL-ADR-01',
@@ -83,7 +82,7 @@ itNeedsCargo(
     const svc = context.services.runtimeEvidenceService;
     context.services.crossProjectService.adopt(f.auth, ws, id, {
       bindingRevision: 1,
-      decisionIds: [],
+      decisionIds: ['CS-D01'],
       rationale: 'Adopt the exact fixture map.',
     });
     await svc.configure(f.auth, ws, id, {
@@ -152,7 +151,9 @@ itNeedsCargo(
       sourceReferences: 'source-plan.md §4 early definitions',
       retainedObligations:
         'The later slice still requires transport, credential and live-provider decisions.',
-      consumers: [{ sliceId: 'AQ-01.A', phase: 'merge' as const, replacesFullCheckpoint: true }],
+      consumers: [
+        { sliceId: 'local/AQ-01/a', phase: 'merge' as const, replacesFullCheckpoint: true },
+      ],
     };
     await expect(
       svc.proposeArchitectureDecision(f.auth, ws, id, {
@@ -222,20 +223,22 @@ itNeedsCargo(
       targetId: 'LOCAL',
       selection: 'prioritize-full',
     });
-    const early = projected.nodes.find((n) => n.sourceId === 'AQ-01.A' && n.state === 'merged')!;
+    const early = projected.nodes.find(
+      (n) => n.sourceId === 'local/AQ-01/a' && n.state === 'merged',
+    )!;
     expect(early.decisionCoverage?.[0]?.checkpoint).toBe('LOCAL-ADR-01');
     expect(early.requirements).not.toContain('checkpoint:LOCAL-ADR-01:passed');
     expect(early.originalRequirements).toContain('checkpoint:LOCAL-ADR-01:passed');
     expect(
       projected.nodes
-        .find((n) => n.sourceId === 'AQ-01.B' && n.state === 'merged')
+        .find((n) => n.sourceId === 'local/AQ-01/b' && n.state === 'merged')
         ?.blockers.join(' '),
     ).toContain('LOCAL-ADR-01');
 
     await expect(
       svc.proposeArchitectureDecision(f.auth, ws, id, {
         ...input,
-        consumers: [...input.consumers, { ...input.consumers[0]!, sliceId: 'AQ-01.B' }],
+        consumers: [...input.consumers, { ...input.consumers[0]!, sliceId: 'local/AQ-01/b' }],
       }),
     ).rejects.toThrow('Retain at least one later slice');
     await expect(
@@ -338,10 +341,9 @@ it('does not implement a classified operator decision hidden behind Open questio
 it('waits for an exact mapped slice merge, survives recovery, then bounds automatic design rechecks', async () => {
   const f = await slicedFixture((source) => ({
     ...source,
-    checkpoints: [],
     slices: source.slices.map((slice, index) => ({
       ...slice,
-      merge_requires: index === 1 ? [{ kind: 'slice', id: 'AQ-01.A', state: 'merged' }] : [],
+      merge_requires: index === 1 ? [{ kind: 'slice', id: 'local/AQ-01/a', state: 'merged' }] : [],
     })),
   }));
   const a = await scopeTree(f, f.scopes[0]!),
@@ -356,11 +358,11 @@ it('waits for an exact mapped slice merge, survives recovery, then bounds automa
           question: 'Need the mapped predecessor result.',
           answer: '',
           sources: ['exact map merge requirement'],
-          dependency: { kind: 'slice', id: 'AQ-01.A', state: 'merged' },
+          dependency: { kind: 'slice', id: 'local/AQ-01/a', state: 'merged' },
         },
       ],
     }) +
-    '\n```\n## Open questions\nWaiting for AQ-01.A merge.';
+    '\n```\n## Open questions\nWaiting for local/AQ-01/a merge.';
   f.backend.replyForRequest = () => ({ resultText: report });
   const cycle = await startCycle(f.state, b.id);
   await waitFor(() => !!currentCycle(f.state, cycle).designWait, 'dependency wait');

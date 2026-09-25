@@ -54,7 +54,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
 | [R-F1](#r-f1) | P1/P4 | S then L | partial (52c5c8b) | One compiled map model and one requirement evaluator |
 | [R-F2](#r-f2) | P3 | M | open | Typed feature recognition instead of prose and magic identifiers |
-| [R-F3](#r-f3) | P0/P1 | S-M | partial (7d44b42, 0ef1c95) | Format ingestion bugs and test honesty |
+| [R-F3](#r-f3) | P0/P1 | S-M | partial (7d44b42, 0ef1c95; FMT-15 done 2026-09-25) | Format ingestion bugs and test honesty |
 | [R-F4](#r-f4) | P0 | S | partial (9b4be64) | Commit the format specification and golden conformance tests |
 | [R-F5](#r-f5) | P4 | M | open | Backward-compatible format additions before the Studio |
 | [R-F6](#r-f6) | P5 | L | open | The Studio format family (first step of the Development Studio) |
@@ -642,7 +642,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-F3
 
-**Format ingestion bugs and test honesty** · Phase P0/P1 · Effort S-M · Status: partial (7d44b42, 0ef1c95)
+**Format ingestion bugs and test honesty** · Phase P0/P1 · Effort S-M · Status: partial (7d44b42, 0ef1c95; FMT-15 done 2026-09-25)
 
 - **Resolves:** [FMT-08](findings/FMT-plan-and-roadmap-formats.md#fmt-08-work-item-phase-is-unbounded-in-the-normalizer-but-64-in-the-database-and-wire-contract), [FMT-11](findings/FMT-plan-and-roadmap-formats.md#fmt-11-the-studio-seam-is-unused-and-produces-a-different-definition-digest), [FMT-13](findings/FMT-plan-and-roadmap-formats.md#fmt-13-the-same-plan-imported-by-discrete-upload-and-by-zip-gets-different-digests), [FMT-14](findings/FMT-plan-and-roadmap-formats.md#fmt-14-silent-truncation-of-plan-fields-that-agents-treat-as-the-contract), [FMT-15](findings/FMT-plan-and-roadmap-formats.md#fmt-15-execution-tests-bypass-the-importer-with-definitions-it-would-reject), [FMT-16](findings/FMT-plan-and-roadmap-formats.md#fmt-16-roadmap-entry-limits-are-inconsistent-and-settings-are-duplicated-in-every-entry-and-revision)
 - **Change:** Diagnose over-long phase at import instead of failing in storage; one digest for the same content regardless of transport (discrete vs ZIP, Studio seam vs ZIP); make truncation of agent-contract fields explicit; make execution tests build maps through the importer; align roadmap entry limits.
@@ -653,6 +653,19 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - R-H3 therefore leaves the format check to the importer and to `db:verify`. The test-cleanup verification skips it; see R-H3's progress.
   - FMT-15's fix stands: build these fixtures through the importer, or with ids that conform. Then turn the format check on in `unverifiedRecords` (`apps/server/src/test-support.ts`).
 - **Amended 2026-09-24 (operator decision): rebuild the scope fixtures through the importer.** `slicedFixture` and `supervisedMapFixture` will produce their definitions through the v0.3 importer, with repository-prefixed ids and checkpoints that carry requirements. Test cleanup then applies the map-format check too. This is scheduled with the rest of FMT-15 and is not yet done.
+- **Amended 2026-09-25: FMT-15 done, with one deviation the operator chose.**
+  - **What an importer-valid map needs.** Beyond prefixed ids, the v0.3 importer requires an implemented upstream with a baseline binding, lock document and previous definition, a second planned repository (two merge lanes), at least one source case, and source snapshots whose digests match. `apps/server/src/map-test-support.ts` builds this: tests describe the local map (`localScopeSource`: `local/AQ-01` with slices `local/AQ-01/a` and `/b` and case `CASE-PARENT`), and `sealLocalMap` adds the scaffolding and the digests. It never repairs what a test wrote: an unknown reference or an unprefixed id still fails the import.
+  - **Every scope fixture map now passes the real importer.** `slicedFixture` and `supervisedMapFixture` upload the sealed ZIP through `packageImportService.importConcurrency` and fail with its diagnostics. The test maps the importer rejected were corrected without weakening them:
+    - an unknown lowercase checkpoint became a declared `EXTERNAL-PROOF`;
+    - a five-slice parent now requires all five slices;
+    - wholesale checkpoint and case replacements now append, so the base case keeps its checkpoint;
+    - an empty decision list became the base decision, which the test's adoption now approves;
+    - a checkpoint owned by an undeclared `aq` now names the scaffolded upstream;
+    - the whole-plan parent `local/AQ-02` got its own slice, since the format requires one.
+  - **Deviation (operator decision 2026-09-25, "schema-valid fixtures").** An importable map has an implemented upstream, and the runtime then requires every consumer to pin it. A pinned run goes through the pinned Cargo build. Storing the imported map as-is would move about 70 scope tests onto that path and make them need Rust. So the fixtures store the imported map without the two scaffolding repositories (`withoutScaffolding`). The stored map conforms to the v0.3 schema, but not to the importer's cross-stack rules; those wait for R-F5's single-repository profile. Bindings are still written directly, and they bind only `local`.
+  - **Behaviour the fixtures now carry that they skipped before:** slices declare the one resource the daemon manages (`isolated-development-workspace`) instead of none, so `withLocalPhaseResources` is gone; the parent's acceptance requires its verified slices; `CASE-PARENT` is a real case that slice a produces, so its scope evidence names it. The supervised maps keep no local case, as before. The sealed package gives the peer lane the one case the format requires.
+  - **Test cleanup applies the format check.** `unverifiedRecords` calls `verifyRecords(storage)` with the v0.3 schema check on. A regression test stores a hand-built map with the old `AQ-01` id and asserts cleanup refuses it; it fails with the check off (`map-test-support.test.ts`).
+  - **Gate:** 176 test files and 1,391 unit tests pass (1,386 before, plus 5 new tests).
 
 ### R-F4
 
@@ -920,7 +933,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **Route patch removed.** The run-summary route's re-bound only covered HTTP responses; handoffs and design recovery read the raw value.
     - **Snapshot result.** `pnpm db:verify` on a copy of the 2026-09-23 snapshot reads 54,152 records: 0 invalid, 0 unreadable, integrity ok. Three records were upcast, one per upcaster (billing, retired draft id, summary bound).
     - **Invalid records found:** 1, which was this summary.
-  - **Known gap, recorded under R-F3.** The scope fixtures (`slicedFixture`, `supervisedMapFixture`; about 70 uses in 9 files) store hand-built v0.3 sources that the importer would reject, such as work item ids without a repository prefix. The write guard therefore leaves the format check to the importer, the only production writer of map definitions, and the test-cleanup verification skips it. `db:verify` applies it.
+  - **Known gap, recorded under R-F3.** The scope fixtures (`slicedFixture`, `supervisedMapFixture`; about 70 uses in 9 files) store hand-built v0.3 sources that the importer would reject, such as work item ids without a repository prefix. The write guard therefore leaves the format check to the importer, the only production writer of map definitions, and the test-cleanup verification skips it. `db:verify` applies it. **Closed 2026-09-25 (R-F3):** the fixtures pass the importer and test cleanup applies the format check.
 - **Amendment (2026-09-24 review):** three gaps in the write guard.
   - **Upcasters hid writer defects.** Runs, worktrees, run events, workspace events, audit records, plan versions and work items are guarded on the record read back after the write. That read passes through the upcasters. So a writer that regressed to an upcast shape, such as an over-long run summary, would have passed the guard. The CHECK counts characters, so it would not catch it either. Read-backs now go through `readWritten`, which refuses any record an upcaster changes (`HistoricalRecordWriteError`). Journal compaction rewrites historical rows on purpose and keeps the plain read-back.
   - **Work-item status writes skipped the guard.** Admission, agenda removal and completion now read back and guard the item.

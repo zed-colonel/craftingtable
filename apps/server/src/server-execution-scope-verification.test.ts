@@ -36,7 +36,6 @@ import {
   structuredFinding,
   supervisedMapFixture,
   waitFor,
-  withLocalPhaseResources,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -398,14 +397,20 @@ itNeedsCargo(
 it('reports the shared workstation limits and admits four scoped runs when configured', {
   timeout: 15000,
 }, async () => {
-  const ids = ['AQ-01.A', 'AQ-01.B', 'AQ-01.C', 'AQ-01.D', 'AQ-01.E'];
-  const f = await slicedFixture((source) =>
-    withLocalPhaseResources({
-      ...source,
-      work_items: source.work_items.map((p) => ({ ...p, required_slices: ids })),
-      slices: ids.map((id) => ({ ...source.slices[0]!, id, title: id })),
-    }),
-  );
+  const ids = ['local/AQ-01/a', 'local/AQ-01/b', 'local/AQ-01/c', 'local/AQ-01/d', 'local/AQ-01/e'];
+  const f = await slicedFixture((source) => ({
+    ...source,
+    work_items: source.work_items.map((p) => ({
+      ...p,
+      required_slices: ids,
+      acceptance_requires: ids.map((id) => ({
+        kind: 'slice' as const,
+        id,
+        state: 'verified' as const,
+      })),
+    })),
+    slices: ids.map((id) => ({ ...source.slices[0]!, id, title: id })),
+  }));
   const { state } = f,
     ws = state.workspaceId;
   state.context.storage.phaseScheduling.setCapacity('local-development', 4);

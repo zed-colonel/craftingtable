@@ -43,7 +43,6 @@ import {
   storedRoadmap,
   supervisedMapFixture,
   waitFor,
-  withLocalPhaseResources,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -282,13 +281,17 @@ describe('execution slices and parent acceptance', () => {
 it('enforces slice phase requirements in manual controls without treating checkpoints as passed', async () => {
   const f = await slicedFixture((source) => ({
     ...source,
+    checkpoints: [
+      ...source.checkpoints,
+      { ...source.checkpoints[0]!, id: 'EXTERNAL-PROOF', title: 'External proof' },
+    ],
     slices: source.slices.map((s, i) =>
       i === 0
         ? s
         : {
             ...s,
-            start_requires: [{ kind: 'slice', id: 'AQ-01.A', state: 'merged' }],
-            verify_requires: [{ kind: 'checkpoint', id: 'external-proof', state: 'passed' }],
+            start_requires: [{ kind: 'slice', id: 'local/AQ-01/a', state: 'merged' }],
+            verify_requires: [{ kind: 'checkpoint', id: 'EXTERNAL-PROOF', state: 'passed' }],
           },
     ),
   }));
@@ -303,14 +306,14 @@ it('enforces slice phase requirements in manual controls without treating checkp
   expect((await merge(f.state, b.id)).statusCode).toBe(200);
   const evidence = await recordScope(f, b);
   expect(evidence.statusCode, evidence.body).toBe(409);
-  expect(evidence.body).toContain('Checkpoint external-proof must pass');
+  expect(evidence.body).toContain('Checkpoint EXTERNAL-PROOF must pass');
   expect(
     f.state.context.storage.scopeReceipts.list(f.state.workspaceId, f.state.workItemId),
   ).toHaveLength(0);
 });
 
 it('phase reservations serialize competing launches and release on terminal failure, cancellation and restart', async () => {
-  const f = await slicedFixture(withLocalPhaseResources),
+  const f = await slicedFixture(),
     { state } = f;
   const a = await scopeTree(f, f.scopes[0]!),
     b = await scopeTree(f, f.scopes[1]!);
@@ -349,7 +352,7 @@ it('phase reservations serialize competing launches and release on terminal fail
 });
 it('phase resources reserve all or none and release Git reservations after a failed operation', async () => {
   const { reservePhase, withPhaseReservation } = await import('./services/phase-resources.js');
-  const f = await slicedFixture(withLocalPhaseResources),
+  const f = await slicedFixture(),
     { state } = f;
   const a = await scopeTree(f, f.scopes[0]!),
     b = await scopeTree(f, f.scopes[1]!);
@@ -381,8 +384,8 @@ it('phase resources reserve all or none and release Git reservations after a fai
 });
 it('phase gates let development merge while qualified verification waits without holding resources', async () => {
   const f = await slicedFixture((source) => ({
-    ...withLocalPhaseResources(source),
-    slices: withLocalPhaseResources(source).slices.map((s) => ({
+    ...source,
+    slices: source.slices.map((s) => ({
       ...s,
       resources_by_phase: { ...s.resources_by_phase, verify: ['controlled-native-test-host'] },
     })),
@@ -414,7 +417,7 @@ it('phase gates require explicit bound early-development authorization but retai
       slices: source.slices.map((s) => ({ ...s, early_start_exception: true })),
     })),
     { state } = f;
-  // A required external parent is incomplete; avoid a cycle with the fixture's AQ-02 successor.
+  // A required external parent is incomplete; avoid a cycle with the fixture's local/AQ-02 successor.
   const predecessor = asWorkItemId('external-parent');
   state.context.storage.planning.workItems.insertMany([
     {
@@ -468,7 +471,7 @@ it('phase gates require explicit bound early-development authorization but retai
   expect(agenda.statusCode, agenda.body).toBe(200);
   expect(agenda.json().items.find((i: { id: string }) => i.id === state.workItemId)).toMatchObject({
     blockerSourceIds: ['PRE'],
-    executionScopes: [{ sourceId: 'AQ-01.A', kind: 'slice', earlyDevelopment: true }],
+    executionScopes: [{ sourceId: 'local/AQ-01/a', kind: 'slice', earlyDevelopment: true }],
   });
   await expect(scopeTree(f, f.scopes[1]!)).rejects.toThrow('Parent predecessor');
   commitFile(a.path, 'early.txt', 'Early');
@@ -486,7 +489,7 @@ it('phase gates require explicit bound early-development authorization but retai
   ).toHaveLength(1);
 });
 it('phase resource waits resume cycles automatically without consuming the execution deadline', async () => {
-  const f = await slicedFixture(withLocalPhaseResources),
+  const f = await slicedFixture(),
     { state } = f;
   const a = await scopeTree(f, f.scopes[0]!),
     b = await scopeTree(f, f.scopes[1]!);
@@ -521,10 +524,10 @@ it('phase merge dependencies let an independent sibling integrate first and then
 }, async () => {
   const f = await slicedFixture(
       (source) => ({
-        ...withLocalPhaseResources(source),
-        slices: withLocalPhaseResources(source).slices.map((s, i) =>
+        ...source,
+        slices: source.slices.map((s, i) =>
           i === 0
-            ? { ...s, merge_requires: [{ kind: 'slice', id: 'AQ-01.B', state: 'merged' }] }
+            ? { ...s, merge_requires: [{ kind: 'slice', id: 'local/AQ-01/b', state: 'merged' }] }
             : s,
         ),
       }),
@@ -581,8 +584,8 @@ it('phase merge dependencies let an independent sibling integrate first and then
     state.workspaceId,
     state.workItemId,
   );
-  const a = trees.find((t) => t.executionScope?.sourceId === 'AQ-01.A')!,
-    b = trees.find((t) => t.executionScope?.sourceId === 'AQ-01.B')!;
+  const a = trees.find((t) => t.executionScope?.sourceId === 'local/AQ-01/a')!,
+    b = trees.find((t) => t.executionScope?.sourceId === 'local/AQ-01/b')!;
   expect(git(['merge-base', '--is-ancestor', b.mergeSha!, a.mergeSha!], f.root)).toBe('');
   expect(
     state.context.storage.execution.cycles
@@ -596,7 +599,7 @@ it('phase merge dependencies let an independent sibling integrate first and then
 });
 it('phase verification capacity is separate and restart releases operation reservations without erasing history', async () => {
   const { reservePhase } = await import('./services/phase-resources.js');
-  const f = await slicedFixture(withLocalPhaseResources),
+  const f = await slicedFixture(),
     { state } = f;
   const a = await scopeTree(f, f.scopes[0]!),
     b = await scopeTree(f, f.scopes[1]!);
@@ -627,7 +630,7 @@ it('phase verification capacity is separate and restart releases operation reser
   reopened.close();
 });
 it('phase verification worktrees do not consume roadmap development capacity', async () => {
-  const f = await slicedFixture(withLocalPhaseResources),
+  const f = await slicedFixture(),
     { state } = f;
   const a = await scopeTree(f, f.scopes[0]!);
   commitFile(a.path, 'a.txt', 'A');
@@ -671,9 +674,11 @@ it('phase verification worktrees do not consume roadmap development capacity', a
 it('phase started milestones require a launched run, not a cycle queued for resources', async () => {
   const { reservePhase } = await import('./services/phase-resources.js');
   const f = await slicedFixture((source) => ({
-      ...withLocalPhaseResources(source),
-      slices: withLocalPhaseResources(source).slices.map((s, i) =>
-        i ? { ...s, start_requires: [{ kind: 'slice', id: 'AQ-01.A', state: 'started' }] } : s,
+      ...source,
+      slices: source.slices.map((s, i) =>
+        i
+          ? { ...s, start_requires: [{ kind: 'slice', id: 'local/AQ-01/a', state: 'started' }] }
+          : s,
       ),
     })),
     { state } = f;
@@ -741,7 +746,7 @@ it('derives from the fixture maps exactly the scope evidence the scenario tests 
       ).toEqual(expectedScopeEvidence(state, scope));
     }
   }
-  const second = { ...supervised.parentScope, sourceId: 'AQ-02' };
+  const second = { ...supervised.parentScope, sourceId: 'local/AQ-02' };
   const resolved = resolveScope(
     supervised.state.context.storage,
     supervised.state.workspaceId,

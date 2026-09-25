@@ -54,7 +54,6 @@ itNeedsCargo(
   async () => {
     const f = await slicedFixture((source) => ({
       ...source,
-      checkpoints: [],
       repositories: [
         { ...source.repositories[0]!, id: 'local' },
         { ...source.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
@@ -345,7 +344,6 @@ it('native resource approval is scoped, revocable and never admits Kata or devel
   const { currentScopeReceipt } = await import('./services/runtime-evidence-policy.js');
   const f = await slicedFixture((source) => ({
     ...source,
-    checkpoints: [],
     slices: source.slices.map((s, i) => ({
       ...s,
       resources_by_phase: {

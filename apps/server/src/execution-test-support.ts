@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type {
   AgentBackend,
   AgentLaunchRequest,
@@ -36,11 +36,18 @@ import {
   type WorktreeId,
 } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
+import { sourceRecordDigest } from '@craftingtable/planning';
 import type { LightMyRequestResponse } from 'fastify';
 import { expect, it } from 'vitest';
 import { CSRF_HEADER_NAME } from './config.js';
 import { resolveExecutable } from './services/executables.js';
 import { PLAN_CRITERIA, PLAN_REQUIREMENTS } from './services/plan-acceptance-policy.js';
+import {
+  LOCAL_SLICES,
+  localMapArchive,
+  localScopeSource,
+  withoutScaffolding,
+} from './map-test-support.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
 /* -------------------------------------------------------------------------- */
@@ -1045,7 +1052,13 @@ export async function finalizationCommand(
   });
 }
 
-/* Local scope fixtures exercise execution without claiming the full v0.3 map's future authority. */
+/**
+ * Local scope fixtures exercise execution without claiming the full v0.3 map's future
+ * authority. The map passes the v0.3 importer, as an operator's upload would (R-F3, FMT-15):
+ * `alterSource` edits the local map, it is sealed and imported, and an edit the importer
+ * rejects fails the fixture with its diagnostics. The definition the scopes use is that
+ * imported map without its scaffolding repositories (see `withoutScaffolding`).
+ */
 export async function slicedFixture(
   alterSource?: (
     source: import('@craftingtable/domain').ConcurrencySource,
@@ -1056,86 +1069,30 @@ export async function slicedFixture(
   if (useRevision) await useIntegration(fixture);
   const { state, repository } = fixture;
   const auth = state.context.services.authService.authenticate(state.cookie.split('=')[1]);
+  const base = localScopeSource();
+  const local = alterSource ? alterSource(base) : base;
   const imported = state.context.services.packageImportService.importConcurrency(
     auth,
     state.workspaceId,
-    'map.zip',
-    readFileSync(
-      new URL(
-        '../../../fixtures/concurrency/cross-stack-concurrency-draft-v0.3.0-aq-baseline-alignment.zip',
-        import.meta.url,
-      ),
-    ),
+    'local-scope-map.zip',
+    localMapArchive({ ...local, map_id: `${local.map_id}-sealed` }),
   );
-  const original = state.context.storage.imports.definition(
-    state.workspaceId,
-    imported.attempt.definitionId!,
-  )!;
-  const parent = original.source.work_items[0]!;
-  const slice = original.source.slices[0]!;
+  const sealedId = imported.attempt.definitionId;
+  if (imported.attempt.outcome !== 'succeeded' || sealedId === undefined)
+    throw new Error(
+      `The fixture map was not imported: ${imported.attempt.diagnostics.map((d) => `${d.code} ${d.message}`).join('; ')}`,
+    );
+  const sealed = present(state.context.storage.imports.definition(state.workspaceId, sealedId));
   const id = randomUUID();
-  const sources = ['AQ-01.A', 'AQ-01.B'];
-  const source: typeof original.source = {
-    ...original.source,
-    map_id: 'local-scope-fixture',
-    resource_locks: original.source.resource_locks.map((l) => ({ ...l, repository: 'local' })),
-    repositories: original.source.repositories
-      .filter((r) => r.role === 'planned_application')
-      .slice(0, 1),
-    acceptance_coverage: [],
-    baseline_acceptance_coverage: [],
-    evidence_profiles: [
-      {
-        id: 'scope-review',
-        required_evidence: ['Tests passed'],
-        reviewer_roles: ['independent-reviewer'],
-        independence_required: true,
-      },
-      {
-        id: 'work-item-exit',
-        required_evidence: ['Original plan conforms'],
-        reviewer_roles: ['independent-reviewer'],
-        independence_required: true,
-      },
-    ],
-    work_items: [
-      {
-        ...parent,
-        id: 'AQ-01',
-        depends_on: [],
-        source_exit_gate: 'Queue accepts and drains one job.',
-        required_slices: sources,
-        acceptance_requires: [],
-        acceptance_evidence_profile: 'work-item-exit',
-        source_profile_case_ids: ['CASE-PARENT'],
-        profile_evidence_slices: [],
-        aq_baseline_case_ids: [],
-      },
-    ],
-    slices: sources.map((sourceId) => ({
-      ...slice,
-      id: sourceId,
-      work_item: 'AQ-01',
-      title: sourceId,
-      scope: `Complete ${sourceId}`,
-      excludes: ['Other slice work'],
-      start_requires: [],
-      merge_requires: [],
-      verify_requires: [],
-      evidence_profile: 'scope-review',
-      decision_refs: [],
-      early_start_exception: false,
-      aq_baseline_case_ids: [],
-      resources_by_phase: { start: [], merge: [], verify: [] },
-    })),
-  };
+  const stored = withoutScaffolding(sealed.source, local);
   state.context.storage.imports.addDefinition({
-    ...original,
+    ...sealed,
     id,
-    mapId: source.map_id,
-    source: alterSource ? alterSource(source) : source,
-    digest: 'b'.repeat(64),
+    mapId: stored.map_id,
+    source: stored,
+    digest: sourceRecordDigest(stored as unknown as import('@craftingtable/domain').JsonValue),
   });
+  const definition = present(state.context.storage.imports.definition(state.workspaceId, id));
   const settings = state.context.storage.execution.branchSettings.find(
     state.workspaceId,
     asPlanVersionId('version-1'),
@@ -1155,12 +1112,12 @@ export async function slicedFixture(
         integrationBranch: settings.integrationBranch,
         branchSettingsVersion: settings.version,
         sourceArtifacts: [],
-        workItems: state.context.storage.imports
-          .definition(state.workspaceId, id)!
-          .source.work_items.map((p) => ({
+        workItems: definition.source.work_items
+          .filter((p) => p.repository === 'local')
+          .map((p) => ({
             sourceId: p.id,
-            workItemId: p.id === 'AQ-02' ? fixture.second : state.workItemId,
-            sourceRecordDigest: 'a'.repeat(64),
+            workItemId: p.id === 'local/AQ-02' ? fixture.second : state.workItemId,
+            sourceRecordDigest: p.source_record_sha256,
           })),
       },
     ],
@@ -1171,7 +1128,7 @@ export async function slicedFixture(
     planVersionId: asPlanVersionId('version-1'),
   });
   await admit(state);
-  const scopes = sources.map((sourceId) => ({
+  const scopes = LOCAL_SLICES.map((sourceId) => ({
     kind: 'slice' as const,
     definitionId: id,
     bindingRevision: 1,
@@ -1181,11 +1138,43 @@ export async function slicedFixture(
     kind: 'parent-acceptance',
     definitionId: id,
     bindingRevision: 1,
-    sourceId: 'AQ-01',
+    sourceId: 'local/AQ-01',
   };
-  // The map above names CASE-PARENT as the parent work item's source-profile case.
-  expectScopeCases(state, { 'parent-acceptance AQ-01': ['CASE-PARENT'] });
+  // The base map's one case, CASE-PARENT, is owned by the parent and produced by slice a.
+  expectScopeCases(state, {
+    'parent-acceptance local/AQ-01': ['CASE-PARENT'],
+    'slice local/AQ-01/a': ['CASE-PARENT'],
+    'slice-verification local/AQ-01/a': ['CASE-PARENT'],
+  });
   return { ...fixture, auth, scopes, parentScope };
+}
+/** The local consumer's dependency environment: no upstream pins, one local test environment. */
+export function configureLocalRuntime(
+  auth: ReturnType<TestContext['services']['authService']['authenticate']>,
+  state: Ready,
+  definitionId: string,
+) {
+  return state.context.services.runtimeEvidenceService.configure(
+    auth,
+    state.workspaceId,
+    definitionId,
+    {
+      bindingRevision: 1,
+      expectedGeneration: 0,
+      pins: [],
+      consumers: [{ alias: 'local', upstreams: [] }],
+      environments: [
+        {
+          id: 'local-tests',
+          kind: 'local-development',
+          identityDigest: 'a'.repeat(64),
+          fixtureDigest: 'b'.repeat(64),
+          toolchainDigest: 'c'.repeat(64),
+          authorization: 'Local isolated test fixtures',
+        },
+      ],
+    },
+  );
 }
 export async function scopeTree(
   f: Awaited<ReturnType<typeof slicedFixture>>,
@@ -1206,12 +1195,14 @@ export async function scopeTree(
  * resolver agrees.
  */
 export const SCOPE_REQUIREMENTS: Readonly<Record<string, readonly string[]>> = {
-  'slice AQ-01.A': ['Tests passed', 'Complete AQ-01.A'],
-  'slice-verification AQ-01.A': ['Tests passed', 'Complete AQ-01.A'],
-  'slice AQ-01.B': ['Tests passed', 'Complete AQ-01.B'],
-  'slice-verification AQ-01.B': ['Tests passed', 'Complete AQ-01.B'],
-  'parent-acceptance AQ-01': ['Original plan conforms', 'Queue accepts and drains one job.'],
-  'parent-acceptance AQ-02': ['Original plan conforms', 'Done'],
+  'slice local/AQ-01/a': ['Tests passed', 'Complete local/AQ-01/a'],
+  'slice-verification local/AQ-01/a': ['Tests passed', 'Complete local/AQ-01/a'],
+  'slice local/AQ-01/b': ['Tests passed', 'Complete local/AQ-01/b'],
+  'slice-verification local/AQ-01/b': ['Tests passed', 'Complete local/AQ-01/b'],
+  'slice local/AQ-02/a': ['Tests passed', 'Complete local/AQ-02/a'],
+  'slice-verification local/AQ-02/a': ['Tests passed', 'Complete local/AQ-02/a'],
+  'parent-acceptance local/AQ-01': ['Original plan conforms', 'Queue accepts and drains one job.'],
+  'parent-acceptance local/AQ-02': ['Original plan conforms', 'Done'],
 };
 export const scopeKey = (scope: ExecutionScope): string => `${scope.kind} ${scope.sourceId}`;
 const scopeCaseExpectations = new WeakMap<Ready, Readonly<Record<string, readonly string[]>>>();
@@ -1315,20 +1306,6 @@ export async function recordScope(
   });
 }
 
-/* Transition scheduling coordinates daemon work without asserting external qualification. */
-export function withLocalPhaseResources(source: import('@craftingtable/domain').ConcurrencySource) {
-  return {
-    ...source,
-    slices: source.slices.map((s) => ({
-      ...s,
-      resources_by_phase: {
-        start: ['isolated-development-workspace'],
-        merge: ['isolated-development-workspace'],
-        verify: ['isolated-development-workspace'],
-      },
-    })),
-  };
-}
 export async function launchScoped(
   f: Awaited<ReturnType<typeof slicedFixture>>,
   tree: import('@craftingtable/domain').Worktree,
@@ -1354,8 +1331,6 @@ export async function supervisedMapFixture(
     (s) =>
       amend({
         ...s,
-        repositories: s.repositories.map((r) => ({ ...r, id: 'local' })),
-        decisions: [s.decisions[0]!],
         evidence_profiles: [
           ...(planApproval
             ? [
@@ -1375,41 +1350,68 @@ export async function supervisedMapFixture(
             ],
           })),
         ],
-        work_items: s.work_items.flatMap((p) => [
-          {
-            ...p,
-            repository: 'local',
-            source_profile_case_ids: [],
-            required_slices: singleOwner ? p.required_slices.slice(0, 1) : p.required_slices,
-          },
+        work_items: s.work_items.flatMap((p) => {
+          const owned = singleOwner ? p.required_slices.slice(0, 1) : p.required_slices;
+          return [
+            {
+              ...p,
+              source_profile_case_ids: [],
+              required_slices: owned,
+              acceptance_requires: owned.map((id) => ({
+                kind: 'slice' as const,
+                id,
+                state: 'verified' as const,
+              })),
+            },
+            ...(wholePlan
+              ? [
+                  {
+                    ...p,
+                    id: 'local/AQ-02',
+                    planning_order: 2,
+                    source_exit_gate: 'Done',
+                    source_profile_case_ids: [],
+                    depends_on: ['local/AQ-01'],
+                    required_slices: ['local/AQ-02/a'],
+                    acceptance_requires: [
+                      { kind: 'work_item' as const, id: 'local/AQ-01', state: 'accepted' as const },
+                      { kind: 'slice' as const, id: 'local/AQ-02/a', state: 'verified' as const },
+                    ],
+                  },
+                ]
+              : []),
+          ];
+        }),
+        slices: [
+          ...(singleOwner ? s.slices.slice(0, 1) : s.slices),
           ...(wholePlan
             ? [
                 {
-                  ...p,
-                  id: 'AQ-02',
-                  source_item_id: 'AQ-02',
-                  source_exit_gate: 'Done',
-                  repository: 'local',
-                  source_profile_case_ids: [],
-                  required_slices: [],
-                  depends_on: ['AQ-01'],
+                  ...s.slices[0]!,
+                  id: 'local/AQ-02/a',
+                  work_item: 'local/AQ-02',
+                  title: 'local/AQ-02/a',
+                  scope: 'Complete local/AQ-02/a',
                 },
               ]
             : []),
-        ]),
-        slices: (singleOwner ? s.slices.slice(0, 1) : s.slices).map((s) => ({
+        ].map((s) => ({
           ...s,
           start_requires: planApproval
             ? [{ kind: 'checkpoint' as const, id: 'STACK-PLAN-ACCEPTED', state: 'passed' as const }]
             : s.start_requires,
           decision_refs: ['CS-D01'],
         })),
+        // Supervised maps carry no local case; the sealed package gives the peer lane one.
+        acceptance_coverage: [],
         checkpoints: [
+          ...s.checkpoints.filter((c) => c.id !== 'LOCAL-CASES'),
           ...(planApproval
             ? [
                 {
                   ...s.checkpoints[0]!,
                   id: 'STACK-PLAN-ACCEPTED',
+                  title: 'Approved concurrency sidecar and application bindings',
                   owner: 'stack',
                   kind: 'plan_approval' as const,
                   requires: [],
@@ -1427,14 +1429,12 @@ export async function supervisedMapFixture(
             title: 'Local target',
             requires: [
               partial
-                ? { kind: 'slice', id: 'AQ-01.A', state: 'verified' }
-                : { kind: 'work_item', id: 'AQ-01', state: 'accepted' },
+                ? { kind: 'slice', id: 'local/AQ-01/a', state: 'verified' }
+                : { kind: 'work_item', id: 'local/AQ-01', state: 'accepted' },
             ],
             decision_refs: [],
             evidence_profile: 'scope-review',
             pass_criteria: ['Target inspected'],
-            evidence_owners: [],
-            historical_producer_work_items: [],
           },
         ],
         planning_targets: [
@@ -1449,31 +1449,15 @@ export async function supervisedMapFixture(
       }),
     true,
   );
-  // Supervised maps carry no source-profile cases on their work items (see above).
-  expectScopeCases(f.state, { 'parent-acceptance AQ-01': [], 'parent-acceptance AQ-02': [] });
+  expectScopeCases(f.state, {
+    'parent-acceptance local/AQ-01': [],
+    'parent-acceptance local/AQ-02': [],
+    'slice local/AQ-01/a': [],
+    'slice-verification local/AQ-01/a': [],
+  });
   const ws = f.state.workspaceId,
     definitionId = f.parentScope.definitionId;
-  const runtime = await f.state.context.services.runtimeEvidenceService.configure(
-    f.auth,
-    ws,
-    definitionId,
-    {
-      bindingRevision: 1,
-      expectedGeneration: 0,
-      pins: [],
-      consumers: [{ alias: 'local', upstreams: [] }],
-      environments: [
-        {
-          id: 'local-tests',
-          kind: 'local-development',
-          identityDigest: 'a'.repeat(64),
-          fixtureDigest: 'b'.repeat(64),
-          toolchainDigest: 'c'.repeat(64),
-          authorization: 'Local isolated test fixtures',
-        },
-      ],
-    },
-  );
+  const runtime = await configureLocalRuntime(f.auth, f.state, definitionId);
   const base = roadmapInput(f.state, [f.state.workItemId]).entries[0]!;
   const configuration: import('@craftingtable/domain').CrossProjectConfiguration = {
     definitionId,
@@ -1506,11 +1490,7 @@ export async function supervisedMapFixture(
           scopeReport({ ...f.state, workItemId: tree.workItemId! }, tree.executionScope!),
       };
     }
-    commitFile(
-      request.cwd,
-      `slice-${request.cwd.includes('01-a') ? 'a' : 'b'}.txt`,
-      'Implemented bounded slice',
-    );
+    commitFile(request.cwd, `slice-${basename(request.cwd)}.txt`, 'Implemented bounded slice');
     return implementationDone;
   };
   const service = f.state.context.services.crossProjectService;

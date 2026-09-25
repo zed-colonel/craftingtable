@@ -302,7 +302,7 @@ R-A7 had no defects. Fixes, each with a dated amendment on its item:
      - raw lines on failure notices are kept indefinitely;
      - compacted history keeps full output for 30 days after compaction.
   4. **R-H3:** the write guard stays fail-closed.
-  5. **R-F3 (FMT-15):** rebuild the scope fixtures through the importer. Scheduled, not yet done.
+  5. **R-F3 (FMT-15):** rebuild the scope fixtures through the importer. Scheduled, not yet done. **Done 2026-09-25.** The fixture maps pass the importer, and the stored maps are schema-valid without the scaffolding repositories (the operator chose "schema-valid fixtures"). See R-F3's amendment.
   6. **R-I8: done.** The seven CT-era branches are deleted locally. `origin/ct-04a-git-foundation`
      is left for the operator to delete, since the agent cannot push.
 - **Still open in P1:**

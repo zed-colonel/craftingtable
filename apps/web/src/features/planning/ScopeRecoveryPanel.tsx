@@ -70,6 +70,10 @@ export function ScopeRecoveryPanel({
           retains the slice’s existing remediation limit and models. Final promotion remains your
           decision.
         </p>
+        <p>
+          Saving recovery delegation does not change the saved plan; Start/Resume delegates
+          execution. Manual repairs remain available.
+        </p>
       </About>
       {parents.map((id) => {
         const entry = roadmap.definition.entries.find((e) => e.workItemId === id)!;
@@ -159,9 +163,8 @@ export function ScopeRecoveryPanel({
             />
           </label>
           <p className="muted">
-            This is a total ceiling, not extra attempts. Saving does not start runs or change the
-            saved plan; Start/Resume delegates execution. Prior automatic rounds remain counted.
-            Manual repairs remain available.
+            A total ceiling, not extra attempts; prior automatic rounds remain counted. Saving does
+            not start runs.
           </p>
           <button
             type="submit"

@@ -202,9 +202,8 @@ export function ScopeRepairPanel({
             />
           </label>
           <p className="hint">
-            Starts with a focused implementation pass, then review and up to this many further
-            remediation rounds. Integration merge approval is separate. The roadmap remains in its
-            current scheduling state.
+            A focused implementation pass, then review and up to this many more remediation rounds.
+            Integration merge approval is separate; roadmap scheduling is unchanged.
           </p>
           <label className="field">
             Additional repair guidance

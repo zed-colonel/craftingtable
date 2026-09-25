@@ -12,6 +12,7 @@ import {
   PROFILE_LABELS,
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
+import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import { request } from '../../lib/api-client.js';
 import { revealElement } from '../../lib/reveal-element.js';
@@ -171,9 +172,8 @@ export function RoadmapAgentProfilesPanel({
           )}
           {distinct > 1 && (
             <p className="hint">
-              These scopes currently use {distinct} different profile sets. Applying one set here
-              replaces their future model choices; select an individual scope to retain differences
-              elsewhere.
+              These scopes use {distinct} different profile sets. Applying one set replaces their
+              future model choices; select one scope to keep differences.
             </p>
           )}
           {!draft && entries[0] && (
@@ -239,10 +239,15 @@ export function RoadmapAgentProfilesPanel({
                 disabled={busy || !canEdit}
               />
               <p className="hint">
-                Updates backend, model and reasoning effort only. Permissions, reviewer
-                responsibilities, retries, scope and merge policy retain their approved settings.
-                Finalization has its own stage selections.
+                Updates backend, model and reasoning effort only; everything else keeps its approved
+                settings.
               </p>
+              <About label="About profile changes">
+                <p>
+                  Permissions, reviewer responsibilities, retries, scope and merge policy retain
+                  their approved settings. Finalization has its own stage selections.
+                </p>
+              </About>
               {stale && (
                 <p role="alert">
                   The roadmap changed while you were editing. Close this editor and reopen it to

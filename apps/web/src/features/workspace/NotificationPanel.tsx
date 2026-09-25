@@ -122,6 +122,9 @@ export function NotificationPanel({
           time below. They stop when work resumes or the item is resolved. Your phone’s Pushover
           quiet hours still apply.
         </p>
+        <p>
+          Links use this daemon’s configured public address; keep Tailscale connected on your phone.
+        </p>
       </About>
       {error !== undefined && (
         <p role="alert" className="error-state">
@@ -154,8 +157,6 @@ export function NotificationPanel({
               Pushover
             </a>
             , then enter its API token and your account’s user key. Save before sending a test.
-            Links use this daemon’s configured public address; keep Tailscale connected on your
-            phone.
           </p>
           <form className="stack-form" onSubmit={submit}>
             <label>

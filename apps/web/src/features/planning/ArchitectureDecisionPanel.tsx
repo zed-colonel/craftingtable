@@ -42,6 +42,10 @@ export function ArchitectureDecisionPanel({
           Save a proposal, review its exact text, then approve it once as repository maintainer.
           Approved decisions accompany relevant slices.
         </p>
+        <p>
+          Staging early clauses is a scheduling amendment. It changes only the selected slices. The
+          full ADR remains pending at its later consumers; no parent or test gate is waived.
+        </p>
       </About>
       <details>
         <summary>Prepare a decision or stage early clauses</summary>
@@ -148,9 +152,7 @@ export function ArchitectureDecisionPanel({
             {coverage === 'clauses' && (
               <>
                 <p>
-                  Staging is a scheduling amendment. It changes only the selected slices and
-                  requires a fresh saved-plan review. The full ADR remains pending at its later
-                  consumers; no parent or test gate is waived.
+                  Staging changes only the selected slices and requires a fresh saved-plan review.
                 </p>
                 <label className="field">
                   Full obligations retained for later work

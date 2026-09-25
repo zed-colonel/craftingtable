@@ -111,9 +111,9 @@ export function ScopeReviewRecovery({
             ))}
           </ul>
           <p>
-            <a href="#slices">Open execution slices and verification controls</a> to prepare
-            required fresh reviews. Use Delegation to launch them and record their verification
-            after a qualifying result.
+            <a href="#slices">Open execution slices and verification controls</a> to prepare the
+            fresh reviews. Launch them from Delegation; record verification after a qualifying
+            result.
           </p>
         </div>
       )}

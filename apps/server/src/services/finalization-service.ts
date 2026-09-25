@@ -229,7 +229,7 @@ export class FinalizationService {
       }
       if (input.action === 'defer-nits' || input.action === 'remediate-findings') {
         if (!cycle || !input.findingIds || !input.rationale)
-          conflict('Select findings and record your decision.');
+          conflict('Select findings and record your finding disposition.');
         await this.cycles.decideFinalizationFindings(context, cycle, {
           ...input,
           action: input.action,

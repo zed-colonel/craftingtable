@@ -12,6 +12,7 @@ import {
   remediationUsed,
 } from '@craftingtable/domain';
 import { useState } from 'react';
+import { About } from '../../components/About.js';
 import { FinalizationCheckpoint } from './FinalizationCheckpoint.js';
 import { FinalizationRecoveryAgent } from './FinalizationRecoveryAgent.js';
 
@@ -189,10 +190,15 @@ function StageDecision({ view, busy, backends, onDecide }: Props) {
             </article>
           )}
           <p>
-            Approval changes this obligation for the finalization and records your rationale. A new
-            review must verify it. To retain the existing requirement, resume with guidance instead.
-            Required checks and other unanswered questions remain gates.
+            Approval changes this obligation and records your rationale; a new review must verify
+            it. To keep the existing requirement, resume with guidance instead.
           </p>
+          <About label="About plan changes">
+            <p>
+              Approval changes the obligation for this finalization only. Required checks and other
+              unanswered questions remain gates.
+            </p>
+          </About>
         </>
       )}
       {action !== 'resume' && (
@@ -231,7 +237,7 @@ function StageDecision({ view, busy, backends, onDecide }: Props) {
             />
           </label>
           <p>
-            This stage: {used} used of {allowance}. With this decision:{' '}
+            This stage: {used} used of {allowance}. With this disposition:{' '}
             {Math.max(0, allowance + extra - used)} available attempts. Other stage budgets are
             unchanged.
           </p>

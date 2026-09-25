@@ -43,8 +43,8 @@ export function WorkflowStatus({ cycle }: { cycle: WorkCycle }) {
                   >
                     Resolve {q.checkpointId} in Shared architecture decisions
                   </a>
-                  . Save and approve the shared decision there so other work items inherit it. Then
-                  refresh this item’s evidence and continue with the recorded decision.
+                  . Save and approve it there so other work items inherit it, then refresh this
+                  item’s evidence and continue with it.
                 </p>
               ) : (
                 <p>

@@ -286,9 +286,8 @@ export function ExecutionScopesPanel({
               (verificationTree ? (
                 <div className="stack">
                   <p className="hint">
-                    A verification worktree already exists. Review again reuses its clean snapshot,
-                    updates it from integration, and retains the assigned reviewer and previous
-                    evidence.
+                    A verification worktree exists. Reviewing again reuses its clean snapshot,
+                    updated from integration, and keeps the assigned reviewer and prior evidence.
                   </p>
                   <button
                     type="button"

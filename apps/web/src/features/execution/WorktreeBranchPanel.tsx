@@ -190,9 +190,8 @@ export function WorktreeBranchPanel({
       )}
       {canMutate && (
         <p className="hint">
-          End agent sessions and pause any cycle before updating or retargeting. Updating merges
-          integration into this item; conflicts are aborted. Verify and review afterward, or resume
-          the cycle for a fresh review.
+          End sessions and pause any cycle before updating or retargeting. Updating merges
+          integration, aborting on conflict; then verify and review, or resume the cycle.
         </p>
       )}
     </div>

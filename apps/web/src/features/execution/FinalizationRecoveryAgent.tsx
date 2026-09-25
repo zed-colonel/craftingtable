@@ -1,5 +1,6 @@
 import type { ExecutionStatusResponse } from '@craftingtable/contracts';
 import { AGENT_BACKEND_LABELS, type FinalizationAgentSelection } from '@craftingtable/domain';
+import { About } from '../../components/About.js';
 import { AgentSelectionFields } from './AgentSelectionFields.js';
 
 export function FinalizationRecoveryAgent({
@@ -44,12 +45,19 @@ export function FinalizationRecoveryAgent({
         />
       )}
       {mode !== 'keep' && (
-        <p>
-          Applies when you submit this recovery and to all remaining assessment, polish, remediation
-          and review runs. Each review remains a separate run. Existing step permissions, budgets
-          and final approval requirements are retained. Conflict-resolution agents use their
-          separate controls. You can change this choice again at a later checkpoint.
-        </p>
+        <>
+          <p>
+            Applies from this recovery to every remaining finalization run. Permissions, budgets and
+            final approval requirements are retained.
+          </p>
+          <About label="About the recovery agent">
+            <p>
+              The choice covers all remaining assessment, polish, remediation and review runs. Each
+              review remains a separate run. Conflict-resolution agents use their separate controls.
+              You can change this choice again at a later checkpoint.
+            </p>
+          </About>
+        </>
       )}
     </fieldset>
   );

@@ -211,7 +211,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
 
     // ---- Import a plan bundle -------------------------------------------------------------
     await navigate(page, 'Import plan');
-    await walk.capture('import-plan', 'Import a plan bundle');
+    await walk.capture('import-plan', 'Import plan');
     await page.getByLabel('Project name').fill('ActionQueue');
     await page
       .getByLabel('Implementation plan')

@@ -153,6 +153,10 @@ export function ConcurrencyImports({
           target, review and adopt its scheduling proposals, then create a roadmap and explicitly
           Start. Importing alone never launches work.
         </p>
+        <p>
+          Start, merge, verification and parent acceptance are distinct. Slice verification also
+          requires its merge; a checkpoint's prerequisites only make its evaluation eligible.
+        </p>
       </About>
       {canMutate && (
         <details>
@@ -404,8 +408,7 @@ export function ConcurrencyImports({
           </div>
           <p className="hint">
             Recorded binding revision: {detail.summary.bindingRevision}. Refresh after configuring
-            branches or importing another plan version. Unsaved selections are replaced by the
-            recorded bindings on refresh.
+            branches or importing another plan version; refresh replaces unsaved selections.
           </p>
           <details>
             <summary>Binding history ({detail.history.length})</summary>
@@ -476,10 +479,7 @@ export function ConcurrencyImports({
           </details>
           <details>
             <summary>Work items, slices and checkpoint requirements</summary>
-            <p>
-              Start, merge, verification and parent acceptance are distinct. Slice verification also
-              requires its merge; a checkpoint's prerequisites only make its evaluation eligible.
-            </p>
+            <p>Start, merge, verification and parent acceptance are distinct steps.</p>
             <label className="field">
               Filter map nodes
               <input

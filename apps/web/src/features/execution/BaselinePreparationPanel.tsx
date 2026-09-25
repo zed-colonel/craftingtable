@@ -3,6 +3,7 @@ import type { WorkCycle } from '@craftingtable/domain';
 import type { BaselinePreview } from '@craftingtable/contracts';
 import { prepareBaseline, previewBaseline } from '../../lib/work-cycle-api.js';
 import { distinct } from '../../lib/distinct.js';
+import { About } from '../../components/About.js';
 
 export function BaselinePreparationPanel({
   cycle,
@@ -33,6 +34,16 @@ export function BaselinePreparationPanel({
   return (
     <section aria-label="Historical baseline preparation" className="stack">
       <h4>Historical baseline preparation</h4>
+      <About label="About baseline preparation">
+        <p>
+          Preparation creates local tags and source snapshots only; it does not start an agent,
+          publish tags, configure remote protection, or approve design choices.
+        </p>
+        <p>
+          Collection runs from the recovery form. The agent receives isolated historical sources and
+          a separate Cargo launcher; actual results appear in its report and retained command logs.
+        </p>
+      </About>
       {cycle.baselinePreparation && (
         <>
           <p role="status">
@@ -55,9 +66,8 @@ export function BaselinePreparationPanel({
           </details>
           {cycle.baselinePreparation.status === 'prepared' && (
             <p>
-              Use the recovery form below to start collection. The agent receives isolated
-              historical sources and a separate Cargo launcher; actual results will appear in its
-              report and retained command logs.
+              Use the recovery form below to start collection. Results appear in the agent’s report
+              and retained command logs.
             </p>
           )}
         </>
@@ -110,8 +120,7 @@ export function BaselinePreparationPanel({
           {stale && <p role="alert">The cycle changed. Refresh baseline setup.</p>}
           <p>
             Confirm the historical repository revisions. Preparation creates local tags and source
-            snapshots only; it does not start an agent, publish tags, configure remote protection,
-            or approve design choices.
+            snapshots only; it does not start an agent.
           </p>
           {preview.sources.map((source, index) => (
             <fieldset key={source.alias}>

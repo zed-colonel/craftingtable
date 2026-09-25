@@ -141,8 +141,8 @@ export function WorkspaceProfilesSection({
             </div>
           </details>
           <p className="hint">
-            Save defaults for future setup. To change an existing roadmap, use Apply to future runs
-            below. Specialist selections inherit permissions from the step they perform.
+            Defaults apply to future setup; for an existing roadmap, use Apply to future runs below.
+            Specialists inherit permissions from the step they perform.
           </p>
           <div className="form-row">
             <button type="submit" className="primary-button" disabled={!canEdit || busy}>

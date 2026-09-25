@@ -40,11 +40,14 @@ it('does not offer Retry now after exhaustion or completion', () => {
   const { nextRetryAt: _due, ...recovery } = cycle.providerRecovery!;
   const view = render(
     <ProviderRecovery
-      cycle={{
-        ...cycle,
-        status: 'needs-attention',
-        providerRecovery: { ...recovery, attempts: 3 },
-      }}
+      cycle={
+        {
+          ...cycle,
+          status: 'needs-attention',
+          attention: { code: 'service-retries-exhausted', owner: 'operator' },
+          providerRecovery: { ...recovery, attempts: 3 },
+        } as WorkCycle
+      }
       disabled={false}
       onRetry={vi.fn()}
       onPause={vi.fn()}
@@ -63,36 +66,52 @@ it('does not offer Retry now after exhaustion or completion', () => {
   expect(screen.queryByRole('region', { name: 'Model service recovery' })).toBeNull();
 });
 
-it('renders nothing once a retry has recovered the step (R-E6, UI-10)', () => {
-  const { nextRetryAt: _due, ...recovered } = cycle.providerRecovery!;
+it('keeps a running retry visible with its pause control', () => {
+  const { nextRetryAt: _due, ...running } = cycle.providerRecovery!;
   render(
     <ProviderRecovery
-      cycle={{ ...cycle, status: 'running', providerRecovery: recovered }}
+      cycle={{ ...cycle, status: 'running', providerRecovery: { ...running, attempts: 2 } }}
       disabled={false}
       onRetry={vi.fn()}
       onPause={vi.fn()}
     />,
   );
-  expect(screen.queryByRole('region', { name: 'Model service recovery' })).toBeNull();
-  render(
-    <ProviderRecovery
-      cycle={{ ...cycle, status: 'awaiting-merge', providerRecovery: recovered }}
-      disabled={false}
-      onRetry={vi.fn()}
-      onPause={vi.fn()}
-    />,
-  );
-  expect(screen.queryByRole('region', { name: 'Model service recovery' })).toBeNull();
+  expect(screen.getByText(/2 of 3 service retries used/)).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Pause service recovery' })).toBeDefined();
 });
 
-it('shows a failure the service reported as not retryable', () => {
+it('renders nothing when a later, unrelated stop leaves the retry record behind (R-E6, UI-10)', () => {
+  const { nextRetryAt: _due, ...recovery } = cycle.providerRecovery!;
+  for (const stopped of [
+    {
+      status: 'needs-attention',
+      attention: { code: 'implementation-open-questions', owner: 'operator' },
+    },
+    { status: 'awaiting-merge', attention: { code: 'merge-approval', owner: 'operator' } },
+  ]) {
+    render(
+      <ProviderRecovery
+        cycle={
+          { ...cycle, ...stopped, providerRecovery: { ...recovery, attempts: 3 } } as WorkCycle
+        }
+        disabled={false}
+        onRetry={vi.fn()}
+        onPause={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('region', { name: 'Model service recovery' })).toBeNull();
+    cleanup();
+  }
+});
+
+it('shows a service stop that is paused, and a failure the service reported as not retryable', () => {
   const { nextRetryAt: _due, ...recovery } = cycle.providerRecovery!;
   render(
     <ProviderRecovery
       cycle={
         {
           ...cycle,
-          status: 'needs-attention',
+          status: 'paused',
           attention: { code: 'service-failure-not-retryable', owner: 'operator' },
           providerRecovery: recovery,
         } as WorkCycle
@@ -103,4 +122,5 @@ it('shows a failure the service reported as not retryable', () => {
     />,
   );
   expect(screen.getByRole('region', { name: 'Model service recovery' })).toBeDefined();
+  expect(screen.getByText(/not retryable/)).toBeDefined();
 });

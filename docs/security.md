@@ -326,7 +326,7 @@ rendered as text and scoped by workspace, definition, binding and runtime genera
 requires host/VM/image/configuration observations and explicit no-native-fallback evidence.
 Selecting an external environment grants no credentials, host provisioning or local execution
 rights. Native/Kata process dispatch remains closed; reviewed external evidence can satisfy a
-verification milestone. Map decision adoption and protected final promotion remain separate.
+verification milestone. Adoption of a map's scheduling proposals and protected final promotion remain separate.
 
 Candidate checkpoint preparation (ADR-060) reads only the registered slice's latest successful
 scoped review and frozen controller receipts. Its provenance marker is server-only; uploads

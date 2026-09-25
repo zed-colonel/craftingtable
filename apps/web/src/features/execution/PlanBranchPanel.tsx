@@ -392,7 +392,7 @@ export function PlanBranchPanel({
             />
           </label>
           <p className="hint">
-            main, master, and the registered default branch always require your approval. Additional
+            main, master and the registered default branch always need your approval. These extra
             protections apply to automatic merges into this repository across plans.
           </p>
           <p className="hint">

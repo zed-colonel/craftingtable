@@ -151,9 +151,9 @@ export function CheckpointRecoveryPanel({
               <p>
                 <a href={`/workspaces/${workspaceId}/roadmaps`}>
                   Review prerequisite evidence on the roadmap
-                </a>
-                . Open Dependency environments and evidence, then Submitted evidence. Accept the
-                prerequisite first and return here to refresh.
+                </a>{' '}
+                under Dependency environments and evidence, then Submitted evidence. Accept it
+                first, then refresh here.
               </p>
             )}
             {c.decision?.outcome === 'accepted' ? (

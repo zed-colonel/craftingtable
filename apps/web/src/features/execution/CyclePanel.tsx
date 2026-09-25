@@ -299,8 +299,8 @@ export function CyclePanel({
           </ActionBar>
           {readOnly && (
             <p className="hint">
-              This is an independent review snapshot. Address code or documentation findings through
-              the owning slice, then verify the changed integration before parent acceptance.{' '}
+              Independent review snapshot. Fix findings through the owning slice, then verify before
+              parent acceptance.{' '}
               <a href="#slices">Open execution slices and verification controls</a>.
             </p>
           )}
@@ -392,12 +392,18 @@ export function CyclePanel({
           </details>
           <About label="About cycle controls">
             {readOnly ? (
-              <p>
-                Independent reviews collect evidence and report findings. Resume starts a fresh
-                review after its phase requirements clear. Address source changes through the owning
-                slice; recording verification or accepting the parent remains a separate guarded
-                command.
-              </p>
+              <>
+                <p>
+                  Independent reviews collect evidence and report findings. Resume starts a fresh
+                  review after its phase requirements clear. Address source changes through the
+                  owning slice; recording verification or accepting the parent remains a separate
+                  guarded command.
+                </p>
+                <p>
+                  Address code or documentation findings through the owning slice, then verify the
+                  changed integration before parent acceptance.
+                </p>
+              </>
             ) : (
               <p>
                 The cycle completes when zero blocking, major, or minor findings remain and at most

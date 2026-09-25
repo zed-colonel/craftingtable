@@ -10,12 +10,14 @@ import { expect, it } from 'vitest';
  *
  * - a heading (`h1`–`h6`, `legend`, or the `title` of `Section` or `PageHeader`) has at most
  *   HEADING_WORDS words of fixed text;
- * - a paragraph shown unconditionally has at most PROSE_CHARACTERS characters of fixed text
- *   unless it sits inside `About`.
+ * - a paragraph has at most PROSE_CHARACTERS characters of fixed text unless it sits inside
+ *   `About` or reports state: `role="status"` or `"alert"`, or an `error-state`,
+ *   `warning-state` or `empty-state` class.
  *
  * Only fixed text is measured: interpolated values are left out, and where the text is a
- * choice (`cond ? 'a' : 'b'`) the longest branch counts. A paragraph rendered under a
- * condition (`cond && <p>`, `cond ? <p> : …`) is state, not explanation.
+ * choice (`cond ? 'a' : 'b'`) the longest branch counts. Rendering a paragraph under a
+ * condition does not exempt it: loading guards and permission checks wrap prose that is, in
+ * practice, always shown.
  */
 const HEADING_WORDS = 8;
 const PROSE_CHARACTERS = 160;
@@ -46,6 +48,29 @@ function children(node: Node): Node[] {
         : isNode(value)
           ? [value]
           : [],
+  );
+}
+
+/** Classes and roles that mark a paragraph as reported state rather than explanation. */
+const STATE_CLASSES = ['error-state', 'warning-state', 'empty-state'];
+const STATE_ROLES = ['status', 'alert'];
+
+function attribute(node: Node, name: string): string | undefined {
+  for (const a of ((node.openingElement as Node).attributes as Node[]) ?? []) {
+    if ((a.name as Node | undefined)?.name !== name) continue;
+    const value = a.value as Node | undefined;
+    return value?.type === 'Literal' ? String(value.value) : '';
+  }
+  return undefined;
+}
+
+/** A paragraph that reports state (an error, a warning, a status line) may run longer. */
+function stateParagraph(node: Node): boolean {
+  const role = attribute(node, 'role');
+  const classes = attribute(node, 'className')?.split(/\s+/) ?? [];
+  return (
+    (role !== undefined && STATE_ROLES.includes(role)) ||
+    classes.some((c) => STATE_CLASSES.includes(c))
   );
 }
 
@@ -96,15 +121,8 @@ export function copyViolations(file: string, source: string): CopyViolation[] {
   const program = parseSync(file, source, { lang: 'tsx' }).program as unknown as Node;
   const lineOf = (offset: number) => source.slice(0, offset).split('\n').length;
   const violations: CopyViolation[] = [];
-  const visit = (node: Node, inAbout: boolean, conditional: boolean) => {
+  const visit = (node: Node, inAbout: boolean) => {
     let about = inAbout;
-    let underCondition = conditional;
-    if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression')
-      underCondition = true;
-    // A new JSX tree (a component's return, a prop value) starts unconditional again unless
-    // it is itself the branch of a condition.
-    if (node.type === 'ReturnStatement' || node.type === 'ArrowFunctionExpression')
-      underCondition = false;
     if (node.type === 'JSXElement') {
       const name = elementName(node);
       if (name === 'About') about = true;
@@ -122,15 +140,15 @@ export function copyViolations(file: string, source: string): CopyViolation[] {
           if (words(text) > HEADING_WORDS)
             violations.push({ file, line: lineOf(node.start as number), rule: 'heading', text });
         }
-      if (name === 'p' && !about && !underCondition) {
+      if (name === 'p' && !about && !stateParagraph(node)) {
         const text = normalized(fixedText(node));
         if (text.length > PROSE_CHARACTERS)
           violations.push({ file, line: lineOf(node.start as number), rule: 'prose', text });
       }
     }
-    for (const child of children(node)) visit(child, about, underCondition);
+    for (const child of children(node)) visit(child, about);
   };
-  visit(program, false, false);
+  visit(program, false);
   return violations;
 }
 
@@ -143,7 +161,7 @@ it('keeps headings short and explanatory prose inside About (R-E6)', () => {
   );
 });
 
-it('measures only fixed, unconditional copy outside About', () => {
+it('measures fixed copy outside About, except reported state', () => {
   const long = 'word '.repeat(40).trim();
   const check = (jsx: string) =>
     copyViolations('Example.tsx', `export const A = () => (${jsx});`).map((v) => v.rule);
@@ -154,6 +172,8 @@ it('measures only fixed, unconditional copy outside About', () => {
   expect(check(`<h3>{busy ? 'Retrying' : '${long}'}</h3>`)).toEqual(['heading']);
   expect(check(`<div><p>${long}</p></div>`)).toEqual(['prose']);
   expect(check(`<About label="About"><p>${long}</p></About>`)).toEqual([]);
-  expect(check(`<div>{open && <p>${long}</p>}</div>`)).toEqual([]);
-  expect(check(`<div>{open ? <p>${long}</p> : null}</div>`)).toEqual([]);
+  expect(check(`<div>{open && <p>${long}</p>}</div>`)).toEqual(['prose']);
+  expect(check(`<p role="alert">${long}</p>`)).toEqual([]);
+  expect(check(`<p className="warning-state">${long}</p>`)).toEqual([]);
+  expect(check(`<p className="hint">${long}</p>`)).toEqual(['prose']);
 });

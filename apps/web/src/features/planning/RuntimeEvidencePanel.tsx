@@ -239,9 +239,8 @@ export function RuntimeEvidencePanel({
             </p>
           )}
           <p>
-            Generate evidence from the saved roadmap and dependency setup. Unsaved form edits are
-            not included. Generation records facts; your separate review and acceptance approve the
-            plan.
+            Evidence comes from the saved roadmap and dependency setup, not unsaved edits.
+            Generation records facts; your separate review and acceptance approve the plan.
           </p>
           {!view.planAcceptance.roadmaps.length && (
             <p>Save a cross-project roadmap first using Create cross-project roadmap above.</p>
@@ -857,8 +856,8 @@ export function RuntimeEvidencePanel({
       <details>
         <summary>Pinned build records ({view.builds.length} recent runs)</summary>
         <p className="hint">
-          Records survive build-cache cleanup. A successful build is development evidence;
-          qualification still needs review.
+          Records freeze when a run ends and survive cache cleanup. A passing build is development
+          evidence; qualification and publication still need independent review.
         </p>
         {view.builds.map((b) => (
           <p key={b.runId}>

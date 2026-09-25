@@ -491,7 +491,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
   await saved.getByRole('button', { name: 'Preview launch readiness', exact: true }).click();
-  await expect(saved.getByText(/Eligibility is a current snapshot/)).toBeVisible();
+  await expect(saved.getByText(/Eligibility is a snapshot, not a launch promise/)).toBeVisible();
 
   const amendments = saved.getByRole('region', {
     name: 'Planning amendments and finalization',

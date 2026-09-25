@@ -6,6 +6,7 @@ import type {
 } from '@craftingtable/contracts';
 import type { AgentBackendKind, WorkCycle } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
+import { About } from '../../components/About.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
 import { SharedDecisionInbox } from '../planning/SharedDecisionInbox.js';
@@ -107,10 +108,16 @@ export function DesignRecoveryPanel({
         <>
           <h3>Resolve design questions</h3>
           <p>
-            Uses the existing worktree and full design handoff. Discovery collects saved facts and
-            matching documents from exact bound plans; it does not approve evidence or start an
-            agent.
+            Uses the existing worktree and full design handoff. Discovery does not approve evidence
+            or start an agent.
           </p>
+          <About label="About design recovery">
+            <p>
+              Discovery collects saved facts and matching documents from exact bound plans.
+              Historical setup can be prepared in this panel. Architecture, implementation choices
+              and remote protection still require your decisions.
+            </p>
+          </About>
           {error && (
             <p role="alert" className="error-state">
               {error}
@@ -382,8 +389,6 @@ export function DesignRecoveryPanel({
                 <p className="hint">
                   One design attempt, up to {cycle.policy.maxRunMinutes} minutes. Permissions remain{' '}
                   {cycle.profiles.design.permissionMode}. No remediation allowance is consumed.
-                  Historical setup can be prepared above. Architecture, implementation choices and
-                  remote protection still require your decisions.
                 </p>
                 <button
                   type="submit"

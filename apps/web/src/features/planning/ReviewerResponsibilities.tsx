@@ -55,8 +55,8 @@ export function ReviewerResponsibilities({
         <details>
           <summary>Other imported responsibilities ({other.length})</summary>
           <p className="hint">
-            These are not required by the selected supported automated review scopes. Some imported
-            checkpoint roles require external evidence and are not handled by the current adapter.
+            Not required by the selected supported review scopes. Some imported checkpoint roles
+            need external evidence the current adapter does not handle.
           </p>
           {other.map((role) => field(role, false))}
         </details>

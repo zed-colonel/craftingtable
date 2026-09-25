@@ -19,7 +19,7 @@ export function ProjectCards({
         <p className="empty-state">
           No plans have been imported yet.{' '}
           <button type="button" className="link-button" onClick={onImport}>
-            Import a plan bundle
+            Import plan
           </button>{' '}
           to build an agenda.
         </p>

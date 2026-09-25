@@ -15,6 +15,7 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { Reasons } from '../../components/Reasons.js';
 import { Section } from '../../components/Section.js';
@@ -706,10 +707,16 @@ export function CrossProjectPanel({
               {view.decisions.length} approved
             </summary>
             <p>
-              Adoption approves the preserved scheduling proposals and their named early-slice
-              exceptions for binding {bindingRevision}. It does not pass technical or architecture
-              checkpoints, grant qualification access, start agents, or approve final promotion.
+              Adoption approves these scheduling proposals for binding {bindingRevision}. It does
+              not pass checkpoints, start agents or approve final promotion.
             </p>
+            <About label="About proposal adoption">
+              <p>
+                Adoption approves the preserved scheduling proposals and their named early-slice
+                exceptions for the exact binding. It does not pass technical or architecture
+                checkpoints, grant qualification access, start agents, or approve final promotion.
+              </p>
+            </About>
             {view.decisions.map((d) => (
               <details key={d.id}>
                 <summary>
@@ -766,6 +773,30 @@ export function CrossProjectPanel({
                 profiles and policy.
               </p>
             )}
+            <About label="About roadmap settings">
+              {roadmap && (
+                <p>
+                  Changing models in Roadmap agent profiles preserves plan acceptance. Permissions,
+                  responsibilities and policy below remain plan settings.
+                </p>
+              )}
+              <p>
+                Reviewer responsibilities are delegated to the review agent, not approvals of its
+                results. Check each responsibility you authorize. Overrides can replace these
+                defaults; started attempts keep their saved assignments. Save changed settings once,
+                then generate and review the updated plan. No native/Kata authority is granted here.
+              </p>
+              <p>
+                Verification uses the review agent. Independent review recovery can delegate source
+                findings through the owning slice; genuine questions still need you. Final promotion
+                remains your separate exact-commit decision.
+              </p>
+              <p>
+                Settings resolve in order: defaults → project → activity → individual. Each override
+                replaces the selected level's complete settings. Started attempts retain their
+                original settings.
+              </p>
+            </About>
             {settings && (
               <>
                 {roadmap && (
@@ -776,8 +807,7 @@ export function CrossProjectPanel({
                     >
                       Roadmap agent profiles
                     </a>
-                    . That action preserves plan acceptance. Permissions, responsibilities and
-                    policy below remain plan settings.
+                    , which preserves plan acceptance.
                   </p>
                 )}
                 <div id={`map-reviewers-${panelKey}`}>
@@ -790,11 +820,8 @@ export function CrossProjectPanel({
                     onChange={(reviewerRoles) => setSettings({ ...settings, reviewerRoles })}
                   />
                   <p className="hint">
-                    These are responsibilities delegated to the review agent, not approvals of its
-                    results. Check each responsibility you authorize. Overrides can replace these
-                    defaults; started attempts keep their saved assignments. Save changed settings
-                    once, then generate and review the updated plan. No native/Kata authority is
-                    granted here.
+                    Check each responsibility you authorize; these are not approvals of review
+                    results. Save changes once, then generate and review the updated plan.
                   </p>
                   {editing && roadmap && (
                     <button
@@ -881,15 +908,13 @@ export function CrossProjectPanel({
                   </select>
                 </label>
                 <p>
-                  Verification uses the review agent. Independent review recovery can delegate
-                  source findings through the owning slice; genuine questions still need you. Final
-                  promotion remains your separate exact-commit decision.
+                  Verification uses the review agent. Final promotion remains your separate
+                  exact-commit decision.
                 </p>
                 <details>
                   <summary>Project, activity and individual overrides ({overrides.length})</summary>
                   <p>
-                    Settings resolve in order: defaults → project → activity → individual. Each
-                    override replaces the selected level's complete settings. Started attempts
+                    Each override replaces the selected level's complete settings. Started attempts
                     retain their original settings.
                   </p>
                   <label className="field">
@@ -1084,9 +1109,8 @@ export function CrossProjectPanel({
               slices have clear phase gates
             </summary>
             <p>
-              Eligibility is a current snapshot, not a promise of simultaneous launch. Before Start
-              requirements, configured concurrency, resource availability and earlier queued work
-              still apply.
+              Eligibility is a snapshot, not a launch promise. Before Start requirements,
+              concurrency, resources and earlier queued work still apply.
             </p>
             {included
               .filter((n) => n.kind === 'slice' && n.state === 'started' && !n.satisfied)

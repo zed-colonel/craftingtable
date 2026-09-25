@@ -1,5 +1,5 @@
 import type { WorkCycle } from '@craftingtable/domain';
-import { AGENT_BACKEND_LABELS } from '@craftingtable/domain';
+import { AGENT_BACKEND_LABELS, effectiveCycleAttention } from '@craftingtable/domain';
 import { About } from '../../components/About.js';
 
 /** Stops that leave a service failure for the operator to inspect (R-A3 codes). */
@@ -22,12 +22,15 @@ export function ProviderRecovery({
   const recovery = cycle.providerRecovery;
   if (!recovery || ['completed', 'stopped'].includes(cycle.status)) return null;
   const pending = !!recovery.nextRetryAt;
-  // Only a waiting retry or a spent one needs the operator; after a successful retry the
-  // record stays on the cycle, but there is nothing left to recover (R-E6, UI-10).
-  const exhausted =
-    cycle.status === 'needs-attention' &&
-    (recovery.attempts >= 3 || SERVICE_STOPS.includes(cycle.attention?.code ?? ''));
-  if (!pending && !exhausted) return null;
+  // The server clears the record when a step succeeds. While it exists, the panel shows a
+  // retry that is waiting or running, and a service stop (waiting or paused) the operator
+  // must inspect. A record left behind under an unrelated stop has nothing to recover (R-E6,
+  // UI-10). Codes, never reason text, decide; older records map through
+  // `effectiveCycleAttention`.
+  const code = (cycle.attention ?? effectiveCycleAttention(cycle))?.code ?? '';
+  const serviceStop =
+    ['needs-attention', 'paused'].includes(cycle.status) && SERVICE_STOPS.includes(code);
+  if (!pending && cycle.status !== 'running' && !serviceStop) return null;
   return (
     <section className="panel" aria-label="Model service recovery">
       <h3>Model service recovery</h3>
@@ -42,6 +45,10 @@ export function ProviderRecovery({
           holds this retry.
           {cycle.status !== 'running' && ' Resume the cycle to let it run.'}
         </p>
+      ) : cycle.status === 'running' ? (
+        <p>Retrying the same step.</p>
+      ) : code === 'service-failure-not-retryable' ? (
+        <p>The service reported this failure as not retryable. Give guidance before resuming.</p>
       ) : (
         <p>Inspect the latest outcome before resuming. Resuming grants a new step window.</p>
       )}

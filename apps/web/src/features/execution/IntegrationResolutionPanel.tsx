@@ -3,7 +3,12 @@ import type {
   ExecutionStatusResponse,
   IntegrationResolutionRequest,
 } from '@craftingtable/contracts';
-import { type AgentRunId, ownsIntegrationResolution, type WorkCycle } from '@craftingtable/domain';
+import {
+  type AgentRunId,
+  effectiveCycleAttention,
+  ownsIntegrationResolution,
+  type WorkCycle,
+} from '@craftingtable/domain';
 import { useState } from 'react';
 import { About } from '../../components/About.js';
 import { HandoffForm } from './HandoffForm.js';
@@ -37,10 +42,27 @@ export function IntegrationResolutionPanel({
   const resolution = cycle.integrationResolution;
   const idle = ['paused', 'needs-attention'].includes(cycle.status);
   const owned = ownsIntegrationResolution(cycle);
-  // Rendered only with a resolution on record or an integration stop; other idle cycles
-  // have nothing to resolve here (R-E6, UI-10).
-  if (!resolution && !(idle && INTEGRATION_STOPS.includes(cycle.attention?.code ?? '')))
-    return null;
+  // The panel shows only with a resolution on record or an integration stop (R-E6, UI-10).
+  // Paused cycles keep their code in `attention`; older records map through
+  // `effectiveCycleAttention`.
+  const code = (cycle.attention ?? effectiveCycleAttention(cycle))?.code ?? '';
+  if (!resolution && !(idle && INTEGRATION_STOPS.includes(code))) {
+    // Any other idle cycle keeps the one action: a manual update from integration can
+    // conflict without recording a stop, and inspection is how that conflict reaches an agent.
+    if (!idle || !canMutate || owned) return null;
+    return (
+      <div className="inline-actions">
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={busy}
+          onClick={() => onCommand({ action: 'inspect' })}
+        >
+          Inspect integration conflicts
+        </button>
+      </div>
+    );
+  }
   return (
     <section className="panel" aria-label="Integration conflicts">
       <h3>Integration conflicts</h3>
@@ -151,9 +173,8 @@ export function IntegrationResolutionPanel({
           {abandon && (
             <fieldset aria-label="Confirm abandon resolution">
               <p>
-                Discard the pending merge resolution? This aborts the pinned integration merge.
-                Unrelated edits may remain; untracked files will be preserved. End the agent session
-                first.
+                Discard the resolution and abort the pinned merge? End the agent session first.
+                Unrelated edits may remain; untracked files are kept.
               </p>
               <button
                 type="button"
@@ -174,12 +195,17 @@ export function IntegrationResolutionPanel({
         </div>
       )}
       {owned && (
-        <About label="About conflict resolution">
-          <p>
-            Pause the cycle before giving the agent guidance from its run page. Edits survive pause
-            and restart. Stop preserves the resolution until you resume or abandon it.
+        <>
+          <p className="hint">
+            Pause the cycle before giving the agent guidance from its run page.
           </p>
-        </About>
+          <About label="About conflict resolution">
+            <p>
+              Edits survive pause and restart. Stop preserves the resolution until you resume or
+              abandon it.
+            </p>
+          </About>
+        </>
       )}
     </section>
   );

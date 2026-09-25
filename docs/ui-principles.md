@@ -55,9 +55,10 @@ a form.
 
 - A heading (`h1`–`h6`, `legend`, a `Section` or `PageHeader` title) is a name, not a
   sentence: at most eight words.
-- A paragraph that is always shown is at most about 160 characters. Longer explanation
-  goes in the section's `About`. A paragraph that depends on state (an error, a result,
-  a warning) may be longer, but it states the fact first.
+- A paragraph is at most about 160 characters; longer explanation goes in the section's
+  `About`. Only a paragraph that reports state may be longer, and it is marked as such
+  (`role="status"` or `"alert"`, or an `error-state`, `warning-state` or `empty-state`
+  class). Rendering a paragraph under a condition does not make it state.
 - Keep one-line consequences beside the action they describe ("Does not resume the
   roadmap"), not in a paragraph above the form.
 - A recovery panel renders only while there is something to recover. It disappears once
@@ -95,7 +96,7 @@ structural UI work.
 These are the operator-facing terms. Use them in labels, headings and messages. Wire and
 format names are not renamed: where a term differs from its wire name, the wire name is
 given in brackets. Internal identifiers (binding revision, generation, digest,
-fingerprint, reservation, dispatch) appear only inside disclosures.
+fingerprint, reservation, dispatch) belong inside disclosures.
 
 ```text
 Plan version         an imported, immutable plan; its work items are what gets delegated

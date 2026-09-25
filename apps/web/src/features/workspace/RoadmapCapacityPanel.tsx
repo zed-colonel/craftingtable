@@ -1,5 +1,6 @@
 import { type RoadmapCapacities, roadmapCapacitiesSchema } from '@craftingtable/contracts';
 import { useEffect, useState } from 'react';
+import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { request } from '../../lib/api-client.js';
@@ -156,11 +157,20 @@ export function RoadmapCapacityPanel({
             </p>
           )}
           <p className="hint">
-            In-flight limits reserve unmerged development attempts. Independent verification and
-            parent acceptance use the workstation pool above. Required predecessors, evidence,
-            exclusion groups and repository locks still apply. Manual worktrees also count toward
-            repository limits; shared repositories use the tightest active roadmap limit.
+            In-flight limits reserve unmerged development attempts. Required predecessors, evidence,
+            exclusion groups and repository locks still apply.
           </p>
+          <About label="About roadmap limits">
+            <p>
+              Independent verification and parent acceptance use the workstation pool above. Manual
+              worktrees also count toward repository limits; shared repositories use the tightest
+              active roadmap limit.
+            </p>
+            <p>
+              Saving changes this roadmap's admission limits and saved revision. Existing work keeps
+              its profiles and recovery budgets.
+            </p>
+          </About>
           {roadmap.editBlocker && <p>{roadmap.editBlocker}</p>}
           <button
             type="button"
@@ -206,9 +216,7 @@ export function RoadmapCapacityPanel({
                 </label>
               ))}
               <p className="hint">
-                Saving changes this roadmap's admission limits and saved revision. Existing work
-                keeps its profiles and recovery budgets. Lowering a limit delays new admissions; it
-                does not stop current work.
+                Lowering a limit delays new admissions; it does not stop current work.
                 {roadmap.crossProject &&
                   ' Generate and accept fresh saved-plan evidence before resuming.'}
               </p>

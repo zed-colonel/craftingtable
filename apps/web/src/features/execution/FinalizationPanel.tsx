@@ -563,8 +563,8 @@ export function FinalizationPanel({
                   </label>
                 )}
                 <p className="hint">
-                  Branch removal preserves the merged commits and plan history. If the branch has
-                  changed or is still in use, promotion stays completed and cleanup can be retried.
+                  Branch removal keeps merged commits and plan history. If the branch changed or is
+                  in use, promotion still completes and cleanup can be retried.
                 </p>
                 <div className="inline-actions">
                   <button
@@ -627,8 +627,8 @@ export function FinalizationPanel({
               <details>
                 <summary>Deferred nits ({cycle.deferredNits.length})</summary>
                 <p>
-                  Operator decisions for the recorded commits. Findings remain open follow-up work;
-                  changed commits or finding details invalidate an exemption.
+                  Finding dispositions for the recorded commits. Findings remain open follow-up
+                  work; changed commits or finding details invalidate an exemption.
                 </p>
                 {cycle.deferredNits.map((d) => (
                   <article key={d.finding.id}>

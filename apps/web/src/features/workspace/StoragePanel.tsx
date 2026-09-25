@@ -3,6 +3,7 @@ import type { StoragePolicy, WorkspaceId } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
 import { loadStorage, saveStorage, storageCommand } from '../../lib/storage-api.js';
 import { distinct } from '../../lib/distinct.js';
+import { About } from '../../components/About.js';
 
 const size = (bytes: number | null) =>
   bytes === null
@@ -122,9 +123,7 @@ export function StoragePanel({
               }}
             >
               <p className="hint">
-                Locations are directories on the workstation. Select an existing directory or a new
-                child of an existing directory. Changing a location affects future work; it does not
-                relocate existing worktrees or run files.
+                Changing a location affects future work; existing worktrees and run files stay put.
               </p>
               {(['worktreeRoot', 'runsRoot', 'backupRoot'] as const).map((key) => (
                 <label className="field" key={key}>
@@ -175,10 +174,8 @@ export function StoragePanel({
                 </select>
               </label>
               <p className="hint">
-                Other scratch expiry starts after merge and worktree removal, and recent file
-                changes extend it. Active and interrupted work stays protected. Run messages,
-                findings, and verification recorded in history are retained; scratch files
-                themselves are disposable.
+                Expiry starts after merge and worktree removal. Active and interrupted work stays
+                protected.
               </p>
               <label className="field">
                 Minimum free space (GiB)
@@ -194,11 +191,7 @@ export function StoragePanel({
                   }
                 />
               </label>
-              <p className="hint">
-                New runs and worktrees stop below this reserve. This is a launch check, not a quota
-                on a running build. Storage pressure also uses your existing attention
-                notifications.
-              </p>
+              <p className="hint">New runs and worktrees stop below this reserve.</p>
               <label>
                 <input
                   type="checkbox"
@@ -225,14 +218,35 @@ export function StoragePanel({
               <button type="submit" className="primary-button" disabled={busy}>
                 Save storage settings
               </button>
+              <About label="About locations and retention">
+                <p>
+                  Locations are directories on the workstation. Select an existing directory or a
+                  new child of an existing directory. Changing a location does not relocate existing
+                  worktrees or run files.
+                </p>
+                <p>
+                  Other scratch expiry starts after merge and worktree removal, and recent file
+                  changes extend it. Run messages, findings, and verification recorded in history
+                  are retained; scratch files themselves are disposable.
+                </p>
+                <p>
+                  The free-space reserve is a launch check, not a quota on a running build. Storage
+                  pressure also uses your existing attention notifications.
+                </p>
+              </About>
             </form>
           </details>
           <h4>Usage and cleanup</h4>
           <p className="hint">
-            Scan before cleanup. Only recognized build caches and expired scratch from merged,
-            removed worktrees are eligible. Source files, Git data, run messages, findings and plan
-            documents are preserved.
+            Scan before cleanup. Source files, Git data, run messages, findings and plan documents
+            are preserved.
           </p>
+          <About label="About storage cleanup">
+            <p>
+              Only recognized build caches and expired scratch from merged, removed worktrees are
+              eligible for cleanup.
+            </p>
+          </About>
           {status.scan && (
             <>
               <dl className="definition-grid">
@@ -282,11 +296,14 @@ export function StoragePanel({
             </button>
           </div>
           <h4>Backups</h4>
-          <p className="hint">
-            Private SQLite snapshots include plans, run history, settings and credentials. They do
-            not include repositories or working files. Use a different disk for protection against
-            drive failure, and back up source repositories separately.
-          </p>
+          <p className="hint">Backups include credentials but not repositories or working files.</p>
+          <About label="About backups">
+            <p>
+              Private SQLite snapshots include plans, run history, settings and credentials. They do
+              not include repositories or working files. Use a different disk for protection against
+              drive failure, and back up source repositories separately.
+            </p>
+          </About>
           <div className="inline-actions">
             <button type="button" disabled={busy} onClick={() => void act('backup')}>
               Back up database now

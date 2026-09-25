@@ -250,6 +250,11 @@ export function HostSchedulingPanel({
                 Recorded waits come from saved cycle state; Roadmaps shows undispatched work and its
                 other prerequisites. Refresh is explicit and preserves unsaved edits.
               </p>
+              <p>
+                After changing a workstation limit, regenerate and accept saved-plan evidence for
+                the affected cross-project roadmaps. Dependency pins need no change for a capacity
+                adjustment alone.
+              </p>
             </About>
             {draft && (
               <form
@@ -280,9 +285,8 @@ export function HostSchedulingPanel({
                   })}
                 </div>
                 <p className="hint">
-                  Pause scheduling in every workspace before saving. Changed workstation limits
-                  require fresh saved-plan acceptance on affected cross-project roadmaps. Saving
-                  does not resume scheduling.
+                  Pause scheduling in every workspace before saving. Saving does not resume
+                  scheduling. Affected cross-project roadmaps need fresh saved-plan acceptance.
                 </p>
                 {running.length > 0 && (
                   <p className="error-state">
@@ -314,9 +318,8 @@ export function HostSchedulingPanel({
             <details>
               <summary>Roadmaps affected by workstation changes ({status.roadmaps.length})</summary>
               <p>
-                After changing a workstation limit, regenerate and accept saved-plan evidence for
-                cross-project roadmaps here. Dependency pins need no change for a capacity
-                adjustment alone. Resume remains a separate action.
+                After a limit change, regenerate and accept saved-plan evidence for cross-project
+                roadmaps here. Resume remains a separate action.
               </p>
               <ul>
                 {status.roadmaps.map((r) => (

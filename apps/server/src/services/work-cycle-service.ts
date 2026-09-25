@@ -913,7 +913,7 @@ export class WorkCycleService {
       if (currentFinalizationStage(cycle)?.status === 'selecting')
         throw new ExecutionRequestError(
           'conflict',
-          'Use the stage batch decision to select improvements and record the remaining follow-ups.',
+          'Use Next finalization step to select this stage’s improvement batch and record the remaining follow-ups.',
         );
       const findings = this.finalizationCheckpointFindings(cycle);
       const selected = findings.filter((f) => input.findingIds.includes(f.id));
@@ -953,7 +953,7 @@ export class WorkCycleService {
     if (instructions.length > 16000)
       throw new ExecutionRequestError(
         'invalid-request',
-        'Decision and guidance together exceed 16,000 characters. Shorten them before retrying.',
+        'Disposition rationale and guidance together exceed 16,000 characters. Shorten them before retrying.',
       );
     if (input.action === 'remediate-findings') {
       const extra = input.additionalRounds ?? 0;
@@ -2794,12 +2794,12 @@ export class WorkCycleService {
     const { run, report, progress, value } = checked;
     const stage = value.stages?.[progress.stageIndex];
     if (!stage || !input.rationale?.trim())
-      throw new ExecutionRequestError('invalid-request', 'A decision rationale is required.');
+      throw new ExecutionRequestError('invalid-request', 'A disposition rationale is required.');
     const instructions = `Operator decision: ${input.rationale}. ${input.instructions ?? ''}\nReassess every unanswered question before editing. Do not infer authorization for unrelated changes.`;
     if (instructions.length > 16000)
       throw new ExecutionRequestError(
         'invalid-request',
-        'Decision and guidance together exceed 16,000 characters. Shorten them before retrying.',
+        'Disposition rationale and guidance together exceed 16,000 characters. Shorten them before retrying.',
       );
     const agent =
       input.agentOverride === undefined ? {} : { finalizationAgentOverride: input.agentOverride };

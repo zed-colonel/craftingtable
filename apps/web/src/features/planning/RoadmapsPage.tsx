@@ -341,8 +341,6 @@ export function RoadmapsPage({
               <>
                 <p className="hint">
                   List order is scheduling priority. Required predecessors must be merged first.
-                  Items awaiting merge or attention retain their capacity and exclusion groups.
-                  Refresh limits are fixed for each item when it starts.
                 </p>
                 <p>
                   In-flight limits: {draft.scheduling?.maxInFlight ?? 2} total ·{' '}
@@ -634,6 +632,10 @@ export function RoadmapsPage({
                 Starting delegates only the selected items. Dependencies outside this sequence
                 remain visible blockers. Design pauses for open questions. Starting authorizes the
                 selected integration policies; merging into main always remains yours.
+              </p>
+              <p>
+                In parallel mode, items awaiting merge or attention retain their capacity and
+                exclusion groups. Refresh limits are fixed for each item when it starts.
               </p>
             </About>
             {current && current.version !== draft.expectedVersion && (

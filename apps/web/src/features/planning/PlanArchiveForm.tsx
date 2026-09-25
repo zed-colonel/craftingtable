@@ -192,9 +192,8 @@ export function PlanArchiveForm({
               <details>
                 <summary>Documents and archive provenance</summary>
                 <p>
-                  Current text documents beside the selected plan become plan artifacts. Scripts,
-                  historical copies and source checksum manifests remain in the original ZIP. No
-                  bundled code is executed.
+                  Current text documents beside the plan become plan artifacts. Scripts, historical
+                  copies and source checksums stay in the ZIP. No bundled code runs.
                 </p>
                 <code className="import-digest">{preview.archiveDigest}</code>
                 <ul>
@@ -244,9 +243,8 @@ export function PlanArchiveForm({
                     Make this the active plan after import
                   </label>
                   <p className="hint">
-                    Activation requires the project's existing work to be idle. Repository and
-                    branch settings are configured on the new plan version; existing worktrees keep
-                    their original bindings.
+                    Activation requires idle existing work. Repository and branch settings belong to
+                    the new version; existing worktrees keep their original bindings.
                   </p>
                 </>
               )}

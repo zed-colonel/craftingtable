@@ -1,3 +1,4 @@
+import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { useState } from 'react';
 import {
@@ -94,11 +95,16 @@ export function RoadmapDelegationPanel({
       {open && (
         <>
           <p>
-            Pause scheduling and let agents finish. This explicit grant replaces integration
-            automation and reviewer responsibilities for the selected entries’ future actions,
-            including retries. Existing reports and approvals keep their original authority. No new
-            plan-acceptance evidence is needed.
+            Pause scheduling and let agents finish. This replaces the selected entries’ future
+            delegation, including retries; no new plan-acceptance evidence is needed.
           </p>
+          <About label="About delegation changes">
+            <p>
+              This explicit grant replaces integration automation and reviewer responsibilities for
+              the selected entries’ future actions, including retries. Existing reports and
+              approvals keep their original authority.
+            </p>
+          </About>
           <fieldset disabled={locked}>
             <legend>Select entries</legend>
             <button

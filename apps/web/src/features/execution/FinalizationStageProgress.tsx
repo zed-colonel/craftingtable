@@ -43,7 +43,8 @@ export function FinalizationStageProgress({ view }: { view: FinalizationView }) 
           Plan obligations and evidence ({met} of {progress.obligations.length} current)
         </summary>
         <p className="hint">
-          Evidence is tied to the recorded commits; the final review revalidates every obligation.
+          Evidence is tied to the recorded commits. Later changes require revalidation; the final
+          review revalidates every obligation.
         </p>
         {progress.obligations.map((o) => (
           <article key={o.id} className="review-finding">

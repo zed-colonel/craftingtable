@@ -30,7 +30,7 @@ export function mapProjectReadiness(
     if (tx.planning.projects.find(ws, b.projectId)?.activePlanVersionId !== b.planVersionId)
       blockers.push('The bound plan is not active.');
     if (!mapAdopted(tx, ws, d.id, revision))
-      blockers.push('Adopt the exact map binding and its decisions.');
+      blockers.push('Adopt the exact map binding and its scheduling proposals.');
     if (!activeRuntime(tx, ws, d.id, revision))
       blockers.push('Configure the pinned dependency environment.');
     if (amendmentHoldsBinding(tx, ws, d.id, revision))

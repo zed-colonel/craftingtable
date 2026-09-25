@@ -30,8 +30,8 @@ export function CycleGuidanceRecovery({
       <About label="About guidance">
         <p>
           Read the current run’s outcome, then answer its questions or explain what changes the
-          stalled approach. Guidance goes to the next agent run only; later steps do not inherit it.
-          Continuing uses the existing allowance and opens a new bounded progress window.
+          stalled approach. Continuing uses the existing allowance and opens a new bounded progress
+          window.
         </p>
       </About>
       <label className="field">
@@ -45,6 +45,9 @@ export function CycleGuidanceRecovery({
           onChange={(event) => setGuidance(event.target.value)}
         />
       </label>
+      <p className="hint">
+        Guidance goes to the next agent run only; later steps do not inherit it.
+      </p>
       <button type="submit" className="primary-button" disabled={disabled || !guidance.trim()}>
         Continue with guidance
       </button>

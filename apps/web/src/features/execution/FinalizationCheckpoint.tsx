@@ -11,6 +11,7 @@ import {
 } from '@craftingtable/domain';
 import { useId, useState } from 'react';
 
+import { About } from '../../components/About.js';
 import { FinalizationRecoveryAgent } from './FinalizationRecoveryAgent.js';
 
 type CheckpointAction = Extract<
@@ -212,9 +213,8 @@ export function FinalizationCheckpoint({
             )}
           </p>
           <p>
-            This authorization adds the requested attempts and starts remediation, even when the
-            current allowance is exhausted. Used counts do not reset. Each attempt is followed by
-            review.
+            Adds the requested attempts and starts remediation, even when the allowance is
+            exhausted. Used counts do not reset; review follows each attempt.
           </p>
           {focused && (
             <p>
@@ -225,11 +225,17 @@ export function FinalizationCheckpoint({
         </>
       )}
       {action === 'defer-nits' && (
-        <p>
-          Deferral keeps selected nits open in history and starts independent review. Changed
-          commits or finding details require a new decision. Required checks and plan obligations
-          still apply.
-        </p>
+        <>
+          <p>
+            Deferral starts independent review. Changed commits or finding details require a new
+            finding disposition.
+          </p>
+          <About label="About deferring nits">
+            <p>
+              Deferred nits stay open in history. Required checks and plan obligations still apply.
+            </p>
+          </About>
+        </>
       )}
       {action === 'resume' && (
         <p>

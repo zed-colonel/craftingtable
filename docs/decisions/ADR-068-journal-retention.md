@@ -28,8 +28,12 @@ backup copied all of it.
     its digest reads as absent, and the daemon never writes through a linked directory.
   - A member-access route serves a body as plain text.
 - **Retention follows the run.** Bodies expire with the run's scratch retention (ADR-034),
-  through the same audited, identity-checked cleanup, and never through a link. Raw lines on
+  through the same audited, identity-checked cleanup, and never through a link. Like scratch,
+  they also wait until nothing in them has changed for a full retention window. Raw lines on
   failure notices are small and stay.
+  - A body is read without following a link, only from a regular file, and only up to 8 MiB
+    decompressed (twice the adapters' 4 MiB line limit). Anything else reads as absent. A file
+    already at a digest's path that does not hold that output is replaced, not trusted.
 - **Compaction is explicit and audited.** `craftingtable db compact-journal` applies the same
   rules to ended runs journaled before this decision. It needs the data-directory lock, so the
   daemon must be stopped, and it is a dry run unless given `--apply`.
@@ -38,6 +42,7 @@ backup copied all of it.
     That path lifts the `agent_run_events_no_update` trigger for its statements, restores it
     byte-identical, verifies it, and passes every rewritten event through the record guard.
   - Normal writes never lift the trigger. `--vacuum` returns the freed pages to the filesystem.
+  - It refuses a database with pending migrations, so a dry run never migrates the file.
 
 ## Consequences
 
@@ -52,6 +57,9 @@ backup copied all of it.
   no longer contains full tool output. ADR-034 already excludes run directories from snapshots.
 - **Expired bodies.** After a body expires, the run page shows its preview and the full-output
   link answers 404.
+- **Compacted history.** Runs already past retention when compacted keep their bodies for one
+  more retention window (30 days from compaction). After that, those runs keep only the 4 KiB
+  preview of each large tool result. Before this decision, the journal kept full output forever.
 - **What the controller reads.** It never reads tool-result bodies or raw lines. Handoffs use
   messages and turn results.
 

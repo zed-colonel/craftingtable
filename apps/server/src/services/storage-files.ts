@@ -185,9 +185,15 @@ export async function cleanupCandidates(
   const plainDirectory = (path: string) =>
     existsSync(path) && !lstatSync(path).isSymbolicLink() && realpathSync(path) === path;
   const expiredFiles: BuildCache[] = [];
-  // Tool-result bodies moved out of the journal share the run's scratch retention (R-H2).
+  // Tool-result bodies moved out of the journal share the run's scratch retention (R-H2),
+  // including its quiet period: bodies that journal compaction wrote into a long-retained
+  // run stay for a full retention window before they expire.
   const bodies = join(run.path, TOOL_RESULTS_DIRECTORY);
-  if (expired && plainDirectory(bodies)) {
+  if (
+    expired &&
+    plainDirectory(bodies) &&
+    (await latestModification(bodies, run.device)) <= cutoff
+  ) {
     const entry = await lstat(bodies);
     if (entry.isDirectory())
       expiredFiles.push({

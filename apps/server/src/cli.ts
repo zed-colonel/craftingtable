@@ -199,6 +199,15 @@ export function runJournalCompaction(
   options: { readonly apply: boolean; readonly vacuum: boolean; readonly bodies?: string },
   stdout: CliOutput = process.stdout,
 ): number {
+  // Opening storage migrates it, which a dry run must not do; compaction also assumes the
+  // current schema. The daemon's first start after a deploy (or `db migrate`) comes first.
+  const status = inspectMigrationStatus(databasePath);
+  if (status.pendingVersions.length > 0) {
+    stdout.write(
+      `The database is at schema ${status.currentVersion}/${status.supportedVersion}. Start the daemon once or run \`craftingtable db migrate\` before compacting; nothing was changed.\n`,
+    );
+    return 2;
+  }
   const storage = openDaemonStorage(databasePath);
   try {
     const fileBytes = () => statSync(databasePath).size;

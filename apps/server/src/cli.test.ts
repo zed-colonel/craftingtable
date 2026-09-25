@@ -1,9 +1,19 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openDatabase, runMigrations } from '@craftingtable/storage';
+import {
+  discoverMigrations,
+  inspectMigrationStatus,
+  openDatabase,
+  runMigrations,
+} from '@craftingtable/storage';
 import { describe, expect, it } from 'vitest';
-import { parseCliArguments, runDatabaseCommand, SCHEMA_VALIDATION_EXIT_CODE } from './cli.js';
+import {
+  parseCliArguments,
+  runDatabaseCommand,
+  runJournalCompaction,
+  SCHEMA_VALIDATION_EXIT_CODE,
+} from './cli.js';
 
 describe('CLI argument parsing', () => {
   it('accepts bootstrap and database commands', () => {
@@ -26,6 +36,36 @@ describe('CLI argument parsing', () => {
     ).toEqual({ command: 'compact-journal', apply: true, vacuum: true, bodies: '/copy/runs' });
     for (const args of [['--vacuum'], ['--bodies', 'relative'], ['--bodies'], ['--force']])
       expect(() => parseCliArguments(['db', 'compact-journal', ...args])).toThrow(/Usage/);
+  });
+
+  it('refuses to compact, even as a dry run, a database with pending migrations (R-H2)', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-cli-compact-test-'));
+    const databasePath = join(directory, 'craftingtable.sqlite');
+    try {
+      const database = openDatabase(databasePath);
+      runMigrations(database, discoverMigrations().slice(0, -1));
+      database.close();
+      const before = inspectMigrationStatus(databasePath);
+      let output = '';
+      const code = runJournalCompaction(
+        databasePath,
+        { apply: false, vacuum: false },
+        {
+          write(message: string) {
+            output += message;
+          },
+        },
+      );
+      expect(code).toBe(2);
+      expect(output).toMatch(/nothing was changed/);
+      // Opening storage would have migrated it and left a pre-migration snapshot.
+      expect(inspectMigrationStatus(databasePath)).toEqual(before);
+      expect(
+        readdirSync(directory).filter((name) => !name.startsWith('craftingtable.sqlite')),
+      ).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('refuses passwords in process arguments', () => {

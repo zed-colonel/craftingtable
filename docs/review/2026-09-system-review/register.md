@@ -863,6 +863,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - `--every-run --check` against the pre-change golden reports 278 decisions, 0 changed.
   - **Projection for the done-when.** New runs are journaled under these rules, so their bytes per run match the compacted figure: about −82% against the >50% target. Daily backups shrink with the file. The done-when counts growth per run on the live database, which can only be measured after the branch is deployed and runs accumulate. The status therefore stays partial until that measurement.
   - **Operator action.** Compact the live journal as documented in `docs/operations.md` ("Checking and compacting the database"). It was not run here.
+- **Amendment (2026-09-24 review):**
+  - **Dry run migrated the database.** The compaction command opened storage, which migrates the file and writes a pre-migration snapshot. It now refuses a database with pending migrations, dry run or not, and changes nothing (CLI test).
+  - **Compacted bodies expired within a minute.** Body expiry checked only the run's `retainedSince`. So bodies that compaction wrote into runs already past retention would have been removed on the next maintenance tick, leaving only previews. Bodies now also wait out the scratch quiet period: they are kept until nothing in them has changed for a full retention window. For compacted history that means 30 days after compaction, then previews only. ADR-068 and `docs/operations.md` now say so, and the retention decision for the operator names this consequence.
+  - **Body files were trusted.** A read followed links, blocked on a FIFO and decompressed without a bound. A file already at a digest's path was kept without being checked. Reads now open with `O_NOFOLLOW`, accept only regular files, cap at 8 MiB and treat any decode error as absent. Writes replace a file that does not hold the output (`tool-result-store.test.ts`).
 
 ### R-H3
 

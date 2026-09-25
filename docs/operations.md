@@ -98,12 +98,13 @@ an operator action, run with the daemon stopped:
 
 1. Take a snapshot (**Back up database now**) and check it with `pnpm db:verify <snapshot>`.
 2. Stop the daemon (`systemctl --user stop craftingtable`; see "Shutdown and recovery").
-3. `pnpm craftingtable db compact-journal` reports what would change and writes nothing.
+3. `pnpm craftingtable db compact-journal` reports what would change and writes nothing. It
+   refuses a database with pending migrations, so the deployed daemon must have started once.
 4. `pnpm craftingtable db compact-journal --apply --vacuum` rewrites ended runs. Each run is one
    transaction, with a `storage.journal-compacted` audit record, and bodies are written to the
-   run directories first. Then VACUUM returns the freed space. VACUUM needs free space about
-   the size of the database and blocks all writers while it runs, which is why the daemon must
-   be stopped.
+   run directories first. Then VACUUM returns the freed space. VACUUM needs free space of about
+   twice the database size (the rebuilt copy passes through the WAL) and blocks all writers
+   while it runs, which is why the daemon must be stopped.
 5. Start the daemon, and check the Storage panel and a compacted run's page.
 
 The command takes the data-directory lock, so it refuses to run while the daemon holds it. It
@@ -111,8 +112,10 @@ touches only runs that have ended. A tool result whose run directory no longer e
 the journal. The journal's append-only trigger is lifted only inside each run's transaction,
 and is restored byte-identical before that transaction commits. On a copy of the 2026-09-23
 database, compaction cut the file from 547 MB to 137 MB and wrote 54 MB of compressed bodies.
-Tool-result bodies expire with each run's scratch retention (30 days after the run's work is
-merged and removed).
+Tool-result bodies expire with each run's scratch retention: 30 days after the run's work is
+merged and removed, and no sooner than 30 days after the bodies were last written. So bodies that
+compaction writes for runs already past retention stay for 30 days after compaction, and those
+runs then keep only the 4 KiB preview of each large tool result.
 
 ### Moving application data to another disk
 

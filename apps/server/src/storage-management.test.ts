@@ -370,7 +370,8 @@ it('expires tool-result bodies with the run scratch retention and never through 
   rmSync(s.cache, { recursive: true });
   const bodies = join(s.runPath, 'tool-results');
   mkdirSync(bodies);
-  writeFileSync(join(bodies, `${'a'.repeat(64)}.txt.gz`), 'body');
+  const body = join(bodies, `${'a'.repeat(64)}.txt.gz`);
+  writeFileSync(body, 'body');
   const old = new Date(Date.now() - 40 * 86_400_000);
   const run = {
     path: s.runPath,
@@ -378,6 +379,10 @@ it('expires tool-result bodies with the run scratch retention and never through 
     device: statSync(s.runPath).dev,
     retainedSince: old.toISOString(),
   };
+  // Bodies written recently into a long-retained run (journal compaction) wait out a window.
+  expect(await cleanupCandidates(run, 30, new Date())).toEqual([]);
+  utimesSync(body, old, old);
+  utimesSync(bodies, old, old);
   // The scratch was just touched, so only the bodies have expired.
   expect((await cleanupCandidates(run, 30, new Date())).map((c) => [c.kind, c.path])).toEqual([
     ['scratch', bodies],

@@ -320,8 +320,10 @@ obligation and the full checks on the current candidate. Operators can grant mor
 The round-based controller that preceded stages is retired (R-B10). Its records still read: the
 contracts keep `rounds`, `polishPhase` and `deferredNits`, and the completed 2026-09-13 record
 renders (`fixtures/records/legacy-finalization-2026-09-13.json`,
-`legacy-finalization-record.test.ts`). A new start must carry stages. A stage-less finalization that
-is still open accepts only Stop, and the controller stops it with `legacy-finalization-retired`.
+`legacy-finalization-record.test.ts`). A new start must carry stages. For a stage-less
+finalization that is still open, resume, remediation, stage decisions and any agent launch are
+refused (finalization and cycle controls, and `AgentRunService.startForCycle`); Stop, promotion
+and cleanup remain, and the controller stops its cycle with `legacy-finalization-retired`.
 
 ## Agent backend seam
 

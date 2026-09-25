@@ -36,9 +36,8 @@ import {
 afterEach(cleanupExecutionFixtures);
 
 /*
- * Plan finalization on the staged controller (R-B10). These tests moved from legacy
- * improvement rounds; behaviour only the legacy controller has lives in
- * server-execution-finalization-legacy.test.ts until the legacy branches are removed.
+ * Plan finalization on the staged controller. These tests moved here from the retired
+ * improvement-round controller (R-B10), whose own tests were deleted with it.
  */
 
 /** A required correctness finding: staged findings carry a category. */

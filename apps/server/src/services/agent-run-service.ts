@@ -376,6 +376,13 @@ export class AgentRunService {
     if (existing !== undefined) return existing;
     const resolution = ownsIntegrationResolution(cycle) ? cycle.integrationResolution : undefined;
     const finalization = finalizationForCycle(this.storage, cycle);
+    // Every path that launches a finalization run (cycle control, service retries,
+    // continuations) ends here; a stage-less finalization is retired (R-B10) and gets no run.
+    if (finalization && !finalization.stages)
+      throw new ExecutionRequestError(
+        'conflict',
+        'This finalization uses retired improvement rounds. Stop it and start a staged finalization.',
+      );
     const recovery =
       cycle.step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
         ? cycle.designRecovery

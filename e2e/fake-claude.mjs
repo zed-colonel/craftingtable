@@ -140,41 +140,26 @@ lines.on('line', (line) => {
       (text.includes('CYCLE-EXTRA-REMEDIATION') && !existsSync(join(cwd, 'RECOVERED.md')))
         ? 'changes-requested'
         : 'mergeable';
-    const findings =
-      finalizing && text.includes('FINALIZATION-REMEDIATION-LIMIT')
-        ? [
-            {
-              id: 'F-001',
-              severity: 'nit',
-              status: existsSync(join(cwd, 'REMEDIATED.md')) ? 'resolved' : 'open',
-              title: 'Clarify the finalization example',
-              explanation: 'The example needs a short explanation.',
-              recommendation: 'Clarify the example.',
-              ...(existsSync(join(cwd, 'REMEDIATED.md'))
-                ? { disposition: 'Verified the explanation.' }
-                : {}),
+    const findings = text.includes('MOBILE-FINDINGS')
+      ? [
+          {
+            id: 'F-001',
+            severity: text.includes('CYCLE-EXTRA-REMEDIATION') ? 'major' : 'nit',
+            status: existsSync(join(cwd, 'RECOVERED.md')) ? 'resolved' : 'open',
+            ...(existsSync(join(cwd, 'RECOVERED.md'))
+              ? { disposition: 'Verified the regression fix.' }
+              : {}),
+            title: 'Clarify the example in the integration guide',
+            location: {
+              path: `docs/${'long-directory-name/'.repeat(8)}integration-guide.md`,
+              line: 12,
             },
-          ]
-        : text.includes('MOBILE-FINDINGS')
-          ? [
-              {
-                id: 'F-001',
-                severity: text.includes('CYCLE-EXTRA-REMEDIATION') ? 'major' : 'nit',
-                status: existsSync(join(cwd, 'RECOVERED.md')) ? 'resolved' : 'open',
-                ...(existsSync(join(cwd, 'RECOVERED.md'))
-                  ? { disposition: 'Verified the regression fix.' }
-                  : {}),
-                title: 'Clarify the example in the integration guide',
-                location: {
-                  path: `docs/${'long-directory-name/'.repeat(8)}integration-guide.md`,
-                  line: 12,
-                },
-                explanation:
-                  'The behavior is correct, but the example could explain the integration target more clearly.',
-                recommendation: 'Add a short explanation alongside the example.',
-              },
-            ]
-          : [];
+            explanation:
+              'The behavior is correct, but the example could explain the integration target more clearly.',
+            recommendation: 'Add a short explanation alongside the example.',
+          },
+        ]
+      : [];
     const stagedReview = stagedFinalizationReview(text, cwd);
     const staged = stagedReview?.finalization;
     const stagedFindings = stagedReview?.findings ?? findings;

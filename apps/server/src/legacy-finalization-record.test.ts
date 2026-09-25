@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +8,7 @@ import { afterEach, expect, it } from 'vitest';
 import {
   cleanupExecutionFixtures,
   finalizationFixture,
+  git,
   mutationHeaders,
 } from './execution-test-support.js';
 import { recordIssues } from './persisted-records.js';
@@ -112,10 +114,15 @@ it('lets an open finalization with improvement rounds only stop (R-B10)', async 
   };
   // The 2026-09-13 record as it was before promotion: active, its cycle stopped for review.
   const { integrationCleanup: _cleanup, ...open } = record.finalization;
+  // A real worktree at the fixture's integration commit, so a resume reaches the launch.
+  const path = join(tmpdir(), `legacy-finalization-${randomUUID()}`);
+  git(['worktree', 'add', '-b', `ct/finalize-${open.id}`, path, fixture.integration], fixture.root);
   const finalization = {
     ...open,
     ...owned,
     repositoryId: repository.id,
+    integrationBranch: 'revision',
+    integrationSha: fixture.integration,
     status: 'active',
     version: 1,
     reason: 'Finalization running.',
@@ -138,7 +145,7 @@ it('lets an open finalization with improvement rounds only stop (R-B10)', async 
       baseSha: finalization.integrationSha,
       baseBranch: finalization.integrationBranch,
       integrationBranch: finalization.targetBranch,
-      path: join(tmpdir(), `legacy-finalization-${finalization.id}`),
+      path,
       createdAt: finalization.createdAt,
       createdByUserId: state.userId,
     });
@@ -160,8 +167,41 @@ it('lets an open finalization with improvement rounds only stop (R-B10)', async 
     expect(refused.statusCode, refused.body).toBe(409);
     expect(refused.body).toContain('retired improvement rounds');
   }
-  const stopped = await command('stop');
-  expect(stopped.statusCode, stopped.body).toBe(200);
+  // The generic cycle control is refused too: no run launches for a stage-less finalization.
+  const launches = fixture.backend.launches.length;
+  const resumed = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/cycles/${cycle.id}/control`,
+    headers: mutationHeaders(state),
+    payload: { action: 'resume', expectedVersion: 1 },
+  });
+  expect(resumed.statusCode, resumed.body).toBe(409);
+  expect(resumed.body).toContain('retired improvement rounds');
+  expect(fixture.backend.launches).toHaveLength(launches);
+  // Service retries and continuations are decided before the controller's legacy check; the
+  // launch itself refuses, so none of them can start a run either.
+  const { attention: _attention, ...stopped } = state.context.storage.execution.cycles.find(
+    ws,
+    cycle.id,
+  )!;
+  const running = state.context.storage.execution.cycles.replace(
+    {
+      ...stopped,
+      status: 'running',
+      version: stopped.version + 1,
+      reason: 'Retrying the step.',
+      runDeadlineAt: new Date(Date.now() + 3_600_000).toISOString(),
+    },
+    stopped.version,
+  )!;
+  await expect(state.context.services.agentRunService.startForCycle(running)).rejects.toThrow(
+    'retired improvement rounds',
+  );
+  expect(fixture.backend.launches).toHaveLength(launches);
+  const stoppedResponse = await command('stop', {
+    expectedCycleVersion: state.context.storage.execution.cycles.find(ws, cycle.id)!.version,
+  });
+  expect(stoppedResponse.statusCode, stoppedResponse.body).toBe(200);
   expect(state.context.storage.execution.finalizations.find(ws, finalization.id)?.status).toBe(
     'stopped',
   );

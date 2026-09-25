@@ -409,13 +409,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **What remains, and why.** The contracts keep `rounds`, `polishPhase`, `polishRound` and `deferredNits` so the completed 2026-09-13 record reads. Staged cycles also set `polishPhase` to `verify` and `final-review`, which the merge gate reads.
   - **New refusals, with tests (`legacy-finalization-record.test.ts`):**
     - A start must carry stages; a start with `rounds` gets a 400.
-    - An open stage-less finalization accepts only Stop, and the controller stops one with the new code `legacy-finalization-retired`.
+    - An open stage-less finalization cannot resume, remediate or take stage decisions; Stop, promotion and cleanup remain. The controller stops its cycle with the new code `legacy-finalization-retired`.
     - Both tests fail without the change. ADR-038 is amended.
   - **Replay on a copy of the 2026-09-23 snapshot.** `--check`: 51 decisions, 0 changed. `--every-run --check` against the 5e0c638 baseline: 278 decisions, 109 changed, all explained:
     - 81 differ only in shape: `finalize-implementation` no longer carries the always-empty `reviewChanges: {}`, so behaviour is identical.
     - 28 are every run of cycle `caf76f40`, the completed 2026-09-13 legacy finalization. They now classify as `legacy-finalization-retired`, as intended.
     - No other cycle's decision changed.
   - **Done-when:** met. A new finalization cannot choose legacy rounds (UI and API); the completed record renders; the legacy controller branches are gone; walkthroughs are recorded; `pnpm check` is green.
+  - **Review 2026-09-25 (independent reviewer; no defect on any staged path):**
+    - **Two more ways to relaunch a run on an open stage-less cycle.** The generic cycle control (`POST /cycles/:id/control`, resume and service retry), and service retries or continuations the controller decides before its legacy check. A run launched that way would have had an empty finalization brief and the reviewer's profile. Both are closed: `WorkCycleService.control` refuses resume and retry-provider, and `AgentRunService.startForCycle` refuses any finalization run without stages. Tests cover the route and the direct launch, and fail without the guards.
+    - The "only Stop" wording is corrected (promotion and cleanup still apply).
+    - Leftovers removed: a stale test header, a dead stand-in branch, and the `polishRound: 0` write on staged starts. The unused `_context` parameter of `evaluateCycleCompletion` stays, documented, so seven callers keep their signature.
 
 ## Workstream C — Operator-wait reduction (the vision: minimum operator input)
 

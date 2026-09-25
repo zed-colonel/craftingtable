@@ -768,7 +768,6 @@ export class WorkCycleService {
       runDeadlineAt: this.deadline(stage.policy.maxRunMinutes),
       remediationRounds: 0,
       stalledReviews: 0,
-      polishRound: 0,
       polishPhase: 'verify',
       finalizationProgress: {
         stageIndex: 0,
@@ -1254,6 +1253,16 @@ export class WorkCycleService {
       );
     if (['stopped', 'completed'].includes(cycle.status))
       throw new ExecutionRequestError('conflict', 'This cycle has ended');
+    // Improvement-round finalizations are retired (R-B10): their cycles never run again.
+    if (
+      (action === 'resume' || action === 'retry-provider') &&
+      cycle.finalizationId &&
+      !this.storage.execution.finalizations.find(workspaceId, cycle.finalizationId)?.stages
+    )
+      throw new ExecutionRequestError(
+        'conflict',
+        'This finalization uses retired improvement rounds. Stop it and start a staged finalization.',
+      );
     if (
       action !== 'pause' &&
       this.storage.execution.merges.latest(workspaceId, cycle.worktreeId)?.status === 'reserved'

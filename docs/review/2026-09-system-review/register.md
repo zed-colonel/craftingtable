@@ -673,6 +673,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Behaviour the fixtures now carry that they skipped before:** slices declare the one resource the daemon manages (`isolated-development-workspace`) instead of none, so `withLocalPhaseResources` is gone; the parent's acceptance requires its verified slices; `CASE-PARENT` is a real case that slice a produces, so its scope evidence names it. The supervised maps keep no local case, as before. The sealed package gives the peer lane the one case the format requires.
   - **Test cleanup applies the format check.** `unverifiedRecords` calls `verifyRecords(storage)` with the v0.3 schema check on. A regression test stores a hand-built map with the old `AQ-01` id and asserts cleanup refuses it; it fails with the check off (`map-test-support.test.ts`).
   - **Gate:** 176 test files and 1,391 unit tests pass (1,386 before, plus 5 new tests).
+  - **Follow-up 2026-09-25:** the whole-plan finalization test in `server-execution-supervised-maps.test.ts` timed out in every full-suite run. A valid map needs `local/AQ-02` to have its own slice, so its roadmap now runs eight cycles before finalization instead of five. It was still advancing when the 15 s wait ended. The wait is scaled to the added work (24 s; test 40 s), not raised to absorb load.
 
 ### R-F4
 

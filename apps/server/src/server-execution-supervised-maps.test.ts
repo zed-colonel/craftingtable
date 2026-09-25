@@ -410,7 +410,7 @@ itNeedsCargo(
 itNeedsCargo(
   'coordinates full-plan finalization with frozen map and runtime context and retains exact operator promotion',
   {
-    timeout: 25000,
+    timeout: 40000,
   },
   async () => {
     const f = await supervisedMapFixture(false, 'automatic', true),
@@ -445,7 +445,8 @@ itNeedsCargo(
     await waitFor(
       () => storage.planning.workItems.find(ws, f.second)?.status === 'completed',
       'complete original plan',
-      15000,
+      // Eight cycles since the valid map gave local/AQ-02 its own slice (R-F3), up from five.
+      24000,
     );
     await roadmapControl(state, 'pause');
     expect(service.finalization(f.auth, ws, roadmapId).projects[0]?.status).toBe('ready');

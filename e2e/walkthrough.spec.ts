@@ -706,6 +706,22 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     );
 
     await walk.capture(
+      'roadmaps-upstream-transitions',
+      'Roadmaps · when each application moves to current upstream pins',
+      async (p: Page) => {
+        await selectTarget(p);
+        const transitions = p.getByRole('region', { name: 'Upstream transitions', exact: true });
+        await transitions
+          .getByLabel('WI → AQ transition slice')
+          .selectOption('wi/WI-02/integration');
+        await transitions
+          .getByLabel('Transition rationale')
+          .fill('WI-02/integration moved WI onto the current AQ pin.');
+        await transitions.scrollIntoViewIfNeeded();
+      },
+    );
+
+    await walk.capture(
       'roadmaps-dependency-graph',
       'Roadmaps · EXO integration requirements and WI providers',
       async (p: Page) => {

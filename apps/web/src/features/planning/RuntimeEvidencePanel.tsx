@@ -1,6 +1,7 @@
 import { ArchitectureDecisionPanel } from './ArchitectureDecisionPanel.js';
 import { SharedDecisionInbox } from './SharedDecisionInbox.js';
 import { NativeVerificationPanel } from './NativeVerificationPanel.js';
+import { UpstreamTransitionsPanel } from './UpstreamTransitionsPanel.js';
 import { DependencyRefreshPanel } from './DependencyRefreshPanel.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActionBar } from '../../components/ActionBar.js';
@@ -180,6 +181,13 @@ export function RuntimeEvidencePanel({
     >
       <NativeVerificationPanel
         panelId={`${panelId}-native`}
+        base={base}
+        view={view}
+        csrfToken={csrfToken}
+        canMutate={canMutate}
+        onSaved={adopt}
+      />
+      <UpstreamTransitionsPanel
         base={base}
         view={view}
         csrfToken={csrfToken}

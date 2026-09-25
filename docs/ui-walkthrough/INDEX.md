@@ -75,3 +75,5 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-09-25-finalization-staged-after | `432bb00` | 2026-09-25 | 57 (1 phone only) | 1× |
 | 2026-09-25-vocabulary-copy-after | `9b7316a` | 2026-09-25 | 57 (1 phone only) | 1× |
 | 2026-09-25-vocabulary-copy-review-after | `61e41cb` | 2026-09-25 | 57 (1 phone only) | 1× |
+| 2026-09-25-upstream-transitions-before | `70b0398` | 2026-09-25 | 57 (1 phone only) | 1× |
+| 2026-09-25-upstream-transitions-after | `50da8f8` | 2026-09-25 | 58 (1 phone only) | 1× |

@@ -843,6 +843,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - `server-execution-upstream-transitions.test.ts` runs a real Cargo build. It shows the undeclared stop with no agent launched, the record API, and a domain tree before the transition merged staying dependency-free. A fresh domain verification after the merge gets the current pin, and `cargo test` passes against it. That last check fails with the choice reverted to slice kind.
       - The integration-mode build test declares its transition in the map.
     - Replay against `every-run-golden-a4aa12d.json`: 278 decisions, 0 changed. The live golden: 51, 0 changed. Unit suite: 183 files, 1,421 tests.
+  - **UI.** An "Upstream transitions" section follows Verification environments in the dependency panel (`UpstreamTransitionsPanel`).
+    - Each consumer→upstream link shows its transition slice and whether the map or the operator declared it.
+    - An undeclared link offers only the slices the checks accept, or says to declare it in the next map revision when none qualifies.
+    - Approval takes a rationale and a confirmation that it is permanent for this map revision. It sends the record ids the operator saw.
+    - Walkthrough captures `2026-09-25-upstream-transitions-before` and `-after` were taken; the after set adds scene 41, `roadmaps-upstream-transitions`. On the walkthrough's AQ/WI/EXO map it offers wi/WI-02/integration for WI → AQ, and neither EXO link qualifies.
 - **Done when:**
   - A WI-02/domain fresh verification on 03370fd5 is supplied AQ 0.2.0.
   - A pre-migration WI-03/domain tree is still supplied 97c9dc26.

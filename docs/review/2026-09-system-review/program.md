@@ -335,8 +335,8 @@ done-when by an independent agent, and the confirmed findings were fixed.
   - Operator decision (2026-09-25, "schema-valid fixtures"): the stored maps drop the scaffolding
     repositories, because an implemented upstream would force every scope test onto the pinned
     Cargo build.
-- **R-B10: done.** 0e4eb04, adeb4cf, 9b7316a, 6ea1fae; review fixes f32b407 and the commit after
-  6ea1fae.
+- **R-B10: done.** 0e4eb04, adeb4cf, 9b7316a, 6ea1fae; review fixes f32b407 and
+  2bd6e40.
   - The start form offers only staged finalizations.
   - The legacy finalization tests run on stages, and legacy-only behaviour sits in one file that is
     deleted with the branches.

@@ -19,6 +19,7 @@ import type {
   WorkspaceId,
   PhaseBlocker,
 } from '@craftingtable/domain';
+import { consumerUpstreams } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 export function activeRuntime(
   tx: StorageRepositories,
@@ -178,26 +179,7 @@ export function scopeRuntimeChanges(
 }
 /** Explicit start/merge providers inform the minimum supplied build environment. */
 export function requiredUpstreams(d: ConcurrencyDefinition, consumerAlias: string): string[] {
-  const required = new Set(
-    d.source.repositories
-      .filter((r) => r.role === 'implemented_upstream' && r.id !== consumerAlias)
-      .map((r) => r.id),
-  );
-  const parents = d.source.work_items.filter((w) => w.repository === consumerAlias);
-  for (const slice of d.source.slices.filter((s) => parents.some((w) => w.id === s.work_item)))
-    for (const req of [...slice.start_requires, ...slice.merge_requires]) {
-      const owner =
-        req.kind === 'checkpoint'
-          ? d.source.checkpoints.find((c) => c.id === req.id)?.owner
-          : req.kind === 'work_item'
-            ? d.source.work_items.find((w) => w.id === req.id)?.repository
-            : d.source.work_items.find(
-                (w) => w.id === d.source.slices.find((s) => s.id === req.id)?.work_item,
-              )?.repository;
-      if (owner && owner !== consumerAlias && d.source.repositories.some((r) => r.id === owner))
-        required.add(owner);
-    }
-  return [...required];
+  return consumerUpstreams(d.source, consumerAlias);
 }
 export function expectedSubjectCommit(
   tx: StorageRepositories,

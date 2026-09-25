@@ -3,6 +3,7 @@ import {
   type ConcurrencySource,
   concurrencyMilestones,
   type JsonValue,
+  upstreamTransitionIssues,
 } from '@craftingtable/domain';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import {
@@ -565,6 +566,10 @@ export function analyzeConcurrencyDefinition(
     .slice(0, 5)
     .map(([id]) => id)
     .join(', ')}`);
+  // Declared transitions are checked against the resolved graph only (ADR-069).
+  if (!diagnostics.length && source.upstream_transitions)
+    for (const issue of upstreamTransitionIssues(source, source.upstream_transitions))
+      require(false, issue.code, issue.message);
   return {
     ...(diagnostics.length
       ? {}

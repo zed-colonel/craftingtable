@@ -58,7 +58,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-F4](#r-f4) | P0 | S | partial (9b4be64) | Commit the format specification and golden conformance tests |
 | [R-F5](#r-f5) | P4 | M | open | Backward-compatible format additions before the Studio |
 | [R-F6](#r-f6) | P5 | L | open | The Studio format family (first step of the Development Studio) |
-| [R-F7](#r-f7) | P2 | M | open | Map-declared upstream pin transitions for each consumer link (added 2026-09-25) |
+| [R-F7](#r-f7) | P2 | M | in progress | Map-declared upstream pin transitions for each consumer link (added 2026-09-25) |
 | **G** | | | | **Agent execution integrity and security** |
 | [R-G1](#r-g1) | P0 | S-M | done (3e34531, c57c51a) | Execution safety fixes that can lose or corrupt work |
 | [R-G2](#r-g2) | P0 | S | done (d0f66ef) | Make automatic provider retry actually fire |
@@ -775,7 +775,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-F7
 
-**Map-declared upstream pin transitions for each consumer link** · Phase P2 · Effort M · Status: open
+**Map-declared upstream pin transitions for each consumer link** · Phase P2 · Effort M · Status: in progress ([ADR-069](../../decisions/ADR-069-upstream-pin-transitions.md))
 
 - **Added 2026-09-25** after a live stop. Direction confirmed by the operator the same day: the roadmap declares when each consumer moves from its historical upstream to the current pin. Agents don't decide it after the fact, and CraftingTable doesn't infer it from what merged. Once the Planning Studio exists, it authors and maintains these declarations.
 - **Resolves:** a gap the review missed. [FMT-04](findings/FMT-plan-and-roadmap-formats.md#fmt-04-automation-features-are-enabled-by-matching-prose-and-magic-identifiers-in-the-map) and R-F2/R-F5 cover how a slice's build mode is written (a regex today, a typed `verification_mode` later). Both treat the mode as a fixed property of the slice, which is the gap this item closes.
@@ -788,12 +788,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **`prepare()` is all-or-nothing per tree.** Every upstream comes from the historical preparation, or every upstream comes from the runtime pins. EXO depends on AQ and WI, and the two links can switch at different times. A tree that needs current AQ and historical WI cannot be supplied under either mode.
 - **What the live map shows** (read-only analysis of definition 0ebcb7cf, binding revision 4):
   - **wi→aq.** Excluding WI-01/implementation, which qualifies for scoped checks, WI-02/integration is the one WI current-upstream slice that every other WI current-upstream slice requires, directly or transitively. It is the natural transition slice.
-  - **exo→aq and exo→wi.** EXO has two independent first integration slices, and neither requires the other:
+  - **exo→aq and exo→wi.** EXO has three independent first current-pin slices, and none requires another:
     - EXO-03/integration requires EXO-AQ-G2/G3 and EXO-WI-G1/G2.
     - EXO-05/integration requires EXO-WI-G1/G2 and no AQ gate.
+    - EXO-18/instance-qualification has an early-start exception. It can start once EXO-03/domain and EXO-18/instance-design are verified, and its native builds may precede hardware access. ADR-069's order check found it on 2026-09-25; a pass that merged every phase's requirements had missed it.
 
     Whichever merges first switches EXO's integration branch. The map's staged contract gates (EXO-AQ-G1..G5, EXO-WI-G1..G5) say when an upstream capability is available to consume. They don't say which EXO slice moves EXO's code onto the current pins.
-- **EXO note (operator, 2026-09-25).** Deciding EXO's transitions is a planning decision for the next map revision; the Planning Studio makes it later. The cleanest shape is one explicit slice that adopts EXO's current AQ and WI pins, which both EXO-03/integration and EXO-05/integration require. The alternative is to declare the move on one of those two slices and add the edge the other needs. It is not urgent: EXO's integration slices are still gated on EXO-ADR-037 and the WI gates.
+- **EXO note (operator, 2026-09-25).** Deciding EXO's transitions is a planning decision for the next map revision; the Planning Studio makes it later. The cleanest shape is one explicit slice that adopts EXO's current AQ and WI pins, which EXO-03/integration, EXO-05/integration and EXO-18/instance-qualification all require. The alternative is to declare the move on one of those two slices and add the edge the other needs. It is not urgent: EXO's integration slices are still gated on EXO-ADR-037 and the WI gates.
 - **Links are coupled.** An upstream's current pin can carry its own upstreams. WI's pin (03370fd5) requires AQ `=0.2.0`, so EXO cannot build current WI against historical AQ: a unified Cargo build would carry two incompatible 0.x AQ versions, or fail. The rule is that a link cannot go current before the links its upstream's current pin depends on. For example, exo→wi requires exo→aq to be current first, or both links move in the same slice. The import check derives this from the consumers' upstream lists and rejects declarations that violate it.
 - **Re-pinning is separate.** After a link goes current, its pin keeps moving (EXO-WI-G1 through G5's release-grade pin). Runtime generations and reviewed refreshes cover that (ADR-058). R-F7 only covers the one-time move off the historical upstream.
 - **Not a defect:** a fresh tree reusing another slice's historical preparation. A preparation belongs to the consumer binding and records historical refs for each repository, so any tree of that consumer gets the same sources.
@@ -818,6 +819,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The next map revision absorbs it into the map, and the record retires.
   - It invalidates no receipt. Every earlier receipt was built either on a base that predates the transition merge, or against current pins; neither depends on the missing declaration.
   - The first record is wi→aq at WI-02/integration, whose merge is already in `wi-fabric-2`. EXO's links wait for the next map revision.
+- **Progress 2026-09-25:**
+  - **Replay baseline re-recorded first** (program rule 3). On a copy of the 2026-09-23 snapshot at a4aa12d:
+    - against `every-run-golden-5e0c638.json`, 109 of 278 decisions differ, the explained R-B10 set;
+    - the new `every-run-golden-a4aa12d.json` replays with 0 changed;
+    - the 51-decision live golden shows 0 changed.
+  - **The declaration and its checks.**
+    - `upstream_transitions` is an optional field of the v0.3 schema. Maps without it import with the same digest; the golden test is unchanged.
+    - `upstreamTransitionIssues` lives in the domain package, so the import and the operator record share it. ADR-053's classification (`scopedBuildScope`) and `consumerUpstreams` moved there too; `buildVerificationPolicy` and `requiredUpstreams` now delegate to them, with the classification tests unchanged.
+    - Tests over the live map (`packages/planning/src/upstream-transitions.test.ts`):
+      - wi→aq at WI-02/integration is accepted, and a later slice is refused;
+      - every choice of EXO's first slice is refused;
+      - once EXO has a single first slice, exo→wi alone is refused for coupling, and passes together with exo→aq.
 - **Done when:**
   - A WI-02/domain fresh verification on 03370fd5 is supplied AQ 0.2.0.
   - A pre-migration WI-03/domain tree is still supplied 97c9dc26.

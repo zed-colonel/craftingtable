@@ -279,4 +279,10 @@ export type ConcurrencySource = {
     readonly capability_gate: string;
     readonly status_on_import: 'unresolved';
   }>;
+  /** Optional (ADR-069): the slice whose merge moves each consumer→upstream link to the current pin. */
+  readonly upstream_transitions?: ReadonlyArray<{
+    readonly consumer: string;
+    readonly upstream: string;
+    readonly slice: string;
+  }>;
 };

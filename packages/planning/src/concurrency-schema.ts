@@ -1463,6 +1463,20 @@ export const concurrencySourceSchema = {
       },
       maxItems: 2000,
     },
+    upstream_transitions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          consumer: { type: 'string', minLength: 1, maxLength: 200 },
+          upstream: { type: 'string', minLength: 1, maxLength: 200 },
+          slice: { type: 'string', minLength: 1, maxLength: 200 },
+        },
+        required: ['consumer', 'upstream', 'slice'],
+      },
+      maxItems: 200,
+    },
   },
   required: [
     '$schema',

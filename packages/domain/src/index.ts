@@ -35,3 +35,4 @@ export * from './attention-legacy.js';
 export * from './operator-wait.js';
 export * from './cycle-actions.js';
 export * from './bounded-text.js';
+export * from './upstream-transitions.js';

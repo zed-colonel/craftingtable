@@ -58,6 +58,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-F4](#r-f4) | P0 | S | partial (9b4be64) | Commit the format specification and golden conformance tests |
 | [R-F5](#r-f5) | P4 | M | open | Backward-compatible format additions before the Studio |
 | [R-F6](#r-f6) | P5 | L | open | The Studio format family (first step of the Development Studio) |
+| [R-F7](#r-f7) | P2 | M | open | Map-declared upstream pin transitions for each consumer link (added 2026-09-25) |
 | **G** | | | | **Agent execution integrity and security** |
 | [R-G1](#r-g1) | P0 | S-M | done (3e34531, c57c51a) | Execution safety fixes that can lose or corrupt work |
 | [R-G2](#r-g2) | P0 | S | done (d0f66ef) | Make automatic provider retry actually fire |
@@ -771,6 +772,45 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Why they stay.** They test features the live roadmaps rely on, so they stay until pinning is generic (program rule 2).
   - **Added to the Change.** When runtime pinning becomes pluggable, Cargo becomes one adapter. Its Cargo-dependent tests move into that adapter's own suite, and the generic controller and scope tests use a toolchain-free fake adapter. R-G4 does the same for verification receipts, which are Cargo-only today (AGT-08).
   - **Added to the done-when:** outside the Cargo adapter's suite, no unit test needs Cargo or rustc.
+
+### R-F7
+
+**Map-declared upstream pin transitions for each consumer link** · Phase P2 · Effort M · Status: open
+
+- **Added 2026-09-25** after a live stop. Direction confirmed by the operator the same day: the roadmap declares when each consumer moves from its historical upstream to the current pin. Agents don't decide it after the fact, and CraftingTable doesn't infer it from what merged. Once the Planning Studio exists, it authors and maintains these declarations.
+- **Resolves:** a gap the review missed. [FMT-04](findings/FMT-plan-and-roadmap-formats.md#fmt-04-automation-features-are-enabled-by-matching-prose-and-magic-identifiers-in-the-map) and R-F2/R-F5 cover how a slice's build mode is written (a regex today, a typed `verification_mode` later). Both treat the mode as a fixed property of the slice, which is the gap this item closes.
+- **The incident.** The WI-02/domain verification review, run efef4f4e on 2026-09-25, could not build (finding F-001).
+  - `buildVerificationPolicy` gives domain slices `scoped-checks`, so every WI-02/domain run since 09-19 was supplied the historical AQ, 97c9dc26 at 0.1.2 (preparation 1aa15e34).
+  - The earlier verification tree sat on WI-02/domain's own merge, 9cbdb13d. The fresh tree sits on the current `wi-fabric-2` head, 03370fd5. By then WI-02/integration had merged eaf7843, which adds `crates/worldinterface-runtime` pinned to AQ `=0.2.0`, so Cargo resolution failed in every scoped check.
+  - The review's static evidence passed: 22 of 22 canonical vectors matched and the ports stayed isolated.
+- **Why it is general.** Pre-contract development belongs to each consumer→upstream link, not to a slice. Each link switches once, when the consumer's migration to that upstream's current pin merges. Every tree based after that merge needs the current pin, whatever its slice kind. Two things break once stacks are developed concurrently:
+  - **Classification ignores time.** On the migrated head, domain and qualifying implementation slices still get the historical upstream. On the live map this affects WI-02/domain now, and WI-03/, WI-04/ and WI-09/domain once their bases move past eaf7843.
+  - **`prepare()` is all-or-nothing per tree.** Every upstream comes from the historical preparation, or every upstream comes from the runtime pins. EXO depends on AQ and WI, and the two links can switch at different times. A tree that needs current AQ and historical WI cannot be supplied under either mode.
+- **What the live map shows** (read-only analysis of definition 0ebcb7cf, binding revision 4):
+  - **wi→aq.** Excluding WI-01/implementation, which qualifies for scoped checks, WI-02/integration is the one WI current-upstream slice that every other WI current-upstream slice requires, directly or transitively. It is the natural transition slice.
+  - **exo→aq and exo→wi.** EXO has two independent first integration slices, EXO-03/integration and EXO-05/integration, and each would move both links at once. Neither link's transition can be derived from the graph, so EXO needs an explicit declaration before its first integration slice merges.
+- **Not a defect:** a fresh tree reusing another slice's historical preparation. A preparation belongs to the consumer binding and records historical refs for each repository, so any tree of that consumer gets the same sources.
+- **Change (design to be settled in an ADR before code):**
+  - **Format.** An optional, typed declaration in the map, a v0.3 superset under program rule 2: for each consumer→upstream link, the consumer slice that moves it to the current pin.
+  - **Import checks.**
+    - The transition slice belongs to the consumer and is classified `current-upstream-build`.
+    - Every other current-upstream slice of that consumer requires it, so no integration work can precede its own link's transition.
+    - Missing or ambiguous declarations are reported on the definition page rather than guessed.
+  - **Dependency choice for each link.** A tree gets the upstream's current runtime pin when either:
+    - the tree belongs to the transition slice's own scope; or
+    - the tree's base contains that slice's recorded merge, by Git ancestry.
+
+    Otherwise it gets the historical source from the consumer's baseline preparation. The link's merge is recorded when the slice merges.
+  - **Receipts.**
+    - The run manifest, the receipt and the brief record which source each link used.
+    - A receipt satisfies a current-upstream gate only when every link is current. Scoped receipts still never satisfy one (ADR-053).
+  - **Fail closed.** If a tree needs a current pin on a link with no transition declared (for example, a consumer current-upstream slice merged first), the run does not start. It raises a typed attention code telling the operator to declare the transition. It never falls back silently.
+- **Open operator decision:** how the live roadmap gets its declarations. Under ADR-049, a new definition needs new adoption, new dependency environments and fresh verification and acceptance.
+- **Done when:**
+  - A WI-02/domain fresh verification on 03370fd5 is supplied AQ 0.2.0.
+  - A pre-migration WI-03/domain tree is still supplied 97c9dc26.
+  - A fixture with a two-upstream consumer builds with one link current and one historical.
+  - The import checks reject a transition that another current-upstream slice of the consumer does not require.
 
 ## Workstream G — Agent execution integrity and security
 

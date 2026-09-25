@@ -21,7 +21,7 @@ import {
   needsNativeVerification,
   needsNativeEvidence,
 } from './native-verification-policy.js';
-import { buildVerificationPolicy } from './build-verification-policy.js';
+import { buildVerificationPolicy, movedVerificationPolicy } from './build-verification-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { relevantPinAliases } from './runtime-input-policy.js';
 import { runtimeRefreshImpact, queueRuntimeReviews } from './runtime-refresh.js';
@@ -2174,7 +2174,7 @@ export class RuntimeEvidenceService {
     if (!consumer) conflict('Configure the consumer dependency environment.');
 
     const definition = this.definition(tree.workspaceId, scope.definitionId);
-    const verification = buildVerificationPolicy(
+    let verification = buildVerificationPolicy(
       definition,
       'finalization' in scope ? undefined : scope,
     );
@@ -2300,6 +2300,10 @@ export class RuntimeEvidenceService {
         ...(transition ? { transition } : {}),
       });
     }
+    // Every link moved: the tree builds entirely against current pins and is held to that.
+    const movedToCurrentPins =
+      scoped && choices.length > 0 && choices.every((c) => c.source === 'current');
+    if (movedToCurrentPins) verification = movedVerificationPolicy(verification);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const configPath = join(directory, 'pins.toml');
     const config =
@@ -2398,6 +2402,7 @@ export class RuntimeEvidenceService {
       ...launch,
       verification,
       dependencies: dependencyIdentities,
+      movedToCurrentPins,
       localCi: manifest.localCi,
       nativeVerification,
       nativeApprovalId: authority?.id,
@@ -2450,10 +2455,14 @@ export class RuntimeEvidenceService {
       scope.definitionId,
       scope.bindingRevision,
     ).bindings.find((b) => b.repositoryId === tree.repositoryId)?.alias;
-    const verification = buildVerificationPolicy(
+    const policy = buildVerificationPolicy(
       this.definition(tree.workspaceId, scope.definitionId),
       'finalization' in scope ? undefined : scope,
     );
+    // A run launched with every link moved was held to a current-upstream build (ADR-069). The
+    // frozen record can only raise the requirement, never relax it.
+    const verification =
+      env?.verificationMode === 'current-upstream-build' ? movedVerificationPolicy(policy) : policy;
     if (
       !('finalization' in scope) &&
       scope.kind === 'parent-acceptance' &&

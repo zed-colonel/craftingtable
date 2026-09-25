@@ -336,6 +336,7 @@ itNeedsCargo(
       }),
     ]);
     expect(historical.manifest.historicalPreparationId).toBe(preparationId);
+    expect(historical.manifest.verification?.mode).toBe('scoped-checks');
     expect(historical.manifest.forbiddenPackages).toBeUndefined();
 
     // The domain slice merges on top, and a fresh verification of it is based on the migrated
@@ -352,7 +353,10 @@ itNeedsCargo(
         transition: { slice: A, recordId },
       }),
     ]);
-    expect(after.manifest.verification?.mode).toBe('scoped-checks');
+    // Every link moved, so the domain verification is a current-upstream build: CI sees that
+    // mode, and acceptance needs a pinned Cargo build/test, not only scoped checks.
+    expect(after.manifest.verification?.mode).toBe('current-upstream-build');
+    expect(after.launch.movedToCurrentPins).toBe(true);
     expect(after.manifest.forbiddenPackages).toBeUndefined();
     expect(after.manifest.packages.map((p) => p.name)).toEqual(['ct_runtime_provider']);
 
@@ -368,9 +372,25 @@ itNeedsCargo(
       });
       return { resultText: scopeReport(f.state, verification.executionScope!) };
     };
+    const svc = f.state.context.services.runtimeEvidenceService;
+    const tree = () => storage.execution.worktrees.find(ws, verification.id)!;
     const run = await runToFinish(f.state, verification.id, { role: 'review' });
     const build = storage.runtimeEvidence.build(ws, run)!;
     expect(build.error).toBeUndefined();
-    expect(build.receipts).toContain('"success":true');
+    expect(build.receipts).toContain('"verificationMode":"current-upstream-build"');
+    expect(storage.runtimeEvidence.run(ws, run)?.verificationMode).toBe('current-upstream-build');
+    expect(() => svc.assertRun(tree(), run)).not.toThrow();
+
+    // A scoped check alone no longer satisfies it.
+    f.backend.replyForRequest = (request) => {
+      execFileSync(
+        join(request.buildEnvironment!.binDirectory, 'ct-check'),
+        ['--', process.execPath, '-e', 'console.log("domain checked")'],
+        { cwd: request.cwd },
+      );
+      return { resultText: scopeReport(f.state, verification.executionScope!) };
+    };
+    const scopedOnly = await runToFinish(f.state, verification.id, { role: 'review' });
+    expect(() => svc.assertRun(tree(), scopedOnly)).toThrow('successful pinned Cargo build/test');
   },
 );

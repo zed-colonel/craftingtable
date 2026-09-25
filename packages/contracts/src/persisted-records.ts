@@ -86,6 +86,7 @@ export const runEnvironmentSchema = equivalentSchema<RunEnvironment>()(
     runtimeId: z.uuid(),
     manifestPath: name,
     manifestDigest: digest,
+    verificationMode: z.literal('current-upstream-build').optional(),
   }),
 );
 

@@ -864,6 +864,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Replay: 278 every-run decisions and 51 live decisions, 0 changed.
     - Live state, read-only: the only active WI cycles are WI-04/domain and WI-09/domain, both scoped, so deploying stops nothing in flight. WI-09/domain's tree is on the migrated head 03370fd5, so once the record is approved it gets current AQ.
   - **Remaining for done-when (operator):** deploy, approve wi→aq at wi/WI-02/integration, and relaunch the WI-02/domain verification review.
+  - **Follow-up 2026-09-25 (live WI-02/domain review c35785e6).**
+    - The deployed fix supplied AQ 0.2.0, and the domain, contract and integration checks passed. F-001 was resolved.
+    - The review then raised F-002. The run still reported `scoped-checks`, and WI's `wi-integration.yml` asserts `CRAFTINGTABLE_VERIFICATION_MODE = current-upstream-build` to confirm current AQ pins, so the required integration CI job exited before its tests.
+    - ADR-069 had broken an implicit contract: `scoped-checks` used to imply historical or no dependencies.
+    - The fix: a scoped tree whose every link is on its current pin now runs as `current-upstream-build` (`movedVerificationPolicy`). CI sees that mode, and acceptance requires a pinned Cargo build/test.
+    - The mode is frozen in the run environment record, and `assertRun` only honours it as an upgrade.
+    - The end-to-end test shows the moved tree reports the mode and its cargo-tested review is accepted, while a scoped-only review is refused. The test fails without the upgrade.
+    - A known limit: the pre-transition freshness check still decides by scope, not by tree.
   - **UI.** An "Upstream transitions" section follows Verification environments in the dependency panel (`UpstreamTransitionsPanel`).
     - Each consumer→upstream link shows its transition slice and whether the map or the operator declared it.
     - An undeclared link offers only the slices the checks accept, or says to declare it in the next map revision when none qualifies.

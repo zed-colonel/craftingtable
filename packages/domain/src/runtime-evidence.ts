@@ -153,6 +153,11 @@ export interface RunEnvironment {
   readonly runtimeId: string;
   readonly manifestPath: string;
   readonly manifestDigest: string;
+  /**
+   * Present when a scoped scope's tree had every upstream link on its current pin at launch, so
+   * the run was held to a current-upstream build (ADR-069). Absent on earlier records.
+   */
+  readonly verificationMode?: 'current-upstream-build';
 }
 
 export interface ArchitectureDecision {

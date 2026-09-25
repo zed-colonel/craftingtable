@@ -13,3 +13,19 @@ export function buildVerificationPolicy(d: ConcurrencyDefinition, scope?: Execut
       : 'Integration, conformance, release, finalization or unclassified scope: a successful build/test against the current exact upstream pins is required.',
   };
 }
+
+/**
+ * A scoped tree whose every upstream link has moved to its current pin builds entirely against
+ * the current pins (ADR-069): nothing legacy is left to spare it, so it is held to, and reports,
+ * a current-upstream build. Only this upgrade exists; nothing relaxes a current-upstream scope.
+ */
+export function movedVerificationPolicy(policy: ReturnType<typeof buildVerificationPolicy>) {
+  return policy.mode === 'scoped-checks'
+    ? {
+        ...policy,
+        mode: 'current-upstream-build' as const,
+        reason:
+          'Every upstream link of this scope has moved to its current pin: a successful build/test against the current exact upstream pins is required.',
+      }
+    : policy;
+}

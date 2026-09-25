@@ -60,10 +60,18 @@ not decide it, and CraftingTable does not infer it from what has merged.
     checks require it to be a current-pin slice. Otherwise, and for every undeclared link, the
     tree gets the consumer's prepared historical source, or no package when nothing is prepared.
     The registry is never used as a fallback (ADR-053).
+- **A fully moved tree is a current-upstream build.** When every link of a scoped tree is on its
+  current pin, nothing historical is left, so the run is held to and reports
+  `current-upstream-build`. Local CI receives that mode, the brief asks for a pinned Cargo
+  build/test, and acceptance requires one. The run environment record freezes this at launch
+  (`verificationMode`), and acceptance can only raise a scope's requirement from it, never
+  lower it. A partly moved tree stays `scoped-checks`. (Added 2026-09-25: the WI integration
+  workflow checks `CRAFTINGTABLE_VERIFICATION_MODE` to confirm current AQ pins, and a moved
+  domain tree first reported `scoped-checks` while building current pins.)
 - **Provenance.** The run manifest records each link's source (`current-upstream` or
   `historical-development`), the transition that decided it, and the record's id when one did.
-  The brief names the source for each link. The verification mode, the receipts and their gates
-  are unchanged: a scoped receipt still never satisfies a current-pin gate.
+  The brief names the source for each link. A scoped receipt still never satisfies a current-pin
+  gate.
 - **Receipts are not invalidated.** Approving a record changes no binding, decision digest or
   runtime generation. Every earlier receipt was built on a base that predates the transition's
   merge, or against the current pins, so none depended on the missing declaration.

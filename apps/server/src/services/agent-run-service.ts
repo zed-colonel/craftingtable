@@ -1276,6 +1276,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             architectureDecisionDigest: pinned.architectureDecisionDigest,
             manifestPath: pinned.manifestPath,
             manifestDigest: pinned.manifestDigest,
+            ...(pinned.movedToCurrentPins
+              ? { verificationMode: 'current-upstream-build' as const }
+              : {}),
           });
         return inserted;
       });

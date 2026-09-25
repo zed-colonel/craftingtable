@@ -54,7 +54,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
 | [R-F1](#r-f1) | P1/P4 | S then L | partial (52c5c8b) | One compiled map model and one requirement evaluator |
 | [R-F2](#r-f2) | P3 | M | open | Typed feature recognition instead of prose and magic identifiers |
-| [R-F3](#r-f3) | P0/P1 | S-M | partial (7d44b42, 0ef1c95; FMT-15 done 2026-09-25) | Format ingestion bugs and test honesty |
+| [R-F3](#r-f3) | P0/P1 | S-M | partial (7d44b42, 0ef1c95; FMT-15 done in 432bb00, 0ef20b1) | Format ingestion bugs and test honesty |
 | [R-F4](#r-f4) | P0 | S | partial (9b4be64) | Commit the format specification and golden conformance tests |
 | [R-F5](#r-f5) | P4 | M | open | Backward-compatible format additions before the Studio |
 | [R-F6](#r-f6) | P5 | L | open | The Studio format family (first step of the Development Studio) |
@@ -670,12 +670,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-F3
 
-**Format ingestion bugs and test honesty** · Phase P0/P1 · Effort S-M · Status: partial (7d44b42, 0ef1c95; FMT-15 done 2026-09-25)
+**Format ingestion bugs and test honesty** · Phase P0/P1 · Effort S-M · Status: partial (7d44b42, 0ef1c95; FMT-15 done in 432bb00, 0ef20b1)
 
 - **Resolves:** [FMT-08](findings/FMT-plan-and-roadmap-formats.md#fmt-08-work-item-phase-is-unbounded-in-the-normalizer-but-64-in-the-database-and-wire-contract), [FMT-11](findings/FMT-plan-and-roadmap-formats.md#fmt-11-the-studio-seam-is-unused-and-produces-a-different-definition-digest), [FMT-13](findings/FMT-plan-and-roadmap-formats.md#fmt-13-the-same-plan-imported-by-discrete-upload-and-by-zip-gets-different-digests), [FMT-14](findings/FMT-plan-and-roadmap-formats.md#fmt-14-silent-truncation-of-plan-fields-that-agents-treat-as-the-contract), [FMT-15](findings/FMT-plan-and-roadmap-formats.md#fmt-15-execution-tests-bypass-the-importer-with-definitions-it-would-reject), [FMT-16](findings/FMT-plan-and-roadmap-formats.md#fmt-16-roadmap-entry-limits-are-inconsistent-and-settings-are-duplicated-in-every-entry-and-revision)
 - **Change:** Diagnose over-long phase at import instead of failing in storage; one digest for the same content regardless of transport (discrete vs ZIP, Studio seam vs ZIP); make truncation of agent-contract fields explicit; make execution tests build maps through the importer; align roadmap entry limits.
 - **Done when:** Each reproduction script from the FMT report fails before and passes after.
-- **Progress:** FMT-08 and FMT-14 fixed. FMT-13 cannot be fixed without changing existing digests (the live AQ-CONT-1 identity); needs a dual digest / digest v2, which is a schema decision; current behaviour pinned by tests. FMT-11, FMT-15, FMT-16 open.
+- **Progress:** FMT-08 and FMT-14 fixed. FMT-13 cannot be fixed without changing existing digests (the live AQ-CONT-1 identity); needs a dual digest / digest v2, which is a schema decision; current behaviour pinned by tests. FMT-11 and FMT-16 open. FMT-15 done 2026-09-25 (432bb00, 0ef20b1; see the amendments below).
 - **Amended 2026-09-24 (R-H3 measured FMT-15).**
   - With the write guard applying the v0.3 source schema, 63 server tests failed: every one stored a definition built by `slicedFixture` or `supervisedMapFixture`. The sources carry local ids such as `AQ-01` without a repository prefix, and checkpoints with no requirement. The importer rejects both.
   - R-H3 therefore leaves the format check to the importer and to `db:verify`. The test-cleanup verification skips it; see R-H3's progress.
@@ -689,11 +689,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - wholesale checkpoint and case replacements now append, so the base case keeps its checkpoint;
     - an empty decision list became the base decision, which the test's adoption now approves;
     - a checkpoint owned by an undeclared `aq` now names the scaffolded upstream;
+    - the evidence fixture's extra case `CASE-LOCAL` is now listed in its parent's `source_profile_case_ids`, as the importer requires;
     - the whole-plan parent `local/AQ-02` got its own slice, since the format requires one.
   - **Deviation (operator decision 2026-09-25, "schema-valid fixtures").** An importable map has an implemented upstream, and the runtime then requires every consumer to pin it. A pinned run goes through the pinned Cargo build. Storing the imported map as-is would move about 70 scope tests onto that path and make them need Rust. So the fixtures store the imported map without the two scaffolding repositories (`withoutScaffolding`). The stored map conforms to the v0.3 schema, but not to the importer's cross-stack rules; those wait for R-F5's single-repository profile. Bindings are still written directly, and they bind only `local`.
   - **Behaviour the fixtures now carry that they skipped before:** slices declare the one resource the daemon manages (`isolated-development-workspace`) instead of none, so `withLocalPhaseResources` is gone; the parent's acceptance requires its verified slices; `CASE-PARENT` is a real case that slice a produces, so its scope evidence names it. The supervised maps keep no local case, as before. The sealed package gives the peer lane the one case the format requires.
   - **Test cleanup applies the format check.** `unverifiedRecords` calls `verifyRecords(storage)` with the v0.3 schema check on. A regression test stores a hand-built map with the old `AQ-01` id and asserts cleanup refuses it; it fails with the check off (`map-test-support.test.ts`).
   - **Gate:** 176 test files and 1,391 unit tests pass (1,386 before, plus 5 new tests).
+  - **Review 2026-09-25 (independent reviewer; no test found weakened):**
+    - **Sealing still overwrote test-authored fields.** Two tests wrote case `source_id: 'local'` (not a source file) and an upstream `provider` that kept a planned repository's merge lane; the importer rejects both, and sealing silently fixed them. Sealing now owns provenance only, and its docstring names each field: source files, archives, locks, repository source ids, work-item and case digests and case `source_id`. An upstream's branch and merge lane are left as the test wrote them. The tests leave provenance empty, and give `provider` a null branch and lock. A new check shows an upstream with a merge lane is refused (`upstream-not-runnable`).
+    - **`withoutScaffolding`'s docstring understated what dangles.** It now says the peer lock, any peer case, the `BASE-*` checkpoints and the baseline binding stay, naming removed repositories. The schema check allows that, and no stored scope names them.
+    - Nits fixed: the operator-decision date in the docstring, the "Progress" line and the status hashes, and this list's missing `CASE-LOCAL` change.
   - **Follow-up 2026-09-25:** the whole-plan finalization test in `server-execution-supervised-maps.test.ts` timed out in every full-suite run. A valid map needs `local/AQ-02` to have its own slice, so its roadmap now runs eight cycles before finalization instead of five. It was still advancing when the 15 s wait ended. The wait is scaled to the added work (24 s; test 40 s), not raised to absorb load.
 
 ### R-F4

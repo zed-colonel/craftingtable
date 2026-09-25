@@ -56,7 +56,13 @@ itNeedsCargo(
       ...source,
       repositories: [
         { ...source.repositories[0]!, id: 'local' },
-        { ...source.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
+        {
+          ...source.repositories[0]!,
+          id: 'provider',
+          role: 'implemented_upstream',
+          target_branch: null,
+          merge_lock: null,
+        },
       ],
       work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
       aq_baseline_binding: { ...source.aq_baseline_binding!, repository: 'provider' },

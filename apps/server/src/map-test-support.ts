@@ -9,13 +9,19 @@ import { zipFixture } from '../../../packages/planning/src/archive-test-support.
  * carries and a test should not have to spell out: an implemented upstream with its baseline
  * binding and lock, a second planned repository (the format needs two merge lanes), the
  * source snapshots the map claims to derive from, their digests and a previous definition.
- * Sealing never repairs what a test wrote: an unknown reference, a cycle or a missing
- * requirement still fails the import, as it would for an operator.
+ * Sealing owns provenance and nothing else. It generates the source documents and sets,
+ * whatever the test wrote there: `source_files`, `source_archives`, `resource_locks`, each
+ * repository's `source_plan`, `source_work_breakdown` and `supplement_sources`, each work
+ * item's `source_item_id` and `source_record_sha256`, each case's `source_id` and
+ * `source_record_sha256`, and the baseline's archive digest, lock ids and previous
+ * definition digest. Tests leave these empty. Everything else is the test's: an unknown
+ * reference, a cycle, a missing requirement or an upstream with a merge lane still fails the
+ * import, as it would for an operator.
  *
  * The fixtures store the imported map without the two scaffolding repositories
  * (`withoutScaffolding`). With an implemented upstream in the map, every consumer must pin it
  * and every scoped run goes through the pinned Cargo build, which would move every scope test
- * onto that path (operator decision 2026-09-24). The stored map still conforms to the v0.3
+ * onto that path (operator decision 2026-09-25). The stored map still conforms to the v0.3
  * schema, which test cleanup checks; the cross-stack rules it no longer meets wait for R-F5's
  * single-repository profile.
  */
@@ -492,7 +498,7 @@ export function sealLocalMap(input: ConcurrencySource): {
       supplement_sources: supplements,
       ...(repo.role === 'planned_application'
         ? { merge_lock: repo.merge_lock ?? `${repo.id}-target-branch` }
-        : { target_branch: null, merge_lock: null }),
+        : {}),
     };
   });
   s.work_items = workItems;
@@ -545,9 +551,12 @@ export function localMapArchive(source: ConcurrencySource): Buffer {
 
 /**
  * The imported map as the scope fixtures store it: the repositories the test declared, their
- * work, sources and archives, under the test's map id. The upstream baseline binding, its
- * checkpoints, the second merge lane and any peer case stay, so the source keeps the v0.3
- * shape (two merge locks, at least one case); none of them names a stored scope.
+ * work, sources and archives, under the test's map id. The scaffolding repositories and the
+ * peer work item and slice are removed. What keeps the v0.3 shape stays and now dangles: the
+ * peer's merge lock, any peer case (owned by the removed `peer/PE-01`), the `BASE-*`
+ * checkpoints and the baseline binding (naming the removed `base`). The schema check allows
+ * that, and no stored scope names them. Graph counts and the archive id stay those of the
+ * sealed import.
  */
 export function withoutScaffolding(
   imported: ConcurrencySource,

@@ -64,8 +64,9 @@ async function checkpointCandidateFixture() {
     ],
     baseline_acceptance_coverage: source.slices.map((slice, index) => ({
       id: index === 0 ? 'BASE-A' : 'BASE-B',
-      source_id: 'local',
-      source_record_sha256: (index === 0 ? 'a' : 'b').repeat(64),
+      // Provenance: sealLocalMap binds the case to its source document.
+      source_id: '',
+      source_record_sha256: '',
       owner_work_item: 'local/AQ-01',
       producing_slice: slice.id,
       capability_gate: 'CORE-G1',
@@ -263,8 +264,8 @@ async function evidenceFixture(checkpointOwner = 'local') {
       ...source.acceptance_coverage,
       {
         id: 'CASE-LOCAL',
-        source_id: 'local',
-        source_record_sha256: 'c'.repeat(64),
+        source_id: '',
+        source_record_sha256: '',
         owner_work_item: 'local/AQ-01',
         producing_slices: ['local/AQ-01/a'],
         checkpoint: 'LOCAL-QUALIFIED',
@@ -446,7 +447,13 @@ it('previews exact dependency refreshes, rejects stale approval and retains unch
     ...source,
     repositories: [
       { ...source.repositories[0]!, id: 'local' },
-      { ...source.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
+      {
+        ...source.repositories[0]!,
+        id: 'provider',
+        role: 'implemented_upstream',
+        target_branch: null,
+        merge_lock: null,
+      },
     ],
     work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
   }));
@@ -647,7 +654,13 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
       slices: source.slices.map((s) => ({ ...s, mode })),
       repositories: [
         { ...source.repositories[0]!, id: 'local' },
-        { ...source.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
+        {
+          ...source.repositories[0]!,
+          id: 'provider',
+          role: 'implemented_upstream',
+          target_branch: null,
+          merge_lock: null,
+        },
       ],
       work_items: source.work_items.map((w) => ({ ...w, repository: 'local' })),
     }));

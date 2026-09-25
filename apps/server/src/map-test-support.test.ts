@@ -56,6 +56,17 @@ describe('local scope map fixture (R-F3, FMT-15)', () => {
       }),
     );
     expect(localIds.diagnostics.map((d) => d.code)).toEqual(['unsupported-map-schema']);
+    // An upstream that keeps a planned repository's merge lane is refused, not repaired.
+    const runnableUpstream = analyzeConcurrencyArchive(
+      localMapArchive({
+        ...base,
+        repositories: [
+          ...base.repositories,
+          { ...base.repositories[0]!, id: 'provider', role: 'implemented_upstream' },
+        ],
+      }),
+    );
+    expect(runnableUpstream.diagnostics.map((d) => d.code)).toContain('upstream-not-runnable');
   });
 
   it('gives a map without local cases an inert peer case, and stores a schema-valid local map', () => {

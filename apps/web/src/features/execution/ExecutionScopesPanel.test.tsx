@@ -23,7 +23,11 @@ const tree = {
   branchName: 'ct/verification',
   executionScope: { ...scope, kind: 'slice-verification' },
 } as WorktreeSummary;
-function view(trees: WorktreeSummary[], cycles: WorkCycle[] = []) {
+function view(
+  trees: WorktreeSummary[],
+  cycles: WorkCycle[] = [],
+  itemStatus: 'proposed' | 'admitted' | 'completed' = 'admitted',
+) {
   vi.mocked(loadExecutionScopes).mockResolvedValue({
     choices: [
       {
@@ -45,7 +49,7 @@ function view(trees: WorktreeSummary[], cycles: WorkCycle[] = []) {
       workItemId={'wi' as WorkItemId}
       csrfToken="csrf"
       canMutate
-      admitted
+      itemStatus={itemStatus}
       refreshToken={0}
       onChanged={vi.fn()}
       worktrees={trees}
@@ -74,4 +78,29 @@ it('does not reuse a verification worktree from another exact binding', async ()
   view([{ ...tree, executionScope: { ...tree.executionScope!, bindingRevision: 3 } }]);
   expect(await screen.findByRole('button', { name: 'Create verification worktree' })).toBeDefined();
   expect(screen.queryByRole('button', { name: 'Open existing verification worktree' })).toBeNull();
+});
+
+it('offers fresh verification on a completed parent, as the daemon allows', async () => {
+  // A decision approved after verification makes the evidence stale on a completed item; the
+  // daemon accepts scoped work on it, so the page must too.
+  view([], [], 'completed');
+  const create = await screen.findByRole<HTMLButtonElement>('button', {
+    name: 'Create verification worktree',
+  });
+  expect(create.disabled).toBe(false);
+  fireEvent.click(create);
+  expect(createWorktree).toHaveBeenCalledWith(
+    'ws',
+    'wi',
+    { repositoryId: 'repo', executionScope: { ...scope, kind: 'slice-verification' } },
+    'csrf',
+  );
+});
+it('still asks for admission before scoped work on a proposed item', async () => {
+  view([], [], 'proposed');
+  const create = await screen.findByRole<HTMLButtonElement>('button', {
+    name: 'Create verification worktree',
+  });
+  expect(create.disabled).toBe(true);
+  expect(screen.getByText('Admit the parent before creating an execution worktree.')).toBeDefined();
 });

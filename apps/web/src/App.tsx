@@ -1765,7 +1765,7 @@ export function App() {
               }
               csrfToken={authenticated.csrfToken}
               canMutate={canMutate}
-              admitted={workItem.workItem.status === 'admitted'}
+              itemStatus={workItem.workItem.status}
               refreshToken={refreshToken}
               onChanged={() => refreshNow()}
             />

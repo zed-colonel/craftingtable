@@ -7,6 +7,7 @@ import {
   type WorkCycle,
   type WorktreeId,
   type WorkItemId,
+  type WorkItemStatus,
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
@@ -28,7 +29,7 @@ export function ExecutionScopesPanel({
   worktrees,
   csrfToken,
   canMutate,
-  admitted,
+  itemStatus,
   refreshToken,
   onChanged,
   cycles = [],
@@ -41,10 +42,14 @@ export function ExecutionScopesPanel({
   worktrees: readonly WorktreeSummary[];
   csrfToken: string;
   canMutate: boolean;
-  admitted: boolean;
+  itemStatus: WorkItemStatus;
   refreshToken: number;
   onChanged: () => void;
 }) {
+  // The daemon's rule (execution-service createWorktree): scoped work needs an admitted or
+  // completed parent. A completed parent still takes fresh verification and acceptance when
+  // its evidence goes stale, for example after a decision is approved.
+  const admitted = itemStatus === 'admitted' || itemStatus === 'completed';
   const [choices, setChoices] = useState<ExecutionScopeChoice[]>([]);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string>();

@@ -132,7 +132,13 @@ export function DelegationPanel({
   profiles?: readonly ProfileEntry[];
 }) {
   const roleProfiles = profiles ?? [];
-  const initialScope = worktrees.find((t) => t.status === 'active')?.executionScope;
+  // A completed item still takes independent reviews in its verification and acceptance
+  // worktrees (fresh evidence after a decision or dependency change); the daemon permits only
+  // review runs there. Implementation on a completed item stays closed.
+  const launchable = (t: (typeof worktrees)[number]) =>
+    t.status === 'active' &&
+    (!itemCompleted || (!!t.executionScope && t.executionScope.kind !== 'slice'));
+  const initialScope = worktrees.find(launchable)?.executionScope;
   const initialRole = initialScope && initialScope.kind !== 'slice' ? 'review' : 'implement';
   const initialChoice = profileChoice(initialRole, roleProfiles);
   const availableBackends = backends.filter((backend) => backend.available);
@@ -145,6 +151,7 @@ export function DelegationPanel({
   const backendAvailable = selectedBackend?.available === true;
   const activeRepositories = repositories.filter((repository) => repository.status === 'active');
   const activeWorktrees = worktrees.filter((worktree) => worktree.status === 'active');
+  const launchableWorktrees = worktrees.filter(launchable);
   const mergedWorktrees = worktrees.filter((worktree) => worktree.mergedAt !== undefined);
   const [repositoryId, setRepositoryId] = useState<string>('');
   const [worktreeId, setWorktreeId] = useState<string>('');
@@ -178,8 +185,8 @@ export function DelegationPanel({
 
   const selectedRepository = repositoryId || activeRepositories[0]?.id || '';
   const selectedWorktree =
-    activeWorktrees.find((t) => t.id === worktreeId)?.id || activeWorktrees[0]?.id || '';
-  const selectedScope = activeWorktrees.find((t) => t.id === selectedWorktree)?.executionScope;
+    launchableWorktrees.find((t) => t.id === worktreeId)?.id || launchableWorktrees[0]?.id || '';
+  const selectedScope = launchableWorktrees.find((t) => t.id === selectedWorktree)?.executionScope;
   const reviewOnly = !!selectedScope && selectedScope.kind !== 'slice';
   const effectiveRole = reviewOnly ? 'review' : role;
   const liveRuns = runs.filter((run) => isLiveStatus(run.status));
@@ -227,7 +234,7 @@ export function DelegationPanel({
     onLoadBranches(worktree.repositoryId);
   };
 
-  const launchVisible = activeWorktrees.length > 0 && (launchOpen ?? !automationActive);
+  const launchVisible = launchableWorktrees.length > 0 && (launchOpen ?? !automationActive);
   // Counts only: the merge gate is named once, on the worktree itself.
   const summary =
     activeWorktrees.length === 0
@@ -485,12 +492,12 @@ export function DelegationPanel({
           </form>
         )}
 
-      {canMutate && !itemCompleted && !launchVisible && activeWorktrees.length > 0 && (
+      {canMutate && !launchVisible && launchableWorktrees.length > 0 && (
         <div className="inline-actions">
           <button
             type="button"
             className="secondary-button"
-            disabled={busy || activeWorktrees.length === 0}
+            disabled={busy || launchableWorktrees.length === 0}
             onClick={() => setLaunchOpen(true)}
           >
             Launch a run…
@@ -502,7 +509,7 @@ export function DelegationPanel({
           )}
         </div>
       )}
-      {canMutate && !itemCompleted && launchVisible && (
+      {canMutate && launchVisible && (
         <form className="stack-form" onSubmit={launch} aria-label="Launch an agent">
           <h4>Launch an agent</h4>
           {availableBackends.length === 0 && (
@@ -518,14 +525,14 @@ export function DelegationPanel({
                 value={selectedWorktree}
                 onChange={(event) => {
                   setWorktreeId(event.target.value);
-                  const scope = activeWorktrees.find(
+                  const scope = launchableWorktrees.find(
                     (t) => t.id === event.target.value,
                   )?.executionScope;
                   if (scope && scope.kind !== 'slice') applyRole('review');
                 }}
-                disabled={busy || activeWorktrees.length === 0}
+                disabled={busy || launchableWorktrees.length === 0}
               >
-                {activeWorktrees.map((worktree) => (
+                {launchableWorktrees.map((worktree) => (
                   <option key={worktree.id} value={worktree.id}>
                     {worktree.branchName}
                   </option>

@@ -1382,3 +1382,41 @@ it('offers only an independent review on a parent acceptance worktree with revie
     expect.objectContaining({ role: 'review', worktreeId: worktree.id, model: 'opus' }),
   );
 });
+
+describe('reviews on a completed item', () => {
+  const verification = {
+    ...worktree,
+    id: 'verification-tree',
+    branchName: 'ct/wi-02-domain-verify',
+    executionScope: {
+      kind: 'slice-verification',
+      definitionId: 'map',
+      bindingRevision: 4,
+      sourceId: 'wi/WI-02/domain',
+    },
+  } as typeof worktree;
+
+  it('launches an independent review in a verification worktree of a completed item', () => {
+    // Stale evidence on a completed item (for example after a decision approval) needs a fresh
+    // review; the daemon accepts review runs in its verification and acceptance worktrees.
+    const onLaunch = vi.fn();
+    render(
+      <DelegationPanel
+        {...panelProps({ itemCompleted: true, worktrees: [worktree, verification], onLaunch })}
+      />,
+    );
+    const form = screen.getByRole('form', { name: 'Launch an agent' });
+    const trees = within(form).getByLabelText('Worktree') as HTMLSelectElement;
+    expect(Array.from(trees.options).map((o) => o.textContent)).toEqual(['ct/wi-02-domain-verify']);
+    fireEvent.click(within(form).getByRole('button', { name: 'Launch review run' }));
+    expect(onLaunch).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreeId: 'verification-tree', role: 'review' }),
+    );
+  });
+
+  it('offers no launch on a completed item without a review worktree', () => {
+    render(<DelegationPanel {...panelProps({ itemCompleted: true })} />);
+    expect(screen.queryByRole('form', { name: 'Launch an agent' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Launch a run…' })).toBeNull();
+  });
+});

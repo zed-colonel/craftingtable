@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AgentLaunchRequest } from '@craftingtable/agents';
 import { createWorktreeResponseSchema } from '@craftingtable/contracts';
+import { FINALIZATION_STAGE_KINDS } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
@@ -19,27 +21,54 @@ import {
   finalizationCycle,
   finalizationFixture,
   git,
+  implementsFinalization,
   merge,
   mutationHeaders,
   present,
-  reviewText,
   runDetail,
   runToFinish,
+  stagedInput,
+  stagedText,
   structuredFinding,
   waitFor,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
 
-it('runs plan-scoped polish and independent verification, then requires explicit exact-commit promotion', {
+/*
+ * Plan finalization on the staged controller (R-B10). These tests moved from legacy
+ * improvement rounds; behaviour only the legacy controller has lives in
+ * server-execution-finalization-legacy.test.ts until the legacy branches are removed.
+ */
+
+/** A required correctness finding: staged findings carry a category. */
+const defect = { ...structuredFinding, category: 'correctness' };
+const committed = { resultText: 'Committed and checked.\n\n## Open questions\nnone' };
+/** Every review reports `findings`; implement steps commit nothing and report success. */
+const reviews =
+  (findings: (request: AgentLaunchRequest) => readonly unknown[], questions?: string) =>
+  (request: AgentLaunchRequest) =>
+    implementsFinalization(request)
+      ? committed
+      : { resultText: stagedText(request, findings(request), questions ? { questions } : {}) };
+const STAGE_REVIEWS = FINALIZATION_STAGE_KINDS.map((kind) => `${kind}-review`);
+
+it('runs plan-scoped staged review and remediation, then requires explicit exact-commit promotion', {
   timeout: 15000,
 }, async () => {
   const fixture = await finalizationFixture();
   const { state, backend, root, integration } = fixture;
   const main = git(['rev-parse', 'main'], root);
+  let fixed = false;
   backend.onLaunch = (request) => {
-    if (request.model === 'polish-model') commitFile(request.cwd, 'polish.txt', 'simplified\n');
+    if (request.model === 'correctness-implement') {
+      fixed = true;
+      commitFile(request.cwd, 'polish.txt', 'simplified\n');
+    }
   };
+  backend.replyForRequest = reviews(() =>
+    fixed ? [{ ...defect, status: 'resolved', disposition: 'Verified polish.txt.' }] : [defect],
+  );
   const value = await beginFinalization(fixture);
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
@@ -48,12 +77,12 @@ it('runs plan-scoped polish and independent verification, then requires explicit
   );
   const cycle = finalizationCycle(state, value);
   expect(backend.launches.map((r) => r.model)).toEqual([
-    'assessment-model',
-    'polish-model',
-    'assessment-model',
-    'final-review-model',
+    'correctness-review',
+    'correctness-implement',
+    ...STAGE_REVIEWS,
   ]);
-  expect(cycle.polishPhase).toBe('final-review');
+  expect(cycle.finalizationProgress?.stageIndex).toBe(FINALIZATION_STAGE_KINDS.length - 1);
+  expect(cycle.finalizationProgress?.stages.every((s) => s.status === 'completed')).toBe(true);
   expect(backend.launches[0]?.prompt).toContain('# Plan finalization');
   expect(backend.launches[0]?.prompt).toContain('craftingtable-work-items.json');
   expect(git(['rev-parse', 'main'], root)).toBe(main);
@@ -92,29 +121,63 @@ it('runs plan-scoped polish and independent verification, then requires explicit
   ).toBeUndefined();
 });
 
+it('completes all five stages with no findings and promotes only the exact reviewed commit', {
+  timeout: 15000,
+}, async () => {
+  const fixture = await finalizationFixture();
+  const { state, backend, root } = fixture;
+  const value = await beginFinalization(fixture);
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'awaiting-merge',
+    'all stages reviewed',
+    8000,
+  );
+  expect(backend.launches.map((r) => r.model)).toEqual(STAGE_REVIEWS);
+  const cycle = finalizationCycle(state, value);
+  expect(cycle.remediationRounds).toBe(0);
+  expect(cycle.finalizationProgress?.stages.map((s) => s.status)).toEqual(
+    FINALIZATION_STAGE_KINDS.map(() => 'completed'),
+  );
+  expect(cycle.finalizationProgress?.obligations.every((o) => o.status === 'met')).toBe(true);
+  const review = present(
+    present(state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId))
+      .reviewBranchContext,
+  );
+  expect(
+    (
+      await finalizationCommand(state, value, 'merge', {
+        expectedHeadSha: review.headSha,
+        expectedTargetSha: '0'.repeat(40),
+      })
+    ).statusCode,
+  ).toBe(409);
+  const promoted = await finalizationCommand(state, value, 'merge', {
+    expectedHeadSha: review.headSha,
+    expectedTargetSha: review.targetSha,
+  });
+  expect(promoted.statusCode, promoted.body).toBe(200);
+  expect(promoted.json().finalization.status).toBe('completed');
+  expect(git(['rev-parse', 'main'], root).trim()).not.toBe(value.targetSha);
+});
+
 it('stops finalization for genuine questions and never converts exhausted remediation into approval', {
   timeout: 15000,
 }, async () => {
   const fixture = await finalizationFixture();
   const { state, backend, root } = fixture;
   const main = git(['rev-parse', 'main'], root);
-  backend.replyForRequest = () => ({
-    resultText: `## Open questions\nMay I change the intended public API?\n\n## Review report\n${reviewText([])}`,
-  });
-  const value = await beginFinalization(fixture, {
-    ...fixture.input,
-    rounds: [],
-    policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
-  });
+  backend.replyForRequest = reviews(() => [], 'May I change the intended public API?');
+  const value = await beginFinalization(
+    fixture,
+    stagedInput(fixture.legacyInput, { maxRemediationRounds: 0 }),
+  );
   await waitFor(
     () => finalizationCycle(state, value).status === 'needs-attention',
     'finalization question',
   );
   expect(backend.launches).toHaveLength(1);
-  expect(finalizationCycle(state, value).reason).toContain('input');
-  backend.replyForRequest = () => ({
-    resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([structuredFinding])}`,
-  });
+  expect(finalizationCycle(state, value).reason).toContain('question');
+  backend.replyForRequest = reviews(() => [defect]);
   const resumed = await finalizationCommand(state, value, 'resume', {
     instructions: 'Keep the public API unchanged; identify required fixes within the plan.',
   });
@@ -124,6 +187,7 @@ it('stops finalization for genuine questions and never converts exhausted remedi
     'finalization remediation limit',
   );
   expect(finalizationCycle(state, value).reason).toContain('limit');
+  expect(finalizationCycle(state, value).finalizationProgress?.stageIndex).toBe(0);
   expect(git(['rev-parse', 'main'], root)).toBe(main);
 });
 
@@ -132,8 +196,12 @@ it('invalidates final promotion after integration drift and preserves the snapsh
 }, async () => {
   const fixture = await finalizationFixture();
   const { state, root } = fixture;
-  const value = await beginFinalization(fixture, { ...fixture.input, rounds: [] });
-  await waitFor(() => finalizationCycle(state, value).status === 'awaiting-merge', 'final review');
+  const value = await beginFinalization(fixture);
+  await waitFor(
+    () => finalizationCycle(state, value).status === 'awaiting-merge',
+    'final review',
+    8000,
+  );
   const cycle = finalizationCycle(state, value);
   const context = present(
     state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
@@ -182,7 +250,7 @@ it('recovers finalization preparation only on explicit resume and preserves its 
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/plans/version-1/finalizations`,
     headers: mutationHeaders(state),
-    payload: { ...fixture.input, rounds: [] },
+    payload: fixture.input,
   });
   expect(response.statusCode).toBe(500);
   const value = present(state.context.storage.execution.finalizations.list(state.workspaceId)[0]);
@@ -197,9 +265,11 @@ it('recovers finalization preparation only on explicit resume and preserves its 
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
     'recovered plan review',
+    8000,
   );
   expect(git(['worktree', 'list', '--porcelain'], root)).toBe(before);
-  expect(backend.launches).toHaveLength(1);
+  // One review per stage: the recovered preparation launched nothing twice.
+  expect(backend.launches.map((r) => r.model)).toEqual(STAGE_REVIEWS);
 });
 
 it('holds integration merges while finalization is active or paused and releases them on stop', {
@@ -207,10 +277,11 @@ it('holds integration merges while finalization is active or paused and releases
 }, async () => {
   const fixture = await finalizationFixture();
   const { state, repository, root } = fixture;
-  const value = await beginFinalization(fixture, { ...fixture.input, rounds: [] });
+  const value = await beginFinalization(fixture);
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
     'ready finalization',
+    8000,
   );
   const created = await state.context.app.inject({
     method: 'POST',
@@ -242,24 +313,20 @@ it('compacts finalization findings while preserving closure history and requirin
   const fixture = await finalizationFixture();
   const { state, backend } = fixture;
   const history = Array.from({ length: 112 }, (_, index) => ({
-    ...structuredFinding,
+    ...defect,
     id: `ITEM-${index}.F-001`,
     status: index === 0 ? 'withdrawn' : 'resolved',
     disposition: 'Verified during the integrated work item.',
   }));
-  const closed = { ...structuredFinding, status: 'resolved', disposition: 'Verified the fix.' };
+  const closed = { ...defect, status: 'resolved', disposition: 'Verified the fix.' };
   const reports = [
-    [...history, structuredFinding],
+    [...history, defect],
     [closed],
-    [structuredFinding], // Independent final review reopens the concern.
+    [defect], // The independent conformance review reopens the concern.
     [], // An open finding still cannot disappear.
   ];
   let review = 0;
-  backend.replyForRequest = (request) => ({
-    resultText: request.model?.includes('polish')
-      ? 'Fixed and verified.\n\n## Open questions\nnone'
-      : `## Open questions\nnone\n\n## Review report\n${reviewText(reports[review++] ?? [closed])}`,
-  });
+  backend.replyForRequest = reviews(() => reports[review++] ?? [closed]);
   const value = await beginFinalization(fixture);
   await waitFor(
     () => finalizationCycle(state, value).status === 'needs-attention',
@@ -271,14 +338,22 @@ it('compacts finalization findings while preserving closure history and requirin
   expect((await runDetail(state, cycle.currentRunId)).run.verdict).toBeUndefined();
   // Dropping a reopened finding is missing content, not format: it stops at once (R-C2).
   expect(backend.repairs).toBe(0);
-  expect(backend.launches).toHaveLength(6 + backend.repairs);
+  // A reopened correctness finding sends finalization back to the correctness stage, whose
+  // spent budget is retained: it reviews again instead of remediating.
+  expect(backend.launches.map((r) => r.model)).toEqual([
+    'correctness-review',
+    'correctness-implement',
+    'correctness-review',
+    'conformance-review',
+    'correctness-review',
+  ]);
   const current = present(
     state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
   );
   expect([...requiredFindingIds(state.context.storage.execution, current)]).toEqual(['F-001']);
   expect(recordedFindings(state.context.storage.execution, current).size).toBe(113);
-  const finalLaunch = present(backend.launches.find((r) => r.model === 'final-review-model'));
-  const handoff = join(present(finalLaunch.additionalDirectories?.[0]), 'handoff');
+  const reopening = present(backend.launches.find((r) => r.model === 'conformance-review'));
+  const handoff = join(present(reopening.additionalDirectories?.[0]), 'handoff');
   const snapshot = JSON.parse(readFileSync(join(handoff, 'findings.json'), 'utf8'));
   expect(snapshot.requiredFindingIds).toEqual([]);
   expect(snapshot.closedFindingIds).toHaveLength(113);
@@ -290,12 +365,13 @@ it('compacts finalization findings while preserving closure history and requirin
     .listForWorktree(state.workspaceId, value.worktreeId)
     .at(-1);
   expect(recordedFindings(state.context.storage.execution, present(initial)).size).toBe(113);
-  expect(finalLaunch.prompt).not.toContain('Verified during the integrated work item.');
+  expect(reopening.prompt).not.toContain('Verified during the integrated work item.');
   const resumed = await finalizationCommand(state, value, 'resume');
   expect(resumed.statusCode, resumed.body).toBe(200);
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
     'closed reopened finding',
+    10000,
   );
   expect(
     (await runDetail(state, finalizationCycle(state, value).currentRunId)).reviewReport,
@@ -308,15 +384,9 @@ it.each(['unchanged', 'candidate-changed', 'destination-changed', 'truncated'] a
   async (scenario) => {
     const fixture = await finalizationFixture();
     const { state, backend, root } = fixture;
-    const report = {
-      version: 1,
-      complete: true,
-      verdict: 'mergeable',
-      exitGate: { met: true, evidence: 'Current and historical verification. '.repeat(800) },
-      findings: [],
-    };
-    backend.replyForRequest = () => ({
-      resultText: `## Open questions\nnone\n\n## Review report\n\`\`\`craftingtable-review\n${JSON.stringify(report)}\n\`\`\`\nVERDICT: mergeable`,
+    const evidence = 'Current and historical verification. '.repeat(800);
+    backend.replyForRequest = (request) => ({
+      resultText: stagedText(request).replace('Fixture checks and obligations assessed.', evidence),
       ...(scenario === 'truncated' ? { truncated: true } : {}),
     });
     const value = await beginFinalization(fixture);
@@ -334,11 +404,7 @@ it.each(['unchanged', 'candidate-changed', 'destination-changed', 'truncated'] a
       commitFile(tree.path, 'changed.txt', 'changed since the review\n');
     }
     if (scenario === 'destination-changed') commitFile(root, 'destination.txt', 'changed main\n');
-    backend.replyForRequest = (request) => ({
-      resultText: request.model?.includes('polish')
-        ? 'Polish verified.\n\n## Open questions\nnone'
-        : `## Open questions\nnone\n\n## Review report\n${reviewText([])}`,
-    });
+    backend.replyForRequest = reviews(() => []);
     const resumed = await finalizationCommand(state, value, 'resume', {
       instructions: 'Answer for this attempt only.',
     });
@@ -353,56 +419,50 @@ it.each(['unchanged', 'candidate-changed', 'destination-changed', 'truncated'] a
     const retry = present(backend.launches[1 + backend.repairs]);
     expect(retry.prompt).toContain('## Correct the rejected review report');
     expect(retry.prompt).toContain('Answer for this attempt only.');
-    if (scenario === 'unchanged') {
-      expect(retry.prompt).toContain('same candidate and destination commits');
-      expect(retry.prompt).toContain('exitGate.evidence');
-    } else {
-      expect(retry.prompt).toContain('Perform a fresh review and run the required verification');
-      expect(retry.prompt).not.toContain('The daemon confirmed');
-    }
+    // A staged review never reuses a rejected report's verification, even on unchanged
+    // commits: its stage evidence must come from the corrected review.
+    expect(retry.prompt).toContain('Perform a fresh review and run the required verification');
+    expect(retry.prompt).not.toContain('The daemon confirmed');
+    if (scenario !== 'truncated') expect(retry.prompt).toContain('exitGate.evidence');
     for (const launch of backend.launches.slice(2 + backend.repairs)) {
       expect(launch.prompt).not.toContain('Answer for this attempt only.');
       expect(launch.prompt).not.toContain('## Correct the rejected review report');
     }
     const retryRoot = present(retry.additionalDirectories?.[0]);
     const fullOutcome = readFileSync(join(retryRoot, 'handoff/0000-final.md'), 'utf8');
-    expect(fullOutcome).toContain(report.exitGate.evidence);
+    expect(fullOutcome).toContain(evidence);
     expect(retry.prompt.length).toBeLessThan(fullOutcome.length);
     expect(finalizationCycle(state, value).instructions).toBe('');
   },
 );
 
-it('authorizes bounded extra finalization remediation, preserves counts and rounds, and rejects replay', {
+it('authorizes bounded extra finalization remediation, preserves stage counts, and rejects replay', {
   timeout: 20000,
 }, async () => {
   const fixture = await finalizationFixture();
   const { state, backend, root } = fixture;
   const initialMain = git(['rev-parse', 'main'], root);
-  const result = (findings: readonly unknown[]) =>
-    `## Open questions\nnone\n\n## Review report\n${reviewText(findings)}`;
   let fixed = false;
-  backend.replyForRequest = (request) => ({
-    resultText: request.model?.includes('polish')
-      ? 'Checked the fix.\n\n## Open questions\nnone'
-      : result([
-          {
-            ...structuredFinding,
-            ...(fixed ? { status: 'resolved', disposition: 'Fix independently verified.' } : {}),
-          },
-        ]),
-  });
-  const value = await beginFinalization(fixture, {
-    ...fixture.input,
-    rounds: [present(fixture.input.rounds[0]), present(fixture.input.rounds[0])],
-    policy: { ...fixture.input.policy, maxRemediationRounds: 1 },
-  });
+  backend.replyForRequest = reviews(() => [
+    {
+      ...defect,
+      ...(fixed ? { status: 'resolved', disposition: 'Fix independently verified.' } : {}),
+    },
+  ]);
+  const value = await beginFinalization(fixture);
   await waitFor(
     () => finalizationCycle(state, value).status === 'needs-attention',
     'initial remediation limit',
     10000,
   );
   const before = finalizationCycle(state, value);
-  expect(before).toMatchObject({ remediationRounds: 1, polishRound: 0, polishPhase: 'verify' });
+  expect(before).toMatchObject({ remediationRounds: 1 });
+  expect(before.finalizationProgress?.stageIndex).toBe(0);
+  expect(before.finalizationProgress?.stages[0]).toMatchObject({
+    id: 'correctness',
+    status: 'reviewing',
+    remediationRounds: 1,
+  });
   const count = backend.launches.length;
   // A plain resume cannot add remediation rounds: it is refused and names the control (R-A7).
   const unchanged = await finalizationCommand(state, value, 'resume');
@@ -432,7 +492,7 @@ it('authorizes bounded extra finalization remediation, preserves counts and roun
     () => finalizationCycle(state, value).status === 'needs-attention',
     'extended remediation limit',
   );
-  expect(backend.launches[count]?.model).toBe('polish-model');
+  expect(backend.launches[count]?.model).toBe('correctness-implement');
   expect(backend.launches[count]?.prompt).toContain('Focus on the remaining regression.');
   expect(backend.launches[count + 1]?.prompt).not.toContain('Focus on the remaining regression.');
   expect(finalizationCycle(state, value)).toMatchObject({
@@ -456,18 +516,22 @@ it('authorizes bounded extra finalization remediation, preserves counts and roun
   ).toBe(200);
   await waitFor(
     () => finalizationCycle(state, value).status === 'awaiting-merge',
-    'remaining rounds and independent review',
+    'remaining stages and independent review',
     10000,
   );
-  expect(finalizationCycle(state, value)).toMatchObject({
+  const done = finalizationCycle(state, value);
+  expect(done).toMatchObject({
     worktreeId: before.worktreeId,
     remediationRounds: 3,
     additionalRemediationRounds: 3,
-    polishPhase: 'final-review',
-    polishRound: 2,
-    policy: { maxRemediationRounds: 1, maxNits: 0 },
+    policy: { maxRemediationRounds: 1 },
   });
-  expect(backend.launches.at(-1)?.model).toBe('final-review-model');
+  expect(done.finalizationProgress?.stageIndex).toBe(FINALIZATION_STAGE_KINDS.length - 1);
+  expect(done.finalizationProgress?.stages[0]).toMatchObject({
+    status: 'completed',
+    remediationRounds: 3,
+  });
+  expect(backend.launches.at(-1)?.model).toBe('final-review-review');
   expect(git(['rev-parse', 'main'], root)).toBe(initialMain);
   expect((await merge(state, value.worktreeId)).statusCode).toBe(409);
   const audit = state.context.storage.audit
@@ -488,14 +552,20 @@ it.each(['questions', 'invalid', 'conflict'] as const)(
   async (checkpoint) => {
     const fixture = await finalizationFixture();
     const { state, backend } = fixture;
-    backend.replyForRequest = () => ({
-      resultText: `## Open questions\n${checkpoint === 'questions' ? 'May I change the public API?' : 'none'}\n\n## Review report\n${checkpoint === 'invalid' ? 'Invalid review' : reviewText([structuredFinding])}`,
-    });
-    const value = await beginFinalization(fixture, {
-      ...fixture.input,
-      rounds: [],
-      policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
-    });
+    backend.replyForRequest = (request) =>
+      checkpoint === 'invalid'
+        ? { resultText: '## Open questions\nnone\n\n## Review report\nInvalid review' }
+        : {
+            resultText: stagedText(
+              request,
+              [defect],
+              checkpoint === 'questions' ? { questions: 'May I change the public API?' } : {},
+            ),
+          };
+    const value = await beginFinalization(
+      fixture,
+      stagedInput(fixture.legacyInput, { maxRemediationRounds: 0 }),
+    );
     await waitFor(() => finalizationCycle(state, value).status === 'needs-attention', 'checkpoint');
     const current = finalizationCycle(state, value);
     if (checkpoint === 'conflict')
@@ -535,14 +605,11 @@ it('requires CSRF and editor authority before authorizing finalization remediati
 }, async () => {
   const fixture = await finalizationFixture();
   const { state, backend } = fixture;
-  backend.replyForRequest = () => ({
-    resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([structuredFinding])}`,
-  });
-  const value = await beginFinalization(fixture, {
-    ...fixture.input,
-    rounds: [],
-    policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
-  });
+  backend.replyForRequest = reviews(() => [defect]);
+  const value = await beginFinalization(
+    fixture,
+    stagedInput(fixture.legacyInput, { maxRemediationRounds: 0 }),
+  );
   await waitFor(() => finalizationCycle(state, value).status === 'needs-attention', 'budget');
   const noCsrf = await state.context.app.inject({
     method: 'POST',
@@ -591,14 +658,11 @@ it.each(['pause', 'revoke'] as const)(
       },
     });
     const { state, backend } = fixture;
-    backend.replyForRequest = () => ({
-      resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([structuredFinding])}`,
-    });
-    const value = await beginFinalization(fixture, {
-      ...fixture.input,
-      rounds: [],
-      policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
-    });
+    backend.replyForRequest = reviews(() => [defect]);
+    const value = await beginFinalization(
+      fixture,
+      stagedInput(fixture.legacyInput, { maxRemediationRounds: 0 }),
+    );
     await waitFor(() => finalizationCycle(state, value).status === 'needs-attention', 'budget');
     duringInspection = async () => {
       if (change === 'pause') {

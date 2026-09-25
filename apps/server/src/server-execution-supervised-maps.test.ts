@@ -13,18 +13,19 @@ import {
   cycleProfiles,
   finalizationCommand,
   finalizationCycle,
+  finalizationReply,
   git,
   itNeedsCargo,
   mapCommand,
   merge,
   mutationHeaders,
   recordScope,
-  reviewText,
   roadmapControl,
   roadmapId,
   roadmapInput,
   scopeReport,
   scopeTree,
+  stagedInput,
   storedRoadmap,
   supervisedMapFixture,
   waitFor,
@@ -424,14 +425,14 @@ itNeedsCargo(
     f.service.save(f.auth, ws, input);
     await adoptSupervisedMap(f);
     const settings = storage.execution.branchSettings.find(ws, asPlanVersionId('version-1'))!;
-    const finalInput = {
+    const finalInput = stagedInput({
       expectedBranchVersion: settings.version,
       targetBranch: 'main',
       rounds: [],
       finalReview: cycleProfiles.review,
       policy: DEFAULT_COMPLETION_POLICY,
       instructions: 'Final independent plan conformance.',
-    };
+    });
     await expect(
       state.context.services.finalizationService.start(
         f.auth,
@@ -449,12 +450,7 @@ itNeedsCargo(
     await roadmapControl(state, 'pause');
     expect(service.finalization(f.auth, ws, roadmapId).projects[0]?.status).toBe('ready');
     f.backend.onLaunch = undefined;
-    f.backend.replyForRequest = () => ({
-      resultText: `## Open questions
-none
-## Review report
-${reviewText([])}`,
-    });
+    f.backend.replyForRequest = finalizationReply;
     const before = git(['rev-parse', 'main'], f.root),
       started = await state.context.services.finalizationService.start(
         f.auth,

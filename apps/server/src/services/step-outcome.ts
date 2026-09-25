@@ -577,10 +577,17 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
       ),
     );
   if (finalization?.stages)
-    return withWorkflow({
-      kind: 'advance-finalization-stage',
-      noQuestions: finalizationHasNoQuestions(text),
-    });
+    return withWorkflow(
+      assessment?.status === 'complete'
+        ? { kind: 'advance-finalization-stage', noQuestions: finalizationHasNoQuestions(text) }
+        : // A missing structured report is repaired as in every other review (R-C2).
+          formatFault(
+            'finalization-report-rejected',
+            `Review report rejected: ${(reportIssues ?? [REVIEW_REPORT_ISSUE]).join(' ').slice(0, 3500)}`,
+            reportIssues ?? [REVIEW_REPORT_ISSUE],
+            reportFault,
+          ),
+    );
   if (finalization && cycle.polishPhase === 'assess') {
     if (decision.action === 'needs-attention')
       return withWorkflow(

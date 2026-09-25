@@ -28,8 +28,10 @@ import {
   asWorkItemDependencyId,
   asWorkItemId,
   CYCLE_STEPS,
+  type CompletionPolicy,
   type CycleProfiles,
   DEFAULT_COMPLETION_POLICY,
+  FINALIZATION_STAGE_KINDS,
   type UserId,
   type WorkCycle,
   type WorkspaceId,
@@ -982,13 +984,9 @@ export async function finalizationFixture(
     expect(evidence.statusCode, evidence.body).toBe(200);
   }
   backend.onLaunch = undefined;
-  backend.replyForRequest = (request) => ({
-    resultText: request.model?.includes('polish')
-      ? 'Polish verified.\n\n## Open questions\nnone'
-      : `Conformance assessed against the whole plan.\n\n## Open questions\nnone\n\n## Review report\n${reviewText([])}`,
-  });
+  backend.replyForRequest = finalizationReply;
   const profile = cycleProfiles.review;
-  const input = {
+  const legacyInput = {
     expectedBranchVersion: present(
       state.context.storage.execution.branchSettings.find(
         state.workspaceId,
@@ -1007,11 +1005,117 @@ export async function finalizationFixture(
     policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 0 },
     instructions: 'Check complete plan conformance and improve clarity',
   };
-  return { ...fixture, input, integration };
+  return { ...fixture, input: stagedInput(legacyInput), legacyInput, integration };
 }
+/**
+ * Staged finalization settings (R-B10): the five stage kinds over the whole plan, each with
+ * its own review and implement models (`<kind>-review`, `<kind>-implement`). Legacy
+ * improvement rounds are empty.
+ */
+export function stagedInput<T extends { readonly policy: CompletionPolicy }>(
+  base: T,
+  stage: Partial<CompletionPolicy> = {},
+) {
+  return {
+    ...base,
+    rounds: [],
+    stages: FINALIZATION_STAGE_KINDS.map((kind) => ({
+      id: kind,
+      kind,
+      name: kind,
+      instructions: `${kind} focus`,
+      workItemSourceIds: [],
+      review: { ...cycleProfiles.review, model: `${kind}-review` },
+      implement: { ...cycleProfiles.remediate, model: `${kind}-implement` },
+      policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 100, maxRemediationRounds: 1, ...stage },
+      requiredChecks: ['fixture checks'],
+    })),
+  };
+}
+const STAGED_LEDGER = /`([^`]+\/craftingtable-finalization-state\.json)`/;
+/** The staged evidence handoff a finalization prompt names. */
+export function stagedLedger(request: AgentLaunchRequest) {
+  const path = STAGED_LEDGER.exec(request.prompt)?.[1];
+  if (!path) throw new Error('Expected staged evidence handoff');
+  return JSON.parse(readFileSync(path, 'utf8')) as {
+    stages: import('@craftingtable/domain').FinalizationStage[];
+    progress: import('@craftingtable/domain').FinalizationProgress;
+    reviewBaseline: import('@craftingtable/domain').ReviewBranchContext;
+  };
+}
+/** The stage kind a staged finalization prompt is reviewing. */
+export function stagedKind(request: AgentLaunchRequest) {
+  const ledger = stagedLedger(request);
+  return ledger.stages[ledger.progress.stageIndex]?.kind;
+}
+/** A complete stage review report: passing checks and every adopted obligation met. */
+export function stagedText(
+  request: AgentLaunchRequest,
+  findings: readonly unknown[] = [],
+  overrides: {
+    questions?: string;
+    evidence?: Record<string, unknown>;
+    met?: boolean;
+  } = {},
+) {
+  const ledger = stagedLedger(request);
+  const stage = present(ledger.stages[ledger.progress.stageIndex]);
+  const verdict = overrides.met === false ? 'changes-requested' : 'mergeable';
+  return `## Open questions\n${overrides.questions ?? 'none'}\n\n## Review report\n\`\`\`craftingtable-review\n${JSON.stringify(
+    {
+      version: 1,
+      complete: true,
+      verdict,
+      exitGate: {
+        met: overrides.met ?? true,
+        evidence: 'Fixture checks and obligations assessed.',
+      },
+      findings,
+      finalization: {
+        stageId: stage.id,
+        fullChecks: stage.kind === 'final-review',
+        checks: [
+          {
+            name: 'fixture checks',
+            status: 'passed',
+            evidence: 'Fixture suite passed at this candidate.',
+          },
+        ],
+        obligations: ledger.progress.obligations.map((o) => ({
+          id: o.id,
+          status: 'met',
+          evidence: 'feature.txt implementation and fixture checks.',
+        })),
+        ...overrides.evidence,
+      },
+    },
+  )}\n\`\`\`\nVERDICT: ${verdict}`;
+}
+/** Whether a finalization launch implements (rather than reviews) a stage or round. */
+export const implementsFinalization = (request: AgentLaunchRequest): boolean =>
+  /^Role: (implement|remediate)$/m.test(request.prompt) || request.model === 'polish-model';
+/**
+ * The fixture's default finalization agent: implement steps report a commit, reviews pass. A
+ * staged prompt gets a staged report; a legacy one the legacy conformance report.
+ */
+export function finalizationReply(request: AgentLaunchRequest): ScriptedReply {
+  if (implementsFinalization(request))
+    return { resultText: 'Committed and checked.\n\n## Open questions\nnone' };
+  if (STAGED_LEDGER.test(request.prompt)) return { resultText: stagedText(request) };
+  return {
+    resultText: `Conformance assessed against the whole plan.\n\n## Open questions\nnone\n\n## Review report\n${reviewText([])}`,
+  };
+}
+/** An optional simplification idea a stage may select or leave as follow-up work. */
+export const stageIdea = {
+  ...structuredFinding,
+  id: 'S-1',
+  category: 'simplification',
+  severity: 'minor',
+};
 export async function beginFinalization(
   fixture: Awaited<ReturnType<typeof finalizationFixture>>,
-  input = fixture.input,
+  input: import('@craftingtable/contracts').StartFinalizationRequest = fixture.input,
 ) {
   const { state } = fixture;
   const response = await state.context.app.inject({

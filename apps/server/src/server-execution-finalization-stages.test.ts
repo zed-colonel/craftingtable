@@ -4,7 +4,6 @@ import type { AgentLaunchRequest } from '@craftingtable/agents';
 import { finalizationsResponseSchema } from '@craftingtable/contracts';
 import {
   asPlanVersionId,
-  DEFAULT_COMPLETION_POLICY,
   evaluateCycleCompletion,
   FINALIZATION_STAGE_KINDS,
 } from '@craftingtable/domain';
@@ -23,20 +22,26 @@ import {
   CycleBackend,
   cleanupExecutionFixtures,
   commitFile,
-  cycleProfiles,
   finalizationCommand,
   finalizationCycle,
   finalizationFixture,
   git,
-  merge,
+  implementsFinalization,
   present,
-  reviewText,
   runDetail,
+  stagedInput,
+  stagedLedger,
+  stagedText,
+  stageIdea,
   structuredFinding,
   waitFor,
 } from './execution-test-support.js';
 
 afterEach(cleanupExecutionFixtures);
+
+/** A required correctness finding: staged findings carry a category. */
+const defect = { ...structuredFinding, category: 'correctness' };
+const committed = { resultText: 'Committed and checked.\n\n## Open questions\nnone' };
 
 it('an incomplete finalization review retains concerns and cannot close findings or supply a verdict', {
   timeout: 15000,
@@ -45,24 +50,23 @@ it('an incomplete finalization review retains concerns and cannot close findings
   const { state, backend } = fixture;
   let review = 0;
   backend.replyForRequest = (request) => {
-    if (request.model?.includes('polish'))
-      return { resultText: 'Polish complete.\n\n## Open questions\nnone' };
+    if (implementsFinalization(request)) return committed;
     review++;
     const findings =
       review === 1
-        ? [structuredFinding]
+        ? [defect]
         : review === 2
           ? [
               {
-                ...structuredFinding,
+                ...defect,
                 status: 'resolved',
                 disposition: 'Claimed fixed before background checks completed.',
               },
-              { ...structuredFinding, id: 'F-002', title: 'A newly discovered concern' },
+              { ...defect, id: 'F-002', title: 'A newly discovered concern' },
             ]
           : [];
     return {
-      resultText: `## Open questions\nnone\n\n## Review report\n${reviewText(findings)}`,
+      resultText: stagedText(request, findings),
       ...(review === 2 ? { exitReason: 'background-work-incomplete' as const } : {}),
     };
   };
@@ -90,24 +94,29 @@ it('an incomplete finalization review retains concerns and cannot close findings
   ]);
   // Dropping open findings is missing content, not format: it stops at once (R-C2).
   expect(backend.repairs).toBe(0);
-  expect(backend.launches).toHaveLength(4 + backend.repairs);
+  expect(backend.launches.map((r) => r.model)).toEqual([
+    'correctness-review',
+    'correctness-implement',
+    'correctness-review',
+    'correctness-review',
+  ]);
   expect(backend.launches[3]?.prompt).toContain('Reuse recorded passing checks only when');
   expect(backend.launches[3]?.prompt).not.toContain(
     'The prior review is incomplete or its candidate/destination snapshot cannot be reused',
   );
 });
 
+/** A staged finalization stopped on one correctness finding with no remediation budget. */
 async function findingCheckpointFixture(severity: 'nit' | 'minor' = 'nit', questions = true) {
   const fixture = await finalizationFixture();
-  const nit = { ...structuredFinding, severity };
-  fixture.backend.replyForRequest = () => ({
-    resultText: `## Open questions\n${questions ? 'Fix or defer this finding?' : 'none'}\n\n## Review report\n${reviewText([nit])}`,
+  const nit = { ...defect, severity };
+  fixture.backend.replyForRequest = (request) => ({
+    resultText: stagedText(request, [nit], questions ? { questions: 'Fix this finding?' } : {}),
   });
-  const value = await beginFinalization(fixture, {
-    ...fixture.input,
-    rounds: [],
-    policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
-  });
+  const value = await beginFinalization(
+    fixture,
+    stagedInput(fixture.legacyInput, { maxRemediationRounds: 0 }),
+  );
   await waitFor(
     () => finalizationCycle(fixture.state, value).status === 'needs-attention',
     'finding decision',
@@ -116,118 +125,40 @@ async function findingCheckpointFixture(severity: 'nit' | 'minor' = 'nit', quest
 }
 
 describe('finalization finding decisions', () => {
-  it('defers an open nit with provenance, requires fresh independent review, and retains explicit promotion', async () => {
-    const { state, backend, value, nit, root } = await findingCheckpointFixture();
-    const main = git(['rev-parse', 'main'], root).trim();
-    backend.replyForRequest = (request) => {
-      expect(request.prompt).toContain('Operator-deferred nits');
-      expect(request.prompt).toContain('These findings remain OPEN');
-      return { resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([nit])}` };
-    };
-    const response = await finalizationCommand(state, value, 'defer-nits', {
-      findingIds: [nit.id],
-      rationale: 'Optional cleanup deferred to follow-up.',
-      instructions: 'Defer this nit; no source changes are authorized.',
-    });
-    expect(response.statusCode, response.body).toBe(200);
-    await waitFor(
-      () => finalizationCycle(state, value).status === 'awaiting-merge',
-      'independent review',
-    );
-    expect(backend.launches).toHaveLength(2);
-    expect(backend.launches[1]?.model).toBe('final-review-model');
-    const cycle = finalizationCycle(state, value);
-    expect(cycle.remediationRounds).toBe(0);
-    expect(cycle.reason).toContain('Final independent review meets the completion policy');
-    expect(cycle.deferredNits?.[0]).toMatchObject({
-      finding: { id: nit.id, status: 'open' },
-      createdByUserId: state.userId,
-    });
-    const reopened = openDaemonStorage(state.context.storage.databasePath);
-    try {
-      expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)?.deferredNits).toEqual(
-        cycle.deferredNits,
-      );
-    } finally {
-      reopened.close();
-    }
-    expect(git(['rev-parse', 'main'], root).trim()).toBe(main);
-    expect((await merge(state, value.worktreeId)).statusCode).toBe(409);
-    const tree = present(
-      state.context.storage.execution.worktrees.find(state.workspaceId, value.worktreeId),
-    );
-    const approval = await finalizationCommand(state, value, 'merge', {
-      expectedHeadSha: git(['rev-parse', 'HEAD'], tree.path).trim(),
-      expectedTargetSha: main,
-    });
-    expect(approval.statusCode, approval.body).toBe(200);
-  });
-
-  it.each(['higher severity', 'changed details', 'technical gate', 'question'])(
-    'does not let deferral bypass a subsequent %s',
-    async (change) => {
-      const { state, backend, value, nit } = await findingCheckpointFixture();
-      backend.replyForRequest = () => ({
-        resultText: `## Open questions\n${change === 'question' ? 'May I change the API?' : 'none'}\n\n## Review report\n${reviewText(
-          [
-            change === 'higher severity'
-              ? { ...nit, severity: 'minor' }
-              : change === 'changed details'
-                ? { ...nit, explanation: 'Different concern' }
-                : nit,
-          ],
-        ).replaceAll(
-          change === 'technical gate' ? 'mergeable' : '__unchanged__',
-          'changes-requested',
-        )}`,
-      });
-      expect(
-        (
-          await finalizationCommand(state, value, 'defer-nits', {
-            findingIds: [nit.id],
-            rationale: 'Optional cleanup.',
-          })
-        ).statusCode,
-      ).toBe(200);
-      await waitFor(
-        () => finalizationCycle(state, value).status === 'needs-attention',
-        'new blocker',
-      );
-      expect(backend.launches).toHaveLength(2);
-      expect((await merge(state, value.worktreeId)).statusCode).toBe(409);
-    },
-  );
-
-  it.each(['head', 'target', 'minor', 'unknown'])(
+  it.each(['head', 'target', 'unknown'])(
     'rejects a finding decision after %s changes',
     async (change) => {
-      const { state, value, nit, root } = await findingCheckpointFixture(
-        change === 'minor' ? 'minor' : 'nit',
-      );
+      const { state, value, nit, root, backend } = await findingCheckpointFixture();
       const tree = present(
         state.context.storage.execution.worktrees.find(state.workspaceId, value.worktreeId),
       );
       if (change === 'head') commitFile(tree.path, 'changed.txt', 'changed');
       if (change === 'target') commitFile(root, 'changed.txt', 'changed');
-      const response = await finalizationCommand(state, value, 'defer-nits', {
+      const before = finalizationCycle(state, value);
+      const response = await finalizationCommand(state, value, 'remediate-findings', {
         findingIds: [change === 'unknown' ? 'F-missing' : nit.id],
-        rationale: 'Optional cleanup.',
+        rationale: 'Address this finding.',
+        additionalRounds: 1,
       });
       expect(response.statusCode, response.body).toBe(409);
-      expect(finalizationCycle(state, value).deferredNits).toBeUndefined();
+      expect(finalizationCycle(state, value)).toEqual(before);
+      expect(backend.launches).toHaveLength(1);
     },
   );
 
   it.each([true, false])(
-    'grants focused attempts at an exhausted final review, with open questions: %s',
+    'grants focused attempts at an exhausted stage review, with open questions: %s',
     async (questions) => {
       const { state, backend, value, nit } = await findingCheckpointFixture('minor', questions);
+      const prompts: string[] = [];
       backend.replyForRequest = (request) => {
-        expect(request.prompt).toContain('Focused remediation batch:');
-        if (request.model?.includes('polish') || request.model === 'review-model')
+        prompts.push(request.prompt);
+        if (implementsFinalization(request))
           return { resultText: 'Completed selected cleanup.\n\n## Open questions\nnone' };
         return {
-          resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([{ ...nit, status: 'resolved', disposition: 'Selected cleanup verified.' }])}`,
+          resultText: stagedText(request, [
+            { ...nit, status: 'resolved', disposition: 'Selected cleanup verified.' },
+          ]),
         };
       };
       const response = await finalizationCommand(state, value, 'remediate-findings', {
@@ -240,41 +171,51 @@ describe('finalization finding decisions', () => {
       await waitFor(
         () => finalizationCycle(state, value).status === 'awaiting-merge',
         'focused verification',
+        8000,
       );
+      // The focus belongs to its stage: it is implemented and verified there, then cleared so
+      // the later stages review the whole candidate.
       expect(finalizationCycle(state, value)).toMatchObject({
         remediationRounds: 1,
         additionalRemediationRounds: 1,
-        findingFocus: [nit.id],
+        findingFocus: [],
       });
-      expect(backend.launches).toHaveLength(3);
+      // A required stage treats every correctness finding as required work, so the decision
+      // reaches the implement step as operator guidance rather than a narrowing batch.
+      expect(prompts[0]).toContain(`Operator decision for ${nit.id}: Address this exact cleanup.`);
+      expect(prompts[0]).toContain('Fix the selected nit; preserve behavior.');
+      expect(backend.launches.map((r) => r.model)).toEqual([
+        'correctness-review',
+        'correctness-implement',
+        ...FINALIZATION_STAGE_KINDS.map((kind) => `${kind}-review`),
+      ]);
     },
   );
 });
 
 describe('finalization recovery agent selection', () => {
-  it.each(['remediate-findings', 'authorize-remediation', 'defer-nits', 'resume'])(
+  it.each(['remediate-findings', 'authorize-remediation', 'resume'])(
     'switches backend for %s and all later reviews, retaining history and permissions',
     async (action) => {
       const codex = new CycleBackend([], 'codex');
       const fixture = await finalizationFixture({ alternateBackend: codex });
       const { state, backend } = fixture;
-      const finding = {
-        ...structuredFinding,
-        severity: action === 'defer-nits' ? ('nit' as const) : ('minor' as const),
-      };
-      backend.replyForRequest = () =>
+      const finding = defect;
+      backend.replyForRequest = (request) =>
         action === 'resume'
           ? {
               resultText:
                 'Interrupted review.\n\n## Open questions\nChoose a backend to finish verification.',
               exitReason: 'background-work-incomplete',
             }
-          : { resultText: `## Open questions\nnone\n\n## Review report\n${reviewText([finding])}` };
+          : { resultText: stagedText(request, [finding]) };
+      const input = stagedInput(fixture.legacyInput, { maxRemediationRounds: 0 });
       const value = await beginFinalization(fixture, {
-        ...fixture.input,
-        rounds: [],
-        finalReview: { ...fixture.input.finalReview, permissionMode: 'edit-only' },
-        policy: { ...fixture.input.policy, maxRemediationRounds: 0 },
+        ...input,
+        stages: input.stages.map((s) => ({
+          ...s,
+          review: { ...s.review, permissionMode: 'edit-only' as const },
+        })),
       });
       await waitFor(
         () => finalizationCycle(state, value).status === 'needs-attention',
@@ -285,12 +226,10 @@ describe('finalization recovery agent selection', () => {
       const findings =
         action === 'resume'
           ? []
-          : action === 'defer-nits'
-            ? [finding]
-            : [{ ...finding, status: 'resolved' as const, disposition: 'Verified selected fix.' }];
+          : [{ ...finding, status: 'resolved' as const, disposition: 'Verified selected fix.' }];
       codex.replyForRequest = (request) => ({
         resultText: /^Role: review$/m.test(request.prompt)
-          ? `## Open questions\nnone\n\n## Review report\n${reviewText(findings)}`
+          ? stagedText(request, findings)
           : 'Fix completed.\n\n## Open questions\nnone',
       });
       const agentOverride = { backend: 'codex', model: 'astra-fixture' };
@@ -299,7 +238,7 @@ describe('finalization recovery agent selection', () => {
         ...(['remediate-findings', 'authorize-remediation'].includes(action)
           ? { additionalRounds: 1 }
           : {}),
-        ...(['remediate-findings', 'defer-nits'].includes(action)
+        ...(action === 'remediate-findings'
           ? { findingIds: [finding.id], rationale: 'Explicit finding decision.' }
           : {}),
       });
@@ -307,13 +246,16 @@ describe('finalization recovery agent selection', () => {
       await waitFor(
         () => finalizationCycle(state, value).status === 'awaiting-merge',
         'Codex final review',
+        8000,
       );
       expect(backend.launches).toHaveLength(1);
-      expect(codex.launches.length).toBe(
-        ['remediate-findings', 'authorize-remediation'].includes(action) ? 2 : 1,
-      );
+      // The switched agent implements (when authorized) and performs every later stage review.
+      const later = FINALIZATION_STAGE_KINDS.length - 1;
+      expect(codex.launches.length).toBe(action === 'resume' ? 1 + later : 2 + later);
       expect(codex.launches.every((r) => r.model === 'astra-fixture')).toBe(true);
-      expect(codex.launches.at(-1)?.permissionMode).toBe('edit-only');
+      expect(
+        codex.launches.filter((r) => /^Role: review$/m.test(r.prompt)).map((r) => r.permissionMode),
+      ).toEqual(Array(action === 'resume' ? 1 + later : 1 + later).fill('edit-only'));
       expect(
         state.context.storage.execution.runs
           .listForWorktree(state.workspaceId, value.worktreeId)
@@ -329,9 +271,8 @@ describe('finalization recovery agent selection', () => {
         reopened.close();
       }
       expect(
-        state.context.storage.execution.finalizations.find(state.workspaceId, value.id)
-          ?.finalReview,
-      ).toEqual(value.finalReview);
+        state.context.storage.execution.finalizations.find(state.workspaceId, value.id)?.stages,
+      ).toEqual(value.stages);
       expect(
         state.context.storage.audit
           .listWorkspace({ workspaceId: state.workspaceId, limit: 100 })
@@ -353,17 +294,16 @@ describe('finalization recovery agent selection', () => {
       expect(finalizationCycle(state, value)).toEqual(cycle);
       if (action === 'remediate-findings') {
         await finalizationCommand(state, value, 'pause');
-        backend.replyForRequest = () => ({
-          resultText: `## Open questions\nnone\n\n## Review report\n${reviewText(findings)}`,
-        });
+        backend.replyForRequest = (request) => ({ resultText: stagedText(request, findings) });
         expect(
           (await finalizationCommand(state, value, 'resume', { agentOverride: null })).statusCode,
         ).toBe(200);
         await waitFor(
           () => finalizationCycle(state, value).status === 'awaiting-merge',
           'restored review',
+          8000,
         );
-        expect(backend.launches.at(-1)?.model).toBe('final-review-model');
+        expect(backend.launches.at(-1)?.model).toBe('final-review-review');
         expect(finalizationCycle(state, value).finalizationAgentOverride).toBeNull();
         expect(finalizationCycle(state, value).remediationRounds).toBe(cycle.remediationRounds);
       }
@@ -386,10 +326,11 @@ describe('finalization recovery agent selection', () => {
 describe('completed plan and integration branch cleanup', () => {
   async function reviewForPromotion(options: Parameters<typeof finalizationFixture>[0] = {}) {
     const fixture = await finalizationFixture(options);
-    const value = await beginFinalization(fixture, { ...fixture.input, rounds: [] });
+    const value = await beginFinalization(fixture);
     await waitFor(
       () => finalizationCycle(fixture.state, value).status === 'awaiting-merge',
       'final review',
+      8000,
     );
     const cycle = finalizationCycle(fixture.state, value);
     const reviewed = present(
@@ -614,88 +555,13 @@ describe('completed plan and integration branch cleanup', () => {
   );
 });
 
-function stagedInput(fixture: Awaited<ReturnType<typeof finalizationFixture>>) {
-  return {
-    ...fixture.input,
-    rounds: [],
-    stages: FINALIZATION_STAGE_KINDS.map((kind) => ({
-      id: kind,
-      kind,
-      name: kind,
-      instructions: `${kind} focus`,
-      workItemSourceIds: [],
-      review: { ...cycleProfiles.review, model: `${kind}-review` },
-      implement: { ...cycleProfiles.remediate, model: `${kind}-implement` },
-      policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 100, maxRemediationRounds: 1 },
-      requiredChecks: ['fixture checks'],
-    })),
-  };
-}
-function stagedLedger(request: AgentLaunchRequest) {
-  const path = /`([^`]+\/craftingtable-finalization-state\.json)`/.exec(request.prompt)?.[1];
-  if (!path) throw new Error('Expected staged evidence handoff');
-  return JSON.parse(readFileSync(path, 'utf8')) as {
-    stages: import('@craftingtable/domain').FinalizationStage[];
-    progress: import('@craftingtable/domain').FinalizationProgress;
-    reviewBaseline: import('@craftingtable/domain').ReviewBranchContext;
-  };
-}
-function stagedText(
-  request: AgentLaunchRequest,
-  findings: readonly unknown[] = [],
-  overrides: {
-    questions?: string;
-    evidence?: Record<string, unknown>;
-    met?: boolean;
-  } = {},
-) {
-  const ledger = stagedLedger(request);
-  const stage = present(ledger.stages[ledger.progress.stageIndex]);
-  const verdict = overrides.met === false ? 'changes-requested' : 'mergeable';
-  return `## Open questions\n${overrides.questions ?? 'none'}\n\n## Review report\n\`\`\`craftingtable-review\n${JSON.stringify(
-    {
-      version: 1,
-      complete: true,
-      verdict,
-      exitGate: {
-        met: overrides.met ?? true,
-        evidence: 'Fixture checks and obligations assessed.',
-      },
-      findings,
-      finalization: {
-        stageId: stage.id,
-        fullChecks: stage.kind === 'final-review',
-        checks: [
-          {
-            name: 'fixture checks',
-            status: 'passed',
-            evidence: 'Fixture suite passed at this candidate.',
-          },
-        ],
-        obligations: ledger.progress.obligations.map((o) => ({
-          id: o.id,
-          status: 'met',
-          evidence: 'feature.txt implementation and fixture checks.',
-        })),
-        ...overrides.evidence,
-      },
-    },
-  )}\n\`\`\`\nVERDICT: ${verdict}`;
-}
-const stageIdea = {
-  ...structuredFinding,
-  id: 'S-1',
-  category: 'simplification',
-  severity: 'minor',
-};
-
 describe('staged finalization', () => {
   it('selects one optional batch, retains follow-ups and independently verifies before explicit promotion', {
     timeout: 20000,
   }, async () => {
     const fixture = await finalizationFixture();
     const { state, backend, root } = fixture;
-    const input = stagedInput(fixture);
+    const input = stagedInput(fixture.legacyInput);
     input.stages = input.stages.map((s) =>
       s.kind === 'simplification' ? { ...s, policy: { ...s.policy, maxRemediationRounds: 0 } } : s,
     );
@@ -851,7 +717,7 @@ describe('staged finalization', () => {
     alternate.onLaunch = launch;
     backend.replyForRequest = reply;
     alternate.replyForRequest = reply;
-    const value = await beginFinalization(fixture, stagedInput(fixture));
+    const value = await beginFinalization(fixture, stagedInput(fixture.legacyInput));
     await waitFor(
       () => finalizationCycle(state, value).status === 'needs-attention',
       'reopened exhausted stage',
@@ -941,7 +807,7 @@ describe('staged finalization', () => {
         }),
       };
     };
-    const input = stagedInput(fixture);
+    const input = stagedInput(fixture.legacyInput);
     input.stages = input.stages.map((s) => ({
       ...s,
       policy: { ...s.policy, maxRemediationRounds: 0 },
@@ -1003,7 +869,7 @@ describe('staged finalization', () => {
     backend.replyForRequest = (request) => ({
       resultText: stagedText(request, [], { evidence: { fullChecks } }),
     });
-    const value = await beginFinalization(fixture, stagedInput(fixture));
+    const value = await beginFinalization(fixture, stagedInput(fixture.legacyInput));
     await waitFor(
       () => finalizationCycle(state, value).status === 'needs-attention',
       'missing final checks',
@@ -1200,7 +1066,7 @@ it('keeps all selected stage findings required when recovery temporarily focuses
       ),
     };
   };
-  const value = await beginFinalization(fixture, stagedInput(fixture));
+  const value = await beginFinalization(fixture, stagedInput(fixture.legacyInput));
   await waitFor(
     () => finalizationCycle(state, value).status === 'needs-attention',
     'stage selection',

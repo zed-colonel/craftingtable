@@ -6,7 +6,12 @@ import {
   type NormalizedAgentEvent,
 } from '@craftingtable/agents';
 import { agentRunDetailResponseSchema } from '@craftingtable/contracts';
-import { asAgentRunId, DEFAULT_COMPLETION_POLICY, type WorkCycle } from '@craftingtable/domain';
+import {
+  asAgentRunId,
+  DEFAULT_COMPLETION_POLICY,
+  FINALIZATION_STAGE_KINDS,
+  type WorkCycle,
+} from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDaemonStorage } from './persisted-records.js';
 
@@ -26,6 +31,7 @@ import {
   finalizationFixture,
   git,
   implementationDone,
+  implementsFinalization,
   merge,
   mutationHeaders,
   present,
@@ -35,8 +41,10 @@ import {
   type ScriptedReply,
   saveRoadmapRequest,
   startCycle,
+  stagedText,
   stepDaemons,
   storedRoadmap,
+  structuredFinding,
   waitFor,
 } from './execution-test-support.js';
 
@@ -161,39 +169,49 @@ describe('background-work completion recovery', () => {
     expect(currentCycle(state, cycle).resultContinuations).toBe(1);
   });
 
-  it('retains the finalization phase and independent review, with no automatic promotion', {
+  it('continues an interrupted stage remediation and still requires every stage review, with no automatic promotion', {
     timeout: 15000,
   }, async () => {
     const fixture = await finalizationFixture();
     const { state, backend, root } = fixture;
-    const normalReply = backend.replyForRequest;
+    const defect = { ...structuredFinding, category: 'correctness' };
+    let fixed = false;
     let interrupted = false;
     backend.replyForRequest = (request) => {
-      if (request.model === 'polish-model' && !interrupted) {
-        interrupted = true;
-        return incomplete;
+      if (implementsFinalization(request)) {
+        if (!interrupted) {
+          interrupted = true;
+          return incomplete;
+        }
+        fixed = true;
+        return { resultText: 'Committed and checked.\n\n## Open questions\nnone' };
       }
-      return present(normalReply)(request);
+      return {
+        resultText: stagedText(request, [
+          fixed ? { ...defect, status: 'resolved', disposition: 'Verified the fix.' } : defect,
+        ]),
+      };
     };
     const main = git(['rev-parse', 'main'], root);
     const value = await beginFinalization(fixture);
     await waitFor(
       () => finalizationCycle(state, value).status === 'awaiting-merge',
       'final independent review',
+      8000,
     );
     expect(backend.launches.map((r) => r.model)).toEqual([
-      'assessment-model',
-      'polish-model',
-      'polish-model',
-      'assessment-model',
-      'final-review-model',
+      'correctness-review',
+      'correctness-implement',
+      'correctness-implement',
+      ...FINALIZATION_STAGE_KINDS.map((kind) => `${kind}-review`),
     ]);
+    // The continuation keeps the interrupted step's deadline and stage.
     expect(backend.launches[2]?.deadlineAt).toBe(backend.launches[1]?.deadlineAt);
-    expect(backend.launches[2]?.prompt).toContain('Phase: polish; improvement round 1 of 1');
-    expect(finalizationCycle(state, value)).toMatchObject({
-      remediationRounds: 0,
-      polishPhase: 'final-review',
-    });
+    expect(backend.launches[2]?.prompt).toContain('Staged finalization: correctness (correctness)');
+    const cycle = finalizationCycle(state, value);
+    expect(cycle.remediationRounds).toBe(1);
+    expect(cycle.finalizationProgress?.stageIndex).toBe(FINALIZATION_STAGE_KINDS.length - 1);
+    expect(cycle.finalizationProgress?.stages[0]?.remediationRounds).toBe(1);
     expect(git(['rev-parse', 'main'], root)).toBe(main);
   });
 });
@@ -430,6 +448,7 @@ describe('collecting background review results', () => {
       await waitFor(
         () => finalizationCycle(state, value).status === 'awaiting-merge',
         'guided artifact continuation',
+        8000,
       );
       expect(readFileSync(present(preserved), 'utf8')).toBe('generated fixture');
       expect(finalizationCycle(state, value).remediationRounds).toBe(0);

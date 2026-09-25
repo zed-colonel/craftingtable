@@ -414,7 +414,7 @@ done-when by an independent agent, and the confirmed findings were fixed.
 | R-G4, R-G5, R-G6, R-G9 | Daemon-owned receipts, agent environment isolation, brief redesign, auth hardening. R-G9's route guard and sweep landed early with R-I3; it now also removes the per-handler auth calls (amended 2026-09-24). |
 | R-H4, R-I4 | Lighter evidence storage; structural test and process boundaries. |
 | R-I9 (added 2026-09-24) | One workspace per e2e spec, so the gate can run with more workers. The rest of QA-05 after R-I5. |
-| R-F7 (added 2026-09-25) | Map-declared upstream pin transitions for each consumer link. It blocks the live roadmap now (WI-02/domain cannot build on the migrated `wi-fabric-2` head), so it comes ahead of R-F5's wider format additions and adds only its own optional field. |
+| R-F7 (added 2026-09-25; code done 2026-09-25, 2713a6a..9c1904c, awaiting deploy and the live wi→aq record) | Map-declared upstream pin transitions for each consumer link. It blocks the live roadmap now (WI-02/domain cannot build on the migrated `wi-fabric-2` head), so it comes ahead of R-F5's wider format additions and adds only its own optional field. |
 
 Exit criteria:
 - The push log, rail count, inbox and roadmap page always agree.

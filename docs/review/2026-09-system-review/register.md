@@ -859,6 +859,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - The scoped brief no longer tells an agent to avoid current pins on a link that has moved.
     - **Record triggers were untested, and the register wording was wrong.** A test now shows the table refuses UPDATE and DELETE. The operator-decision text now says the manifest records the id, and the manifest digest binds it.
     - **Operational note.** After deploy, WI current-pin work stops with `upstream-transition-undeclared` until the wi→aq record is approved. Approve it first.
+  - **Gate at 9c1904c.**
+    - `pnpm check` is green: 184 test files, 1,425 unit tests, 20 e2e tests and the scope check.
+    - Replay: 278 every-run decisions and 51 live decisions, 0 changed.
+    - Live state, read-only: the only active WI cycles are WI-04/domain and WI-09/domain, both scoped, so deploying stops nothing in flight. WI-09/domain's tree is on the migrated head 03370fd5, so once the record is approved it gets current AQ.
+  - **Remaining for done-when (operator):** deploy, approve wi→aq at wi/WI-02/integration, and relaunch the WI-02/domain verification review.
   - **UI.** An "Upstream transitions" section follows Verification environments in the dependency panel (`UpstreamTransitionsPanel`).
     - Each consumer→upstream link shows its transition slice and whether the map or the operator declared it.
     - An undeclared link offers only the slices the checks accept, or says to declare it in the next map revision when none qualifies.

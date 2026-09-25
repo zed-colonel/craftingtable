@@ -29,7 +29,7 @@ import type {
   TransitionAgentRunInput,
   WorktreeRepository,
 } from '../../execution-types.js';
-import { type RecordGuard, readRecord } from '../../records.js';
+import { type RecordGuard, readRecord, readWritten } from '../../records.js';
 import { SqlitePlanBranchSettingsRepository } from './branch-settings.js';
 import { SqliteFinalizationRepository } from './finalizations.js';
 import { SqliteMergeOperationRepository } from './merges.js';
@@ -311,7 +311,7 @@ class SqliteWorktreeRepository implements WorktreeRepository {
 
   /** Reads a worktree back after a write and guards it, inside the write's transaction. */
   private written(workspaceId: WorkspaceId, worktreeId: WorktreeId): Worktree | undefined {
-    const worktree = this.find(workspaceId, worktreeId);
+    const worktree = readWritten(() => this.find(workspaceId, worktreeId));
     if (worktree) this.guard('worktree', worktree);
     return worktree;
   }
@@ -444,7 +444,7 @@ class SqliteAgentRunRepository implements AgentRunRepository {
 
   /** Reads a run back after a write and guards it, inside the write's transaction. */
   private written(workspaceId: WorkspaceId, runId: AgentRunId): AgentRun | undefined {
-    const run = this.find(workspaceId, runId);
+    const run = readWritten(() => this.find(workspaceId, runId));
     if (run) this.guard('agent-run', run);
     return run;
   }
@@ -668,7 +668,7 @@ class SqliteAgentRunEventRepository implements AgentRunEventRepository {
     if (row === undefined) {
       throw new Error('Agent run event append did not produce a readable row');
     }
-    const event = mapAgentRunEvent(row);
+    const event = readWritten(() => mapAgentRunEvent(row));
     this.guard('run-event', event);
     return event;
   }

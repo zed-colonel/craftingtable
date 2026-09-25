@@ -4,6 +4,7 @@ import type {
   PlanImportAttemptId,
   PlanVersionId,
   ProjectId,
+  WorkItem,
   WorkItemId,
   WorkspaceId,
 } from '@craftingtable/domain';
@@ -39,7 +40,7 @@ import type {
   WorkspaceWorkItemFilter,
   WorkspaceWorkItemRow,
 } from '../../planning-types.js';
-import type { RecordGuard } from '../../records.js';
+import { type RecordGuard, readWritten } from '../../records.js';
 import {
   mapArtifact,
   mapAttempt,
@@ -217,7 +218,7 @@ class SqlitePlanVersionRepository implements PlanVersionRepository {
         input.createdAt,
         input.createdByUserId,
       );
-    const version = this.find(input.workspaceId, input.id);
+    const version = readWritten(() => this.find(input.workspaceId, input.id));
     if (version === undefined) {
       throw new Error('Plan version insert did not produce a readable row');
     }
@@ -508,10 +509,17 @@ class SqliteWorkItemRepository implements WorkItemRepository {
       const row = this.database
         .prepare(`SELECT ${WORK_ITEM_SELECT} ${WORK_ITEM_FROM} WHERE w.id = ?`)
         .get(input.id) as WorkItemDbRow;
-      const item = mapWorkItem(row);
+      const item = readWritten(() => mapWorkItem(row));
       this.guard('work-item', item);
       return item;
     });
+  }
+
+  /** Reads an item back after a status change and guards it, inside the write's transaction. */
+  private written(workspaceId: WorkspaceId, workItemId: WorkItemId): WorkItem | undefined {
+    const item = readWritten(() => this.find(workspaceId, workItemId));
+    if (item) this.guard('work-item', item);
+    return item;
   }
 
   find(workspaceId: WorkspaceId, workItemId: WorkItemId) {
@@ -562,7 +570,7 @@ class SqliteWorkItemRepository implements WorkItemRepository {
          WHERE workspace_id = ? AND id = ? AND status = 'proposed'`,
       )
       .run(input.admittedAt, input.admittedByUserId, input.workspaceId, input.workItemId);
-    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.workItemId);
+    return result.changes === 0 ? undefined : this.written(input.workspaceId, input.workItemId);
   }
 
   removeFromAgenda(workspaceId: WorkspaceId, workItemId: WorkItemId, expectedVersion: number) {
@@ -570,7 +578,7 @@ class SqliteWorkItemRepository implements WorkItemRepository {
       .prepare(`UPDATE work_items SET status = 'proposed', admitted_at = NULL,
       admitted_by_user_id = NULL, version = version + 1 WHERE workspace_id = ? AND id = ? AND status = 'admitted' AND version = ?`)
       .run(workspaceId, workItemId, expectedVersion);
-    return result.changes === 0 ? undefined : this.find(workspaceId, workItemId);
+    return result.changes === 0 ? undefined : this.written(workspaceId, workItemId);
   }
 
   complete(input: CompleteWorkItemInput) {
@@ -593,7 +601,7 @@ class SqliteWorkItemRepository implements WorkItemRepository {
         input.projectId,
         input.workItemId,
       );
-    return result.changes === 0 ? undefined : this.find(input.workspaceId, input.workItemId);
+    return result.changes === 0 ? undefined : this.written(input.workspaceId, input.workItemId);
   }
 
   count() {

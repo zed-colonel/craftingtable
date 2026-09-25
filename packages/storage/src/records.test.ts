@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Roadmap } from '@craftingtable/domain';
+import { asEventId, type Roadmap } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from './database.js';
 import { SEED_NOW, seedPlan, seedWorkspace } from './planning-test-support.js';
@@ -11,6 +11,7 @@ import {
 } from './record-scan.js';
 import {
   acceptAnyRecord,
+  HistoricalRecordWriteError,
   observeUpcasts,
   type PersistedRecordKind,
   RECORD_UPCASTERS,
@@ -230,6 +231,87 @@ describe('persisted record registry (R-H3)', () => {
       storage.close();
     }
     // Reopen for the fixture's cleanup.
+    fixtures.splice(0, 1, {
+      ...f,
+      storage: openCraftingTableStorage(f.databasePath, acceptAnyRecord),
+    });
+  });
+
+  it('refuses to write a historical shape that an upcaster would hide from the guard', () => {
+    const f = fixture();
+    const seed = seedPlan(f.storage, seedWorkspace(f.storage));
+    const guarded: unknown[] = [];
+    f.storage.close();
+    const storage = openCraftingTableStorage(f.databasePath, (_kind, record) => {
+      guarded.push(record);
+    });
+    const admission = (id: string, extra: Record<string, unknown>) => ({
+      id: asEventId(id),
+      occurredAt: SEED_NOW,
+      workspaceId: seed.workspaceId,
+      actorUserId: seed.userId,
+      projectId: seed.projectId,
+      workItemId: seed.rootWorkItemId,
+      kind: 'work-item-admitted' as const,
+      payload: {
+        projectId: seed.projectId,
+        planVersionId: seed.planVersionId,
+        workItemId: seed.rootWorkItemId,
+        sourceWorkItemId: 'WI-1',
+        ...extra,
+      },
+    });
+    try {
+      expect(() =>
+        storage.transaction((tx) =>
+          tx.workspaceEvents.appendEvent(admission('stale', { workContractDraftId: 'draft-1' })),
+        ),
+      ).toThrow(HistoricalRecordWriteError);
+      expect(guarded).toEqual([]);
+      const current = storage.workspaceEvents.appendEvent(admission('current', {}));
+      expect(guarded).toEqual([current]);
+      expect(
+        storage.workspaceEvents
+          .listAfter({ workspaceId: seed.workspaceId, after: 0, limit: 100 })
+          .map((event) => event.id),
+      ).not.toContain('stale');
+    } finally {
+      storage.close();
+    }
+    fixtures.splice(0, 1, {
+      ...f,
+      storage: openCraftingTableStorage(f.databasePath, acceptAnyRecord),
+    });
+  });
+
+  it('rolls back an audit record the guard refuses even outside a transaction', () => {
+    const f = fixture();
+    seedWorkspace(f.storage);
+    f.storage.close();
+    const storage = openCraftingTableStorage(f.databasePath, (kind) => {
+      if (kind === 'audit-event') throw new Error('audit out of bounds');
+    });
+    const count = () =>
+      (
+        openDatabase(f.databasePath).prepare('SELECT COUNT(*) AS n FROM audit_events').get() as {
+          n: number;
+        }
+      ).n;
+    try {
+      const before = count();
+      expect(() =>
+        storage.audit.append({
+          id: randomUUID(),
+          occurredAt: SEED_NOW,
+          actorKind: 'system',
+          action: 'storage.cleaned',
+          outcome: 'succeeded',
+        } as never),
+      ).toThrow('audit out of bounds');
+      expect(count()).toBe(before);
+    } finally {
+      storage.close();
+    }
     fixtures.splice(0, 1, {
       ...f,
       storage: openCraftingTableStorage(f.databasePath, acceptAnyRecord),

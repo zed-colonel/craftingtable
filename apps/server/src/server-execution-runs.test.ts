@@ -31,6 +31,7 @@ import {
   asWorktreeId,
   TOOL_RESULT_PREVIEW_BYTES,
 } from '@craftingtable/domain';
+import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { recordedFindings } from './services/run-handoff.js';
 
@@ -465,20 +466,30 @@ describe('agent runs', () => {
     );
     // The first live run (2026-09-04) predates billing detection: its stored
     // session-started payload has no `billing` field at all.
-    state.context.storage.execution.runEvents.append({
-      id: asAgentRunEventId(`legacy-${randomUUID()}`),
-      workspaceId: state.workspaceId,
-      runId: run.id,
-      occurredAt: '2026-09-04T00:00:01.000Z',
-      kind: 'session-started',
-      payload: {
-        backend: 'claude-code',
-        backendSessionId: 'legacy-session',
-        model: 'legacy-model',
-        permissionMode: 'auto',
-        cwd: worktree.path,
-      },
-    } as unknown as Parameters<typeof state.context.storage.execution.runEvents.append>[0]);
+    // The guarded repository refuses that shape now, so the row is planted directly.
+    const database = openDatabase(state.context.config.databasePath);
+    try {
+      database
+        .prepare(
+          `INSERT INTO agent_run_events (id, workspace_id, run_id, occurred_at, kind, payload_json)
+           VALUES (?, ?, ?, ?, 'session-started', ?)`,
+        )
+        .run(
+          `legacy-${randomUUID()}`,
+          state.workspaceId,
+          run.id,
+          '2026-09-04T00:00:01.000Z',
+          JSON.stringify({
+            backend: 'claude-code',
+            backendSessionId: 'legacy-session',
+            model: 'legacy-model',
+            permissionMode: 'auto',
+            cwd: worktree.path,
+          }),
+        );
+    } finally {
+      database.close();
+    }
 
     const page = await state.context.app.inject({
       method: 'GET',

@@ -33,9 +33,12 @@ boundary:
   matching the current contract, add an upcaster there instead of teaching readers about the
   old shape.
 - **Writes are guarded.** Storage hands every record to the `RecordGuard` it was opened with
-  before writing it. The daemon opens storage with `openDaemonStorage`, which checks the
-  record against its contract schema (`apps/server/src/persisted-records.ts`), so an
-  out-of-bounds record fails where it is created, not in a browser response.
+  before its write commits. Row-shaped kinds (runs, worktrees, journal events, audit records,
+  plan versions and work items) are read back inside the write's transaction and guarded
+  there. That read-back refuses any record an upcaster would change (`readWritten`), so an
+  upcaster cannot hide a writer defect. The daemon opens storage with `openDaemonStorage`,
+  which checks the record against its contract schema (`apps/server/src/persisted-records.ts`),
+  so an out-of-bounds record fails where it is created, not in a browser response.
 - **Contracts match the domain.** Each kind's schema is pinned to the type storage reads with
   `equivalentSchema`, so a field added to a domain type and not to its schema, or the reverse,
   fails `pnpm typecheck`.

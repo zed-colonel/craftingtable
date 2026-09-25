@@ -163,7 +163,7 @@ export const RECORD_UPCASTERS: { readonly [K in PersistedRecordKind]: readonly R
         // Schema-2 admissions named the work-contract draft retired with CT-04; nothing reads it.
         name: 'work-item-admitted with the retired workContractDraftId',
         applies: (event) =>
-          event.kind === 'work-item-admitted' && !!payloadOf(event)?.workContractDraftId,
+          event.kind === 'work-item-admitted' && 'workContractDraftId' in (payloadOf(event) ?? {}),
         upcast: (event) => {
           const { workContractDraftId: _retired, ...payload } = payloadOf(event) ?? {};
           return { ...event, payload };
@@ -221,6 +221,33 @@ export function readRecord<K extends PersistedRecordKind>(
     }
   }
   return record as PersistedRecords[K];
+}
+
+/** A record came back from its own write in a historical shape: a writer defect. */
+export class HistoricalRecordWriteError extends Error {
+  constructor(
+    readonly kind: PersistedRecordKind,
+    readonly upcaster: string,
+  ) {
+    super(`Refused to store a ${kind} in a historical shape (${upcaster})`);
+    this.name = 'HistoricalRecordWriteError';
+  }
+}
+
+/**
+ * Reads back a record its caller has just written, for the write guard. The read passes
+ * through the upcasters like any other, which would hide a writer that produced an old
+ * shape (an over-long summary, a missing field) from the guard. A record written now must
+ * already be current, so any upcast here fails the write instead. Journal compaction, which
+ * rewrites historical rows on purpose, reads back without this check.
+ */
+export function readWritten<T>(read: () => T): T {
+  let stale: { kind: PersistedRecordKind; upcaster: RecordUpcaster } | undefined;
+  const record = observeUpcasts((kind, upcaster) => {
+    stale ??= { kind, upcaster };
+  }, read);
+  if (stale) throw new HistoricalRecordWriteError(stale.kind, stale.upcaster.name);
+  return record;
 }
 
 /** Decodes a JSON document column and brings it up to the current shape. */

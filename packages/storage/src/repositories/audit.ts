@@ -1,6 +1,6 @@
 import type { AuditEvent, WorkspaceId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
-import { type RecordGuard, readRecord } from '../records.js';
+import { type RecordGuard, readRecord, readWritten } from '../records.js';
 import type { AppendAuditInput, AuditRepository } from '../types.js';
 
 export interface AuditRow {
@@ -53,7 +53,15 @@ export class SqliteAuditRepository implements AuditRepository {
     private readonly guard: RecordGuard,
   ) {}
 
+  /**
+   * Appends and guards one audit record. Its own transaction (a savepoint inside a caller's)
+   * keeps a record the guard refuses from staying committed when the caller has none.
+   */
   append(input: AppendAuditInput): AuditEvent {
+    return this.database.transaction(() => this.insert(input))();
+  }
+
+  private insert(input: AppendAuditInput): AuditEvent {
     const result = this.database
       .prepare(
         `INSERT INTO audit_events (
@@ -81,7 +89,7 @@ export class SqliteAuditRepository implements AuditRepository {
     const row = this.database
       .prepare(`SELECT * FROM audit_events WHERE sequence = ?`)
       .get(Number(result.lastInsertRowid)) as AuditRow;
-    const event = mapAudit(row);
+    const event = readWritten(() => mapAudit(row));
     this.guard('audit-event', event);
     return event;
   }

@@ -7,7 +7,7 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
-import { type RecordGuard, readRecord } from '../records.js';
+import { type RecordGuard, readRecord, readWritten } from '../records.js';
 import {
   type AppendWorkspaceCreatedInput,
   type AppendWorkspaceEventInput,
@@ -611,7 +611,7 @@ export class SqliteWorkspaceEventRepository implements WorkspaceEventRepository 
   ) {}
 
   private written(row: WorkspaceEventRow): WorkspaceEvent {
-    const event = mapWorkspaceEvent(row);
+    const event = readWritten(() => mapWorkspaceEvent(row));
     this.guard('workspace-event', event);
     return event;
   }

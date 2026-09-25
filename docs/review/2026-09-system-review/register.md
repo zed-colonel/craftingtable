@@ -907,6 +907,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **Snapshot result.** `pnpm db:verify` on a copy of the 2026-09-23 snapshot reads 54,152 records: 0 invalid, 0 unreadable, integrity ok. Three records were upcast, one per upcaster (billing, retired draft id, summary bound).
     - **Invalid records found:** 1, which was this summary.
   - **Known gap, recorded under R-F3.** The scope fixtures (`slicedFixture`, `supervisedMapFixture`; about 70 uses in 9 files) store hand-built v0.3 sources that the importer would reject, such as work item ids without a repository prefix. The write guard therefore leaves the format check to the importer, the only production writer of map definitions, and the test-cleanup verification skips it. `db:verify` applies it.
+- **Amendment (2026-09-24 review):** three gaps in the write guard.
+  - **Upcasters hid writer defects.** Runs, worktrees, run events, workspace events, audit records, plan versions and work items are guarded on the record read back after the write. That read passes through the upcasters. So a writer that regressed to an upcast shape, such as an over-long run summary, would have passed the guard. The CHECK counts characters, so it would not catch it either. Read-backs now go through `readWritten`, which refuses any record an upcaster changes (`HistoricalRecordWriteError`). Journal compaction rewrites historical rows on purpose and keeps the plain read-back.
+  - **Work-item status writes skipped the guard.** Admission, agenda removal and completion now read back and guard the item.
+  - **Audit appends outside a transaction.** Storage cleanup appends audit records outside a transaction, so a refused record would have stayed committed. `audit.append` now runs in its own transaction, which is a savepoint inside a caller's.
+  - Tests are in `records.test.ts`. The retired-draft upcaster now checks for the key rather than its truthiness.
 
 ### R-H4
 

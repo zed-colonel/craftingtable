@@ -6,6 +6,7 @@ import {
 } from '@craftingtable/contracts';
 import type { NativeAudit } from '@craftingtable/contracts';
 import { request } from '../../lib/api-client.js';
+import { distinct } from '../../lib/distinct.js';
 export function NativeVerificationPanel({
   base,
   panelId,
@@ -130,7 +131,7 @@ export function NativeVerificationPanel({
               : 'Native setup is incomplete.'}
           </p>
           <ul>
-            {audit.issues.map((i) => (
+            {distinct(audit.issues).map((i) => (
               <li key={i}>{i}</li>
             ))}
           </ul>

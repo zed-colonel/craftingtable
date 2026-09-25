@@ -290,7 +290,7 @@ export function MapAmendmentPanel({
           </p>
           {impact.blockers.length > 0 && (
             <ul>
-              {impact.blockers.map((b) => (
+              {distinct(impact.blockers).map((b) => (
                 <li key={b}>{b}</li>
               ))}
             </ul>
@@ -498,7 +498,7 @@ export function MapAmendmentPanel({
           </p>
           {p.blockers.length > 0 && (
             <ul>
-              {p.blockers.map((b) => (
+              {distinct(p.blockers).map((b) => (
                 <li key={b}>{b}</li>
               ))}
             </ul>

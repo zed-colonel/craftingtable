@@ -47,6 +47,7 @@ import { RoadmapAttention, roadmapStatusLabel } from './RoadmapAttention.js';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { ScopeRecoveryPanel } from './ScopeRecoveryPanel.js';
+import { distinct } from '../../lib/distinct.js';
 
 const labels: Record<RoadmapStatus, string> = {
   draft: 'Draft',
@@ -439,7 +440,7 @@ export function RoadmapsPage({
                   <details>
                     <summary>Pending scope requirements ({scopeToAdd.blockers.length})</summary>
                     <ul>
-                      {scopeToAdd.blockers.map((b) => (
+                      {distinct(scopeToAdd.blockers).map((b) => (
                         <li key={b}>{b}</li>
                       ))}
                     </ul>

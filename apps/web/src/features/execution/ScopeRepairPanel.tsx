@@ -3,6 +3,7 @@ import type { WorkCycle, WorktreeId } from '@craftingtable/domain';
 import { AGENT_BACKEND_LABELS } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
 import { delegateScopeRepair, previewScopeRepair } from '../../lib/work-cycle-api.js';
+import { distinct } from '../../lib/distinct.js';
 
 export function ScopeRepairPanel({
   cycle,
@@ -183,7 +184,7 @@ export function ScopeRepairPanel({
         <>
           {!!owner?.blockers.length && (
             <ul className="warning-state">
-              {owner.blockers.map((b) => (
+              {distinct(owner.blockers).map((b) => (
                 <li key={b}>{b}</li>
               ))}
             </ul>

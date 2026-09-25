@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { WorkCycle } from '@craftingtable/domain';
 import type { BaselinePreview } from '@craftingtable/contracts';
 import { prepareBaseline, previewBaseline } from '../../lib/work-cycle-api.js';
+import { distinct } from '../../lib/distinct.js';
 
 export function BaselinePreparationPanel({
   cycle,
@@ -150,7 +151,7 @@ export function BaselinePreparationPanel({
           <details>
             <summary>Preparation boundaries</summary>
             <ul>
-              {preview.notices.map((n) => (
+              {distinct(preview.notices).map((n) => (
                 <li key={n}>{n}</li>
               ))}
             </ul>

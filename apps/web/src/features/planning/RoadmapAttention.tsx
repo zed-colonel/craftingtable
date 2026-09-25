@@ -8,6 +8,7 @@ import {
 } from '@craftingtable/domain';
 import { revealElement } from '../../lib/reveal-element.js';
 import { buildPath } from '../../lib/route.js';
+import { distinct } from '../../lib/distinct.js';
 export function roadmapStatusLabel(roadmap: Roadmap, fallback: string) {
   return effectiveRoadmapAttention(roadmap)?.code === 'restart-resume'
     ? 'Resume required after restart'
@@ -90,8 +91,8 @@ export function RoadmapAttention({
               return (
                 <li key={p.entryId}>
                   <strong>{e?.executionScope?.sourceId ?? e?.sourceId}</strong>
-                  {p.blockers?.map((b) => (
-                    <p key={b.message}>{b.message}</p>
+                  {distinct(p.blockers?.map((b) => b.message) ?? []).map((message) => (
+                    <p key={message}>{message}</p>
                   ))}
                   {p.blockers?.some((b) => b.kind === 'review') && (
                     <button

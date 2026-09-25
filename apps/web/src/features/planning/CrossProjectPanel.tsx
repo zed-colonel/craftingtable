@@ -32,6 +32,7 @@ import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { DependencyGraph, PhaseRequirements, phaseLabel } from './DependencyRequirements.js';
 import { ReviewerResponsibilities } from './ReviewerResponsibilities.js';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
+import { distinct } from '../../lib/distinct.js';
 export function CrossProjectPanel({
   workspaceId,
   definitionId,
@@ -324,7 +325,7 @@ export function CrossProjectPanel({
         <details>
           <summary>Original imported prerequisites · preserved for audit</summary>
           <ul>
-            {n.originalRequirements.map((r) => (
+            {distinct(n.originalRequirements).map((r) => (
               <li key={r}>{r}</li>
             ))}
           </ul>
@@ -358,7 +359,7 @@ export function CrossProjectPanel({
         <details>
           <summary>{n.blockers.length} waiting requirements</summary>
           <ul>
-            {n.blockers.map((b) => (
+            {distinct(n.blockers).map((b) => (
               <li key={b}>{b}</li>
             ))}
           </ul>
@@ -1162,7 +1163,7 @@ export function CrossProjectPanel({
                 })}
                 {selected.blockers.length > 0 && (
                   <ul>
-                    {selected.blockers.map((b) => (
+                    {distinct(selected.blockers).map((b) => (
                       <li key={b}>{b}</li>
                     ))}
                   </ul>

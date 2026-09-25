@@ -515,7 +515,7 @@ export function ConcurrencyImports({
                     <p>Resources: {n.resources.map((r) => `${r.phase}: ${r.id}`).join('; ')}</p>
                   )}
                   <ul>
-                    {n.criteria.map((c) => (
+                    {distinct(n.criteria).map((c) => (
                       <li key={c}>{c}</li>
                     ))}
                   </ul>
@@ -530,7 +530,7 @@ export function ConcurrencyImports({
           <details>
             <summary>Package limitations</summary>
             <ul>
-              {detail.limitations.map((l) => (
+              {distinct(detail.limitations).map((l) => (
                 <li key={l}>{l}</li>
               ))}
             </ul>

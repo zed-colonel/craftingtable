@@ -13,6 +13,7 @@ import { BaselinePreparationPanel } from './BaselinePreparationPanel.js';
 import { SourceRunReport } from './SourceRunReport.js';
 import { ModelField } from './ModelField.js';
 import { ReasoningEffortField } from './ReasoningEffortField.js';
+import { distinct } from '../../lib/distinct.js';
 
 export function DesignRecoveryPanel({
   cycle,
@@ -226,7 +227,7 @@ export function DesignRecoveryPanel({
               <details>
                 <summary>Discovery limits and remaining decisions</summary>
                 <ul>
-                  {preview.notices.map((notice) => (
+                  {distinct(preview.notices).map((notice) => (
                     <li key={notice}>{notice}</li>
                   ))}
                 </ul>

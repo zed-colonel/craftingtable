@@ -296,7 +296,7 @@ function DecisionCard({
           ))}
         </ul>
         <ul>
-          {card.requirements.map((r) => (
+          {distinct(card.requirements).map((r) => (
             <li key={r}>{r}</li>
           ))}
         </ul>

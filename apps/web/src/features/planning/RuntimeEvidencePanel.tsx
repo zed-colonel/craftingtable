@@ -196,7 +196,7 @@ export function RuntimeEvidencePanel({
       {notice && <p role="status">{notice}</p>}
       {view.issues.length > 0 && (
         <ul>
-          {view.issues.map((i) => (
+          {distinct(view.issues).map((i) => (
             <li key={i}>{i}</li>
           ))}
         </ul>
@@ -704,7 +704,7 @@ export function RuntimeEvidencePanel({
               </p>
               <p>Required independent roles: {selected.reviewerRoles.join(', ')}</p>
               <ul>
-                {selected.requirements.map((r) => (
+                {distinct(selected.requirements).map((r) => (
                   <li key={r}>{r}</li>
                 ))}
               </ul>
@@ -714,7 +714,7 @@ export function RuntimeEvidencePanel({
                   .map((c) => `${c.id}${c.requiresKata ? ' (Kata)' : ''}`)
                   .join(', ') || 'No assigned cases.'}
               </p>
-              {selected.issues.map((i) => (
+              {distinct(selected.issues).map((i) => (
                 <p key={i}>{i}</p>
               ))}
               <button
@@ -967,7 +967,7 @@ export function RuntimeEvidencePanel({
           ))}
           {issues.length > 0 && (
             <ul>
-              {issues.map((i) => (
+              {distinct(issues).map((i) => (
                 <li key={i}>{i}</li>
               ))}
             </ul>

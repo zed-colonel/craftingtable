@@ -5,6 +5,7 @@ import {
   type CheckpointRecovery,
 } from '@craftingtable/contracts';
 import { request } from '../../lib/api-client.js';
+import { distinct } from '../../lib/distinct.js';
 
 export function CheckpointRecoveryPanel({
   workspaceId,
@@ -101,7 +102,7 @@ export function CheckpointRecoveryPanel({
             </p>
             <h5>Review these checkpoint requirements</h5>
             <ul>
-              {c.requirements.map((r) => (
+              {distinct(c.requirements).map((r) => (
                 <li key={r}>{r}</li>
               ))}
             </ul>
@@ -141,7 +142,7 @@ export function CheckpointRecoveryPanel({
             </details>
             {c.issues.length > 0 && (
               <ul>
-                {c.issues.map((i) => (
+                {distinct(c.issues).map((i) => (
                   <li key={i}>{i}</li>
                 ))}
               </ul>

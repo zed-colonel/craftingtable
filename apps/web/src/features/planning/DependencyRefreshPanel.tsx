@@ -7,6 +7,7 @@ import {
 } from '@craftingtable/contracts';
 import { ActionBar } from '../../components/ActionBar.js';
 import { request } from '../../lib/api-client.js';
+import { distinct } from '../../lib/distinct.js';
 
 export function DependencyRefreshPanel({
   base,
@@ -166,7 +167,7 @@ export function DependencyRefreshPanel({
           </p>
           {preview.blockers.length > 0 && (
             <ul role="status">
-              {preview.blockers.map((b) => (
+              {distinct(preview.blockers).map((b) => (
                 <li key={b}>{b}</li>
               ))}
             </ul>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { RuntimeEvidenceView, ProposeArchitectureDecision } from '@craftingtable/contracts';
+import { distinct } from '../../lib/distinct.js';
 
 type Consumer = ProposeArchitectureDecision['consumers'][number];
 export function ArchitectureDecisionPanel({
@@ -84,7 +85,7 @@ export function ArchitectureDecisionPanel({
               <details>
                 <summary>Exact imported obligations and source references</summary>
                 <ul>
-                  {checkpoint.requirements.map((r) => (
+                  {distinct(checkpoint.requirements).map((r) => (
                     <li key={r}>{r}</li>
                   ))}
                 </ul>

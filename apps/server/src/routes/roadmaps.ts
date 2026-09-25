@@ -242,8 +242,25 @@ export function registerRoadmapRoutes(
       if (!body.success)
         return sendApiError(reply, 400, 'invalid-request', 'Invalid roadmap command');
       if (body.data.entryId) {
+        if (body.data.action === 'reverify')
+          return noStore(reply).send(
+            roadmapViewSchema.parse(
+              await roadmaps.reverifyEntry(
+                context,
+                workspace.data,
+                request.params.roadmapId,
+                body.data.entryId,
+                body.data.expectedVersion,
+              ),
+            ),
+          );
         if (body.data.action !== 'pause' && body.data.action !== 'resume')
-          return sendApiError(reply, 400, 'invalid-request', 'Items support pause and resume.');
+          return sendApiError(
+            reply,
+            400,
+            'invalid-request',
+            'Items support pause, resume and re-verify.',
+          );
         return noStore(reply).send(
           roadmapViewSchema.parse(
             await roadmaps.controlEntry(
@@ -257,6 +274,8 @@ export function registerRoadmapRoutes(
           ),
         );
       }
+      if (body.data.action === 'reverify')
+        return sendApiError(reply, 400, 'invalid-request', 'Re-verify applies to one item.');
       return noStore(reply).send(
         roadmapViewSchema.parse(
           await roadmaps.control(

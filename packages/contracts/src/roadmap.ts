@@ -76,7 +76,7 @@ export const saveRoadmapRequestSchema = z
 export type SaveRoadmapRequest = z.infer<typeof saveRoadmapRequestSchema>;
 export const controlRoadmapRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
-  action: z.enum(['start', 'pause', 'resume', 'stop']),
+  action: z.enum(['start', 'pause', 'resume', 'stop', 'reverify']),
   entryId: z.string().uuid().optional(),
 });
 export const scopeRecoveryPolicyRequestSchema = z.strictObject({
@@ -141,6 +141,41 @@ export const decisionPreparationSchema = z.strictObject({
   createdByUserId: userIdSchema,
   failure: z.string().optional(),
 });
+export const roadmapAttemptSchema = z.strictObject({
+  reverification: z
+    .strictObject({
+      requestedAt: z.iso.datetime(),
+      requestedByUserId: userIdSchema,
+      sourceRunId: agentRunIdSchema,
+    })
+    .optional(),
+  dependencyRefresh: z
+    .strictObject({
+      runtimeId: z.uuid(),
+      generation: z.number().int().positive(),
+      sourceRunId: agentRunIdSchema,
+    })
+    .optional(),
+  recovery: z
+    .strictObject({
+      sourceEntryId: z.string().uuid(),
+      sourceRunId: agentRunIdSchema,
+      sourceSequence: z.number().int().positive(),
+      findingFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+      phase: z.enum(['repair', 'verification', 'parent-review', 'completed']),
+      reviewRunIds: z.record(z.string().uuid(), z.string().uuid()),
+      reviewRestarts: z.record(z.string().uuid(), z.number().int().nonnegative()).optional(),
+    })
+    .optional(),
+  id: z.string().uuid(),
+  entryId: z.string().uuid(),
+  definitionRevision: z.number().int().positive(),
+  worktreeId: worktreeIdSchema,
+  cycleId: z.string().uuid(),
+  status: z.enum(['preparing', 'active', 'completed']),
+  createdAt: z.iso.datetime(),
+  completedAt: z.iso.datetime().optional(),
+});
 export const roadmapSchema = z.strictObject({
   decisionPreparations: z.array(decisionPreparationSchema).optional(),
   delegationAssignments: z
@@ -192,36 +227,16 @@ export const roadmapSchema = z.strictObject({
       }),
     )
     .optional(),
-  attempts: z.array(
-    z.strictObject({
-      dependencyRefresh: z
-        .strictObject({
-          runtimeId: z.uuid(),
-          generation: z.number().int().positive(),
-          sourceRunId: agentRunIdSchema,
-        })
-        .optional(),
-      recovery: z
-        .strictObject({
-          sourceEntryId: z.string().uuid(),
-          sourceRunId: agentRunIdSchema,
-          sourceSequence: z.number().int().positive(),
-          findingFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-          phase: z.enum(['repair', 'verification', 'parent-review', 'completed']),
-          reviewRunIds: z.record(z.string().uuid(), z.string().uuid()),
-          reviewRestarts: z.record(z.string().uuid(), z.number().int().nonnegative()).optional(),
-        })
-        .optional(),
-      id: z.string().uuid(),
-      entryId: z.string().uuid(),
-      definitionRevision: z.number().int().positive(),
-      worktreeId: worktreeIdSchema,
-      cycleId: z.string().uuid(),
-      status: z.enum(['preparing', 'active', 'completed']),
-      createdAt: z.iso.datetime(),
-      completedAt: z.iso.datetime().optional(),
-    }),
-  ),
+  attempts: z.array(roadmapAttemptSchema),
+  retiredAttempts: z
+    .array(
+      roadmapAttemptSchema.extend({
+        retiredAt: z.iso.datetime(),
+        retiredByUserId: userIdSchema,
+        reason: z.string().max(4000),
+      }),
+    )
+    .optional(),
 });
 export const roadmapViewSchema = z.strictObject({
   roadmap: roadmapSchema,
@@ -243,6 +258,7 @@ export const roadmapViewSchema = z.strictObject({
       blockers: z.array(phaseBlockerSchema).optional(),
       entryId: z.string().uuid(),
       effectiveAutomation: roadmapAutomationSchema.optional(),
+      reverifiable: z.literal(true).optional(),
       status: z.enum([
         'queued',
         'dependency-blocked',

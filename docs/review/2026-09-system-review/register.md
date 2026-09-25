@@ -37,6 +37,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
 | [R-C9](#r-c9) | P2 | S-M | open | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
+| [R-C10](#r-c10) | P2 | S-M | done (see entry) | Re-verify a roadmap item whose evidence is no longer current, without stopping the roadmap (added 2026-09-25) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -562,6 +563,32 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Why:** R-C8 schedules the wait only when a quota failure is safe to retry. In the recorded incident (run 736446e8), the session kept background sub-agents and tool calls running for 31 minutes after the terminal quota error, so every quota result was unsafe and the step still stopped for the operator. Only 3 of about 12 quota results in that stream carried a reset time.
 - **Change:** On a terminal quota error that has a reported reset, end the session promptly: stop background sub-agents and let outstanding tool calls settle or be cancelled. Keep the latest reported reset for the turn's final failure, rather than applying it to one result only. Add a recorded-stream fixture of the 736446e8 shape.
 - **Done when:** Replaying the 736446e8 stream through the normalizer and the controller schedules a retry at the reset.
+
+### R-C10
+
+**Re-verify a roadmap item whose evidence is no longer current** · Phase P2 · Effort S-M · Status: done (see Progress)
+
+- **Added 2026-09-25**, from the WI-02 stall. The operator chose this over stopping and recreating the roadmap.
+- **Why:**
+  - A change such as approving another architecture decision (WI-ADR-016 on 09-24) or a new repository policy makes completed verification and acceptance receipts stale. The roadmap then holds the item with "stop this roadmap and create a new selection".
+  - Stopping the roadmap stops every unfinished attempt's cycle: EXO-03/domain in flight, WI-04/domain at merge, WI-09/domain.
+  - A review launched manually from Delegation cannot replace the stale one. Recording scope evidence credits only the roadmap's assigned reviewer, which is the current run of the roadmap cycle for that entry; it refused "This exact review run lacks the explicitly assigned independent reviewer roles."
+  - Review again needs the original cycle completed and its worktree active. WI-02/domain's verification cycle had been stopped and its worktree removed.
+- **Change:** a **Re-verify** item control, offered by the server (`reverifiable` on entry progress). It applies to a verification or parent-acceptance entry whose evidence is not current, whose review cycle has ended, with no queued review and no active scope recovery.
+  - **Completed cycle, worktree still active:** the attempt is marked `reverification`, and the scheduler runs Review again in the same cycle, through the same guarded path as a dependency-refresh review.
+  - **Cycle stopped, or worktree gone:** the ended attempt moves to the roadmap's `retiredAttempts` history, with who retired it and why, and the entry is scheduled afresh with its assigned reviewer.
+  - A second active worktree for the scope is refused by branch name, since a scope has one active worktree and adopting an unassigned one could verify commits the roadmap never assigned.
+  - The roadmap can be running, paused or needing attention. The item's hold is cleared, and nothing else is stopped.
+  - The hold message now points to Re-verify.
+- **Done when:**
+  - An in-place and a fresh-attempt re-verification both make stale evidence current again with the assigned reviewer, without stopping the roadmap.
+  - Current evidence, an open review, an already-queued review, and a second active worktree are refused.
+- **Progress 2026-09-25:** done.
+  - `server-execution-roadmap-reverify.test.ts` runs a supervised roadmap until both slice verifications are recorded, then adopts a newer repository policy.
+  - It shows both routes and every refusal, then resumes, and both verifications are current again.
+  - With the scheduler branch removed, the test times out.
+  - `ReverifyItem.test.tsx` covers the control's gating.
+  - No walkthrough capture: the control renders only for an item with stale evidence, which the walkthrough map never has.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

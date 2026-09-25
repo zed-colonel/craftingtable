@@ -36,7 +36,7 @@ export const saveRoadmap = (
 ) => request(`${base(workspaceId)}/${id}`, roadmapViewSchema, mutation(csrfToken, input));
 export const controlRoadmap = (
   roadmap: Roadmap,
-  action: 'start' | 'pause' | 'resume' | 'stop',
+  action: 'start' | 'pause' | 'resume' | 'stop' | 'reverify',
   csrfToken: string,
   entryId?: string,
 ) =>

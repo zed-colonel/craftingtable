@@ -82,6 +82,15 @@ export interface RoadmapAttempt {
     readonly generation: number;
     readonly sourceRunId: import('./ids.js').AgentRunId;
   };
+  /**
+   * One fresh review in the same cycle, requested by the operator because this entry's evidence
+   * is no longer current. Existing code and reviewer assignment are retained.
+   */
+  readonly reverification?: {
+    readonly requestedAt: string;
+    readonly requestedByUserId: UserId;
+    readonly sourceRunId: import('./ids.js').AgentRunId;
+  };
   /** Additional owning-slice attempt; the original entry and reviewer assignments stay intact. */
   readonly recovery?: {
     readonly sourceEntryId: string;
@@ -100,6 +109,12 @@ export interface RoadmapAttempt {
   readonly status: 'preparing' | 'active' | 'completed';
   readonly createdAt: string;
   readonly completedAt?: string;
+}
+/** An attempt the operator replaced with a fresh one; kept for its history, never scheduled. */
+export interface RetiredRoadmapAttempt extends RoadmapAttempt {
+  readonly retiredAt: string;
+  readonly retiredByUserId: UserId;
+  readonly reason: string;
 }
 export interface DecisionPreparation {
   readonly id: string;
@@ -162,12 +177,15 @@ export interface Roadmap {
   readonly createdByUserId: UserId;
   readonly delegatedByUserId?: UserId;
   readonly attempts: readonly RoadmapAttempt[];
+  readonly retiredAttempts?: readonly RetiredRoadmapAttempt[];
   readonly entryHolds?: Readonly<Record<string, RoadmapEntryHold>>;
 }
 export interface RoadmapEntryProgress {
   readonly phase?: import('./phase-scheduling.js').ExecutionPhase;
   readonly blockers?: readonly import('./phase-scheduling.js').PhaseBlocker[];
   readonly effectiveAutomation?: RoadmapAutomation;
+  /** The entry's evidence is not current and its review has ended: Re-verify is offered. */
+  readonly reverifiable?: true;
   readonly entryId: string;
   readonly status:
     | 'queued'

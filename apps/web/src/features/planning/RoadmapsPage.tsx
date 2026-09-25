@@ -1,3 +1,4 @@
+import { ReverifyItem } from './ReverifyItem.js';
 import type {
   ExecutionScopeChoice,
   ExecutionStatusResponse,
@@ -183,7 +184,7 @@ export function RoadmapsPage({
     setRoadmaps((current) => [view, ...current.filter((r) => r.roadmap.id !== view.roadmap.id)]);
   const command = async (
     roadmap: Roadmap,
-    action: 'start' | 'pause' | 'resume' | 'stop',
+    action: 'start' | 'pause' | 'resume' | 'stop' | 'reverify',
     entryId?: string,
   ) => {
     setBusy(true);
@@ -1043,6 +1044,12 @@ export function RoadmapsPage({
                               : 'Pause item'}
                           </button>
                         )}
+                      <ReverifyItem
+                        reverifiable={!!state?.reverifiable}
+                        canMutate={canMutate}
+                        busy={busy}
+                        onReverify={() => void command(roadmap, 'reverify', entry.id)}
+                      />
                       <details>
                         <summary>Bound plan and cycle settings</summary>
                         <p className="hint">

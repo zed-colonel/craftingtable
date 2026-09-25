@@ -27,6 +27,7 @@ import {
   asAuditEventId,
   asEventId,
   asWorktreeId,
+  type AgentRunId,
   DEFAULT_ROADMAP_SCHEDULING,
   type Roadmap,
   type RoadmapAttempt,
@@ -805,7 +806,7 @@ export class RoadmapService {
         );
       }
       for (const attempt of resumeAttempts) {
-        if (attempt.dependencyRefresh) continue;
+        if (attempt.dependencyRefresh || attempt.reverification) continue;
         if (roadmap.entryHolds?.[attempt.entryId]?.status === 'paused') continue;
         const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
         // Recovery, not another review of unchanged source, owns these stopped checkpoints.
@@ -969,6 +970,122 @@ export class RoadmapService {
       // Wake again after release so Start/Resume never depend on the idle timer.
       this.notifier.notify();
     }
+  }
+
+  /**
+   * Re-run the independent review of a verification or acceptance entry whose evidence is no
+   * longer current (for example after the approved decisions changed), without stopping the
+   * roadmap. The reviewer assignment is kept, so the fresh review can record evidence. A completed
+   * review cycle whose worktree is still active reviews again in place; otherwise the ended
+   * attempt is retired into the roadmap's history and the entry is scheduled afresh.
+   */
+  async reverifyEntry(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    entryId: string,
+    expectedVersion: number,
+  ): Promise<RoadmapView> {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    if (this.controlling.has(id)) conflict('A roadmap command is already in progress.');
+    this.controlling.add(id);
+    try {
+      const roadmap = this.find(workspaceId, id);
+      if (roadmap.version !== expectedVersion)
+        conflict('Roadmap changed; refresh before issuing this command.');
+      const entry = roadmap.definition.entries.find((e) => e.id === entryId);
+      if (!entry) conflict('This entry is unavailable.');
+      const plan = this.reverification(roadmap, entry);
+      if ('refused' in plan) conflict(plan.refused);
+      const at = this.now().toISOString();
+      const { [entry.id]: _released, ...entryHolds } = roadmap.entryHolds ?? {};
+      const attempt = plan.attempt;
+      this.change(
+        roadmap,
+        plan.inPlace
+          ? {
+              entryHolds,
+              attempts: roadmap.attempts.map((a) =>
+                a.id === attempt.id
+                  ? {
+                      ...a,
+                      reverification: {
+                        requestedAt: at,
+                        requestedByUserId: context.user.id,
+                        sourceRunId: plan.sourceRunId,
+                      },
+                    }
+                  : a,
+              ),
+            }
+          : {
+              entryHolds,
+              attempts: roadmap.attempts.filter((a) => a.id !== attempt.id),
+              retiredAttempts: [
+                ...(roadmap.retiredAttempts ?? []),
+                {
+                  ...attempt,
+                  retiredAt: at,
+                  retiredByUserId: context.user.id,
+                  reason: 'Re-verification requested: the recorded evidence is no longer current.',
+                },
+              ],
+            },
+        'reverify-entry',
+        context,
+      );
+      return this.view(this.find(workspaceId, id));
+    } finally {
+      this.controlling.delete(id);
+      this.notifier.notify();
+    }
+  }
+  /** Whether an entry may be re-verified, and how; the view and the command share it. */
+  private reverification(
+    roadmap: Roadmap,
+    entry: RoadmapEntry,
+    tx: StorageRepositories = this.storage,
+  ):
+    | { refused: string }
+    | { attempt: RoadmapAttempt; inPlace: true; sourceRunId: AgentRunId }
+    | { attempt: RoadmapAttempt; inPlace: false } {
+    if (['draft', 'stopped', 'completed'].includes(roadmap.status))
+      return { refused: 'Re-verification needs an active roadmap.' };
+    if (!entry.executionScope || entry.executionScope.kind === 'slice')
+      return { refused: 'Only verification and parent acceptance entries can be re-verified.' };
+    if (this.recoveryFor(roadmap, entry))
+      return { refused: 'Scope recovery owns this entry; finish its recovery first.' };
+    const attempt = roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
+    if (!attempt) return { refused: 'This entry has not run yet; resume the roadmap.' };
+    if (attempt.dependencyRefresh || attempt.reverification)
+      return { refused: 'A fresh review is already queued for this entry.' };
+    const cycle = tx.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+    if (cycle && !['completed', 'stopped'].includes(cycle.status))
+      return { refused: 'Its review cycle is still open; finish or stop it first.' };
+    if (this.complete(roadmap, entry, tx))
+      return { refused: 'This evidence is current; there is nothing to re-verify.' };
+    const tree = tx.execution.worktrees.find(roadmap.workspaceId, attempt.worktreeId);
+    if (
+      cycle?.status === 'completed' &&
+      tree?.status === 'active' &&
+      !tx.amendments.retired(roadmap.workspaceId, tree.id) &&
+      sameExecutionScope(tree.executionScope, entry.executionScope)
+    )
+      return { attempt, inPlace: true, sourceRunId: cycle.currentRunId };
+    // A scope has one active worktree; a fresh attempt needs the unused one removed first.
+    const other = tx.execution.worktrees
+      .listForWorkItem(roadmap.workspaceId, entry.workItemId)
+      .find(
+        (t) =>
+          t.status === 'active' &&
+          !tx.amendments.retired(roadmap.workspaceId, t.id) &&
+          sameExecutionScope(t.executionScope, entry.executionScope),
+      );
+    if (other)
+      return {
+        refused: `Remove the unused worktree ${other.branchName} first; a verification scope has one active worktree.`,
+      };
+    return { attempt, inPlace: false };
   }
 
   /**
@@ -1242,21 +1359,25 @@ export class RoadmapService {
       if (entry.executionScope && entry.executionScope.kind !== 'slice' && worktree) {
         const cycle = this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
         if (cycle) {
-          if (attempt.dependencyRefresh) {
+          if (attempt.dependencyRefresh || attempt.reverification) {
             const refresh = attempt.dependencyRefresh;
+            const requested = attempt.reverification;
             const check = () => {
               const current = this.find(roadmap.workspaceId, roadmap.id);
               this.authority(current);
+              const queued = current.attempts.find((a) => a.id === attempt!.id);
               if (
                 current.status !== 'running' ||
                 current.entryHolds?.[entry.id] ||
                 this.controlling.has(current.id) ||
                 this.abort.signal.aborted ||
-                current.attempts.find((a) => a.id === attempt!.id)?.dependencyRefresh?.runtimeId !==
-                  refresh.runtimeId
+                (refresh
+                  ? queued?.dependencyRefresh?.runtimeId !== refresh.runtimeId
+                  : queued?.reverification?.requestedAt !== requested?.requestedAt)
               )
                 throw new SupersededRoadmapOperation();
               if (
+                refresh &&
                 this.storage.runtimeEvidence.generations(
                   roadmap.workspaceId,
                   entry.executionScope!.definitionId,
@@ -1268,7 +1389,7 @@ export class RoadmapService {
                 );
               if (
                 this.storage.execution.cycles.find(roadmap.workspaceId, cycle.id)?.currentRunId !==
-                refresh.sourceRunId
+                (refresh ?? requested)!.sourceRunId
               )
                 conflict('The queued review changed. Inspect its manual recovery before resuming.');
               const blockers = scopePhaseBlockers(
@@ -1299,6 +1420,7 @@ export class RoadmapService {
                           status: 'active',
                           completedAt: undefined,
                           dependencyRefresh: undefined,
+                          reverification: undefined,
                         }
                       : a,
                   ),
@@ -1315,7 +1437,7 @@ export class RoadmapService {
             return;
           if (cycle.status === 'completed')
             conflict(
-              'This review evidence is no longer current. Stop this roadmap and create a new selection for re-verification; prior attempts remain in history.',
+              'This review evidence is no longer current. Use Re-verify on this item to run a fresh independent review; prior attempts remain in history.',
             );
           if (cycle.status === 'awaiting-merge') {
             const definition = attemptDefinition(this.storage, roadmap, attempt);
@@ -2198,6 +2320,13 @@ export class RoadmapService {
           const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
           const cycle =
             attempt && snapshot.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+          if (attempt?.reverification)
+            return {
+              entryId: entry.id,
+              status: roadmap.status === 'running' ? 'queued' : 'paused',
+              reason:
+                'Fresh independent review queued by Re-verify. Existing code and reviewer assignment are retained; it runs when the roadmap is running.',
+            };
           if (attempt?.dependencyRefresh)
             return {
               entryId: entry.id,
@@ -2264,8 +2393,13 @@ export class RoadmapService {
           const definition = attempt
             ? attemptDefinition(snapshot, roadmap, attempt)
             : roadmap.definition;
+          const entry = roadmap.definition.entries.find((e) => e.id === progress.entryId)!;
           return {
             ...progress,
+            ...(progress.status !== 'completed' &&
+            !('refused' in this.reverification(roadmap, entry, snapshot))
+              ? { reverifiable: true as const }
+              : {}),
             effectiveAutomation: effectiveDelegation(
               roadmap,
               definition?.entries.find((e) => e.id === progress.entryId) ??

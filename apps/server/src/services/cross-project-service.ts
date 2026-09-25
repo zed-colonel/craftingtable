@@ -432,8 +432,7 @@ export class CrossProjectService {
         kind: 'runtime-evidence-changed',
         payload: {
           definitionId: id,
-          message:
-            'Scheduling proposals adopted. Checkpoint evidence and Start remain separate.',
+          message: 'Scheduling proposals adopted. Checkpoint evidence and Start remain separate.',
         },
       });
     });

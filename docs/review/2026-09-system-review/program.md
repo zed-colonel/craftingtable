@@ -415,6 +415,7 @@ done-when by an independent agent, and the confirmed findings were fixed.
 | R-H4, R-I4 | Lighter evidence storage; structural test and process boundaries. |
 | R-I9 (added 2026-09-24) | One workspace per e2e spec, so the gate can run with more workers. The rest of QA-05 after R-I5. |
 | R-C10 (added 2026-09-25; done) | Re-verify a roadmap item whose evidence went stale, without stopping the roadmap. It unblocks WI-02 now and every later decision-set or policy change. |
+| R-C11 (added 2026-09-25) | Give a provider-side credential rejection (the 25 Sep Codex 401 outage) its own stop code and a bounded scheduled retry, instead of "backend failed" and agent questions about approval authentication. |
 | R-F7 (added 2026-09-25; code done 2026-09-25, 2713a6a..9c1904c, awaiting deploy and the live wi→aq record) | Map-declared upstream pin transitions for each consumer link. It blocks the live roadmap now (WI-02/domain cannot build on the migrated `wi-fabric-2` head), so it comes ahead of R-F5's wider format additions and adds only its own optional field. |
 
 Exit criteria:

@@ -38,6 +38,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
 | [R-C9](#r-c9) | P2 | S-M | open | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
 | [R-C10](#r-c10) | P2 | S-M | done (see entry) | Re-verify a roadmap item whose evidence is no longer current, without stopping the roadmap (added 2026-09-25) |
+| [R-C11](#r-c11) | P2 | S-M | open | Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry (added 2026-09-25) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -596,6 +597,35 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Re-verify cleared an operator's item pause.** A paused item is refused; resume the item first. This is tested.
   - **A retired attempt lost ownership of its ended cycle.** Ownership now resolves through retired attempts too, for history.
   - **Still open:** Re-verify of a parent-acceptance entry, and on a running (not paused) roadmap, run the same code, but the test does not exercise them.
+
+### R-C11
+
+**Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry** · Phase P2 · Effort S-M · Status: open
+
+- **Added 2026-09-25** from a live incident; the operator put it on P2 the same day.
+- **What happened:**
+  - Between 22:40 and about 23:01 UTC, OpenAI's Codex backend rejected requests from ChatGPT-authenticated sessions with "401 Unauthorized: Incorrect API key provided: sk-svcacct…". This was a service-account key that exists nowhere on the host.
+  - The host's credentials were healthy throughout:
+    - `~/.codex/auth.json` was in ChatGPT mode with valid tokens;
+    - no API key was in any environment;
+    - single Codex processes alternated between success and 401;
+    - four independent processes reported the same masked key.
+  - The same failure was reported by other users that day (openai/codex issues #48230, #48232, #48235, #48237).
+- **What it cost:**
+  - EXO-03/domain and EXO-18/instance-design stopped as `service-failure-not-retryable` ("the backend failed without a recognized temporary service error").
+  - WI-02/domain and EXO-04/domain ended with agent questions asking for the "approval-review authentication" to be restored. Codex's automatic approval reviewer failed on the same 401 when they asked to use Docker for `ct-act`.
+  - The operator had to diagnose a provider outage as a possible local credential problem, and resume four items by hand once it cleared.
+- **Change:**
+  - Recognize this failure in the Codex provider-failure normalizer (`packages/agents/src/codex/provider-failure.ts`): a 401 from the Codex backend while the session is in ChatGPT auth mode.
+    - It becomes its own provider-failure kind and its own typed attention code. The operator message states the facts, for example "Codex rejected its credentials: provider-side outage suspected; local login is ChatGPT mode", instead of "backend failed".
+    - Distinguish a genuinely expired or revoked local login, which needs re-authentication, from a provider-side rejection. Use what the host can observe: whether the local token refresh itself fails, or whether `auth.json`'s tokens are well-formed and fresh.
+  - For the provider-side case, schedule a bounded retry with backoff, like R-C8's quota-reset retry. Stop for the operator only when the retries are spent.
+  - When an agent's approval request fails on the same error, treat it as the same outage rather than as an operator question about approvals. Retry the step once the provider recovers; don't ask the operator to "restore authentication".
+- **Done when:**
+  - A recorded stream of this incident, from a failed implement turn and a failed approval review, replays to the new code.
+  - It schedules a retry, and a later successful turn continues without operator action.
+  - Spent retries stop with an operator message that names a suspected provider outage and the evidence.
+  - A locally expired login still stops asking for re-authentication.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

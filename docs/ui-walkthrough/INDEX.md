@@ -71,3 +71,5 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-09-24-operator-wait-before | `c0ccf3b` | 2026-09-24 | 57 (1 phone only) | 1× |
 | 2026-09-24-operator-wait-after | `c0ccf3b` | 2026-09-24 | 57 (1 phone only) | 1× |
 | 2026-09-24-p1-review-after | `9fe2152` | 2026-09-24 | 57 (1 phone only) | 1× |
+| 2026-09-25-finalization-staged-before | `432bb00` | 2026-09-25 | 57 (1 phone only) | 1× |
+| 2026-09-25-finalization-staged-after | `432bb00` | 2026-09-25 | 57 (1 phone only) | 1× |

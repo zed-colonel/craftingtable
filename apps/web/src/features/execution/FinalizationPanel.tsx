@@ -34,7 +34,6 @@ import {
 } from '../../lib/finalization-api.js';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
 import { controlWorkCycle, resolveIntegration } from '../../lib/work-cycle-api.js';
-import { AgentProfileFields } from './AgentProfileFields.js';
 import { CYCLE_STATUS_LABELS } from './CyclePanel.js';
 import { DiffView } from './DiffView.js';
 import { FinalizationStageDecision } from './FinalizationStageDecision.js';
@@ -67,7 +66,6 @@ export function FinalizationPanel({
   const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
   const [draft, setDraft] = useState<StartFinalizationRequest>();
   const [editing, setEditing] = useState(false);
-  const [roundKeys] = useState(() => Array.from({ length: 10 }, () => crypto.randomUUID()));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [removalRefused, setRemovalRefused] = useState<
@@ -138,11 +136,8 @@ export function FinalizationPanel({
         setDraft({
           expectedBranchVersion: 1,
           targetBranch: 'main',
-          rounds: Array.from({ length: 2 }, () => ({
-            review: reviewProfile,
-            polish: polishProfile,
-            instructions: '',
-          })),
+          // New finalizations are staged; legacy improvement rounds are retired (R-B10).
+          rounds: [],
           stages: defaultFinalizationStages(reviewProfile, polishProfile),
           finalReview: reviewProfile,
           policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 0 },
@@ -270,17 +265,13 @@ export function FinalizationPanel({
                   {
                     ...draft,
                     expectedBranchVersion: branchVersion,
-                    ...(draft.stages
-                      ? {
-                          rounds: [],
-                          stages: draft.stages.map((s) => ({
-                            ...s,
-                            requiredChecks: [
-                              ...new Set(s.requiredChecks.map((c) => c.trim()).filter(Boolean)),
-                            ],
-                          })),
-                        }
-                      : {}),
+                    rounds: [],
+                    stages: (draft.stages ?? []).map((s) => ({
+                      ...s,
+                      requiredChecks: [
+                        ...new Set(s.requiredChecks.map((c) => c.trim()).filter(Boolean)),
+                      ],
+                    })),
                   },
                   csrfToken,
                 );
@@ -302,157 +293,12 @@ export function FinalizationPanel({
               onChange={(e) => setDraft({ ...draft, targetBranch: e.target.value })}
             />
           </label>
-          <label className="field">
-            Finalization workflow
-            <select
-              value={draft.stages ? 'staged' : 'legacy'}
-              disabled={busy}
-              onChange={(e) => {
-                const { stages: _stages, ...legacy } = draft;
-                setDraft(
-                  e.target.value === 'staged'
-                    ? {
-                        ...draft,
-                        stages: defaultFinalizationStages(
-                          draft.finalReview,
-                          draft.rounds[0]?.polish ?? draft.finalReview,
-                        ),
-                      }
-                    : legacy,
-                );
-              }}
-            >
-              <option value="staged">Focused stages</option>
-              <option value="legacy">Legacy improvement rounds</option>
-            </select>
-          </label>
-          {draft.stages ? (
-            <FinalizationStageSetup
-              stages={draft.stages}
-              onChange={(stages) => setDraft({ ...draft, stages })}
-              backends={backends}
-              disabled={busy}
-            />
-          ) : (
-            <>
-              <label className="field">
-                Improvement rounds
-                <input
-                  type="number"
-                  required
-                  min={0}
-                  max={10}
-                  value={draft.rounds.length}
-                  disabled={busy}
-                  onChange={(e) => {
-                    const count = Math.min(10, Math.max(0, Number(e.target.value)));
-                    setDraft({
-                      ...draft,
-                      rounds: Array.from(
-                        { length: count },
-                        (_, i) =>
-                          draft.rounds[i] ?? {
-                            review: draft.finalReview,
-                            polish: draft.rounds[0]?.polish ?? draft.finalReview,
-                            instructions: '',
-                          },
-                      ),
-                    });
-                  }}
-                />
-              </label>
-              <p className="hint">
-                Each round includes assessment, a polish pass, and independent verification. A final
-                independent review always follows. Zero rounds runs only that final review. Budgets
-                never waive findings or unanswered questions.
-              </p>
-              {draft.rounds.map((round, index) => (
-                <details key={roundKeys[index]} open>
-                  <summary>Round {index + 1}</summary>
-                  <AgentProfileFields
-                    label="Reviewer and verifier"
-                    value={round.review}
-                    onChange={(review) =>
-                      setDraft({
-                        ...draft,
-                        rounds: draft.rounds.map((r, i) => (i === index ? { ...r, review } : r)),
-                      })
-                    }
-                    backends={backends}
-                    disabled={busy}
-                  />
-                  <AgentProfileFields
-                    label="Polish agent"
-                    value={round.polish}
-                    onChange={(polish) =>
-                      setDraft({
-                        ...draft,
-                        rounds: draft.rounds.map((r, i) => (i === index ? { ...r, polish } : r)),
-                      })
-                    }
-                    backends={backends}
-                    disabled={busy}
-                  />
-                  <label className="field">
-                    Round focus
-                    <textarea
-                      value={round.instructions}
-                      maxLength={16000}
-                      disabled={busy}
-                      onChange={(e) =>
-                        setDraft({
-                          ...draft,
-                          rounds: draft.rounds.map((r, i) =>
-                            i === index ? { ...r, instructions: e.target.value } : r,
-                          ),
-                        })
-                      }
-                    />
-                  </label>
-                </details>
-              ))}
-              <AgentProfileFields
-                label="Final independent reviewer"
-                value={draft.finalReview}
-                onChange={(finalReview) => setDraft({ ...draft, finalReview })}
-                backends={backends}
-                disabled={busy}
-              />
-              {(
-                [
-                  ['maxNits', 'Allowed final nits', 0, 100],
-                  ['maxRemediationRounds', 'Initial remediation budget', 0, 20],
-                  ['maxRunMinutes', 'Minutes per step', 1, 1440],
-                ] as const
-              ).map(([key, label, min, max]) => (
-                <label key={key} className="field">
-                  {label}
-                  <input
-                    type="number"
-                    required
-                    min={min}
-                    max={max}
-                    value={draft.policy[key]}
-                    disabled={busy}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        policy: { ...draft.policy, [key]: Number(e.target.value) },
-                      })
-                    }
-                  />
-                </label>
-              ))}
-              <p className="hint">
-                The initial remediation budget defaults to{' '}
-                {DEFAULT_COMPLETION_POLICY.maxRemediationRounds} attempts and can be set from 0 to
-                20 before starting. It belongs to this finalization, spans all improvement rounds
-                and the final independent review, and is separate from scheduled polish passes. It
-                is not copied from a work item or roadmap. You can authorize more attempts at a
-                checkpoint.
-              </p>
-            </>
-          )}
+          <FinalizationStageSetup
+            stages={draft.stages ?? []}
+            onChange={(stages) => setDraft({ ...draft, stages })}
+            backends={backends}
+            disabled={busy}
+          />
           <label className="field">
             Common finalization instructions
             <textarea

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { stagedFinalizationReview } from './fake-finalization.mjs';
 
 let threadId = randomUUID();
 let active;
@@ -65,8 +66,14 @@ function runTurn(prompt) {
     notify('item/completed', { item: { ...change, status: 'completed' } });
     text = `fake Codex finished turn ${state.turns}`;
   }
-  if (prompt.includes('This is a plan-wide finalization')) {
-    if (state.reviewing) {
+  if (
+    prompt.includes('This is a plan-wide finalization') ||
+    prompt.includes('Staged finalization:')
+  ) {
+    const staged = state.reviewing && stagedFinalizationReview(prompt, cwd);
+    if (staged) {
+      text = `Stage checks and obligations assessed.\n\n## Open questions\nnone\n\n## Review report\n\`\`\`craftingtable-review\n${JSON.stringify({ version: 1, complete: true, verdict: 'mergeable', exitGate: { met: true, evidence: 'Fixture verification passed.' }, findings: staged.findings, finalization: staged.finalization })}\n\`\`\`\nVERDICT: mergeable`;
+    } else if (state.reviewing) {
       const fixed = existsSync(resolve(cwd, 'REMEDIATED.md'));
       const findings = prompt.includes('FINALIZATION-REMEDIATION-LIMIT')
         ? [

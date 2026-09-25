@@ -1,0 +1,201 @@
+{
+  "description": "The completed legacy (improvement-round) finalization and its cycle, copied read-only from the live database on 2026-09-25 (R-B10). It must stay readable and renderable after the legacy controller branches are removed.",
+  "finalization": {
+    "id": "5ab4d7a5-ccdf-4d38-9b15-0081cf8332b2",
+    "workspaceId": "6bf6915a-6cd0-47cc-b853-fcbc04f02f3d",
+    "planVersionId": "3d8a857d-25fe-4202-accf-bb133b5453cb",
+    "projectId": "6b1249a0-b754-4ef8-a963-2c68e1b0b278",
+    "repositoryId": "bf4da519-8996-4981-8c36-f52de295e9ac",
+    "integrationBranch": "aq-cont-1",
+    "integrationSha": "48b84834a690d57dee30b564f2e745d8c856b422",
+    "targetBranch": "main",
+    "targetSha": "97c9dc26c19c697dbfb204ed503e82c5f053394f",
+    "worktreeId": "470c38a1-3ec9-410c-bd27-8aad8bac2e0d",
+    "cycleId": "caf76f40-2bc7-45ef-abbe-65000cd25d7e",
+    "rounds": [
+      {
+        "review": {
+          "backend": "codex",
+          "permissionMode": "auto",
+          "model": "gpt-6-astra"
+        },
+        "polish": {
+          "backend": "codex",
+          "permissionMode": "auto",
+          "model": "gpt-6-astra"
+        },
+        "instructions": "Focus on plan completeness and downstream contract conpliance."
+      },
+      {
+        "review": {
+          "backend": "claude-code",
+          "permissionMode": "auto",
+          "model": "claude-fable-5-1"
+        },
+        "polish": {
+          "backend": "claude-code",
+          "permissionMode": "auto",
+          "model": "claude-fable-5-1"
+        },
+        "instructions": "Focus on overcomplication and/or over engineering."
+      }
+    ],
+    "finalReview": {
+      "backend": "claude-code",
+      "permissionMode": "auto",
+      "model": "claude-fable-5-1"
+    },
+    "policy": {
+      "maxNits": 0,
+      "maxRemediationRounds": 3,
+      "maxRunMinutes": 120
+    },
+    "instructions": "Ensure all work matches the plan intent within reason. No invariants should be violated. If simplifications are possible that don’t change the outcome please make them.",
+    "status": "completed",
+    "reason": "Promoted to main by explicit operator approval.",
+    "version": 12,
+    "createdAt": "2026-09-13T07:38:19.115Z",
+    "createdByUserId": "0698a39b-dda2-4870-8f3f-97ef94784ae9",
+    "integrationCleanup": {
+      "status": "removed",
+      "requestedAt": "2026-09-15T22:13:25.847Z",
+      "requestedByUserId": "0698a39b-dda2-4870-8f3f-97ef94784ae9",
+      "completedAt": "2026-09-15T22:13:25.958Z"
+    }
+  },
+  "cycle": {
+    "id": "caf76f40-2bc7-45ef-abbe-65000cd25d7e",
+    "workspaceId": "6bf6915a-6cd0-47cc-b853-fcbc04f02f3d",
+    "finalizationId": "5ab4d7a5-ccdf-4d38-9b15-0081cf8332b2",
+    "planVersionId": "3d8a857d-25fe-4202-accf-bb133b5453cb",
+    "projectId": "6b1249a0-b754-4ef8-a963-2c68e1b0b278",
+    "worktreeId": "470c38a1-3ec9-410c-bd27-8aad8bac2e0d",
+    "workItemSourceId": "Finalization",
+    "workItemTitle": "Plan conformance, simplification and polish",
+    "createdByUserId": "0698a39b-dda2-4870-8f3f-97ef94784ae9",
+    "createdAt": "2026-09-13T07:38:19.185Z",
+    "updatedAt": "2026-09-15T21:42:53.235Z",
+    "version": 42,
+    "status": "completed",
+    "step": "review",
+    "policy": {
+      "maxNits": 0,
+      "maxRemediationRounds": 3,
+      "maxRunMinutes": 120
+    },
+    "profiles": {
+      "design": {
+        "backend": "codex",
+        "permissionMode": "auto",
+        "model": "gpt-6-astra"
+      },
+      "implement": {
+        "backend": "codex",
+        "permissionMode": "auto",
+        "model": "gpt-6-astra"
+      },
+      "remediate": {
+        "backend": "codex",
+        "permissionMode": "auto",
+        "model": "gpt-6-astra"
+      },
+      "review": {
+        "backend": "codex",
+        "permissionMode": "auto",
+        "model": "gpt-6-astra"
+      }
+    },
+    "instructions": "",
+    "currentRunId": "a4fb0da0-e211-44ff-af73-236f2fe731f9",
+    "runDeadlineAt": "2026-09-15T22:28:51.216Z",
+    "remediationRounds": 8,
+    "stalledReviews": 0,
+    "polishRound": 2,
+    "polishPhase": "final-review",
+    "reason": "Worktree integrated; cycle complete.",
+    "reviewHeadSha": "a2b496384502c4dc5f27f1bf5ceaa9abad0a1b75",
+    "housekeepingInstructions": "",
+    "parentRunId": "4f28425c-85c8-413a-b14a-7123d5cb7178",
+    "previousFindingFingerprint": "1e26bd11fc70b5f41443d5d47136c9c6dc6411190d875722db03b351ae436d93",
+    "additionalRemediationRounds": 7,
+    "resultContinuations": 0,
+    "deferredNits": [
+      {
+        "finding": {
+          "id": "F-048",
+          "severity": "nit",
+          "status": "open",
+          "title": "Wait-resume predicate written twice inside one recovery invariant check",
+          "location": {
+            "path": "crates/actionqueue-storage/src/recovery/waits.rs",
+            "line": 843
+          },
+          "explanation": "In the same validation function the predicate 'this resolution resumes the run' is computed twice, once as a match at lines 843-851 (Children|Signal|Control => true, Deadline => spec.deadline().policy == ResumeWithTimeout, _ => false) and again as chained matches! at lines 872-880 for the records loop. I checked both copies are equivalent today, but two spellings of one recovery-correctness rule in a branch-new file invite silent divergence when a WaitResolutionKind variant or timeout policy is added. Behaviour-neutral polish.",
+          "recommendation": "Add a private fn resumes(record: &WaitRecord) -> bool (or a method on the record) and call it from both sites. No wire, fixture or snapshot bytes change."
+        },
+        "sourceRunId": "1ea99bd9-0e2b-4084-a553-847c6483ec7b",
+        "headSha": "b56e17d55b76fc1da9e9f8d38cf688a36dfe2ed9",
+        "targetSha": "97c9dc26c19c697dbfb204ed503e82c5f053394f",
+        "reason": "These are relatively minor and the body of finalization stands for itself. Independent review authorized.",
+        "createdAt": "2026-09-15T09:59:43.773Z",
+        "createdByUserId": "0698a39b-dda2-4870-8f3f-97ef94784ae9"
+      },
+      {
+        "finding": {
+          "id": "F-049",
+          "severity": "nit",
+          "status": "open",
+          "title": "DataRef canonical sub-encoding duplicated verbatim between the disposition and signal canonical encoders",
+          "location": {
+            "path": "crates/actionqueue-core/src/disposition_digest.rs",
+            "line": 19
+          },
+          "explanation": "Encoder::data in disposition_digest.rs (lines 19-35) and the inline closure in CanonicalSignalV1::new in continuation/signal_canonical.rs (lines 47-62) emit the identical tagged encoding of DataRef (tag 0: content_type option, bytes, hash; tag 1: scheme, locator, hash, size option, content_type option), 14 duplicated lines of canonical-format code in two branch-new files. The shared Encoder already lives in canonical.rs with pub(crate) helpers, so the duplication is unnecessary; the two formats are separately versioned and covered by golden vectors, so sharing the helper changes no bytes. Behaviour-neutral polish.",
+          "recommendation": "Move fn data(&mut self, &DataRef) onto Encoder in crates/actionqueue-core/src/canonical.rs as pub(crate) and call e.data(p) from signal_canonical.rs. The existing signal-v1 and disposition vectors in the conformance package prove byte identity."
+        },
+        "sourceRunId": "1ea99bd9-0e2b-4084-a553-847c6483ec7b",
+        "headSha": "b56e17d55b76fc1da9e9f8d38cf688a36dfe2ed9",
+        "targetSha": "97c9dc26c19c697dbfb204ed503e82c5f053394f",
+        "reason": "These are relatively minor and the body of finalization stands for itself. Independent review authorized.",
+        "createdAt": "2026-09-15T09:59:43.773Z",
+        "createdByUserId": "0698a39b-dda2-4870-8f3f-97ef94784ae9"
+      },
+      {
+        "finding": {
+          "id": "F-050",
+          "severity": "nit",
+          "status": "open",
+          "title": "Daemon and config polish: triple serialization of inspection responses, allowlist validated through a throwaway telemetry object with a misleading error code, redundant disclosure term, repeated platform handler prologue",
+          "location": {
+            "path": "crates/actionqueue-daemon/src/http/api.rs",
+            "line": 200
+          },
+          "explanation": "(a) api.rs value() (line 200) serializes every inspection response to Vec<u8> for the 2 MiB size check, deserializes it back into serde_json::Value, and Json(v) serializes it a third time; the bytes could be returned directly. (b) daemon config.rs validate() (line 193) validates signal_metric_allowlist by constructing QueueTelemetry::default() (an Arc<Mutex<Observations>>), calling set_signal_allowlist and discarding it, and reports failure as ConfigErrorCode::InvalidMetricsBind, which names a different field; the pure check in storage mutation/telemetry.rs lines 42-46 is what is wanted. (c) runtime inspection.rs Inspector::new (line 74) computes disclose: request_references && policy.allow_references after line 70 already returned Unauthorized whenever request_references && !policy.allow_references, so the second term is dead. (d) http/platform.rs create_tenant, assign_role, grant_capability and append_ledger_entry (lines 34-180) repeat the same authority-None check, lock match, latest_sequence()+1, clock.now(), execute_host_mutation and Ok/Err mapping; the shape is inherited from main but the branch rewrote all four identically. All branch-introduced or branch-rewritten; behaviour-neutral.",
+          "recommendation": "Optional polish: return the checked Vec<u8> with an application/json content type from value(); expose a pure telemetry::validate_signal_allowlist(&BTreeSet<(String,String)>) used by both DaemonConfig::validate and set_signal_allowlist, and report it under a dedicated ConfigErrorCode (or at least not InvalidMetricsBind); simplify Inspector::new to disclose: request_references; factor one host_mutation(state, host, build_command, ok_response) helper for the four platform handlers."
+        },
+        "sourceRunId": "1ea99bd9-0e2b-4084-a553-847c6483ec7b",
+        "headSha": "b56e17d55b76fc1da9e9f8d38cf688a36dfe2ed9",
+        "targetSha": "97c9dc26c19c697dbfb204ed503e82c5f053394f",
+        "reason": "These are relatively minor and the body of finalization stands for itself. Independent review authorized.",
+        "createdAt": "2026-09-15T09:59:43.773Z",
+        "createdByUserId": "0698a39b-dda2-4870-8f3f-97ef94784ae9"
+      }
+    ],
+    "findingFocus": [
+      "F-048",
+      "F-049",
+      "F-050",
+      "F-051",
+      "F-052",
+      "F-053",
+      "F-054",
+      "F-055",
+      "F-056"
+    ],
+    "finalizationAgentOverride": {
+      "backend": "codex",
+      "model": "gpt-6-astra"
+    },
+    "owner": null
+  }
+}

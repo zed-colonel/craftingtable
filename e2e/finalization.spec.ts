@@ -5,12 +5,16 @@ import { expect, test } from '@playwright/test';
 import { git, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
-for (const decision of ['remediate', 'defer', 'staged'] as const) {
+// New finalizations are staged (R-B10). 'remediate' exhausts the correctness stage's budget
+// and authorizes focused remediation; 'staged' selects an optional simplification batch.
+for (const decision of ['remediate', 'staged'] as const) {
   test(`automates integration and performs plan finalization with explicit final approval (${decision})`, async ({
     page,
   }, info) => {
     test.setTimeout(120000);
     page.setDefaultTimeout(15000);
+    // The one file each variant's implementation run adds to the candidate.
+    const candidateFile = decision === 'staged' ? 'POLISH-1.md' : 'REMEDIATED.md';
     const repository = mkdtempSync(join(tmpdir(), 'craftingtable-finalization-e2e-'));
     try {
       git(['init', '--initial-branch=main', '.'], repository);
@@ -98,8 +102,11 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
       await page.getByRole('button', { name: 'v1', exact: true }).click();
       const finalization = page.getByRole('region', { name: 'Finalize integration', exact: true });
       await finalization.getByRole('button', { name: 'Set up finalization' }).click();
+      await expect(
+        finalization.getByRole('region', { name: 'Finalization stage setup' }),
+      ).toBeVisible();
+      await expect(finalization.getByLabel('Finalization workflow')).toHaveCount(0);
       if (decision === 'staged') {
-        await expect(finalization.getByLabel('Finalization workflow')).toHaveValue('staged');
         await finalization.getByText('1. Correctness · whole plan', { exact: true }).click();
         await finalization
           .getByRole('button', { name: 'Add correctness slice before whole-plan check' })
@@ -123,15 +130,12 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
           .getByLabel('Common finalization instructions')
           .fill('Verify the complete candidate with focused stage selection.');
       } else {
-        await finalization.getByLabel('Finalization workflow').selectOption('legacy');
-        await finalization.getByLabel('Improvement rounds', { exact: true }).fill('1');
-        await expect(
-          finalization.getByLabel('Initial remediation budget', { exact: true }),
-        ).toHaveValue('3');
-        await finalization.getByLabel('Initial remediation budget', { exact: true }).fill('0');
-        await finalization
-          .getByLabel('Round focus')
-          .fill('Conformance and simplification, preserve the public behavior.');
+        const correctness = finalization
+          .locator('details')
+          .filter({ has: page.locator('summary', { hasText: '1. Correctness' }) });
+        await correctness.locator('summary').click();
+        await correctness.getByLabel('Stage remediation budget').fill('0');
+        await correctness.locator('summary').click();
         await finalization
           .getByLabel('Common finalization instructions')
           .fill('Review the complete plan and improve clarity. FINALIZATION-REMEDIATION-LIMIT');
@@ -156,23 +160,6 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
         await selection.scrollIntoViewIfNeeded();
         await selection.getByRole('button', { name: 'Authorize selected stage batch' }).click();
-      } else if (decision === 'defer') {
-        const checkpoint = finalization.getByRole('form', { name: 'Finalization next step' });
-        await expect(checkpoint).toBeVisible({ timeout: 30000 });
-        await checkpoint.getByRole('checkbox', { name: /F-001/ }).check();
-        await checkpoint
-          .getByLabel('Decision rationale (required)')
-          .fill('Accept this optional documentation nit as follow-up.');
-        await checkpoint
-          .getByLabel('Answers and guidance (optional)')
-          .fill('Keep source unchanged and complete the final independent review.');
-        await checkpoint.scrollIntoViewIfNeeded();
-        await expect
-          .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
-          .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-        await checkpoint
-          .getByRole('button', { name: 'Defer selected nits and review', exact: true })
-          .click();
       } else {
         const recovery = finalization.getByRole('form', { name: 'Finalization next step' });
         await expect(recovery).toBeVisible({ timeout: 30000 });
@@ -246,10 +233,6 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
       await expect(
         finalization.getByRole('button', { name: 'Review final merge approval' }),
       ).toBeVisible({ timeout: 30000 });
-      if (decision !== 'staged')
-        await expect(
-          finalization.getByText('final-review', { exact: false }).first(),
-        ).toBeVisible();
       expect(git(['rev-parse', 'main'], repository)).toBe(main);
       if (decision === 'remediate') {
         await expect(
@@ -258,13 +241,13 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
           }),
         ).toBeVisible();
         await expect(
-          finalization.getByText('1 of 2 remediation attempts used across this finalization.', {
+          finalization.getByRole('heading', {
+            name: 'Stage 5 of 5: Final independent review',
             exact: true,
           }),
         ).toBeVisible();
-      } else if (decision === 'defer')
-        await expect(finalization.getByText('Deferred nits (1)', { exact: true })).toBeVisible();
-      else {
+        await expect(finalization.getByText(/Lifetime total: 1\./)).toBeVisible();
+      } else {
         await expect(
           finalization.getByRole('heading', {
             name: 'Stage 6 of 6: Final independent review',
@@ -288,7 +271,7 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
       await expect(page.getByRole('region', { name: 'Run outcome', exact: true })).toBeVisible();
       await page.getByRole('button', { name: 'Plan finalization', exact: true }).click();
       await finalization.getByRole('button', { name: 'View complete candidate diff' }).click();
-      await expect(finalization.getByText('POLISH-1.md', { exact: false }).first()).toBeVisible();
+      await expect(finalization.getByText(candidateFile, { exact: false }).first()).toBeVisible();
       await finalization.getByRole('button', { name: 'Review final merge approval' }).click();
       await expect(
         finalization.getByRole('group', { name: 'Approve final promotion' }),
@@ -298,7 +281,7 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
         name: 'Remove local integration branch revision after successful promotion',
       });
       await expect(removeIntegration).not.toBeChecked();
-      if (decision === 'defer') await removeIntegration.check();
+      if (decision === 'remediate') await removeIntegration.check();
       await finalization
         .getByRole('button', { name: 'Approve merge into main', exact: true })
         .click();
@@ -309,7 +292,7 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
       expect(promoted).not.toBe(main);
       await expect(page.getByText('Plan completed', { exact: true }).first()).toBeVisible();
       const cleanup = finalization.getByRole('group', { name: 'Integration branch cleanup' });
-      if (decision !== 'defer') {
+      if (decision === 'staged') {
         expect(git(['rev-parse', 'revision'], repository)).toBe(integration);
         await expect(cleanup).toBeVisible();
         await cleanup
@@ -328,7 +311,9 @@ for (const decision of ['remediate', 'defer', 'staged'] as const) {
       await expect(
         page.getByText('Integration branch removed after final promotion.', { exact: false }),
       ).toBeVisible();
-      expect(readFileSync(join(repository, 'POLISH-1.md'), 'utf8')).toContain('Plan finalization');
+      expect(readFileSync(join(repository, candidateFile), 'utf8')).toContain(
+        decision === 'staged' ? 'Plan finalization' : 'Selected explanation completed by Codex',
+      );
     } finally {
       rmSync(repository, { recursive: true, force: true });
     }

@@ -26,7 +26,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B7](#r-b7) | P4 | L | open | Decompose the controller services along real boundaries |
 | [R-B8](#r-b8) | P1 | M | done (c0ccf3b, 9fe2152) | Remove dead and vestigial paths |
 | [R-B9](#r-b9) | P1 | M | done (4d81743, efd7369) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
-| [R-B10](#r-b10) | P1 | S-M | open | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
+| [R-B10](#r-b10) | P1 | S-M | in progress (start form staged-only; legacy deletion waits on a live staged finalization) | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
@@ -361,7 +361,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B10
 
-**Retire legacy finalization for new starts** · Phase P1 · Effort S-M · Status: open
+**Retire legacy finalization for new starts** · Phase P1 · Effort S-M · Status: in progress
 
 - **Added 2026-09-24:** split from [R-B8](#r-b8) in the phase 1 review. Its part of the R-B8 Change needs work R-B8 never scoped: moving tests first, and a UI change.
 - **Resolves:** [CTRL-15](findings/CTRL-controller.md#ctrl-15-dead-and-vestigial-controller-paths) (the legacy-finalization part).
@@ -377,6 +377,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The walkthrough captures are recorded.
   - `pnpm check` is green.
 - **Note:** No staged finalization has run on live data yet (CTRL-15). Consider running one live finalization on the staged controller before the legacy branches are deleted.
+- **Progress 2026-09-25:**
+  - **Start form.** "Legacy improvement rounds" is gone from the finalization start form; a new finalization is always staged (`FinalizationPanel.tsx`). Walkthrough captures `2026-09-25-finalization-staged-before` and `-after` (scene 10, finalization setup). `FinalizationPanel.test.tsx` asserts the form offers only stages, and fails against the previous form.
+  - **The completed legacy record renders.** The live 2026-09-13 finalization and its cycle are copied read-only into `fixtures/records/legacy-finalization-2026-09-13.json` (ids, SHAs and prose only). `legacy-finalization-record.test.ts` checks both still pass their persisted-record contracts and the view contract. `FinalizationPanel.test.tsx` renders them: "Promoted by operator", "final-review · 2 of 2 improvement rounds", and the removed integration branch.
+  - **E2E.** The finalization spec's legacy variants are replaced: `remediate` now exhausts the correctness stage's budget and authorizes focused remediation on a staged finalization; `defer` (legacy defer-nits) is dropped, and its promotion-with-branch-removal check moved to `remediate`. The stand-in agents answer stage reviews through one helper (`e2e/fake-finalization.mjs`).
+  - **Replay baseline.** On a private copy of the 2026-09-23 snapshot, `controller:replay --check` reports 51 decisions, 0 changed. A new `--every-run` baseline (278 decisions) is recorded from this head, where controller code equals 5e0c638. It is kept at `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-23/every-run-golden-5e0c638.json` for the deletion's check.
+  - **Deviation: the API still accepts legacy input.** The done-when "a new finalization cannot choose legacy rounds" is met in the UI. The contract refuses legacy starts only when the legacy branches are deleted, so the legacy controller tests keep driving it until then.
+  - **Still to do:** move the legacy controller tests to staged finalizations; delete the legacy branches after a staged finalization completes on live data. On 2026-09-25 the operator reported no plan is ready to finalize, so the deletion is left as the last step.
 
 ## Workstream C — Operator-wait reduction (the vision: minimum operator input)
 

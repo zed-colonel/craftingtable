@@ -278,7 +278,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
           .getByRole('region', { name: 'Finalize integration', exact: true })
           .getByRole('button', { name: 'Set up finalization' })
           .click();
-        await expect(p.getByLabel('Finalization workflow')).toBeVisible();
+        await expect(p.getByRole('region', { name: 'Finalization stage setup' })).toBeVisible();
       },
     );
 

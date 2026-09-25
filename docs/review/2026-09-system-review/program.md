@@ -310,6 +310,23 @@ R-A7 had no defects. Fixes, each with a dated amendment on its item:
   - R-E6 and R-I7;
   - the post-deploy measurements for R-H2 and R-G7.
 
+**Deployed 2026-09-25 (0190845, release `20260925T021344Z-0190845cd490`),** ahead of the rest of
+P1, so a staged finalization can run live before R-B10 deletes the legacy branches.
+- **Checked before deploy.** `pnpm db:verify` on a fresh backup of the live database
+  (`pre-p1-deploy-2026-09-24.sqlite`) migrated the copy from schema 26 to 30 and passed.
+  56,303 records, 0 invalid, 3 upcasts, integrity ok.
+- **Unit.** The R-B9 drop-in (`drain.conf`: node on dist, `KillMode=mixed`, `TimeoutStopSec=300`)
+  was installed before the deploy. The daemon now runs `node apps/server/dist/index.js`, so a
+  plain `systemctl` stop or restart drains too.
+- **Restart.** As expected, the old daemon predated drain support and was restarted without
+  draining. No agent run was live, so nothing was interrupted.
+  - The paused roadmap and the four waiting cycles all date from before the deploy.
+  - Schema 30 is live, and the pre-migration copy is in `state/pre-migration/`.
+- **Still to do on live data:**
+  - compact the journal (`docs/operations.md`);
+  - after a few days, measure R-H2's growth per run and R-G7's cache-removal volume;
+  - confirm on the next deploy that a live turn drains and resumes (R-B9's exit criterion).
+
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 
 | Item | Notes |

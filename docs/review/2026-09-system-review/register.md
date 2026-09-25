@@ -795,7 +795,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
     Whichever merges first switches EXO's integration branch. The map's staged contract gates (EXO-AQ-G1..G5, EXO-WI-G1..G5) say when an upstream capability is available to consume. They don't say which EXO slice moves EXO's code onto the current pins.
 - **EXO note (operator, 2026-09-25).** Deciding EXO's transitions is a planning decision for the next map revision; the Planning Studio makes it later. The cleanest shape is one explicit slice that adopts EXO's current AQ and WI pins, which EXO-03/integration, EXO-05/integration and EXO-18/instance-qualification all require. The alternative is to declare the move on one of those two slices and add the edge the other needs. It is not urgent: EXO's integration slices are still gated on EXO-ADR-037 and the WI gates.
-- **Links are coupled.** An upstream's current pin can carry its own upstreams. WI's pin (03370fd5) requires AQ `=0.2.0`, so EXO cannot build current WI against historical AQ: a unified Cargo build would carry two incompatible 0.x AQ versions, or fail. The rule is that a link cannot go current before the links its upstream's current pin depends on. For example, exo→wi requires exo→aq to be current first, or both links move in the same slice. The import check derives this from the consumers' upstream lists and rejects declarations that violate it.
+- **Links are coupled.** A planned upstream's current pin carries its own upstreams, and its historical source carries historical ones. WI's pin (03370fd5) requires AQ `=0.2.0`, and historical WI requires AQ 0.1.x. EXO therefore builds only with exo→wi and exo→aq both historical or both current; a mixed state carries two incompatible 0.x AQ versions, or fails. Coupled links must move at the same slice. The import check derives the pairs from the consumers' upstream lists.
+  - Amended after review 2026-09-25: the first version only stopped exo→wi moving before exo→aq, and allowed the reverse.
 - **Re-pinning is separate.** After a link goes current, its pin keeps moving (EXO-WI-G1 through G5's release-grade pin). Runtime generations and reviewed refreshes cover that (ADR-058). R-F7 only covers the one-time move off the historical upstream.
 - **Not a defect:** a fresh tree reusing another slice's historical preparation. A preparation belongs to the consumer binding and records historical refs for each repository, so any tree of that consumer gets the same sources.
 - **Change (design to be settled in an ADR before code):**
@@ -814,7 +815,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - A receipt satisfies a current-upstream gate only when every link is current. Scoped receipts still never satisfy one (ADR-053).
   - **Fail closed.** If a tree needs a current pin on a link with no transition declared (for example, a consumer current-upstream slice merged first), the run does not start. It raises a typed attention code telling the operator to declare the transition. It never falls back silently.
 - **Operator decision 2026-09-25: how the live roadmap gets its declarations.** The live roadmap gets them through an operator-approved declaration record, not a new definition. Under ADR-049, a new definition would need new adoption, new dependency environments and fresh verification and acceptance.
-  - The record is typed and attached to the current definition. The definition page shows it, and each receipt records its digest.
+  - The record is typed and attached to the current definition. The runtime view shows it. Each run's manifest records the id of the record that decided a link, and the manifest digest the receipts carry binds that id.
   - It passes the same import checks as the map field would.
   - The next map revision absorbs it into the map, and the record retires.
   - It invalidates no receipt. Every earlier receipt was built either on a base that predates the transition merge, or against current pins; neither depends on the missing declaration.
@@ -830,7 +831,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Tests over the live map (`packages/planning/src/upstream-transitions.test.ts`):
       - wi→aq at WI-02/integration is accepted, and a later slice is refused;
       - every choice of EXO's first slice is refused;
-      - once EXO has a single first slice, exo→wi alone is refused for coupling, and passes together with exo→aq.
+      - once EXO has a single first slice, exo→wi or exo→aq alone is refused for coupling, as are the two at different slices; both at one slice pass.
       - coupling runs only through a planned upstream. An implemented upstream's pin is fixed, and the map declares nothing it consumes; the first version coupled through every implemented upstream, and the integration fixture caught it.
   - **The operator record and choosing sources per link.**
     - Schema 31 adds `upstream_transition_records`, which is immutable. The record kind is registered with the write guard, `db:verify` and the persisted-record contracts.
@@ -843,6 +844,21 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - `server-execution-upstream-transitions.test.ts` runs a real Cargo build. It shows the undeclared stop with no agent launched, the record API, and a domain tree before the transition merged staying dependency-free. A fresh domain verification after the merge gets the current pin, and `cargo test` passes against it. That last check fails with the choice reverted to slice kind.
       - The integration-mode build test declares its transition in the map.
     - Replay against `every-run-golden-a4aa12d.json`: 278 decisions, 0 changed. The live golden: 51, 0 changed. Unit suite: 183 files, 1,421 tests.
+  - **Independent review (2026-09-25) of 2713a6a, 70b0398, 50da8f8.** Its findings and what was done:
+    - **Coupling allowed the reverse mixed state.** Declaring exo→aq at an earlier slice than exo→wi would leave EXO trees on current AQ with historical WI, which needs AQ 0.1.x. Coupled links must now move at the same slice. Tests were updated.
+    - **No test covered a recorded merge outside a tree's history, or a real historical preparation.** The end-to-end test now does three things:
+      - It merges the transition first, then shows a domain tree based before that merge stays dependency-free.
+      - With the consumer's historical preparation attached, the same tree builds the historical provider, and the manifest names the preparation.
+      - After the domain merge, a fresh verification gets the current pin.
+      - Treating any recorded merge as moved, without the ancestry check, fails the test.
+    - **Only the latest merge was checked.** `transitionMerges` returns every recorded merge of the transition scope, direct or reused across an amendment. A tree has moved if any of them is in its history.
+    - **The stop pointed to a UI that did not exist yet.** The reviewer saw the server commits only; the UI landed in the next commit.
+    - **A configured upstream outside the map could never be declared.** `configure` now refuses consumer upstreams that are not the map's links for that consumer.
+    - **Unintended changes in `prepare()`.**
+      - A historical preparation with no source for a link conflicts again, as it did before.
+      - The scoped brief no longer tells an agent to avoid current pins on a link that has moved.
+    - **Record triggers were untested, and the register wording was wrong.** A test now shows the table refuses UPDATE and DELETE. The operator-decision text now says the manifest records the id, and the manifest digest binds it.
+    - **Operational note.** After deploy, WI current-pin work stops with `upstream-transition-undeclared` until the wi→aq record is approved. Approve it first.
   - **UI.** An "Upstream transitions" section follows Verification environments in the dependency panel (`UpstreamTransitionsPanel`).
     - Each consumer→upstream link shows its transition slice and whether the map or the operator declared it.
     - An undeclared link offers only the slices the checks accept, or says to declare it in the next map revision when none qualifies.
@@ -853,7 +869,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - A pre-migration WI-03/domain tree is still supplied 97c9dc26.
   - A fixture with a two-upstream consumer builds with one link current and one historical.
   - The import checks reject a transition that another current-upstream slice of the consumer does not require.
-  - They also reject a link declared current before the links its upstream's current pin depends on.
+  - They also reject coupled links that are not declared at the same slice.
   - The live roadmap's wi→aq record is approved, and WI-02/domain's verification passes its checks.
 
 ## Workstream G — Agent execution integrity and security

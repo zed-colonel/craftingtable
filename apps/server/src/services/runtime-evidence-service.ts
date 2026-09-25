@@ -68,6 +68,7 @@ import {
   type EvidenceSubmission,
   type EvidenceSubject,
   type RuntimeGeneration,
+  consumerUpstreams,
   upstreamTransitionIssues,
   type WorkspaceId,
   type Worktree,
@@ -78,7 +79,7 @@ import type { AuthContext, CommandContext } from './auth-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import {
   chooseUpstreamSources,
-  transitionMerge,
+  transitionMerges,
   upstreamTransitions,
   upstreamTransitionView,
 } from './upstream-transition-policy.js';
@@ -667,6 +668,13 @@ export class RuntimeEvidenceService {
       )
         conflict('Unknown planned consumer.');
       unique(consumer.upstreams, 'consumer dependencies');
+      // Only a link of the map can be declared, so an extra upstream could never be cleared.
+      const links = consumerUpstreams(d.source, consumer.alias);
+      const unknown = consumer.upstreams.filter((u) => !links.includes(u));
+      if (unknown.length)
+        conflict(
+          `${consumer.alias} does not build against ${unknown.join(', ')} in this map. Configure only its map upstreams.`,
+        );
       if (
         consumer.upstreams.some(
           (u) => u === consumer.alias || !input.pins.some((p) => p.alias === u),
@@ -2211,21 +2219,28 @@ export class RuntimeEvidenceService {
       purpose: string;
       transition?: { slice: string; recordId?: string };
     }[] = [];
-    // A scoped tree's link moved once its declared transition's recorded merge is in its history.
+    // A scoped tree's link moved once a recorded merge of its declared transition is in its
+    // history.
     const moved = new Set<string>();
-    for (const alias of scoped ? consumer.upstreams : []) {
+    const headSha = head?.ok ? head.value.commitSha : undefined;
+    for (const alias of consumer.upstreams) {
+      if (!headSha) break;
       const transition = transitions.find((t) => t.consumer === b.alias && t.upstream === alias);
-      const merge =
-        transition &&
-        transitionMerge(this.storage, tree.workspaceId, definition, scope, transition);
-      if (!merge || !head?.ok) continue;
-      const ancestor = await this.requireGit().isAncestor(
-        consumerRepository.rootPath,
-        merge,
-        head.value.commitSha,
-      );
-      if (!ancestor.ok) conflict(ancestor.failure.message);
-      if (ancestor.value) moved.add(alias);
+      const merges = transition
+        ? transitionMerges(this.storage, tree.workspaceId, definition, scope, transition)
+        : [];
+      for (const merge of merges) {
+        const ancestor = await this.requireGit().isAncestor(
+          consumerRepository.rootPath,
+          merge,
+          headSha,
+        );
+        if (!ancestor.ok) conflict(ancestor.failure.message);
+        if (ancestor.value) {
+          moved.add(alias);
+          break;
+        }
+      }
     }
     const choices = chooseUpstreamSources({
       consumer: b.alias,
@@ -2239,6 +2254,8 @@ export class RuntimeEvidenceService {
       // Without a prepared historical source a scoped link stays dependency-free; never
       // silently use registry fallback.
       if (source === 'none') {
+        if (historical)
+          conflict(`The historical preparation has no ${alias} source. Prepare it again.`);
         forbiddenPackages.push(
           ...(runtime.pins.find((p) => p.alias === alias)?.packages.map((p) => p.name) ?? []),
         );

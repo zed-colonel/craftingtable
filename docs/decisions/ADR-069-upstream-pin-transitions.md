@@ -43,10 +43,12 @@ not decide it, and CraftingTable does not infer it from what has merged.
     through start requirements. Requirements of accepted work items and passed checkpoints are
     followed transitively. So no current-pin work can start before its link moves;
   - the upstream is a planned application that itself consumes another upstream U, the consumer
-    also depends on U, and the consumer→U link is not declared at the same slice or at a slice
-    this one requires. A planned upstream's current pin can carry its own upstreams (WI's pin
-    requires AQ `=0.2.0`), so the consumer cannot take it while still building historical U. An
-    implemented upstream's pin is fixed, and the map declares nothing it consumes.
+    also depends on U, and the two links are not declared at the same slice (or the other link
+    is not declared at all). The same applies from U's side. A planned upstream's current pin
+    carries its own upstreams (WI's pin requires AQ `=0.2.0`), and its historical source carries
+    historical ones. So the consumer builds only with both links historical or both current, and
+    coupled links move together. An implemented upstream's pin is fixed, and the map declares
+    nothing it consumes.
 - **Choosing the source per link.** When a run starts, each consumer→upstream link is supplied
   separately (`chooseUpstreamSources`):
   - For a scope that ADR-053 gives the current pins, a declared link gets the current pin. An

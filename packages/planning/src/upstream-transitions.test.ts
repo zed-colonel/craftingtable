@@ -55,11 +55,15 @@ describe('upstream transitions (ADR-069)', () => {
 
   it('cannot read EXO off the live graph: three independent first current-pin slices', () => {
     for (const slice of ['exo/EXO-03/integration', 'exo/EXO-05/integration']) {
-      const issues = upstreamTransitionIssues(source, [{ consumer: 'exo', upstream: 'aq', slice }]);
+      // Both coupled links at the same slice, so only the order is at fault.
+      const issues = upstreamTransitionIssues(source, [
+        { consumer: 'exo', upstream: 'aq', slice },
+        { consumer: 'exo', upstream: 'wi', slice },
+      ]);
       expect(
         issues.map((i) => i.code),
         slice,
-      ).toEqual(['upstream-transition-order']);
+      ).toEqual(['upstream-transition-order', 'upstream-transition-order']);
       const other = slice.includes('03') ? 'exo/EXO-05/integration' : 'exo/EXO-03/integration';
       expect(issues[0]?.message, slice).toContain(other);
       // An early-start exception lets its native builds precede every EXO integration slice.
@@ -85,22 +89,26 @@ describe('upstream transitions (ADR-069)', () => {
     expect(codes([wiAq, wiAq])).toEqual(['upstream-transition-duplicate']);
   });
 
-  it('requires a consumer to take an upstream only after the links its current pin carries', () => {
+  it('moves coupled links together: a planned upstream carries its own upstream pins', () => {
     const funnel = analyzeConcurrencyArchive(archive(exoFunnel)).source!;
     const exo = (upstream: string, slice = 'exo/EXO-03/integration') => ({
       consumer: 'exo',
       upstream,
       slice,
     });
-    // WI's current pin builds against AQ, so exo→wi cannot move while exo→aq is historical.
+    // WI's current pin builds against current AQ and historical WI against historical AQ, so EXO
+    // can take neither link alone, nor one before the other.
     expect(codes([exo('wi')], funnel)).toEqual(['upstream-transition-coupling']);
+    expect(codes([exo('aq')], funnel)).toEqual(['upstream-transition-coupling']);
+    expect(codes([exo('aq'), exo('wi', 'exo/EXO-05/integration')], funnel)).toContain(
+      'upstream-transition-coupling',
+    );
     expect(codes([exo('aq'), exo('wi')], funnel)).toEqual([]);
-    // AQ carries no upstream of EXO's, so exo→aq may move alone.
-    expect(codes([exo('aq')], funnel)).toEqual([]);
   });
 
-  it('couples links only through a planned upstream, whose current pin it builds', () => {
-    // A second implemented upstream: AQ's pin is fixed, so exo→aq carries no link to it.
+  it('does not couple through an implemented upstream, whose pin is fixed', () => {
+    // A second implemented upstream that WI also builds against. AQ's pin carries nothing, so
+    // wi→aq may move without wi→aq2.
     const s = {
       ...source,
       repositories: [
@@ -108,9 +116,7 @@ describe('upstream transitions (ADR-069)', () => {
         { ...source.repositories.find((r) => r.id === 'aq')!, id: 'aq2' },
       ],
     };
-    const funnel = analyzeConcurrencyArchive(archive(exoFunnel)).source!;
-    const exoAq = { consumer: 'exo', upstream: 'aq', slice: 'exo/EXO-03/integration' };
-    expect(codes([exoAq], { ...funnel, repositories: s.repositories })).toEqual([]);
+    expect(codes([wiAq], s)).toEqual([]);
   });
 
   it('fails the import with the same diagnostics', () => {

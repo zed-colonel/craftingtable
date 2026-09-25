@@ -3,6 +3,7 @@ import {
   consumerUpstreams,
   effectiveUpstreamTransitions,
   type ExecutionScope,
+  sameExecutionScope,
   scopedBuildScope,
   type UpstreamTransition,
   upstreamTransitionIssues,
@@ -11,7 +12,6 @@ import {
 import type { StorageRepositories } from '@craftingtable/storage';
 import { UpstreamTransitionUndeclaredError } from './errors.js';
 import { snapshotCalculation } from './map-read-snapshot.js';
-import { integratedSlice } from './scope-lineage.js';
 
 /** The declarations that apply to a definition: its map's own, then its operator records. */
 export function upstreamTransitions(
@@ -78,27 +78,39 @@ export function upstreamTransitionView(
   );
 }
 
-/** The slice-scope merge that moved a link, when this map binding has recorded one. */
-export function transitionMerge(
+/**
+ * Every recorded merge of a transition slice's scope under this binding: direct merges, and
+ * integrated code reused across an amendment. A remediation can merge a scope more than once;
+ * a tree containing any of them has moved.
+ */
+export function transitionMerges(
   tx: StorageRepositories,
   ws: WorkspaceId,
   d: ConcurrencyDefinition,
   scope: Pick<ExecutionScope, 'definitionId' | 'bindingRevision'>,
   transition: UpstreamTransition,
-): string | undefined {
+): readonly string[] {
   const parent = d.source.slices.find((s) => s.id === transition.slice)?.work_item;
   const bound = tx.imports
     .bindings(ws, scope.definitionId)
     .find((b) => b.revision === scope.bindingRevision)
     ?.bindings.flatMap((b) => b.workItems)
     .find((w) => w.sourceId === parent);
-  if (!bound) return undefined;
-  return integratedSlice(tx, ws, bound.workItemId, {
+  if (!bound) return [];
+  const target: ExecutionScope = {
     definitionId: scope.definitionId,
     bindingRevision: scope.bindingRevision,
     kind: 'slice',
     sourceId: transition.slice,
-  })?.mergeSha;
+  };
+  const direct = tx.execution.worktrees
+    .listForWorkItem(ws, bound.workItemId)
+    .filter((t) => sameExecutionScope(t.executionScope, target))
+    .map((t) => t.mergeSha);
+  const reused = tx.amendments
+    .integrations(ws, bound.workItemId, target)
+    .map((r) => tx.execution.worktrees.find(ws, r.sourceWorktreeId)?.mergeSha);
+  return [...new Set([...direct, ...reused].filter((sha): sha is string => !!sha))];
 }
 
 export interface UpstreamSourceChoice {

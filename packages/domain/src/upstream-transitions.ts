@@ -219,28 +219,36 @@ export function upstreamTransitionIssues(
         message: `${t.slice} cannot move ${link(t)}: ${early.slice(0, 5).join(', ')}${early.length > 5 ? ` and ${early.length - 5} more` : ''} need the current pins without requiring it first.`,
       });
   }
-  // A planned upstream's current pin carries its own upstreams, so the consumer must move those
-  // first. An implemented upstream's pin is fixed, and the map declares nothing it consumes.
+  // A planned upstream's current pin carries its own upstreams: WI's current pin builds against
+  // AQ 0.2.0, and historical WI against historical AQ. A consumer of both can build only with both
+  // links historical or both current, so coupled links move at the same slice. An implemented
+  // upstream's pin is fixed, and the map declares nothing it consumes.
   const carried = (upstream: string) =>
     s.repositories.find((r) => r.id === upstream)?.role === 'planned_application'
       ? consumerUpstreams(s, upstream)
       : [];
-  for (const t of linked)
-    for (const inner of carried(t.upstream).filter((u) =>
-      consumerUpstreams(s, t.consumer).includes(u),
-    )) {
-      const first = declared.get(link({ consumer: t.consumer, upstream: inner }));
-      if (
-        !first ||
-        (first.slice !== t.slice &&
-          !predecessors(milestoneKey({ kind: 'slice', id: t.slice, state: 'started' })).has(
-            merged(first.slice),
-          ))
-      )
-        issues.push({
-          code: 'upstream-transition-coupling',
-          message: `${link(t)} needs ${link({ consumer: t.consumer, upstream: inner })} declared at ${t.slice} or at a slice it requires, because ${t.upstream}'s current pin builds against ${inner}.`,
-        });
+  const reported = new Set<string>();
+  for (const t of linked) {
+    const upstreams = consumerUpstreams(s, t.consumer);
+    // Pairs (outer, inner) of this consumer's links where the outer upstream's pin carries the inner.
+    const pairs = [
+      ...upstreams.filter((u) => carried(u).includes(t.upstream)).map((u) => [u, t.upstream]),
+      ...carried(t.upstream)
+        .filter((u) => upstreams.includes(u))
+        .map((u) => [t.upstream, u]),
+    ] as [string, string][];
+    for (const [outer, inner] of pairs) {
+      const key = `${t.consumer}:${outer}:${inner}`;
+      const other = declared.get(
+        link({ consumer: t.consumer, upstream: outer === t.upstream ? inner : outer }),
+      );
+      if (other?.slice === t.slice || reported.has(key)) continue;
+      reported.add(key);
+      issues.push({
+        code: 'upstream-transition-coupling',
+        message: `${link({ consumer: t.consumer, upstream: outer })} and ${link({ consumer: t.consumer, upstream: inner })} must move at the same slice, because ${outer}'s current pin builds against the current ${inner} and its historical source against a historical one.`,
+      });
     }
+  }
   return issues;
 }

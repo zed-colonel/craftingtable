@@ -8,6 +8,7 @@ import {
 } from '@craftingtable/contracts';
 import type { PinnedCargoManifest } from '@craftingtable/agents';
 import type { ExecutionScope } from '@craftingtable/domain';
+import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect } from 'vitest';
 import {
   cleanupExecutionFixtures,
@@ -162,14 +163,41 @@ async function transitionFixture() {
       manifest: JSON.parse(readFileSync(launch!.manifestPath, 'utf8')) as PinnedCargoManifest,
     };
   };
-  return { f, ws, storage, scope, declare, prepared };
+  return { f, ws, storage, scope, declare, prepared, repository, providerSha: observed.commitSha };
 }
 
 itNeedsCargo(
   'stops current-pin work on an undeclared link, then moves domain work at the declared transition',
   async () => {
-    const { f, ws, storage, scope, declare, prepared } = await transitionFixture();
+    const { f, ws, storage, scope, declare, prepared, repository, providerSha } =
+      await transitionFixture();
     const treeA = await scopeTree(f, scope('slice', A));
+    // Only a link of the map can be declared, so configuration accepts only the map's upstreams.
+    const generation = storage.runtimeEvidence.generations(
+      ws,
+      scope('slice', A).definitionId,
+      2,
+    )[0]!;
+    await expect(
+      f.state.context.services.runtimeEvidenceService.configure(
+        f.auth,
+        ws,
+        scope('slice', A).definitionId,
+        {
+          bindingRevision: 2,
+          expectedGeneration: generation.generation,
+          pins: generation.pins.map((p) => ({
+            alias: p.alias,
+            ref: p.ref,
+            expectedCommitSha: p.commitSha,
+            conformanceRevision: p.conformanceRevision,
+            packages: [...p.packages],
+          })),
+          consumers: [{ alias: 'local', upstreams: ['provider', 'unmapped'] }],
+          environments: [...generation.environments],
+        },
+      ),
+    ).rejects.toThrow('local does not build against unmapped in this map');
 
     // Undeclared: integration work stops with its own code instead of building on a guess.
     await expect(prepared(treeA)).rejects.toThrow(UpstreamTransitionUndeclaredError);
@@ -226,6 +254,17 @@ itNeedsCargo(
     });
     expect(twice.statusCode).toBe(409);
     expect(twice.body).toContain('declared more than once');
+    // Approved records are immutable in storage, not only through the API.
+    const db = openDatabase(storage.databasePath);
+    try {
+      for (const sql of [
+        "UPDATE upstream_transition_records SET record_json='{}' WHERE id=?",
+        'DELETE FROM upstream_transition_records WHERE id=?',
+      ])
+        expect(() => db.prepare(sql).run(recordId)).toThrow('immutable');
+    } finally {
+      db.close();
+    }
     expect((await prepared(treeA)).launch.dependencies).toEqual([
       expect.objectContaining({
         alias: 'provider',
@@ -235,13 +274,15 @@ itNeedsCargo(
     ]);
 
     // Domain work based before the transition merged keeps the historical source; none is
-    // prepared here, so the provider stays forbidden rather than resolved from a registry.
+    // prepared yet, so the provider stays forbidden rather than resolved from a registry.
     const early = await scopeTree(f, scope('slice', B));
-    const before = await prepared(early);
-    expect(before.launch.dependencies).toEqual([]);
-    expect(before.manifest.forbiddenPackages).toEqual(['ct_runtime_provider']);
+    const forbidden = async () => {
+      const before = await prepared(early);
+      expect(before.launch.dependencies).toEqual([]);
+      expect(before.manifest.forbiddenPackages).toEqual(['ct_runtime_provider']);
+    };
+    await forbidden();
 
-    // As with WI-02: the domain slice merges first, then the integration slice that migrates.
     const merged = (tree: { id: string }, mergeSha: string) => {
       const integration = storage.execution.worktrees.find(ws, tree.id as never)!.baseBranch;
       git(['update-ref', `refs/heads/${integration}`, mergeSha], f.root);
@@ -252,10 +293,56 @@ itNeedsCargo(
         mergeSha,
       });
     };
-    const domainSha = commitFile(early.path, 'domain.txt', 'domain work');
-    merged(early, domainSha);
-    git(['merge', '--no-edit', '--no-gpg-sign', domainSha], treeA.path);
-    merged(treeA, commitFile(treeA.path, 'migration.txt', 'moved to the provider pin'));
+    // Slice a merges. The early tree's history lacks that merge, so its link has not moved.
+    const migrationSha = commitFile(treeA.path, 'migration.txt', 'moved to the provider pin');
+    merged(treeA, migrationSha);
+    await forbidden();
+
+    // With the consumer's historical preparation, the early tree builds the historical provider.
+    const stopped = currentCycle(f.state, cycle);
+    const preparationId = randomUUID();
+    storage.execution.cycles.replace(
+      {
+        ...stopped,
+        version: stopped.version + 1,
+        baselinePreparation: {
+          id: preparationId,
+          contextDigest: 'a'.repeat(64),
+          createdAt: new Date().toISOString(),
+          createdByUserId: f.state.userId,
+          status: 'prepared',
+          directory: join(f.state.context.directory, 'baseline'),
+          consumerAlias: 'local',
+          sources: [
+            {
+              alias: 'provider',
+              repositoryId: repository.id,
+              directoryName: 'provider',
+              commitSha: providerSha,
+            },
+          ],
+          message: 'Historical provider prepared.',
+        },
+      },
+      stopped.version,
+    );
+    const historical = await prepared(early);
+    expect(historical.launch.dependencies).toEqual([
+      expect.objectContaining({
+        alias: 'provider',
+        commitSha: providerSha,
+        purpose: 'historical-development',
+        transition: { slice: A, recordId },
+      }),
+    ]);
+    expect(historical.manifest.historicalPreparationId).toBe(preparationId);
+    expect(historical.manifest.forbiddenPackages).toBeUndefined();
+
+    // The domain slice merges on top, and a fresh verification of it is based on the migrated
+    // head: the same shape as WI-02/domain after WI-02/integration.
+    commitFile(early.path, 'domain.txt', 'domain work');
+    git(['merge', '--no-edit', '--no-gpg-sign', migrationSha], early.path);
+    merged(early, git(['rev-parse', 'HEAD'], early.path).trim());
     const verification = await scopeTree(f, scope('slice-verification', B));
     const after = await prepared(verification);
     expect(after.launch.dependencies).toEqual([

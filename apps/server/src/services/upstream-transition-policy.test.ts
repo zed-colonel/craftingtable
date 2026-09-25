@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { UpstreamTransitionUndeclaredError } from './errors.js';
 import { chooseUpstreamSources } from './upstream-transition-policy.js';
 
-// ADR-069: each consumer→upstream link is supplied from its own source.
+// ADR-069: each consumer→upstream link is supplied from its own source. The two upstreams are
+// unrelated, so their links may move at different slices (coupled links move together).
 const exoAq = { consumer: 'exo', upstream: 'aq', slice: 'exo/EXO-A/integration' };
-const exoWi = { consumer: 'exo', upstream: 'wi', slice: 'exo/EXO-A/integration', recordId: 'r1' };
+const exoWi = { consumer: 'exo', upstream: 'wi', slice: 'exo/EXO-B/integration', recordId: 'r1' };
 const choose = (input: Partial<Parameters<typeof chooseUpstreamSources>[0]>) =>
   chooseUpstreamSources({
     consumer: 'exo',

@@ -788,7 +788,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **`prepare()` is all-or-nothing per tree.** Every upstream comes from the historical preparation, or every upstream comes from the runtime pins. EXO depends on AQ and WI, and the two links can switch at different times. A tree that needs current AQ and historical WI cannot be supplied under either mode.
 - **What the live map shows** (read-only analysis of definition 0ebcb7cf, binding revision 4):
   - **wi→aq.** Excluding WI-01/implementation, which qualifies for scoped checks, WI-02/integration is the one WI current-upstream slice that every other WI current-upstream slice requires, directly or transitively. It is the natural transition slice.
-  - **exo→aq and exo→wi.** EXO has two independent first integration slices, EXO-03/integration and EXO-05/integration, and each would move both links at once. Neither link's transition can be derived from the graph, so EXO needs an explicit declaration before its first integration slice merges.
+  - **exo→aq and exo→wi.** EXO has two independent first integration slices, and neither requires the other:
+    - EXO-03/integration requires EXO-AQ-G2/G3 and EXO-WI-G1/G2.
+    - EXO-05/integration requires EXO-WI-G1/G2 and no AQ gate.
+
+    Whichever merges first switches EXO's integration branch. The map's staged contract gates (EXO-AQ-G1..G5, EXO-WI-G1..G5) say when an upstream capability is available to consume. They don't say which EXO slice moves EXO's code onto the current pins.
+- **EXO note (operator, 2026-09-25).** Deciding EXO's transitions is a planning decision for the next map revision; the Planning Studio makes it later. The cleanest shape is one explicit slice that adopts EXO's current AQ and WI pins, which both EXO-03/integration and EXO-05/integration require. The alternative is to declare the move on one of those two slices and add the edge the other needs. It is not urgent: EXO's integration slices are still gated on EXO-ADR-037 and the WI gates.
+- **Links are coupled.** An upstream's current pin can carry its own upstreams. WI's pin (03370fd5) requires AQ `=0.2.0`, so EXO cannot build current WI against historical AQ: a unified Cargo build would carry two incompatible 0.x AQ versions, or fail. The rule is that a link cannot go current before the links its upstream's current pin depends on. For example, exo→wi requires exo→aq to be current first, or both links move in the same slice. The import check derives this from the consumers' upstream lists and rejects declarations that violate it.
+- **Re-pinning is separate.** After a link goes current, its pin keeps moving (EXO-WI-G1 through G5's release-grade pin). Runtime generations and reviewed refreshes cover that (ADR-058). R-F7 only covers the one-time move off the historical upstream.
 - **Not a defect:** a fresh tree reusing another slice's historical preparation. A preparation belongs to the consumer binding and records historical refs for each repository, so any tree of that consumer gets the same sources.
 - **Change (design to be settled in an ADR before code):**
   - **Format.** An optional, typed declaration in the map, a v0.3 superset under program rule 2: for each consumer→upstream link, the consumer slice that moves it to the current pin.
@@ -805,12 +812,19 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - The run manifest, the receipt and the brief record which source each link used.
     - A receipt satisfies a current-upstream gate only when every link is current. Scoped receipts still never satisfy one (ADR-053).
   - **Fail closed.** If a tree needs a current pin on a link with no transition declared (for example, a consumer current-upstream slice merged first), the run does not start. It raises a typed attention code telling the operator to declare the transition. It never falls back silently.
-- **Open operator decision:** how the live roadmap gets its declarations. Under ADR-049, a new definition needs new adoption, new dependency environments and fresh verification and acceptance.
+- **Operator decision 2026-09-25: how the live roadmap gets its declarations.** The live roadmap gets them through an operator-approved declaration record, not a new definition. Under ADR-049, a new definition would need new adoption, new dependency environments and fresh verification and acceptance.
+  - The record is typed and attached to the current definition. The definition page shows it, and each receipt records its digest.
+  - It passes the same import checks as the map field would.
+  - The next map revision absorbs it into the map, and the record retires.
+  - It invalidates no receipt. Every earlier receipt was built either on a base that predates the transition merge, or against current pins; neither depends on the missing declaration.
+  - The first record is wi→aq at WI-02/integration, whose merge is already in `wi-fabric-2`. EXO's links wait for the next map revision.
 - **Done when:**
   - A WI-02/domain fresh verification on 03370fd5 is supplied AQ 0.2.0.
   - A pre-migration WI-03/domain tree is still supplied 97c9dc26.
   - A fixture with a two-upstream consumer builds with one link current and one historical.
   - The import checks reject a transition that another current-upstream slice of the consumer does not require.
+  - They also reject a link declared current before the links its upstream's current pin depends on.
+  - The live roadmap's wi→aq record is approved, and WI-02/domain's verification passes its checks.
 
 ## Workstream G — Agent execution integrity and security
 

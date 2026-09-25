@@ -62,7 +62,7 @@ function collectSavedPlanSnapshot(
   if (!binding) issues.push('Save exact plan bindings first.');
   else issues.push(...bindingIssues(tx, d.workspaceId, d.id, binding.revision));
   if (!binding || !mapAdopted(tx, d.workspaceId, d.id, binding.revision))
-    issues.push('Review and adopt all scheduling decisions for the saved binding.');
+    issues.push('Review and adopt all scheduling proposals for the saved binding.');
   if (!runtime || runtime.bindingRevision !== binding?.revision)
     issues.push('Save the pinned dependency environment first.');
   if (tx.amendments.list(d.workspaceId).some((a) => !a.decision))

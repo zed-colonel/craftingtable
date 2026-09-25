@@ -345,7 +345,7 @@ export class MapAmendmentService {
         );
     if (!same)
       warnings.push(
-        'Configure the new pinned environment and explicitly adopt its scheduling decisions after applying. Previous approvals do not transfer.',
+        'Configure the new pinned environment and explicitly adopt its scheduling proposals after applying. Previous approvals do not transfer.',
       );
     const conf = this.configuration(r, c);
     if (conf.overrides.length !== before.overrides.length)

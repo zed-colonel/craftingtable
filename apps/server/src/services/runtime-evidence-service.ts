@@ -1743,7 +1743,7 @@ export class RuntimeEvidenceService {
         `Map: ${d.mapId} ${d.revision}; binding ${runtime.bindingRevision}; environment generation ${runtime.generation}`,
         `Target: ${roadmap.definition.crossProject!.targetId}; selection: ${roadmap.definition.crossProject!.selection}`,
         `Import validation: structure, source snapshots and graph acyclicity checked (${d.graphNodeCount} milestones, ${d.graphEdgeCount} edges).`,
-        `Scheduling decisions: ${d.source.decisions.length} adopted for the exact binding.`,
+        `Scheduling proposals: ${d.source.decisions.length} adopted for the exact binding.`,
         ...snapshot.facts.binding!.bindings.map(
           (b) =>
             `Binding ${b.alias}: plan ${b.planVersionId ?? 'implemented upstream'}; repository ${b.repositoryId}; integration ${b.integrationBranch ?? 'upstream ref below'}`,

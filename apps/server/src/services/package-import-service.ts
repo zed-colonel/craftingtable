@@ -710,11 +710,11 @@ export class PackageImportService {
       blockers: [
         issue(
           'supervision-setup',
-          'Preview a target scope, adopt map decisions, then save and explicitly start a cross-project roadmap in the supervisor below.',
+          'Preview a target scope, adopt scheduling proposals, then save and explicitly start a cross-project roadmap in the supervisor below.',
         ),
         issue(
           'adoption-required',
-          'Map decisions require explicit adoption for this exact binding. Checkpoint evidence and Start remain separate actions.',
+          'Scheduling proposals require explicit adoption for this exact binding. Checkpoint evidence and Start remain separate actions.',
         ),
         issue(
           'environment-configuration-required',

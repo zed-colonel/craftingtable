@@ -10,6 +10,7 @@ import { AGENT_BACKEND_LABELS, type AgentSelection, type Roadmap } from '@crafti
 import { request } from '../../lib/api-client.js';
 import { ModelField } from '../execution/ModelField.js';
 import { ReasoningEffortField } from '../execution/ReasoningEffortField.js';
+import { About } from '../../components/About.js';
 
 export function DecisionPreparationPanel({
   roadmap,
@@ -81,11 +82,15 @@ export function DecisionPreparationPanel({
     >
       <summary>Prepare architecture decision briefs</summary>
       <p>
-        Prepare a recommendation before its owning development slice is eligible. CraftingTable
-        supplies the exact imported plan documents, existing shared decisions and a separate
-        integration snapshot. This read-only run has no implementation, merge or approval authority.
-        Scheduling stays paused.
+        A read-only run: no implementation, merge or approval authority. Scheduling stays paused.
       </p>
+      <About label="About decision briefs">
+        <p>
+          Prepare a recommendation before its owning development slice is eligible. CraftingTable
+          supplies the exact imported plan documents, existing shared decisions and a separate
+          integration snapshot.
+        </p>
+      </About>
       <label className="field">
         Decision to prepare
         <select

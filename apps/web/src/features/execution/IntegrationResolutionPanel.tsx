@@ -5,7 +5,15 @@ import type {
 } from '@craftingtable/contracts';
 import { type AgentRunId, ownsIntegrationResolution, type WorkCycle } from '@craftingtable/domain';
 import { useState } from 'react';
+import { About } from '../../components/About.js';
 import { HandoffForm } from './HandoffForm.js';
+
+/** Stops an integration update leaves for the operator (R-A3 codes). */
+const INTEGRATION_STOPS: readonly string[] = [
+  'integration-conflict',
+  'integration-update-failed',
+  'integration-refresh-limit',
+];
 
 export function IntegrationResolutionPanel({
   cycle,
@@ -29,7 +37,10 @@ export function IntegrationResolutionPanel({
   const resolution = cycle.integrationResolution;
   const idle = ['paused', 'needs-attention'].includes(cycle.status);
   const owned = ownsIntegrationResolution(cycle);
-  if (!idle && !resolution) return null;
+  // Rendered only with a resolution on record or an integration stop; other idle cycles
+  // have nothing to resolve here (R-E6, UI-10).
+  if (!resolution && !(idle && INTEGRATION_STOPS.includes(cycle.attention?.code ?? '')))
+    return null;
   return (
     <section className="panel" aria-label="Integration conflicts">
       <h3>Integration conflicts</h3>
@@ -163,10 +174,12 @@ export function IntegrationResolutionPanel({
         </div>
       )}
       {owned && (
-        <p className="hint">
-          Pause the cycle before giving the agent guidance from its run page. Edits survive pause
-          and restart. Stop preserves the resolution until you resume or abandon it.
-        </p>
+        <About label="About conflict resolution">
+          <p>
+            Pause the cycle before giving the agent guidance from its run page. Edits survive pause
+            and restart. Stop preserves the resolution until you resume or abandon it.
+          </p>
+        </About>
       )}
     </section>
   );

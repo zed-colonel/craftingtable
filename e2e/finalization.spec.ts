@@ -33,7 +33,7 @@ for (const decision of ['remediate', 'staged'] as const) {
           await page.getByRole('button', { name: 'Menu', exact: true }).click();
         await page.getByRole('link', { name, exact: true }).click();
       };
-      await navigate('All workspaces');
+      await navigate('Workspaces');
       const create = page.getByRole('region', { name: 'New workspace' });
       const name = `Finalization ${info.project.name} ${decision}`;
       await create.getByLabel('Name', { exact: true }).fill(name);
@@ -152,7 +152,7 @@ for (const decision of ['remediate', 'staged'] as const) {
         ).toBeVisible();
         await selection.getByRole('checkbox', { name: /S-1/ }).check();
         await selection
-          .getByLabel('Decision rationale (required)')
+          .getByLabel('Disposition rationale (required)')
           .fill('Select the first improvement and keep the rest as follow-up.');
         await selection.getByLabel('Additional stage attempts').fill('2');
         await expect
@@ -182,9 +182,11 @@ for (const decision of ['remediate', 'staged'] as const) {
         await expect(
           recovery.getByRole('button', { name: 'Authorize focused remediation' }),
         ).toBeDisabled();
-        await expect(recovery.getByText('Enter a decision rationale to continue.')).toBeVisible();
+        await expect(
+          recovery.getByText('Enter a disposition rationale to continue.'),
+        ).toBeVisible();
         await recovery
-          .getByLabel('Decision rationale (required)')
+          .getByLabel('Disposition rationale (required)')
           .fill('Address the selected documentation issue.');
         await expect(
           recovery.getByLabel('Additional focused attempts', { exact: true }),

@@ -2884,7 +2884,7 @@ export class WorkCycleService {
     if (progress.decisions.length >= 500)
       throw new ExecutionRequestError(
         'conflict',
-        'The stage decision history has reached its limit.',
+        'The finding disposition history has reached its limit.',
       );
     const followUps = new Map(progress.followUps.map((f) => [f.id, f]));
     for (const f of choices) {

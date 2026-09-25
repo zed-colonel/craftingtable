@@ -701,7 +701,7 @@ describe('in-flight results across a workspace change (CT03-R2R3)', () => {
 
     window.history.pushState(null, '', '/workspaces/workspace-a/import');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    await screen.findByRole('heading', { name: 'Import a plan bundle' });
+    await screen.findByRole('heading', { name: 'Import plan' });
 
     fireEvent.change(screen.getByLabelText('Project name'), {
       target: { value: 'Alpha import' },
@@ -727,7 +727,7 @@ describe('in-flight results across a workspace change (CT03-R2R3)', () => {
     // Stand on workspace B's import page, where a leaked outcome would render.
     window.history.pushState(null, '', '/workspaces/workspace-b/import');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    await screen.findByRole('heading', { name: 'Import a plan bundle' });
+    await screen.findByRole('heading', { name: 'Import plan' });
 
     planning.import.resolve({
       importAttemptId: 'attempt-a',

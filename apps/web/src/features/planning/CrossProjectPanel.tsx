@@ -229,7 +229,7 @@ export function CrossProjectPanel({
       setApproved(false);
       setRationale('');
       setNotice(
-        'Scheduling decisions adopted. Record independently reviewed checkpoint evidence separately.',
+        'Scheduling proposals adopted. Record independently reviewed checkpoint evidence separately.',
       );
     });
   const save = () =>
@@ -351,7 +351,7 @@ export function CrossProjectPanel({
             className="secondary-button"
             onClick={() => revealElement(`map-adoption-${panelKey}`)}
           >
-            Review map decisions
+            Review scheduling proposals
           </button>
         )}
       </ActionBar>
@@ -598,7 +598,7 @@ export function CrossProjectPanel({
               className="secondary-button"
               onClick={() => revealElement(`map-adoption-${panelKey}`)}
             >
-              Review scheduling decisions
+              Review scheduling proposals
             </button>
             <button
               type="button"
@@ -702,7 +702,7 @@ export function CrossProjectPanel({
           )}
           <details id={`map-adoption-${panelKey}`}>
             <summary>
-              Map decision adoption · {view.decisions.filter((d) => d.adopted).length}/
+              Scheduling proposals · {view.decisions.filter((d) => d.adopted).length}/
               {view.decisions.length} approved
             </summary>
             <p>
@@ -745,7 +745,7 @@ export function CrossProjectPanel({
                     disabled={busy || !approved || !rationale.trim()}
                     onClick={() => void adopt()}
                   >
-                    Adopt map decisions
+                    Adopt scheduling proposals
                   </button>
                 </>
               )}

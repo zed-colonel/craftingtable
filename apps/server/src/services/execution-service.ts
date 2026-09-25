@@ -501,7 +501,7 @@ export class ExecutionService {
       if (scope.kind !== 'slice' || !r.slice?.early_start_exception || r.slice.decision_refs.length)
         throw new ExecutionRequestError(
           'conflict',
-          'This slice has no independently authorizable early-development rule. Map decisions require separate adoption.',
+          'This slice has no independently authorizable early-development rule. Scheduling proposals require separate adoption.',
         );
       const settings = tx.execution.branchSettings.find(workspaceId, r.item.planVersionId);
       if (

@@ -8,6 +8,7 @@ import {
 import { ActionBar } from '../../components/ActionBar.js';
 import { request } from '../../lib/api-client.js';
 import { distinct } from '../../lib/distinct.js';
+import { About } from '../../components/About.js';
 
 export function DependencyRefreshPanel({
   base,
@@ -52,11 +53,13 @@ export function DependencyRefreshPanel({
   return (
     <section aria-label="Dependency pin refresh">
       <h4>Dependency pin refresh</h4>
-      <p>
-        Preview current provider commits and their effect on evidence. Your saved environments and
-        workstation approval remain usable when their inputs are unchanged. Applying leaves
-        scheduling paused; plan acceptance and Resume remain separate.
-      </p>
+      <p>Applying leaves scheduling paused; plan acceptance and Resume remain separate.</p>
+      <About label="About pin refresh">
+        <p>
+          Preview current provider commits and their effect on evidence. Your saved environments and
+          workstation approval remain usable when their inputs are unchanged.
+        </p>
+      </About>
       {view.pinStatus
         ?.filter((p) => p.issue)
         .map((p) => (

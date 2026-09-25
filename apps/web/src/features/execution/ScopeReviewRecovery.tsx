@@ -2,6 +2,7 @@ import type { ExecutionScopeChoice } from '@craftingtable/contracts';
 import type { WorkCycle } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
+import { About } from '../../components/About.js';
 
 export function ScopeReviewRecovery({
   cycle,
@@ -64,7 +65,7 @@ export function ScopeReviewRecovery({
     >
       <h3>
         {cycle.providerRecovery?.nextRetryAt
-          ? 'Resume preserves the interrupted review snapshot, service-retry allowance and original deadline, with your additional guidance. Roadmap pauses hold dispatch; current branch and phase gates are rechecked before launch.'
+          ? 'Resume interrupted review'
           : repeat
             ? 'Review again'
             : scope?.kind === 'parent-acceptance'
@@ -73,9 +74,23 @@ export function ScopeReviewRecovery({
       </h3>
       <p>
         {repeat
-          ? 'Start a fresh review using this cycle’s assigned reviewer and existing worktree. The controller requires an idle, clean snapshot and updates it from integration without overwriting changes. Earlier runs and evidence remain in history.'
-          : 'Resume updates this idle, clean snapshot from integration and starts a fresh review with the saved repository policy, earlier findings, and your additional guidance. Merge source fixes first. It does not delegate implementation or accept this scope.'}
+          ? 'Starts a fresh review with this cycle’s reviewer in the existing worktree.'
+          : 'Merge source fixes first. Resuming does not delegate implementation or accept this scope.'}
       </p>
+      <About label="About review recovery">
+        {cycle.providerRecovery?.nextRetryAt && (
+          <p>
+            Resume preserves the interrupted review snapshot, service-retry allowance and original
+            deadline, with your additional guidance. Roadmap pauses hold dispatch; current branch
+            and phase gates are rechecked before launch.
+          </p>
+        )}
+        <p>
+          {repeat
+            ? 'The controller requires an idle, clean snapshot and updates it from integration without overwriting changes. Earlier runs and evidence remain in history.'
+            : 'Resume updates this idle, clean snapshot from integration and starts a fresh review with the saved repository policy, earlier findings, and your additional guidance.'}
+        </p>
+      </About>
       {error && (
         <p role="alert" className="error-state">
           {error}

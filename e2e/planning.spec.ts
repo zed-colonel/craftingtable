@@ -14,7 +14,7 @@ const fixture = (name: string): string =>
 
 async function importAqBundle(page: Page, projectName = 'ActionQueue — AQ-CONT-1'): Promise<void> {
   await page.getByRole('link', { name: 'Import plan' }).click();
-  await expect(page.getByRole('heading', { name: 'Import a plan bundle' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Import plan', exact: true })).toBeVisible();
   await page.getByLabel('Project name').fill(projectName);
   await page
     .getByLabel('Implementation plan (required)')
@@ -96,7 +96,7 @@ test('imports AQ-CONT-1, admits AQ-01, and survives a refresh', async ({ page })
 
 test('distinguishes duplicate and failed import outcomes', async ({ page }) => {
   await signIn(page);
-  await page.getByRole('link', { name: 'All workspaces', exact: true }).click();
+  await page.getByRole('link', { name: 'Workspaces', exact: true }).click();
   const create = page.getByRole('region', { name: 'New workspace' });
   await create.getByLabel('Name', { exact: true }).fill('Import outcome workspace');
   await create.getByRole('button', { name: 'Create workspace' }).click();

@@ -28,7 +28,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
           await page.getByRole('button', { name: 'Menu', exact: true }).click();
         await page.getByRole('link', { name, exact: true }).click();
       };
-      await navigate('All workspaces');
+      await navigate('Workspaces');
       const create = page.getByRole('region', { name: 'New workspace' });
       const workspaceName = `Roadmaps ${mode} ${info.project.name}`;
       await create.getByLabel('Name', { exact: true }).fill(workspaceName);

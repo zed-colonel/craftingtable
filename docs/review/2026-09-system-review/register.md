@@ -50,7 +50,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-E3](#r-e3) | P3 | L | open | Roadmap board: progress and dependencies at a glance |
 | [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
 | [R-E5](#r-e5) | P3 | M | open | Consolidate settings and agent selection |
-| [R-E6](#r-e6) | P1 | M | open | Operator vocabulary and copy |
+| [R-E6](#r-e6) | P1 | M | done (2026-09-25; hash recorded in program.md) | Operator vocabulary and copy |
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
 | [R-F1](#r-f1) | P1/P4 | S then L | partial (52c5c8b) | One compiled map model and one requirement evaluator |
 | [R-F2](#r-f2) | P3 | M | open | Typed feature recognition instead of prose and magic identifiers |
@@ -629,11 +629,25 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E6
 
-**Operator vocabulary and copy** · Phase P1 · Effort M · Status: open
+**Operator vocabulary and copy** · Phase P1 · Effort M · Status: done (2026-09-25)
 
 - **Resolves:** [UI-11](findings/UI-information-architecture.md#ui-11-walls-of-text-and-headings-written-as-sentences), [UI-12](findings/UI-information-architecture.md#ui-12-vocabulary-density-and-inconsistent-labels), [DOC-04](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-04-vocabulary-is-incoherent-around-blockers-decisions-and-recovery), [UI-10](findings/UI-information-architecture.md#ui-10-recovery-panels-render-when-nothing-needs-recovering)
 - **Change:** A glossary of ~15 operator-facing terms in ui-principles; rename map "decisions" to scheduling proposals and finalization "decisions" to finding dispositions in labels only (wire and format names unchanged); align rail and page titles; hide panels that have nothing to recover (IntegrationResolutionPanel, ProviderRecovery after recovery); move explanatory prose into About; headings are short; remove stale copy.
 - **Done when:** A lint/test enforces heading length and bans long unconditional prose outside About; the spurious panels no longer render.
+- **Progress 2026-09-25 (done):**
+  - **Glossary.** `docs/ui-principles.md` "Vocabulary → Glossary" defines 18 operator terms. It gives the wire or format name where a label differs, the five kinds of operator-owned stop, and the controller's waits. A new "Copy" section holds the rules below and the rule against new per-stop recovery panels.
+  - **Relabels (labels and messages only; wire and format names unchanged).**
+    - Map `decisions` are "scheduling proposals" in the supervisor, the import preview and server messages ("Adopt scheduling proposals", "Scheduling proposals · n/m approved").
+    - Finalization `decisions` are "finding dispositions" ("Finding dispositions (n)", "Disposition rationale (required)"; a plan-change choice reads "Plan change rationale").
+  - **Rail and titles.** The rail says "Work items" and "Workspaces", matching their page titles. Import plan and Settings pages are titled as their rail links. The Dashboard keeps the workspace name as its title (documented exception).
+  - **Panels with nothing to recover.**
+    - `IntegrationResolutionPanel` renders only with a resolution on record or an integration stop code (`integration-conflict`, `integration-update-failed`, `integration-refresh-limit`).
+    - `ProviderRecovery` renders only while a retry is pending or spent (three attempts, or a `service-*` stop code).
+    - Both branch on codes, not text. Their tests fail against the previous components.
+  - **Copy.** 25 violations fixed: 24 long unconditional paragraphs moved into `About` or shortened to the one fact that matters, and one 40-word `h3` (scope review recovery while a retry waits) became "Resume interrupted review". The stale "available in later releases. This draft cannot run yet" binding notice is replaced.
+  - **Enforcement.** `apps/web/src/copy-rules.test.ts` parses every component with Vite's oxc parser (no new dependency). It fails on a heading (`h1`–`h6`, `legend`, `Section`/`PageHeader` title) over 8 words of fixed text, measuring the longest branch of a conditional. It also fails on an unconditional `<p>` over 160 characters outside `About`. A self-test covers each rule.
+  - **Walkthrough.** `2026-09-25-finalization-staged-after` (before) and `2026-09-25-vocabulary-copy-after` (after).
+  - **Not done here:** internal terms (binding revision, generation, digest) still appear outside disclosures in the map and evidence panels. Moving them belongs with R-A6's consolidation of those panels.
 
 ## Workstream F — Plan and roadmap formats (ground truth; Studio readiness)
 

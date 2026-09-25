@@ -7,6 +7,7 @@ import {
 } from '@craftingtable/domain';
 import { useState } from 'react';
 import { AgentProfileFields } from './AgentProfileFields.js';
+import { About } from '../../components/About.js';
 
 type Stages = NonNullable<StartFinalizationRequest['stages']>;
 export function defaultFinalizationStages(
@@ -41,11 +42,18 @@ export function FinalizationStageSetup({
     onChange(stages.map((s, i) => (i === index ? { ...s, ...changes } : s)));
   return (
     <section className="stack-form" aria-label="Finalization stage setup">
-      <p>
-        Each stage has its own agents, instructions and remediation allowance. Simplification and
-        polish discover ideas once, then pause for your batch selection. Required findings, checks
-        and questions always remain gates.
-      </p>
+      <About label="About finalization stages">
+        <p>
+          Each stage has its own agents, instructions and remediation allowance. Simplification and
+          polish discover ideas once, then pause for your batch selection. Required findings, checks
+          and questions always remain gates.
+        </p>
+        <p>
+          You can add attempts at a recovery checkpoint. Reopening a stage retains its used count
+          and allowance. Optional suggestions are selected or retained as follow-up work; a nit
+          allowance never excuses correctness or conformance issues.
+        </p>
+      </About>
       {stages.map((stage, index) => {
         const wholePlan =
           ['correctness', 'conformance', 'final-review'].includes(stage.kind) &&
@@ -138,11 +146,6 @@ export function FinalizationStageSetup({
                   />
                 </label>
               ))}
-              <p className="hint">
-                You can add attempts at a recovery checkpoint. Reopening a stage retains its used
-                count and allowance. Optional suggestions are selected or retained as follow-up
-                work; a nit allowance never excuses correctness or conformance issues.
-              </p>
               {(stage.kind === 'correctness' || stage.kind === 'conformance') && wholePlan && (
                 <button
                   type="button"

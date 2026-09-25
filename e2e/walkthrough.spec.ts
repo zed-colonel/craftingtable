@@ -202,7 +202,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await signIn(phone);
 
     // ---- Workspace -------------------------------------------------------------------
-    await navigate(page, 'All workspaces');
+    await navigate(page, 'Workspaces');
     const create = page.getByRole('region', { name: 'New workspace' });
     await create.getByLabel('Name', { exact: true }).fill('Walkthrough');
     await create.getByRole('button', { name: 'Create workspace' }).click();
@@ -799,7 +799,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await walk.capture('work-item-slices', 'Work item · execution slices from a map');
 
     // ---- Lists and settings ------------------------------------------------------------------
-    await navigate(page, 'Agenda');
+    await navigate(page, 'Work items');
     await expect(page.getByRole('heading', { name: 'Work items', exact: true })).toBeVisible();
     await walk.capture('agenda', 'Agenda · in agenda');
     await page.getByRole('tab', { name: 'All', exact: true }).click();
@@ -814,7 +814,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await expect(phone.getByRole('navigation', { name: 'Primary' })).toBeVisible();
     await walk.capturePhoneOnly('menu-open', 'Phone navigation menu');
     await navigate(page, 'Settings');
-    await expect(page.getByRole('heading', { name: 'Workspace settings' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Change workstation capacity' })).toBeEnabled();
     await walk.capture('settings', 'Workspace settings');
     await walk.capture(
@@ -846,9 +846,9 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await navigate(page, `Account · ${E2E_USERNAME}`);
     await expect(page.getByRole('heading', { name: 'Account', exact: true })).toBeVisible();
     await walk.capture('account', 'Account');
-    await navigate(page, 'All workspaces');
+    await navigate(page, 'Workspaces');
     await expect(page.getByRole('heading', { name: 'Workspaces', exact: true })).toBeVisible();
-    await walk.capture('workspaces', 'All workspaces');
+    await walk.capture('workspaces', 'Workspaces');
 
     walk.writeIndex(label, commit);
   } finally {

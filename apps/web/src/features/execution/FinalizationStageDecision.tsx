@@ -61,7 +61,7 @@ function StageDecision({ view, busy, backends, onDecide }: Props) {
   const allowance = remediationAllowance(cycle);
   const blocker =
     action !== 'resume' && !rationale.trim()
-      ? 'Enter a decision rationale.'
+      ? 'Enter a rationale.'
       : action === 'approve-plan-change' && !proposal
         ? 'Select a proposed plan adjustment.'
         : selection &&
@@ -197,7 +197,7 @@ function StageDecision({ view, busy, backends, onDecide }: Props) {
       )}
       {action !== 'resume' && (
         <label className="field">
-          Decision rationale (required)
+          {selection ? 'Disposition rationale (required)' : 'Plan change rationale (required)'}
           <textarea
             required
             maxLength={4000}
@@ -252,7 +252,7 @@ function StageDecision({ view, busy, backends, onDecide }: Props) {
         backends={backends}
         disabled={busy}
       />
-      <p role="status">{blocker ?? (busy ? 'Submitting decision…' : `${label} is ready.`)}</p>
+      <p role="status">{blocker ?? (busy ? 'Submitting…' : `${label} is ready.`)}</p>
       <button type="submit" className="primary-button" disabled={busy || !!blocker}>
         {label}
       </button>

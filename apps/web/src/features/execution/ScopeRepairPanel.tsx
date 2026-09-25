@@ -4,6 +4,7 @@ import { AGENT_BACKEND_LABELS } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
 import { delegateScopeRepair, previewScopeRepair } from '../../lib/work-cycle-api.js';
 import { distinct } from '../../lib/distinct.js';
+import { About } from '../../components/About.js';
 
 export function ScopeRepairPanel({
   cycle,
@@ -117,15 +118,15 @@ export function ScopeRepairPanel({
       <button type="button" disabled={busy || disabled} onClick={() => setRetry((n) => n + 1)}>
         Refresh source recovery
       </button>
-      <p>
-        Another review cannot implement these fixes. Delegate them to an editable owning slice,
-        merge its reviewed changes, then resume independent verification and parent acceptance.
-      </p>
-      <p>
-        Includes open findings from related slice and parent reviews. IDs are labelled by source
-        review so different findings cannot overwrite one another. Older questions must be rechecked
-        against the current adopted policy.
-      </p>
+      <p>Delegate these fixes to an editable owning slice; another review cannot make them.</p>
+      <About label="About source recovery">
+        <p>
+          Merge the owning slice's reviewed changes, then resume independent verification and parent
+          acceptance. The list includes open findings from related slice and parent reviews. IDs are
+          labelled by source review so different findings cannot overwrite one another. Older
+          questions must be rechecked against the current adopted policy.
+        </p>
+      </About>
       {!sources.length && <p>No open source findings apply to this owning slice.</p>}
       {sources.map((source) => (
         <details key={source.runId}>

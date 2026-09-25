@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { RuntimeEvidenceView, ProposeArchitectureDecision } from '@craftingtable/contracts';
 import { distinct } from '../../lib/distinct.js';
+import { About } from '../../components/About.js';
 
 type Consumer = ProposeArchitectureDecision['consumers'][number];
 export function ArchitectureDecisionPanel({
@@ -35,11 +36,13 @@ export function ArchitectureDecisionPanel({
   return (
     <section aria-label="Shared architecture decisions" className="stack">
       <h3>Shared architecture decisions</h3>
-      <p>
-        Save a proposal, review its exact text, then approve it once as repository maintainer.
-        Approved decisions accompany relevant slices. Pause scheduling and finish live runs before
-        approval.
-      </p>
+      <p>Pause scheduling and finish live runs before approving.</p>
+      <About label="About shared decisions">
+        <p>
+          Save a proposal, review its exact text, then approve it once as repository maintainer.
+          Approved decisions accompany relevant slices.
+        </p>
+      </About>
       <details>
         <summary>Prepare a decision or stage early clauses</summary>
         <form

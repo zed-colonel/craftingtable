@@ -58,7 +58,7 @@ function setup(
     ],
     adoptions: [],
     blockers: ['Adopt exact decisions before Start.'],
-    setupRequirements: [{ kind: 'adoption', message: 'Review scheduling decisions.' }],
+    setupRequirements: [{ kind: 'adoption', message: 'Review scheduling proposals.' }],
     targetReached: false,
     selectedScopeComplete: false,
     fullPlanAccepted: false,
@@ -145,7 +145,7 @@ it('requires explicit target choice and adoption rationale, with a trace to the 
       .getAllByRole('link', { name: 'Open work item / advance scope' })[0]
       ?.getAttribute('href'),
   ).toBe('/workspaces/workspace/work-items/item');
-  const adopt = screen.getByRole('button', { name: 'Adopt map decisions' });
+  const adopt = screen.getByRole('button', { name: 'Adopt scheduling proposals' });
   expect((adopt as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByLabelText(/I approve all listed/));
   expect((adopt as HTMLButtonElement).disabled).toBe(true);

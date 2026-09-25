@@ -51,6 +51,20 @@ request. Forms open from a named action ("Set up finalization", "New roadmap", "
 a run") rather than rendering permanently; a page with nothing to do does not read as
 a form.
 
+### Copy
+
+- A heading (`h1`–`h6`, `legend`, a `Section` or `PageHeader` title) is a name, not a
+  sentence: at most eight words.
+- A paragraph that is always shown is at most about 160 characters. Longer explanation
+  goes in the section's `About`. A paragraph that depends on state (an error, a result,
+  a warning) may be longer, but it states the fact first.
+- Keep one-line consequences beside the action they describe ("Does not resume the
+  roadmap"), not in a paragraph above the form.
+- A recovery panel renders only while there is something to recover. It disappears once
+  the stop is resolved. Do not add a new per-stop recovery panel; see the review
+  program's rules (R-A5/R-A6 own the inbox and the consolidated decision components).
+- `apps/web/src/copy-rules.test.ts` enforces the first two rules on every component.
+
 The shared primitives live in `apps/web/src/components/` and are the only way to build
 these parts. Feature components keep their data props; the anatomy is a composition
 rule, not a data change. `pnpm ui:walkthrough` takes dated captures of every page on
@@ -60,9 +74,11 @@ structural UI work.
 ## Shell
 
 - A 220px navigation rail on the left holds the workspace picker, the workspace's
-  pages (Dashboard, Runs, Agenda, Roadmaps, Projects, Repositories, Import plan, Settings), the
-  cross-workspace pages (All workspaces, Account), the live-connection badge, the
-  theme toggle, and Log out. Navigation appears nowhere else.
+  pages (Dashboard, Runs, Work items, Roadmaps, Projects, Repositories, Import plan,
+  Settings), the cross-workspace pages (Workspaces, Account), the live-connection badge,
+  the theme toggle, and Log out. Navigation appears nowhere else.
+- A page's `h1` is its rail label. The Dashboard is the one exception: its `h1` is the
+  workspace's name, because the dashboard is the workspace's home.
 - `/` resolves to the last workspace used; `/workspaces` lists every workspace as a
   card with its projects and counts and hosts the new-workspace form.
 - The dashboard is: a Needs your attention section (cycles waiting for a merge
@@ -73,6 +89,46 @@ structural UI work.
   strip above its header, and the Dashboard rail link carries their count.
 
 ## Vocabulary
+
+### Glossary
+
+These are the operator-facing terms. Use them in labels, headings and messages. Wire and
+format names are not renamed: where a term differs from its wire name, the wire name is
+given in brackets. Internal identifiers (binding revision, generation, digest,
+fingerprint, reservation, dispatch) appear only inside disclosures.
+
+```text
+Plan version         an imported, immutable plan; its work items are what gets delegated
+Work item            one deliverable of a plan version (AQ-01), with the states below
+Slice                a part of a work item that a map schedules on its own:
+                     started, merged, verified
+Map                  a concurrency map: which slices and checkpoints may proceed together
+Scheduling proposal  a map's proposed scheduling rule (CS-D01), adopted by the operator
+                     before the map runs [format: decisions]
+Checkpoint           a map milestone that passes only on reviewed evidence
+Worktree             the isolated Git checkout that one piece of work happens in
+Run                  one agent session in a worktree: design, implement, review, remediate
+Cycle                the controller's sequence of runs for one worktree, up to merge
+Roadmap              a delegated sequence of work items, or a map target, that the
+                     controller schedules
+Finding              an issue a review reported, with an ID, severity and status
+Finding disposition  the operator's recorded choice about findings at a finalization
+                     stage, with its rationale [wire: finalization decisions]
+Evidence             reviewed proof that a slice, work item or checkpoint meets its
+                     requirements
+Stop                 where automation halts. Every stop has a code and an owner:
+                     "Needs you" when the operator owns it, a wait when the controller does
+Finalization         the staged whole-plan review and polish of an integration branch
+Promotion            the operator-approved merge of the final candidate into its
+                     destination
+Capacity             how many runs the workstation admits at once, for development and
+                     for verification
+```
+
+A stop the operator owns asks for one of five things: a design choice, a plan change, an
+authorization (approval or more attempts), a finding disposition, or a promotion. Stops the
+controller owns are waits: on a dependency, on a resource, or on its own retry. Name each
+flow by the stop it resolves, not by the panel that hosts it.
 
 Work items move through `Proposed → In agenda → Completed`; "In progress" is derived
 from an active worktree or a live run and is never stored. Use exactly:
@@ -136,7 +192,7 @@ not. Individual pause/resume controls must not imply that sibling work will stop
 work-item links retain the review, diff, manual takeover, and explicit merge controls.
 Saved cross-project roadmaps also show occupied/total development and verification slots shared
 by the workstation. Explain when this limit is lower than the roadmap's in-flight allowance.
-Agenda rows name the active slice, its early-development approval and start requirements;
+Work-item rows name the active slice, its early-development approval and start requirements;
 parent acceptance blockers remain labelled separately.
 
 An implementation or review question, or a stalled review with attempts remaining, exposes

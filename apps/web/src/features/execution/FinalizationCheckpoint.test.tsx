@@ -31,8 +31,8 @@ it('authorizes a selected batch and extra attempts together when the allowance i
   expect(screen.getByText('Select at least one finding to continue.')).toBeDefined();
   fireEvent.click(screen.getByRole('checkbox', { name: /F-051/ }));
   expect(button.disabled).toBe(true);
-  expect(screen.getByText('Enter a decision rationale to continue.')).toBeDefined();
-  fireEvent.change(screen.getByLabelText('Decision rationale (required)'), {
+  expect(screen.getByText('Enter a disposition rationale to continue.')).toBeDefined();
+  fireEvent.change(screen.getByLabelText('Disposition rationale (required)'), {
     target: { value: 'Fix the CLI behavior before promotion.' },
   });
   fireEvent.change(screen.getByLabelText('Additional focused attempts'), {
@@ -72,7 +72,7 @@ it('explains why higher-severity findings cannot be deferred and omits the budge
   });
   expect(button.disabled).toBe(true);
   fireEvent.click(screen.getByRole('checkbox', { name: /F-051/ }));
-  fireEvent.change(screen.getByLabelText('Decision rationale (required)'), {
+  fireEvent.change(screen.getByLabelText('Disposition rationale (required)'), {
     target: { value: 'Optional diagnostics follow-up.' },
   });
   fireEvent.click(button);
@@ -173,7 +173,7 @@ it('switches the recovery backend/model without carrying the old model or changi
     />,
   );
   fireEvent.click(screen.getByRole('checkbox', { name: /F-051/ }));
-  fireEvent.change(screen.getByLabelText('Decision rationale (required)'), {
+  fireEvent.change(screen.getByLabelText('Disposition rationale (required)'), {
     target: { value: 'Fix the required defect.' },
   });
   fireEvent.change(screen.getByLabelText('Agent settings'), { target: { value: 'switch' } });

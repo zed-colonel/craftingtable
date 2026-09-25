@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { remediationAllowance, type WorkCycle } from '@craftingtable/domain';
+import { About } from '../../components/About.js';
 
 export function CycleGuidanceRecovery({
   cycle,
@@ -24,13 +25,15 @@ export function CycleGuidanceRecovery({
     >
       <h3>Continue with guidance</h3>
       <p>
-        Read the current run’s outcome, then answer its questions or explain what changes the
-        stalled approach. Guidance goes to the next agent run only; later steps do not inherit it.
+        {remaining} remediation attempts remain. Does not approve findings or resume the roadmap.
       </p>
-      <p>
-        {remaining} remediation attempts remain. This uses the existing allowance and opens a new
-        bounded progress window; it does not approve findings or resume roadmap scheduling.
-      </p>
+      <About label="About guidance">
+        <p>
+          Read the current run’s outcome, then answer its questions or explain what changes the
+          stalled approach. Guidance goes to the next agent run only; later steps do not inherit it.
+          Continuing uses the existing allowance and opens a new bounded progress window.
+        </p>
+      </About>
       <label className="field">
         Answers and recovery guidance
         <textarea

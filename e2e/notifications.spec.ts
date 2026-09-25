@@ -16,7 +16,7 @@ test('owners configure write-only Pushover credentials and test delivery on desk
     }
     await page.getByRole('link', { name, exact: true }).click();
   };
-  await navigate('All workspaces');
+  await navigate('Workspaces');
   const create = page.getByRole('region', { name: 'New workspace' });
   const name = `Notifications ${info.project.name}`;
   await create.getByLabel('Name', { exact: true }).fill(name);

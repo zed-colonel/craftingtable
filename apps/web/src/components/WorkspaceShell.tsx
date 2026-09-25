@@ -80,7 +80,7 @@ export function WorkspaceShell({
           },
           {
             route: { name: 'agenda', workspaceId: selected.id, filter: 'admitted' },
-            label: 'Agenda',
+            label: 'Work items',
             ...(selected.admittedCount > 0 ? { count: selected.admittedCount } : {}),
           },
           { route: { name: 'roadmaps', workspaceId: selected.id }, label: 'Roadmaps' },
@@ -182,7 +182,7 @@ export function WorkspaceShell({
           <nav className="rail-nav" aria-label="Primary">
             {workspaceLinks.map(link)}
             <span className="rail-section">Everywhere</span>
-            {link({ route: { name: 'home' }, label: 'All workspaces' })}
+            {link({ route: { name: 'home' }, label: 'Workspaces' })}
             {link({ route: { name: 'account' }, label: `Account · ${username}` })}
           </nav>
 

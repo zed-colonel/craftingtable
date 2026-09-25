@@ -1,6 +1,7 @@
 import type { AuthorizeWorkCycleRemediationRequest } from '@craftingtable/contracts';
 import { remediationAllowance, type WorkCycle } from '@craftingtable/domain';
 import { useState } from 'react';
+import { About } from '../../components/About.js';
 
 export type CycleRemediationGrant = Pick<
   AuthorizeWorkCycleRemediationRequest,
@@ -30,10 +31,8 @@ export function CycleRemediationRecovery({
     >
       <h3>Continue remediation</h3>
       <p>
-        This cycle has used all {remediationAllowance(cycle)} authorized remediation attempts.
-        Authorize additional attempts to continue from the current review, preserving the worktree,
-        findings, agent settings, and completed-round history. This starts remediation immediately;
-        it does not resume a paused roadmap.
+        All {remediationAllowance(cycle)} authorized remediation attempts are used. Authorizing more
+        starts remediation at once; it does not resume a paused roadmap.
       </p>
       <label className="field">
         Additional remediation attempts
@@ -57,11 +56,14 @@ export function CycleRemediationRecovery({
           onChange={(event) => setInstructions(event.target.value)}
         />
       </label>
-      <p className="muted">
-        Guidance is added to the existing cycle instructions. A valid completed review is required.
-        Answer any open questions in the guidance. Invalid reports and integration conflicts require
-        their existing recovery controls.
-      </p>
+      <About label="About more remediation">
+        <p>
+          Remediation continues from the current review and keeps the worktree, findings, agent
+          settings and completed-round history. Guidance is added to the existing cycle
+          instructions; answer any open questions in it. A valid completed review is required.
+          Invalid reports and integration conflicts use their own recovery controls.
+        </p>
+      </About>
       {valid && (
         <p>New total allowance: {remediationAllowance(cycle) + additionalRounds} attempts.</p>
       )}

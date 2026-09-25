@@ -56,7 +56,7 @@ export function SettingsPage({
   return (
     <div className="page">
       <PageHeader
-        title="Workspace settings"
+        title="Settings"
         subtitle={
           <StatusStrip
             compact

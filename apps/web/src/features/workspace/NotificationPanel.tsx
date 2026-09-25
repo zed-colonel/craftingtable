@@ -7,6 +7,7 @@ import {
   testNotifications,
 } from '../../lib/notification-api.js';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
+import { About } from '../../components/About.js';
 
 export function NotificationPanel({
   workspaceId,
@@ -110,16 +111,18 @@ export function NotificationPanel({
   return (
     <section className="panel" aria-label="Pushover notifications">
       <h3>Pushover notifications</h3>
-      <p className="hint">
-        Receive alerts when a review is ready for merge, a design needs your input, or a run or
-        cycle needs attention. Includes the project, work item, reason, branches, and a link back
-        here.
-      </p>
-      <p className="hint">
-        Reminders: immediately, after 30 minutes, at 1, 2, 3, 4, 5, and 6 hours, then daily at the
-        time below. They stop when work resumes or the item is resolved. Your phone’s Pushover quiet
-        hours still apply.
-      </p>
+      <About label="About notifications">
+        <p>
+          Receive alerts when a review is ready for merge, a design needs your input, or a run or
+          cycle needs attention. Each alert includes the project, work item, reason, branches, and a
+          link back here.
+        </p>
+        <p>
+          Reminders: immediately, after 30 minutes, at 1, 2, 3, 4, 5, and 6 hours, then daily at the
+          time below. They stop when work resumes or the item is resolved. Your phone’s Pushover
+          quiet hours still apply.
+        </p>
+      </About>
       {error !== undefined && (
         <p role="alert" className="error-state">
           {error}{' '}

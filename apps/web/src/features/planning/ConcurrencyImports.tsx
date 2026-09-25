@@ -121,9 +121,7 @@ export function ConcurrencyImports({
         ),
       );
       setListing(await loadConcurrencyImports(workspaceId));
-      setNotice(
-        'Selections saved. Baseline verification, decision adoption and execution setup will be available in later releases. This draft cannot run yet.',
-      );
+      setNotice('Bindings saved. Next: adopt the scheduling proposals in the supervisor below.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save bindings.');
     } finally {
@@ -257,7 +255,7 @@ export function ConcurrencyImports({
           <h3>Exact project and plan bindings</h3>
           <p>
             Choose the revised plan versions explicitly. Saving records an immutable binding
-            revision; it does not adopt decisions or start work.
+            revision; it does not adopt scheduling proposals or start work.
           </p>
           {detail.repositories.map((repo) => {
             const option = repo.options.find((o) => o.planVersionId === selections[repo.alias]);
@@ -440,7 +438,7 @@ export function ConcurrencyImports({
             ))}
           </details>
           <details>
-            <summary>Proposed decisions ({detail.decisions.length})</summary>
+            <summary>Scheduling proposals ({detail.decisions.length})</summary>
             <p>Review and adopt proposals in the target scope supervisor above.</p>
             {detail.decisions.map((d) => (
               <article key={d.id}>
@@ -521,7 +519,7 @@ export function ConcurrencyImports({
                   </ul>
                   {n.caseIds.length > 0 && <p>Required cases: {n.caseIds.join(', ')}</p>}
                   <p>
-                    Sources: {n.sourceIds.join(', ') || 'none'} · Decisions:{' '}
+                    Sources: {n.sourceIds.join(', ') || 'none'} · Scheduling proposals:{' '}
                     {n.decisionIds.join(', ') || 'none'}
                   </p>
                 </details>

@@ -94,7 +94,7 @@ export function ImportPlanPage({
   return (
     <div className="page">
       <PageHeader
-        title="Import a plan bundle"
+        title="Import plan"
         subtitle="Planning files or a complete planning ZIP, into a new or existing project."
       />
 

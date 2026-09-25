@@ -71,7 +71,7 @@ export function FinalizationCheckpoint({
           findings.some((f) => selected.includes(f.id) && f.severity !== 'nit')
         ? 'Only nits can be deferred. Deselect higher-severity findings or choose Address selected findings.'
         : findingDecision && !rationale.trim()
-          ? 'Enter a decision rationale to continue.'
+          ? 'Enter a disposition rationale to continue.'
           : grantsAttempts && !validRounds
             ? 'Choose between 1 and 20 additional attempts.'
             : agentMode === 'switch' &&
@@ -163,7 +163,7 @@ export function FinalizationCheckpoint({
             ))}
           </fieldset>
           <label className="field">
-            Decision rationale (required)
+            Disposition rationale (required)
             <textarea
               required
               maxLength={4000}
@@ -249,7 +249,7 @@ export function FinalizationCheckpoint({
         />
       )}
       <p id={hintId} role="status">
-        {blocker ?? (busy ? 'Submitting decision…' : `${buttonLabel} is ready.`)}
+        {blocker ?? (busy ? 'Submitting…' : `${buttonLabel} is ready.`)}
       </p>
       <button
         className="primary-button"

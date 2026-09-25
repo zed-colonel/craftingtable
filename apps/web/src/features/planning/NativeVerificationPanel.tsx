@@ -7,6 +7,7 @@ import {
 import type { NativeAudit } from '@craftingtable/contracts';
 import { request } from '../../lib/api-client.js';
 import { distinct } from '../../lib/distinct.js';
+import { About } from '../../components/About.js';
 export function NativeVerificationPanel({
   base,
   panelId,
@@ -84,12 +85,14 @@ export function NativeVerificationPanel({
             again.
           </p>
         )}
-      <p>
-        Approve non-sensitive repository fixtures on this workstation. CraftingTable provisions
-        review worktrees, retains exact test evidence and cleans up bounded test processes. Approval
-        does not pass a test, authorize Kata or change dependency pins. Eligible work may dispatch
-        when the roadmap is running.
-      </p>
+      <p>Approval does not pass a test, authorize Kata or change dependency pins.</p>
+      <About label="About native verification">
+        <p>
+          Approve non-sensitive repository fixtures on this workstation. CraftingTable provisions
+          review worktrees, retains exact test evidence and cleans up bounded test processes.
+          Eligible work may dispatch when the roadmap is running.
+        </p>
+      </About>
       <ul>
         {native.requirements.map((r) => (
           <li key={r.resource}>

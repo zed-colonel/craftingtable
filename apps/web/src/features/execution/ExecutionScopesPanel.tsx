@@ -94,7 +94,7 @@ export function ExecutionScopesPanel({
         <p>
           Development and verification use separate admission slots. A reservation coordinates
           daemon work; it is not evidence of isolation or a test pass. Selecting a slice does not
-          approve map decisions or external effects.
+          approve scheduling proposals or external effects.
         </p>
       </About>
       {error && (

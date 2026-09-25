@@ -189,7 +189,7 @@ export function RuntimeEvidencePanel({
       <About label="About dependency environments">
         <p>
           Pin exact source commits for builds. Review qualification evidence separately. Saving here
-          does not start work or adopt map decisions.
+          does not start work or adopt scheduling proposals.
         </p>
       </About>
       {error && <p role="alert">{error}</p>}
@@ -351,10 +351,13 @@ export function RuntimeEvidencePanel({
         <summary>Configure pinned dependencies and environments</summary>
         <fieldset disabled={busy || !canMutate || !bindingRevision}>
           <h4>Local development setup</h4>
-          <p>
-            Inspect the selected branches, discover required dependencies, and capture this
-            workstation’s environment and installed Rust toolchains. Review the draft before saving.
-          </p>
+          <About label="About local setup">
+            <p>
+              Inspect the selected branches, discover required dependencies, and capture this
+              workstation’s environment and installed Rust toolchains. Review the draft before
+              saving.
+            </p>
+          </About>
           <ul>
             {view.repositories
               .filter((r) => r.role === 'planned_application')
@@ -391,15 +394,21 @@ export function RuntimeEvidencePanel({
             {busy ? 'Working…' : 'Discover local setup'}
           </button>
           <p>
-            Discovery replaces the setup draft below. Nothing is saved or approved until you choose
-            Save dependency environment. External native/Kata qualification is configured separately
-            when its gates need evidence.
+            Discovery replaces the draft below. Nothing is saved until you choose Save dependency
+            environment.
           </p>
-          <p>
-            Inspect a ref in a bound repository to discover its Cargo package mappings. The saved
-            pin is an exact commit. Use Preview dependency refresh after integration advances to see
-            which evidence remains applicable and which reviews must run again.
-          </p>
+          <About label="About pins">
+            <p>
+              Inspect a ref in a bound repository to discover its Cargo package mappings. The saved
+              pin is an exact commit. Use Preview dependency refresh after integration advances to
+              see which evidence remains applicable and which reviews must run again. External
+              native/Kata qualification is configured separately when its gates need evidence.
+            </p>
+            <p>
+              After a save, changed environment inputs require native approval and changed
+              dependencies require affected reviews. Historical evidence is retained.
+            </p>
+          </About>
           {view.repositories.map((repo) => (
             <div key={repo.alias}>
               <label className="field">
@@ -523,11 +532,13 @@ export function RuntimeEvidencePanel({
             </fieldset>
           ))}
           <h4>Qualification environments</h4>
-          <p>
-            Record SHA-256 identities for the host/environment, fixtures and toolchain. External
-            native and Kata checks are submitted as reviewed evidence; this does not provision a
-            host, grant credentials or launch remote checks.
-          </p>
+          <About label="About qualification environments">
+            <p>
+              Record SHA-256 identities for the host/environment, fixtures and toolchain. External
+              native and Kata checks are submitted as reviewed evidence; this does not provision a
+              host, grant credentials or launch remote checks.
+            </p>
+          </About>
           {config.environments.map((env, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: Controlled inputs; editable names are not stable keys.
             <fieldset key={index}>
@@ -645,7 +656,7 @@ export function RuntimeEvidencePanel({
 
           <p>
             {configDirty || changedRefs
-              ? 'Unsaved dependency changes. Saving creates a new generation and requires plan acceptance. Changed environment inputs require native approval; changed dependencies require affected reviews. Historical evidence is retained.'
+              ? 'Unsaved dependency changes. Saving creates a new generation and requires plan acceptance.'
               : view.current
                 ? `Dependency settings saved · generation ${view.current.generation}. No dependency save needed.`
                 : 'Discover or enter the dependency environment before saving.'}
@@ -776,12 +787,14 @@ export function RuntimeEvidencePanel({
               </button>
             </>
           )}
-          <p>
-            Fill in the template or upload an evidence JSON file. Include actual logs and
-            independent review text; case names alone do not pass. Identities are external
-            attestations that you review. Use sourceRunId only to explicitly reuse a successful
-            historical review of the exact same source tree.
-          </p>
+          <p>Include actual logs and independent review text; case names alone do not pass.</p>
+          <About label="About evidence files">
+            <p>
+              Fill in the template or upload an evidence JSON file. Identities are external
+              attestations that you review. Use sourceRunId only to explicitly reuse a successful
+              historical review of the exact same source tree.
+            </p>
+          </About>
           <label className="field">
             Evidence JSON file
             <input
@@ -843,10 +856,9 @@ export function RuntimeEvidencePanel({
       )}
       <details>
         <summary>Pinned build records ({view.builds.length} recent runs)</summary>
-        <p>
-          Records are frozen when a run ends and survive build-cache cleanup. A successful build is
-          development evidence; qualification and publication still require their independent
-          review.
+        <p className="hint">
+          Records survive build-cache cleanup. A successful build is development evidence;
+          qualification still needs review.
         </p>
         {view.builds.map((b) => (
           <p key={b.runId}>

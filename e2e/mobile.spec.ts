@@ -60,7 +60,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
 
     await navigate(page, 'Dashboard');
     await expect(page.locator('main')).toBeFocused();
-    await navigate(page, 'All workspaces');
+    await navigate(page, 'Workspaces');
     const createWorkspace = page.getByRole('region', { name: 'New workspace' });
     await createWorkspace.getByLabel('Name', { exact: true }).fill('Mobile test workspace');
     await createWorkspace.getByRole('button', { name: 'Create workspace' }).click();
@@ -235,7 +235,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await expect(page.getByRole('heading', { name: 'Runs', exact: true })).toBeVisible();
     await fitsPhone(page);
     await navigate(page, 'Settings');
-    await expect(page.getByRole('heading', { name: 'Workspace settings' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
     await fitsPhone(page);
     // Smaller phones, landscape, and switching back to the desktop rail.
     for (const viewport of [

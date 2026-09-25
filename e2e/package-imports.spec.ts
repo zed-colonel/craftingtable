@@ -62,7 +62,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
       await page.getByRole('button', { name: 'Menu', exact: true }).click();
     await page.getByRole('link', { name, exact: true }).click();
   };
-  await navigate('All workspaces');
+  await navigate('Workspaces');
   const create = page.getByRole('region', { name: 'New workspace' });
   const workspaceName = `Package imports ${info.project.name}`;
   await create.getByLabel('Name', { exact: true }).fill(workspaceName);
@@ -313,9 +313,9 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
       .getByRole('button', { name: 'Submit or review checkpoint evidence' })
       .first(),
   ).toBeVisible();
-  await supervisor.getByText(/Map decision adoption ·/).click();
+  await supervisor.getByText(/Scheduling proposals ·/).click();
   await expect(
-    supervisor.getByRole('button', { name: 'Adopt map decisions', exact: true }),
+    supervisor.getByRole('button', { name: 'Adopt scheduling proposals', exact: true }),
   ).toBeDisabled();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))

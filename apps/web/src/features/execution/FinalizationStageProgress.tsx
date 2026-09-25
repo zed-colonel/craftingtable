@@ -43,8 +43,7 @@ export function FinalizationStageProgress({ view }: { view: FinalizationView }) 
           Plan obligations and evidence ({met} of {progress.obligations.length} current)
         </summary>
         <p className="hint">
-          Evidence belongs to the recorded candidate and destination commits. Later changes require
-          revalidation; the final independent review revalidates every obligation.
+          Evidence is tied to the recorded commits; the final review revalidates every obligation.
         </p>
         {progress.obligations.map((o) => (
           <article key={o.id} className="review-finding">
@@ -90,7 +89,7 @@ export function FinalizationStageProgress({ view }: { view: FinalizationView }) 
       </details>
       {!!progress.decisions.length && (
         <details>
-          <summary>Stage decisions ({progress.decisions.length})</summary>
+          <summary>Finding dispositions ({progress.decisions.length})</summary>
           {progress.decisions.map((d) => (
             <p key={`${d.runId}:${d.createdAt}`}>
               {stages.find((s) => s.id === d.stageId)?.name} · selected{' '}

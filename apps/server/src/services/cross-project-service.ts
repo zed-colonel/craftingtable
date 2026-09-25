@@ -297,7 +297,7 @@ export function crossProjectState(
         ? [
             {
               kind: 'adoption' as const,
-              message: 'Review and adopt the scheduling decisions for these exact plans.',
+              message: 'Review and adopt the scheduling proposals for these exact plans.',
             },
           ]
         : []),
@@ -319,7 +319,7 @@ export function crossProjectState(
         : []),
       ...bindingIssues(tx, ws, d.id, revision),
       ...(!mapAdopted(tx, ws, d.id, revision)
-        ? ['Adopt the exact map and its proposed scheduling decisions before Start.']
+        ? ['Adopt the exact map and its scheduling proposals before Start.']
         : []),
       ...(!activeRuntime(tx, ws, d.id, revision) &&
       d.source.repositories.some((r) => r.role === 'implemented_upstream')
@@ -397,7 +397,7 @@ export class CrossProjectService {
       ids.some((id) => !input.decisionIds.includes(id))
     )
       conflict(
-        'Review and explicitly approve every proposed scheduling decision; changing a proposal requires a new definition.',
+        'Review and explicitly approve every scheduling proposal; changing a proposal requires a new definition.',
       );
     const at = new Date().toISOString();
     this.storage.transaction((tx) => {
@@ -433,7 +433,7 @@ export class CrossProjectService {
         payload: {
           definitionId: id,
           message:
-            'Map scheduling decisions adopted. Checkpoint evidence and Start remain separate.',
+            'Scheduling proposals adopted. Checkpoint evidence and Start remain separate.',
         },
       });
     });

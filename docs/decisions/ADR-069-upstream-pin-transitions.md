@@ -15,9 +15,10 @@ build (register R-F7).
 
 Two further problems follow from deciding by slice kind. Choosing the source per tree is
 all-or-nothing, so a consumer with two upstreams cannot build with one link current and the other
-historical. And when a consumer has independent first integration slices (EXO-03/integration and
-EXO-05/integration on the live map), whichever merges first decides when the consumer moves, so
-the outcome depends on the order of parallel work.
+historical. And when a consumer has independent first current-pin slices (EXO-03/integration,
+EXO-05/integration and the early-start EXO-18/instance-qualification on the live map), whichever
+merges first decides when the consumer moves, so the outcome depends on the order of parallel
+work.
 
 The roadmap orders all development, and when each link moves belongs to that ordering. Agents do
 not decide it, and CraftingTable does not infer it from what has merged.
@@ -41,20 +42,22 @@ not decide it, and CraftingTable does not infer it from what has merged.
   - some other consumer scope that ADR-053 gives the current pins does not require the slice
     through start requirements. Requirements of accepted work items and passed checkpoints are
     followed transitively. So no current-pin work can start before its link moves;
-  - the upstream itself consumes another upstream U, the consumer also depends on U, and the
-    consumer→U link is not declared at the same slice or at a slice this one requires. An
-    upstream's current pin can carry its own upstreams (WI's pin requires AQ `=0.2.0`), so the
-    consumer cannot take it while still building historical U.
+  - the upstream is a planned application that itself consumes another upstream U, the consumer
+    also depends on U, and the consumer→U link is not declared at the same slice or at a slice
+    this one requires. A planned upstream's current pin can carry its own upstreams (WI's pin
+    requires AQ `=0.2.0`), so the consumer cannot take it while still building historical U. An
+    implemented upstream's pin is fixed, and the map declares nothing it consumes.
 - **Choosing the source per link.** When a run starts, each consumer→upstream link is supplied
-  separately:
+  separately (`chooseUpstreamSources`):
   - For a scope that ADR-053 gives the current pins, a declared link gets the current pin. An
     undeclared link stops the run with the typed attention code `upstream-transition-undeclared`.
     Nothing falls back to a guess.
-  - For a scoped tree, a declared link gets the current pin when the tree belongs to the
-    transition slice's own scope, or when a recorded merge of that slice in the same repository
-    is an ancestor of the tree's HEAD. Otherwise, and for every undeclared link, it gets the
-    consumer's prepared historical source, or no package when nothing is prepared. The
-    registry is never used as a fallback (ADR-053).
+  - For a scoped tree, a declared link gets the current pin once the transition slice's recorded
+    merge (including integrated code reused across an amendment) is an ancestor of the tree's
+    HEAD. The transition slice's own trees always build against the current pins, since the
+    checks require it to be a current-pin slice. Otherwise, and for every undeclared link, the
+    tree gets the consumer's prepared historical source, or no package when nothing is prepared.
+    The registry is never used as a fallback (ADR-053).
 - **Provenance.** The run manifest records each link's source (`current-upstream` or
   `historical-development`), the transition that decided it, and the record's id when one did.
   The brief names the source for each link. The verification mode, the receipts and their gates
@@ -68,9 +71,9 @@ not decide it, and CraftingTable does not infer it from what has merged.
 - WI-02/domain's fresh verification builds against AQ `=0.2.0` once the live definition has a
   wi→aq record at WI-02/integration. WI-03/domain's pre-migration tree keeps historical AQ.
 - On the live map, no single slice qualifies for EXO's links. EXO's current-pin work stops with
-  `upstream-transition-undeclared` until the next map revision declares them, most cleanly as one
-  slice that adopts current AQ and WI and that both EXO-03/integration and EXO-05/integration
-  require.
+  `upstream-transition-undeclared` until the next map revision declares them. The cleanest shape
+  is one slice that adopts current AQ and WI, and that EXO-03/integration, EXO-05/integration and
+  EXO-18/instance-qualification all require.
 - A map whose consumers have upstreams must declare every link before any of its current-pin work
   runs. This is a deliberate exception to "existing maps execute unchanged". Without it, a
   consumer's move to the current pins happens silently, at an order-dependent point.

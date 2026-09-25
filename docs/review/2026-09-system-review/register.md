@@ -26,7 +26,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B7](#r-b7) | P4 | L | open | Decompose the controller services along real boundaries |
 | [R-B8](#r-b8) | P1 | M | done (c0ccf3b, 9fe2152) | Remove dead and vestigial paths |
 | [R-B9](#r-b9) | P1 | M | done (4d81743, efd7369) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
-| [R-B10](#r-b10) | P1 | S-M | done (0e4eb04, adeb4cf, f32b407; deletion 2026-09-25) | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
+| [R-B10](#r-b10) | P1 | S-M | done (0e4eb04, adeb4cf, f32b407, 6ea1fae, 2bd6e40) | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
@@ -361,7 +361,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B10
 
-**Retire legacy finalization for new starts** · Phase P1 · Effort S-M · Status: done (2026-09-25)
+**Retire legacy finalization for new starts** · Phase P1 · Effort S-M · Status: done (6ea1fae, 2bd6e40)
 
 - **Added 2026-09-24:** split from [R-B8](#r-b8) in the phase 1 review. Its part of the R-B8 Change needs work R-B8 never scoped: moving tests first, and a UI change.
 - **Resolves:** [CTRL-15](findings/CTRL-controller.md#ctrl-15-dead-and-vestigial-controller-paths) (the legacy-finalization part).

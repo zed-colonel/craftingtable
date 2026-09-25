@@ -26,7 +26,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B7](#r-b7) | P4 | L | open | Decompose the controller services along real boundaries |
 | [R-B8](#r-b8) | P1 | M | done (c0ccf3b, 9fe2152) | Remove dead and vestigial paths |
 | [R-B9](#r-b9) | P1 | M | done (4d81743, efd7369) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
-| [R-B10](#r-b10) | P1 | S-M | in progress (start form staged-only; legacy deletion waits on a live staged finalization) | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
+| [R-B10](#r-b10) | P1 | S-M | in progress (0e4eb04, adeb4cf, f32b407; legacy deletion waits on a live staged finalization) | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
@@ -50,7 +50,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-E3](#r-e3) | P3 | L | open | Roadmap board: progress and dependencies at a glance |
 | [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
 | [R-E5](#r-e5) | P3 | M | open | Consolidate settings and agent selection |
-| [R-E6](#r-e6) | P1 | M | done (2026-09-25; hash recorded in program.md) | Operator vocabulary and copy |
+| [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
 | [R-F1](#r-f1) | P1/P4 | S then L | partial (52c5c8b) | One compiled map model and one requirement evaluator |
 | [R-F2](#r-f2) | P3 | M | open | Typed feature recognition instead of prose and magic identifiers |
@@ -85,7 +85,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I4](#r-i4) | P2 | M | open | Structural test/production and process-authority boundaries |
 | [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d) | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
-| [R-I7](#r-i7) | P1-P3 | M | partial (P1 start done 2026-09-25) | Documentation reset to current state |
+| [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 | [R-I9](#r-i9) | P2 | S-M | open | Independent e2e specs: one workspace per spec (added 2026-09-24) |
 
@@ -634,7 +634,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E6
 
-**Operator vocabulary and copy** · Phase P1 · Effort M · Status: done (2026-09-25)
+**Operator vocabulary and copy** · Phase P1 · Effort M · Status: done (4c77665, a7d1b19)
 
 - **Resolves:** [UI-11](findings/UI-information-architecture.md#ui-11-walls-of-text-and-headings-written-as-sentences), [UI-12](findings/UI-information-architecture.md#ui-12-vocabulary-density-and-inconsistent-labels), [DOC-04](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-04-vocabulary-is-incoherent-around-blockers-decisions-and-recovery), [UI-10](findings/UI-information-architecture.md#ui-10-recovery-panels-render-when-nothing-needs-recovering)
 - **Change:** A glossary of ~15 operator-facing terms in ui-principles; rename map "decisions" to scheduling proposals and finalization "decisions" to finding dispositions in labels only (wire and format names unchanged); align rail and page titles; hide panels that have nothing to recover (IntegrationResolutionPanel, ProviderRecovery after recovery); move explanatory prose into About; headings are short; remove stale copy.

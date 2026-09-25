@@ -327,6 +327,64 @@ P1, so a staged finalization can run live before R-B10 deletes the legacy branch
   - after a few days, measure R-H2's growth per run and R-G7's cache-removal volume;
   - confirm on the next deploy that a live turn drains and resumes (R-B9's exit criterion).
 
+**Rest of P1 (2026-09-25, same branch, after the deploy of 0190845).** R-F3's FMT-15, R-B10, R-E6 and
+R-I7's P1 start. Every item has a dated amendment in the register. Each commit was reviewed against its
+done-when by an independent agent, and the confirmed findings were fixed.
+- **R-F3 (FMT-15): done.** 432bb00, 0ef20b1; review fixes 2f2e52a.
+  - The scope fixture maps pass the real v0.3 importer, and test cleanup applies the map-format check.
+  - Operator decision (2026-09-25, "schema-valid fixtures"): the stored maps drop the scaffolding
+    repositories, because an implemented upstream would force every scope test onto the pinned
+    Cargo build.
+- **R-B10: in progress; only the live-gated deletion remains.** 0e4eb04, adeb4cf, 9b7316a; review
+  fixes f32b407.
+  - The start form offers only staged finalizations.
+  - The legacy finalization tests run on stages, and legacy-only behaviour sits in one file that is
+    deleted with the branches.
+  - The completed 2026-09-13 record is a fixture that validates, renders and is served by
+    `GET …/finalizations`.
+  - The migration found and fixed one defect: a staged review without a structured report stopped
+    instead of getting R-C2's format repair.
+  - Replays on a copy of the 2026-09-23 snapshot: 51 decisions and 278 every-run decisions, 0
+    changed, at every step and at the final head.
+- **R-E6: done.** 4c77665; review fixes a7d1b19, 68c9bde.
+  - A 17-term glossary; map and finalization "decisions" relabelled.
+  - Rail and page titles aligned.
+  - The recovery panels gated on codes.
+  - `copy-rules.test.ts` enforces short headings and no long prose outside `About`, except paragraphs
+    that report state.
+  - Walkthroughs: `2026-09-25-finalization-staged-after` (before), `-vocabulary-copy-after`,
+    `-vocabulary-copy-review-after`.
+- **R-I7: P1 start done.** e317636; review fixes 61e41cb.
+  - The README is a 150-line operator guide; the full old README is archived.
+  - `docs/architecture.md` describes the current design.
+  - 19 false or stale claims fixed.
+  - What is left for P2–P3 is listed on the item.
+- **Defect found along the way (61e41cb).** `admin reset-password` and `admin bootstrap` migrated
+  the database without the single-daemon lock. From a checkout newer than the deployed release they
+  would have changed the schema under the running daemon. They now take the lock whenever they would
+  migrate.
+- **Gate at 68c9bde:** `pnpm check` passes.
+  - 181 test files and 1,413 unit tests; `pnpm test` took 90 s at load average about 3.
+  - 20 e2e tests, the walkthrough rehearsal and the scope check.
+  - One known flake: a transient `package-imports` e2e miss, which passed twice on rerun.
+- **P1 exit criteria (2026-09-25):**
+  - **Every stop has a code and owner:** met as restated (every cycle, roadmap, hold and phase-blocker
+    stop). The remainder is R-A4.
+  - **Operator-wait hours on the dashboard:** met and deployed (0190845).
+  - **`pnpm test` under about 90 s:** met (90 s at load 3).
+  - **A clean restart does not stop the roadmap:** met in tests. The drop-in is live; the first
+    drained restart is confirmed on the next deploy.
+- **Left in P1 (all live-data work):**
+  1. **Redeploy the final head.** It carries no migration. Run `pnpm db:verify` on a fresh backup
+     first, as before, then confirm that a live turn drains and resumes (R-B9).
+  2. **Compact the live journal** with the daemon stopped (`docs/operations.md`).
+  3. **After a few days, measure** R-H2's journal growth per run and R-G7's cache-removal volume
+     against the 825 GB baseline.
+  4. **Finish R-B10:** delete the legacy finalization branches once a staged finalization has
+     completed on live data. The operator reported on 2026-09-25 that no plan is ready to finalize.
+     The every-run replay baseline for that check is at
+     `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-23/every-run-golden-5e0c638.json`.
+
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 
 | Item | Notes |

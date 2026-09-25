@@ -768,6 +768,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - `workflowContext` now also accepts `stagedDecision`.
   - `server-execution-reviews.test.ts` asserts the workflow accepts the checkpoint for the named slice and not for the other slice; it fails without the fix.
   - The single evaluator this item plans would remove this whole class of drift.
+  - Gate at fb42dc5, on an idle machine during the Codex outage: `pnpm check` is green (186 test files, 1,427 unit, 20 e2e, scope check). The earlier failures in scope-recovery and supervised-maps were waitFor timeouts under the live daemon's load.
 
 ### R-F2
 

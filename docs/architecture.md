@@ -1,44 +1,50 @@
 # Architecture
 
 CraftingTable is one daemon and one browser app. The daemon owns all state and every
-command; the browser is an authenticated projection reconstructed from a durable
-snapshot plus an event cursor.
+command; the browser is an authenticated projection reconstructed from a durable snapshot
+plus an event cursor. This document describes the current design by component. Decisions
+and their reasons are in the ADRs under `docs/decisions/`.
 
 ## Packages and dependency direction
 
 ```text
 domain      pure TypeScript records, branded identifiers, closed vocabularies
-contracts   strict Zod HTTP/SSE schemas (depends on domain)
-planning    pure plan-bundle parsing, validation, graph, digest (depends on domain)
+contracts   strict Zod HTTP/SSE and persisted-record schemas (depends on domain)
+planning    pure plan-bundle, ZIP and concurrency-map parsing and validation (depends on domain)
 storage     SQLite, migrations, repositories (depends on domain)
-git         worktree, diff and merge operations (depends on domain)
-agents      agent backend seam and Claude Code and Codex adapters (depends on domain)
+git         worktree, diff, merge and ref operations (depends on domain)
+agents      agent backend seam, Claude Code and Codex adapters, build/check/native adapters
 server      Fastify routes, services, composition (depends on all of the above)
 web         React projection (depends on domain + contracts only)
 ```
 
-Only `storage` owns SQL. Only the explicitly listed adapter modules may spawn a process, and
-`scripts/check-forbidden-scope.mjs` enforces that list: the Git operations module, the shared agent process supervisor, the pinned Cargo adapter,
-and the local-check/act adapter. No package depends
-on ActionQueue, WorldInterface, Exoskeleton, or any other supervised project.
+Only `storage` owns SQL. Only the modules named in `PROCESS_AUTHORITY` in
+`scripts/check-forbidden-scope.mjs` may spawn a process; that map is the authoritative list,
+each entry with its reason. The same check keeps `planning` pure and `domain` free of
+imports, forbids Git and vendor-agent libraries elsewhere, and fails any branching on the
+text of a `reason` or `message`. No package depends on ActionQueue, WorldInterface,
+Exoskeleton, or any other supervised project.
 
-### Persisted records
+## Persisted records and migrations
+
+Migrations live in `packages/storage/migrations/` and run forward only on daemon start or
+`craftingtable db migrate`, after a populated database is copied into `pre-migration/` beside it
+(the last three copies are kept). A table-rebuild migration needs a preservation test
+(`migration-preservation.ts`) and an in-migration count guard (ADR-002).
 
 Every record storage keeps has a kind in `packages/storage/src/records.ts` (work cycles,
-roadmaps, runs, journal events, evidence and so on). Three rules hold at the storage
-boundary:
+roadmaps, runs, journal events, evidence and so on). Three rules hold at the storage boundary:
 
 - **Reads upcast.** Every repository mapper ends in `readRecord`, which applies the kind's
   upcasters, so the rest of the daemon sees one current shape. When a stored shape stops
   matching the current contract, add an upcaster there instead of teaching readers about the
   old shape.
 - **Writes are guarded.** Storage hands every record to the `RecordGuard` it was opened with
-  before its write commits. Row-shaped kinds (runs, worktrees, journal events, audit records,
-  plan versions and work items) are read back inside the write's transaction and guarded
-  there. That read-back refuses any record an upcaster would change (`readWritten`), so an
-  upcaster cannot hide a writer defect. The daemon opens storage with `openDaemonStorage`,
-  which checks the record against its contract schema (`apps/server/src/persisted-records.ts`),
-  so an out-of-bounds record fails where it is created, not in a browser response.
+  before its write commits. Row-shaped kinds are read back inside the write's transaction and
+  guarded there, and that read-back refuses any record an upcaster would change
+  (`readWritten`), so an upcaster cannot hide a writer defect. The daemon opens storage with
+  `openDaemonStorage` (`apps/server/src/persisted-records.ts`), which checks each record
+  against its contract schema, so an out-of-bounds record fails where it is created.
 - **Contracts match the domain.** Each kind's schema is pinned to the type storage reads with
   `equivalentSchema`, so a field added to a domain type and not to its schema, or the reverse,
   fails `pnpm typecheck`.
@@ -46,15 +52,18 @@ boundary:
 `pnpm db:verify <database>` copies a database with the backup API, migrates the copy and checks
 every record against its contract, plus the v0.3 map format and SQLite's integrity and
 foreign-key checks. Run it on a snapshot before deploying a contract or schema change. Every
-test daemon runs the same check on its database at cleanup. A table-rebuild migration needs a
-preservation test (`migration-preservation.ts`) and, from schema 28, an in-migration count
-guard (ADR-002).
+test daemon runs the same check on its database at cleanup.
 
-## The execution model
+Imported plans, archives, source maps, roadmap definitions, runtime generations, evidence,
+decisions and receipts are immutable (enforced by triggers); mutable state lives in separate
+versioned rows, and commands carry the version they read.
+
+## Execution model
 
 ```text
 SourceRepository   a registered local checkout (path, default branch, head at registration)
-Worktree           a linked worktree on a fresh branch, bound to one work item and repository
+Worktree           a linked worktree on a fresh branch, bound to a work item (or a plan version
+                   for finalization), a repository, a frozen integration target and optional scope
 AgentRun           one supervised agent session in a worktree: backend, role, permission
                    posture, brief, status, cost, turns, optional parentRunId lineage
 AgentRunEvent      the normalized per-run journal: session-started, user-message,
@@ -63,486 +72,360 @@ AgentRunEvent      the normalized per-run journal: session-started, user-message
 ```
 
 Run status: `starting → running ⇄ waiting → finished | failed | cancelled | interrupted`.
-Transitions are guarded by expected-status sets so a late process callback can never
-regress a run the operator already cancelled. A stop drains live turns for a bounded time and
-records the runs it interrupts as `interrupted` with reason `daemon-drain`; after that clean
-stop the controller resumes their vendor sessions (ADR-066). A crash leaves live runs
-`interrupted` without a reason, for explicit resume.
+Transitions are guarded by expected-status sets so a late process callback can never regress
+a run the operator already cancelled. Roles (`implement`, `review`, `design`) select a brief
+template; together with `parentRunId` they are the composition seam for design/implement/review
+loops. Runs record `resolvedModel` and `billing` from session metadata, and a review run records
+a `verdict` from its final `VERDICT:` line, which must agree with its structured report.
 
-Roles (`implement`, `review`, `design`) select a brief template. Together with
-`parentRunId` they are the composition seam for orchestrated design/implement/review
-cycles: an orchestrator chains runs by role and lineage without new vocabulary.
+Each run gets a registered run directory for its brief and plan documents, with a `scratch`
+subdirectory passed to both backends as their temporary directory. Tool results over 4 KiB
+(`TOOL_RESULT_PREVIEW_BYTES`) keep a preview in the journal and their gzipped body in the run
+directory, where it expires with the run's scratch; `craftingtable db compact-journal` applies
+the same rule to older runs (ADR-068). Run detail reads the latest completed turn straight from
+the journal, so the final message shows independently of feed pagination.
 
-Runs also record model and billing provenance: `resolvedModel` and `billing`
-from normalized session metadata and subsequent reported model reroutes, and for review runs a `verdict` parsed
-from the final message's `VERDICT:` line.
+**Drain and resume.** A stop (SIGTERM/SIGINT, or a request file written by
+`pnpm deploy:daemon`) drains (`services/daemon-drain.ts`): admissions stop, live turns get up to
+`CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS` to finish, then the rest are recorded `interrupted` with
+reason `daemon-drain` and a clean stop is written. The next start consumes that record: running
+cycles and roadmaps continue, and each drained step resumes its vendor session
+(`services/restart-resume.ts`, ADR-066). After a crash, live runs are `interrupted` without a
+reason and wait for an explicit resume.
 
-## Work item lifecycle and the merge gate
+## Work items, plan versions and branch settings
 
 ```text
 proposed ──admit──▶ admitted ──merge or mark complete──▶ completed
 ```
 
-"In progress" is derived (an active worktree or a live run), not stored. Completion is
-a separate `work_item_completions` row joined on read, while schema 17 permits a guarded
-return from admitted to proposed; a completed predecessor unblocks its dependents.
+"In progress" is derived (an active worktree or a live run), not stored. Completion is a
+separate `work_item_completions` row joined on read; a completed predecessor unblocks its
+dependents. Removing an unstarted item from the agenda is a guarded, audited return from
+admitted to proposed that creates no completion evidence; the eligibility check covers run and
+cycle history, active worktrees and delegated roadmaps, plus an in-memory guard for worktree
+creation in progress. The whole-item predecessor rule is in one place,
+`services/transition-gate.ts`, read by commands, launches and the roadmap scheduler.
 
-A worktree's merge gate is computed from its runs (`mergeGateFor` in the execution
-service): mergeable when the most recent run is a successfully finished review with a `mergeable` verdict and
-nothing is live. The shared merge command re-evaluates the gate, reserves a durable operation, and merges with a merge
-commit into the worktree's recorded integration branch after verifying the review's
-source/target commits and worktree version. The Git commit is reconciled into database
-completion before worktree and branch cleanup; cleanup can be retried independently. The merge happens in the primary checkout
-only when that checkout already has the target checked out; otherwise it runs in a
-scratch worktree under the worktree root. See ADR-021.
+Plan versions keep immutable imported documents and mutable execution settings in
+`plan_branch_settings` (repository, integration branch, additional protected branches);
+`work_item_integration_evidence` attaches integration commits to older manual completions. New
+worktrees freeze the configured integration target and its starting commit. Retargeting and integration updates invalidate
+earlier reviews; every review records the source and target commits it saw. Required
+predecessors' integration evidence is checked by Git ancestry (ADR-026). Repository policy
+records (ADR-055) are immutable operator records that runs receive with fresh local
+observations; they configure no hosting protection and move no refs.
 
-A run started with `parentRunId` receives a 256 KiB preview of the parent's final
-message plus source files materialized from the journal. The handoff manifest identifies
-source runs and event cursors, also recorded on the launch message to pin inherited
-context; it includes conversations, final messages, and review assessments throughout
-the parent lineage. Source text is not clipped to the inline
-preview; a handoff exceeding 32 MiB is rejected before launch. Known upstream truncation
-is explicitly reported. Parent and child must belong to the same worktree, and a source
-turn must stop running before it can be handed off.
+**Merge gate.** `mergeGateFor` (`services/execution-service.ts`) is mergeable only when nothing
+is live and the most recent run is a finished review with a `mergeable` verdict whose branch
+context matches the worktree's current version and target. The shared merge command
+re-evaluates the gate, verifies the reviewed source and target commits, reserves a durable merge
+operation, and merges with a merge commit into the recorded integration branch. The primary
+checkout is used only when it already has the target checked out; otherwise the merge runs in a
+scratch worktree under the worktree root. The Git commit is reconciled into database completion
+before worktree and branch cleanup, and cleanup can be retried independently (ADR-021, ADR-033).
 
-Within the brief: an implement run after a review gets the findings to remediate, a review
-after an implement run gets the implementation's own summary as a claim to verify, and
-an implement run after a design gets the proposal as its accepted plan. The operator
-accepts a design by launching that implement run in the manual flow. The automated
-cycle accepts it only when its explicit final Open questions section says `none`.
-Those edges plus implement-then-review give every step of the loop the same shape.
+**Handoffs.** A run started with `parentRunId` receives a 256 KiB preview of the parent's
+final message plus source files materialized from the journal. The handoff manifest names
+source runs and event cursors, recorded on the launch message; it includes conversations,
+final messages and review assessments across the parent lineage. Source text is not clipped to
+the preview; a handoff over 32 MiB is rejected before launch (`services/run-handoff.ts`). Parent
+and child share a worktree, and a source turn must stop before it can be handed off. An
+implement run after a review gets the findings; a review after an implement run gets the
+implementer's summary as a claim to verify; an implement run after a design gets the proposal
+as its plan (ADR-024).
 
-Which agent runs each step is a workspace setting, not a property of the previous run.
-`workspace_run_profiles` holds four default steps and optional specialist overrides (backend,
-model and optional Codex effort). Permission postures remain attached to the original step.
-`GET/POST /api/workspaces/:id/run-profiles` reads and replaces workspace defaults; legacy
-remediation inherits implementation, and absent specialists inherit their base selection.
-Launch forms and handoffs pre-fill the target profile. Cycle setup persists its original
-profiles, while finalization retains explicit per-stage profiles.
+**Review reports and findings.** Review turns carry a daemon-validated, versioned findings
+assessment in their `turn-completed` event, reconstructed from the journal after restart
+without a mutable findings table. The daemon checks verdict consistency and preserves finding
+IDs across the explicit parent lineage. A valid report is a structural reviewer assertion, not
+proof of correctness; invalid reports and implementer claims never close findings or supply a
+merge verdict, and a failed or invalid latest review clears the stored verdict. Finalization
+reports may omit findings already closed by a valid review; their dispositions are
+reconstructed from pinned source events (ADR-035).
 
-For existing roadmaps, `GET /api/workspaces/:id/roadmaps/agent-profiles` projects current
-selections without Git or graph scans. `POST /api/workspaces/:id/roadmaps/:roadmapId/agent-profiles`
-appends a version-checked model assignment to roadmap operational state. It requires paused,
-draft or needs-attention scheduling and carries entry IDs, backend/model/effort only. It does
-not modify the saved definition or acceptance fingerprint. At launch, the daemon resolves the
-latest assignment for the owning attempt (including repair attempts), keeps the original step
-permissions, and records the purpose and assignment identity on the immutable run. Previously
-accepted reviews continue to match their original launch assignment. Browser cycle projections
-show future selections without rewriting the durable cycle profiles. See ADR-064.
+**Agent profiles.** Which agent runs a step is a workspace setting, not a property of the
+previous run. `workspace_run_profiles` holds the four step defaults (design, implement, review,
+remediate) and optional specialist overrides (security, checkpoint, acceptance, conflict,
+investigation), each a backend, model and optional Codex effort; absent specialists inherit
+their base step (`packages/domain/src/agent-profiles.ts`). Cycles persist the profiles they
+started with. For existing roadmaps an operator appends a version-checked model assignment to
+roadmap operational state while the roadmap is a draft, paused or needs attention; it changes
+no saved definition or acceptance fingerprint, keeps each step's original permissions, and is
+recorded on the runs it selects (ADR-064).
 
-Review turns also carry a daemon-validated, versioned findings assessment in their
-`turn-completed` event. It is reconstructed from the journal after restart without a
-new mutable findings table. A complete report is a structurally valid reviewer
-assertion, not proof of correctness or prose coverage. The daemon checks verdict
-consistency and preserves finding IDs across reports in the explicit parent lineage.
-Finalization requires current dispositions for every previously open finding; already closed
-findings may be omitted. Their latest valid dispositions are reconstructed from pinned
-source events, including reopenings, and materialized separately from active findings.
-Invalid reports and implementer claims never close findings. Work-item reports retain the
-original all-ID continuity rule. See ADR-035.
-An implementer's disposition remains a claim for the next reviewer. A failed or invalid
-latest review clears the stored verdict; unstructured legacy reviews may still supply
-one for manual operation. See ADR-024.
+## The cycle controller
 
-`WorkCycleService` uses those commands and handoffs to run one admitted, unblocked work
-item through design, implementation, and bounded review/remediation. `work_cycles`
-stores the fixed completion policy, step profiles, run reservation, and versioned state.
-Changes append audit and workspace events; the browser exposes pause/resume/stop and
-persistent attention notices. Standalone cycles stop for merge approval; a roadmap may
-explicitly delegate integration merges. Interrupted steps require explicit resume. See ADR-025 for completion and recovery rules.
-Before automated review, tracked edits and staged additions can be finalized through a
-content-bound, durably reserved Git checkpoint. Negative reviews bypass approval cleanliness
-checks and carry housekeeping instructions into the same bounded remediation run; positive
-reviews retain exact clean-commit gates. Per-run scratch space is passed to both backends.
-See ADR-031 for authority, commit recovery, and retained scratch files.
+`WorkCycleService` runs one admitted, unblocked work item (or a slice, verification, parent
+acceptance or finalization stage) through design, implement, review and bounded remediation.
+`work_cycles` stores the fixed completion policy, step profiles, next-run reservation and
+versioned state; changes append audit and workspace events. Completion requires zero open
+blocking, major and minor findings and at most the nit allowance (default 3); remediation rounds
+and step time are bounded. Standalone cycles stop for merge approval; a roadmap may delegate
+integration merges (ADR-025).
 
-Run detail reads the latest completed turn directly from the persisted event journal. The
-browser shows its complete message above activity independently of feed pagination, folds
-only an exact validated review-report block into the findings display, and retains the
-original final text in a disclosure.
+`WorkCycleService.reconcile` decides what a step's outcome means in one pure function,
+`decideStepOutcome` (`services/step-outcome.ts`): it reads facts gathered from one cycle and run
+and returns a typed decision, which `reconcile` applies. `replayStepOutcomes` runs the same
+gatherer and decision over any database snapshot, which is how controller refactors are checked
+against recorded decisions (`pnpm controller:replay`, and a golden test over scenario
+snapshots). Tests step the controller with `WorkCycleService.tick()` and
+`AgentRunService.quiesce()` instead of waiting on wall-clock time.
 
-## Agent backend seam
+**Typed attention.** Every stop carries typed attention (`packages/domain/src/attention.ts`,
+ADR-067). A cycle entering `needs-attention` or `awaiting-merge`, a roadmap entering
+`needs-attention`, and a held roadmap entry declare a code and an owner in the same write; the
+write types make a stop without one a compile error. `awaiting-merge` codes name the gate
+(merge approval, merge requirements, final promotion, scope evidence, controller wait,
+scheduling held). While automation will act on a stop (a roadmap that merges or verifies
+automatically, conflict automation, scope recovery, prerequisite work) the controller records
+that claim and the stop is controller-owned until the claim lapses. Phase blockers carry codes
+too, with their owner and whether the controller waits on them. Reasons and messages are
+display text only. Records written before codes existed are read through
+`packages/domain/src/attention-legacy.ts`, the one place that maps old reason text to codes.
 
-`packages/agents` defines `AgentBackend` (`describe`, `launch`) and `AgentSession`
-(`items`, `send`, `end`, `kill`). A backend owns the child process and translates the
-vendor's native output into `NormalizedAgentEvent`s; the daemon owns run state, the
-journal, audit, and workspace events. A raw vendor line is retained, bounded, only on an
-event the adapter could not normalize, for diagnostics; it is never the durable vocabulary.
-Tool results over 4 KiB keep a preview in the journal and their gzipped body in the run
-directory, where it expires with the run's scratch (ADR-068).
+**Recovery within a cycle.** Operator guidance continues a stopped step without adding budget;
+an exhausted review can be granted 1–20 more remediation attempts. Agent questions stop the
+cycle (ADR-063). Bounded automatic recovery exists for provider failures (ADR-062), Claude
+background work left uncollected at exit (up to two same-step continuations under the original
+deadline, ADR-037), and mapped design dependencies (at most two rechecks). Before an automated
+review, tracked edits and staged additions can be committed through a content-bound, durably
+reserved Git checkpoint; negative reviews carry housekeeping into remediation, positive reviews
+keep exact clean-commit gates (ADR-031).
 
-The Claude Code adapter launches `claude -p --input-format stream-json
---output-format stream-json` with the brief as the first stdin message, keeps stdin
-open for follow-ups, maps the vendor-neutral permission posture to a CLI permission
-mode, and terminates the process group on cancel.
+**Integration updates and conflicts.** When the integration branch moves, parallel and
+automatic-integration attempts wait for idle sessions, invalidate review context, update the
+worktree with a normal merge and reserve a fresh review. A conflict can be handed to an agent: the
+cycle persists a resolution operation (`detected → preparing → resolving → committing →
+completed | abandoned`), the Git adapter prepares the pinned merge without committing, the agent
+resolves, stages and verifies, and the daemon validates and commits the exact reserved merge.
+Up to three agent attempts are allowed; abandoning aborts the merge. Operations reserve the
+worktree durably and hold repository/worktree mutation locks only around Git (ADR-032).
 
-The Codex adapter keeps one supervised `codex app-server --stdio` process per run.
-An adapter-local RPC client initializes the connection and starts or resumes a thread;
-follow-ups steer an active turn or start another turn on the same thread. It drains
-accepted input on End, interrupts and terminates on Cancel, and fails closed on protocol
-errors or unexpected exits. Completed items become bounded durable events; transient
-text/output deltas are not journaled separately. Optional model and token metadata on
-turn-completed events remain vendor-neutral and survive replay. Resolved model changes
-also update the run projection. Dollar usage is optional and never inferred from tokens.
-
-Claude background-wait expiry and surviving process-group work normalize to an incomplete
-exit. The supervisor keeps that run live until the group drains or is terminated at its
-deadline; cancellation escalation survives the leader's exit. The daemon journals the
-reason, rejects its review authority, and can reserve two same-step continuations with
-the original deadline and handoff. Optional cycle JSON and event fields preserve old
-records without a migration; shapes that no longer match are brought forward by upcasters
-(see "Persisted records"). Waiting turns keep input open while background work remains
-uncollected. Review continuations pin the original branch context at reservation and launch,
-allowing inspection of untracked test artifacts but rejecting tracked/index edits and changed
-commits; ordinary review and final approval remain clean-worktree gates. See ADR-037.
-
-Both adapters use `packages/agents/src/process.ts`; process authority is confined to the
-modules listed in `PROCESS_AUTHORITY` in `scripts/check-forbidden-scope.mjs`. The daemon selects from a backend registry, defaulting to the first available
-of Claude Code and Codex. No app-server socket is exposed to the browser or LAN.
-See ADR-023 for permission mapping, lifecycle and metadata behavior.
-
-## Git boundary
-
-`createGitOperations` covers exactly what the loop needs: inspect a top-level checkout,
-create a worktree on a new branch from an exact base revision, remove a worktree, diff a
-worktree against its base (commits, per-file status and counts, bounded unified patch
-including untracked files), merge a branch into the checked-out branch with a merge
-commit (aborting on conflict), and delete a merged branch. Argument arrays only, bounded lifetime and output,
-process-group termination, and paths reach Git only as `cwd` or after `--`.
-
-Plan versions have mutable execution settings in `plan_branch_settings`, separate from
-immutable imported documents. New worktrees freeze the configured integration target
-and its starting commit. Retargeting and integration updates invalidate old reviews;
-all manual and automated reviews record source and target commits. Required predecessors'
-recorded integration evidence is checked by ancestry. Commands are owner/editor operations;
-the shared review-gated merge command advances an integration branch, under explicit
-operator action or delegated roadmap policy. See ADR-026 and ADR-033.
-
-The CT-04A1 read-only inspector and its repository registry were removed (R-B8). Their three
-empty tables and the journal's `repository-*` event kinds stay in the schema because
-`workspace_events` foreign keys reference the tables; nothing writes them.
-
-## Events
-
-Two journals, one notifier with separate activity and workflow wakeups:
-
-- `workspace_events` is the coarse workspace journal the browser follows to invalidate
-  its queries. Execution adds `source-repository-registered`, `worktree-created`,
-  `worktree-removed`, `worktree-merged`, `agent-run-started`,
-  `agent-run-status-changed`, `work-item-completed`, and `workspace-updated`.
-- `agent_run_events` is the high-volume per-run journal, streamed per run over
-  `GET /api/workspaces/:id/runs/:runId/events`.
-
-Every mutation writes state, audit rows, and events in one immediate SQLite transaction;
-the in-process notifier fires after commit and carries no data. Streams re-authenticate
-on every iteration and never touch the session's last-seen time.
-Run activity wakes streams immediately. Scheduler, cycle and notification workers wait on
-workflow changes: turn completion, run status and persisted commands still wake them promptly,
-while ordinary messages/tool output do not trigger full map evaluation. Periodic checks remain
-for deadlines and external changes. Map projections share memoized repository reads only within
-one synchronous read pass; no snapshot survives a mutation or asynchronous execution boundary.
-Decision-binding hashes, approved decisions and evidence prerequisite results share that same
-read-pass lifetime. Notification delivery wakes neither browser streams nor workflow workers; only
-changes to the active attention set and notification settings wake streams.
-
-## Browser
-
-The app has no router library and no data-fetching library. Routes are parsed by a pure
-function; the projection reducer marks scopes stale on events and the app refetches the
-authoritative endpoints. `/` resolves to the last used workspace, `/workspaces` lists
-them all, and every workspace page hangs off `/workspaces/:id`. The run page loads the
-committed events once and then follows the live stream from the last sequence inside
-its own scroll pane. No agent output is ever rendered as markup. The visual language is
-in `docs/ui-principles.md`.
-
-Background invalidations are batched in a bounded window. Same-workspace snapshots do not move
-the stream cursor past unread detail invalidations. Recovery panels retain their disclosures and
-draft guidance while refreshing; commands wait for current checks and still use daemon versions.
-An in-flight recovery command owns its preparation until completion or failure. Scheduling and
-notification delivery defer to it; a failed preparation restores the original attention and reminder
-schedule. Restart releases this transient ownership without replaying the command.
-
-The cycle controller (`WorkCycleService.reconcile`) decides what a step's run outcome means in
-one pure function, `decideStepOutcome` (`services/step-outcome.ts`): it reads facts gathered
-from one cycle and run and returns a typed decision, and every stop for the operator carries an
-attention code. `reconcile` applies the decision. `replayStepOutcomes` runs the same gatherer
-and decision over any database snapshot, which is how controller refactors are checked against
-recorded decisions (`pnpm controller:replay`, and a golden test over scenario snapshots). Tests
-step the controller with `WorkCycleService.tick()` and `AgentRunService.quiesce()` instead of
-waiting on wall-clock time.
-
-Every stop carries typed attention (`packages/domain/src/attention.ts`). A cycle that enters
-`needs-attention` or `awaiting-merge`, a roadmap that enters `needs-attention`, and a held entry
-declare a code and an owner in the same write; the compiler rejects a stop without one. The
-`awaiting-merge` code is the gate (merge approval, merge requirements, final promotion, scope
-evidence, controller wait, scheduling held). While automation will act on a stop (a roadmap that
-merges automatically, scope recovery, prerequisite work) the controller records that claim and
-the stop is controller-owned; the claim lapses when the automation no longer applies. Phase
-blockers carry codes too, with the owner and whether the controller waits on them. Reasons and
-messages are display text: nothing in the daemon or the browser parses them, which the scope
-check enforces. Records written before codes existed are read through
-`attention-legacy.ts`, the one place that maps old reason text to codes.
-
-The notification service reconciles durable work-item attention into a SQLite outbox,
-claims deliveries with expiring leases, and schedules retries and local-time reminders. It
-sends only operator-owned attention as the controller declared it, and roadmap-level waits as
-`RoadmapService.attentionAlerts` reports them; it evaluates no scheduling policy itself.
-It wakes from the workspace notifier and a five-second timer; no browser connection is
-required. Pushover sits behind an injectable transport. A new occurrence waits a 30-second
-settle period before its first push, and the claim re-derives attention, so a state the
-controller leaves on its own is never sent. Occurrences are keyed by condition (cycle and
-status, roadmap and alert class, roadmap entry), not by row version; wording changes update the
-text silently, set-valued alerts re-page only when a member is added, and an occurrence that
-reopens within ten minutes keeps its reminder schedule. Storage alerts use hysteresis and
-coalesce all volumes; work stopped by a daemon restart shares one message per boot. Only a
-provider rate limit or rejection holds every alert; transport errors back off per record.
-Settings and attention-set changes append audit and workspace events in the same
-transaction; each accepted push appends an audit row only, and retries and claims stay in
-the outbox row. See ADR-027 for delivery and credential semantics.
+**Design recovery and decisions.** An idle design cycle can gather the exact bound plan sources
+for its recorded questions and run a bounded investigation (ADR-051). Shared architecture
+decisions are prepared as exact proposals and approved only by an authenticated operator; approved
+choices reach later runs (ADR-059, ADR-065). Historical baseline preparation (ADR-052) resolves
+repositories from the exact map binding, creates local baseline tags with create-only ref updates,
+and exports sources under the worktree root (`.baselines`, with a shared `.historical-cargo`
+registry); it starts no run and approves no evidence.
 
 ## Roadmaps
 
-`RoadmapService` selects eligible entries in one delegated roadmap per workspace and delegates
-whole-item or slice execution to `WorkCycleService`. Sequential mode preserves strict order; parallel
-mode scans in priority order under dependency, in-flight, repository, and exclusion constraints. Schema 12 separates immutable roadmap
-revisions from mutable, versioned control state and independently identified attempts.
-Each attempt reserves its worktree and cycle IDs before Git work; cycle creation and
-attempt attachment commit together. The control row stores only `definitionRevision`; the
-repository rehydrates the immutable definition from `roadmap_definitions` through a
-per-database cache, so a state change no longer rewrites the definition (schema 29). A
-cycle records the attempt that created it as `owner`, or `null` when no roadmap owns it, and
-every "which roadmap owns this cycle" question goes through `cycleOwnership` (R-B3). Branch targets and effective step settings are bound
-explicitly. The scheduler calls the shared merge command only under the effective policy
-from the attempt's immutable definition revision. See ADR-029 for admission, capacity, recovery,
-and manual takeover behavior; ADR-028 preserves the later slice and Studio boundaries.
-Before parallel selection the controller reconciles completed attempts, including manual merges
-and parent acceptance recorded while paused. Pending cycles within the same running parallel
-roadmap follow its saved entry priority rather than cycle creation order. Existing running agents
-are never preempted; unrelated/manual cycles retain their relative positions.
+`RoadmapService` owns at most one delegated roadmap per workspace (a partial unique index on
+`roadmaps.workspace_id` over running, paused and needs-attention roadmaps). It selects eligible
+entries and delegates whole-item or slice execution to `WorkCycleService`. Sequential mode keeps strict order; parallel mode scans in priority order
+under dependency, in-flight, repository and exclusion-group limits. Definitions are immutable
+rows in `roadmap_definitions`; the control row stores only `definitionRevision`, and attempts are
+separately identified. Each attempt reserves its worktree and cycle IDs before Git work; cycle
+creation and attempt attachment commit together. A cycle records the attempt that owns it, and
+every ownership question goes through `cycleOwnership` (`services/cycle-ownership.ts`).
 
-Parallel settings and item holds are additive JSON fields in schema 12; older definitions
-retain sequential semantics. Attempts reserve capacity before Git creation. The single
-scheduler serializes admission, and repository mutation guards serialize daemon creation,
-removal, integration updates, and merges. Paused items retain reservations; item attention
-does not disable scheduling for siblings. Only a started attempt's own merge releases its
-successors. `WorkCycleService` refreshes actively delegated parallel or automatic-integration attempts, with
-limits bound to the attempt's immutable revision. It waits for idle sessions, invalidates
-review context before Git, and reserves a fresh review after updating. See ADR-030.
+The scheduler calls the shared merge command only under the policy of the attempt's own
+definition revision. `main`, `master`, the repository default, finalization destinations and
+configured protected branches always require operator approval. Before selection the controller
+reconciles completed attempts, including manual merges while paused. Running agents are never
+preempted. Only a started attempt's own merge releases its successors (ADR-029, ADR-030,
+ADR-033).
 
-## Integration conflict recovery
+Capacity is layered: workstation pools for development and for verification/acceptance
+(`CRAFTINGTABLE_DEVELOPMENT_CAPACITY` / `CRAFTINGTABLE_VERIFICATION_CAPACITY`, overridden by the
+saved setting, 1–32 each, ADR-061) and per-roadmap in-flight and per-repository ceilings. These
+coordinate daemon work, not host CPU or isolation.
 
-`WorkCycleService` persists a resolution operation alongside its cycle: detected, preparing,
-resolving, committing, completed or abandoned. The Git adapter captures conflict diagnostics,
-prepares pinned merges without committing, validates staged resolutions and reconciles exact
-reserved merge commits. A dedicated implementation brief changes agent responsibilities to
-resolve/stage/verify while leaving commit authority with the daemon. The browser offers
-inspection, agent selection, attempt links, guided retry and explicit abandonment. Operations
-reserve the worktree durably and take repository/worktree mutation locks only around Git.
-Restart pauses without discarding edits or replaying launches. See ADR-032.
+## Concurrency maps and execution scopes
 
+**Imports.** `PackageImportService` validates ZIPs, schemas and graphs through the pure
+`planning` package and records immutable archives, import attempts, concurrency definitions,
+plan archive links and binding revisions. It has no Git or agent authority. Importing a map
+creates no executable entries; it is an inactive draft under Roadmaps until exact plan versions
+and repositories are bound. Configuration changes produce binding diagnostics, never implicit
+rebinding (ADR-043).
 
-## Delegated integration and finalization
+**Adoption and supervision.** `CrossProjectService` previews milestone closure for a chosen
+target, records immutable exact-binding adoptions of a map's scheduling proposals, and resolves
+layered settings into ordinary roadmap entries; it launches nothing itself. Read-only
+verification and parent-acceptance entries use review supervision without implementation
+steps. Saved-plan acceptance evidence is generated from the saved map, bindings, decisions,
+pins, reviewer settings and resources, and accepted explicitly by the operator before Start
+(ADR-048, ADR-050). Operator-designated reviewer responsibilities are settings bound to the
+attempt's revision; they are not human authentication or sandbox qualification.
 
-Schema 13 adds durable merge reservations and additional protected destinations; optional
-roadmap policy fields retain manual defaults for existing definitions. A reservation pins
-source, destination, review, authorizer and definition revision. Recovery verifies a unique
-commit marker and its exact parents in bounded first-parent history. Completion and audit
-are committed before cleanup. Repository/worktree guards serialize mutation; external Git
-is detected through commit and cleanliness checks. Automatic conflicts use the existing
-bounded resolution workflow and always lead to fresh review.
+**Scopes and parent acceptance.** Worktrees, cycles and roadmap entries carry an immutable scope
+identity (definition, binding revision, source ID, activity kind); a missing scope means a whole
+work item. The daemon resolves scope boundaries from the source map and exact binding
+(`services/execution-scope.ts`) before worktree creation, launch, merge, verification and
+acceptance. A slice merge does not complete its parent. Parent acceptance reviews a separate
+worktree on the current integration snapshot; required slice commits must be in its ancestry, and
+every predecessor, slice verification and case obligation must hold. Receipts in `scope_receipts`
+are append-only, and receipt insertion and parent completion are atomic (ADR-045). Source
+changes found by independent reviews are delegated to the owning slice (ADR-056).
 
-Schema 14 permits an explicit plan-version subject on worktrees and runs, preserving existing
-item history. `FinalizationService` reserves an integration snapshot and candidate worktree,
-then delegates assessment/polish/verification rounds to `WorkCycleService`. Whole-plan
-artifacts and a complete item inventory supply context; item completion remains independent.
-Finalization holds further integration merges and ends with a separate review. Only an
-authenticated finalization command approving the exact candidate/destination pair can
-promote it. Preparation reservations survive restart and require explicit resume. See ADR-033.
-An exhausted finalization can receive an explicit operator grant of extra remediation.
-The cycle's additive allowance, consumed attempt, next run reservation and audit event
-commit atomically; original settings and cumulative usage remain. See ADR-036.
+**Phase gates and resources.** `scopePhaseBlockers` produces dependency, evidence, review,
+authorization and resource blockers for start, integration, verification and acceptance.
+Resource claims live in `phase_reservations`, whose capacity trigger enforces the limit: run
+admission reserves with the run row in one transaction, terminal supervision releases in the
+terminal transaction, and short Git or evidence operations hold claims only for their duration
+(`services/phase-resources.ts`). Early development of a bound slice needs an explicit exact
+authorization (ADR-046).
 
+**Runtime generations and evidence.** `RuntimeEvidenceService` keeps immutable runtime
+generations separate from maps and bindings: resolved Git refs, crate mappings, conformance
+identities and environment fingerprints. The Git adapter exports bounded files from exact objects;
+the pinned Cargo adapter runs in the agent's process group, supplies patches, verifies resolved
+paths and records a clean-commit build receipt. External evidence packages and operator
+decisions on them are separate immutable rows; phase gates consume only current accepted
+evidence and recheck Git freshness at launch, integration and acceptance (ADR-047). A dependency
+refresh previews a candidate generation, and a digest-checked save creates it and queues the
+affected completed reviews in one transaction (ADR-058). Candidate checkpoint evidence permits
+only the exact slice's merge (ADR-060).
 
-## Installation storage management
+**Local checks and native verification.** Scoped runs get `ct-check` for repository scripts
+and `ct-act` for a GitHub Actions job through the local-check adapter, with optional rootless
+Docker (ADR-053, `CRAFTINGTABLE_ACT_CONFIG`). Native verification needs an attributed operator
+approval of the audited host (`native_verification_approvals`); independent reviewers then get
+`ct-native`, which runs fixtures in a bounded user service managed by the native-environment
+adapter. Kata readiness is a separate root-owned receipt (`CRAFTINGTABLE_KATA_READINESS`), not an
+agent launch path (ADR-054).
 
-Schema 15 records one installation storage policy, canonical root/device identities, per-run
-materialization directories and registered database snapshots. `StorageService` owns filesystem
-inventory and maintenance; SQL and the online backup API stay in `storage`. Execution receives
-current future-allocation roots through an explicit config view. Existing worktree paths and
-integration merge scratch remain stable, and run directories are registered before backend
-launch. Worktree preparation recovery blocks incompatible root changes.
+**Amendments.** `MapAmendmentService` records immutable amendment proposals and decisions,
+retired execution identities and explicit integration reuse. Applying one activates reviewed plans
+and adopts the new roadmap revision in one transaction; running sessions keep their context,
+stale reviews are replaced and compatible development stays (ADR-049).
 
-Cleanup previews are daemon-held capabilities. Execution records must show a terminal run and
-a merged, removed worktree with no live siblings before its scratch can be reclaimed. The daemon
-rechecks that state and filesystem identity before deletion. Retention and backup workers restart
-from durable records, never from browser-supplied paths. The browser displays measured capacity,
-previewed usage, backup coverage and errors. See ADR-034.
+## Finalization
 
+`FinalizationService` finalizes a whole plan version once every item is completed and has
+integration commit evidence. It pins an integration snapshot, prepares a candidate worktree and
+holds further daemon merges into that integration branch until it ends, then delegates the work to
+`WorkCycleService`. Only an authenticated command approving the exact candidate and destination
+commits promotes it; no stage, round count or roadmap policy can. Optional local removal of the
+integration branch is reserved with the approval and reconciled after promotion. Plan completion
+is projected from the completed finalization and its durable merge record (ADR-033, ADR-041).
 
-Finalization finding decisions are optional durable cycle fields, with attributed audit records.
-The controller compares operator-deferred nit snapshots with the current review and exact branch
-context before excluding them from the nit count; the raw review report remains unchanged.
-Focused remediation carries a selected batch and cumulative allowance. Browser controls submit
-IDs and rationale, not edited findings or approval verdicts. See ADR-038 and the
-[staged-finalization roadmap](finalization-roadmap.md).
+Staged finalization (ADR-042) is the only kind the browser starts: correctness, conformance,
+simplification, polish and a final independent review, each with its own profiles, scope,
+required checks and remediation budget. Stage usage updates atomically with run reservations.
+`finalization-stage-policy.ts` validates stage reports and guards promotion. A materialized JSON
+ledger holds adopted obligations, evidence provenance, selected optional batches and follow-ups;
+plan adjustments need a version-checked operator decision, and the final review requires every
+obligation and the full checks on the current candidate. Operators can grant more remediation
+(ADR-036), record finding decisions (ADR-038) and override the recovery agent (ADR-040).
 
-Post-run maintenance derives cache eligibility from durable run status and live siblings.
-Agent completion queues cleanup; automation waits only for that worktree's pending cleanup.
-The shared mutation guard prevents deletion racing a launch, and the periodic worker retries
-and catches up after restart. Backend-provided CARGO_TARGET_DIR keeps future build outputs
-inside the registered run scratch. Verification evidence remains outside disposable caches.
-See ADR-039.
+A finalization record without stage definitions selects the legacy round-based controller. It
+remains only so the completed 2026-09-13 record stays readable
+(`fixtures/records/legacy-finalization-2026-09-13.json`, `legacy-finalization-record.test.ts`); the
+API still accepts a stage-less start until those branches are deleted.
 
-Finalization recovery can atomically record a backend/model override with its next-run
-reservation and any authorized remediation grant. Launch-time profile resolution applies it
-through subsequent phases while retaining each original step's permissions. Omitted input
-preserves the current override; null restores the original profiles. See ADR-040.
+## Agent backend seam
 
-Plan completion is projected from a completed finalization and its worktree's durable merge
-record, including promotions recorded before the completion UI existed. Project summaries use
-only the active plan version. Optional integration cleanup is reserved with final approval,
-then reconciled separately after promotion. Its pending/blocked/removed state survives restart;
-explicit cleanup and retries also support older completed finalizations. See ADR-041.
+`packages/agents` defines `AgentBackend` (`describe`, `launch`) and `AgentSession` (`items`,
+`send`, `end`, `kill`). A backend owns the child process and translates vendor output into
+`NormalizedAgentEvent`s; the daemon owns run state, the journal, audit and workspace events. A
+bounded raw vendor line travels only on a notice for output the adapter could not normalize; it
+is never the durable vocabulary. Both adapters use the shared supervisor in
+`packages/agents/src/process.ts`. The daemon's backend registry holds whichever of Claude Code and
+Codex it found, and defaults to the first available in that order. No app-server socket is exposed
+to the browser or LAN.
 
+The Claude Code adapter launches `claude -p` with stream-json input and output, sends the brief as
+the first stdin message, keeps stdin open for follow-ups, maps the vendor-neutral permission
+posture to a CLI permission mode, and terminates the process group on cancel. Background-wait
+expiry and surviving process-group work normalize to an incomplete exit; the supervisor keeps the
+run live until the group drains or its deadline passes, and such a run has no review authority.
 
-Staged finalization (ADR-042) adds optional stage definitions and progress inside the existing
-versioned finalization/cycle records; absence selects the legacy controller. Each stage owns
-its profiles, scope, required check names and policy. Stage usage and lifetime totals update
-atomically with run reservations. Optional discovery stops for attributed batch selection;
-verification retains that batch even across narrower recovery. New required concerns reopen the
-relevant whole-plan stage without resetting its allowance, and invalidate final review completion.
+The Codex adapter keeps one supervised `codex app-server --stdio` process per run. An
+adapter-local RPC client starts or resumes a thread; follow-ups steer an active turn or start
+another. It drains accepted input on End, interrupts and terminates on Cancel, and fails closed
+on protocol errors or unexpected exits. Completed items become bounded durable events; token and
+model metadata stay vendor-neutral, and dollar usage is never inferred from tokens (ADR-023).
 
-`finalization-stage-policy.ts` validates reports independently of their success and guards final
-promotion. A separate materialized JSON ledger supplies adopted obligations, evidence provenance,
-selected batches and optional follow-ups. Reports can update known obligations by ID; source and
-requirement changes require an explicit version-checked operator decision. Conformance checks
-require every in-scope obligation, and final review requires all obligations and full checks on
-the current candidate. Completed-stage evidence may be reused only at matching commits and inputs
-outside final review. Agent journal records retain original reports and audit preserves decisions.
+Both backends receive the run's scratch directory and the worktree's Cargo target directory, one
+per worktree and shared by its steps (`worktree_build_caches`, ADR-039).
 
-## Package imports and concurrency-map drafts
+## Git boundary
 
-Schema 16 retains immutable archive provenance, import attempts, concurrency definitions,
-plan archive links and binding revisions. `PackageImportService` composes pure bounded
-ZIP/schema/graph validation with existing immutable plan import and transactional binding.
-It has no Git or agent authority. Importing a map creates no executable roadmap entries;
-its UI lives under Roadmaps as an inactive draft. Exact plans/work items/source artifacts
-and configured branch versions are recorded explicitly. Live configuration changes produce
-binding diagnostics, never implicit rebinding. See ADR-043 and the cross-project roadmap.
+`createGitOperations` (`packages/git/src/operations.ts`) is the only Git surface: inspect a
+checkout and list or resolve branches; create a branch or worktree from an exact base and remove a
+worktree; diff a worktree against its base (commits, per-file status, bounded unified patch
+including untracked files); checkpoint worktree changes; update a worktree from integration;
+merge with a merge commit (aborting on conflict) and delete a merged branch; preview, prepare,
+inspect, finish and abort a conflict resolution; inspect a recorded merge operation; export files
+from an exact commit; and create baseline tags. Every call is an argument array with no shell,
+bounded lifetime and output, and process-group termination; paths reach Git only as `cwd` or
+after `--`.
 
-Agenda removal is a version-checked, audited command for unstarted items. The shared
-work-item eligibility projection checks run/cycle history, active worktrees and delegated
-roadmaps; an in-memory preparation guard covers Git worktree creation before its database
-row exists. Schema 17 retains imported-field immutability and rejects reversing completed
-or started work. Admission/removal events remain durable; no completion evidence is created.
+Merge reservations (`merge_operations`) pin source, destination, review, authorizer and
+definition revision. Recovery after an interruption checks the unique commit marker and its exact
+parents in bounded first-parent history before recording completion, so a finished merge is never
+repeated. Repository and worktree mutation guards serialize daemon creation, removal, updates and
+merges; external Git changes are detected through commit and cleanliness checks.
 
+The removed CT-04A1 repository inspector left three empty tables and the journal's
+`repository-*` event kinds in the schema, because `workspace_events` foreign keys reference them;
+nothing writes them, and `pnpm db:verify` reports any row in them (`RETIRED_TABLES`). Its old
+environment variables only produce a startup warning.
 
-## Execution scopes and parent acceptance
+## Events and notifications
 
-Schema 18 adds immutable scope identity to worktrees and append-only verification/acceptance
-receipts. Cycle and roadmap JSON carry the same frozen definition ID, binding revision,
-source ID and activity kind. Live cycle uniqueness is per scope; worktree and repository
-mutation guards still apply. Missing scope preserves whole-item behavior.
+Two journals, one notifier with separate activity and workflow wakeups:
 
-The daemon resolves scope boundaries from the immutable source map and exact binding before
-worktree creation, run launch, merge, verification and acceptance. Slice merges do not call
-whole-item completion. A separate review worktree inspects the current integration snapshot
-for parent acceptance; required slice commits must remain in its ancestry, and all original
-predecessors, slice verification and assigned case obligations must be satisfied. Receipt
-insertion and parent completion are atomic. Both service and database completion guards
-prevent manual completion from bypassing slice acceptance.
+- `workspace_events` is the coarse workspace journal the browser follows to invalidate its
+  queries; its kinds are `WORKSPACE_EVENT_KINDS` (`packages/domain/src/workspace-events.ts`),
+  mirrored by a migration-owned catalog the `kind` foreign key references.
+- `agent_run_events` is the high-volume per-run journal, streamed per run over
+  `GET /api/workspaces/:id/runs/:runId/events`.
 
-Review reports carry scoped evidence; the run's `craftingtable-scope-evidence.json` artifact
-retains prior verification references without expanding the brief with full reports. New
-workspace events invalidate the affected item when evidence is recorded. Imported map
-capabilities not yet supported (checkpoint evidence, phase resources, decision adoption,
-qualified reviewers and pinned environments) remain blockers. See ADR-045.
+Every mutation writes state, audit rows and events in one immediate SQLite transaction; the
+in-process notifier fires after commit and carries no data. Streams re-authenticate on every
+iteration without touching the session's last-seen time. Run activity wakes streams immediately;
+scheduler, cycle and notification workers wait on workflow changes (turn completion, run status,
+persisted commands), with periodic checks for deadlines and external changes. Map projections
+share memoized reads only within one synchronous read pass (`services/map-read-snapshot.ts`).
 
+`NotificationService` reconciles operator-owned attention, as the controller declared it, and
+roadmap-level alerts from `RoadmapService.attentionAlerts` into a SQLite outbox; it evaluates no
+scheduling policy itself. It claims deliveries with expiring leases and wakes on workflow changes
+or every five seconds, with no browser needed. Pushover sits behind an injectable transport. A new
+occurrence waits a 30-second settle period and the claim re-derives attention, so a stop the
+controller clears on its own is never sent. Occurrences are keyed by condition, not row version;
+one that reopens within ten minutes keeps its reminder schedule (+30 minutes, +1 hour, then hourly
+to +6 hours, then daily at the configured local time, 21:00 America/Los_Angeles by default).
+Storage alerts use hysteresis. Only a provider rate limit or rejection holds every alert;
+transport errors back off per record (ADR-027).
 
-Schema 19 adds durable phase reservations and exact-binding early-development authorizations.
-A shared transition evaluator produces dependency/evidence/review/authorization/resource blockers.
-Run admission reserves all resources with the run row in one immediate transaction; terminal
-supervision releases them in the terminal transaction. Short Git/evidence operations acquire all
-claims before entering the repository lane and release them on success or failure. Startup
-releases interrupted claims, preserving their history and existing explicit-resume requirements.
-Verification/acceptance slots are separate from development; review-only trees do not consume
-roadmap repository development capacity. See ADR-046.
+## Browser
 
+The app has no router library and no data-fetching library. Routes are parsed by a pure function
+(`apps/web/src/lib/route.ts`); the projection reducer marks scopes stale on events and the app
+refetches the authoritative endpoints, batching background invalidations in a bounded window.
+`/` resolves to the last used workspace, `/workspaces` lists them all, and every workspace page
+hangs off `/workspaces/:id`. The run page loads the committed events once and then follows the
+live stream from the last sequence. No agent output is ever rendered as markup. Commands carry the
+daemon versions they were shown and are refused when stale. The visual language and page anatomy
+are in `docs/ui-principles.md`.
 
-Schema 20 separates immutable runtime generations from source maps and bindings. The runtime
-service resolves registered Git refs and validates crate mappings; the Git adapter exports
-bounded regular files directly from exact objects. The pinned Cargo adapter runs inside the
-agent process group, supplies patches at CLI configuration precedence, verifies resolved paths,
-and records the command, toolchain, clean tested commit and manifest digest. Sources live in
-per-run scratch; the manifest and frozen terminal build records survive cache cleanup.
+## Installation storage and maintenance
 
-External evidence packages carry exact scope, generation, tested code, fixture/environment
-identity, source-case hashes, logs and reviewer attestations. Authenticated operator decisions
-are separate immutable rows. The shared phase evaluator consumes only current accepted evidence;
-Git freshness is checked again at launch, integration and acceptance. Qualification acceptance
-does not complete parents, adopt decisions or confer local native/Kata execution authority.
-The browser provides explicit configuration, templates/uploads, artifact review and build-record
-downloads. See ADR-047.
+`StorageService` owns one installation storage policy (worktree, run and backup roots, cleanup and
+backup settings, free-space reserve), per-run directory registrations and database snapshots; SQL
+and the online backup API stay in `storage`. The environment roots seed the policy on first start;
+later changes affect only future allocations. Cleanup previews are daemon-held capabilities: the
+daemon rechecks durable state (terminal runs, a merged and removed worktree, no live siblings) and
+filesystem identity before deleting anything, and never follows a browser-supplied path. Recognized
+build caches in a run's scratch are cleaned after the run ends, and automation waits for that
+worktree's cleanup; a worktree's shared Cargo target goes once it is merged or removed and idle;
+other scratch expires after the retention window (30 days by default). Daily SQLite backups keep
+seven snapshots by default, and new runs and worktrees need the free-space reserve (5 GiB by
+default) (ADR-034, ADR-039).
 
-ADR-058 refines reuse to compare exact relevant inputs across immutable generations. A shared
-policy compares each bound consumer's upstream source/crate/conformance identities and environment
-inputs; unclassified evidence conservatively compares the full stack. Preview projects a candidate
-generation without writing it. An explicit digest-checked save creates the generation and durably
-queues affected completed independent reviews in one transaction. Existing owning-slice recoveries
-retain their round. Resume dispatches queued reviews through the ordinary phase gates after new
-saved-plan acceptance; it does not repeat integrated implementation. Receipts retain their original
-run/generation/build provenance. This changes no source, repository policy, reviewer or finalization
-gate. Per-read input comparisons and run/build lookups use the existing bounded snapshot cache.
+## Deploy and the single-daemon lock
 
-
-Schema 21 adds immutable exact-binding map adoptions. CrossProjectService computes and previews
-milestone closure and resolves layered settings into ordinary roadmap entries; it neither invents
-plans nor launches agents directly. RoadmapService owns the one workspace delegation and schedules
-development, slice-verification and parent-acceptance entries. Read-only entries use WorkCycleService
-review supervision with explicit question checkpoints and no implementation transitions. They consume
-verification slots independently of development capacity. Scope receipts and target completion recheck
-current evidence and delegation; source decisions never substitute for checkpoint evidence. The browser
-projects grouped lanes and dependency links while source maps, generations and attempts retain their
-original identity. NotificationService aggregates eligible checkpoint attention into its existing outbox.
-See ADR-048.
-
-Operator-designated agent reviewer responsibilities are explicit settings, bound to the attempt's
-saved revision and recorded on scope receipts. They are responsibilities under the existing trusted
-agent model, not authentication of a human maintainer or a sandbox qualification. The exact supervised
-review run must match the assigned backend/model/permission profile and report all scope evidence.
-Assignments do not bypass resource authorization, native/Kata execution boundaries or checkpoint
-attestations; qualified external reviews remain available.
-
-
-Schema 22 adds immutable map amendment proposals/decisions, retired execution identities and explicit
-integration reuse provenance. MapAmendmentService previews exact revisions and coordinates reviewed
-plan activation and RoadmapService revision adoption in one transaction. Running sessions retain their
-original context; stale reviews are replaced while compatible development remains intact. Full-plan
-finalization records an exact map/runtime context and uses RuntimeEvidenceService for dependency
-preparation and promotion checks. The ZIP adapter and future Studio share bounded normalized map
-validation; authoring remains separate from binding, adoption and execution. See ADR-049.
-
-
-Baseline preparation (ADR-052) adds an optional durable reservation to a work-item cycle.
-It resolves only repositories from the exact map binding, freezes imported application commits and
-explicit historical upstream selections, and creates local baseline tags with create-only ref updates.
-Source exports use configured storage; per-run copies are regenerated from exact Git objects rather
-than trusting an earlier agent's scratch. Historical Cargo uses a separate launcher and receipt format
-inside the existing Cargo process adapter. Its results never enter current-runtime build authority.
-Restart marks incomplete preparation for explicit retry. No agent or roadmap is resumed by preparation.
-
-
-ADR-053 derives build applicability from the exact execution scope. Scoped verification preserves
-phase/evidence gates and records clean candidate checks separately from current upstream integration.
-Historical preparation can supply development dependencies without changing the runtime generation.
-The local-check adapter owns bounded repository checks and optional act execution. Per-run policy,
-image and dependency identities are frozen in the existing environment manifest and receipt record.
-Container cleanup after terminal/restart runs occurs outside SQLite transactions.
-
-Schema 23 adds immutable native execution approvals separately from dependency generations.
-RuntimeEvidenceService collects fixed asynchronous host probes and records attributed approval
-or revocation. Phase scheduling admits only the supported native resource with current approval;
-missing capabilities are actionable while reservations remain ordinary waits. Managed native
-checks run through the explicit native-environment/local-check adapters. Frozen run environments
-and build receipts retain approval identity; receipt reuse checks revocation and host freshness.
-Kata readiness is a separate root-owned infrastructure receipt, not an agent launch adapter.
+Only one process can use a data directory: `apps/server/src/instance-lock.ts` takes the lock
+before anything opens the database, as a listening socket in the abstract namespace on Linux (a
+socket file elsewhere), so a crash leaves no stale lock. The CLI's migrate and compaction commands
+take the same lock. `scripts/deploy-daemon.mjs` fetches the requested commit into a bare clone
+under the deploy root, builds it into its own release directory, and atomically repoints `current`,
+which is the systemd user unit's working directory. It asks the running daemon to drain through a
+request file, restarts the unit, and restores the previous release if the health check fails;
+`--rollback` returns to the previous release. `docs/operations.md` has the unit and the procedures.

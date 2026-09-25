@@ -85,7 +85,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I4](#r-i4) | P2 | M | open | Structural test/production and process-authority boundaries |
 | [R-I5](#r-i5) | P1 | S-M | done (b966dd7, 8d59ce2, cc08352, 06fdf7c, b5da9a0, b63295d, e16001d) | E2E and fixture reliability |
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
-| [R-I7](#r-i7) | P1-P3 | M | open | Documentation reset to current state |
+| [R-I7](#r-i7) | P1-P3 | M | partial (P1 start done 2026-09-25) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 | [R-I9](#r-i9) | P2 | S-M | open | Independent e2e specs: one workspace per spec (added 2026-09-24) |
 
@@ -635,7 +635,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** A glossary of ~15 operator-facing terms in ui-principles; rename map "decisions" to scheduling proposals and finalization "decisions" to finding dispositions in labels only (wire and format names unchanged); align rail and page titles; hide panels that have nothing to recover (IntegrationResolutionPanel, ProviderRecovery after recovery); move explanatory prose into About; headings are short; remove stale copy.
 - **Done when:** A lint/test enforces heading length and bans long unconditional prose outside About; the spurious panels no longer render.
 - **Progress 2026-09-25 (done):**
-  - **Glossary.** `docs/ui-principles.md` "Vocabulary → Glossary" defines 18 operator terms. It gives the wire or format name where a label differs, the five kinds of operator-owned stop, and the controller's waits. A new "Copy" section holds the rules below and the rule against new per-stop recovery panels.
+  - **Glossary.** `docs/ui-principles.md` "Vocabulary → Glossary" defines 17 operator terms (the commit message of 4c77665 says 18; the count is 17). It gives the wire or format name where a label differs, the five kinds of operator-owned stop, and the controller's waits. A new "Copy" section holds the rules below and the rule against new per-stop recovery panels.
   - **Relabels (labels and messages only; wire and format names unchanged).**
     - Map `decisions` are "scheduling proposals" in the supervisor, the import preview and server messages ("Adopt scheduling proposals", "Scheduling proposals · n/m approved").
     - Finalization `decisions` are "finding dispositions" ("Finding dispositions (n)", "Disposition rationale (required)"; a plan-change choice reads "Plan change rationale").
@@ -1146,11 +1146,43 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I7
 
-**Documentation reset to current state** · Phase P1-P3 · Effort M · Status: open
+**Documentation reset to current state** · Phase P1-P3 · Effort M · Status: partial (P1 start done 2026-09-25)
 
 - **Resolves:** [DOC-01](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-01-the-readme-is-a-feature-changelog-not-an-operator-guide), [DOC-02](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-02-adr-sprawl--65-records-broken-index-inconsistent-status-metadata-long-refinement-chains), [DOC-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-03-doc-claims-out-of-sync-with-code-spot-check-of-14-claims-7-false-or-stale), [DOC-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#doc-05-principles-security-and-operations-docs-have-become-per-feature-narratives), [UI-15](findings/UI-information-architecture.md#ui-15-docsui-principlesmd-has-become-a-per-slice-accretion-log-that-encourages-new-surfaces), [SEC-09](findings/AGT-GIT-SEC-agents-git-security.md#sec-09-docssecuritymd-is-an-accreted-per-slice-log-with-stale-claims), [HIST-13](findings/HIST-history-and-live-usage.md#hist-13-schema-and-adr-churn-rate-22-migrations-46-adrs-in-18-days-with-manual-pre-migration-backups), [HIST-15](findings/HIST-history-and-live-usage.md#hist-15-commit-messages-stopped-describing-changes-adr-numbering-is-inconsistent), [DATA-15](findings/DATA-storage-domain-contracts.md#data-15-documentation-and-vocabulary-drift-adrs-process-authority-branded-ids-exports-plan-specific-literals), [AGT-17](findings/AGT-GIT-SEC-agents-git-security.md#agt-17-documentation-drift-in-the-agent-seam)
 - **Change:** README becomes an operator guide (what it is, run it, the main workflow) instead of a feature changelog; architecture.md describes the current design, not schema history; one ADR naming scheme, a complete index and correct statuses, superseded chains marked; ui-principles split into visual language, IA rules ("decisions are made only in the inbox; other pages link"), glossary and short per-surface specs; security.md and operations.md rewritten as current state; commit messages carry a body saying what stop or need motivated the change.
 - **Done when:** Spot-checked claims all true; README under ~150 lines.
+- **P1 start, done 2026-09-25:**
+  - **README.** It is a 150-line operator guide: the main workflow, running it, reaching it from the laptop, key configuration, where things are, and a documentation map (611 lines before). The old feature log moved verbatim to `archive/README-feature-log-2026-09.md`, whose header says it is superseded and may be stale.
+  - **Architecture.** `docs/architecture.md` describes the current design by component, with no schema-number history: 431 lines, 548 before.
+  - **Spot checks.** Every kept or new claim in both files was checked against the code (about 100 claims). 14 were false or stale and were fixed:
+    - process-authority modules (now the `PROCESS_AUTHORITY` map);
+    - "applies schema 22";
+    - per-run Cargo targets (now per worktree, R-G7);
+    - legacy rounds offered for new finalizations (R-B10);
+    - 8 of 27 workspace event kinds listed;
+    - an incomplete `GitOperations` list;
+    - the delegated-roadmap index is partial;
+    - verdict source;
+    - when profile assignments are allowed;
+    - "Git 2.32+";
+    - where `ct-native` lives;
+    - the ADR-061 citation;
+    - where integration evidence is stored;
+    - configuration variables.
+  - **Not traced end to end:** a few carried-over atomicity statements taken from ADRs (receipt insertion with parent completion, amendment application, stage usage with run reservations) and external tools (openssl, `tailscale serve`, Codex CLI version).
+- **Left for P2–P3:**
+  1. **ADRs:** one naming scheme (033–050 and 057 lack the `ADR-NNN-` prefix) and one header format; a complete `docs/decisions/README.md` index (it omits 033–050 and 054–068); correct statuses (028 still "proposed", 031's retention superseded by 034); mark the superseded chains (004–007, 014, 022→023). DOC-02, HIST-15.
+  2. **ADR-008:** its stale claims (Playwright specs and mobile project, the removed `testing` package, `test-support` authority). DOC-03 #4–6.
+  3. **Split `docs/ui-principles.md`** into visual language, IA rules ("decisions are made only in the inbox; other pages link"), the glossary (now present), and short per-surface specs. Move the cross-project import narrative out, and fix the "bare Ready/Blocked never appears" claim against `ProjectCards.tsx`. UI-15, DOC-03 #7, DOC-05.
+  4. **Rewrite `docs/security.md`** as current state, organized by trust boundary and authority. SEC-09, DOC-05.
+  5. **Rewrite `docs/operations.md`** as current state:
+     - move the roadmap usage guides out;
+     - add the complete environment-variable list, tested against `config.ts`;
+     - re-point its "Directly on the LAN" pointer, which names the README's "Using it from the couch" section (kept for now).
+     DOC-03 #2, DOC-05.
+  6. **Archive completed planning documents:** `docs/finalization-roadmap.md`, `docs/cross-project-roadmap.md`, `docs/plans/`. DOC-05.
+  7. **AGENTS.md rules:** the README is not updated per feature; commit bodies say what stop or need motivated the change (HIST-15); correct the claim that every superseded artifact is in `archive/` (REPO-03).
+  8. **Remaining vocabulary, export and agent-seam drift** from DATA-15 and AGT-17.
 
 ### R-I8
 

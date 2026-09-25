@@ -287,6 +287,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Added 2026-09-24 (operator decision, from R-A7).** Two gate differences are left from R-A7's shared `predecessorGate()`, and the decision core should settle both. Each moves a stop between the cycle and the roadmap, so each needs a replay check.
   - **Scheduler-side Git ancestry.** Today a missing predecessor merge stops the new cycle at launch as `needs-attention`. The scheduler should check ancestry before it creates an attempt and keep the roadmap entry waiting instead.
   - **Item-status alignment.** Commands require an admitted item. The scheduler requires the bound plan item, and refuses an item completed without its merge. Both should use one rule.
+- **Added 2026-09-25 (operator decision): first step.** Before changing any controller code, re-record the `--every-run` replay baseline from the current head. Use a copy of the 2026-09-23 snapshot, and keep the result beside it in `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-23/`. The saved `every-run-golden-5e0c638.json` predates R-B10's deletion and differs from the current controller by 109 explained decisions: 81 differ only in shape, and 28 are the retired legacy cycle. Checking against it would hide real changes. This applies to R-B5 and R-B7 too, whichever starts first.
 
 ### R-B5
 

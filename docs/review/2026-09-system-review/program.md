@@ -20,6 +20,10 @@ are suitable for delegation to CraftingTable itself.
    - Golden conformance tests (R-F4) guard it: land them first.
 3. **Characterize before refactoring the controller.** R-B2's replay harness must exist
    before R-B4, R-B5 or R-B7 changes behaviour-bearing code.
+   - **First step of the next controller work (operator, 2026-09-25):** re-record the
+     `controller:replay --every-run` baseline from the current head, on a copy of the snapshot.
+     The saved baseline (`every-run-golden-5e0c638.json`) predates R-B10's deletion. It differs
+     from today's controller by 109 explained decisions, which would hide real changes.
 4. **Branch on codes, never on prose.** No new `startsWith`, regex or string comparison on a
    human-readable reason or message.
 5. **UI structure changes take walkthrough captures before and after**, as AGENTS.md

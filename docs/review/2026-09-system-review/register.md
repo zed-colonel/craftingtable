@@ -999,6 +999,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Two behaviour changes.**
     - A non-owner member reading the audit log gets 403 instead of 404, matching `requireRole`'s documented posture (non-members 404, members 403). `server-reads.test.ts` is updated.
     - Denied reads by non-members are now always audited, including reads whose service used `findAuthorized` and did not record them.
+- **Amendment (2026-09-24 review):** the guard ran as a `preHandler`, after Fastify had parsed the body.
+  - An anonymous caller or a non-member who sent malformed JSON got a 500 instead of a 401 or 404. The daemon also buffered up to the route's body limit (2 MB on roadmaps) before refusing them.
+  - The guard now runs in `preParsing`, after the cookie parser and before the body is read. JSON parse errors answer 400.
+  - The sweep's outsider probes now send a body that is not JSON.
+  - One change the batch did not list: `POST …/amendments/preview` is declared `editor`, so viewers now get 403 there, although `MapAmendmentService.preview` admits any member. Viewers cannot propose amendments either. R-G9 removes the per-handler checks, and the declaration then becomes the single rule.
   - **Verified.** `pnpm test` 1,345 → 1,344 tests (the spelling test removed, four sweep tests added); `pnpm test:e2e` 22 passed plus the walkthrough rehearsal. `docs/security.md` has a "Route access" section.
 
 ### R-I4

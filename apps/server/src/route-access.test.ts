@@ -113,6 +113,8 @@ function request(
     readonly workspaceId?: WorkspaceId;
     readonly csrf?: boolean;
     readonly origin?: string;
+    /** A raw body; outsiders send one that is not JSON, to show they are refused before parsing. */
+    readonly body?: string;
   },
 ) {
   const url = route.url
@@ -129,7 +131,7 @@ function request(
         ? { [CSRF_HEADER_NAME]: options.caller.csrfToken }
         : {}),
     },
-    ...(route.method === 'GET' ? {} : { payload: {} }),
+    ...(route.method === 'GET' ? {} : { payload: options.body ?? {} }),
   });
 }
 
@@ -204,7 +206,7 @@ describe('route authorization sweep', () => {
         check(key, 'no session', open.statusCode, open.statusCode !== 401, open.body);
         continue;
       }
-      const anonymous = await request(f, route, {});
+      const anonymous = await request(f, route, { body: '{not json' });
       check(key, 'no session', anonymous.statusCode, anonymous.statusCode === 401, anonymous.body);
       if (mutation) {
         const noCsrf = await request(f, route, {
@@ -228,6 +230,7 @@ describe('route authorization sweep', () => {
       const outsider = await request(f, route, {
         caller: await f.signIn('second-owner'),
         workspaceId: f.foreignWorkspaceId,
+        body: '{not json',
       });
       check(key, 'non-member', outsider.statusCode, outsider.statusCode === 404, outsider.body);
       for (const role of BELOW[access]) {

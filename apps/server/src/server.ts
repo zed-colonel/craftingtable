@@ -14,15 +14,15 @@ import { registerExecutionRoutes } from './routes/execution.js';
 import { registerFinalizationRoutes } from './routes/finalizations.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerHostSchedulingRoutes } from './routes/host-scheduling.js';
-import { registerOperatorWaitRoutes } from './routes/operator-wait.js';
 import { sendApiError } from './routes/http.js';
 import { registerMapAmendmentRoutes } from './routes/map-amendments.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
+import { registerOperatorWaitRoutes } from './routes/operator-wait.js';
 import { registerPackageImportRoutes } from './routes/package-imports.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerRoadmapRoutes } from './routes/roadmaps.js';
-import { registerRuntimeEvidenceRoutes } from './routes/runtime-evidence.js';
 import { installRouteAccess } from './routes/route-access.js';
+import { registerRuntimeEvidenceRoutes } from './routes/runtime-evidence.js';
 import { registerStaticWebRoutes } from './routes/static-web.js';
 import { registerStorageRoutes } from './routes/storage.js';
 import { registerWorkCycleRoutes } from './routes/work-cycles.js';
@@ -31,6 +31,7 @@ import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import type { AgentRunService } from './services/agent-run-service.js';
 import type { AuthService } from './services/auth-service.js';
 import type { CrossProjectService } from './services/cross-project-service.js';
+import type { DaemonDrain } from './services/daemon-drain.js';
 import {
   AuthenticationError,
   ExecutionRequestError,
@@ -41,14 +42,13 @@ import {
 import type { ExecutionService, ExecutionStatus } from './services/execution-service.js';
 import type { FinalizationService } from './services/finalization-service.js';
 import type { HostSchedulingService } from './services/host-scheduling-service.js';
-import type { OperatorWaitService } from './services/operator-wait-service.js';
 import type { MapAmendmentService } from './services/map-amendment-service.js';
 import type { NotificationService } from './services/notification-service.js';
+import type { OperatorWaitService } from './services/operator-wait-service.js';
 import type { PackageImportService } from './services/package-import-service.js';
 import type { PlanImportService } from './services/plan-import-service.js';
 import type { PlanningQueryService } from './services/planning-query-service.js';
 import type { RoadmapService } from './services/roadmap-service.js';
-import type { DaemonDrain } from './services/daemon-drain.js';
 import type { RunEventStreamService } from './services/run-event-stream-service.js';
 import type { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import type { StorageService } from './services/storage-service.js';
@@ -206,6 +206,15 @@ export function buildServer(
       error.code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE'
     ) {
       return sendApiError(reply, 400, 'invalid-request', 'Invalid authentication request');
+    }
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error.code === 'FST_ERR_CTP_INVALID_JSON_BODY' ||
+        error.code === 'FST_ERR_CTP_EMPTY_JSON_BODY')
+    ) {
+      return sendApiError(reply, 400, 'invalid-request', 'Request body is not valid JSON');
     }
     if (error instanceof AuthenticationError) {
       return sendApiError(reply, 401, 'invalid-credentials', 'Invalid username or password');

@@ -68,8 +68,9 @@ export function declaredRouteAccess(app: FastifyInstance): ReadonlyMap<string, R
 /**
  * Installs the default-deny access check for the API. It must run before any route is
  * registered: a route without an acceptable declaration stops the daemon from starting. Each
- * request then passes the declared check before its handler validates input, so an outsider
- * learns nothing from validation errors. Handlers keep their own checks.
+ * request then passes the declared check before its body is parsed or its handler validates
+ * input, so an outsider learns nothing from parse or validation errors. Handlers keep their
+ * own checks.
  */
 export function installRouteAccess(
   app: FastifyInstance,
@@ -89,7 +90,9 @@ export function installRouteAccess(
     for (const method of methods)
       if (method !== 'HEAD') declared.set(`${method} ${route.url}`, access);
   });
-  app.addHook('preHandler', async (request) => {
+  // preParsing runs after every onRequest hook (the cookie parser's included) and before the
+  // body is read, so an outsider is refused before the daemon buffers or parses its input.
+  app.addHook('preParsing', async (request) => {
     const access = request.routeOptions.config?.access;
     if (access === undefined || access === 'public') return;
     const context = isMutation(request.method)

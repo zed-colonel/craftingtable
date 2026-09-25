@@ -33,9 +33,9 @@ promotion into a protected branch always waits for your explicit approval.
    final independent review) on a candidate branch. You approve the exact candidate and
    destination commits (**Approve final promotion**); no roadmap policy can do that for you.
 
-Stops that need you (questions, decisions, exhausted budgets) appear under **Needs your
-attention** on the dashboard and as a strip on other pages; optional Pushover alerts are
-configured per workspace under **Settings**.
+Cycle stops that need you (questions, decisions, exhausted budgets) appear under **Needs your
+attention** on the dashboard and as a strip on other pages; roadmap stops show on **Roadmaps**.
+Optional Pushover alerts cover both, configured per workspace under **Settings**.
 
 ## Running it
 
@@ -115,9 +115,9 @@ variables an operator usually sets:
 | `CRAFTINGTABLE_DEVELOPMENT_CAPACITY`, `CRAFTINGTABLE_VERIFICATION_CAPACITY` | `2`, `1` | Workstation slots until saved under **Settings → Execution capacity**. |
 | `CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS` | `180` | How long a stop waits for live agent turns before interrupting them. |
 
-The complete list, with bounds, is in [`apps/server/src/config.ts`](apps/server/src/config.ts);
-optional local CI and Kata settings are described in [`scripts/local-ci/README.md`](scripts/local-ci/README.md)
-and [`scripts/kata/README.md`](scripts/kata/README.md).
+Daemon settings, with bounds, are in [`apps/server/src/config.ts`](apps/server/src/config.ts);
+deploy settings in [`scripts/deploy-daemon.mjs`](scripts/deploy-daemon.mjs); local CI and Kata settings in
+[`scripts/local-ci/README.md`](scripts/local-ci/README.md) and [`scripts/kata/README.md`](scripts/kata/README.md).
 
 ## Where things are
 

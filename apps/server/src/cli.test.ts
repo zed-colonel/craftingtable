@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -7,13 +7,15 @@ import {
   openDatabase,
   runMigrations,
 } from '@craftingtable/storage';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   parseCliArguments,
+  runCli,
   runDatabaseCommand,
   runJournalCompaction,
   SCHEMA_VALIDATION_EXIT_CODE,
 } from './cli.js';
+import { acquireInstanceLock } from './instance-lock.js';
 
 describe('CLI argument parsing', () => {
   it('accepts bootstrap and database commands', () => {
@@ -143,4 +145,33 @@ it('parses local recovery and rejects passwords or extra options in argv', () =>
     ['admin', 'reset-password', '--username', 'keith', 'unexpected'],
   ])
     expect(() => parseCliArguments(args)).toThrow();
+});
+
+describe('admin commands and the running daemon', () => {
+  it.each([
+    ['admin', 'reset-password', '--username', 'keith'],
+    ['admin', 'bootstrap', '--username', 'keith'],
+  ])('refuses %s %s when it would migrate the database a daemon holds', async (...args) => {
+    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-cli-admin-test-'));
+    mkdirSync(join(directory, 'state'));
+    const databasePath = join(directory, 'state', 'craftingtable.sqlite');
+    const database = openDatabase(databasePath);
+    runMigrations(database, discoverMigrations().slice(0, -1));
+    database.close();
+    const before = inspectMigrationStatus(databasePath);
+    const lock = await acquireInstanceLock(directory);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    vi.stubEnv('CRAFTINGTABLE_DATA_DIR', directory);
+    try {
+      // Refused before any password prompt, and the schema is untouched.
+      expect(await runCli(args)).toBe(1);
+      expect(String(stderr.mock.calls.at(-1)?.[0])).toMatch(/would migrate the database/);
+      expect(inspectMigrationStatus(databasePath)).toEqual(before);
+    } finally {
+      vi.unstubAllEnvs();
+      stderr.mockRestore();
+      await lock.release();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

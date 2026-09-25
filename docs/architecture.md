@@ -22,14 +22,17 @@ Only `storage` owns SQL. Only the modules named in `PROCESS_AUTHORITY` in
 `scripts/check-forbidden-scope.mjs` may spawn a process; that map is the authoritative list,
 each entry with its reason. The same check keeps `planning` pure and `domain` free of
 imports, forbids Git and vendor-agent libraries elsewhere, and fails any branching on the
-text of a `reason` or `message`. No package depends on ActionQueue, WorldInterface,
+text of a `reason` or `message` in the daemon, the browser app and the `contracts`, `domain`,
+`planning` and `storage` packages. No package depends on ActionQueue, WorldInterface,
 Exoskeleton, or any other supervised project.
 
 ## Persisted records and migrations
 
-Migrations live in `packages/storage/migrations/` and run forward only on daemon start or
-`craftingtable db migrate`, after a populated database is copied into `pre-migration/` beside it
-(the last three copies are kept). A table-rebuild migration needs a preservation test
+Migrations live in `packages/storage/migrations/` and run forward only, whenever the daemon or a
+CLI command opens the database (`craftingtable db migrate` runs them alone; `db:verify` migrates
+only a copy). A populated database is first copied into `pre-migration/` beside it (the last three
+copies are kept). A CLI command that would migrate takes the single-daemon lock, so it cannot
+change the schema under a running daemon. A table-rebuild migration needs a preservation test
 (`migration-preservation.ts`) and an in-migration count guard (ADR-002).
 
 Every record storage keeps has a kind in `packages/storage/src/records.ts` (work cycles,
@@ -51,8 +54,9 @@ roadmaps, runs, journal events, evidence and so on). Three rules hold at the sto
 
 `pnpm db:verify <database>` copies a database with the backup API, migrates the copy and checks
 every record against its contract, plus the v0.3 map format and SQLite's integrity and
-foreign-key checks. Run it on a snapshot before deploying a contract or schema change. Every
-test daemon runs the same check on its database at cleanup.
+foreign-key checks. Run it on a snapshot before deploying a contract or schema change. Test
+daemons run the same check on their database at cleanup (one stream test opts out with
+`verifyRecords: false`).
 
 Imported plans, archives, source maps, roadmap definitions, runtime generations, evidence,
 decisions and receipts are immutable (enforced by triggers); mutable state lives in separate
@@ -346,12 +350,12 @@ per worktree and shared by its steps (`worktree_build_caches`, ADR-039).
 ## Git boundary
 
 `createGitOperations` (`packages/git/src/operations.ts`) is the only Git surface: inspect a
-checkout and list or resolve branches; create a branch or worktree from an exact base and remove a
+checkout and list or resolve branches; test commit ancestry and find a common ancestor; create a branch or worktree from an exact base and remove a
 worktree; diff a worktree against its base (commits, per-file status, bounded unified patch
-including untracked files); checkpoint worktree changes; update a worktree from integration;
+including untracked files); inspect and checkpoint worktree changes; update a worktree from integration;
 merge with a merge commit (aborting on conflict) and delete a merged branch; preview, prepare,
 inspect, finish and abort a conflict resolution; inspect a recorded merge operation; export files
-from an exact commit; and create baseline tags. Every call is an argument array with no shell,
+from an exact commit; and list and create baseline tags. Every call is an argument array with no shell,
 bounded lifetime and output, and process-group termination; paths reach Git only as `cwd` or
 after `--`.
 
@@ -361,8 +365,8 @@ parents in bounded first-parent history before recording completion, so a finish
 repeated. Repository and worktree mutation guards serialize daemon creation, removal, updates and
 merges; external Git changes are detected through commit and cleanliness checks.
 
-The removed CT-04A1 repository inspector left three empty tables and the journal's
-`repository-*` event kinds in the schema, because `workspace_events` foreign keys reference them;
+The removed CT-04A1/A2 repository inspector and registry left three empty tables and their
+journal event kinds (`repository-*` and `project-repository-*`) in the schema, because `workspace_events` foreign keys reference them;
 nothing writes them, and `pnpm db:verify` reports any row in them (`RETIRED_TABLES`). Its old
 environment variables only produce a startup warning.
 

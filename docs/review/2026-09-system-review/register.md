@@ -1180,6 +1180,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - where integration evidence is stored;
     - configuration variables.
   - **Not traced end to end:** a few carried-over atomicity statements taken from ADRs (receipt insertion with parent completion, amendment application, stage usage with run reservations) and external tools (openssl, `tailscale serve`, Codex CLI version).
+- **Review 2026-09-25 (independent reviewer, 70 claims checked):** five claims corrected:
+  - the Git operations list was still missing ancestry, common ancestor, worktree-change inspection and baseline-tag listing;
+  - migrations run whenever a CLI command opens the database, not only on daemon start or `db migrate`;
+  - config.ts is not the complete list (deploy settings live in `deploy-daemon.mjs`);
+  - "Needs your attention" shows cycle stops only;
+  - the retired tables came from the CT-04A1/A2 inspector and registry, with `project-repository-*` kinds too.
+
+  Two overstatements are narrowed: the prose-branching check's scope, and the one test that skips record verification. The archive now holds the complete old README verbatim, so the six configuration rows the operator guide leaves out (`WEB_DIST`, model lists, diff limit, session lifetime, log level) are not lost before P2's full variable list.
+- **Defect found by the review, fixed.** `admin reset-password` and `admin bootstrap` opened storage, and so migrated it, without the single-daemon lock. The README tells the operator to run reset-password from a checkout. From a checkout newer than the deployed release, that would have changed the schema under the running daemon. Such a command now takes the lock when the database has pending migrations, and is refused while a daemon holds it; on a current database nothing changes. `cli.test.ts` covers both commands and fails without the fix.
 - **Left for P2–P3:**
   1. **ADRs:** one naming scheme (033–050 and 057 lack the `ADR-NNN-` prefix) and one header format; a complete `docs/decisions/README.md` index (it omits 033–050 and 054–068); correct statuses (028 still "proposed", 031's retention superseded by 034); mark the superseded chains (004–007, 014, 022→023). DOC-02, HIST-15.
   2. **ADR-008:** its stale claims (Playwright specs and mobile project, the removed `testing` package, `test-support` authority). DOC-03 #4–6.

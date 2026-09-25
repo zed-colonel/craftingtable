@@ -294,8 +294,34 @@ export async function runCli(args: readonly string[]): Promise<number> {
   if (parsed.command === 'reset-password') {
     if (!existsSync(config.databasePath))
       throw new Error(`Database does not exist: ${config.databasePath}`);
-    process.stdout.write(`Resetting password in ${config.databasePath}\n`);
   }
+  // Opening storage migrates it. A command run from a checkout newer than the daemon's release
+  // must not change the schema beneath a running daemon, so it migrates only under the lock.
+  let lock: Awaited<ReturnType<typeof acquireInstanceLock>> | undefined;
+  if (inspectMigrationStatus(config.databasePath).pendingVersions.length > 0) {
+    try {
+      lock = await acquireInstanceLock(config.dataDir);
+    } catch (error) {
+      if (!(error instanceof InstanceLockedError)) throw error;
+      process.stderr.write(
+        `${error.message} This checkout would migrate the database first. Run the command from the deployed release, or stop the daemon.\n`,
+      );
+      return 1;
+    }
+  }
+  try {
+    return await runAdminCommand(parsed, config);
+  } finally {
+    await lock?.release();
+  }
+}
+
+async function runAdminCommand(
+  parsed: ReturnType<typeof parseCliArguments>,
+  config: ReturnType<typeof configFromEnv>,
+): Promise<number> {
+  if (parsed.command === 'reset-password')
+    process.stdout.write(`Resetting password in ${config.databasePath}\n`);
   const firstPassword = await readHiddenPassword(
     parsed.command === 'reset-password' ? 'New password: ' : 'Password: ',
   );

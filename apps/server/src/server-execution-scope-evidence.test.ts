@@ -651,7 +651,27 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
   async (mode) => {
     const f = await slicedFixture((source) => ({
       ...source,
-      slices: source.slices.map((s) => ({ ...s, mode })),
+      // Integration work builds against the current pin, so the map declares when local
+      // moves to it (ADR-069): at slice a, which slice b now waits for.
+      ...(mode === 'integration'
+        ? {
+            upstream_transitions: [
+              { consumer: 'local', upstream: 'provider', slice: 'local/AQ-01/a' },
+            ],
+          }
+        : {}),
+      slices: source.slices.map((s) => ({
+        ...s,
+        mode,
+        ...(mode === 'integration' && s.id === 'local/AQ-01/b'
+          ? {
+              start_requires: [
+                ...s.start_requires,
+                { kind: 'slice' as const, id: 'local/AQ-01/a', state: 'merged' as const },
+              ],
+            }
+          : {}),
+      })),
       repositories: [
         { ...source.repositories[0]!, id: 'local' },
         {

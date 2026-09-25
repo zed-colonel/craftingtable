@@ -141,6 +141,21 @@ function summarise(text: string): string {
  * are guarded by expected-status sets so a late process callback can never
  * regress a run the operator already cancelled.
  */
+/** Which source each upstream link was supplied from, and the transition that decided it (ADR-069). */
+function upstreamSourcesBrief(
+  dependencies: readonly {
+    alias: string;
+    commitSha: string;
+    purpose: string;
+    transition?: { slice: string; recordId?: string };
+  }[],
+): string {
+  if (!dependencies.length) return 'Upstream sources: none supplied for this scope.';
+  const line = (d: (typeof dependencies)[number]) =>
+    `- ${d.alias}: ${d.purpose === 'current-upstream' ? 'current pin' : 'historical development source'} ${d.commitSha.slice(0, 12)}${d.transition ? ` (moves to the current pin at ${d.transition.slice}${d.transition.recordId ? `, declared by operator record ${d.transition.recordId}` : ', declared in the map'})` : ''}`;
+  return `Upstream sources, chosen per link by the roadmap's declared transitions:\n${dependencies.map(line).join('\n')}\nBuild against exactly these sources. A link on its current pin already moved in this tree's history; do not revert it to a historical version.`;
+}
+
 export class AgentRunService {
   private readonly preparationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly live = new Map<string, LiveRun>();
@@ -1134,6 +1149,7 @@ export class AgentRunService {
 Pinned dependency environment: ${pinned.manifestPath}
 ${pinned.nativeVerification ? `Managed native verification is approved for this run (${pinned.nativeVerification.approvalId}). Execute applicable non-sensitive repository fixtures using ${pinned.binDirectory}/ct-native -- <executable> <arguments>. It provides a fresh HOME/TMPDIR and bounded user service (4 CPUs, 8 GiB, 512 tasks, at most 30 minutes). Retained receipts bind exact clean candidate, dependency manifest, environment approval and logs. Use supplied Cargo for dependency-bearing checks. ct-check/ct-act and inherited implementation results cannot substitute for native verification. Do not use live service credentials or claim Kata observations; report every scope requirement independently. This is cooperative native execution under the existing OS-user trust model, not a hostile-code sandbox.` : ''}
 Verification policy: ${pinned.verification.mode}. ${pinned.verification.reason}
+${upstreamSourcesBrief(pinned.dependencies)}
 Use the controller Cargo launcher ${pinned.binDirectory}/cargo for Cargo checks (also supplied on PATH). Do not override supplied sources or use a neighboring checkout.
 The launcher also supports supplementary checks whose resolved graph contains no upstream packages, such as independent foundation/contract manifests within an integration run. Use the same launcher and ct-check normally; no explicit-config bypass or artificial upstream dependency is needed. Their supplementary-check receipts cannot satisfy the current-upstream build requirement. Earlier reports describing rejection of upstream-free checks refer to the previous launcher; verify with this run's supplied launcher and update stale instructions without waiving any checks.
 ${

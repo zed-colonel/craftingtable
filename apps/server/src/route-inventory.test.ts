@@ -43,6 +43,7 @@ const EXPECTED_ROUTES = [
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/refresh',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/audit-native',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/authorize-native',
+  'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/declare-transitions',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/inspect',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/discover',
   'POST /api/workspaces/:workspaceId/concurrency-definitions/:id/runtime/propose-decision',

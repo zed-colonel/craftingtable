@@ -18,6 +18,7 @@ import {
   type RepositoryPolicy,
   type Roadmap,
   type RoadmapDefinition,
+  type UpstreamTransitionRecord,
   type RunBuildRecord,
   type RunEnvironment,
   type RuntimeGeneration,
@@ -67,6 +68,7 @@ export interface PersistedRecords {
   readonly 'run-environment': RunEnvironment;
   readonly 'run-build-record': RunBuildRecord;
   readonly 'native-approval': NativeVerificationApproval;
+  readonly 'upstream-transition-record': UpstreamTransitionRecord;
   readonly 'scope-receipt': ScopeReceipt;
   readonly 'archive-import-attempt': ArchiveImportAttempt;
   readonly 'concurrency-definition': ConcurrencyDefinition;
@@ -177,6 +179,7 @@ export const RECORD_UPCASTERS: { readonly [K in PersistedRecordKind]: readonly R
     'run-environment': [],
     'run-build-record': [],
     'native-approval': [],
+    'upstream-transition-record': [],
     'scope-receipt': [],
     'archive-import-attempt': [],
     'concurrency-definition': [],

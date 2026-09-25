@@ -62,6 +62,7 @@ import {
   DaemonDrainingError,
   ExecutionRequestError,
   NotFoundError,
+  UpstreamTransitionUndeclaredError,
 } from './errors.js';
 import {
   requireScope,
@@ -1729,7 +1730,9 @@ export class WorkCycleService {
         ) {
           this.attention(
             current,
-            'controller-error',
+            error instanceof UpstreamTransitionUndeclaredError
+              ? 'upstream-transition-undeclared'
+              : 'controller-error',
             error instanceof ExecutionRequestError
               ? error.message
               : 'Controller could not advance this step. Inspect the run before resuming.',

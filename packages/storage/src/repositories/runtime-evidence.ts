@@ -5,6 +5,7 @@ import type {
   RunBuildRecord,
   RunEnvironment,
   RuntimeGeneration,
+  UpstreamTransitionRecord,
 } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { type PersistedRecordKind, parseRecord, type RecordGuard } from '../records.js';
@@ -18,6 +19,9 @@ export interface RuntimeEvidenceRepository {
     bindingRevision: number,
   ): readonly NativeVerificationApproval[];
   addNativeApproval(value: NativeVerificationApproval): void;
+  /** Oldest first, so declarations keep their approval order (ADR-069). */
+  upstreamTransitions(ws: string, definitionId: string): readonly UpstreamTransitionRecord[];
+  addUpstreamTransitions(value: UpstreamTransitionRecord): void;
   generations(
     ws: string,
     definitionId: string,
@@ -57,6 +61,22 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     this.db
       .prepare('INSERT INTO native_verification_approvals VALUES (?,?,?,?,?)')
       .run(v.id, v.workspaceId, v.definitionId, v.bindingRevision, JSON.stringify(v));
+  }
+  upstreamTransitions(ws: string, definitionId: string): readonly UpstreamTransitionRecord[] {
+    return decode(
+      'upstream-transition-record',
+      this.db
+        .prepare(
+          'SELECT record_json FROM upstream_transition_records WHERE workspace_id=? AND definition_id=? ORDER BY rowid',
+        )
+        .all(ws, definitionId),
+    );
+  }
+  addUpstreamTransitions(v: UpstreamTransitionRecord): void {
+    this.guard('upstream-transition-record', v);
+    this.db
+      .prepare('INSERT INTO upstream_transition_records VALUES (?,?,?,?)')
+      .run(v.id, v.workspaceId, v.definitionId, JSON.stringify(v));
   }
   generations(
     ws: string,

@@ -74,6 +74,7 @@ export function mapReadSnapshot(source: StorageRepositories): StorageRepositorie
       'submissions',
       'decisions',
       'nativeApprovals',
+      'upstreamTransitions',
       'run',
       'build',
     ]),

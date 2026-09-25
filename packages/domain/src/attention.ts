@@ -47,6 +47,8 @@ export const CYCLE_ATTENTION = {
   // Controller and workflow stops.
   'restart-resume': 'operator',
   'controller-error': 'operator',
+  // A run needs a current pin for a consumer→upstream link nobody declared (ADR-069).
+  'upstream-transition-undeclared': 'operator',
   'reassessment-failed': 'operator',
   'worktree-inactive': 'operator',
   'authority-lost': 'operator',

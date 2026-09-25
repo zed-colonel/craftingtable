@@ -99,6 +99,20 @@ describe('upstream transitions (ADR-069)', () => {
     expect(codes([exo('aq')], funnel)).toEqual([]);
   });
 
+  it('couples links only through a planned upstream, whose current pin it builds', () => {
+    // A second implemented upstream: AQ's pin is fixed, so exo→aq carries no link to it.
+    const s = {
+      ...source,
+      repositories: [
+        ...source.repositories,
+        { ...source.repositories.find((r) => r.id === 'aq')!, id: 'aq2' },
+      ],
+    };
+    const funnel = analyzeConcurrencyArchive(archive(exoFunnel)).source!;
+    const exoAq = { consumer: 'exo', upstream: 'aq', slice: 'exo/EXO-03/integration' };
+    expect(codes([exoAq], { ...funnel, repositories: s.repositories })).toEqual([]);
+  });
+
   it('fails the import with the same diagnostics', () => {
     const result = analyzeConcurrencyArchive(
       archive((m) => (m.upstream_transitions = [{ ...wiAq, slice: 'wi/WI-02/domain' }])),

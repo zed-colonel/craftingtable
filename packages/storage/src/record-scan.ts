@@ -148,6 +148,7 @@ const SOURCES: readonly Source[] = [
   documents('run-environment', 'run_environments', 'run_id'),
   documents('run-build-record', 'run_build_records', 'run_id'),
   documents('native-approval', 'native_verification_approvals', 'id'),
+  documents('upstream-transition-record', 'upstream_transition_records', 'id'),
   documents('scope-receipt', 'scope_receipts', 'id'),
   documents('archive-import-attempt', 'archive_import_attempts', 'id'),
   documents('concurrency-definition', 'concurrency_definitions', 'id'),

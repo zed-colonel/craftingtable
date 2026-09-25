@@ -35,6 +35,8 @@ export interface PinnedCargoManifest {
     commitSha: string;
     treeSha?: string;
     purpose: string;
+    /** The declared transition that decided this link's source (ADR-069). */
+    transition?: { slice: string; recordId?: string };
   }[];
   readonly historicalPreparationId?: string;
   readonly localCi?: import('./local-check.js').LocalCiConfig;

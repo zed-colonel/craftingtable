@@ -56,6 +56,17 @@ export class ExecutionRequestError extends Error {
 }
 
 /**
+ * A run needs the current pin for a consumer→upstream link whose transition the roadmap does
+ * not declare (ADR-069). Stops the cycle with its own attention code instead of guessing.
+ */
+export class UpstreamTransitionUndeclaredError extends ExecutionRequestError {
+  constructor(message: string) {
+    super('conflict', message);
+    this.name = 'UpstreamTransitionUndeclaredError';
+  }
+}
+
+/**
  * An optimistic-concurrency miss: another worker or command committed a newer version of
  * the aggregate first. Callers answer the request as a conflict; the scheduling loops
  * treat it as retryable because the next pass reads the newer version.

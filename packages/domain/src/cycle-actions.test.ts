@@ -13,6 +13,7 @@ describe('cycle actions (R-A7)', () => {
       'step-incomplete',
       'step-time-limit',
       'controller-error',
+      'upstream-transition-undeclared',
       'service-retries-exhausted',
       'review-baseline-changed',
       'shared-decision-required',

@@ -10,6 +10,7 @@ import {
   inspectDependencyRequestSchema,
   inspectDependencyResponseSchema,
   nativeApprovalRequestSchema,
+  upstreamTransitionRequestSchema,
   nativeAuditSchema,
   prepareCheckpointRequestSchema,
   proposeArchitectureDecisionSchema,
@@ -81,6 +82,7 @@ export function registerRuntimeEvidenceRoutes(
   for (const action of [
     'audit-native',
     'authorize-native',
+    'declare-transitions',
     'configure',
     'preview-refresh',
     'refresh',
@@ -174,6 +176,21 @@ export function registerRuntimeEvidenceRoutes(
           return noStore(reply).send(
             runtimeEvidenceViewSchema.parse(
               await service.approveNative(context, ws.data, id, b.data),
+            ),
+          );
+        }
+        if (action === 'declare-transitions') {
+          const b = upstreamTransitionRequestSchema.safeParse(request.body);
+          if (!b.success)
+            return sendApiError(
+              reply,
+              400,
+              'invalid-request',
+              'Choose the transition slices and provide a rationale.',
+            );
+          return noStore(reply).send(
+            runtimeEvidenceViewSchema.parse(
+              await service.declareUpstreamTransitions(context, ws.data, id, b.data),
             ),
           );
         }

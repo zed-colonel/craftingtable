@@ -831,6 +831,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - wi→aq at WI-02/integration is accepted, and a later slice is refused;
       - every choice of EXO's first slice is refused;
       - once EXO has a single first slice, exo→wi alone is refused for coupling, and passes together with exo→aq.
+      - coupling runs only through a planned upstream. An implemented upstream's pin is fixed, and the map declares nothing it consumes; the first version coupled through every implemented upstream, and the integration fixture caught it.
+  - **The operator record and choosing sources per link.**
+    - Schema 31 adds `upstream_transition_records`, which is immutable. The record kind is registered with the write guard, `db:verify` and the persisted-record contracts.
+    - `POST …/runtime/declare-transitions` takes the record ids the operator saw, the transitions and a rationale. It applies the same checks to the map's declarations and the records combined, and audits as `runtime.configured`. It is added to the route allowlist, and the route-access sweep covers it.
+    - The runtime view lists every consumer→upstream link: its declaration and source (map or record), or the candidate slices the checks would accept.
+    - `prepare()` chooses a source for each link through `chooseUpstreamSources`. A scoped tree takes the current pin once the transition's recorded merge (`integratedSlice`) is an ancestor of its HEAD. Current-pin work on an undeclared link throws `UpstreamTransitionUndeclaredError`, which the controller records as `upstream-transition-undeclared` (operator-owned; Resume after approving).
+    - The manifest records each link's `transition`. The brief lists the source for each link and the transition that decided it.
+    - Tests:
+      - `upstream-transition-policy.test.ts` covers a two-upstream consumer with one link current and one historical, and the stop on an undeclared link.
+      - `server-execution-upstream-transitions.test.ts` runs a real Cargo build. It shows the undeclared stop with no agent launched, the record API, and a domain tree before the transition merged staying dependency-free. A fresh domain verification after the merge gets the current pin, and `cargo test` passes against it. That last check fails with the choice reverted to slice kind.
+      - The integration-mode build test declares its transition in the map.
+    - Replay against `every-run-golden-a4aa12d.json`: 278 decisions, 0 changed. The live golden: 51, 0 changed. Unit suite: 183 files, 1,421 tests.
 - **Done when:**
   - A WI-02/domain fresh verification on 03370fd5 is supplied AQ 0.2.0.
   - A pre-migration WI-03/domain tree is still supplied 97c9dc26.

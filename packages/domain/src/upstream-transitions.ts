@@ -1,12 +1,26 @@
 import { concurrencyMilestones, milestoneKey } from './concurrency-graph.js';
 import type { ConcurrencySource } from './concurrency-source.js';
 import type { ExecutionScope } from './execution-scope.js';
+import type { UserId, WorkspaceId } from './ids.js';
 
 /** The consumer slice whose merge moves one consumer→upstream link to the current pin (ADR-069). */
 export interface UpstreamTransition {
   readonly consumer: string;
   readonly upstream: string;
   readonly slice: string;
+}
+/**
+ * An operator-approved declaration for a definition whose map does not carry it (ADR-069).
+ * Immutable; it applies to this definition only.
+ */
+export interface UpstreamTransitionRecord {
+  readonly id: string;
+  readonly workspaceId: WorkspaceId;
+  readonly definitionId: string;
+  readonly transitions: readonly UpstreamTransition[];
+  readonly rationale: string;
+  readonly createdAt: string;
+  readonly createdByUserId: UserId;
 }
 export interface UpstreamTransitionIssue {
   readonly code:
@@ -119,6 +133,17 @@ function predecessorsOf(s: ConcurrencySource) {
   };
 }
 
+/** The declarations that apply to a definition: its map's own, then its operator records. */
+export function effectiveUpstreamTransitions(
+  s: ConcurrencySource,
+  records: readonly Pick<UpstreamTransitionRecord, 'id' | 'transitions'>[],
+): readonly (UpstreamTransition & { readonly recordId?: string })[] {
+  return [
+    ...(s.upstream_transitions ?? []),
+    ...records.flatMap((r) => r.transitions.map((t) => ({ ...t, recordId: r.id }))),
+  ];
+}
+
 /**
  * Why a set of transitions cannot be declared for this map, or nothing (ADR-069). The same
  * checks apply to a map's own `upstream_transitions` and to an operator's transition record.
@@ -194,9 +219,14 @@ export function upstreamTransitionIssues(
         message: `${t.slice} cannot move ${link(t)}: ${early.slice(0, 5).join(', ')}${early.length > 5 ? ` and ${early.length - 5} more` : ''} need the current pins without requiring it first.`,
       });
   }
-  // An upstream's current pin carries its own upstreams, so the consumer must move those first.
+  // A planned upstream's current pin carries its own upstreams, so the consumer must move those
+  // first. An implemented upstream's pin is fixed, and the map declares nothing it consumes.
+  const carried = (upstream: string) =>
+    s.repositories.find((r) => r.id === upstream)?.role === 'planned_application'
+      ? consumerUpstreams(s, upstream)
+      : [];
   for (const t of linked)
-    for (const inner of consumerUpstreams(s, t.upstream).filter((u) =>
+    for (const inner of carried(t.upstream).filter((u) =>
       consumerUpstreams(s, t.consumer).includes(u),
     )) {
       const first = declared.get(link({ consumer: t.consumer, upstream: inner }));

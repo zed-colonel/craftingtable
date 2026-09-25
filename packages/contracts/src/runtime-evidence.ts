@@ -343,6 +343,27 @@ export const nativeApprovalSchema = z.strictObject({
   createdAt: z.string(),
   createdByUserId: userIdSchema,
 });
+/** ADR-069: the consumer slice whose merge moves one consumer→upstream link to the current pin. */
+export const upstreamTransitionSchema = z.strictObject({
+  consumer: name,
+  upstream: name,
+  slice: name,
+});
+export const upstreamTransitionRecordSchema = z.strictObject({
+  id: z.uuid(),
+  workspaceId: workspaceIdSchema,
+  definitionId: z.string(),
+  transitions: z.array(upstreamTransitionSchema).min(1).max(200),
+  rationale: z.string(),
+  createdAt: z.string(),
+  createdByUserId: userIdSchema,
+});
+export const upstreamTransitionRequestSchema = z.strictObject({
+  expectedRecordIds: z.array(z.uuid()).max(200),
+  transitions: z.array(upstreamTransitionSchema).min(1).max(20),
+  rationale: text,
+});
+export type UpstreamTransitionRequest = z.infer<typeof upstreamTransitionRequestSchema>;
 export const runtimePinStatusSchema = z.strictObject({
   alias: name,
   ref: name,
@@ -412,6 +433,21 @@ export const runtimeEvidenceViewSchema = z.strictObject({
     })
     .optional(),
   pinStatus: z.array(runtimePinStatusSchema).optional(),
+  upstreamTransitions: z
+    .strictObject({
+      records: z.array(upstreamTransitionRecordSchema),
+      links: z.array(
+        z.strictObject({
+          consumer: name,
+          upstream: name,
+          slice: name.optional(),
+          declaredBy: z.enum(['map', 'record']).optional(),
+          recordId: z.uuid().optional(),
+          candidates: z.array(name),
+        }),
+      ),
+    })
+    .optional(),
   nativeVerification: z
     .strictObject({
       approval: nativeApprovalSchema.optional(),

@@ -68,6 +68,7 @@ import {
   type EvidenceSubmission,
   type EvidenceSubject,
   type RuntimeGeneration,
+  upstreamTransitionIssues,
   type WorkspaceId,
   type Worktree,
 } from '@craftingtable/domain';
@@ -75,6 +76,12 @@ import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
+import {
+  chooseUpstreamSources,
+  transitionMerge,
+  upstreamTransitions,
+  upstreamTransitionView,
+} from './upstream-transition-policy.js';
 import { resolveExecutable } from './executables.js';
 import {
   activeRuntime,
@@ -203,6 +210,55 @@ export class RuntimeEvidenceService {
         input.approved
           ? 'Managed native verification approved. No test results or Kata authority granted.'
           : 'Managed native verification revoked.',
+        at,
+      );
+    });
+    this.notifier.notify();
+    return this.view(context, ws, id);
+  }
+  /** Approves when consumer→upstream links move to the current pin (ADR-069). */
+  async declareUpstreamTransitions(
+    context: AuthContext,
+    ws: WorkspaceId,
+    id: string,
+    input: import('@craftingtable/contracts').UpstreamTransitionRequest,
+  ) {
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    const d = this.definition(ws, id);
+    this.storage.transaction((tx) => {
+      this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+      const records = tx.runtimeEvidence.upstreamTransitions(ws, id);
+      if (
+        records.length !== input.expectedRecordIds.length ||
+        records.some((r, i) => r.id !== input.expectedRecordIds[i])
+      )
+        conflict('Upstream transitions changed. Refresh before saving.');
+      const declared = upstreamTransitions(tx, ws, d).map(({ consumer, upstream, slice }) => ({
+        consumer,
+        upstream,
+        slice,
+      }));
+      const issues = upstreamTransitionIssues(d.source, [...declared, ...input.transitions]);
+      if (issues.length) conflict(issues.map((i) => i.message).join(' '));
+      const at = this.now().toISOString();
+      tx.runtimeEvidence.addUpstreamTransitions({
+        id: randomUUID(),
+        workspaceId: ws,
+        definitionId: id,
+        transitions: input.transitions,
+        rationale: input.rationale,
+        createdAt: at,
+        createdByUserId: context.user.id,
+      });
+      this.changed(
+        tx,
+        context,
+        ws,
+        id,
+        'runtime.configured',
+        `Upstream transitions declared: ${input.transitions
+          .map((t) => `${t.consumer}→${t.upstream} at ${t.slice}`)
+          .join('; ')}.`,
         at,
       );
     });
@@ -2003,6 +2059,7 @@ export class RuntimeEvidenceService {
         })),
         designRuns,
       },
+      upstreamTransitions: upstreamTransitionView(snapshot, ws, d),
       nativeVerification: {
         approval: binding
           ? snapshot.runtimeEvidence.nativeApprovals(ws, id, binding.revision)[0]
@@ -2113,22 +2170,31 @@ export class RuntimeEvidenceService {
       definition,
       'finalization' in scope ? undefined : scope,
     );
-    const preparations =
-      verification.mode === 'scoped-checks'
-        ? this.storage.execution.cycles
-            .listForWorkspace(tree.workspaceId)
-            .filter(
-              (c) =>
-                c.baselinePreparation?.status === 'prepared' &&
-                c.executionScope?.definitionId === scope.definitionId &&
-                c.executionScope.bindingRevision === scope.bindingRevision &&
-                c.baselinePreparation.consumerAlias === b.alias,
-            )
-        : [];
-    // Keep an existing cycle on its own operator-approved historical selection.
-    // Fresh verification/parent trees may reuse the latest preparation for this exact binding.
+    const scoped = verification.mode === 'scoped-checks';
+    const preparations = scoped
+      ? this.storage.execution.cycles
+          .listForWorkspace(tree.workspaceId)
+          .filter(
+            (c) =>
+              c.baselinePreparation?.status === 'prepared' &&
+              c.executionScope?.definitionId === scope.definitionId &&
+              c.executionScope.bindingRevision === scope.bindingRevision &&
+              c.baselinePreparation.consumerAlias === b.alias,
+          )
+      : [];
+    // Keep an existing cycle on its own operator-approved historical selection. Fresh
+    // verification/parent trees reuse the consumer's latest preparation for this binding: it
+    // records historical refs per repository, not per slice.
     const historical = (preparations.find((c) => c.worktreeId === tree.id) ?? preparations[0])
       ?.baselinePreparation;
+    const transitions = upstreamTransitions(this.storage, tree.workspaceId, definition);
+    const head = scoped ? await this.requireGit().resolveCommit(tree.path, 'HEAD') : undefined;
+    if (head && !head.ok) conflict(head.failure.message);
+    const consumerRepository = this.storage.execution.sourceRepositories.find(
+      tree.workspaceId,
+      tree.repositoryId,
+    );
+    if (consumerRepository?.status !== 'active') conflict('Consumer repository unavailable.');
     const cargoExecutable = resolveExecutable('cargo', undefined, process.env, [
       join(homedir(), '.cargo', 'bin'),
     ]);
@@ -2136,22 +2202,53 @@ export class RuntimeEvidenceService {
       throw new ExecutionRequestError('unavailable', 'The pinned build adapter requires Cargo.');
     const directory = join(runDirectory, 'dependencies'),
       files: { path: string; digest: string }[] = [],
-      supplied: { name: string; path: string }[] = [];
+      supplied: { name: string; path: string }[] = [],
+      forbiddenPackages: string[] = [];
     const dependencyIdentities: {
       alias: string;
       commitSha: string;
       treeSha?: string;
       purpose: string;
+      transition?: { slice: string; recordId?: string };
     }[] = [];
-    for (const alias of consumer.upstreams) {
-      // Scoped development may use the operator-prepared historical dependencies.
-      // Without preparation it remains dependency-free; never silently use registry fallback.
-      if (verification.mode === 'scoped-checks' && !historical) continue;
-      const baseline = historical?.sources.find((s) => s.alias === alias);
-      const pin =
-        verification.mode === 'scoped-checks'
-          ? baseline && { ...baseline, packages: undefined }
-          : runtime.pins.find((p) => p.alias === alias);
+    // A scoped tree's link moved once its declared transition's recorded merge is in its history.
+    const moved = new Set<string>();
+    for (const alias of scoped ? consumer.upstreams : []) {
+      const transition = transitions.find((t) => t.consumer === b.alias && t.upstream === alias);
+      const merge =
+        transition &&
+        transitionMerge(this.storage, tree.workspaceId, definition, scope, transition);
+      if (!merge || !head?.ok) continue;
+      const ancestor = await this.requireGit().isAncestor(
+        consumerRepository.rootPath,
+        merge,
+        head.value.commitSha,
+      );
+      if (!ancestor.ok) conflict(ancestor.failure.message);
+      if (ancestor.value) moved.add(alias);
+    }
+    const choices = chooseUpstreamSources({
+      consumer: b.alias,
+      upstreams: consumer.upstreams,
+      scoped,
+      transitions,
+      moved,
+      historical: historical?.sources.map((s) => s.alias) ?? [],
+    });
+    for (const { alias, source, transition } of choices) {
+      // Without a prepared historical source a scoped link stays dependency-free; never
+      // silently use registry fallback.
+      if (source === 'none') {
+        forbiddenPackages.push(
+          ...(runtime.pins.find((p) => p.alias === alias)?.packages.map((p) => p.name) ?? []),
+        );
+        continue;
+      }
+      const current = source === 'current';
+      const baseline = current ? undefined : historical?.sources.find((s) => s.alias === alias);
+      const pin = current
+        ? runtime.pins.find((p) => p.alias === alias)
+        : baseline && { ...baseline, packages: undefined };
       if (!pin) conflict('A required pin is unavailable.');
       const repo = this.storage.execution.sourceRepositories.find(
         tree.workspaceId,
@@ -2182,8 +2279,8 @@ export class RuntimeEvidenceService {
         alias,
         commitSha: pin.commitSha,
         ...('treeSha' in pin ? { treeSha: pin.treeSha } : {}),
-        purpose:
-          verification.mode === 'scoped-checks' ? 'historical-development' : 'current-upstream',
+        purpose: current ? 'current-upstream' : 'historical-development',
+        ...(transition ? { transition } : {}),
       });
     }
     mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -2262,14 +2359,10 @@ export class RuntimeEvidenceService {
       localCi: loadLocalCiConfig(process.env.CRAFTINGTABLE_ACT_CONFIG),
       verification,
       dependencyIdentities,
-      ...(verification.mode === 'scoped-checks' && !historical
-        ? {
-            forbiddenPackages: runtime.pins
-              .filter((p) => consumer.upstreams.includes(p.alias))
-              .flatMap((p) => p.packages.map((p) => p.name)),
-          }
+      ...(forbiddenPackages.length ? { forbiddenPackages } : {}),
+      ...(historical && dependencyIdentities.some((d) => d.purpose === 'historical-development')
+        ? { historicalPreparationId: historical.id }
         : {}),
-      ...(historical ? { historicalPreparationId: historical.id } : {}),
       runtimeId: runtime.id,
       runId,
       cargoExecutable,
@@ -2287,6 +2380,7 @@ export class RuntimeEvidenceService {
     return {
       ...launch,
       verification,
+      dependencies: dependencyIdentities,
       localCi: manifest.localCi,
       nativeVerification,
       nativeApprovalId: authority?.id,

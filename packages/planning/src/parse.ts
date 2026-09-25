@@ -5,7 +5,7 @@ import { YAML_LIMITS } from './limits.js';
 
 /**
  * Safe YAML ingestion for untrusted planning input
- * (work-items/CT-03/CT-03.md §5.16).
+ * (archive/CT-03/work-items/CT-03.md §5.16).
  *
  * The configuration below constructs plain data only: the `core` schema with
  * no custom tags cannot instantiate application objects. Anything the parser

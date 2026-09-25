@@ -14,7 +14,7 @@ import type {
 } from './ids.js';
 
 /**
- * CT-03 planning vocabulary and durable records (work-items/CT-03/CT-03.md §5.5).
+ * CT-03 planning vocabulary and durable records (archive/CT-03/work-items/CT-03.md §5.5).
  *
  * These are pure records. They depend on no HTTP, SQL, React, filesystem, or
  * parser code, and they carry no behaviour beyond membership predicates.

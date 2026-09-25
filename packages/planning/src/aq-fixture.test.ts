@@ -15,7 +15,7 @@ import {
 /**
  * CT03-A09 to A12.
  *
- * Every expectation is read from work-items/CT-03/CT-03-aq-import-expectations.yaml
+ * Every expectation is read from fixtures/plan-bundles/aq-cont-1-expectations.yaml
  * at run time rather than inlined, so the committed fixture stays authoritative
  * (CT-03 §6) and this test cannot silently drift away from it.
  */

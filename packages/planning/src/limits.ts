@@ -1,5 +1,5 @@
 /**
- * Bounds for one plan-bundle import (work-items/CT-03/CT-03.md §5.1).
+ * Bounds for one plan-bundle import (archive/CT-03/work-items/CT-03.md §5.1).
  *
  * These live in the pure package and are imported by the server for its
  * multipart plugin configuration, so upload-stream enforcement and validation

@@ -1,5 +1,5 @@
 /**
- * The `exo-work-breakdown-v1` source profile (work-items/CT-03/CT-03.md §5.3).
+ * The `exo-work-breakdown-v1` source profile (archive/CT-03/work-items/CT-03.md §5.3).
  *
  * Recognition is not the same as retention. Every source field is retained
  * verbatim in `metadata` / `sourceFields` regardless of whether it appears

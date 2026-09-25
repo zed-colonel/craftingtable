@@ -6,7 +6,7 @@ import {
 
 /**
  * Canonical plan-bundle digest, format version 1
- * (work-items/CT-03/CT-03.md §5.6).
+ * (archive/CT-03/work-items/CT-03.md §5.6).
  *
  * `node:crypto` is a hashing primitive, not I/O: this module opens no file,
  * spawns no process, and touches no network, so the package stays pure in the

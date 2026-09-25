@@ -10,7 +10,7 @@ import type { PlanBundleArtifactInput } from './bundle.js';
 const REPOSITORY_ROOT = new URL('../../../', import.meta.url);
 const AQ_FIXTURE_DIR = new URL('fixtures/plan-bundles/aq-cont-1/', REPOSITORY_ROOT);
 const INVALID_FIXTURE_DIR = new URL('fixtures/plan-bundles/invalid/', REPOSITORY_ROOT);
-const EXPECTATIONS = new URL('work-items/CT-03/CT-03-aq-import-expectations.yaml', REPOSITORY_ROOT);
+const EXPECTATIONS = new URL('fixtures/plan-bundles/aq-cont-1-expectations.yaml', REPOSITORY_ROOT);
 
 /** Media types a browser plausibly sends for each fixture file. */
 const DECLARED: Record<string, string> = {

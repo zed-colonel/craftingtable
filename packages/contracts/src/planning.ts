@@ -16,7 +16,7 @@ import {
   worktreeIdSchema,
 } from './ids.js';
 
-/** Strict wire contracts for CT-03 planning (work-items/CT-03/CT-03.md §5.13). */
+/** Strict wire contracts for CT-03 planning (archive/CT-03/work-items/CT-03.md §5.13). */
 
 export const planImportDiagnosticSchema = z.strictObject({
   severity: z.enum(DIAGNOSTIC_SEVERITIES),

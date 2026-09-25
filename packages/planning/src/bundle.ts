@@ -32,7 +32,7 @@ import { parseYamlDocument } from './parse.js';
  * One uploaded part, as observed by the transport, before any interpretation.
  *
  * The role is the multipart field name — never guessed from the filename or the
- * prose inside the file (work-items/CT-03/CT-03.md §5.1).
+ * prose inside the file (archive/CT-03/work-items/CT-03.md §5.1).
  */
 export interface PlanBundleArtifactInput {
   readonly fieldName: string;

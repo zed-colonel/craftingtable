@@ -25,7 +25,7 @@ import type { RepositoryStatus, RepositoryStatusReason } from './repository.js';
  *
  * Import deliberately appends *summary* events. Importing a 14-item plan
  * appends one `plan-version-imported`, not fourteen per-item events
- * (work-items/CT-03/CT-03.md §5.9).
+ * (archive/CT-03/work-items/CT-03.md §5.9).
  */
 export const WORKSPACE_EVENT_KINDS = [
   'workspace-created',

@@ -1,7 +1,7 @@
 import type { DiagnosticSeverity } from '@craftingtable/domain';
 
 /**
- * Stable machine-readable diagnostic codes (work-items/CT-03/CT-03.md §5.4).
+ * Stable machine-readable diagnostic codes (archive/CT-03/work-items/CT-03.md §5.4).
  *
  * These are part of the import response contract: the browser groups by them
  * and acceptance tests assert them, so they must not be renamed casually.

@@ -756,6 +756,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Projection with one cache per worktree.** Removal volume is bounded by each worktree's largest cache: at most 219.3 GB over the same period, a 3.8× reduction. Build writes fall further, because later steps recompile only what changed.
   - **This does not reach the order-of-magnitude target by itself.** Sharing per repository would, but it serializes parallel worktrees on Cargo's lock and never lets the cache be removed. That choice is raised as an operator decision.
   - **Status:** partial until removal volume is re-measured on live data after deploy.
+- **Amendment (2026-09-24 review):** the shared cache sits outside the worktree and the run directory. It was missing from the launch request's `additionalDirectories`, so Codex in workspace-write mode could not write to it, and every Codex Cargo build would have failed. It is now listed, and the launch test asserts it.
 
 ### R-G8
 

@@ -754,6 +754,9 @@ describe('agent runs', () => {
     const registered = state.context.storage.maintenance.worktreeCache(worktree.id);
     expect(registered?.path).toBeDefined();
     expect(caches).toEqual([registered?.path, registered?.path]);
+    // A sandboxed agent (Codex workspace-write) may write only to the listed directories.
+    for (const launch of state.backend.launches)
+      expect(launch.additionalDirectories).toContain(registered?.path);
     // Cargo creates it on its first build; a worktree that never builds Rust leaves nothing.
     expect(existsSync(registered?.path ?? '')).toBe(false);
     for (const runId of [first, second]) {

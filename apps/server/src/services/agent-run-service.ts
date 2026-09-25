@@ -1304,6 +1304,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           ...(previousRunDirectory ? [previousRunDirectory] : []),
           ...(historical ? [historical.cargoHome] : []),
           ...(pinned?.localCi ? [pinned.localCi.cacheRoot] : []),
+          // The shared Cargo target (R-G7) sits outside the worktree, so a sandbox must allow it.
+          ...(buildCacheDirectory ? [buildCacheDirectory] : []),
         ],
         sessionName: `CraftingTable ${prepared.row.sourceId} ${input.role}`,
       };

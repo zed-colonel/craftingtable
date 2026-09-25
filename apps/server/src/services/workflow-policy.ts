@@ -1,6 +1,6 @@
 import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
 import { attemptDefinition, effectiveDelegation } from './roadmap-delegation-policy.js';
-import { supportsArchitectureDecision } from './architecture-decision-policy.js';
+import { stagedDecision, supportsArchitectureDecision } from './architecture-decision-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { createHash } from 'node:crypto';
 import { parseWorkflowReport } from '@craftingtable/contracts';
@@ -60,15 +60,19 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
         kind: checkpoint.kind,
         sharedDecision: supportsArchitectureDecision(scope.definition, checkpoint.id),
         supported,
-        accepted: !!acceptedEvidence(
-          tx,
-          cycle.workspaceId,
-          scope.definition.id,
-          cycle.executionScope!.bindingRevision,
-          subject,
-          new Set(),
-          cycle.executionScope,
-        ),
+        // The merge gate lets an approved clause-level decision stand in for the full checkpoint
+        // for its named slice (execution-scope.ts); the workflow must agree, or it stops a
+        // mergeable review for an approval that already exists.
+        accepted:
+          !!acceptedEvidence(
+            tx,
+            cycle.workspaceId,
+            scope.definition.id,
+            cycle.executionScope!.bindingRevision,
+            subject,
+            new Set(),
+            cycle.executionScope,
+          ) || !!stagedDecision(tx, cycle.workspaceId, cycle.executionScope!, checkpoint.id),
         requirements: spec.requirements,
         caseIds: spec.cases.map((c) => c.id),
         roles: spec.reviewerRoles,

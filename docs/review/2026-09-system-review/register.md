@@ -733,6 +733,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** Immediately: make the importer's cycle check use the same milestone graph as targetClosure (FMT-03 imports a map the supervisor then crashes on). Then: compile a map+binding once into an immutable model (nodes, edges, producer sets, requirement sets) cached by definition/binding revision, and implement requirement satisfaction and depends_on enforcement once; migrate the 22 services that read raw map JSON.
 - **Done when:** FMT-03 reproduction is rejected at import; one satisfaction implementation; golden conformance fixtures (R-F4) pass unchanged.
 - **Progress:** FMT-03 fixed: the import cycle check includes the implicit milestone edges targetClosure uses. The compiled map model and single evaluator remain.
+- **Drift found live 2026-09-25 (EXO-03/domain).** The merge gate (`scopePhaseBlockers`) lets an approved clause-level decision (`stagedDecision`) stand in for the full checkpoint for its named slice. The cycle workflow's checkpoint check (`workflowContext`) accepted only full evidence.
+  - Each mergeable review of EXO-03/domain was therefore stopped with `shared-decision-required` for EXO-ADR-037, although its approved clauses cover that slice's merge (approval 229d3d4a, 2026-09-21).
+  - `workflowContext` now also accepts `stagedDecision`.
+  - `server-execution-reviews.test.ts` asserts the workflow accepts the checkpoint for the named slice and not for the other slice; it fails without the fix.
+  - The single evaluator this item plans would remove this whole class of drift.
 
 ### R-F2
 

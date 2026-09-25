@@ -199,6 +199,19 @@ itNeedsCargo(
     });
     expect(stagedDecision(tx, ws, f.scopes[0]!, 'LOCAL-ADR-01')?.id).toBe(submission.id);
     expect(stagedDecision(tx, ws, f.scopes[1]!, 'LOCAL-ADR-01')).toBeUndefined();
+    // The cycle workflow agrees with the merge gate: the staged clauses stand in for the full
+    // checkpoint for slice a only, so a mergeable review of a is not stopped for LOCAL-ADR-01.
+    const { workflowContext } = await import('./services/workflow-policy.js');
+    const workflow = (scope: (typeof f.scopes)[number]) =>
+      workflowContext(tx, {
+        workspaceId: ws,
+        workItemId: f.state.workItemId,
+        executionScope: scope,
+      } as import('@craftingtable/domain').WorkCycle)!.checkpoints.find(
+        (c) => c.id === 'LOCAL-ADR-01',
+      );
+    expect(workflow(f.scopes[0]!)?.accepted).toBe(true);
+    expect(workflow(f.scopes[1]!)?.accepted).toBe(false);
     expect(stagedDecision(tx, ws, f.parentScope, 'LOCAL-ADR-01')).toBeUndefined();
     const definition = tx.imports.definition(ws, id)!;
     expect(

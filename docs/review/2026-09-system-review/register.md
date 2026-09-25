@@ -175,7 +175,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A7
 
-**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: partial (9339d01, c6e4042, 27266c0, 9084e50)
+**Offer only actions that can make progress; one transition gate for commands and launch** · Phase P1 · Effort M · Status: done (9339d01, c6e4042, 27266c0, 9084e50)
 
 - **Resolves:** [CTRL-04](findings/CTRL-controller.md#ctrl-04-resume-is-accepted-even-when-it-cannot-make-progress), [CTRL-12](findings/CTRL-controller.md#ctrl-12-manual-commands-accept-transitions-that-the-automated-launch-then-rejects)
 - **Change:** Derive the valid operator actions from the attention code (in the same pure code that decides the transition) and return them with the cycle projection; reject Resume when the blocking fact is not transient, with the correct destination. Put whole-item and scoped start/advance gates, including predecessor ancestry, into one transitionGate() used by commands before acceptance and again at launch.
@@ -216,6 +216,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
     Both belong in R-B4's decision core, behind the characterization harness. The duplicated remediation-grant validators stay with R-B7.
   - **Proposal:** mark R-A7 done and move these two to R-B4 (see the operator decisions in program.md). Until decided, the status stays partial.
+- **Amended 2026-09-24 (operator decision): done.** The restated done-when is met. The shared predecessor gate is in place, and replays show no change. The two remaining gate differences move to R-B4: scheduler-side Git ancestry and item-status alignment. The duplicated remediation-grant validators stay with R-B7.
 
 ## Workstream B — Controller core (pain point 3)
 
@@ -283,6 +284,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [CTRL-01](findings/CTRL-controller.md#ctrl-01-the-cycle-controller-is-a-656-line-imperative-function-with-an-implicit-state-machine), [CTRL-10](findings/CTRL-controller.md#ctrl-10-awaiting-merge-is-overloaded-with-six-meanings), [CTRL-11](findings/CTRL-controller.md#ctrl-11-control-flow-depends-on-the-wording-of-human-readable-messages), [DATA-04](findings/DATA-storage-domain-contracts.md#data-04-workcycle-is-a-50-field-god-record-with-embedded-sub-state-machines-two-entity-kinds-and-projection-fields-mixed-in), [HIST-01](findings/HIST-history-and-live-usage.md#hist-01-development-proceeded-by-patching-each-live-blockage-with-new-state-panels-and-vocabulary-spaghetti-fication-measured), [HIST-18](findings/HIST-history-and-live-usage.md#hist-18-controller-services-grew-append-only-through-feature-by-feature-accretion)
 - **Change:** CycleFacts (one snapshot, one open-questions parser, one report parser) -> decide(cycle, facts, now) -> Decision {launch | wait | attention | approve | effect | complete} with an ordered, named guard list. reconcile becomes a thin shell. Collapse the ~27 optional recovery fields into one stop record plus an append-only step history; keep old JSON readable through upcasters (R-H3).
 - **Done when:** reconcile is under ~100 lines; the decision core has table tests for every attention and wait code; WorkCycle optional-field count falls instead of rising.
+- **Added 2026-09-24 (operator decision, from R-A7).** Two gate differences are left from R-A7's shared `predecessorGate()`, and the decision core should settle both. Each moves a stop between the cycle and the roadmap, so each needs a replay check.
+  - **Scheduler-side Git ancestry.** Today a missing predecessor merge stops the new cycle at launch as `needs-attention`. The scheduler should check ancestry before it creates an attempt and keep the roadmap entry waiting instead.
+  - **Item-status alignment.** Commands require an admitted item. The scheduler requires the bound plan item, and refuses an item completed without its merge. Both should use one rule.
 
 ### R-B5
 
@@ -648,6 +652,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - With the write guard applying the v0.3 source schema, 63 server tests failed: every one stored a definition built by `slicedFixture` or `supervisedMapFixture`. The sources carry local ids such as `AQ-01` without a repository prefix, and checkpoints with no requirement. The importer rejects both.
   - R-H3 therefore leaves the format check to the importer and to `db:verify`. The test-cleanup verification skips it; see R-H3's progress.
   - FMT-15's fix stands: build these fixtures through the importer, or with ids that conform. Then turn the format check on in `unverifiedRecords` (`apps/server/src/test-support.ts`).
+- **Amended 2026-09-24 (operator decision): rebuild the scope fixtures through the importer.** `slicedFixture` and `supervisedMapFixture` will produce their definitions through the v0.3 importer, with repository-prefixed ids and checkpoints that carry requirements. Test cleanup then applies the map-format check too. This is scheduled with the rest of FMT-15 and is not yet done.
 
 ### R-F4
 
@@ -740,7 +745,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 - **Resolves:** [AGT-05](findings/AGT-GIT-SEC-agents-git-security.md#agt-05-per-run-cargo_target_dir-forces-a-cold-rust-build-on-every-step-768-gb-written-and-deleted-in-10-days)
 - **Change:** Share a Cargo target directory per worktree (or per repository with a lock) across the steps of a cycle, with the ADR-039 cleanup applied when the worktree is merged/removed.
-- **Done when:** Cache removal volume per day drops by an order of magnitude from the 768 GB/10-day baseline.
+- **Done when:** Cache removal volume per day drops by an order of magnitude from the 768 GB/10-day baseline. *(Restated 2026-09-24, see below.)*
 - **Progress (2026-09-24):**
   - **One Cargo target per worktree.** Each worktree gets one Cargo target directory, `<runs root>/worktree-caches/<worktree id>`, registered in `worktree_build_caches` (migration 0030) at the worktree's first launch. Every run in the worktree gets it as `CARGO_TARGET_DIR`, through the launch request's new `buildCacheDirectory`, so later steps build incrementally.
     - Cargo creates the directory on its first build, so worktrees that never build Rust leave nothing.
@@ -756,6 +761,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Projection with one cache per worktree.** Removal volume is bounded by each worktree's largest cache: at most 219.3 GB over the same period, a 3.8× reduction. Build writes fall further, because later steps recompile only what changed.
   - **This does not reach the order-of-magnitude target by itself.** Sharing per repository would, but it serializes parallel worktrees on Cargo's lock and never lets the cache be removed. That choice is raised as an operator decision.
   - **Status:** partial until removal volume is re-measured on live data after deploy.
+- **Amended 2026-09-24 (operator decision): keep one cache per worktree; restate the done-when.** No per-repository cache: it would serialize parallel worktrees on Cargo's lock and never free disk.
+  - **New done-when:** after deploy, cache removal volume over a comparable ten-day window is re-measured against the 825 GB audit baseline (2026-09-13 to 2026-09-23), and the measured reduction is recorded here. The projection is at least 3.8×.
+  - It is met by the measurement, whatever the figure. A per-repository cache is reconsidered only if the measured cut falls well short of the projection.
 - **Amendment (2026-09-24 review):** the shared cache sits outside the worktree and the run directory. It was missing from the launch request's `additionalDirectories`, so Codex in workspace-write mode could not write to it, and every Codex Cargo build would have failed. It is now listed, and the launch test asserts it.
 
 ### R-G8
@@ -867,6 +875,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Dry run migrated the database.** The compaction command opened storage, which migrates the file and writes a pre-migration snapshot. It now refuses a database with pending migrations, dry run or not, and changes nothing (CLI test).
   - **Compacted bodies expired within a minute.** Body expiry checked only the run's `retainedSince`. So bodies that compaction wrote into runs already past retention would have been removed on the next maintenance tick, leaving only previews. Bodies now also wait out the scratch quiet period: they are kept until nothing in them has changed for a full retention window. For compacted history that means 30 days after compaction, then previews only. ADR-068 and `docs/operations.md` now say so, and the retention decision for the operator names this consequence.
   - **Body files were trusted.** A read followed links, blocked on a FIFO and decompressed without a bound. A file already at a digest's path was kept without being checked. Reads now open with `O_NOFOLLOW`, accept only regular files, cap at 8 MiB and treat any decode error as absent. Writes replace a file that does not hold the output (`tool-result-store.test.ts`).
+- **Amended 2026-09-24 (operator decision): retention confirmed.**
+  - Tool-result previews are 4 KiB.
+  - Full bodies expire with the run's scratch retention: 30 days after the work merges, and not before 30 days pass without a change.
+  - Raw lines on failure notices are kept indefinitely.
+  - Compacting the live journal therefore keeps historical runs' full tool output for 30 days after compaction, then previews only. That is accepted.
+  - The status stays partial until growth per run is measured after deploy.
 
 ### R-H3
 
@@ -912,6 +926,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Work-item status writes skipped the guard.** Admission, agenda removal and completion now read back and guard the item.
   - **Audit appends outside a transaction.** Storage cleanup appends audit records outside a transaction, so a refused record would have stayed committed. `audit.append` now runs in its own transaction, which is a savepoint inside a caller's.
   - Tests are in `records.test.ts`. The retired-draft upcaster now checks for the key rather than its truthiness.
+- **Amended 2026-09-24 (operator decision): the guard stays fail-closed.** A record that breaks its contract, or that comes back from its own write in a historical shape, fails the write. There is no log-and-allow period.
 
 ### R-H4
 
@@ -1097,13 +1112,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I8
 
-**Deploy from a separate checkout; one daemon per data directory** · Phase P1 · Effort S-M · Status: partial (943fb8d)
+**Deploy from a separate checkout; one daemon per data directory** · Phase P1 · Effort S-M · Status: done (943fb8d, 6729d6e; the operator deletes one remote branch)
 
 - **Resolves:** [REPO-04](findings/QA-DOC-REPO-tests-docs-hygiene.md#repo-04-the-production-daemon-runs-from-the-development-checkout-and-its-build-output), [SEC-10](findings/AGT-GIT-SEC-agents-git-security.md#sec-10-the-daemon-runs-straight-from-the-editable-development-checkout), [REPO-03](findings/QA-DOC-REPO-tests-docs-hygiene.md#repo-03-legacy-process-directories-and-branches-are-still-at-top-level)
 - **Change:** Run the daemon from a separate deploy checkout updated by an explicit `pnpm deploy:daemon <ref>` command (fetch the exact ref from the dev repo, install, build, restart the single systemd user unit, record the deployed commit; rollback = deploy the previous commit; add the R-B9 drain when it exists), so editing or running tsc in the dev checkout never changes what production loads. Take an exclusive lock on the data directory at daemon start, before migrations and restart recovery: today a stray second daemon on the same data directory (e.g. `pnpm start` in another checkout) would mark live runs interrupted and roadmaps needs-attention before failing to bind the port. `pnpm dev` defaults to its own port and data directory. Archive the CT-01..03 process directories and merged CT-era branches.
 - **Done when:** A tsc -b in the dev checkout cannot affect the running daemon; a second daemon on the same data directory exits before touching the database (test); deploy and rollback are one command each.
 - **Progress:** Deployed 2026-09-23: the daemon runs from $XDG_DATA_HOME/craftingtable-deploy/current (systemd drop-in deploy-checkout.conf) via `pnpm deploy:daemon <ref>` (release per commit, atomic switch, health check with automatic rollback, `--rollback`, `--status`, deploys.jsonl). The data-directory lock was verified against the live daemon: a second daemon exits naming the holder. `pnpm dev` / `pnpm craftingtable:dev` use their own data directory and port 4601. Remaining: archive the CT-01..03 process directories and merged CT-era branches. Deploys drain through R-B9 once a release containing it is running.
 - **Amendment (2026-09-24 review):** the CT-01..03 process directories (`work-items/`, `implementation-reports/`, `review-findings/`) moved to `archive/CT-01..03/`. The AQ fixture's expectations moved to `fixtures/plan-bundles/`, and code comments now cite the archived CT-03 spec. Still remaining, as an operator action: delete the seven merged CT-era branches (`ct-02-persistent-daemon`, `ct-03-plan-dashboard`, `ct-04`, `ct-04a-git-foundation`, `ct-04a2a-repository-model`, `ct=04a2b1-repository-journal`, `ct-04a2b2a-repository-evidence-boundary`), locally and on `origin`. All seven are ancestors of `main`.
+- **Amended 2026-09-24 (operator decision): the branches are deleted.** The operator approved deleting the seven merged CT-era branches. All seven are deleted locally, after checking that each is an ancestor of `main`. Of the seven, only `ct-04a-git-foundation` exists on `origin`, and it too is an ancestor of `main`. The agent's shell cannot push, so the operator deletes it: `git push origin --delete ct-04a-git-foundation`. With that, the item is done.
 
 ### R-I9
 

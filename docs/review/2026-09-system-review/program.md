@@ -292,6 +292,23 @@ R-A7 had no defects. Fixes, each with a dated amendment on its item:
   journal kept full output forever. The alternative is to exempt bodies written by compaction
   from expiry, at about 54 MB on disk. A sixth: delete the seven merged CT-era branches
   (R-I8), locally and on `origin`.
+- **Operator decisions (2026-09-24), each recorded on its item:**
+  1. **R-G7:** keep one cache per worktree. The done-when is restated: re-measure removal volume
+     after deploy against the 825 GB baseline and record the cut.
+  2. **R-A7: done.** Scheduler-side Git ancestry and item-status alignment move to R-B4.
+  3. **R-H2 retention confirmed:**
+     - 4 KiB previews;
+     - bodies expire with scratch retention (30 days after merge, and 30 quiet days);
+     - raw lines on failure notices are kept indefinitely;
+     - compacted history keeps full output for 30 days after compaction.
+  4. **R-H3:** the write guard stays fail-closed.
+  5. **R-F3 (FMT-15):** rebuild the scope fixtures through the importer. Scheduled, not yet done.
+  6. **R-I8: done.** The seven CT-era branches are deleted locally. `origin/ct-04a-git-foundation`
+     is left for the operator to delete, since the agent cannot push.
+- **Still open in P1:**
+  - R-B10;
+  - R-E6 and R-I7;
+  - the post-deploy measurements for R-H2 and R-G7.
 
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 

@@ -256,6 +256,43 @@ R-A7's remainder.
   - R-A7's remainder, unless moved to R-B4;
   - the post-deploy measurements for R-H2 and R-G7.
 
+**Review of the test, safety-net, data and controller batches (2026-09-24, same branch).** Each
+landed commit since the first P1 review was checked against its item's "done when". R-B3 and
+R-A7 had no defects. Fixes, each with a dated amendment on its item:
+- **R-G7 (d800ae6).** The shared Cargo target was missing from the sandbox's writable
+  directories, so every Codex Cargo build would have failed.
+- **R-H2 (56e536f).**
+  - The compaction dry run migrated the database. It now refuses pending migrations.
+  - Bodies that compaction writes into runs already past retention would have expired on the
+    next maintenance tick. They now wait out scratch's quiet period.
+  - Body files are read without following links, from regular files only, with a size bound.
+- **R-H3 (3e5561c).**
+  - Upcasters could hide a writer defect from the read-back guard; read-backs now refuse any
+    upcast.
+  - Work-item status writes are now guarded.
+  - A refused audit record no longer stays committed.
+- **R-I3 (d0fa07b).** The guard ran after body parsing, so outsiders sending malformed JSON got
+  a 500. It now runs before parsing.
+- **UI (4220722).** 22 more server message lists are deduped, finishing 485969b.
+- **R-I8 (6729d6e).** The CT-01..03 process directories are archived. Deleting the merged CT-era
+  branches is left to the operator.
+- **Found and left as they are:**
+  - The runtime-evidence setup panel keeps its draft's concurrency tokens when a reload lands,
+    so a save after a binding change is refused as stale. That failure is loud and correct.
+  - The amendment panel may show readiness that is up to 15 s stale after a command.
+  - The roadmap definition cache has no size bound.
+  - The sweep's admitted-caller check accepts 400 and 404, so it cannot prove a declaration
+    is as tight as its service. That matters once R-G9 removes the per-handler checks, and
+    R-G9 should tighten the sweep then.
+- **Gate after the fixes:** `pnpm check` passes: 175 test files and 1,386 unit tests, 22 e2e tests,
+  the walkthrough rehearsal, and the scope check. Not yet deployed.
+- **Decisions for the operator (updated):** the five above. Decision 3 has a consequence the
+  batch did not state. Compacting the live journal keeps full tool output for historical runs
+  for 30 days after compaction. After that those runs keep only 4 KiB previews, where the
+  journal kept full output forever. The alternative is to exempt bodies written by compaction
+  from expiry, at about 54 MB on disk. A sixth: delete the seven merged CT-era branches
+  (R-I8), locally and on `origin`.
+
 ### P2: One attention model, one inbox, one read model (2–3 weeks)
 
 | Item | Notes |

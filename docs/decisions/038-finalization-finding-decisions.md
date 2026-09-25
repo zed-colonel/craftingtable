@@ -1,6 +1,6 @@
 # ADR-038: Explicit finalization finding decisions
 
-Status: accepted. Refines ADR-033 and ADR-036.
+Status: accepted; nit deferral retired 2026-09-25 (see the amendment). Refines ADR-033 and ADR-036.
 
 A paused finalization with a complete, successful current review can accept an explicit
 operator decision on selected findings, including at a questions checkpoint. The command
@@ -33,3 +33,11 @@ finding selection. Setup exposes the independent initial finalization budget (de
 which does not inherit a work item's or roadmap's saved policy.
 
 The staged evolution is recorded in ../finalization-roadmap.md and remains future work.
+
+## Amendment 2026-09-25: deferral retired with improvement rounds (R-B10)
+
+Deferring nits belonged to the round-based finalization, which is retired. `defer-nits` is no
+longer a control action, and the completion check no longer exempts deferred nits. A staged
+finalization parks optional simplification and polish suggestions as follow-up work at batch
+selection instead, and focused remediation of selected findings is unchanged. Recorded
+deferrals stay readable in the completed 2026-09-13 finalization.

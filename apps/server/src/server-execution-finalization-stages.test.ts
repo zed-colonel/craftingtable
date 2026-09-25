@@ -740,7 +740,8 @@ describe('staged finalization', () => {
           rationale: 'This must not waive correctness.',
         })
       ).statusCode,
-    ).toBe(409);
+      // Deferral retired with improvement rounds (R-B10); the request contract refuses it.
+    ).toBe(400);
     const recovered = await finalizationCommand(state, value, 'remediate-findings', {
       findingIds: ['C-2'],
       rationale: 'Fix this regression.',

@@ -62,29 +62,17 @@ export type FinalizationAgentSelection = Pick<
   AgentRunProfile,
   'backend' | 'model' | 'reasoningEffort'
 >;
+/** The agent for a finalization step: the current stage's reviewer or implementer (R-B10). */
 export function finalizationProfile(
-  value: Pick<Finalization, 'rounds' | 'finalReview' | 'stages'>,
-  cycle: Pick<
-    WorkCycle,
-    | 'step'
-    | 'profiles'
-    | 'polishPhase'
-    | 'polishRound'
-    | 'finalizationAgentOverride'
-    | 'finalizationProgress'
-  >,
+  value: Pick<Finalization, 'finalReview' | 'stages'>,
+  cycle: Pick<WorkCycle, 'step' | 'finalizationAgentOverride' | 'finalizationProgress'>,
 ): Omit<AgentRunProfile, 'role'> {
-  const round = value.rounds[cycle.polishRound ?? 0];
   const stage = value.stages?.[cycle.finalizationProgress?.stageIndex ?? 0];
   const configured = stage
     ? cycle.step === 'review'
       ? stage.review
       : stage.implement
-    : cycle.step === 'review'
-      ? cycle.polishPhase === 'final-review'
-        ? value.finalReview
-        : (round?.review ?? value.finalReview)
-      : (round?.polish ?? cycle.profiles.remediate);
+    : value.finalReview;
   return cycle.finalizationAgentOverride
     ? { permissionMode: configured.permissionMode, ...cycle.finalizationAgentOverride }
     : configured;

@@ -61,29 +61,13 @@ it('authorizes a selected batch and extra attempts together when the allowance i
   );
 });
 
-it('explains why higher-severity findings cannot be deferred and omits the budget for deferral', () => {
-  const onDecide = vi.fn();
-  render(<FinalizationCheckpoint view={view} busy={false} onDecide={onDecide} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Select all findings' }));
-  fireEvent.change(screen.getByLabelText('Next action'), { target: { value: 'defer-nits' } });
-  expect(screen.getByText(/Only nits can be deferred./)).toBeDefined();
-  const button = screen.getByRole<HTMLButtonElement>('button', {
-    name: 'Defer selected nits and review',
-  });
-  expect(button.disabled).toBe(true);
-  fireEvent.click(screen.getByRole('checkbox', { name: /F-051/ }));
-  fireEvent.change(screen.getByLabelText('Disposition rationale (required)'), {
-    target: { value: 'Optional diagnostics follow-up.' },
-  });
-  fireEvent.click(button);
-  expect(onDecide).toHaveBeenCalledExactlyOnceWith({
-    action: 'defer-nits',
-    findingIds: ['F-052'],
-    rationale: 'Optional diagnostics follow-up.',
-    instructions: '',
-    expectedVersion: 5,
-    expectedCycleVersion: 38,
-  });
+it('no longer offers deferring nits, which retired with improvement rounds (R-B10)', () => {
+  render(<FinalizationCheckpoint view={view} busy={false} onDecide={vi.fn()} />);
+  const actions = Array.from(
+    (screen.getByLabelText('Next action') as HTMLSelectElement).options,
+  ).map((o) => o.value);
+  expect(actions).toEqual(['remediate-findings']);
+  expect(screen.queryByRole('button', { name: 'Defer selected nits and review' })).toBeNull();
 });
 
 it('supports a review requiring remediation without selectable findings in the same form', () => {

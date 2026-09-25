@@ -70,7 +70,7 @@ export const STEP_ATTENTION_CODES = [
   'review-open-questions-at-limit',
   'review-open-questions',
   'finalization-report-rejected',
-  'polish-assessment-needs-attention',
+  'legacy-finalization-retired',
   'scope-review-open-questions',
   'scope-review-recovery',
   'review-needs-attention',
@@ -119,16 +119,12 @@ export type StepOutcomeDecision = {
       readonly designWait: NonNullable<WorkCycle['designWait']>;
       readonly reason: string;
     }
-  | {
-      readonly kind: 'finalize-implementation';
-      readonly reviewChanges: Omit<Partial<WorkCycle>, 'status' | 'attention'>;
-    }
+  | { readonly kind: 'finalize-implementation' }
   | { readonly kind: 'advance-finalization-stage'; readonly noQuestions: boolean }
   | { readonly kind: 'remediate-review'; readonly clearActiveReview: boolean }
   | {
       readonly kind: 'approve-review';
       readonly reviewOnly: boolean;
-      readonly finalizationRounds?: number;
       readonly reason: string;
     }
 );
@@ -441,6 +437,14 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
   const withWorkflow = <T extends StepOutcomeDecision>(decision: T): T =>
     workflowUpdate ? { ...decision, workflow: workflowUpdate } : decision;
   const finalization = facts.finalization(cycle);
+  // Improvement-round finalizations are retired (R-B10): only staged ones are driven.
+  if (finalization && !finalization.stages)
+    return withWorkflow(
+      attention(
+        'legacy-finalization-retired',
+        'This finalization uses retired improvement rounds. Stop it and start a staged finalization.',
+      ),
+    );
   if (
     finalization &&
     !(finalization.stages && cycle.step === 'review') &&
@@ -523,11 +527,7 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
           'Implementation needs your input. Answer the Open questions using Continue with guidance before another review or remediation.',
         ),
       );
-    return withWorkflow({
-      kind: 'finalize-implementation',
-      reviewChanges:
-        finalization && cycle.polishPhase === 'polish' ? { polishPhase: 'verify' } : {},
-    });
+    return withWorkflow({ kind: 'finalize-implementation' });
   }
   const reviewOnly = facts.reviewOnly;
   const assessment = facts.reviewAssessment();
@@ -588,25 +588,6 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
             reportFault,
           ),
     );
-  if (finalization && cycle.polishPhase === 'assess') {
-    if (decision.action === 'needs-attention')
-      return withWorkflow(
-        reportIssues
-          ? formatFault(
-              'polish-assessment-needs-attention',
-              decision.reason,
-              reportIssues,
-              reportFault,
-            )
-          : attention('polish-assessment-needs-attention', decision.reason),
-      );
-    return withWorkflow({
-      kind: 'next-step',
-      step: 'remediate',
-      changes: { polishPhase: 'polish' },
-      action: 'advance',
-    });
-  }
   if (reviewOnly && (!finalizationHasNoQuestions(text) || decision.action !== 'awaiting-merge')) {
     if (!finalizationHasNoQuestions(text)) {
       const message =
@@ -636,12 +617,7 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
         ? formatFault('review-needs-attention', decision.reason, reportIssues, reportFault)
         : attention('review-needs-attention', decision.reason),
     );
-  return withWorkflow({
-    kind: 'approve-review',
-    reviewOnly,
-    ...(finalization ? { finalizationRounds: finalization.rounds.length } : {}),
-    reason: decision.reason,
-  });
+  return withWorkflow({ kind: 'approve-review', reviewOnly, reason: decision.reason });
 }
 
 /** One replayed classification: the cycle's current run and what the controller decides. */

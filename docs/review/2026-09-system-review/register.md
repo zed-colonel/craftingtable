@@ -26,7 +26,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B7](#r-b7) | P4 | L | open | Decompose the controller services along real boundaries |
 | [R-B8](#r-b8) | P1 | M | done (c0ccf3b, 9fe2152) | Remove dead and vestigial paths |
 | [R-B9](#r-b9) | P1 | M | done (4d81743, efd7369) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
-| [R-B10](#r-b10) | P1 | S-M | in progress (0e4eb04, adeb4cf, f32b407; legacy deletion waits on a live staged finalization) | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
+| [R-B10](#r-b10) | P1 | S-M | done (0e4eb04, adeb4cf, f32b407; deletion 2026-09-25) | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
@@ -361,7 +361,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B10
 
-**Retire legacy finalization for new starts** · Phase P1 · Effort S-M · Status: in progress
+**Retire legacy finalization for new starts** · Phase P1 · Effort S-M · Status: done (2026-09-25)
 
 - **Added 2026-09-24:** split from [R-B8](#r-b8) in the phase 1 review. Its part of the R-B8 Change needs work R-B8 never scoped: moving tests first, and a UI change.
 - **Resolves:** [CTRL-15](findings/CTRL-controller.md#ctrl-15-dead-and-vestigial-controller-paths) (the legacy-finalization part).
@@ -395,7 +395,27 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **The focused-attempts test checks the focus again.** The selected finding must be the cycle's `findingFocus` while its stage implements it.
     - **Table row.** `step-outcome.test.ts` has a row for a staged review with no structured report: repair, not a stop. It fails on the code before adeb4cf.
     - A redundant ternary is removed. Not changed: the web test does not click Start, because the e2e spec covers the whole start flow.
-  - **Still to do:** delete the legacy branches after a staged finalization completes on live data. On 2026-09-25 the operator reported no plan is ready to finalize, so the deletion is left as the last step.
+  - **Operator decision 2026-09-25: the deletion gate is a dev-daemon run.** No plan was ready to finalize live. The operator chose a staged finalization run end to end with real agents on an isolated scratch daemon (its own data directory and port), then the deletion.
+  - **Gate run (scratch daemon, Claude Sonnet 5, a one-item plan implemented on its integration branch):**
+    - All five stages completed, followed by the operator-approved promotion; `main` advanced to the reviewed candidate and the exit-gate obligation is `met`.
+    - The run exercised the automatic report repair, one operator batch selection (a polish nit kept as follow-up), and the final review.
+    - A first attempt had given reviewers `edit-only` permission, so they could not run the required check. The controller stopped on that question instead of approving, which is correct. The attempt was stopped and restarted with `auto` reviewers.
+  - **Deleted (this commit):**
+    - the round-based transitions in `step-outcome.ts` (the `assess` and `polish` phases, `finalizationRounds` on approval, the `reviewChanges` field);
+    - round advancement and the round start in `WorkCycleService` (`startFinalization` now requires stages);
+    - `defer-nits` (command, contract action, web option, and the completion check's deferred-nit exemption);
+    - the legacy parts of `finalizationInstructions` and `finalizationProfile`;
+    - the legacy-only test file.
+  - **What remains, and why.** The contracts keep `rounds`, `polishPhase`, `polishRound` and `deferredNits` so the completed 2026-09-13 record reads. Staged cycles also set `polishPhase` to `verify` and `final-review`, which the merge gate reads.
+  - **New refusals, with tests (`legacy-finalization-record.test.ts`):**
+    - A start must carry stages; a start with `rounds` gets a 400.
+    - An open stage-less finalization accepts only Stop, and the controller stops one with the new code `legacy-finalization-retired`.
+    - Both tests fail without the change. ADR-038 is amended.
+  - **Replay on a copy of the 2026-09-23 snapshot.** `--check`: 51 decisions, 0 changed. `--every-run --check` against the 5e0c638 baseline: 278 decisions, 109 changed, all explained:
+    - 81 differ only in shape: `finalize-implementation` no longer carries the always-empty `reviewChanges: {}`, so behaviour is identical.
+    - 28 are every run of cycle `caf76f40`, the completed 2026-09-13 legacy finalization. They now classify as `legacy-finalization-retired`, as intended.
+    - No other cycle's decision changed.
+  - **Done-when:** met. A new finalization cannot choose legacy rounds (UI and API); the completed record renders; the legacy controller branches are gone; walkthroughs are recorded; `pnpm check` is green.
 
 ## Workstream C — Operator-wait reduction (the vision: minimum operator input)
 

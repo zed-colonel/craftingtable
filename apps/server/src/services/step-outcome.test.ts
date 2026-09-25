@@ -138,7 +138,8 @@ const reviewRun = runOf({ role: 'review', model: 'review-model' });
 const finalization = (extra: Record<string, unknown> = {}) =>
   (() => ({
     id: 'final-1',
-    rounds: [{}, {}],
+    rounds: [],
+    stages: [{}],
     ...extra,
   })) as unknown as StepOutcomeFacts['finalization'];
 
@@ -383,7 +384,7 @@ const rows: readonly Row[] = [
   {
     name: 'finished implementation is committed and reviewed',
     facts: {},
-    expected: { kind: 'finalize-implementation', reviewChanges: {} },
+    expected: { kind: 'finalize-implementation' },
   },
   {
     name: 'a review with open questions stops',
@@ -436,21 +437,15 @@ const rows: readonly Row[] = [
     expected: { kind: 'repair-output', code: 'finalization-report-rejected', attempt: 1 },
   },
   {
-    name: 'a polish assessment without a usable report is sent back for repair',
-    cycle: { step: 'review', polishPhase: 'assess' },
-    facts: { run: reviewRun, turn: turnOf(noQuestions), finalization: finalization() },
-    expected: { kind: 'repair-output', code: 'polish-assessment-needs-attention', attempt: 1 },
-  },
-  {
-    name: 'a polish assessment starts the polish pass',
+    name: 'a finalization with retired improvement rounds stops for the operator (R-B10)',
     cycle: { step: 'review', polishPhase: 'assess' },
     facts: {
       run: reviewRun,
       turn: turnOf(noQuestions),
-      finalization: finalization(),
+      finalization: finalization({ rounds: [{}, {}], stages: undefined }),
       reviewAssessment: () => review([minor]),
     },
-    expected: { kind: 'next-step', step: 'remediate', changes: { polishPhase: 'polish' } },
+    expected: { kind: 'attention', code: 'legacy-finalization-retired' },
   },
   {
     name: 'a scope review with open questions stops',

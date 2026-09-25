@@ -44,13 +44,24 @@ it('requires an explicit bounded allowance only on finalization remediation auth
   ).toBe(false);
 });
 
+it('refuses the retired defer-nits action (R-B10)', () => {
+  expect(
+    controlFinalizationRequestSchema.safeParse({
+      action: 'defer-nits',
+      expectedVersion: 1,
+      findingIds: ['F-001'],
+      rationale: 'Operator decision.',
+    }).success,
+  ).toBe(false);
+});
+
 it('limits finalization agent overrides to recovery and keeps permissions out of the request', () => {
-  for (const action of ['resume', 'defer-nits', 'remediate-findings', 'authorize-remediation']) {
+  for (const action of ['resume', 'remediate-findings', 'authorize-remediation']) {
     const request = {
       action,
       expectedVersion: 1,
       expectedCycleVersion: 2,
-      ...(['defer-nits', 'remediate-findings'].includes(action)
+      ...(action === 'remediate-findings'
         ? { findingIds: ['F-001'], rationale: 'Operator decision.' }
         : {}),
       ...(['remediate-findings', 'authorize-remediation'].includes(action)

@@ -363,42 +363,15 @@ export function designHasNoOpenQuestions(text: string, truncated = false): boole
   );
 }
 
-/** Deferral is an operator disposition; the reviewer's finding stays open. */
-export function deferredFindingIds(
-  cycle: WorkCycle,
-  findings: readonly ReviewFinding[],
-  context?: { headSha: string; targetSha: string },
-): readonly string[] {
-  const identity = (f: ReviewFinding) =>
-    JSON.stringify([
-      f.id,
-      f.severity,
-      f.category,
-      f.title,
-      f.location?.path,
-      f.location?.line,
-      f.explanation,
-      f.recommendation,
-    ]);
-  return findings
-    .filter(
-      (f) =>
-        f.status === 'open' &&
-        f.severity === 'nit' &&
-        cycle.finalizationId &&
-        cycle.deferredNits?.some(
-          (d) =>
-            d.headSha === context?.headSha &&
-            d.targetSha === context?.targetSha &&
-            identity(d.finding) === identity(f),
-        ),
-    )
-    .map((f) => f.id);
-}
+/**
+ * The completion decision for a cycle's review. A staged finalization parks optional
+ * follow-ups outside the nit count; deferring nits by operator decision was part of the
+ * retired improvement-round finalization (R-B10). `_context` keeps the callers' signature.
+ */
 export function evaluateCycleCompletion(
   cycle: WorkCycle,
   assessment?: ReviewReportAssessment,
-  context?: { headSha: string; targetSha: string },
+  _context?: { headSha: string; targetSha: string },
 ): CompletionDecision {
   if (assessment?.status !== 'complete') return evaluateCompletion(cycle.policy, assessment);
   const parked = stagedFollowUpIds(cycle);
@@ -417,27 +390,17 @@ export function evaluateCycleCompletion(
       action: 'remediate',
       reason: 'Required findings or selected batch findings remain open.',
     };
-  const deferred = new Set(
-    cycle.finalizationProgress
-      ? followUps
-      : deferredFindingIds(cycle, assessment.report.findings, context),
-  );
   const decision = evaluateCompletion(cycle.policy, {
     ...assessment,
     report: {
       ...assessment.report,
-      findings: assessment.report.findings.filter((f) => !deferred.has(f.id)),
+      findings: assessment.report.findings.filter((f) => !followUps.has(f.id)),
     },
   });
-  if (cycle.finalizationProgress && followUps.size)
-    return {
-      ...decision,
-      reason: `${decision.reason} ${followUps.size} optional suggestion(s) remain open as follow-up work.`,
-    };
-  return deferred.size
+  return followUps.size
     ? {
         ...decision,
-        reason: `${decision.reason.replace('open nits', 'non-deferred nits').replace(' nits (allowance', ' non-deferred nits (allowance')} ${deferred.size} open nit(s) are deferred by the operator for these commits.`,
+        reason: `${decision.reason} ${followUps.size} optional suggestion(s) remain open as follow-up work.`,
       }
     : decision;
 }

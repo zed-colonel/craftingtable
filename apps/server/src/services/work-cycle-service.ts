@@ -730,14 +730,18 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, value.workspaceId, ['owner', 'editor']);
     const existing = this.storage.execution.cycles.find(value.workspaceId, value.cycleId);
     if (existing) return existing;
+    // Only staged finalizations run; improvement rounds are retired (R-B10).
     const stage = value.stages?.[0];
-    const round = value.rounds[0];
-    const profile = stage?.implement ?? round?.polish ?? value.finalReview;
+    if (!value.stages || !stage)
+      throw new ExecutionRequestError(
+        'conflict',
+        'Improvement-round finalizations are retired. Start a staged finalization.',
+      );
     const profiles = {
-      design: profile,
-      implement: profile,
-      remediate: profile,
-      review: stage?.review ?? round?.review ?? value.finalReview,
+      design: stage.implement,
+      implement: stage.implement,
+      remediate: stage.implement,
+      review: stage.review,
     };
     this.validateSettings({ profiles });
     const cycle: WorkCycle = {
@@ -757,41 +761,38 @@ export class WorkCycleService {
       version: 1,
       status: 'running',
       step: 'review',
-      policy: stage?.policy ?? value.policy,
+      policy: stage.policy,
       profiles,
       instructions: '',
       currentRunId: asAgentRunId(randomUUID()),
-      runDeadlineAt: this.deadline((stage?.policy ?? value.policy).maxRunMinutes),
+      runDeadlineAt: this.deadline(stage.policy.maxRunMinutes),
       remediationRounds: 0,
       stalledReviews: 0,
       polishRound: 0,
-      polishPhase: stage ? 'verify' : round ? 'assess' : 'final-review',
-      ...(value.stages
-        ? {
-            finalizationProgress: {
-              stageIndex: 0,
-              stages: value.stages.map((s, i) => ({
-                id: s.id,
-                status: i === 0 ? ('reviewing' as const) : ('pending' as const),
-                remediationRounds: 0,
-                additionalRemediationRounds: 0,
-                selectedFindingIds: [],
-              })),
-              obligations: this.storage.planning.workItems
-                .listForVersion(value.workspaceId, value.planVersionId)
-                .map((item, index) => ({
-                  id: `gate-${index + 1}`,
-                  workItemSourceId: item.sourceId,
-                  source: `Work item ${item.sourceId}: exit gate`,
-                  requirement: item.exitGate,
-                  status: 'unverified' as const,
-                  evidence: 'Not yet assessed in staged finalization.',
-                })),
-              followUps: [],
-              decisions: [],
-            },
-          }
-        : {}),
+      polishPhase: 'verify',
+      finalizationProgress: {
+        stageIndex: 0,
+        stages: value.stages.map((s, i) => ({
+          id: s.id,
+          status: i === 0 ? ('reviewing' as const) : ('pending' as const),
+          remediationRounds: 0,
+          additionalRemediationRounds: 0,
+          selectedFindingIds: [],
+        })),
+        obligations: this.storage.planning.workItems
+          .listForVersion(value.workspaceId, value.planVersionId)
+          .map((item, index) => ({
+            id: `gate-${index + 1}`,
+            workItemSourceId: item.sourceId,
+            source: `Work item ${item.sourceId}: exit gate`,
+            requirement: item.exitGate,
+            status: 'unverified' as const,
+            evidence: 'Not yet assessed in staged finalization.',
+          })),
+        followUps: [],
+        decisions: [],
+      },
+
       reason: 'Starting plan-wide conformance review.',
     };
     const head = await this.cleanHead(cycle);
@@ -891,7 +892,7 @@ export class WorkCycleService {
     context: CommandContext,
     cycle: WorkCycle,
     input: {
-      action: 'defer-nits' | 'remediate-findings';
+      action: 'remediate-findings';
       findingIds: readonly string[];
       rationale: string;
       instructions?: string;
@@ -917,17 +918,8 @@ export class WorkCycleService {
         );
       const findings = this.finalizationCheckpointFindings(cycle);
       const selected = findings.filter((f) => input.findingIds.includes(f.id));
-      if (
-        !selected.length ||
-        selected.length !== input.findingIds.length ||
-        (input.action === 'defer-nits' &&
-          (cycle.finalizationProgress || selected.some((f) => f.severity !== 'nit')))
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'Select current open findings; only nits may be deferred.',
-        );
-      return selected;
+      if (!selected.length || selected.length !== input.findingIds.length)
+        throw new ExecutionRequestError('conflict', 'Select current open findings.');
     };
     check();
     const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
@@ -938,7 +930,7 @@ export class WorkCycleService {
         'The current review needs a recorded branch checkpoint.',
       );
     const baseline = await this.branches.captureReview(tree);
-    const selected = check();
+    check();
     if (
       baseline.headSha !== run.reviewBranchContext.headSha ||
       baseline.targetSha !== run.reviewBranchContext.targetSha ||
@@ -955,81 +947,35 @@ export class WorkCycleService {
         'invalid-request',
         'Disposition rationale and guidance together exceed 16,000 characters. Shorten them before retrying.',
       );
-    if (input.action === 'remediate-findings') {
-      const extra = input.additionalRounds ?? 0;
-      if (
-        !Number.isInteger(extra) ||
-        extra < 1 ||
-        extra > 20 ||
-        (cycle.additionalRemediationRounds ?? 0) + extra > Number.MAX_SAFE_INTEGER - 20
-      )
-        throw new ExecutionRequestError(
-          'invalid-request',
-          'Authorize 1–20 additional remediation attempts.',
-        );
-      return this.next(
-        cycle,
-        'remediate',
-        run,
-        context,
-        {
-          ...(input.agentOverride === undefined
-            ? {}
-            : { finalizationAgentOverride: input.agentOverride }),
-          additionalRemediationRounds: (cycle.additionalRemediationRounds ?? 0) + extra,
-          remediationRounds: cycle.remediationRounds + 1,
-          stalledReviews: 0,
-          findingFocus: input.findingIds,
-          stepGuidance: instructions,
-          housekeepingInstructions: this.housekeepingGuidance(),
-          reason: `Authorized focused remediation for ${input.findingIds.join(', ')}.`,
-        },
-        'remediate-findings',
-      );
-    }
-    const retained = (cycle.deferredNits ?? []).filter(
-      (d) => !input.findingIds.includes(d.finding.id),
-    );
-    const deferredNits = [
-      ...retained,
-      ...selected.map((finding) => ({
-        finding,
-        sourceRunId: run.id,
-        headSha: baseline.headSha,
-        targetSha: baseline.targetSha,
-        reason: input.rationale,
-        createdAt: this.now().toISOString(),
-        createdByUserId: context.user.id,
-      })),
-    ];
-    if (deferredNits.length > 100)
+    const extra = input.additionalRounds ?? 0;
+    if (
+      !Number.isInteger(extra) ||
+      extra < 1 ||
+      extra > 20 ||
+      (cycle.additionalRemediationRounds ?? 0) + extra > Number.MAX_SAFE_INTEGER - 20
+    )
       throw new ExecutionRequestError(
-        'conflict',
-        'Finalization supports at most 100 deferred nits.',
+        'invalid-request',
+        'Authorize 1–20 additional remediation attempts.',
       );
-    const finalization = finalizationForCycle(this.storage, cycle);
-    const finalReview =
-      cycle.polishPhase === 'verify' &&
-      (cycle.polishRound ?? 0) + 1 === finalization?.rounds.length;
     return this.next(
       cycle,
-      'review',
+      'remediate',
       run,
       context,
       {
-        deferredNits,
         ...(input.agentOverride === undefined
           ? {}
           : { finalizationAgentOverride: input.agentOverride }),
+        additionalRemediationRounds: (cycle.additionalRemediationRounds ?? 0) + extra,
+        remediationRounds: cycle.remediationRounds + 1,
+        stalledReviews: 0,
+        findingFocus: input.findingIds,
         stepGuidance: instructions,
-        findingFocus: [],
-        ...(finalReview
-          ? { polishPhase: 'final-review' as const, polishRound: finalization.rounds.length }
-          : {}),
-        reason:
-          'Nits deferred by operator; starting independent review. Final promotion still requires approval.',
+        housekeepingInstructions: this.housekeepingGuidance(),
+        reason: `Authorized focused remediation for ${input.findingIds.join(', ')}.`,
       },
-      'defer-nits',
+      'remediate-findings',
     );
   }
 
@@ -2207,7 +2153,7 @@ export class WorkCycleService {
         const finalized = await this.finalizeImplementation(cycle, run);
         if (!finalized) return;
         if (await this.refreshIntegration(finalized, run)) return;
-        await this.next(finalized, 'review', run, undefined, decision.reviewChanges);
+        await this.next(finalized, 'review', run);
         return;
       }
       case 'advance-finalization-stage':
@@ -2274,29 +2220,12 @@ export class WorkCycleService {
     if (reviewedWorktree === undefined) throw new NotFoundError();
     await this.branches?.assertReview(reviewedWorktree, run);
     if (await this.advanceWorkflow(cycle, run)) return;
-    if (approval.finalizationRounds !== undefined && cycle.polishPhase !== 'final-review') {
-      const nextRound = (cycle.polishRound ?? 0) + 1;
-      await this.next(cycle, 'review', run, undefined, {
-        polishRound: nextRound,
-        polishPhase: nextRound < approval.finalizationRounds ? 'assess' : 'final-review',
-        stalledReviews: 0,
-      });
-      return;
-    }
     this.change(cycle, {
       status: 'awaiting-merge',
-      attention: cycleAttention(
-        approval.reviewOnly
-          ? 'record-scope-evidence'
-          : approval.finalizationRounds !== undefined
-            ? 'final-promotion'
-            : 'merge-approval',
-      ),
+      attention: cycleAttention(approval.reviewOnly ? 'record-scope-evidence' : 'merge-approval'),
       reason: approval.reviewOnly
         ? 'Independent review meets the completion policy. Ready to record scope verification or parent acceptance.'
-        : approval.finalizationRounds !== undefined
-          ? 'Final independent review meets the completion policy. Inspect the conformance assessment, changes and verification; only you can approve promotion.'
-          : approval.reason,
+        : approval.reason,
     });
   }
 
@@ -4223,15 +4152,8 @@ export class WorkCycleService {
               remediationRounds: cycle.remediationRounds,
             }
           : {}),
-        ...(['defer-nits', 'remediate-findings'].includes(action)
+        ...(action === 'remediate-findings'
           ? {
-              deferredNits: (cycle.deferredNits ?? []).map((d) => ({
-                ...d,
-                finding: {
-                  ...d.finding,
-                  ...(d.finding.location ? { location: { ...d.finding.location } } : {}),
-                },
-              })),
               findingFocus: cycle.findingFocus ?? [],
               instructions: cycle.stepGuidance ?? '',
             }

@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { finalizationsResponseSchema, finalizationViewSchema } from '@craftingtable/contracts';
 import { asPlanVersionId, asProjectId } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
-import { cleanupExecutionFixtures, finalizationFixture } from './execution-test-support.js';
+import {
+  cleanupExecutionFixtures,
+  finalizationFixture,
+  mutationHeaders,
+} from './execution-test-support.js';
 import { recordIssues } from './persisted-records.js';
 
 afterEach(cleanupExecutionFixtures);
@@ -82,4 +86,83 @@ it('serves the completed legacy finalization through the finalization list route
   });
   expect(view?.finalization.stages).toBeUndefined();
   expect(view?.cycle).toMatchObject({ polishPhase: 'final-review', polishRound: 2 });
+});
+
+it('refuses to start a finalization with improvement rounds (R-B10)', async () => {
+  const fixture = await finalizationFixture();
+  const response = await fixture.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${fixture.state.workspaceId}/plans/version-1/finalizations`,
+    headers: mutationHeaders(fixture.state),
+    payload: fixture.legacyInput,
+  });
+  expect(response.statusCode, response.body).toBe(400);
+  expect(fixture.state.context.storage.execution.finalizations.list()).toHaveLength(0);
+});
+
+it('lets an open finalization with improvement rounds only stop (R-B10)', async () => {
+  const fixture = await finalizationFixture();
+  const { state, repository } = fixture;
+  const ws = state.workspaceId;
+  const owned = {
+    workspaceId: ws,
+    planVersionId: asPlanVersionId('version-1'),
+    projectId: asProjectId('project-1'),
+    createdByUserId: state.userId,
+  };
+  // The 2026-09-13 record as it was before promotion: active, its cycle stopped for review.
+  const { integrationCleanup: _cleanup, ...open } = record.finalization;
+  const finalization = {
+    ...open,
+    ...owned,
+    repositoryId: repository.id,
+    status: 'active',
+    version: 1,
+    reason: 'Finalization running.',
+  };
+  const cycle = {
+    ...record.cycle,
+    ...owned,
+    status: 'needs-attention',
+    version: 1,
+    attention: { code: 'review-needs-attention', owner: 'operator' },
+  };
+  state.context.storage.transaction((tx) => {
+    tx.execution.worktrees.insert({
+      id: finalization.worktreeId,
+      workspaceId: ws,
+      repositoryId: repository.id,
+      projectId: owned.projectId,
+      planVersionId: owned.planVersionId,
+      branchName: `ct/finalize-${finalization.id}`,
+      baseSha: finalization.integrationSha,
+      baseBranch: finalization.integrationBranch,
+      integrationBranch: finalization.targetBranch,
+      path: join(tmpdir(), `legacy-finalization-${finalization.id}`),
+      createdAt: finalization.createdAt,
+      createdByUserId: state.userId,
+    });
+    tx.execution.cycles.insert(cycle);
+    expect(tx.execution.finalizations.save(finalization, 0)).toBe(true);
+  });
+  const command = (action: string, extra: Record<string, unknown> = {}) =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/finalizations/${finalization.id}/control`,
+      headers: mutationHeaders(state),
+      payload: { action, expectedVersion: 1, expectedCycleVersion: 1, ...extra },
+    });
+  for (const [action, extra] of [
+    ['resume', {}],
+    ['authorize-remediation', { additionalRounds: 1 }],
+  ] as const) {
+    const refused = await command(action, extra);
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.body).toContain('retired improvement rounds');
+  }
+  const stopped = await command('stop');
+  expect(stopped.statusCode, stopped.body).toBe(200);
+  expect(state.context.storage.execution.finalizations.find(ws, finalization.id)?.status).toBe(
+    'stopped',
+  );
 });

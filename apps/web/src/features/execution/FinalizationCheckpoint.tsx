@@ -11,12 +11,11 @@ import {
 } from '@craftingtable/domain';
 import { useId, useState } from 'react';
 
-import { About } from '../../components/About.js';
 import { FinalizationRecoveryAgent } from './FinalizationRecoveryAgent.js';
 
 type CheckpointAction = Extract<
   ControlFinalizationRequest['action'],
-  'defer-nits' | 'remediate-findings' | 'authorize-remediation' | 'resume'
+  'remediate-findings' | 'authorize-remediation' | 'resume'
 >;
 
 export function FinalizationCheckpoint({
@@ -34,9 +33,7 @@ export function FinalizationCheckpoint({
   const [selected, setSelected] = useState<string[]>([]);
   const [action, setAction] = useState<CheckpointAction>(() =>
     findings.length
-      ? view.cycle?.finalizationProgress || findings.some((f) => f.severity !== 'nit')
-        ? 'remediate-findings'
-        : 'defer-nits'
+      ? 'remediate-findings'
       : view.canAuthorizeRemediation
         ? 'authorize-remediation'
         : 'resume',
@@ -58,7 +55,7 @@ export function FinalizationCheckpoint({
     };
   });
   const focused = action === 'remediate-findings';
-  const findingDecision = focused || action === 'defer-nits';
+  const findingDecision = focused;
   const grantsAttempts = focused || action === 'authorize-remediation';
   const allowance = view.cycle
     ? remediationAllowance(view.cycle)
@@ -68,19 +65,14 @@ export function FinalizationCheckpoint({
   const blocker =
     findingDecision && !selected.length
       ? 'Select at least one finding to continue.'
-      : action === 'defer-nits' &&
-          findings.some((f) => selected.includes(f.id) && f.severity !== 'nit')
-        ? 'Only nits can be deferred. Deselect higher-severity findings or choose Address selected findings.'
-        : findingDecision && !rationale.trim()
-          ? 'Enter a disposition rationale to continue.'
-          : grantsAttempts && !validRounds
-            ? 'Choose between 1 and 20 additional attempts.'
-            : agentMode === 'switch' &&
-                !backends.some((b) => b.kind === agent.backend && b.available)
-              ? 'Choose an available backend for recovery.'
-              : undefined;
+      : findingDecision && !rationale.trim()
+        ? 'Enter a disposition rationale to continue.'
+        : grantsAttempts && !validRounds
+          ? 'Choose between 1 and 20 additional attempts.'
+          : agentMode === 'switch' && !backends.some((b) => b.kind === agent.backend && b.available)
+            ? 'Choose an available backend for recovery.'
+            : undefined;
   const buttonLabel = {
-    'defer-nits': 'Defer selected nits and review',
     'remediate-findings': 'Authorize focused remediation',
     'authorize-remediation': 'Authorize more remediation',
     resume: 'Resume finalization',
@@ -116,12 +108,7 @@ export function FinalizationCheckpoint({
           onChange={(e) => setAction(e.target.value as CheckpointAction)}
         >
           {!!findings.length && (
-            <>
-              {!view.cycle?.finalizationProgress && (
-                <option value="defer-nits">Defer selected nits and review</option>
-              )}
-              <option value="remediate-findings">Address selected findings</option>
-            </>
+            <option value="remediate-findings">Address selected findings</option>
           )}
           {!findings.length && view.canAuthorizeRemediation && (
             <option value="authorize-remediation">Authorize more remediation</option>
@@ -222,19 +209,6 @@ export function FinalizationCheckpoint({
               completion policy.
             </p>
           )}
-        </>
-      )}
-      {action === 'defer-nits' && (
-        <>
-          <p>
-            Deferral starts independent review. Changed commits or finding details require a new
-            finding disposition.
-          </p>
-          <About label="About deferring nits">
-            <p>
-              Deferred nits stay open in history. Required checks and plan obligations still apply.
-            </p>
-          </About>
         </>
       )}
       {action === 'resume' && (

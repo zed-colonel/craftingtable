@@ -303,23 +303,25 @@ stale reviews are replaced and compatible development stays (ADR-049).
 integration commit evidence. It pins an integration snapshot, prepares a candidate worktree and
 holds further daemon merges into that integration branch until it ends, then delegates the work to
 `WorkCycleService`. Only an authenticated command approving the exact candidate and destination
-commits promotes it; no stage, round count or roadmap policy can. Optional local removal of the
+commits promotes it; no stage or roadmap policy can. Optional local removal of the
 integration branch is reserved with the approval and reconciled after promotion. Plan completion
 is projected from the completed finalization and its durable merge record (ADR-033, ADR-041).
 
-Staged finalization (ADR-042) is the only kind the browser starts: correctness, conformance,
+Every finalization is staged (ADR-042): correctness, conformance,
 simplification, polish and a final independent review, each with its own profiles, scope,
 required checks and remediation budget. Stage usage updates atomically with run reservations.
 `finalization-stage-policy.ts` validates stage reports and guards promotion. A materialized JSON
 ledger holds adopted obligations, evidence provenance, selected optional batches and follow-ups;
 plan adjustments need a version-checked operator decision, and the final review requires every
 obligation and the full checks on the current candidate. Operators can grant more remediation
-(ADR-036), record finding decisions (ADR-038) and override the recovery agent (ADR-040).
+(ADR-036), select findings for focused remediation (ADR-038) and override the recovery agent
+(ADR-040).
 
-A finalization record without stage definitions selects the legacy round-based controller. It
-remains only so the completed 2026-09-13 record stays readable
-(`fixtures/records/legacy-finalization-2026-09-13.json`, `legacy-finalization-record.test.ts`); the
-API still accepts a stage-less start until those branches are deleted.
+The round-based controller that preceded stages is retired (R-B10). Its records still read: the
+contracts keep `rounds`, `polishPhase` and `deferredNits`, and the completed 2026-09-13 record
+renders (`fixtures/records/legacy-finalization-2026-09-13.json`,
+`legacy-finalization-record.test.ts`). A new start must carry stages. A stage-less finalization that
+is still open accepts only Stop, and the controller stops it with `legacy-finalization-retired`.
 
 ## Agent backend seam
 

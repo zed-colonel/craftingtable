@@ -56,9 +56,7 @@ export class FinalizationService {
       this.storage.execution.sourceRepositories.find(workspaceId, settings.repositoryId);
     const git = this.git;
     if (!plan || !settings || !repo || !git) throw new NotFoundError();
-    for (const profile of input.stages
-      ? input.stages.flatMap((s) => [s.review, s.implement])
-      : [input.finalReview, ...input.rounds.flatMap((r) => [r.review, r.polish])])
+    for (const profile of input.stages.flatMap((s) => [s.review, s.implement]))
       this.cycles.validateSettings({
         profiles: { design: profile, implement: profile, review: profile, remediate: profile },
       });
@@ -105,7 +103,7 @@ export class FinalizationService {
       if (!integration.ok || !target.ok)
         conflict('Integration and final destination branches must already exist.');
       const items = this.storage.planning.workItems.listForVersion(workspaceId, planVersionId);
-      for (const stage of input.stages ?? [])
+      for (const stage of input.stages)
         if (stage.workItemSourceIds.some((id) => !items.some((item) => item.sourceId === id)))
           conflict('A stage slice references an unknown work item.');
       for (const item of items) {
@@ -133,8 +131,8 @@ export class FinalizationService {
         targetSha: target.value,
         worktreeId: asWorktreeId(randomUUID()),
         cycleId: randomUUID(),
-        rounds: input.rounds,
-        ...(input.stages ? { stages: input.stages } : {}),
+        rounds: [],
+        stages: input.stages,
         finalReview: input.finalReview,
         policy: input.policy,
         instructions: input.instructions,
@@ -220,6 +218,11 @@ export class FinalizationService {
         conflict('Recover the approved promotion before resuming or stopping finalization.');
       if (['stopped', 'completed'].includes(value.status))
         conflict('This finalization has ended. Start a new one for further work.');
+      // Improvement-round finalizations are retired (R-B10); one still open can only stop.
+      if (!value.stages && input.action !== 'stop')
+        conflict(
+          'This finalization uses retired improvement rounds. Stop it and start a staged finalization.',
+        );
       if (input.agentOverride !== undefined && (!cycle || value.status !== 'active'))
         conflict('Agent selection requires an existing active finalization cycle.');
       if (input.action === 'select-stage-findings' || input.action === 'approve-plan-change') {
@@ -227,7 +230,7 @@ export class FinalizationService {
         await this.cycles.decideFinalizationStage(context, cycle, input);
         return this.view(value);
       }
-      if (input.action === 'defer-nits' || input.action === 'remediate-findings') {
+      if (input.action === 'remediate-findings') {
         if (!cycle || !input.findingIds || !input.rationale)
           conflict('Select findings and record your finding disposition.');
         await this.cycles.decideFinalizationFindings(context, cycle, {

@@ -74,7 +74,14 @@ export const finalizationSettingsSchema = z.strictObject({
   policy: completionPolicySchema,
   instructions: z.string().max(16000),
 });
+/**
+ * New finalizations are staged: improvement rounds are retired (R-B10). Stored records keep
+ * `rounds` and optional `stages` (`finalizationSchema`), so the completed legacy record still
+ * reads.
+ */
 export const startFinalizationRequestSchema = finalizationSettingsSchema.extend({
+  rounds: z.array(z.never()).max(0),
+  stages: finalizationStagesSchema,
   expectedBranchVersion: z.number().int().positive(),
   targetBranch: gitBranchNameSchema,
 });
@@ -138,7 +145,6 @@ export const controlFinalizationRequestSchema = z
       'retry-cleanup',
       'remove-integration-branch',
       'authorize-remediation',
-      'defer-nits',
       'remediate-findings',
       'select-stage-findings',
       'approve-plan-change',
@@ -172,7 +178,6 @@ export const controlFinalizationRequestSchema = z
         'resume',
         'authorize-remediation',
         'remediate-findings',
-        'defer-nits',
         'select-stage-findings',
         'approve-plan-change',
       ].includes(r.action),
@@ -193,7 +198,7 @@ export const controlFinalizationRequestSchema = z
   )
   .refine(
     (r) =>
-      ['defer-nits', 'remediate-findings'].includes(r.action)
+      r.action === 'remediate-findings'
         ? r.findingIds !== undefined && r.rationale !== undefined
         : r.findingIds === undefined &&
           (['select-stage-findings', 'approve-plan-change'].includes(r.action)

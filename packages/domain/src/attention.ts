@@ -36,7 +36,10 @@ export const CYCLE_ATTENTION = {
   'review-open-questions-at-limit': 'operator',
   'review-open-questions': 'operator',
   'finalization-report-rejected': 'operator',
+  // Written by the retired improvement-round finalization; kept so its records still read.
   'polish-assessment-needs-attention': 'operator',
+  // A stage-less (legacy) finalization met by the controller after R-B10 retired that path.
+  'legacy-finalization-retired': 'operator',
   'scope-review-open-questions': 'operator',
   'scope-review-recovery': 'operator',
   'review-needs-attention': 'operator',

@@ -207,3 +207,14 @@ export interface RoadmapView {
     readonly verification: { readonly limit: number; readonly inUse: number };
   };
 }
+
+/**
+ * Every attempt a roadmap has made, including ones the operator retired for re-verification
+ * (R-C10). Whether an entry has started, which freezes its settings and reviewer assignment,
+ * counts both.
+ */
+export function startedAttempts(
+  roadmap: Pick<Roadmap, 'attempts' | 'retiredAttempts'>,
+): readonly RoadmapAttempt[] {
+  return [...roadmap.attempts, ...(roadmap.retiredAttempts ?? [])];
+}

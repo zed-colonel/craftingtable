@@ -1,3 +1,4 @@
+import { startedAttempts } from '@craftingtable/domain';
 import type { CycleOwner, Roadmap, RoadmapAttempt, WorkCycle } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { snapshotCalculation } from './map-read-snapshot.js';
@@ -27,11 +28,13 @@ export function cycleOwnership(
     if (cycle.owner === null) return undefined;
     if (cycle.owner !== undefined) {
       const roadmap = tx.roadmaps.find(cycle.workspaceId, cycle.owner.roadmapId);
-      const attempt = roadmap?.attempts.find((a) => a.id === cycle.owner?.attemptId);
+      // A retired attempt still owns its ended cycle, for history (R-C10).
+      const attempt =
+        roadmap && startedAttempts(roadmap).find((a) => a.id === cycle.owner?.attemptId);
       return roadmap && attempt ? { roadmap, attempt } : undefined;
     }
     for (const roadmap of tx.roadmaps.list(cycle.workspaceId)) {
-      const attempt = roadmap.attempts.find((a) => a.cycleId === cycle.id);
+      const attempt = startedAttempts(roadmap).find((a) => a.cycleId === cycle.id);
       if (attempt) return { roadmap, attempt };
     }
     return undefined;

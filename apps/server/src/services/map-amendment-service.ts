@@ -14,6 +14,7 @@ import {
   type WorkspaceId,
   type CrossProjectConfiguration,
   type MapActivitySettings,
+  startedAttempts,
 } from '@craftingtable/domain';
 import type {
   AmendmentImpact,
@@ -361,7 +362,7 @@ export class MapAmendmentService {
       );
     const priorKeys = new Set(
       r.definition.entries
-        .filter((e) => !r.attempts.some((a) => a.entryId === e.id))
+        .filter((e) => !startedAttempts(r).some((a) => a.entryId === e.id))
         .map((e) => `${e.executionScope!.kind}:${e.executionScope!.sourceId}`),
     );
     const queuedKeys = new Set(

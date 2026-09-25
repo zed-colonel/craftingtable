@@ -43,6 +43,7 @@ import {
   sameExecutionScope,
   type WorkCycle,
   type WorkspaceId,
+  startedAttempts,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { cycleAgentSelection, entryAgentSelections } from './agent-profile-policy.js';
@@ -152,7 +153,7 @@ export class RoadmapService {
                 this.storage.planning.projects.find(workspaceId, e.projectId)?.name ?? e.projectId,
               selections,
               ...(assignment ? { appliedAt: assignment.appliedAt } : {}),
-              started: r.attempts.some((a) => a.entryId === e.id),
+              started: startedAttempts(r).some((a) => a.entryId === e.id),
             };
           }),
         })),
@@ -567,7 +568,7 @@ export class RoadmapService {
       );
     const lastStarted =
       old?.definition.entries.findLastIndex((e) =>
-        old.attempts.some(
+        startedAttempts(old).some(
           (a) => a.entryId === e.id && (!amendment || amendment.retainAttemptIds.includes(a.id)),
         ),
       ) ?? -1;
@@ -583,7 +584,7 @@ export class RoadmapService {
     const started =
       (parallel
         ? old?.definition.entries.filter((e) =>
-            old.attempts.some(
+            startedAttempts(old).some(
               (a) =>
                 a.entryId === e.id && (!amendment || amendment.retainAttemptIds.includes(a.id)),
             ),
@@ -1055,11 +1056,17 @@ export class RoadmapService {
       return { refused: 'Only verification and parent acceptance entries can be re-verified.' };
     if (this.recoveryFor(roadmap, entry))
       return { refused: 'Scope recovery owns this entry; finish its recovery first.' };
+    const hold = roadmap.entryHolds?.[entry.id];
+    if (hold?.status === 'paused')
+      return { refused: 'This item is paused. Resume the item before re-verifying it.' };
     const attempt = roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
     if (!attempt) return { refused: 'This entry has not run yet; resume the roadmap.' };
-    if (attempt.dependencyRefresh || attempt.reverification)
+    // A queued review that failed holds the item; re-verifying replaces it with a fresh route.
+    if (attempt.dependencyRefresh || (attempt.reverification && !hold))
       return { refused: 'A fresh review is already queued for this entry.' };
     const cycle = tx.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+    if (!cycle && !hold)
+      return { refused: 'This entry is still being prepared; wait for its review cycle.' };
     if (cycle && !['completed', 'stopped'].includes(cycle.status))
       return { refused: 'Its review cycle is still open; finish or stop it first.' };
     if (this.complete(roadmap, entry, tx))
@@ -1236,11 +1243,17 @@ export class RoadmapService {
         this.authority(current);
         if (this.complete(current, entry)) {
           const attempt = current.attempts.find((a) => a.entryId === entry.id);
-          if (attempt && attempt.status !== 'completed')
+          // Evidence that became current again also ends a queued re-verification.
+          if (attempt && (attempt.status !== 'completed' || attempt.reverification))
             this.change(current, {
               attempts: current.attempts.map((a) =>
                 a.id === attempt.id
-                  ? { ...a, status: 'completed' as const, completedAt: this.now().toISOString() }
+                  ? {
+                      ...a,
+                      status: 'completed' as const,
+                      completedAt: a.completedAt ?? this.now().toISOString(),
+                      reverification: undefined,
+                    }
                   : a,
               ),
             });

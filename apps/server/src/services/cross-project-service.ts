@@ -18,6 +18,7 @@ import {
   type ConcurrencyDefinition,
   type MapActivity,
   type RoadmapEntry,
+  startedAttempts,
 } from '@craftingtable/domain';
 import {
   roadmapEntryInputSchema,
@@ -512,7 +513,8 @@ export class CrossProjectService {
       );
       const started =
         prior &&
-        old?.attempts.some(
+        old &&
+        startedAttempts(old).some(
           (a) =>
             a.entryId === prior.id && (!amendment || amendment.retainAttemptIds.includes(a.id)),
         );

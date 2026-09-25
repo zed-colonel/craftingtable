@@ -113,6 +113,25 @@ itNeedsCargo(
     ).toContain('queued by Re-verify');
     expect((await reverify(A.id)).body).toContain('already queued');
 
+    // An operator's item pause is kept: Re-verify never resumes a paused item.
+    const paused = storedRoadmap(state);
+    expect(
+      tx.roadmaps.save(
+        {
+          ...paused,
+          version: paused.version + 1,
+          entryHolds: { [A.id]: { status: 'paused', reason: 'Item paused by operator.' } },
+        },
+        paused.version,
+      ),
+    ).toBe(true);
+    expect((await reverify(A.id)).body).toContain('Resume the item before re-verifying');
+    const unpaused = storedRoadmap(state);
+    tx.roadmaps.save(
+      { ...unpaused, version: unpaused.version + 1, entryHolds: {} },
+      unpaused.version,
+    );
+
     // B: its worktree is gone, so the ended attempt is retired and a fresh one scheduled. A
     // second active worktree for the scope is refused by name.
     const oldB = attempt(B.id)!;
@@ -148,6 +167,22 @@ itNeedsCargo(
       }),
     ]);
 
+    // The retired entry has still started: saving new defaults keeps its frozen settings.
+    const frozen = storedRoadmap(state).definition.entries.find((e) => e.id === B.id)!;
+    f.service.save(f.auth, ws, {
+      ...f.input,
+      expectedVersion: storedRoadmap(state).version,
+      configuration: {
+        ...f.input.configuration,
+        defaults: { ...f.input.configuration.defaults, instructions: 'Changed defaults.' },
+      },
+    });
+    const kept = storedRoadmap(state).definition.entries.find(
+      (e) => e.executionScope?.kind === 'slice-verification' && e.sourceId === B.sourceId,
+    )!;
+    expect(kept.instructions).toBe(frozen.instructions);
+    expect(kept.instructions).not.toBe('Changed defaults.');
+
     // Resuming runs both fresh reviews with the assigned reviewer; the evidence is current again.
     await roadmapControl(state, 'resume');
     // The test daemons step only when asked (R-B2 seam); step until both are verified again.
@@ -166,5 +201,51 @@ itNeedsCargo(
     expect(attempt(A.id)?.reverification).toBeUndefined();
     expect(attempt(B.id)?.id).not.toBe(oldB.id);
     expect(attempt(B.id)?.worktreeId).not.toBe(oldB.worktreeId);
+
+    // A queued in-place review that cannot run (its worktree was removed) holds the item, and
+    // Re-verify can then replace it: the item is never left stuck.
+    await roadmapControl(state, 'pause');
+    const again = await state.context.app.inject({
+      method: 'POST',
+      url: plan,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: 1,
+        expectedBranchSettingsVersion: preview.json().settingsVersion,
+        controlMode: 'controller-local',
+        interpretation: 'Controller gates, revised.',
+        publicationRequirement: 'Verify remote protections before publication.',
+      },
+    });
+    expect(again.statusCode, again.body).toBe(200);
+    expect((await reverify(A.id)).statusCode).toBe(200);
+    const queued = attempt(A.id)!;
+    expect(queued.reverification).toBeDefined();
+    expect(
+      (
+        await state.context.app.inject({
+          method: 'POST',
+          url: `/api/workspaces/${ws}/worktrees/${queued.worktreeId}/remove`,
+          headers: mutationHeaders(state),
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(200);
+    await roadmapControl(state, 'resume');
+    await waitFor(
+      () => storedRoadmap(state).entryHolds?.[A.id]?.status === 'needs-attention',
+      'failed in-place review holds the item',
+    );
+    expect((await progress(A.id)).reverifiable).toBe(true);
+    const replaced = await reverify(A.id);
+    expect(replaced.statusCode, replaced.body).toBe(200);
+    expect(attempt(A.id)).toBeUndefined();
+    expect(storedRoadmap(state).retiredAttempts?.map((a) => a.id)).toContain(queued.id);
+    for (let step = 0; (await progress(A.id)).status !== 'completed'; step++) {
+      if (step > 300) throw new Error('Timed out waiting for the replacement verification.');
+      await stepDaemons();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(attempt(A.id)?.reverification).toBeUndefined();
   },
 );

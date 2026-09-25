@@ -589,6 +589,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - With the scheduler branch removed, the test times out.
   - `ReverifyItem.test.tsx` covers the control's gating.
   - No walkthrough capture: the control renders only for an item with stale evidence, which the walkthrough map never has.
+- **Independent review of d44f8f7 (2026-09-25).** Its findings and what was done:
+  - **HIGH: a failed in-place review left the item stuck.** If the queued Review again could not run, the item was held, but Re-verify said "already queued" and every other route was refused. Causes include a worktree removed, dirty or diverged, or a manual review that moved the cycle on. A held item with a queued re-verification may now be re-verified again, and the route is recomputed; with the worktree gone it retires the attempt. The marker is also cleared once the evidence is current again. The test adds the case where the worktree is removed after queuing; it fails without the fix.
+  - **MEDIUM: retiring an attempt made its entry look never-started, so a settings save could re-derive its reviewer, profiles and instructions.** `startedAttempts` now counts retired attempts in every "has this entry started" check: roadmap save, the cross-project save, the amendment queue, the agent-settings view, and cycle ownership. The test saves changed defaults after retiring B, and B keeps its instructions; this fails without the fix.
+  - **An attempt still being prepared was eligible.** It is refused until its cycle exists, unless the item is held.
+  - **Re-verify cleared an operator's item pause.** A paused item is refused; resume the item first. This is tested.
+  - **A retired attempt lost ownership of its ended cycle.** Ownership now resolves through retired attempts too, for history.
+  - **Still open:** Re-verify of a parent-acceptance entry, and on a running (not paused) roadmap, run the same code, but the test does not exercise them.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

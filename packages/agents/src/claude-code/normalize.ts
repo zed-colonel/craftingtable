@@ -176,6 +176,13 @@ export class ClaudeStreamNormalizer {
   private providerFailure: ProviderFailure | undefined;
   /** When the allowance a `rejected` rate-limit report named resets (R-C8). */
   private quotaResetsAt: string | undefined;
+  /**
+   * The latest reset any rejected report named, kept across results until an `allowed`
+   * report (R-C9): only some quota results carry one, and the turn's final failure needs it.
+   */
+  private latestResetAt: string | undefined;
+  /** A quota failure with a known reset ended a result: the session should end now (R-C9). */
+  private terminalQuota: ProviderFailure | undefined;
   /** The last assistant message's structured error discriminant, e.g. `billing_error`. */
   private providerError: string | undefined;
   private interactiveRequest = false;
@@ -184,6 +191,38 @@ export class ClaudeStreamNormalizer {
   private backgroundAfterResult = false;
   private untrackedBackgroundTasks = false;
   private readonly reportedUnknown = new Set<string>();
+
+  /**
+   * The allowance is used up until a known reset (R-C9). Sub-agents and background work would
+   * only keep failing against it, so the session should be ended now; `endedForQuota` then
+   * reports the step's final failure.
+   */
+  get quotaExhausted(): boolean {
+    return this.terminalQuota !== undefined;
+  }
+
+  /**
+   * The step's final result once the session was ended for a used-up allowance. The session
+   * and its process group are gone, so no tool or background work outlives it, and the step
+   * can be retried after the reset unless the agent was waiting on the operator.
+   */
+  endedForQuota(): NormalizedAgentEvent {
+    const failure = this.terminalQuota!;
+    return {
+      kind: 'turn-completed',
+      payload: {
+        outcome: 'error',
+        providerFailure: {
+          ...failure,
+          message: `${failure.message} CraftingTable ended the session and its background work until the reset.`,
+          safeToRetry: !this.interactiveRequest,
+        },
+        resultText: `The allowance is used up until ${failure.resetsAt}.`,
+        turns: 0,
+        durationMs: 0,
+      },
+    };
+  }
 
   /** A result emitted before pending task notifications is not the collected outcome. */
   get hasUncollectedBackgroundWork(): boolean {
@@ -428,6 +467,9 @@ export class ClaudeStreamNormalizer {
       combined?.kind === 'quota' && this.quotaResetsAt && !billing
         ? { ...combined, safeToRetry: true, resetsAt: this.quotaResetsAt }
         : combined;
+    const resetsAt = this.quotaResetsAt ?? this.latestResetAt;
+    if (combined?.kind === 'quota' && resetsAt && !billing && !this.terminalQuota)
+      this.terminalQuota = { ...combined, safeToRetry: true, resetsAt };
     this.providerFailure = undefined;
     this.providerError = undefined;
     this.quotaResetsAt = undefined;
@@ -478,6 +520,7 @@ export class ClaudeStreamNormalizer {
     const info = isRecord(message.rate_limit_info) ? message.rate_limit_info : {};
     if (info.status === 'allowed') {
       this.quotaResetsAt = undefined;
+      this.latestResetAt = undefined;
       return [];
     }
     if (info.status === 'rejected') {
@@ -487,6 +530,7 @@ export class ClaudeStreamNormalizer {
         typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 && seconds < 1e11
           ? new Date(seconds * 1000).toISOString()
           : undefined;
+      if (this.quotaResetsAt) this.latestResetAt = this.quotaResetsAt;
     }
     return [
       {

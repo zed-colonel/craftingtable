@@ -96,6 +96,45 @@ describe('ClaudeCodeBackend', () => {
     expect(session.send('too late')).toBe(false);
   });
 
+  it('ends a session whose allowance ran out, with its background work, and reports the reset (R-C9)', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'craftingtable-agents-'));
+    directories.push(directory);
+    const executable = join(directory, 'claude');
+    // The 736446e8 shape: a rejected allowance, sub-agents still running, and results that
+    // keep failing against the limit until the session is ended.
+    writeFileSync(
+      executable,
+      `#!${process.execPath}
+const out = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+out({ type: 'system', subtype: 'init', session_id: 'limit-session', model: 'fake-model' });
+out({ type: 'system', subtype: 'task_started', task_id: 'sub-1', tool_use_id: 'toolu_1', description: 'Sub-agent' });
+out({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: 1789483800 } });
+const limited = { type: 'result', subtype: 'success', is_error: true, api_error_status: 429, terminal_reason: 'api_error', result: "You've hit your session limit" };
+out(limited);
+setInterval(() => out(limited), 50);
+`,
+    );
+    chmodSync(executable, 0o755);
+    const started = Date.now();
+    const session = await new ClaudeCodeBackend({ executable, terminationGraceMs: 100 }).launch({
+      cwd: directory,
+      prompt: 'review',
+      permissionMode: 'auto',
+    });
+    const items = await collect(session.items);
+    expect(Date.now() - started).toBeLessThan(5000);
+    const turns = items.flatMap((item) =>
+      item.type === 'event' && item.event.kind === 'turn-completed' ? [item.event.payload] : [],
+    );
+    expect(turns.at(-1)).toMatchObject({
+      outcome: 'error',
+      providerFailure: { kind: 'quota', safeToRetry: true, resetsAt: '2026-09-15T14:50:00.000Z' },
+    });
+    const exited = items.at(-1);
+    expect(exited).toMatchObject({ type: 'exited' });
+    expect(exited?.type === 'exited' && exited.reason).toBeFalsy();
+  });
+
   it('terminates a process that ignores SIGTERM', async () => {
     const fake = fakeClaude();
     const backend = new ClaudeCodeBackend({

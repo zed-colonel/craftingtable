@@ -648,7 +648,14 @@ describe('bounded model service recovery', () => {
     const events: NormalizedAgentEvent[] = [];
     if (name.startsWith('claude-')) {
       const normalizer = new ClaudeStreamNormalizer({ permissionMode: 'auto', cwd: '/work' });
-      for (const line of lines) events.push(...normalizer.normalizeLine(line));
+      for (const line of lines) {
+        events.push(...normalizer.normalizeLine(line));
+        // As the Claude session does: a used-up allowance with a known reset ends it (R-C9).
+        if (normalizer.quotaExhausted) {
+          events.push(normalizer.endedForQuota());
+          break;
+        }
+      }
     } else {
       // As the Codex session feeds it: signed in with ChatGPT, requests and stderr included.
       const normalizer = new CodexStreamNormalizer();
@@ -822,6 +829,29 @@ describe('bounded model service recovery', () => {
       attention: { code: 'service-failure-not-retryable' },
       reason: expect.stringContaining('Sign in again on the workstation'),
     });
+  });
+
+  it('waits for the reset after the recorded 736446e8 quota incident instead of stopping (R-C9)', async () => {
+    let now = new Date('2026-09-15T10:12:00Z');
+    const failure = recordedFailure('claude-session-limit-background-736446e8');
+    expect(failure).toMatchObject({
+      kind: 'quota',
+      safeToRetry: true,
+      resetsAt: '2026-09-15T14:50:00.000Z',
+    });
+    const { state, backend, worktree } = await cycleFixture(
+      [{ resultText: "You've hit your session limit", providerFailure: failure }, designDone],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'quota wait');
+    expect(currentCycle(state, cycle)).toMatchObject({
+      status: 'running',
+      providerRecovery: { attempts: 0, nextRetryAt: '2026-09-15T14:52:00.000Z' },
+    });
+    expect(currentCycle(state, cycle).attention).toBeUndefined();
+    now = new Date('2026-09-15T14:52:00Z');
+    await waitFor(() => backend.launches.length === 3, 'retried, then the next step');
   });
 
   it('does not extend the deadline for a provider retry', async () => {

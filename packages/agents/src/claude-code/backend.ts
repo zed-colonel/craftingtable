@@ -126,6 +126,8 @@ export class ClaudeCodeBackend implements AgentBackend {
     child.write(claudeUserMessageLine(request.prompt));
 
     let drainingBackgroundWork = false;
+    /** The session was ended because the allowance is used up until a known reset (R-C9). */
+    let endingForQuota = false;
     const items = (async function* (): AsyncGenerator<AgentSessionItem> {
       let stderrBuffer = '';
       let diagnosticTail = '';
@@ -133,8 +135,26 @@ export class ClaudeCodeBackend implements AgentBackend {
       for await (const item of child.items) {
         switch (item.type) {
           case 'stdout-line':
+            if (endingForQuota) break;
             for (const event of normalizer.normalizeLine(item.line)) {
               yield { type: 'event', event };
+            }
+            if (normalizer.quotaExhausted && !endingForQuota) {
+              // Sub-agents and background work would keep failing against the used-up
+              // allowance for as long as they run (736446e8: 31 minutes); end them now.
+              endingForQuota = true;
+              yield {
+                type: 'event',
+                event: {
+                  kind: 'notice',
+                  payload: {
+                    category: 'rate-limit',
+                    message:
+                      'The allowance is used up until its reported reset. CraftingTable is ending the session and its background work.',
+                  },
+                },
+              };
+              child.terminate();
             }
             break;
           case 'stdout-overflow':
@@ -178,6 +198,12 @@ export class ClaudeCodeBackend implements AgentBackend {
             if (stderrBuffer.trim().length > 0) {
               yield { type: 'event', event: { kind: 'stderr', payload: { text: stderrBuffer } } };
               stderrBuffer = '';
+            }
+            if (endingForQuota) {
+              // The work was ended on purpose; nothing of it outlives the process group.
+              yield { type: 'event', event: normalizer.endedForQuota() };
+              yield { type: 'exited', exitCode: item.exitCode ?? 1, signal: item.signal };
+              break;
             }
             yield {
               type: 'exited',

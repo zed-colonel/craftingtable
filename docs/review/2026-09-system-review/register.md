@@ -36,7 +36,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
-| [R-C9](#r-c9) | P2 | S-M | open | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
+| [R-C9](#r-c9) | P2 | S-M | done (see Progress) | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
 | [R-C10](#r-c10) | P2 | S-M | done (see entry) | Re-verify a roadmap item whose evidence is no longer current, without stopping the roadmap (added 2026-09-25) |
 | [R-C11](#r-c11) | P2 | S-M | done (see Progress) | Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry (added 2026-09-25) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
@@ -608,13 +608,19 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C9
 
-**End the session on a terminal quota error so the reset wait applies** · Phase P2 · Effort S-M · Status: open
+**End the session on a terminal quota error so the reset wait applies** · Phase P2 · Effort S-M · Status: done (see Progress)
 
 - **Added 2026-09-24** in the phase 1 review of R-C8. The operator confirmed P2 the same day.
 - **Resolves:** [AGT-60](findings/AGT-GIT-SEC-agents-git-security.md#agt-60-quota-and-session-limit-failures-with-a-known-reset-time-always-need-the-operator) (the part R-C8 left out).
 - **Why:** R-C8 schedules the wait only when a quota failure is safe to retry. In the recorded incident (run 736446e8), the session kept background sub-agents and tool calls running for 31 minutes after the terminal quota error, so every quota result was unsafe and the step still stopped for the operator. Only 3 of about 12 quota results in that stream carried a reset time.
 - **Change:** On a terminal quota error that has a reported reset, end the session promptly: stop background sub-agents and let outstanding tool calls settle or be cancelled. Keep the latest reported reset for the turn's final failure, rather than applying it to one result only. Add a recorded-stream fixture of the 736446e8 shape.
 - **Done when:** Replaying the 736446e8 stream through the normalizer and the controller schedules a retry at the reset.
+- **Progress 2026-09-25: done** (ADR-062 amended).
+  - **Fixture:** `claude-session-limit-background-736446e8.jsonl` is the recorded stream of run 736446e8 (2,472 lines, from the raw lines the 2026-09-23 snapshot still held), with content and paths redacted and the protocol structure, ids and rate-limit reports kept. One tool result stored truncated is rebuilt from its normalized event.
+  - **Adapter** (`packages/agents/src/claude-code/normalize.ts`, `backend.ts`): the normalizer keeps the latest reset any rejected report named until an `allowed` report. At the first quota result with a known reset (not billing), the session ends itself: it reports the reason, terminates the process group (sub-agents and background shells with it), and on exit reports one final quota failure with that reset, safe to retry unless the agent was waiting on the operator. That exit carries no background-work reason, since nothing of the work outlives the process group.
+  - **Done-when met:** replayed whole, all nine recorded results stay unsafe (the old outcome); replayed as the session now reads it, the stream ends at the first quota result (10:11:28) with reset 14:50, and the cycle schedules its retry at 14:52 and then continues (`normalize.test.ts`, `server-execution-cycle-recovery.test.ts`). A fake `claude` with a running sub-agent and results failing every 50 ms is ended within seconds with the reset (`backend.test.ts`).
+  - **Regression tests fail without the fix** (the terminal-quota detection and the termination, each reverted alone). Replays on a copy of the 2026-09-23 snapshot: 278 and 51 decisions, 0 changed.
+  - **Gate:** `pnpm check` stages all pass: 187 test files and 1,475 unit tests, 21 e2e tests, the walkthrough rehearsal and the scope check. Under load average 19 from the live daemon, 9 controller tests timed out in waitFor, as did one walkthrough visibility check; each passed rerun alone.
 
 ### R-C10
 

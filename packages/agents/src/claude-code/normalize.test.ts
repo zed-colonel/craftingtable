@@ -325,6 +325,83 @@ describe('recorded provider failures', () => {
     });
   });
 
+  it('ends the recorded 736446e8 session at its first quota result, with the reset (R-C9)', () => {
+    // The recorded stream: a review whose five-hour allowance ran out while 20 sub-agents and
+    // a background shell were still working. Replayed whole, every result stays unsafe.
+    const lines = readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../fixtures/provider-failures/claude-session-limit-background-736446e8.jsonl',
+          import.meta.url,
+        ),
+      ),
+      'utf8',
+    )
+      .trim()
+      .split('\n');
+    const whole = normalizer();
+    const results = lines
+      .flatMap((line) => whole.normalizeLine(line))
+      .filter((event) => event.kind === 'turn-completed');
+    expect(results).toHaveLength(9);
+    expect(
+      results.map((event) =>
+        event.kind === 'turn-completed' ? event.payload.providerFailure?.safeToRetry : undefined,
+      ),
+    ).not.toContain(true);
+    // The session ends as soon as a quota result meets a known reset: the first result.
+    const subject = normalizer();
+    let fed = 0;
+    for (const line of lines) {
+      subject.normalizeLine(line);
+      fed += 1;
+      if (subject.quotaExhausted) break;
+    }
+    expect(lines[fed - 1]).toContain('session limit');
+    expect(subject.endedForQuota()).toMatchObject({
+      kind: 'turn-completed',
+      payload: {
+        outcome: 'error',
+        providerFailure: { kind: 'quota', safeToRetry: true, resetsAt: '2026-09-15T14:50:00.000Z' },
+      },
+    });
+  });
+
+  it('keeps the latest reset for a later quota result until an allowed report (R-C9)', () => {
+    const subject = normalizer();
+    const send = (message: unknown) => subject.normalizeLine(JSON.stringify(message));
+    send({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: 1789483800 },
+    });
+    // A result without its own report still knows when the allowance resets.
+    const limited = {
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      api_error_status: 429,
+      terminal_reason: 'api_error',
+    };
+    send(limited);
+    send(limited);
+    expect(subject.quotaExhausted).toBe(true);
+    expect(subject.endedForQuota().payload).toMatchObject({
+      providerFailure: { resetsAt: '2026-09-15T14:50:00.000Z' },
+    });
+    const fresh = normalizer();
+    fresh.normalizeLine(
+      JSON.stringify({
+        type: 'rate_limit_event',
+        rate_limit_info: { status: 'rejected', resetsAt: 1789483800 },
+      }),
+    );
+    fresh.normalizeLine(
+      JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } }),
+    );
+    fresh.normalizeLine(JSON.stringify(limited));
+    expect(fresh.quotaExhausted).toBe(false);
+  });
+
   it('carries the reset time of a rejected allowance so the controller can wait for it', () => {
     expect(replay('claude-session-limit')).toMatchObject({
       providerFailure: { kind: 'quota', safeToRetry: true, resetsAt: '2026-09-15T14:50:00.000Z' },

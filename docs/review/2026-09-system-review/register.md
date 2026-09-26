@@ -12,7 +12,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-A1](#r-a1) | P0 | S | done (012447b) | Stop notification noise without a redesign |
 | [R-A2](#r-a2) | P0 | S | done (012447b, 67e2e9b) | Stop journaling notification delivery bookkeeping as workspace events |
 | [R-A3](#r-a3) | P1 | M-L | done (eb757da, 57a3a16) | Controller-declared, typed attention on every blocking transition |
-| [R-A4](#r-a4) | P2 | M-L | done (see Progress) | Durable attention items, delivery log, quiescence and presence |
+| [R-A4](#r-a4) | P2 | M-L | done (16d94de, see review) | Durable attention items, delivery log, quiescence and presence |
 | [R-A5](#r-a5) | P2 | L | open | One "Needs you" inbox that every surface reads |
 | [R-A6](#r-a6) | P3 | L | open | Consolidate decision and recovery components; delete per-page hosts |
 | [R-A7](#r-a7) | P1 | M | partial (9339d01, c6e4042, 27266c0, 9084e50) | Offer only actions that can make progress; one transition gate for commands and launch |
@@ -153,7 +153,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A4
 
-**Durable attention items, delivery log, quiescence and presence** · Phase P2 · Effort M-L · Status: done (see Progress)
+**Durable attention items, delivery log, quiescence and presence** · Phase P2 · Effort M-L · Status: done (16d94de, see review)
 
 - **Resolves:** [NOTIF-04](findings/NOTIF-attention-notifications.md#notif-04-no-operator-presence-awareness--pushes-arrive-while-the-operator-is-using-the-ui), [NOTIF-07](findings/NOTIF-attention-notifications.md#notif-07-notification-occurrence-history-is-overwritten-journals-carry-no-identity), [NOTIF-08](findings/NOTIF-attention-notifications.md#notif-08-the-attention-projection-is-heavy-and-runs-inside-an-immediate-write-transaction-many-times-per-tick), [NOTIF-09](findings/NOTIF-attention-notifications.md#notif-09-attention-has-no-single-source-of-truth-there-is-no-operator-inbox), [NOTIF-12](findings/NOTIF-attention-notifications.md#notif-12-reminder-content-is-frozen-and-often-misdirects-reminders-dominate-volume), [HIST-02](findings/HIST-history-and-live-usage.md#hist-02-wall-clock-throughput-is-dominated-by-waiting-for-the-operator-not-by-agent-work-or-controller-latency)
 - **Change:** Persist attention as occurrence rows (`attention_items`: subject, owner, code, openedAt, settledAt, resolvedAt, resolvedBy) plus an append-only `notification_deliveries` log. Eligibility for a push = operator-owned AND settled AND every controller worker has completed a pass that began after the item opened AND the operator is not present (open SSE stream or recent command). Reminders render text from the current item; due reminders coalesce into a digest. The projection is maintained transactionally, so the per-tick whole-workspace re-derivation inside an IMMEDIATE transaction disappears.
@@ -172,6 +172,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Regression tests fail without their fix:** the quiescence gate (recorded sequences and the per-worker test), presence, the history triggers, the narrowed storage, and the two live-data fixes, each checked by reverting only that fix.
   - **Replays** on a copy of the 2026-09-23 snapshot: every-run 278 and current-run 51 decisions, 0 changed.
   - **Trade-offs recorded in ADR-070.** `resolvedBy = operator` means any command in the workspace after the item opened, so the metric counts only stops nobody touched. Reminders never fire while the operator keeps issuing commands; an open browser tab only delays first pushes by the grace. Pre-schema-32 outbox rows are folded into the matching items at the first tick, so a deploy does not re-page.
+- **Independent review of 16d94de (2026-09-25).** Nine findings; all were confirmed and fixed, each with a test that fails without its fix.
+  - **HIGH: one long agent message with emoji could stop every write in the daemon.** Item and delivery text was bounded in code points, but the contracts count UTF-16 units. A cycle reason with 30 emoji and 3,900 other characters made its item too long; the guard threw inside the writer's transaction, the unit stayed dirty, every later transaction failed, and the boot rebuild would fail too. An accepted push whose delivery row failed kept its lease and was re-sent every minute.
+    - Fixes: text is bounded in UTF-16 units without splitting surrogate pairs (`truncateUtf16`); each unit is projected in its own savepoint, so a unit that fails is reported once and retried by later writes but never fails the writer; the delivery row is logged in its own savepoint after an accepted send.
+  - **MEDIUM: a stop that resolved while its push was in flight, then reopened within ten minutes, paged again.** A new occurrence now takes "already sent" from the delivery log, not only from the resolved item.
+  - **MEDIUM: a set that gained a member paged at once, past the presence and quiescence gates.** The item now records when its paging restarted (`delivery.since`), and the gates measure from there.
+  - **MEDIUM: pre-schema-32 outbox rows were folded before the items they belong to existed**, so storage, hold and checkpoint alerts would have paged again after a deploy. The projector now folds a row when the item for its subject first opens; rows that no item takes over are resolved ten minutes after boot.
+  - **LOW:** the in-memory quiescence marks now change only when their transaction commits; a cycle item that opens or resolves through a worktree or merge write re-derives its roadmap's own stop in the same commit; a roadmap stop or entry hold replaced by its cycle's item resolves as `superseded`, not `automation`, and the hold no longer shares a digest with the cycle item; storage items of an archived workspace resolve; merge items carry the worktree's active cycle, so a command in flight holds them too; a controller pass that throws still counts as completed.
+  - **Checked and found sound by the reviewer:** nested transactions and rollback re-marking, no cross-scope unique conflicts, all writes reach the observer, `resolvedBy` timing, `ControllerPasses`, leases and backoff, the replacement for `attentionAlerts`.
+  - **Live copy after the fixes** (18:00 local): 5 items in 36 ms, `db:verify` passes, including the EXO-04 merge approval that appeared since the first check.
 
 ### R-A5
 

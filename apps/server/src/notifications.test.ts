@@ -226,7 +226,10 @@ async function fixture(
       return context.storage.attention.recent(workspaceId, 1000);
     },
     /** One scheduler pass's derived attention (holds, checkpoints, verification setup). */
-    schedulerPass: () => context.services.roadmapService.syncAttention(true),
+    schedulerPass: () => {
+      context.services.attention.flush();
+      context.services.roadmapService.syncAttention(true);
+    },
     cycle: () => cycle,
     setCycle: (status: WorkCycle['status'], changes: Partial<WorkCycle> = {}) => {
       // Written like the controller writes it: a stop carries its typed attention (R-A3).
@@ -1749,6 +1752,10 @@ describe('durable attention items (R-A4)', () => {
   });
   it('folds a pre-R-A4 outbox row into its item without paging again', async () => {
     const f = await fixture();
+    // The stop's item opens after the upgrade, as at the first boot on schema 32.
+    f.setCycle('running');
+    f.context.services.attention.flush();
+    f.advance(11);
     const sentAt = new Date(f.now().getTime() - 10 * 60_000).toISOString();
     f.context.storage.notifications.saveRecord({
       id: randomUUID(),
@@ -1769,12 +1776,318 @@ describe('durable attention items (R-A4)', () => {
       leaseToken: null,
       leaseUntil: null,
     });
+    f.setCycle('awaiting-merge', { attention: cycleAttention('merge-approval') });
     await f.service.tick();
     expect(f.send).not.toHaveBeenCalled();
-    expect(cycleItems(f)[0]?.delivery).toMatchObject({ firstSentAt: sentAt, deliveredCount: 1 });
+    expect(cycleItems(f).find((item) => item.state === 'open')?.delivery).toMatchObject({
+      firstSentAt: sentAt,
+      deliveredCount: 1,
+    });
     expect(f.context.storage.notifications.records(f.workspaceId, true)).toHaveLength(0);
     f.advance(20);
     await f.service.tick();
     expect(f.send.mock.calls[0]?.[0].message).toMatch(/^Reminder:/);
+  });
+});
+
+describe('attention items: review fixes (R-A4)', () => {
+  const emoji = '😀'.repeat(30);
+  it('bounds item text in the units the contract counts, so a long emoji reason never fails a write', async () => {
+    const f = await fixture();
+    const reason = `${emoji}${'a'.repeat(3900)}`; // Valid on the cycle; over 4000 UTF-16 units as an item.
+    f.setCycle('needs-attention', { reason, attention: cycleAttention('review-open-questions') });
+    // The next unrelated write commits, and the item is stored within its bound.
+    f.context.storage.transaction((tx) =>
+      tx.workspaces.rename({
+        workspaceId: f.workspaceId,
+        name: 'Renamed',
+        occurredAt: f.now().toISOString(),
+      }),
+    );
+    const [item] = openItems(f);
+    expect(item?.code).toBe('review-open-questions');
+    expect(item?.message.length).toBeLessThanOrEqual(4000);
+    // A long push is logged within its bound too, so it is not re-sent after its lease.
+    f.setCycle('needs-attention', {
+      reason: `${emoji}${'b'.repeat(1100)}`,
+      attention: cycleAttention('implementation-open-questions'),
+    });
+    await f.service.tick();
+    f.advance(2);
+    await f.service.tick();
+    f.advance(2);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+    expect(f.context.storage.attention.deliveries(f.workspaceId, 10)).toHaveLength(1);
+  });
+  it('never fails the writer when an item cannot be projected, and retries it', async () => {
+    const f = await fixture();
+    f.context.services.attention.flush();
+    const insert = vi
+      .spyOn(f.context.storage.attention.constructor.prototype, 'insert')
+      .mockImplementationOnce(() => {
+        throw new Error('projection defect');
+      });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { attention: _stop, ...rest } = f.cycle();
+      const stopped: WorkCycle = {
+        ...rest,
+        status: 'needs-attention',
+        version: f.cycle().version + 1,
+        reason: 'Review needs your input.',
+        attention: cycleAttention('review-open-questions'),
+      };
+      f.context.storage.transaction((tx) => {
+        tx.execution.cycles.replace(stopped, f.cycle().version);
+      });
+      // The cycle write committed; its item failed and is retried by the next write.
+      expect(f.context.storage.execution.cycles.find(f.workspaceId, f.cycle().id)?.status).toBe(
+        'needs-attention',
+      );
+      expect(errors).toHaveBeenCalledTimes(1);
+      f.context.storage.transaction(() => undefined);
+      expect(openItems(f).map((item) => item.code)).toEqual(['review-open-questions']);
+    } finally {
+      insert.mockRestore();
+      errors.mockRestore();
+    }
+  });
+  it('continues an item that resolved while its push was in flight, without paging it again', async () => {
+    const f = await fixture();
+    let accept: ((value: DeliveryResult) => void) | undefined;
+    f.send.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          accept = resolve;
+        }),
+    );
+    const tick = f.service.tick();
+    // The controller resolves the item in its own transaction while the push is in flight.
+    f.setCycle('running');
+    f.context.services.attention.flush();
+    accept?.({ status: 'accepted' });
+    await tick;
+    const [first] = cycleItems(f);
+    expect(first).toMatchObject({ state: 'resolved', delivery: { firstSentAt: null } });
+    f.advance(2);
+    f.setCycle('awaiting-merge', { attention: cycleAttention('merge-approval') });
+    await f.service.tick();
+    f.advance(1);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+    const reopened = cycleItems(f).find((item) => item.state === 'open');
+    expect(reopened).toMatchObject({ continues: first?.id, delivery: { deliveredCount: 1 } });
+  });
+  it('pages a grown set through the presence and quiescence gates again', async () => {
+    const f = await fixture(undefined, { settleMs: 0 });
+    f.setCycle('running');
+    f.advance(10);
+    const alert = (members: string[]) =>
+      f.context.services.storageService.syncAttention([
+        { key: 'storage:volumes', message: 'Below reserve.', members },
+      ]);
+    alert(['/runs']);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+    f.advance(30);
+    f.context.services.operatorPresence.opened(f.workspaceId, f.auth.user.id);
+    alert(['/runs', '/trees']);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1); // The operator is watching: the grace applies.
+    f.advance(5);
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(2);
+  });
+  it('folds a sent outbox row into an item that opens after the first delivery tick', async () => {
+    const f = await fixture();
+    f.setCycle('running');
+    await f.service.tick();
+    const sentAt = new Date(f.now().getTime() - 5 * 60_000).toISOString();
+    f.context.storage.notifications.saveRecord({
+      id: randomUUID(),
+      workspaceId: f.workspaceId,
+      sourceKey: 'storage:volumes',
+      kind: 'attention',
+      title: 'CraftingTable · Storage needs attention',
+      message: 'Legacy text',
+      path: '/workspaces/x',
+      state: 'active',
+      createdAt: sentAt,
+      firstSentAt: sentAt,
+      lastSentAt: sentAt,
+      nextAttemptAt: new Date(f.now().getTime() + 25 * 60_000).toISOString(),
+      deliveredCount: 1,
+      failures: 0,
+      lastError: null,
+      leaseToken: null,
+      leaseUntil: null,
+    });
+    // The storage monitor's first reading comes after the first delivery tick.
+    f.context.services.storageService.syncAttention([
+      { key: 'storage:volumes', message: 'Below reserve.', members: ['/runs'] },
+    ]);
+    await f.service.tick();
+    expect(f.send).not.toHaveBeenCalled();
+    expect(openItems(f)[0]?.delivery).toMatchObject({ firstSentAt: sentAt, deliveredCount: 1 });
+  });
+  it('keeps an item’s quiescence mark when the projection that resolved it rolls back', async () => {
+    const f = await fixture();
+    f.context.services.controllerPasses.started();
+    f.setCycle('needs-attention', { attention: cycleAttention('review-open-questions') });
+    f.context.services.attention.flush();
+    const [item] = openItems(f);
+    const mark = f.context.services.attention.openedPass(item!.id);
+    expect(mark).toBeGreaterThan(0);
+    // The next stop supersedes the item, but opening its successor fails: the unit rolls back.
+    const insert = vi
+      .spyOn(f.context.storage.attention.constructor.prototype, 'insert')
+      .mockImplementationOnce(() => {
+        throw new Error('projection defect');
+      });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      f.setCycle('needs-attention', { attention: cycleAttention('remediation-exhausted') });
+      f.context.storage.transaction(() => undefined);
+    } finally {
+      insert.mockRestore();
+      errors.mockRestore();
+    }
+    expect(f.context.storage.attention.find(f.workspaceId, item!.id)?.state).toBe('open');
+    expect(f.context.services.attention.openedPass(item!.id)).toBe(mark);
+  });
+  it('re-derives a roadmap stop when its cycle item resolves through the worktree, and supersedes item-for-item', async () => {
+    const f = await fixture();
+    const entryId = randomUUID();
+    const base = roadmapFixture(f);
+    const roadmap: Roadmap = {
+      ...base,
+      attempts: [
+        {
+          id: randomUUID(),
+          entryId,
+          definitionRevision: 1,
+          cycleId: f.cycle().id,
+          worktreeId: f.worktreeId,
+          status: 'active',
+          createdAt: f.now().toISOString(),
+        },
+      ],
+    };
+    f.context.storage.roadmaps.save(roadmap, 0);
+    f.setCycle('awaiting-merge', {
+      attention: cycleAttention('merge-approval'),
+      owner: {
+        roadmapId: roadmap.id,
+        attemptId: roadmap.attempts[0]!.id,
+        entryId,
+        definitionRevision: 1,
+      },
+    });
+    // The cycle's merge item carries this stop; the roadmap adds none of its own.
+    expect(openItems(f).map((item) => item.subjectKey)).toEqual([`cycle:${f.cycle().id}`]);
+    f.context.storage.transaction((tx) =>
+      tx.execution.worktrees.markRemoved({
+        workspaceId: f.workspaceId,
+        worktreeId: f.worktreeId,
+        occurredAt: f.now().toISOString(),
+      }),
+    );
+    expect(openItems(f).map((item) => item.subjectKey)).toEqual([`roadmap:${roadmap.id}`]);
+  });
+  it('replaces a roadmap hold with its cycle\u2019s own stop, as superseded', async () => {
+    const f = await fixture();
+    const entryId = randomUUID();
+    const base = roadmapFixture(f);
+    const { attention: _none, ...roadmap } = {
+      ...base,
+      status: 'running' as const,
+      attempts: [
+        {
+          id: randomUUID(),
+          entryId,
+          definitionRevision: 1,
+          cycleId: f.cycle().id,
+          worktreeId: f.worktreeId,
+          status: 'active' as const,
+          createdAt: f.now().toISOString(),
+        },
+      ],
+      entryHolds: {
+        [entryId]: {
+          status: 'needs-attention' as const,
+          reason: 'Held for review.',
+          attention: roadmapAttention('entry-blocked', { entryId }),
+        },
+      },
+      definition: {
+        ...base.definition,
+        entries: [
+          {
+            id: entryId,
+            workItemId: f.workItemId,
+            projectId: f.projectId,
+            planVersionId: asPlanVersionId('plan-1'),
+            sourceId: 'AQ-05',
+            title: 'Next queue improvement',
+            repositoryId: f.repositoryId,
+            integrationBranch: 'aq-cont-1',
+            profiles: f.cycle().profiles,
+            policy: f.cycle().policy,
+            instructions: '',
+          },
+        ],
+      },
+    };
+    const owner = {
+      roadmapId: roadmap.id,
+      attemptId: roadmap.attempts[0]!.id,
+      entryId,
+      definitionRevision: 1,
+    };
+    f.setCycle('paused', { owner });
+    f.context.storage.roadmaps.save(roadmap, 0);
+    f.schedulerPass();
+    const hold = `roadmap:${roadmap.id}:entry:${entryId}`;
+    expect(openItems(f).map((item) => item.subjectKey)).toEqual([hold]);
+    f.setCycle('needs-attention', { attention: cycleAttention('review-open-questions'), owner });
+    f.context.services.attention.flush();
+    expect(openItems(f).map((item) => item.subjectKey)).toEqual([`cycle:${f.cycle().id}`]);
+    expect(f.items().find((item) => item.subjectKey === hold)?.resolvedBy).toBe('superseded');
+  });
+  it('resolves a storage alert in a workspace that is no longer active', async () => {
+    const f = await fixture();
+    f.context.services.storageService.syncAttention([
+      { key: 'storage:volumes', message: 'Below reserve.', members: ['/runs'] },
+    ]);
+    const database = openDatabase(f.context.storage.databasePath);
+    try {
+      database.prepare("UPDATE workspaces SET status = 'archived' WHERE id = ?").run(f.workspaceId);
+    } finally {
+      database.close();
+    }
+    f.context.services.storageService.syncAttention([
+      { key: 'storage:volumes', message: 'Below reserve.', members: ['/runs'] },
+    ]);
+    expect(
+      f.context.storage.attention
+        .recent(f.workspaceId, 10)
+        .filter((item) => item.subjectKey === 'storage:volumes')
+        .map((item) => item.state),
+    ).toEqual(['resolved']);
+  });
+  it('counts a controller pass that failed as completed', async () => {
+    const f = await fixture();
+    const passes = f.context.services.controllerPasses;
+    const cycles = f.context.services.workCycleService;
+    cycles.attachPasses(passes);
+    passes.register('cycles');
+    const opened = passes.current;
+    const pass = vi
+      .spyOn(cycles as unknown as { pass(): Promise<void> }, 'pass')
+      .mockRejectedValueOnce(new Error('pass failed'));
+    await expect(cycles.tick()).rejects.toThrow('pass failed');
+    pass.mockRestore();
+    expect(passes.quietSince(opened)).toBe(true);
   });
 });

@@ -11,6 +11,7 @@ import {
   effectiveRoadmapAttention,
   nextReminderAt,
   notificationText,
+  truncateUtf16,
   type WorkspaceId,
   type WorktreeId,
 } from '@craftingtable/domain';
@@ -50,6 +51,10 @@ export class AttentionProjector implements WriteObserver {
   private changed = new Set<WorkspaceId>();
   /** The controller pass sequence at which each item opened during this boot. */
   private readonly openedAt = new Map<string, number>();
+  /** Changes to `openedAt`, applied only once their transaction commits. */
+  private staged: (() => void)[] = [];
+  /** Units whose projection failed; reported once each, retried on every later write. */
+  private readonly failing = new Set<string>();
 
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -57,6 +62,8 @@ export class AttentionProjector implements WriteObserver {
     private readonly now: () => Date,
     /** Told after a commit that opened or resolved items, with the workspaces affected. */
     private readonly onChange: (workspaces: readonly WorkspaceId[]) => void = () => undefined,
+    private readonly onFailure: (unit: string, error: unknown) => void = (unit, error) =>
+      console.error(`Attention projection failed for ${unit}; it is retried.`, error),
   ) {}
 
   written<K extends PersistedRecordKind>(kind: K, record: PersistedRecords[K]): void {
@@ -123,7 +130,10 @@ export class AttentionProjector implements WriteObserver {
   }
 
   ended(committed: boolean): void {
-    if (!committed) {
+    const staged = this.staged;
+    this.staged = [];
+    if (committed) for (const apply of staged) apply();
+    else {
       for (const unit of this.flushing) this.pending.add(unit);
       this.changed.clear();
     }
@@ -166,6 +176,24 @@ export class AttentionProjector implements WriteObserver {
     return this.openedAt.get(itemId) ?? 0;
   }
 
+  /** Open items whose subject another item now carries resolve as superseded. */
+  private supersede(
+    tx: StorageRepositories,
+    workspaceId: WorkspaceId,
+    scopeKey: string,
+    subjectKey: string,
+  ): void {
+    const open = tx.attention.openInScope(workspaceId, scopeKey);
+    if (!open.some((item) => item.subjectKey === subjectKey)) return;
+    this.sync(
+      tx,
+      workspaceId,
+      scopeKey,
+      open.filter((item) => item.subjectKey !== subjectKey),
+      { superseded: new Set([subjectKey]) },
+    );
+  }
+
   /**
    * Makes `desired` the open items of one scope: new subjects open, vanished ones resolve,
    * the rest are refreshed in place. Callers that evaluate a set themselves (the roadmap
@@ -176,19 +204,22 @@ export class AttentionProjector implements WriteObserver {
     workspaceId: WorkspaceId,
     scopeKey: string,
     desired: readonly ProjectedItem[],
-  ): void {
+    options: { readonly superseded?: ReadonlySet<string> } = {},
+  ): readonly AttentionItem[] {
     const now = this.now().toISOString();
     const open = tx.attention.openInScope(workspaceId, scopeKey);
     const same = (a: Pick<AttentionItem, 'subjectKey' | 'code'>, b: typeof a) =>
       a.subjectKey === b.subjectKey && a.code === b.code;
-    let resolvedBy: AttentionResolution | undefined;
+    const touched: AttentionItem[] = [];
     for (const item of open) {
       if (desired.some((wanted) => same(wanted, item))) continue;
-      resolvedBy = desired.some((wanted) => wanted.subjectKey === item.subjectKey)
-        ? 'superseded'
-        : this.operatorActedSince(tx, workspaceId, item.openedAt)
-          ? 'operator'
-          : 'automation';
+      const resolvedBy: AttentionResolution =
+        desired.some((wanted) => wanted.subjectKey === item.subjectKey) ||
+        options.superseded?.has(item.subjectKey)
+          ? 'superseded'
+          : this.operatorActedSince(tx, workspaceId, item.openedAt)
+            ? 'operator'
+            : 'automation';
       tx.attention.update({
         ...item,
         state: 'resolved',
@@ -196,8 +227,9 @@ export class AttentionProjector implements WriteObserver {
         resolvedBy,
         delivery: { ...item.delivery, leaseToken: null, leaseUntil: null },
       });
-      this.openedAt.delete(item.id);
+      this.staged.push(() => this.openedAt.delete(item.id));
       this.changed.add(workspaceId);
+      touched.push(item);
     }
     for (const wanted of desired) {
       const bounded = bound(wanted);
@@ -209,7 +241,8 @@ export class AttentionProjector implements WriteObserver {
         const refreshed = itemOf(
           existing,
           bounded,
-          // A set that gained a member is new work: it pages again as a new first send.
+          // A set that gained a member is new work: it pages again as a new first send,
+          // through the same gates as a new item.
           grew
             ? {
                 ...existing.delivery,
@@ -217,19 +250,26 @@ export class AttentionProjector implements WriteObserver {
                 lastSentAt: null,
                 deliveredCount: 0,
                 nextAttemptAt: now,
+                since: now,
               }
             : existing.delivery,
         );
         if (!sameItem(existing, refreshed)) tx.attention.update(refreshed);
-        if (grew) this.openedAt.set(existing.id, this.passes.current);
+        if (grew) {
+          const pass = this.passes.current;
+          this.staged.push(() => this.openedAt.set(existing.id, pass));
+        }
         continue;
       }
       const item = this.opening(tx, workspaceId, scopeKey, bounded, now);
       tx.attention.insert(item);
-      this.openedAt.set(item.id, this.passes.current);
+      const pass = this.passes.current;
+      this.staged.push(() => this.openedAt.set(item.id, pass));
       this.changed.add(workspaceId);
+      touched.push(item);
     }
     if (this.changed.has(workspaceId)) this.journal(tx, workspaceId, now);
+    return touched;
   }
 
   private mark(workspaceId: WorkspaceId, unit: string): void {
@@ -264,22 +304,73 @@ export class AttentionProjector implements WriteObserver {
         expanded.push({ workspaceId, unit: `worktree:${tree.id}` });
     }
     const seen = new Set<string>();
-    // Worktrees first: a roadmap's own stop defers to an open item of its cycle.
-    const ordered = [
+    // Worktrees first: a roadmap's own stop defers to an open item of its cycle, so a
+    // cycle item that opens or resolves re-derives its roadmap in the same commit.
+    const queue = [
       ...expanded.filter((u) => !u.unit.startsWith('roadmap:')),
       ...expanded.filter((u) => u.unit.startsWith('roadmap:')),
     ];
-    for (const { workspaceId, unit } of ordered) {
-      if (seen.has(`${workspaceId}${UNIT}${unit}`)) continue;
-      seen.add(`${workspaceId}${UNIT}${unit}`);
-      const [family, ...rest] = unit.split(':');
-      const id = rest.join(':');
-      if (family === 'worktree')
-        this.sync(tx, workspaceId, unit, this.worktreeItems(tx, workspaceId, id as WorktreeId));
-      else if (family === 'roadmap') this.roadmapUnit(tx, workspaceId, id);
-      else if (family === 'finalization')
-        this.sync(tx, workspaceId, unit, this.finalizationItems(tx, workspaceId, id));
+    const roadmaps: { workspaceId: WorkspaceId; unit: string }[] = [];
+    for (const next of [queue, roadmaps])
+      for (let index = 0; index < next.length; index += 1) {
+        const { workspaceId, unit } = next[index]!;
+        const key = `${workspaceId}${UNIT}${unit}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const staged = this.staged.length;
+        try {
+          // A savepoint per unit: a unit that cannot be projected never fails the write
+          // that caused it, nor any other unit.
+          const touched = this.storage.transaction((inner) =>
+            this.projectUnit(inner, workspaceId, unit),
+          );
+          this.failing.delete(key);
+          for (const item of touched)
+            if (item.refs.roadmapId && item.subjectKey.startsWith('cycle:'))
+              roadmaps.push({ workspaceId, unit: `roadmap:${item.refs.roadmapId}` });
+        } catch (error) {
+          this.staged.length = staged;
+          this.pending.add(key);
+          if (!this.failing.has(key)) {
+            this.failing.add(key);
+            this.onFailure(unit, error);
+          }
+        }
+      }
+  }
+
+  private projectUnit(
+    tx: StorageRepositories,
+    workspaceId: WorkspaceId,
+    unit: string,
+  ): readonly AttentionItem[] {
+    const [family, ...rest] = unit.split(':');
+    const id = rest.join(':');
+    if (family === 'worktree') {
+      const touched = this.sync(
+        tx,
+        workspaceId,
+        unit,
+        this.worktreeItems(tx, workspaceId, id as WorktreeId),
+      );
+      // A cycle's own item replaces the roadmap's hold for the same entry.
+      for (const item of tx.attention.openInScope(workspaceId, unit))
+        if (item.subjectKey.startsWith('cycle:') && item.refs.roadmapId && item.refs.entryId)
+          this.supersede(
+            tx,
+            workspaceId,
+            `roadmap-pass:${item.refs.roadmapId}`,
+            `roadmap:${item.refs.roadmapId}:entry:${item.refs.entryId}`,
+          );
+      return touched;
     }
+    if (family === 'roadmap') {
+      this.roadmapUnit(tx, workspaceId, id);
+      return [];
+    }
+    if (family === 'finalization')
+      return this.sync(tx, workspaceId, unit, this.finalizationItems(tx, workspaceId, id));
+    return [];
   }
 
   /** A new occurrence, continuing a flapping predecessor's reminder schedule. */
@@ -295,7 +386,16 @@ export class AttentionProjector implements WriteObserver {
       previous?.state === 'resolved' &&
       previous.resolvedAt !== undefined &&
       Date.parse(now) - Date.parse(previous.resolvedAt) < ATTENTION_FLAP_WINDOW_MS;
-    const sent = flapped ? previous.delivery : undefined;
+    // Sent means an accepted push carried it, even one that resolved while in flight.
+    const logged = flapped ? tx.attention.delivered(workspaceId, previous.id) : undefined;
+    const sent =
+      (flapped && previous.delivery.firstSentAt !== null
+        ? previous.delivery
+        : logged && {
+            firstSentAt: logged.first,
+            lastSentAt: logged.last,
+            deliveredCount: logged.count,
+          }) || this.adoptLegacy(tx, workspaceId, wanted.subjectKey);
     const preferences =
       tx.notifications.settings(workspaceId)?.preferences ?? DEFAULT_NOTIFICATION_PREFERENCES;
     return itemOf(
@@ -322,6 +422,40 @@ export class AttentionProjector implements WriteObserver {
         leaseUntil: null,
       },
     );
+  }
+
+  /**
+   * Folds a pre-schema-32 outbox row into the first item for its subject, so a deploy does
+   * not page again for something already sent. Matched rows resolve.
+   */
+  private adoptLegacy(
+    tx: StorageRepositories,
+    workspaceId: WorkspaceId,
+    subjectKey: string,
+  ): Pick<AttentionItem['delivery'], 'firstSentAt' | 'lastSentAt' | 'deliveredCount'> | undefined {
+    const matched = tx.notifications
+      .records(workspaceId, true)
+      .filter((record) => record.kind !== 'test' && legacySubject(record.sourceKey) === subjectKey);
+    if (!matched.length) return undefined;
+    const now = this.now().toISOString();
+    for (const record of matched)
+      tx.notifications.saveRecord({
+        ...record,
+        state: 'resolved',
+        resolvedAt: now,
+        leaseToken: null,
+        leaseUntil: null,
+      });
+    const sent = matched
+      .filter((record) => record.firstSentAt !== null)
+      .sort((a, b) => (b.lastSentAt ?? '').localeCompare(a.lastSentAt ?? ''))[0];
+    return sent
+      ? {
+          firstSentAt: sent.firstSentAt,
+          lastSentAt: sent.lastSentAt,
+          deliveredCount: sent.deliveredCount,
+        }
+      : undefined;
   }
 
   private operatorActedSince(tx: StorageRepositories, workspaceId: WorkspaceId, since: string) {
@@ -397,6 +531,9 @@ export class AttentionProjector implements WriteObserver {
       `${item?.title ?? ''}\n${reason}\nBranch: ${tree.branchName} → ${tree.integrationBranch ?? tree.baseBranch}`;
     const items: ProjectedItem[] = [];
     const merge = tx.execution.merges.latest(workspaceId, tree.id);
+    const active = tx.execution.cycles.activeForWorktree(workspaceId, tree.id);
+    // A merge item is held while a command owns the worktree's cycle, like the cycle itself.
+    const mergeRefs = active ? { ...refs, cycleId: active.id } : refs;
     if (merge?.status === 'reserved' && tree.status === 'active')
       items.push({
         subjectKey: `merge:${tree.id}`,
@@ -407,7 +544,7 @@ export class AttentionProjector implements WriteObserver {
           'A merge stopped after its reservation. Merge again to recover it from the recorded commits.',
         ),
         path,
-        refs,
+        refs: mergeRefs,
       });
     if (merge?.status === 'merged' && merge.cleanupError)
       items.push({
@@ -417,7 +554,7 @@ export class AttentionProjector implements WriteObserver {
         title: heading('attention'),
         message: body(`Merged, but cleanup failed: ${merge.cleanupError}`),
         path,
-        refs,
+        refs: mergeRefs,
       });
     if (tree.status !== 'active' || item === undefined) return items;
     const cycle = tx.execution.cycles.latestForWorktree(workspaceId, tree.id);
@@ -525,6 +662,7 @@ export class AttentionProjector implements WriteObserver {
     const path = `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`;
     const refs = { roadmapId };
     const items: ProjectedItem[] = [];
+    const superseded = new Set<string>();
     const attention = effectiveRoadmapAttention(roadmap);
     if (attention?.owner === 'operator') {
       const active = roadmap.attempts.find((attempt) => attempt.status !== 'completed');
@@ -534,7 +672,8 @@ export class AttentionProjector implements WriteObserver {
         tx.attention
           .openInScope(workspaceId, `worktree:${active.worktreeId}`)
           .some((item) => item.subjectKey === `cycle:${active.cycleId}`);
-      if (!cycleItem)
+      if (cycleItem) superseded.add(`roadmap:${roadmapId}`);
+      else
         items.push({
           subjectKey: `roadmap:${roadmapId}`,
           code: attention.code,
@@ -569,7 +708,7 @@ export class AttentionProjector implements WriteObserver {
         path,
         refs,
       });
-    this.sync(tx, workspaceId, scopeKey, items);
+    this.sync(tx, workspaceId, scopeKey, items, { superseded });
   }
 
   private finalizationItems(
@@ -606,8 +745,9 @@ function ownerRefs(owner: { readonly roadmapId: string; readonly entryId: string
 function bound(item: ProjectedItem): ProjectedItem {
   return {
     ...item,
-    title: notificationText(item.title, TITLE_LIMIT),
-    message: notificationText(item.message, MESSAGE_LIMIT),
+    // Contracts count UTF-16 units; `notificationText` counts code points (R-A4 review).
+    title: truncateUtf16(notificationText(item.title, TITLE_LIMIT), TITLE_LIMIT),
+    message: truncateUtf16(notificationText(item.message, MESSAGE_LIMIT), MESSAGE_LIMIT),
     ...(item.members ? { members: [...item.members].sort() } : {}),
   };
 }
@@ -640,4 +780,20 @@ function itemOf(
 
 function sameItem(a: AttentionItem, b: AttentionItem): boolean {
   return JSON.stringify(itemOf(a, a, a.delivery)) === JSON.stringify(b);
+}
+
+/**
+ * The item subject a pre-R-A4 outbox key stood for. Keys are identifiers the daemon built,
+ * `cycle:<id>:<status>…`, `run:<id>:<sequence>…`, `roadmap:<id>:<kind>…`, never prose.
+ */
+export function legacySubject(sourceKey: string): string | undefined {
+  const [family, id, kind, entry] = sourceKey.split(':');
+  if (!id) return undefined;
+  if (family === 'cycle') return `cycle:${id}`;
+  if (family === 'run') return `run:${id}`;
+  if (family === 'storage') return sourceKey;
+  if (family !== 'roadmap') return undefined;
+  if (kind === 'needs-attention') return `roadmap:${id}`;
+  if (kind === 'entry' && entry) return `roadmap:${id}:entry:${entry}`;
+  return kind === 'environments' || kind === 'checkpoints' ? `roadmap:${id}:${kind}` : undefined;
 }

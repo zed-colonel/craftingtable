@@ -1692,9 +1692,10 @@ export class WorkCycleService {
     const started = this.passes?.started();
     this.passing = this.pass().finally(() => {
       this.passing = undefined;
+      // A pass that failed still gave automation its chance; pushes do not wait on it.
+      if (started !== undefined) this.passes?.completed('cycles', started);
     });
     await this.passing;
-    if (started !== undefined) this.passes?.completed('cycles', started);
   }
   private passing: Promise<void> | undefined;
   /** The workflow generation the declared attention was last brought up to date at. */

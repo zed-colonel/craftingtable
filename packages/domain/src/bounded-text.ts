@@ -28,3 +28,15 @@ export function truncateUtf8Bytes(text: string, maxBytes: number, marker = '…'
 export function fitsUtf8Bytes(text: string, maxBytes: number): boolean {
   return encoder.encode(text).byteLength <= maxBytes;
 }
+
+/**
+ * Truncates to at most `maxUnits` UTF-16 units, the unit a zod `.max` counts, never splitting
+ * a surrogate pair, and ends a truncated value with the marker (R-A4 review).
+ */
+export function truncateUtf16(text: string, maxUnits: number, marker = '…'): string {
+  if (text.length <= maxUnits) return text;
+  let end = Math.max(0, maxUnits - marker.length);
+  const last = text.charCodeAt(end - 1);
+  if (end > 0 && last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return `${text.slice(0, end)}${marker}`;
+}

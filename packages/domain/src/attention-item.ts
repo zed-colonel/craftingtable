@@ -95,6 +95,11 @@ export interface AttentionItemDelivery {
   readonly lastError: string | null;
   readonly leaseToken: string | null;
   readonly leaseUntil: string | null;
+  /**
+   * When the current paging began, if later than the item's opening: a set that gained a
+   * member pages again from here, through the same settle, quiescence and presence gates.
+   */
+  readonly since?: string;
 }
 
 export interface AttentionItem {

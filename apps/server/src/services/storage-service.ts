@@ -162,7 +162,12 @@ export class StorageService {
     const attention = this.attention;
     if (!attention) return;
     this.storage.transaction((tx) => {
-      for (const workspaceId of tx.workspaces.listActiveIds())
+      const active = tx.workspaces.listActiveIds();
+      // A workspace that is no longer active keeps no host alert.
+      for (const { workspaceId, scopeKey } of tx.attention.openScopes())
+        if (scopeKey === 'storage' && !active.includes(workspaceId))
+          attention.sync(tx, workspaceId, 'storage', []);
+      for (const workspaceId of active)
         attention.sync(
           tx,
           workspaceId,

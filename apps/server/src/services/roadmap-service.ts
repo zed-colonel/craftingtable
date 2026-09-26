@@ -1214,9 +1214,9 @@ export class RoadmapService {
       } catch {
         /* The next pass re-derives the set; delivery reads whatever is stored meanwhile. */
       }
-      if (pass !== undefined) this.passes?.completed('roadmaps', pass);
     } finally {
       this.ticking = false;
+      if (pass !== undefined) this.passes?.completed('roadmaps', pass);
     }
   }
   private authority(roadmap: Roadmap): CommandContext {

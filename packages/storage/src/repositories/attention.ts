@@ -124,6 +124,21 @@ export class SqliteAttentionRepository implements AttentionRepository {
       .all(workspaceId, limit)
       .map(delivery);
   }
+  delivered(
+    workspaceId: WorkspaceId,
+    itemId: string,
+  ): { readonly first: string; readonly last: string; readonly count: number } | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT min(d.attempted_at) AS first, max(d.attempted_at) AS last, count(*) AS count
+         FROM notification_deliveries d, json_each(d.state_json, '$.itemIds') e
+         WHERE d.workspace_id = ? AND d.result = 'accepted' AND e.value = ?`,
+      )
+      .get(workspaceId, itemId) as { first: string | null; last: string | null; count: number };
+    return row.first === null || row.last === null
+      ? undefined
+      : { first: row.first, last: row.last, count: row.count };
+  }
   falseAlarms(workspaceId: WorkspaceId): readonly AttentionItem[] {
     return this.database
       .prepare(

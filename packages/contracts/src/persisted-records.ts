@@ -347,6 +347,7 @@ export const attentionItemSchema = equivalentSchema<AttentionItem>()(
       lastError: text.nullable(),
       leaseToken: text.nullable(),
       leaseUntil: z.iso.datetime().nullable(),
+      since: z.iso.datetime().optional(),
     }),
   }),
 );

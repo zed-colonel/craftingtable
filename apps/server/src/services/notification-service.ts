@@ -8,6 +8,7 @@ import {
   type NotificationDelivery,
   nextReminderAt,
   notificationText,
+  truncateUtf16,
   type WorkspaceId,
 } from '@craftingtable/domain';
 import type {
@@ -36,6 +37,8 @@ export const QUIESCENCE_LIMIT_MS = 2 * 60_000;
 export const PRESENCE_GRACE_MS = 5 * 60_000;
 /** A command this recent means the operator is at the controls: reminders wait. */
 export const PRESENCE_WINDOW_MS = 5 * 60_000;
+/** Pre-schema-32 outbox rows no item took over by then are resolved. */
+export const LEGACY_SWEEP_AFTER_MS = 10 * 60_000;
 
 /**
  * Everything the notification service may read or write. It has no access to cycles,
@@ -81,8 +84,8 @@ export class NotificationService {
   private readonly settleMs: number;
   private readonly presenceGraceMs: number;
   private readonly presenceWindowMs: number;
-  /** Outbox rows written before items existed are folded into items once per boot. */
-  private legacyAdopted = false;
+  private legacySwept = false;
+  private readonly bootedAt: number;
   constructor(
     private readonly storage: NotificationStorage,
     private readonly workspaces: WorkspaceService,
@@ -97,6 +100,7 @@ export class NotificationService {
     options: NotificationServiceOptions = {},
   ) {
     this.settleMs = options.settleMs ?? NOTIFICATION_SETTLE_MS;
+    this.bootedAt = now().getTime();
     this.presenceGraceMs = options.presenceGraceMs ?? PRESENCE_GRACE_MS;
     this.presenceWindowMs = options.presenceWindowMs ?? PRESENCE_WINDOW_MS;
   }
@@ -335,56 +339,39 @@ export class NotificationService {
     if (delivery.leaseUntil !== null && Date.parse(delivery.leaseUntil) > now) return false;
     if (item.refs.cycleId && this.cycleTransitioning(item.refs.cycleId)) return false;
     const first = delivery.firstSentAt === null;
+    // A set that gained a member pages from then on, through the same gates (R-A4 review).
+    const since = Date.parse(delivery.since ?? item.openedAt);
     const due =
       first && delivery.failures === 0
-        ? Math.max(Date.parse(delivery.nextAttemptAt), Date.parse(item.openedAt)) + this.settleMs
+        ? Math.max(Date.parse(delivery.nextAttemptAt), since) + this.settleMs
         : Date.parse(delivery.nextAttemptAt);
     if (due > now) return false;
     if (!first) return !present.commanding;
-    const age = now - Date.parse(item.openedAt);
+    const age = now - since;
     if (age < QUIESCENCE_LIMIT_MS && !this.passes.quietSince(this.attention.openedPass(item.id)))
       return false;
     return !((present.watching || present.commanding) && age < this.presenceGraceMs);
   }
-  /** Folds pre-R-A4 outbox rows into the items that replace them, keeping their schedule. */
-  private adoptLegacy(): void {
-    if (this.legacyAdopted) return;
-    this.legacyAdopted = true;
+  /**
+   * Resolves pre-schema-32 outbox rows that no item took over. The projector folds each
+   * row into the first item for its subject; rows still active well after boot describe a
+   * state that no longer exists.
+   */
+  private sweepLegacy(): void {
+    if (this.legacySwept || this.now().getTime() - this.bootedAt < LEGACY_SWEEP_AFTER_MS) return;
     this.storage.transaction((tx) => {
-      for (const settings of tx.notifications.listSettings()) {
-        const open = tx.attention.open(settings.workspaceId);
-        for (const record of tx.notifications.records(settings.workspaceId, true)) {
-          if (record.kind === 'test') continue;
-          const subject = legacySubject(record.sourceKey);
-          const item = open.find(
-            (candidate) =>
-              candidate.subjectKey === subject && candidate.delivery.firstSentAt === null,
-          );
-          if (item && record.firstSentAt !== null)
-            tx.attention.update({
-              ...item,
-              delivery: {
-                ...item.delivery,
-                firstSentAt: record.firstSentAt,
-                lastSentAt: record.lastSentAt,
-                deliveredCount: record.deliveredCount,
-                nextAttemptAt: nextReminderAt(
-                  record.firstSentAt,
-                  record.lastSentAt ?? record.firstSentAt,
-                  settings.preferences,
-                ),
-              },
+      for (const settings of tx.notifications.listSettings())
+        for (const record of tx.notifications.records(settings.workspaceId, true))
+          if (record.kind !== 'test')
+            tx.notifications.saveRecord({
+              ...record,
+              state: 'resolved',
+              resolvedAt: this.now().toISOString(),
+              leaseToken: null,
+              leaseUntil: null,
             });
-          tx.notifications.saveRecord({
-            ...record,
-            state: 'resolved',
-            resolvedAt: this.now().toISOString(),
-            leaseToken: null,
-            leaseUntil: null,
-          });
-        }
-      }
     });
+    this.legacySwept = true;
   }
   private claim(workspaceId: WorkspaceId): Claim | undefined {
     return this.storage.transaction((tx) => {
@@ -440,7 +427,7 @@ export class NotificationService {
   }
   private async deliverDue(): Promise<void> {
     this.attention.flush();
-    this.adoptLegacy();
+    this.sweepLegacy();
     for (const initial of this.storage.notifications.listSettings()) {
       if (this.abort.signal.aborted) return;
       for (let count = 0; count < 20 && !this.abort.signal.aborted; count += 1) {
@@ -514,7 +501,12 @@ export class NotificationService {
             ...(delivery.status === 'accepted' ? {} : { error: delivery.reason }),
           };
           // Every attempt is kept, including for items that resolved while it was in flight.
-          tx.attention.appendDelivery(record);
+          // The push has happened: failing to log it must not keep the lease and resend.
+          try {
+            this.storage.transaction((inner) => inner.attention.appendDelivery(record));
+          } catch {
+            /* The items below still record the send. */
+          }
           if (claim.kind === 'test') {
             const current = tx.notifications.find(settings.workspaceId, claim.record.id);
             if (current?.leaseToken === claim.record.leaseToken) {
@@ -598,6 +590,18 @@ export class NotificationService {
     workspaceId: WorkspaceId,
     claim: Claim,
   ): { readonly title: string; readonly message: string; readonly path: string } {
+    const text = this.text(workspaceId, claim);
+    // Stored bounds count UTF-16 units; `notificationText` counts code points.
+    return {
+      ...text,
+      title: truncateUtf16(text.title, 250),
+      message: truncateUtf16(text.message, 1024),
+    };
+  }
+  private text(
+    workspaceId: WorkspaceId,
+    claim: Claim,
+  ): { readonly title: string; readonly message: string; readonly path: string } {
     if (claim.kind === 'test') return claim.record;
     const reminder = (item: AttentionItem) => item.delivery.deliveredCount > 0;
     const [only] = claim.items;
@@ -651,20 +655,4 @@ export class NotificationService {
       payload: { action },
     });
   }
-}
-
-/**
- * The item subject a pre-R-A4 outbox key stood for. Keys are identifiers the daemon built,
- * `cycle:<id>:<status>…`, `run:<id>:<sequence>…`, `roadmap:<id>:<kind>…`, never prose.
- */
-function legacySubject(sourceKey: string): string | undefined {
-  const [family, id, kind, entry] = sourceKey.split(':');
-  if (!id) return undefined;
-  if (family === 'cycle') return `cycle:${id}`;
-  if (family === 'run') return `run:${id}`;
-  if (family === 'storage') return sourceKey;
-  if (family !== 'roadmap') return undefined;
-  if (kind === 'needs-attention') return `roadmap:${id}`;
-  if (kind === 'entry' && entry) return `roadmap:${id}:entry:${entry}`;
-  return kind === 'environments' || kind === 'checkpoints' ? `roadmap:${id}:${kind}` : undefined;
 }

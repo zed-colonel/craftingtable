@@ -65,6 +65,11 @@ export interface AttentionRepository {
   update(item: AttentionItem): void;
   appendDelivery(delivery: NotificationDelivery): void;
   deliveries(workspaceId: WorkspaceId, limit: number): readonly NotificationDelivery[];
+  /** The accepted pushes that carried an item, from the delivery log. */
+  delivered(
+    workspaceId: WorkspaceId,
+    itemId: string,
+  ): { readonly first: string; readonly last: string; readonly count: number } | undefined;
   /** Items the daemon resolved by itself after a push had been accepted for them. */
   falseAlarms(workspaceId: WorkspaceId): readonly AttentionItem[];
 }

@@ -1451,15 +1451,27 @@ export class WorkCycleService {
         !['implement', 'remediate', 'review'].includes(cycle.step) ||
         !run ||
         run.id !== cycle.currentRunId ||
-        run.status !== 'finished' ||
         allRuns.some((r) => !isTerminalAgentRunStatus(r.status))
       )
         throw new ExecutionRequestError(
           'conflict',
-          'Guided continuation requires answers or guidance and the finished current implementation or review.',
+          'Guided continuation requires answers or guidance and the ended current implementation or review.',
         );
-      const stepGuidance = reviewGuidance.trim();
-      if (cycle.step === 'review') {
+      // A step that failed or was interrupted (a service stop asks for guidance) never acted
+      // on its guidance to completion, so the retry carries it forward with the new guidance.
+      const stepGuidance = [
+        run.status === 'finished' ? undefined : cycle.stepGuidance,
+        reviewGuidance,
+      ]
+        .map((text) => text?.trim())
+        .filter(Boolean)
+        .join('\n\n');
+      if (stepGuidance.length > 16000)
+        throw new ExecutionRequestError(
+          'invalid-request',
+          'Combined guidance for this step exceeds 16000 characters.',
+        );
+      if (cycle.step === 'review' && run.status === 'finished') {
         const assessment = latestReviewReport(this.storage.execution, run);
         if (
           assessment?.status === 'complete' &&

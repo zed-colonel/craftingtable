@@ -637,6 +637,50 @@ describe('bounded model service recovery', () => {
     expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
   });
 
+  it('continues a nonretryable service stop with the guidance its stop asks for', async () => {
+    const stop = {
+      ...overloaded,
+      providerFailure: { ...overloaded.providerFailure!, safeToRetry: false },
+    };
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      stop,
+      stop,
+      implementationDone,
+      { resultText: reviewText([]) },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    const guide = async (instructions: string) => {
+      await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'service stop');
+      expect(currentCycle(state, cycle)).toMatchObject({
+        step: 'implement',
+        attention: { code: 'service-failure-not-retryable' },
+      });
+      const response = await state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+        headers: mutationHeaders(state),
+        payload: {
+          action: 'resume',
+          expectedVersion: currentCycle(state, cycle).version,
+          instructions,
+        },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+    };
+    const first = 'The provider outage has cleared; repeat the step.';
+    const second = 'It cleared again; finish the step.';
+    await guide(first);
+    // The guided retry failed on the same outage, so its guidance was never acted on.
+    await guide(second);
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'guided retry');
+    expect(backend.launches).toHaveLength(5);
+    expect(backend.launches[2]?.prompt).toContain(first);
+    expect(backend.launches[3]?.prompt).toContain(`${first}\n\n${second}`);
+    expect(backend.launches[4]?.prompt).not.toContain(second);
+    expect(currentCycle(state, cycle).remediationRounds).toBe(0);
+  });
+
   /** Replays a recorded vendor failure through the real adapter normalizer. */
   function recordedFailure(name: string) {
     const lines = readFileSync(

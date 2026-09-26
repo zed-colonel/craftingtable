@@ -15,6 +15,8 @@ export const CYCLE_ATTENTION = {
   // Agent-run outcomes (decideStepOutcome).
   'service-failure-not-retryable': 'operator',
   'service-retries-exhausted': 'operator',
+  // The provider kept rejecting credentials the host never supplied (R-C11).
+  'provider-credentials-rejected': 'operator',
   'exit-with-open-questions': 'operator',
   'completion-continuations-exhausted': 'operator',
   'background-work-unsafe': 'operator',

@@ -1,4 +1,10 @@
-import { codexProviderFailure } from './provider-failure.js';
+import {
+  type CodexAuthMode,
+  codexCredentialRejection,
+  codexProviderFailure,
+  credentialRejected,
+  localAuthenticationFailure,
+} from './provider-failure.js';
 import type { ProviderFailure, AgentRunEventPayloads } from '@craftingtable/domain';
 import {
   boundedJson,
@@ -35,8 +41,52 @@ export class CodexStreamNormalizer {
   private failure: ProviderFailure | undefined;
   private unsafeContinuation = false;
   private readonly pendingTools = new Set<string>();
-  requireOperator(): void {
-    this.unsafeContinuation = true;
+  /** Interactive requests Codex made this turn; CraftingTable answered none of them. */
+  private readonly interactions = new Set<string>();
+  /** A command whose automatic approval review failed on a provider credential rejection. */
+  private approvalOutage: ProviderFailure | undefined;
+  private auth: CodexAuthMode = 'unknown';
+  /** The session's sign-in mode, which tells a provider-side rejection from a local one. */
+  setAuthMode(mode: CodexAuthMode): void {
+    this.auth = mode;
+  }
+  requireOperator(method = 'unknown'): void {
+    this.interactions.add(method);
+  }
+  /**
+   * Codex reports a command its automatic approval review could not decide only on stderr.
+   * A review that failed on the provider's credential rejection is the same outage as a
+   * failed turn (R-C11), not a question for the operator about approvals.
+   */
+  observeStderr(text: string): void {
+    if (!text.includes('Automatic approval review failed')) return;
+    const rejected = codexCredentialRejection(text);
+    if (rejected && this.auth === 'chatgpt')
+      this.approvalOutage ??= credentialRejected(`automatic approval review: ${rejected}`);
+  }
+  /** Whether the turn ending now would be classified as a provider-side rejection. */
+  suspectsProviderRejection(turn: Record<string, unknown>): boolean {
+    const failure =
+      turn.status === 'completed'
+        ? this.approvalOutage
+        : (this.failure ??
+          codexProviderFailure(
+            isRecord(turn.error) ? turn.error.codexErrorInfo : undefined,
+            isRecord(turn.error) ? stringOf(turn.error.message) : '',
+            this.auth,
+          ));
+    return failure?.kind === 'credential-rejected';
+  }
+  /** The local login is gone: the rejection is the operator's to fix, not an outage. */
+  localLoginLost(): void {
+    this.auth = 'unknown';
+    const local = (failure: ProviderFailure | undefined) =>
+      failure?.kind === 'credential-rejected'
+        ? localAuthenticationFailure(failure.evidence)
+        : failure;
+    this.failure = local(this.failure);
+    // An approval review that failed with the login gone leaves the agent's own outcome.
+    this.approvalOutage = undefined;
   }
   private startedAt = Date.now();
   private lastMessage = '';
@@ -61,6 +111,8 @@ export class CodexStreamNormalizer {
   beginTurn(): void {
     this.failure = undefined;
     this.unsafeContinuation = false;
+    this.interactions.clear();
+    this.approvalOutage = undefined;
     this.pendingTools.clear();
     this.lastMessage = '';
     this.lastMessageTruncated = false;
@@ -133,6 +185,8 @@ export class CodexStreamNormalizer {
     if (method === 'error') {
       const failure = codexProviderFailure(
         isRecord(params.error) ? params.error.codexErrorInfo : undefined,
+        isRecord(params.error) ? stringOf(params.error.message) : '',
+        this.auth,
       );
       this.failure = { ...failure, safeToRetry: failure.safeToRetry && params.willRetry === false };
       return [this.notice(isRecord(params.error) ? stringOf(params.error.message) : 'Codex error')];
@@ -145,14 +199,32 @@ export class CodexStreamNormalizer {
   }
   complete(turn: Record<string, unknown>, model: string, costUsd?: number): NormalizedAgentEvent {
     this.turns += 1;
-    const failed = turn.status !== 'completed';
+    // A turn that "completed" after its approval review was rejected by the provider did not
+    // do its work: it is the outage, and retrying the step is the remedy (R-C11).
+    const outage = turn.status === 'completed' ? this.approvalOutage : undefined;
+    const failed = turn.status !== 'completed' || outage !== undefined;
     const result = failed
       ? truncateUtf8(
           (isRecord(turn.error) ? stringOf(turn.error.message) : '') ||
+            (outage ? `${outage.message} ${outage.evidence ?? ''}`.trim() : '') ||
             `Codex turn ${stringOf(turn.status)}`,
           MESSAGE_TEXT_LIMIT_BYTES,
         )
       : { text: this.lastMessage, truncated: this.lastMessageTruncated };
+    const failure =
+      outage ??
+      this.failure ??
+      codexProviderFailure(
+        isRecord(turn.error) ? turn.error.codexErrorInfo : undefined,
+        isRecord(turn.error) ? stringOf(turn.error.message) : '',
+        this.auth,
+      );
+    // Questions CraftingTable left unanswered make a retry unsafe, except the agent asking
+    // about the outage itself.
+    const interactionsSafe =
+      this.interactions.size === 0 ||
+      (outage !== undefined &&
+        [...this.interactions].every((method) => method === 'item/tool/requestUserInput'));
     return {
       kind: 'turn-completed',
       payload: {
@@ -160,19 +232,12 @@ export class CodexStreamNormalizer {
         ...(failed
           ? {
               providerFailure: {
-                ...(this.failure ??
-                  codexProviderFailure(
-                    isRecord(turn.error) ? turn.error.codexErrorInfo : undefined,
-                  )),
+                ...failure,
                 safeToRetry:
-                  turn.status === 'failed' &&
-                  (
-                    this.failure ??
-                    codexProviderFailure(
-                      isRecord(turn.error) ? turn.error.codexErrorInfo : undefined,
-                    )
-                  ).safeToRetry &&
+                  (turn.status === 'failed' || outage !== undefined) &&
+                  failure.safeToRetry &&
                   !this.unsafeContinuation &&
+                  interactionsSafe &&
                   this.pendingTools.size === 0,
               },
             }

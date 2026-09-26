@@ -6,6 +6,7 @@ import { About } from '../../components/About.js';
 const SERVICE_STOPS: readonly string[] = [
   'service-retries-exhausted',
   'service-failure-not-retryable',
+  'provider-credentials-rejected',
 ];
 
 export function ProviderRecovery({
@@ -35,6 +36,7 @@ export function ProviderRecovery({
     <section className="panel" aria-label="Model service recovery">
       <h3>Model service recovery</h3>
       <p>{recovery.failure.message}</p>
+      {recovery.failure.evidence && <p className="hint">Evidence: {recovery.failure.evidence}</p>}
       <p>
         {recovery.attempts} of 3 service retries used ·{' '}
         {AGENT_BACKEND_LABELS[recovery.profile.backend]} · {recovery.profile.model}
@@ -47,6 +49,8 @@ export function ProviderRecovery({
         </p>
       ) : cycle.status === 'running' ? (
         <p>Retrying the same step.</p>
+      ) : code === 'provider-credentials-rejected' ? (
+        <p>The provider kept rejecting credentials. Check its status, then resume.</p>
       ) : code === 'service-failure-not-retryable' ? (
         <p>The service reported this failure as not retryable. Give guidance before resuming.</p>
       ) : (
@@ -55,7 +59,8 @@ export function ProviderRecovery({
       <About label="About service retries">
         <p>
           Service retries wait 1, 5, then 15 minutes, or until a reported usage-limit reset (at most
-          6 hours); a reset wait moves the step deadline by the time waited. Retries do not use
+          6 hours); a provider rejecting its credentials is retried after 5, 15, then 30 minutes.
+          Reset and credential waits move the step deadline by the time waited. Retries do not use
           remediation attempts or change the model. Every verification and merge gate still applies.
         </p>
       </About>

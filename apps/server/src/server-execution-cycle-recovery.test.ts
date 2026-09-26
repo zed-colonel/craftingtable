@@ -650,10 +650,14 @@ describe('bounded model service recovery', () => {
       const normalizer = new ClaudeStreamNormalizer({ permissionMode: 'auto', cwd: '/work' });
       for (const line of lines) events.push(...normalizer.normalizeLine(line));
     } else {
+      // As the Codex session feeds it: signed in with ChatGPT, requests and stderr included.
       const normalizer = new CodexStreamNormalizer();
+      normalizer.setAuthMode('chatgpt');
       for (const line of lines) {
-        const { method, params } = JSON.parse(line);
-        if (method === 'turn/started') normalizer.beginTurn();
+        const { method, params, id, stderr } = JSON.parse(line);
+        if (stderr !== undefined) normalizer.observeStderr(stderr);
+        else if (id !== undefined) normalizer.requireOperator(method);
+        else if (method === 'turn/started') normalizer.beginTurn();
         else if (method === 'turn/completed') events.push(normalizer.complete(params.turn, 'm'));
         else events.push(...normalizer.normalize(method, params));
       }
@@ -730,6 +734,94 @@ describe('bounded model service recovery', () => {
       'design-model',
       'implement-model',
     ]);
+  });
+
+  it.each([
+    ['codex-provider-credential-rejected', 'API Error'],
+    // The review asked the operator to restore the approval service: the outage, not a question.
+    [
+      'codex-approval-review-rejected',
+      '## Open questions\n- Can you restore the automatic approval service so I can run the required ct-act jobs? The approval service returned HTTP 401.',
+    ],
+  ])(
+    'waits out the recorded 2026-09-25 credential outage (%s), then continues without the operator (R-C11)',
+    async (name, resultText) => {
+      let now = new Date('2026-09-25T22:41:00Z');
+      const failure = recordedFailure(name);
+      expect(failure).toMatchObject({ kind: 'credential-rejected', safeToRetry: true });
+      const { state, backend, worktree } = await cycleFixture(
+        [{ resultText, providerFailure: failure }, designDone],
+        () => now,
+      );
+      const cycle = await startCycle(state, worktree.id);
+      const deadline = Date.parse(currentCycle(state, cycle).runDeadlineAt);
+      await waitFor(
+        () => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+        'credential wait',
+      );
+      const waiting = currentCycle(state, cycle);
+      expect(waiting).toMatchObject({
+        status: 'running',
+        providerRecovery: { attempts: 0, failure, nextRetryAt: '2026-09-25T22:46:00.000Z' },
+      });
+      expect(waiting.attention).toBeUndefined();
+      expect(Date.parse(waiting.runDeadlineAt) - deadline).toBe(5 * 60_000);
+      expect(waiting.reason).toContain('provider-side outage is suspected');
+      expect(waiting.reason).toContain('Evidence: ');
+      now = new Date('2026-09-25T22:46:00Z');
+      await waitFor(() => backend.launches.length === 3, 'retried design, then implementation');
+      expect(currentCycle(state, cycle).attention).toBeUndefined();
+    },
+  );
+
+  it('stops with the suspected outage and its evidence once the credential retries are spent (R-C11)', async () => {
+    let now = new Date('2026-09-25T22:41:00Z');
+    const failure = recordedFailure('codex-provider-credential-rejected');
+    const rejected = { resultText: 'API Error', providerFailure: failure };
+    const { state, backend, worktree } = await cycleFixture(
+      [rejected, rejected, rejected, rejected],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id);
+    for (const [attempt, minutes] of [
+      [1, 5],
+      [2, 15],
+      [3, 30],
+    ] as const) {
+      await waitFor(
+        () => currentCycle(state, cycle).providerRecovery?.nextRetryAt !== undefined,
+        `wait ${attempt}`,
+      );
+      now = new Date(Date.parse(currentCycle(state, cycle).providerRecovery!.nextRetryAt!));
+      expect(now.getTime() - Date.parse(currentCycle(state, cycle).updatedAt)).toBeLessThanOrEqual(
+        minutes * 60_000,
+      );
+      await waitFor(() => backend.launches.length === attempt + 1, `retry ${attempt}`);
+    }
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'spent');
+    const stopped = currentCycle(state, cycle);
+    expect(stopped.attention).toMatchObject({
+      code: 'provider-credentials-rejected',
+      owner: 'operator',
+    });
+    expect(stopped.reason).toContain('provider-side outage is suspected');
+    expect(stopped.reason).toContain(
+      'Evidence: HTTP 401 from https://chatgpt.com/backend-api/codex/responses naming an API key sk-svcac…fvMA',
+    );
+    expect(stopped.reason).toContain('Three retries');
+  });
+
+  it('still stops a locally expired login for a new sign-in (R-C11)', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: 'API Error', providerFailure: recordedFailure('codex-unauthorized') },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'login stop');
+    expect(backend.launches).toHaveLength(1);
+    expect(currentCycle(state, cycle)).toMatchObject({
+      attention: { code: 'service-failure-not-retryable' },
+      reason: expect.stringContaining('Sign in again on the workstation'),
+    });
   });
 
   it('does not extend the deadline for a provider retry', async () => {

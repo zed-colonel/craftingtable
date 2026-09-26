@@ -32,3 +32,21 @@ full prior conversation instead. Pinned review continuations permit existing ver
 only under the established unchanged HEAD/target/index checks; they cannot adopt partial reports.
 The new review must finish successfully, produce a valid complete report and satisfy normal gates.
 No retry grants new model, merge or protected-branch promotion authority.
+
+## Amendment 2026-09-25: provider-side credential rejections (R-C11)
+
+A provider can reject credentials the host never supplied: on 2026-09-25 Codex's backend
+answered ChatGPT-mode sessions with "401 Unauthorized: Incorrect API key provided: sk-svcac…"
+for about 21 minutes, and Codex's automatic approval review failed the same way. The Codex
+adapter now classifies such a 401 as `credential-rejected` when the session's login is ChatGPT
+mode and still present after the failure (`account/read`), with the observed endpoint, masked
+key and request id as evidence. Codex gives no structured code for it, so the adapter reads the
+backend's status line; this is the one message the provider-failure classifier reads. A command
+refused because its approval review hit the same rejection ends the turn as the same failure,
+even when the agent went on to ask the operator about it.
+
+The controller retries a `credential-rejected` step three times, after 5, 15 and 30 minutes,
+and moves the step deadline by each wait. Spent or unsafe retries stop with the code
+`provider-credentials-rejected`, naming the suspected outage and the evidence. A rejected
+local login (Codex's `unauthorized`, an API-key login, or a login that is gone) still stops at
+once and asks the operator to sign in again.

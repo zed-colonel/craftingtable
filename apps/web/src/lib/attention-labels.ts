@@ -7,6 +7,7 @@ import type { AttentionItemCode } from '@craftingtable/domain';
 export const ATTENTION_CODE_LABELS: Readonly<Record<AttentionItemCode, string>> = {
   'service-failure-not-retryable': 'Service failure',
   'service-retries-exhausted': 'Service retries used up',
+  'provider-credentials-rejected': 'Provider rejected credentials',
   'exit-with-open-questions': 'Agent questions',
   'completion-continuations-exhausted': 'Agent did not finish',
   'background-work-unsafe': 'Background work left running',

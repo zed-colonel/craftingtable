@@ -135,6 +135,10 @@ export class CodexSession implements AgentSession {
       if (account.account.type === 'chatgpt') billing = 'subscription';
       if (account.account.type === 'apiKey') billing = 'api-key';
     }
+    // A 401 naming an API key is the provider's when the login sends none (R-C11).
+    this.normalizer.setAuthMode(
+      billing === 'subscription' ? 'chatgpt' : billing === 'api-key' ? 'api-key' : 'unknown',
+    );
     if (this.killed || this.closed) return;
     const resume = this.request.resumeSessionId;
     const result = await this.rpc.request(resume ? 'thread/resume' : 'thread/start', {
@@ -271,10 +275,33 @@ export class CodexSession implements AgentSession {
         /* Optional telemetry must not turn successful work into a failure. */
       }
     }
-    this.emit(this.normalizer.complete(turn, this.model, costUsd));
+    // Before calling a rejection the provider's, confirm the local login is still ChatGPT
+    // mode; a login that is gone is the operator's to restore (R-C11).
+    if (!this.killed && this.normalizer.suspectsProviderRejection(turn)) {
+      try {
+        const account = await this.rpc.request(
+          'account/read',
+          { refreshToken: false },
+          Math.min(this.options.requestTimeoutMs ?? 2000, 2000),
+        );
+        if (!isRecord(account) || !isRecord(account.account) || account.account.type !== 'chatgpt')
+          this.normalizer.localLoginLost();
+      } catch {
+        /* An unanswered check leaves the observed classification. */
+      }
+    }
+    const completed = this.normalizer.complete(turn, this.model, costUsd);
+    this.emit(completed);
     this.completing = false;
-    if (turn.status !== 'completed' && !this.killed)
-      this.fail(new Error(`Codex turn ${stringOf(turn.status)}`));
+    const failed = completed.kind === 'turn-completed' && completed.payload.outcome === 'error';
+    if ((turn.status !== 'completed' || failed) && !this.killed)
+      this.fail(
+        new Error(
+          turn.status === 'completed'
+            ? 'Codex could not do its work: the provider rejected its credentials'
+            : `Codex turn ${stringOf(turn.status)}`,
+        ),
+      );
     else void this.pump();
   }
   private notification(method: string, params: Record<string, unknown>): void {
@@ -309,8 +336,8 @@ export class CodexSession implements AgentSession {
     for (const event of this.normalizer.normalize(method, params)) this.emit(event);
   }
   private serverRequest(value: Record<string, unknown>): void {
-    this.normalizer.requireOperator();
     const method = stringOf(value.method);
+    this.normalizer.requireOperator(method);
     let result: unknown;
     if (
       method === 'item/commandExecution/requestApproval' ||
@@ -368,6 +395,7 @@ export class CodexSession implements AgentSession {
       }
       if (item.type === 'background-work-waiting') continue;
       if (item.type === 'stderr') {
+        this.normalizer.observeStderr(item.text);
         this.emit({ kind: 'stderr', payload: { text: truncateUtf8(item.text, 8192).text } });
         continue;
       }

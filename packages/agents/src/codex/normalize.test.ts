@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { RAW_LINE_LIMIT_BYTES, TOOL_RESULT_LIMIT_BYTES } from '../bounded.js';
 import { CodexStreamNormalizer } from './normalize.js';
+import type { CodexAuthMode } from './provider-failure.js';
 
 it('normalizes tool lifecycle once, ignores deltas and user echoes, and keeps final text and per-turn usage', () => {
   const normalizer = new CodexStreamNormalizer();
@@ -258,16 +259,23 @@ it('does not retry ambiguous tools, interactive requests, auth, quotas or unknow
   }
 });
 
-function replayFixture(name: string) {
+/**
+ * Replays a recorded app-server stream as the session feeds it: notifications, requests
+ * Codex made (answered by the session), and stderr lines, under a sign-in mode.
+ */
+function replayFixture(name: string, auth: CodexAuthMode = 'chatgpt') {
   const normalizer = new CodexStreamNormalizer();
+  normalizer.setAuthMode(auth);
   const events = [];
   const fixture = readFileSync(
     new URL(`../../fixtures/provider-failures/${name}.jsonl`, import.meta.url),
     'utf8',
   );
   for (const line of fixture.trim().split('\n')) {
-    const { method, params } = JSON.parse(line);
-    if (method === 'turn/started') normalizer.beginTurn();
+    const { method, params, id, stderr } = JSON.parse(line);
+    if (stderr !== undefined) normalizer.observeStderr(stderr);
+    else if (id !== undefined) normalizer.requireOperator(method);
+    else if (method === 'turn/started') normalizer.beginTurn();
     else if (method === 'turn/completed') events.push(normalizer.complete(params.turn, 'model'));
     else events.push(...normalizer.normalize(method, params));
   }
@@ -284,11 +292,90 @@ it.each([
   ['codex-rate-limit-http', 'quota', false],
   ['codex-unauthorized', 'authentication', false],
   ['codex-bad-request', 'unknown', false],
+  // The 2026-09-25 outage: a failed implement turn, and a review whose approval review failed.
+  ['codex-provider-credential-rejected', 'credential-rejected', true],
+  ['codex-approval-review-rejected', 'credential-rejected', true],
 ] as const)('recorded %s is classified as %s (retry %s)', (name, kind, safeToRetry) => {
   const turn = replayFixture(name).at(-1);
   expect(turn).toMatchObject({
     kind: 'turn-completed',
     payload: { outcome: 'error', providerFailure: { kind, safeToRetry } },
+  });
+});
+
+it('names the evidence of a provider-side credential rejection (R-C11)', () => {
+  expect(replayFixture('codex-provider-credential-rejected').at(-1)).toMatchObject({
+    payload: {
+      providerFailure: {
+        kind: 'credential-rejected',
+        message: expect.stringContaining('provider-side outage is suspected'),
+        evidence:
+          'HTTP 401 from https://chatgpt.com/backend-api/codex/responses naming an API key sk-svcac…fvMA (request 4d5b4d51-4051-4784-812d-b13fbc099319)',
+      },
+    },
+  });
+  // The review ended with the agent asking about the approval service: that is the outage,
+  // reported as a failed turn, not an operator question.
+  expect(replayFixture('codex-approval-review-rejected').at(-1)).toMatchObject({
+    payload: {
+      outcome: 'error',
+      providerFailure: {
+        kind: 'credential-rejected',
+        evidence: expect.stringMatching(
+          /^automatic approval review: HTTP 401 from https:\/\/chatgpt\.com/,
+        ),
+      },
+    },
+  });
+});
+
+it('keeps a local login problem with the operator, asking to sign in again (R-C11)', () => {
+  // The same rejection under an API-key login is that key being refused.
+  for (const name of ['codex-provider-credential-rejected', 'codex-approval-review-rejected'])
+    expect(replayFixture(name, 'api-key').at(-1)?.payload).not.toMatchObject({
+      providerFailure: { kind: 'credential-rejected' },
+    });
+  expect(replayFixture('codex-provider-credential-rejected', 'api-key').at(-1)).toMatchObject({
+    payload: {
+      providerFailure: {
+        kind: 'authentication',
+        safeToRetry: false,
+        message: expect.stringContaining('Sign in again'),
+      },
+    },
+  });
+  // Codex's own login failing (for example a failed token refresh).
+  expect(replayFixture('codex-unauthorized').at(-1)).toMatchObject({
+    payload: {
+      providerFailure: {
+        kind: 'authentication',
+        message: expect.stringContaining('Sign in again'),
+      },
+    },
+  });
+  // A login found gone when the session checks it after the rejection.
+  const n = new CodexStreamNormalizer();
+  n.setAuthMode('chatgpt');
+  n.beginTurn();
+  const message =
+    'unexpected status 401 Unauthorized: Incorrect API key provided: sk-svcac****fvMA. url: https://chatgpt.com/backend-api/codex/responses, request id: 4d5b4d51-4051-4784-812d-b13fbc099319';
+  n.normalize('error', { error: { message, codexErrorInfo: 'other' }, willRetry: false });
+  const turn = { status: 'failed', error: { message, codexErrorInfo: 'other' } };
+  expect(n.suspectsProviderRejection(turn)).toBe(true);
+  n.localLoginLost();
+  expect(n.complete(turn, 'model').payload).toMatchObject({
+    providerFailure: { kind: 'authentication', safeToRetry: false },
+  });
+});
+
+it('still stops for an unanswered question when no outage explains it', () => {
+  const n = new CodexStreamNormalizer();
+  n.setAuthMode('chatgpt');
+  n.beginTurn();
+  n.requireOperator('item/tool/requestUserInput');
+  n.normalize('error', { error: { codexErrorInfo: 'serverOverloaded' }, willRetry: false });
+  expect(n.complete({ status: 'failed' }, 'model').payload).toMatchObject({
+    providerFailure: { kind: 'capacity', safeToRetry: false },
   });
 });
 

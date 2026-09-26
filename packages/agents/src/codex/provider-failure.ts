@@ -1,21 +1,76 @@
 import type { ProviderFailure } from '@craftingtable/domain';
 import { isRecord } from '../bounded.js';
 
-/** Only app-server's structured CodexErrorInfo is authoritative, never message text. */
-export function codexProviderFailure(info: unknown): ProviderFailure {
+/** How the Codex session is signed in, from app-server's `account/read`. */
+export type CodexAuthMode = 'chatgpt' | 'api-key' | 'unknown';
+
+/**
+ * The structured CodexErrorInfo is authoritative. One exception reads the message (R-C11):
+ * Codex reports a provider-side credential rejection only as `other`, with the backend's
+ * status line in the text. The line names an API key while a ChatGPT-mode login never
+ * sends one, so it is the provider rejecting credentials the host did not supply.
+ */
+const PROVIDER_REJECTION =
+  /unexpected status 401 Unauthorized: Incorrect API key provided: (sk-[A-Za-z]{0,12})\**([A-Za-z0-9]{0,8})[.,]?[\s\S]*?url: (https:\/\/chatgpt\.com\/backend-api\/[^\s,]+)(?:[\s\S]*?request id: ([0-9A-Fa-f-]{8,64}))?/;
+
+/** The observed facts of a provider-side rejection, or undefined when the text is not one. */
+export function codexCredentialRejection(message: string): string | undefined {
+  const match = PROVIDER_REJECTION.exec(message);
+  if (!match) return undefined;
+  const [, prefix, suffix, url, request] = match;
+  return `HTTP 401 from ${url} naming an API key ${prefix}…${suffix ?? ''}${
+    request ? ` (request ${request})` : ''
+  }`;
+}
+
+/** A rejection seen while the local login is ChatGPT mode: the provider's side, retried. */
+export function credentialRejected(evidence: string, safeToRetry = true): ProviderFailure {
+  return {
+    kind: 'credential-rejected',
+    message:
+      'Codex rejected its credentials: a provider-side outage is suspected; the local login is ChatGPT mode and sends no API key.',
+    safeToRetry,
+    evidence: evidence.slice(0, 1000),
+  };
+}
+
+/** The local login itself needs the operator: sign in again on the workstation. */
+export function localAuthenticationFailure(evidence?: string): ProviderFailure {
+  return {
+    kind: 'authentication',
+    message:
+      "Codex's local login was rejected or has expired. Sign in again on the workstation (codex login), then resume.",
+    safeToRetry: false,
+    ...(evidence ? { evidence: evidence.slice(0, 1000) } : {}),
+  };
+}
+
+export function codexProviderFailure(
+  info: unknown,
+  message = '',
+  auth: CodexAuthMode = 'unknown',
+): ProviderFailure {
   const failure = (
     kind: ProviderFailure['kind'],
-    message: string,
+    text: string,
     safeToRetry = false,
-  ): ProviderFailure => ({ kind, message, safeToRetry });
+  ): ProviderFailure => ({ kind, message: text, safeToRetry });
   if (info === 'serverOverloaded')
     return failure('capacity', 'The selected model is at capacity.', true);
   if (info === 'internalServerError')
     return failure('unavailable', 'The model service reported an internal failure.', true);
-  if (info === 'unauthorized')
-    return failure('authentication', 'The model service requires authentication.');
+  // Codex reports its own login failing, e.g. a token refresh that failed.
+  if (info === 'unauthorized') return localAuthenticationFailure();
   if (['usageLimitExceeded', 'sessionBudgetExceeded', 'rateLimitExceeded'].includes(String(info)))
     return failure('quota', 'The model service reported an allowance or rate limit.');
+  if (info === 'other' || info === undefined || info === null) {
+    const rejected = codexCredentialRejection(message);
+    // With an API-key login, a rejected key is the operator's to replace.
+    if (rejected)
+      return auth === 'chatgpt'
+        ? credentialRejected(rejected)
+        : localAuthenticationFailure(rejected);
+  }
   if (isRecord(info)) {
     const keys = Object.keys(info);
     const key = keys[0];

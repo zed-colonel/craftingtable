@@ -49,6 +49,7 @@ type Finalization = NonNullable<ReturnType<typeof finalizationForCycle>>;
 export const STEP_ATTENTION_CODES = [
   'service-failure-not-retryable',
   'service-retries-exhausted',
+  'provider-credentials-rejected',
   'exit-with-open-questions',
   'completion-continuations-exhausted',
   'background-work-unsafe',
@@ -200,6 +201,12 @@ const SERVICE_RETRY_DELAYS_MS = [60_000, 300_000, 900_000] as const;
  * reset further away than the limit (a weekly allowance) stops for the operator.
  */
 const QUOTA_RESET_MARGIN_MS = 120_000;
+/**
+ * R-C11: a provider rejecting credentials the host never supplied is an outage on its side.
+ * It is retried on a slower schedule than ADR-062's, spanning about 50 minutes, because such
+ * outages last tens of minutes (2026-09-25: 21 minutes).
+ */
+const CREDENTIAL_RETRY_DELAYS_MS = [300_000, 900_000, 1_800_000] as const;
 export const QUOTA_WAIT_LIMIT_MS = 6 * 60 * 60_000;
 
 function attention(code: StepAttentionCode, message: string, workflow?: WorkCycle['workflow']) {
@@ -270,17 +277,30 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
       failure.kind === 'quota' && failure.resetsAt ? Date.parse(failure.resetsAt) : Number.NaN;
     const quotaWait =
       Number.isFinite(resetAt) && resetAt - facts.now.getTime() <= QUOTA_WAIT_LIMIT_MS;
+    // The agent's questions during a credential outage are about the outage (R-C11).
+    const credentials = failure.kind === 'credential-rejected';
     const retryable =
       failure.safeToRetry &&
-      (['capacity', 'unavailable', 'transport'].includes(failure.kind) || quotaWait) &&
+      (['capacity', 'unavailable', 'transport'].includes(failure.kind) ||
+        quotaWait ||
+        credentials) &&
       turn !== undefined &&
       turn.payload.outcome === 'error' &&
       !turn.payload.truncated &&
-      !questions &&
+      (!questions || credentials) &&
       !ownsIntegrationResolution(cycle) &&
       !!model &&
       model !== 'default';
-    if (!retryable || attempts >= 3)
+    if (!retryable || attempts >= 3) {
+      if (credentials)
+        return attention(
+          'provider-credentials-rejected',
+          `${failure.message} Evidence: ${failure.evidence ?? 'none recorded'}. ${
+            attempts >= 3
+              ? 'Three retries over about 50 minutes were rejected the same way. Check the provider’s status, then resume; resuming grants a new step window.'
+              : 'Automatic retry is not safe here (work was still outstanding). Inspect the outcome, then resume once the provider accepts requests.'
+          }`,
+        );
       return attention(
         attempts >= 3 ? 'service-retries-exhausted' : 'service-failure-not-retryable',
         `${failure.message} ${
@@ -289,18 +309,22 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
             : 'Automatic retry is not safe or applicable. Inspect the outcome and provide any required guidance before resuming.'
         }`,
       );
+    }
     // attempts is 0, 1 or 2 here: three and more stopped above.
     // ADR-062's backoff is the floor for every retry, so a reset time already in the past
     // cannot use up the three retries within minutes.
-    const backoff = SERVICE_RETRY_DELAYS_MS[attempts] ?? SERVICE_RETRY_DELAYS_MS[2];
+    const backoff = credentials
+      ? (CREDENTIAL_RETRY_DELAYS_MS[attempts] ?? CREDENTIAL_RETRY_DELAYS_MS[2])
+      : (SERVICE_RETRY_DELAYS_MS[attempts] ?? SERVICE_RETRY_DELAYS_MS[2]);
     const delay = quotaWait
       ? Math.max(backoff, resetAt + QUOTA_RESET_MARGIN_MS - facts.now.getTime())
       : backoff;
     const nextRetryAt = new Date(facts.now.getTime() + delay).toISOString();
     return {
       kind: 'schedule-service-retry',
-      // A resource-free wait for the allowance does not use up the step's own time.
-      ...(quotaWait
+      // A resource-free wait for the allowance or for the provider to accept credentials
+      // does not use up the step's own time.
+      ...(quotaWait || credentials
         ? { runDeadlineAt: new Date(Date.parse(cycle.runDeadlineAt) + delay).toISOString() }
         : {}),
       providerRecovery: {
@@ -317,7 +341,9 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
       },
       reason: quotaWait
         ? `${failure.message} The allowance resets at ${failure.resetsAt}; retry ${attempts + 1} of 3 on the same agent is scheduled for ${nextRetryAt}, and the step time limit moves with the wait. Roadmap pauses hold retries.`
-        : `${failure.message} Service retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}. Roadmap pauses hold retries.`,
+        : credentials
+          ? `${failure.message} Evidence: ${failure.evidence ?? 'none recorded'}. Retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}, and the step time limit moves with the wait. Roadmap pauses hold retries.`
+          : `${failure.message} Service retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}. Roadmap pauses hold retries.`,
     };
   }
   if (ended?.payload.reason) {

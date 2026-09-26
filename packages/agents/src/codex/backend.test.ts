@@ -15,13 +15,24 @@ trace({args: process.argv.slice(2), pid: process.pid});
 if (mode === 'scratch') trace({temporaryPaths: [process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CARGO_TARGET_DIR]});
 if (mode === 'ignore-term') process.on('SIGTERM', () => {});
 if (mode === 'shutdown-error') process.on('SIGTERM', () => process.exit(2));
-let initialized = false, threadId = 'fake-thread', turns = 0, active, timer, texts = [];
+let initialized = false, threadId = 'fake-thread', turns = 0, active, timer, texts = [], accountReads = 0;
+const REJECTED = 'unexpected status 401 Unauthorized: Incorrect API key provided: sk-svcac****fvMA. You can find your API key at https://platform.openai.com/account/api-keys., url: https://chatgpt.com/backend-api/codex/responses, request id: 4d5b4d51-4051-4784-812d-b13fbc099319';
 const notify = (method, params) => emit({method, params: {threadId, ...params}});
 function finish(status = 'completed') {
   if (!active) return;
   clearTimeout(timer);
   const id = active;
   if (mode === 'overloaded') notify('error', { turnId: id, willRetry: false, error: { message: 'At capacity', codexErrorInfo: 'serverOverloaded' } });
+  if (String(mode).startsWith('provider-401')) {
+    notify('error', { turnId: id, willRetry: false, error: { message: REJECTED, codexErrorInfo: 'other' } });
+    active = undefined;
+    notify('turn/completed', {turn: {id, status: 'failed', error: {message: REJECTED, codexErrorInfo: 'other'}}});
+    return;
+  }
+  if (mode === 'approval-outage') {
+    process.stderr.write('ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: Rejected(Automatic approval review failed: ' + REJECTED + ') }' + String.fromCharCode(10));
+    emit({id: 'server-question', method: 'item/tool/requestUserInput', params: {threadId, turnId: id, questions: [{title: 'Can you restore the automatic approval service?'}]}});
+  }
   notify('item/completed', {turnId: id, item: {id: 'message-' + id, type: 'agentMessage', text: texts.join(' | ')}});
   notify('thread/tokenUsage/updated', {turnId: id, tokenUsage: {total: {inputTokens: 10 * turns, cachedInputTokens: 5 * turns, outputTokens: 2 * turns, reasoningOutputTokens: turns, totalTokens: 12 * turns}, last: {inputTokens: 10, cachedInputTokens: 5, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 12}}});
   notify('model/rerouted', {turnId: id, fromModel: 'resolved', toModel: 'effective'});
@@ -42,7 +53,11 @@ lines.on('line', line => {
   if (msg.method === 'initialized') {initialized = true; return;}
   if (!msg.method) return;
   if (!initialized) {process.exit(3); return;}
-  if (msg.method === 'account/read') {reply({account: {type: process.env.FAKE_API ? 'apiKey' : 'chatgpt', email: 'private@example.invalid'}}); return;}
+  if (msg.method === 'account/read') {
+    accountReads += 1;
+    if (mode === 'provider-401-logged-out' && accountReads > 1) {reply({account: null}); return;}
+    reply({account: {type: process.env.FAKE_API ? 'apiKey' : 'chatgpt', email: 'private@example.invalid'}}); return;
+  }
   if (msg.method === 'account/usage/read') {
     if (mode === 'usage-timeout') return;
     reply(mode === 'cost' ? {threadUsage: {threadId, estimatedUsageUsdMicros: 125000}} : {}); return;
@@ -69,7 +84,7 @@ lines.on('line', line => {
     if (mode === 'complete-before-reply') {finish(); setTimeout(() => reply({turn: {id, status: 'completed'}}), 20); return;}
     reply({turn: {id, status: 'inProgress'}});
     if (mode === 'hold' || mode === 'ignore-term') return;
-    timer = setTimeout(() => finish(['failed', 'overloaded'].includes(mode) ? 'failed' : 'completed'), 100);
+    timer = setTimeout(() => finish(['failed', 'overloaded'].includes(mode) ? 'failed' : 'completed'), mode === 'approval-outage' ? 300 : 100);
     return;
   }
   if (msg.method === 'turn/steer') {
@@ -366,4 +381,48 @@ it('retains a structured temporary failure through terminal process cleanup', as
   });
   expect(items.at(-1)).toMatchObject({ type: 'exited', exitCode: 1 });
   expect(session.pid).toBeUndefined();
+});
+
+it('reports a provider-side credential rejection, and fails the run it blocked (R-C11)', async () => {
+  const rejected = await launch('provider-401');
+  await rejected.done;
+  expect(turns(rejected.items)[0]).toMatchObject({
+    outcome: 'error',
+    providerFailure: { kind: 'credential-rejected', safeToRetry: true },
+  });
+  expect(rejected.items.at(-1)).toMatchObject({ type: 'exited', exitCode: 1 });
+  // A command refused because the approval review hit the same rejection, after which the
+  // agent asked for help and "completed", is the same outage and ends the run as failed.
+  const approval = await launch('approval-outage');
+  await approval.done;
+  expect(turns(approval.items)[0]).toMatchObject({
+    outcome: 'error',
+    providerFailure: { kind: 'credential-rejected', safeToRetry: true },
+  });
+  expect(approval.items.at(-1)).toMatchObject({ type: 'exited', exitCode: 1 });
+});
+
+it('asks for a new sign-in when the local login is gone or uses an API key (R-C11)', async () => {
+  const loggedOut = await launch('provider-401-logged-out');
+  await loggedOut.done;
+  expect(turns(loggedOut.items)[0]).toMatchObject({
+    providerFailure: { kind: 'authentication', safeToRetry: false },
+  });
+  const cwd = mkdtempSync(join(tmpdir(), 'craftingtable-codex-'));
+  directories.push(cwd);
+  const executable = join(cwd, 'codex');
+  writeFileSync(executable, FAKE);
+  chmodSync(executable, 0o755);
+  const session = await new CodexBackend({
+    executable,
+    env: { FAKE_MODE: 'provider-401', FAKE_API: '1' },
+    terminationGraceMs: 50,
+    requestTimeoutMs: 300,
+  }).launch({ cwd, prompt: 'first', permissionMode: 'auto' });
+  sessions.push(session);
+  const items: AgentSessionItem[] = [];
+  for await (const item of session.items) items.push(item);
+  expect(turns(items)[0]).toMatchObject({
+    providerFailure: { kind: 'authentication', message: expect.stringContaining('Sign in again') },
+  });
 });

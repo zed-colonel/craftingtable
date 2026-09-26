@@ -107,6 +107,13 @@ const serviceFailure = (safeToRetry = true) => ({
   safeToRetry,
   message: 'The model is overloaded.',
 });
+const credentialFailure = (safeToRetry = true) => ({
+  kind: 'credential-rejected' as const,
+  safeToRetry,
+  message: 'Codex rejected its credentials: a provider-side outage is suspected.',
+  evidence:
+    'HTTP 401 from https://chatgpt.com/backend-api/codex/responses naming an API key sk-svcac…fvMA',
+});
 
 function facts(overrides: Partial<StepOutcomeFacts> = {}): StepOutcomeFacts {
   return {
@@ -192,6 +199,23 @@ const rows: readonly Row[] = [
       ended: endedOf({ status: 'failed', exitCode: 1 }),
     },
     expected: { kind: 'attention', code: 'service-retries-exhausted' },
+  },
+  {
+    name: 'provider credential retries stop after three attempts, naming the outage (R-C11)',
+    cycle: {
+      providerRecovery: {
+        attempts: 3,
+        sourceRunId: 'run-0',
+        failure: credentialFailure(),
+        profile: { backend: 'codex', permissionMode: 'auto', model: 'implement-model' },
+      },
+    },
+    facts: {
+      run: failedRun,
+      turn: turnOf('', { outcome: 'error', providerFailure: credentialFailure() }),
+      ended: endedOf({ status: 'failed', exitCode: 1 }),
+    },
+    expected: { kind: 'attention', code: 'provider-credentials-rejected' },
   },
   {
     name: 'an unsafe service failure is not retried',
@@ -537,6 +561,46 @@ describe('controller step classification (R-B2)', () => {
   it('covers every attention code the classification can produce', () => {
     const covered = new Set(rows.flatMap((row) => (row.expected.code ? [row.expected.code] : [])));
     expect(STEP_ATTENTION_CODES.filter((code) => !covered.has(code))).toEqual([]);
+  });
+
+  it('retries a provider credential rejection after 5, 15 and 30 minutes, even past a question (R-C11)', () => {
+    const decide = (attempts: number) =>
+      decideStepOutcome(
+        cycleOf({
+          providerRecovery: {
+            attempts,
+            sourceRunId: 'run-0',
+            failure: credentialFailure(),
+            profile: { backend: 'codex', permissionMode: 'auto', model: 'implement-model' },
+          },
+        }),
+        facts({
+          run: failedRun,
+          turn: turnOf('## Open questions\n- Can you restore the approval service?', {
+            outcome: 'error',
+            providerFailure: credentialFailure(),
+          }),
+          ended: endedOf({ status: 'failed', exitCode: 1 }),
+        }),
+      );
+    expect([0, 1, 2].map((attempts) => decide(attempts))).toMatchObject(
+      ['12:05:00', '12:15:00', '12:30:00'].map((time, attempts) => ({
+        kind: 'schedule-service-retry',
+        providerRecovery: { attempts, nextRetryAt: `2026-09-23T${time}.000Z` },
+        reason: expect.stringContaining('Evidence: HTTP 401'),
+      })),
+    );
+    // An unsafe rejection stops at once with the same code.
+    expect(
+      decideStepOutcome(
+        cycleOf({}),
+        facts({
+          run: failedRun,
+          turn: turnOf('', { outcome: 'error', providerFailure: credentialFailure(false) }),
+          ended: endedOf({ status: 'failed', exitCode: 1 }),
+        }),
+      ),
+    ).toMatchObject({ kind: 'attention', code: 'provider-credentials-rejected' });
   });
 
   it('schedules service retries after 1, 5 and 15 minutes on the same agent', () => {

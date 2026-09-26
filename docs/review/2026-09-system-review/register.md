@@ -38,7 +38,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
 | [R-C9](#r-c9) | P2 | S-M | open | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
 | [R-C10](#r-c10) | P2 | S-M | done (see entry) | Re-verify a roadmap item whose evidence is no longer current, without stopping the roadmap (added 2026-09-25) |
-| [R-C11](#r-c11) | P2 | S-M | open | Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry (added 2026-09-25) |
+| [R-C11](#r-c11) | P2 | S-M | done (see Progress) | Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry (added 2026-09-25) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -651,7 +651,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C11
 
-**Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry** · Phase P2 · Effort S-M · Status: open
+**Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry** · Phase P2 · Effort S-M · Status: done (see Progress)
 
 - **Added 2026-09-25** from a live incident; the operator put it on P2 the same day.
 - **What happened:**
@@ -677,6 +677,22 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - It schedules a retry, and a later successful turn continues without operator action.
   - Spent retries stop with an operator message that names a suspected provider outage and the evidence.
   - A locally expired login still stops asking for re-authentication.
+- **Progress 2026-09-25: done** (ADR-062 amended).
+  - **What Codex reports.** The recorded incident (Codex session logs of runs 7537de3a and 40ee8364) carries `codexErrorInfo: "other"` and the backend's status line only: "unexpected status 401 Unauthorized: Incorrect API key provided: sk-svcac…fvMA … url: https://chatgpt.com/backend-api/codex/responses … request id: …". The approval failure never reached the app-server stream as an item; Codex wrote it to stderr, and the agent then asked the operator to restore the approval service.
+  - **Adapter** (`packages/agents/src/codex/provider-failure.ts`, `normalize.ts`, `session.ts`):
+    - New provider-failure kind `credential-rejected` with `evidence` (endpoint, masked key, request id). It applies only when the session's login is ChatGPT mode, which sends no API key; this is the one message the classifier reads, because Codex gives no structured code for it.
+    - A command refused because its automatic approval review hit the same rejection (seen on stderr) makes the turn fail as the same outage, and the agent's unanswered question about it does not block the retry. Any other unanswered request still does.
+    - Before calling a rejection the provider's, the session re-reads the login (`account/read`); a login that is gone becomes `authentication`.
+    - A local login problem stays with the operator and says so: Codex's `unauthorized`, the same 401 under an API-key login, or a login found gone. The message asks to sign in again (`codex login`).
+  - **Controller** (`decideStepOutcome`): three retries after 5, 15 and 30 minutes (about 50 minutes; the incident lasted 21), on the same agent, moving the step deadline by each wait, like R-C8's quota waits. Spent or unsafe retries stop with the new operator code `provider-credentials-rejected`, whose message names the suspected outage and the evidence. The inbox labels it "Provider rejected credentials"; the provider recovery panel shows the evidence.
+  - **Done-when:**
+    - *Recorded streams replay to the new code:* fixtures `codex-provider-credential-rejected.jsonl` (the failed implement turn) and `codex-approval-review-rejected.jsonl` (the review whose approval failed, with its stderr line and question), reconstructed from the Codex session logs with the vendor's masking kept (`normalize.test.ts`).
+    - *Schedules a retry, and a later successful turn continues without the operator:* `server-execution-cycle-recovery.test.ts` replays both fixtures into a cycle: retry at +5 minutes, deadline moved by 5 minutes, then the design is retried and implementation starts, with no attention.
+    - *Spent retries name the suspected outage and the evidence:* the same file, after 5, 15 and 30 minutes.
+    - *A locally expired login still asks for re-authentication:* adapter tests (`unauthorized`, API-key login, login gone after the rejection, through a fake app-server) and a cycle test.
+  - **Regression tests fail without their fix:** the classifier, the stderr approval path and the controller's retry, each checked by reverting only that change.
+  - **Replays** on a copy of the 2026-09-23 snapshot: 278 and 51 decisions, 0 changed (recorded failures keep their stored kind).
+  - **Gate:** `pnpm check` passes: 187 test files and 1,471 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

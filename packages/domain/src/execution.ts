@@ -284,7 +284,19 @@ export interface RunHandoffSource {
 
 /** Adapter-classified service failure; assistant text is never a retry authorization. */
 export interface ProviderFailure {
-  readonly kind: 'capacity' | 'unavailable' | 'transport' | 'authentication' | 'quota' | 'unknown';
+  /**
+   * `credential-rejected`: the provider rejected credentials the host never supplied while
+   * the local login is healthy, a provider-side outage (R-C11). `authentication`: the local
+   * login itself needs the operator.
+   */
+  readonly kind:
+    | 'capacity'
+    | 'unavailable'
+    | 'transport'
+    | 'authentication'
+    | 'credential-rejected'
+    | 'quota'
+    | 'unknown';
   readonly message: string;
   /** False for outstanding tools, interactive requests, or an unconfirmed terminal failure. */
   readonly safeToRetry: boolean;
@@ -293,6 +305,8 @@ export interface ProviderFailure {
    * rate-limit report. The controller waits until then instead of stopping (R-C8).
    */
   readonly resetsAt?: string;
+  /** What the adapter observed, for the operator, e.g. the rejecting endpoint and request. */
+  readonly evidence?: string;
 }
 
 export interface AgentRunEventPayloads {

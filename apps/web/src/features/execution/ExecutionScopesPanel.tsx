@@ -12,6 +12,7 @@ import {
 } from '@craftingtable/domain';
 import { useEffect, useState } from 'react';
 import { About } from '../../components/About.js';
+import { blockerDestination } from '../../lib/blocker-destinations.js';
 import { Reasons } from '../../components/Reasons.js';
 import { Section } from '../../components/Section.js';
 import { CheckpointRecoveryPanel } from './CheckpointRecoveryPanel.js';
@@ -181,11 +182,15 @@ export function ExecutionScopesPanel({
                     }
                   </h4>
                   <Reasons
-                    reasons={p.blockers.map((b) => ({
-                      kind: b.kind,
-                      text: b.message,
-                      owner: PHASE_BLOCKERS[phaseBlockerCode(b)].owner,
-                    }))}
+                    reasons={p.blockers.map((b) => {
+                      const destination = blockerDestination(phaseBlockerCode(b), workspaceId);
+                      return {
+                        kind: b.kind,
+                        text: b.message,
+                        owner: PHASE_BLOCKERS[phaseBlockerCode(b)].owner,
+                        ...(destination ? { destination } : {}),
+                      };
+                    })}
                     satisfied="Phase requirements satisfied; current review and branch checks still apply."
                   />
                   {p.resources.map((r) => (

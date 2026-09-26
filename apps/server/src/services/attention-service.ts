@@ -47,19 +47,21 @@ export class AttentionService {
     if (item.blocks !== undefined) return item.blocks;
     const { workItemId, roadmapId } = item.refs;
     if (workItemId) {
-      const seen = new Set<string>();
+      // Work that cannot start until this item is done: required successors, transitively.
+      const seen = new Set<string>([workItemId]);
       const queue = [workItemId as WorkItemId];
       while (queue.length) {
         for (const next of tx.planning.dependencies.listSuccessors(
           item.workspaceId,
           queue.pop()!,
         )) {
-          if (seen.has(next.workItemId) || next.status === 'completed') continue;
+          if (next.kind !== 'required' || seen.has(next.workItemId) || next.status === 'completed')
+            continue;
           seen.add(next.workItemId);
           queue.push(next.workItemId);
         }
       }
-      return seen.size;
+      return seen.size - 1;
     }
     if (roadmapId) {
       const roadmap = tx.roadmaps.find(item.workspaceId, roadmapId);

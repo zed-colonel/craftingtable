@@ -388,6 +388,8 @@ export function RoadmapsPage({
                 </button>
               )}
               {!roadmap.definition.crossProject &&
+                // The editor lives on the Roadmaps page, not inside an inbox item.
+                only === undefined &&
                 ['draft', 'paused', 'needs-attention'].includes(roadmap.status) && (
                   <button
                     type="button"

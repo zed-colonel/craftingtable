@@ -33,9 +33,11 @@ promotion into a protected branch always waits for your explicit approval.
    final independent review) on a candidate branch. You approve the exact candidate and
    destination commits (**Approve final promotion**); no roadmap policy can do that for you.
 
-Cycle stops that need you (questions, decisions, exhausted budgets) appear under **Needs your
-attention** on the dashboard and as a strip on other pages; roadmap stops show on **Roadmaps**.
-Optional Pushover alerts cover both, configured per workspace under **Settings**.
+Every stop that needs you (questions, decisions, merges, service failures, held roadmap items,
+checkpoints to accept, setup) is an item in **Needs you**, most blocking first. Each item's page
+hosts the controls that resolve it. The dashboard, the rail count, a strip on every other page
+and the roadmap page read the same items, and optional Pushover alerts (configured per workspace
+under **Settings**) open them.
 
 ## Running it
 

@@ -1009,6 +1009,60 @@ describe('automated cycle controls', () => {
       model: 'review-model',
     },
   ];
+  it('shows the selected worktree\u2019s cycle, not the first that needs attention (inbox, R-A5)', () => {
+    const second: WorktreeSummary = {
+      ...worktree,
+      id: 'second-tree' as never,
+      branchName: 'ct/aq-01-b',
+    };
+    const stopped = (id: string, tree: WorktreeSummary, reason: string): WorkCycle => ({
+      id,
+      workspaceId: worktree.workspaceId,
+      projectId: worktree.projectId,
+      workItemId: worktree.workItemId,
+      workItemSourceId: 'AQ-01',
+      workItemTitle: 'Queue',
+      worktreeId: tree.id,
+      createdByUserId: worktree.createdByUserId,
+      createdAt: worktree.createdAt,
+      updatedAt: worktree.createdAt,
+      version: 3,
+      status: 'needs-attention',
+      step: 'implement',
+      policy: DEFAULT_COMPLETION_POLICY,
+      profiles: Object.fromEntries(
+        CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
+      ) as unknown as CycleProfiles,
+      instructions: '',
+      currentRunId: run().id,
+      runDeadlineAt: worktree.createdAt,
+      remediationRounds: 0,
+      stalledReviews: 0,
+      reason,
+    });
+    render(
+      <CyclePanel
+        cycles={[
+          stopped('a0000000-0000-4000-8000-000000000001', worktree, 'First slice needs guidance.'),
+          stopped('a0000000-0000-4000-8000-000000000002', second, 'Second slice has questions.'),
+        ]}
+        worktrees={[worktree, second]}
+        runs={[]}
+        backends={backends}
+        profiles={profiles}
+        canMutate
+        busy={false}
+        admitted
+        selectedWorktreeId={second.id}
+        onSelectWorktree={vi.fn()}
+        onStart={vi.fn()}
+        onControl={vi.fn()}
+        onOpenRun={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Second slice has questions.')).toBeTruthy();
+    expect(screen.queryByText('First slice needs guidance.')).toBeNull();
+  });
   it('submits the configurable nit allowance and a frozen choice for every step', () => {
     const onStart = vi.fn();
     render(

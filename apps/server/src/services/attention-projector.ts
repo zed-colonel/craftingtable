@@ -226,10 +226,15 @@ export class AttentionProjector implements WriteObserver {
     workspaceId: WorkspaceId,
     scopeKey: string,
     desired: readonly ProjectedItem[],
-    options: { readonly superseded?: ReadonlySet<string> } = {},
+    options: {
+      readonly superseded?: ReadonlySet<string>;
+      /** An open item whose push schedule new items take over, e.g. a set split per member. */
+      readonly carryFrom?: string;
+    } = {},
   ): readonly AttentionItem[] {
     const now = this.now().toISOString();
     const open = tx.attention.openInScope(workspaceId, scopeKey);
+    const carried = open.find((item) => item.subjectKey === options.carryFrom)?.delivery;
     const same = (a: Pick<AttentionItem, 'subjectKey' | 'code'>, b: typeof a) =>
       a.subjectKey === b.subjectKey && a.code === b.code;
     const touched: AttentionItem[] = [];
@@ -276,14 +281,18 @@ export class AttentionProjector implements WriteObserver {
               }
             : existing.delivery,
         );
-        if (!sameItem(existing, refreshed)) tx.attention.update(refreshed);
+        if (!sameItem(existing, refreshed)) {
+          tx.attention.update(refreshed);
+          // Browsers show the text and counts too, so a refresh is a change for them.
+          this.changed.add(workspaceId);
+        }
         if (grew) {
           const pass = this.passes.current;
           this.staged.push(() => this.openedAt.set(existing.id, pass));
         }
         continue;
       }
-      const item = this.opening(tx, workspaceId, scopeKey, bounded, now);
+      const item = this.opening(tx, workspaceId, scopeKey, bounded, now, carried);
       tx.attention.insert(item);
       const pass = this.passes.current;
       this.staged.push(() => this.openedAt.set(item.id, pass));
@@ -401,6 +410,7 @@ export class AttentionProjector implements WriteObserver {
     scopeKey: string,
     wanted: ProjectedItem,
     now: string,
+    carried?: AttentionItem['delivery'],
   ): AttentionItem {
     const previous = tx.attention.latest(workspaceId, wanted.subjectKey, wanted.code);
     const flapped =
@@ -416,7 +426,9 @@ export class AttentionProjector implements WriteObserver {
             firstSentAt: logged.first,
             lastSentAt: logged.last,
             deliveredCount: logged.count,
-          }) || this.adoptLegacy(tx, workspaceId, wanted.subjectKey);
+          }) ||
+      (carried?.firstSentAt ? carried : undefined) ||
+      this.adoptLegacy(tx, workspaceId, wanted.subjectKey);
     const preferences =
       tx.notifications.settings(workspaceId)?.preferences ?? DEFAULT_NOTIFICATION_PREFERENCES;
     return itemOf(
@@ -780,7 +792,7 @@ function itemOf(
     refs: wanted.refs,
     ...(wanted.members ? { members: wanted.members } : {}),
     ...(wanted.actions?.length ? { actions: wanted.actions } : {}),
-    ...(wanted.blocks ? { blocks: wanted.blocks } : {}),
+    ...(wanted.blocks !== undefined ? { blocks: wanted.blocks } : {}),
     state: 'open',
     openedAt: base.openedAt,
     ...(base.continues ? { continues: base.continues } : {}),

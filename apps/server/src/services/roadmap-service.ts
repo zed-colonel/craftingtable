@@ -2485,11 +2485,15 @@ export class RoadmapService {
       const items = this.attentionItems(snapshot, roadmap);
       this.storage.transaction((tx) => {
         const current = tx.roadmaps.find(roadmap.workspaceId, roadmap.id);
+        // Checkpoints were one set item before they became one item each (R-A5): the set
+        // hands its push schedule to them and is superseded, not resolved as a false alarm.
+        const set = `roadmap:${roadmap.id}:checkpoints`;
         attention.sync(
           tx,
           roadmap.workspaceId,
           `roadmap-pass:${roadmap.id}`,
           current?.status === 'running' ? items : [],
+          { superseded: new Set([set]), carryFrom: set },
         );
       });
     }
@@ -2501,10 +2505,19 @@ export class RoadmapService {
     const path = `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`;
     const name = roadmap.definition.name;
     const items: ProjectedItem[] = [];
-    const environmentEntries: string[] = [];
-    const environmentLines = roadmap.definition.entries.flatMap((entry) => {
-      if (entry.executionScope?.kind !== 'slice-verification') return [];
-      if (roadmap.attempts.some((a) => a.entryId === entry.id)) return [];
+    // Entries whose only blockers are setup the operator does outside the work item:
+    // reviewer roles and verification environments (what the roadmap page listed as setup).
+    const setup = new Map<string, string[]>();
+    const add = (entry: RoadmapEntry, messages: readonly string[]) =>
+      setup.set(entry.id, [
+        ...(setup.get(entry.id) ?? []),
+        ...messages.map(
+          (message) => `${entry.executionScope?.sourceId ?? entry.sourceId}: ${message}`,
+        ),
+      ]);
+    for (const entry of roadmap.definition.entries) {
+      if (entry.executionScope?.kind !== 'slice-verification') continue;
+      if (roadmap.attempts.some((a) => a.entryId === entry.id)) continue;
       const blockers = scopePhaseBlockers(
         tx,
         workspaceId,
@@ -2512,17 +2525,27 @@ export class RoadmapService {
         entry.executionScope,
         'verify',
       );
-      const setup = blockers.filter((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b)));
-      if (!setup.length || setup.length !== blockers.length) return [];
-      environmentEntries.push(entry.id);
-      return setup.map((b) => `${entry.sourceId}: ${b.message}`);
-    });
+      const only = blockers.filter((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b)));
+      if (only.length && only.length === blockers.length)
+        add(
+          entry,
+          only.map((b) => b.message),
+        );
+    }
+    for (const progress of this.view(roadmap, tx).progress) {
+      const entry = roadmap.definition.entries.find((e) => e.id === progress.entryId);
+      if (!entry || setup.has(entry.id) || !progress.blockers?.length) continue;
+      if (progress.blockers.every((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b))))
+        add(entry, [...new Set(progress.blockers.map((b) => b.message))]);
+    }
+    const environmentEntries = [...setup.keys()].sort();
+    const environmentLines = [...setup.values()].flat();
     if (environmentLines.length)
       items.push({
         subjectKey: `roadmap:${roadmap.id}:environments`,
         code: 'verification-setup',
         kind: 'attention',
-        title: `${name} · Verification setup needed`,
+        title: `${name} · Setup needed: reviewers or verification environments`,
         message: environmentLines.sort().join('\n'),
         path,
         refs: { roadmapId: roadmap.id },

@@ -66,22 +66,27 @@ async function attentionAgrees(page: Page): Promise<number> {
   await navigate(page, 'Needs you');
   await expect(page.getByRole('heading', { name: 'Needs you', exact: true })).toBeVisible();
   await settled(page);
-  const count = await page
+  const inbox = await page
     .getByRole('region', { name: 'Open items' })
-    .getByRole('listitem')
-    .count();
+    .locator('.attention-title')
+    .allTextContents();
+  const count = inbox.length;
   await expect(page.getByRole('link', { name: /^Needs you/ })).toHaveText(
     count ? new RegExp(`^Needs you\\s*${count}$`) : /^Needs you$/,
   );
   await navigate(page, 'Dashboard');
   await settled(page);
   const dashboard = page.getByRole('region', { name: 'Needs you' });
-  if (count) await expect(dashboard.getByRole('listitem')).toHaveCount(Math.min(count, 5));
-  else await expect(dashboard).toHaveCount(0);
+  if (count) {
+    await expect(dashboard.locator('.attention-title')).toHaveCount(Math.min(count, 5));
+    expect(await dashboard.locator('.attention-title').allTextContents()).toEqual(
+      inbox.slice(0, 5),
+    );
+  } else await expect(dashboard).toHaveCount(0);
   await navigate(page, 'Settings');
-  await expect(
-    page.locator('.notification-records li', { hasText: 'Still needs attention' }),
-  ).toHaveCount(count);
+  const open = page.locator('.notification-records li', { hasText: 'Still needs attention' });
+  await expect(open).toHaveCount(count);
+  expect([...(await open.locator('a').allTextContents())].sort()).toEqual([...inbox].sort());
   return count;
 }
 

@@ -1559,6 +1559,35 @@ describe('durable attention items (R-A4)', () => {
         },
       ]);
     });
+    // A recommended successor does not wait, so it does not count.
+    f.context.storage.transaction((tx) => {
+      tx.planning.workItems.insertMany([
+        {
+          id: asWorkItemId('item-3'),
+          workspaceId: f.workspaceId,
+          projectId: f.projectId,
+          planVersionId: asPlanVersionId('plan-1'),
+          sourceId: 'AQ-07',
+          ordinal: 2,
+          title: 'Nice to have after it',
+          risk: 'low',
+          primaryAreas: [],
+          exitGate: 'Checks pass',
+          sourceFields: {},
+        },
+      ]);
+      tx.planning.dependencies.insertMany([
+        {
+          id: 'dependency-2' as never,
+          workspaceId: f.workspaceId,
+          planVersionId: asPlanVersionId('plan-1'),
+          predecessorWorkItemId: f.workItemId,
+          successorWorkItemId: asWorkItemId('item-3'),
+          kind: 'recommended',
+          ordinal: 1,
+        },
+      ]);
+    });
     const sorted = await feed();
     expect(sorted[0]).toMatchObject({ code: 'merge-approval', blocks: 1 });
     // A viewer sees the work items but not the host's storage alert.
@@ -1623,6 +1652,70 @@ describe('durable attention items (R-A4)', () => {
         inboxPath: `/workspaces/${f.workspaceId}/inbox/${item?.id}`,
       });
     }
+  });
+  it('hands a split set\u2019s push schedule to its members, and announces in-place changes', async () => {
+    const f = await fixture();
+    f.setCycle('running');
+    const roadmap = roadmapFixture(f, { status: 'running', attention: undefined });
+    const { attention: _none, ...running } = roadmap;
+    f.context.storage.roadmaps.save(running, 0);
+    const scope = `roadmap-pass:${roadmap.id}`;
+    const projector = f.context.services.attention;
+    const checkpoint = (id: string, blocks: number) => ({
+      subjectKey: `roadmap:${roadmap.id}:checkpoint:${id}`,
+      code: 'architecture-decision' as const,
+      kind: 'attention' as const,
+      title: `AQ sequence · ${id} · Decision to accept`,
+      message: 'Ready.',
+      path: '/workspaces/ws/roadmaps',
+      refs: { roadmapId: roadmap.id },
+      blocks,
+    });
+    // The pre-split set, already pushed.
+    f.context.storage.transaction((tx) =>
+      projector.sync(tx, f.workspaceId, scope, [
+        {
+          subjectKey: `roadmap:${roadmap.id}:checkpoints`,
+          code: 'checkpoint-evidence',
+          kind: 'attention',
+          title: 'AQ sequence · Checkpoint evidence needed',
+          message: 'AQ-ADR-001',
+          path: '/workspaces/ws/roadmaps',
+          refs: { roadmapId: roadmap.id },
+          members: ['AQ-ADR-001'],
+        },
+      ]),
+    );
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1);
+    f.advance(1);
+    const set = `roadmap:${roadmap.id}:checkpoints`;
+    f.context.storage.transaction((tx) =>
+      projector.sync(tx, f.workspaceId, scope, [checkpoint('AQ-ADR-001', 0)], {
+        superseded: new Set([set]),
+        carryFrom: set,
+      }),
+    );
+    await f.service.tick();
+    expect(f.send).toHaveBeenCalledTimes(1); // Not paged again, and not a false alarm.
+    expect(f.items().find((item) => item.subjectKey === set)?.resolvedBy).toBe('superseded');
+    const [member] = openItems(f);
+    expect(member?.delivery).toMatchObject({ deliveredCount: 1 });
+    expect(member?.blocks).toBe(0);
+    // A checkpoint that blocks nothing says so, rather than counting the roadmap's entries.
+    expect(f.context.services.attentionService.feed(f.auth, f.workspaceId).items[0]).toMatchObject({
+      blocks: 0,
+    });
+    // A change in place (here, what waits on it) is announced to browsers.
+    const events = () =>
+      f.context.storage.workspaceEvents
+        .listAfter({ workspaceId: f.workspaceId, after: 0, limit: 1000 })
+        .filter((event) => event.kind === 'attention-changed').length;
+    const before = events();
+    f.context.storage.transaction((tx) =>
+      projector.sync(tx, f.workspaceId, scope, [checkpoint('AQ-ADR-001', 3)]),
+    );
+    expect(events()).toBe(before + 1);
   });
   it('keeps history: a resolved item and the delivery log cannot be changed or deleted', async () => {
     const f = await fixture();

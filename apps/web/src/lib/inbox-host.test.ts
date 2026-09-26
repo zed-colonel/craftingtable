@@ -2,6 +2,17 @@ import type { AttentionItemView } from '@craftingtable/contracts';
 import { expect, it } from 'vitest';
 import { inboxHost } from './inbox-host.js';
 
+// Refs as the daemon serves them: a roadmap-owned cycle names its roadmap and entry, and a
+// roadmap's held entry names the cycle of its attempt.
+const cycleRefs = {
+  cycleId: 'c',
+  worktreeId: 't',
+  workItemId: 'w',
+  projectId: 'p',
+  planVersionId: 'v',
+  roadmapId: 'r',
+  entryId: 'e',
+};
 const item = (changes: Partial<AttentionItemView>): AttentionItemView => ({
   id: 'item',
   subjectKey: 'cycle:c',
@@ -11,12 +22,13 @@ const item = (changes: Partial<AttentionItemView>): AttentionItemView => ({
   message: 'Message',
   path: '/workspaces/ws/work-items/w',
   inboxPath: '/workspaces/ws/inbox/item',
-  refs: { cycleId: 'c', workItemId: 'w', roadmapId: 'r', entryId: 'e' },
+  refs: cycleRefs,
   blocks: 0,
   openedAt: '2026-09-25T11:00:00Z',
   pushedAt: null,
   ...changes,
 });
+const none = { delegation: false, scopes: false, finalization: false, storage: false, run: false };
 
 it('hosts the controls that resolve each stop of 2026-09-25', () => {
   // Service failures and work-item or scope-review questions: the cycle's resume, guidance
@@ -29,47 +41,47 @@ it('hosts the controls that resolve each stop of 2026-09-25', () => {
     'scope-review-recovery',
   ] as const)
     expect(inboxHost(item({ code })), code).toEqual({
+      ...none,
       cycle: true,
-      delegation: false,
-      finalization: false,
-      storage: false,
-      run: false,
       roadmap: { open: false },
     });
   // Shared decisions and undeclared upstream transitions are decided in the roadmap's
   // dependency controls, so they open beside the cycle's resume.
   for (const code of ['shared-decision-required', 'upstream-transition-undeclared'] as const)
     expect(inboxHost(item({ code })).roadmap, code).toEqual({ open: true });
-  // A held roadmap entry with stale evidence: its Re-verify control, brought into view.
+  // A held entry with stale evidence names its attempt's completed cycle, but is resolved
+  // on the roadmap: its Re-verify control, brought into view, and no cycle controls.
   expect(
     inboxHost(
       item({
         subjectKey: 'roadmap:r:entry:e',
         code: 'evidence-not-current',
-        refs: { roadmapId: 'r', entryId: 'e', workItemId: 'w' },
+        refs: { roadmapId: 'r', entryId: 'e', workItemId: 'w', cycleId: 'c' },
         actions: ['reverify'],
       }),
     ),
-  ).toMatchObject({ cycle: false, roadmap: { open: true, focus: 'roadmap-entry-r-e' } });
+  ).toEqual({ ...none, cycle: false, roadmap: { open: true, focus: 'roadmap-entry-r-e' } });
 });
 
-it('hosts the merge form for a merge approval and the storage settings for host alerts', () => {
+it('hosts the merge form, the slice evidence controls, finalization and storage settings', () => {
   expect(inboxHost(item({ code: 'merge-approval', kind: 'merge' }))).toMatchObject({
     cycle: true,
     delegation: true,
   });
+  expect(inboxHost(item({ code: 'record-scope-evidence' }))).toMatchObject({
+    cycle: true,
+    scopes: true,
+  });
+  expect(inboxHost(item({ subjectKey: 'merge:t', code: 'merge-recovery-required' }))).toMatchObject(
+    { cycle: false, delegation: true },
+  );
   expect(
     inboxHost(item({ code: 'storage-pressure', refs: {}, subjectKey: 'storage:volumes' })),
-  ).toEqual({
-    cycle: false,
-    delegation: false,
-    finalization: false,
-    storage: true,
-    run: false,
-  });
+  ).toEqual({ ...none, cycle: false, storage: true });
   expect(
     inboxHost(
       item({
+        subjectKey: 'finalization:f',
         code: 'finalization-cleanup-blocked',
         refs: { finalizationId: 'f', planVersionId: 'p', projectId: 'pr' },
       }),

@@ -287,6 +287,9 @@ vi.mock('./lib/branch-api.js', () => ({
   loadPlanBranchSettings: () => Promise.resolve({ issues: [], missingEvidence: [] }),
 }));
 
+vi.mock('./lib/attention-api.js', () => ({
+  loadAttention: () => Promise.resolve({ items: [] }),
+}));
 vi.mock('./lib/work-cycle-api.js', () => ({
   loadWorkCycles: () => Promise.resolve({ cycles: [] }),
   startWorkCycle: () => new Promise(() => undefined),
@@ -501,6 +504,12 @@ describe('background refresh rounds (PERF-02, PERF-03, PERF-17)', () => {
       [1_000, streamEvent(21, 'notifications-changed', { payload: { action: 'attention' } })],
     ]);
     expect(snapshotCalls.length).toBe(initial);
+  });
+
+  it('reloads the page round, and with it the Needs you feed, when attention changes', async () => {
+    const initial = await loaded();
+    await replay([[0, streamEvent(22, 'attention-changed', { payload: { open: 1 } })]]);
+    expect(snapshotCalls.length).toBe(initial + 1);
   });
 
   it('keeps one round in flight and follows up exactly once', async () => {

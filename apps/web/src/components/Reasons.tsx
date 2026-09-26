@@ -26,6 +26,8 @@ export interface Reason {
    * reason is "Needs you" whatever its kind, e.g. plan acceptance evidence (UI-09).
    */
   readonly owner?: 'operator' | 'controller';
+  /** Where the operator resolves it, from its code. */
+  readonly destination?: { readonly label: string; readonly href: string };
 }
 
 type Resolver = 'you' | 'automation' | 'other-work';
@@ -96,6 +98,11 @@ export function Reasons({
               <li key={`${reason.kind}:${reason.text}`}>
                 <span className="reason-kind">{REASON_KIND_LABELS[reason.kind]}</span>
                 <span className="reason-text">{reason.text}</span>
+                {reason.destination && (
+                  <a className="text-button" href={reason.destination.href}>
+                    {reason.destination.label}
+                  </a>
+                )}
               </li>
             ))}
           </ul>

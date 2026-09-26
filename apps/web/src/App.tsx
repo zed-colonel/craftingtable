@@ -32,7 +32,15 @@ import type {
   WorkspaceId,
   WorktreeId,
 } from '@craftingtable/domain';
-import { type ReactElement, useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  Fragment,
+} from 'react';
 import { ActivityPanel } from './components/ActivityPanel.js';
 import { NeedsYou } from './components/NeedsYou.js';
 import { InboxPage } from './features/inbox/InboxPage.js';
@@ -615,6 +623,7 @@ export function App() {
       ? attentionState.items
       : [];
   const attentionLoaded = attentionState?.workspaceId === workspaceId;
+  const [attentionLoadError, setAttentionLoadError] = useState<WorkspaceId>();
   // biome-ignore lint/correctness/useExhaustiveDependencies: attention-changed events refresh the feed
   useEffect(() => {
     if (authenticationStatus !== 'authenticated' || workspaceId === undefined) return;
@@ -622,10 +631,14 @@ export function App() {
     trackLoad(
       loadAttention(workspaceId)
         .then((feed) => {
-          if (!cancelled && activeWorkspaceIdRef.current === workspaceId)
+          if (!cancelled && activeWorkspaceIdRef.current === workspaceId) {
             setAttentionState({ workspaceId, items: feed.items });
+            setAttentionLoadError(undefined);
+          }
         })
-        .catch(() => undefined),
+        .catch(() => {
+          if (!cancelled) setAttentionLoadError(workspaceId);
+        }),
     );
     return () => {
       cancelled = true;
@@ -1293,7 +1306,11 @@ export function App() {
     (workItemExecution.worktrees.some((worktree) => worktree.status === 'active') ||
       workItemExecution.runs.some((entry) => isLiveStatus(entry.status)));
   /** The work item's automated cycle controls: its page and its inbox items host them (R-A5). */
-  const cycleControls = (workItemId: WorkItemId): ReactElement | undefined => {
+  const cycleControls = (
+    workItemId: WorkItemId,
+    /** The worktree whose cycle to show: an inbox item's own, else the page's selection. */
+    worktreeId?: WorktreeId,
+  ): ReactElement | undefined => {
     if (
       workspaceId === undefined ||
       authenticated === undefined ||
@@ -1304,8 +1321,10 @@ export function App() {
       return undefined;
     return (
       <CyclePanel
-        key={workItemId}
-        {...(selectedCycleWorktreeId ? { selectedWorktreeId: selectedCycleWorktreeId } : {})}
+        key={worktreeId === undefined ? workItemId : `${workItemId}:${worktreeId}`}
+        {...((worktreeId ?? selectedCycleWorktreeId)
+          ? { selectedWorktreeId: worktreeId ?? selectedCycleWorktreeId }
+          : {})}
         onSelectWorktree={setSelectedCycleWorktreeId}
         renderDesignRecovery={(cycle) => (
           <DesignRecoveryPanel
@@ -1438,6 +1457,38 @@ export function App() {
     );
   };
 
+  /** The work item's execution slices: phase requirements and scope evidence. */
+  const scopeControls = (workItemId: WorkItemId): ReactElement | undefined => {
+    if (
+      workspaceId === undefined ||
+      authenticated === undefined ||
+      workItem?.workItem.id !== workItemId
+    )
+      return undefined;
+    return (
+      <ExecutionScopesPanel
+        key={`scopes-${workspaceId}-${workItemId}`}
+        cycles={itemCycles ?? []}
+        onOpenCycle={(id) => {
+          setSelectedCycleWorktreeId(id);
+          const element = document.getElementById('automation');
+          element?.scrollIntoView({ block: 'start' });
+          if (element) {
+            element.tabIndex = -1;
+            element.focus({ preventScroll: true });
+          }
+        }}
+        workspaceId={workspaceId}
+        workItemId={workItem.workItem.id}
+        worktrees={workItemExecution?.workItemId === workItemId ? workItemExecution.worktrees : []}
+        csrfToken={authenticated.csrfToken}
+        canMutate={canMutate}
+        itemStatus={workItem.workItem.status}
+        refreshToken={refreshToken}
+        onChanged={() => refreshNow()}
+      />
+    );
+  };
   /**
    * The existing controls that resolve one inbox item, unchanged (R-A5): the work item's
    * cycle or delegation controls, a finalization, the roadmap's own controls, or storage.
@@ -1446,15 +1497,20 @@ export function App() {
   const renderInboxHost = (item: AttentionItemView): ReactElement => {
     const { workItemId, roadmapId, planVersionId, projectId, runId } = item.refs;
     const host = inboxHost(item);
-    const cycle = host.cycle && workItemId ? cycleControls(workItemId as WorkItemId) : undefined;
+    const cycle =
+      host.cycle && workItemId
+        ? cycleControls(workItemId as WorkItemId, item.refs.worktreeId as WorktreeId | undefined)
+        : undefined;
     const delegation =
       host.delegation && workItemId ? delegationControls(workItemId as WorkItemId) : undefined;
+    const scopes = host.scopes && workItemId ? scopeControls(workItemId as WorkItemId) : undefined;
     return (
-      <>
+      <Fragment key={item.id}>
         {workItemId !== undefined &&
-          (cycle || delegation ? (
+          (cycle || delegation || scopes ? (
             <>
               {cycle}
+              {scopes}
               {delegation}
             </>
           ) : (
@@ -1511,7 +1567,7 @@ export function App() {
               />
             </details>
           )}
-      </>
+      </Fragment>
     );
   };
 
@@ -1554,6 +1610,11 @@ export function App() {
           (route.name === 'work-item' && itemCycleLoadError === route.workItemId)) && (
           <p className="warning-state" role="alert">
             Cycle status could not be loaded. Refresh before controlling automation.
+          </p>
+        )}
+        {attentionLoadError === workspaceId && (
+          <p className="warning-state" role="alert">
+            Needs you could not be loaded, so this list may be incomplete. Refresh to retry.
           </p>
         )}
         {route.name !== 'dashboard' && route.name !== 'inbox' && (
@@ -1894,31 +1955,7 @@ export function App() {
             />
             {cycleControls(route.workItemId)}
             {delegationControls(route.workItemId)}
-            <ExecutionScopesPanel
-              key={`scopes-${workspaceId}-${route.workItemId}`}
-              cycles={itemCycles ?? []}
-              onOpenCycle={(id) => {
-                setSelectedCycleWorktreeId(id);
-                const element = document.getElementById('automation');
-                element?.scrollIntoView({ block: 'start' });
-                if (element) {
-                  element.tabIndex = -1;
-                  element.focus({ preventScroll: true });
-                }
-              }}
-              workspaceId={workspaceId}
-              workItemId={workItem.workItem.id}
-              worktrees={
-                workItemExecution?.workItemId === route.workItemId
-                  ? workItemExecution.worktrees
-                  : []
-              }
-              csrfToken={authenticated.csrfToken}
-              canMutate={canMutate}
-              itemStatus={workItem.workItem.status}
-              refreshToken={refreshToken}
-              onChanged={() => refreshNow()}
-            />
+            {scopeControls(route.workItemId)}
             {diff !== undefined &&
               workItemExecution?.worktrees.some((worktree) => worktree.id === diff.worktree.id) && (
                 <div id="diff">

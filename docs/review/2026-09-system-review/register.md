@@ -13,7 +13,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-A2](#r-a2) | P0 | S | done (012447b, 67e2e9b) | Stop journaling notification delivery bookkeeping as workspace events |
 | [R-A3](#r-a3) | P1 | M-L | done (eb757da, 57a3a16) | Controller-declared, typed attention on every blocking transition |
 | [R-A4](#r-a4) | P2 | M-L | done (16d94de, see review) | Durable attention items, delivery log, quiescence and presence |
-| [R-A5](#r-a5) | P2 | L | done (see Progress) | One "Needs you" inbox that every surface reads |
+| [R-A5](#r-a5) | P2 | L | done (a4635c7, see review) | One "Needs you" inbox that every surface reads |
 | [R-A6](#r-a6) | P3 | L | open | Consolidate decision and recovery components; delete per-page hosts |
 | [R-A7](#r-a7) | P1 | M | partial (9339d01, c6e4042, 27266c0, 9084e50) | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
@@ -184,7 +184,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A5
 
-**One "Needs you" inbox that every surface reads** · Phase P2 · Effort L · Status: done (see Progress)
+**One "Needs you" inbox that every surface reads** · Phase P2 · Effort L · Status: done (a4635c7, see review)
 
 - **Resolves:** [UI-01](findings/UI-information-architecture.md#ui-01-there-is-no-single-needs-the-operator-model-the-dashboard-misses-most-roadmap-level-decisions), [UI-03](findings/UI-information-architecture.md#ui-03-the-same-decision-concept-is-surfaced-in-several-places-with-different-names-and-forms), [UI-04](findings/UI-information-architecture.md#ui-04-shared-architecture-decisions-are-buried-inside-dependency-environments-and-evidence), [UI-08](findings/UI-information-architecture.md#ui-08-dead-ends-blockers-that-tell-the-operator-to-go-elsewhere-without-a-link-generic-landing-pages-and-deep-links-that-silently-do-nothing), [NOTIF-09](findings/NOTIF-attention-notifications.md#notif-09-attention-has-no-single-source-of-truth-there-is-no-operator-inbox)
 - **Change:** Serve the attention items at GET /workspaces/:ws/attention with an attention-changed event. Build /inbox (list, sorted by downstream items blocked then age) and /inbox/:id (detail). First mount the existing decision/recovery forms inside the detail unchanged; replace AttentionStrip, the rail count, RoadmapAttention and the roadmap tone logic with the attention feed; point notification deep links at inbox items. Architecture decisions, plan acceptance, verification-environment approval, map adoption, amendments, dependency refresh and restart resume all appear as inbox items. Moved from R-A3: render each attention and blocker code's destination as a link in the UI, then remove the navigation prose ("Open Dependency environments and evidence → …") from daemon messages.
@@ -207,6 +207,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - A running roadmap held because a checkpoint needs a map or decision adoption is not an item: the map evaluation reports those blockers as text, and branching on it would break program rule 4. It needs typed map blockers (R-F1/R-F2).
     - The hosted controls are the old panels, so a roadmap item shows the whole roadmap card. R-A6 replaces them with one component per kind.
     - In-app links outside the inbox still reload the page (R-E1).
+- **Independent review of a4635c7 (2026-09-25).** Nine findings; all fixed except where noted, each with a test that fails without its fix.
+  - **HIGH: the stale-evidence item opened the completed cycle instead of Re-verify.** A held entry names its attempt's cycle, so the host chose the cycle panel and left the roadmap collapsed. The host now follows the item's subject: a roadmap's own stop or held entry is resolved on the roadmap, with the entry's Re-verify brought into view; only a cycle's stop hosts the cycle. The host test now uses the refs the daemon actually serves.
+  - **HIGH: an item could show another slice's cycle.** The cycle panel fell back to the first worktree needing attention. The inbox now selects the item's own worktree, and each item's host is keyed by the item.
+  - **MEDIUM: `record-scope-evidence` had no working control in the inbox**; the work item's execution slices (where evidence is recorded) are now hosted for it.
+  - **MEDIUM: Edit queued entries inside the inbox disabled the roadmap controls** (the editor lives only on the Roadmaps page); it is hidden there.
+  - **MEDIUM: removing the navigation prose left blockers without a destination.** Phase blockers shown on the work item now carry a link from their code (`lib/blocker-destinations.ts`): verification environments and reviewer responsibilities to the roadmap page, decision evidence and amendments to Needs you. Map-node blockers in the cross-project panel are still plain text without codes (R-F1/R-F2).
+  - **MEDIUM: entries blocked only by setup lost their roadmap-level listing.** The setup item now covers every entry whose blockers are all reviewer or environment setup, as the deleted panel listed them. Not restored: the restart note that plan acceptance does not resume scheduling (the item's own label says "Resume after restart"), and paused entries (the operator's own holds, deliberately not items).
+  - **LOW-MEDIUM: splitting checkpoint sets would re-page and count a false alarm on deploy.** The old set item is superseded and hands its push schedule to the per-checkpoint items.
+  - **LOW:** "blocks" counts only required successors and never the item itself, and a checkpoint that blocks nothing reports 0; in-place refreshes (text, counts, members) now emit `attention-changed`; a failed feed load shows a warning instead of an empty inbox; the activity line no longer shows a count that could disagree with the rail; resolved push-log rows link to their subject. Not changed: `attention-changed` shares schema 32 with R-A4, which was never deployed, so there is no rollback to guard.
+  - **Walkthrough:** the agreement check now compares item titles between the inbox, the dashboard section and the push log, not only counts.
 
 ### R-A6
 

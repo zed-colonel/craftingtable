@@ -11,17 +11,21 @@ const ROADMAP_DECISION_CODES: ReadonlySet<string> = new Set([
   'shared-decision-required',
   'upstream-transition-undeclared',
 ]);
+/** Cycle stops recorded from the work item's execution-slice controls. */
+const SCOPE_CODES: ReadonlySet<string> = new Set(['record-scope-evidence']);
 const STORAGE_CODES: ReadonlySet<string> = new Set([
   'storage-pressure',
   'storage-maintenance-failed',
 ]);
 
-/** Which existing controls an inbox item hosts (R-A5), decided from its code and refs only. */
+/** Which existing controls an inbox item hosts (R-A5), decided from its code, subject and refs. */
 export interface InboxHost {
-  /** The work item's automated cycle panel: resume, guidance, recovery forms. */
+  /** The work item's automated cycle panel, showing the item's own worktree. */
   readonly cycle: boolean;
   /** The work item's worktrees, runs and merge form. */
   readonly delegation: boolean;
+  /** The work item's execution slices, where scope evidence is recorded. */
+  readonly scopes: boolean;
   /** The plan version's finalization panel. */
   readonly finalization: boolean;
   readonly storage: boolean;
@@ -30,24 +34,38 @@ export interface InboxHost {
   readonly roadmap?: { readonly open: boolean; readonly focus?: string };
 }
 
+/** The kind of subject an item is about, from the daemon's subject key (an identifier). */
+function family(item: AttentionItemView): string {
+  return item.subjectKey.slice(0, item.subjectKey.indexOf(':'));
+}
+
 export function inboxHost(item: AttentionItemView): InboxHost {
-  const { workItemId, roadmapId, planVersionId, runId, cycleId, entryId } = item.refs;
-  const cycle = workItemId !== undefined && cycleId !== undefined;
+  const { workItemId, roadmapId, planVersionId, runId, entryId } = item.refs;
+  const subject = family(item);
+  // A roadmap's own stop or held entry is resolved on the roadmap, even when it names the
+  // cycle of its attempt; a cycle's stop on the cycle.
+  const cycle = subject === 'cycle' && workItemId !== undefined;
   return {
     cycle,
     delegation:
       workItemId !== undefined &&
-      (cycleId === undefined || item.kind === 'merge' || MERGE_CODES.has(item.code)),
+      (subject === 'run' ||
+        subject === 'merge' ||
+        (cycle && (item.kind === 'merge' || MERGE_CODES.has(item.code)))),
+    scopes: cycle && SCOPE_CODES.has(item.code),
     finalization:
-      workItemId === undefined && roadmapId === undefined && planVersionId !== undefined,
+      workItemId === undefined &&
+      roadmapId === undefined &&
+      planVersionId !== undefined &&
+      ['cycle', 'merge', 'run', 'finalization'].includes(subject),
     storage: STORAGE_CODES.has(item.code),
     run: runId !== undefined,
     ...(roadmapId === undefined
       ? {}
       : {
           roadmap: {
-            open: cycleId === undefined || ROADMAP_DECISION_CODES.has(item.code),
-            ...(entryId !== undefined && cycleId === undefined
+            open: subject === 'roadmap' || ROADMAP_DECISION_CODES.has(item.code),
+            ...(subject === 'roadmap' && entryId !== undefined
               ? { focus: `roadmap-entry-${roadmapId}-${entryId}` }
               : item.code === 'verification-setup'
                 ? { focus: `runtime-evidence-roadmap-${roadmapId}-native` }

@@ -109,7 +109,7 @@ export function InboxPage({
                   ATTENTION_CODE_LABELS[item.code],
                 )}
                 <span className="attention-reason">
-                  {item.title}
+                  <span className="attention-title">{item.title}</span>
                   {item.blocks > 0 ? ` · unblocks ${item.blocks}` : ''} · {ago(item.openedAt, now)}
                 </span>
               </li>

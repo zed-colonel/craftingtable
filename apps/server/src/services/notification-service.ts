@@ -118,7 +118,8 @@ export class NotificationService {
         kind: item.kind,
         title: item.title,
         message: item.message,
-        path: inboxPath(workspaceId, item.id),
+        // An open item is decided in the inbox; a resolved one is history of its subject.
+        path: item.state === 'open' ? inboxPath(workspaceId, item.id) : item.path,
         state: item.state === 'open' ? ('active' as const) : ('resolved' as const),
         createdAt: item.openedAt,
         lastSentAt: item.delivery.lastSentAt,

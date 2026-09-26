@@ -39,7 +39,7 @@ export function NeedsYou({
           {ATTENTION_CODE_LABELS[item.code]}
         </a>
         <span className="attention-reason">
-          {item.title}
+          <span className="attention-title">{item.title}</span>
           {item.blocks > 0 ? ` · unblocks ${item.blocks}` : ''}
         </span>
       </li>

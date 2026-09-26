@@ -92,6 +92,7 @@ export async function createTestContext(
       storageService: services.storageService,
       hostSchedulingService: services.hostSchedulingService,
       operatorWaitService: services.operatorWaitService,
+      attentionService: services.attentionService,
       authService: services.authService,
       workspaceService: services.workspaceService,
       planImportService: services.planImportService,

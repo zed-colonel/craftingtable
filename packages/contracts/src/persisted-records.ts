@@ -333,6 +333,7 @@ export const attentionItemSchema = equivalentSchema<AttentionItem>()(
     refs: attentionItemRefsSchema,
     members: z.array(name).optional(),
     actions: z.array(attentionItemActionSchema).optional(),
+    blocks: count.optional(),
     state: z.enum(['open', 'resolved']),
     openedAt: z.iso.datetime(),
     resolvedAt: z.iso.datetime().optional(),

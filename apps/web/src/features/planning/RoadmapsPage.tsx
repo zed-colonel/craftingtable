@@ -1,5 +1,6 @@
 import { ReverifyItem } from './ReverifyItem.js';
 import type {
+  AttentionItemView,
   ExecutionScopeChoice,
   ExecutionStatusResponse,
   RuntimeEvidenceView,
@@ -18,7 +19,6 @@ import {
   type RoadmapDefinition,
   type RoadmapStatus,
   type RoadmapView,
-  SETUP_BLOCKER_CODES,
   type WorkItemId,
   type WorkspaceId,
 } from '@craftingtable/domain';
@@ -44,7 +44,8 @@ import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { ConcurrencyImports } from './ConcurrencyImports.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
 import { MapAmendmentPanel } from './MapAmendmentPanel.js';
-import { RoadmapAttention, roadmapStatusLabel } from './RoadmapAttention.js';
+import { ATTENTION_CODE_LABELS } from '../../lib/attention-labels.js';
+import { effectiveRoadmapAttention } from '@craftingtable/domain';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { ScopeRecoveryPanel } from './ScopeRecoveryPanel.js';
@@ -59,16 +60,32 @@ const labels: Record<RoadmapStatus, string> = {
   completed: 'Completed',
 };
 type Draft = SaveRoadmapRequest & { id: string };
+export function roadmapStatusLabel(roadmap: Roadmap, fallback: string) {
+  return effectiveRoadmapAttention(roadmap)?.code === 'restart-resume'
+    ? 'Resume required after restart'
+    : fallback;
+}
 export function RoadmapsPage({
   workspaceId,
   csrfToken,
   canMutate,
   onOpenWorkItem,
+  attention = [],
+  onOpenAttention,
+  only,
+  focus,
 }: {
   workspaceId: WorkspaceId;
   csrfToken: string;
   canMutate: boolean;
   onOpenWorkItem: (id: WorkItemId) => void;
+  /** The workspace's open attention items; each roadmap lists its own (R-A5). */
+  attention?: readonly AttentionItemView[];
+  onOpenAttention?: (itemId: string) => void;
+  /** Render one roadmap's controls only, inside an inbox item. */
+  only?: string;
+  /** An element to bring into view once that roadmap has loaded. */
+  focus?: string;
 }) {
   const [dirtyRoadmaps, setDirtyRoadmaps] = useState<Record<string, boolean>>({});
   const [dependencyDrafts, setDependencyDrafts] = useState<Record<string, boolean>>({});
@@ -243,6 +260,472 @@ export function RoadmapsPage({
         entries: draft.entries.map((entry, i) => (i === index ? { ...entry, ...changes } : entry)),
       });
   };
+  function renderRoadmapBody(
+    roadmap: Roadmap,
+    progress: RoadmapView['progress'],
+    hostCapacity: RoadmapView['hostCapacity'],
+    needsYou: boolean,
+  ) {
+    return (
+      <>
+        <StatusStrip
+          label="Roadmap status"
+          facts={[
+            {
+              label: 'Status',
+              value: roadmapStatusLabel(roadmap, labels[roadmap.status]),
+              accent: needsYou
+                ? 'var(--color-attention)'
+                : roadmap.status === 'running'
+                  ? 'var(--color-active)'
+                  : undefined,
+            },
+            {
+              label: 'Mode',
+              value:
+                roadmap.definition.scheduling?.mode === 'parallel'
+                  ? `Parallel · ${roadmap.definition.scheduling.maxInFlight} in flight · ${roadmap.definition.scheduling.maxPerRepository} per repository`
+                  : 'Sequential',
+            },
+            {
+              label: 'In flight',
+              value: roadmap.attempts.filter((a) => a.status !== 'completed').length,
+              mono: true,
+            },
+            {
+              label: 'Cycles running',
+              value: progress.filter((p) => p.status === 'running').length,
+              mono: true,
+            },
+          ]}
+        />
+        {hostCapacity && (
+          <>
+            <StatusStrip
+              label="Shared workstation capacity"
+              facts={[
+                {
+                  label: 'Development/work-item review slots',
+                  value: `${hostCapacity.development.inUse}/${hostCapacity.development.limit}`,
+                  mono: true,
+                },
+                {
+                  label: 'Independent verification slots',
+                  value: `${hostCapacity.verification.inUse}/${hostCapacity.verification.limit}`,
+                  mono: true,
+                },
+              ]}
+            />
+            <p className="subtle">
+              These workstation slots are shared across projects. Roadmap limits include items
+              waiting for review or merge; they do not increase workstation capacity.
+            </p>
+            <p>
+              <a
+                href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#execution-capacity`}
+              >
+                Manage capacity
+              </a>{' '}
+              ·{' '}
+              <a
+                href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#roadmap-agent-profiles`}
+              >
+                Manage agent profiles
+              </a>
+            </p>
+            {roadmap.definition.scheduling?.mode === 'parallel' &&
+              roadmap.definition.scheduling.maxInFlight > hostCapacity.development.limit && (
+                <p role="status">
+                  This roadmap permits {roadmap.definition.scheduling.maxInFlight} items in flight,
+                  but the workstation permits only {hostCapacity.development.limit} concurrent
+                  scoped development runs across all projects.
+                </p>
+              )}
+          </>
+        )}
+        {(dirtyRoadmaps[roadmap.id] || dependencyDrafts[roadmap.id]) && (
+          <p role="status">
+            Save the unsaved{' '}
+            {dirtyRoadmaps[roadmap.id] ? 'queued roadmap settings' : 'dependency settings'} below
+            before starting or resuming, then review plan acceptance for the updated configuration.
+          </p>
+        )}
+        <ActionBar label="Roadmap controls">
+          {canMutate && (
+            <>
+              {roadmap.status === 'draft' && (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={
+                    busy || !!draft || dirtyRoadmaps[roadmap.id] || dependencyDrafts[roadmap.id]
+                  }
+                  onClick={() => void command(roadmap, 'start')}
+                >
+                  Start roadmap
+                </button>
+              )}
+              {roadmap.status === 'running' && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => void command(roadmap, 'pause')}
+                >
+                  Pause roadmap
+                </button>
+              )}
+              {['paused', 'needs-attention'].includes(roadmap.status) && (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={
+                    busy || !!draft || dirtyRoadmaps[roadmap.id] || dependencyDrafts[roadmap.id]
+                  }
+                  onClick={() => void command(roadmap, 'resume')}
+                >
+                  Resume roadmap
+                </button>
+              )}
+              {!roadmap.definition.crossProject &&
+                ['draft', 'paused', 'needs-attention'].includes(roadmap.status) && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy || !!draft}
+                    onClick={() => edit(roadmap)}
+                  >
+                    Edit queued entries
+                  </button>
+                )}
+              {!['completed', 'stopped'].includes(roadmap.status) && (
+                <button
+                  type="button"
+                  className="secondary-button danger"
+                  disabled={busy || !!draft}
+                  onClick={() => void command(roadmap, 'stop')}
+                >
+                  Stop roadmap
+                </button>
+              )}
+            </>
+          )}
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() =>
+              void loadRoadmapHistory(roadmap)
+                .then((result) => setHistory({ id: roadmap.id, definitions: result.definitions }))
+                .catch((e) => setError(e instanceof Error ? e.message : 'Could not load history.'))
+            }
+          >
+            View revisions
+          </button>
+        </ActionBar>
+        {roadmap.definition.crossProject && (
+          <>
+            <ScopeRecoveryPanel
+              roadmap={roadmap}
+              csrfToken={csrfToken}
+              canMutate={canMutate}
+              onChange={apply}
+              onOpenWorkItem={onOpenWorkItem}
+            />
+            <CrossProjectPanel
+              workspaceId={workspaceId}
+              definitionId={roadmap.definition.crossProject.definitionId}
+              bindingRevision={roadmap.definition.crossProject.bindingRevision}
+              targets={[
+                {
+                  id: roadmap.definition.crossProject.targetId,
+                  scope:
+                    roadmap.definition.crossProject.selection === 'target-only'
+                      ? 'Only the selected target prerequisite scope is delegated.'
+                      : 'Full retained roadmap with the selected target prioritized.',
+                },
+              ]}
+              roadmap={roadmap}
+              runtimeView={runtimeViews[roadmap.id]}
+              dependencySettingsDirty={dependencyDrafts[roadmap.id]}
+              onDraftChange={draftChanged}
+              csrfToken={csrfToken}
+              canMutate={canMutate}
+            />
+            <RuntimeEvidencePanel
+              panelId={`runtime-evidence-roadmap-${roadmap.id}`}
+              roadmapId={roadmap.id}
+              roadmapRevision={roadmap.definition.revision}
+              roadmapSettingsDirty={dirtyRoadmaps[roadmap.id]}
+              onViewChange={runtimeChanged}
+              onDraftChange={dependencyDraftChanged}
+              workspaceId={workspaceId}
+              definitionId={roadmap.definition.crossProject.definitionId}
+              bindingRevision={roadmap.definition.crossProject.bindingRevision}
+              csrfToken={csrfToken}
+              canMutate={canMutate}
+            />
+            <MapAmendmentPanel
+              key={`${roadmap.id}:${roadmap.definition.revision}`}
+              workspaceId={workspaceId}
+              roadmap={roadmap}
+              csrfToken={csrfToken}
+              canMutate={canMutate}
+            />
+          </>
+        )}
+        <details open={!roadmap.definition.crossProject}>
+          <summary>
+            Execution attempts and individual controls ({roadmap.definition.entries.length})
+          </summary>
+          <ol className="roadmap-entries">
+            {roadmap.definition.entries.map((entry) => {
+              const state = progress.find((p) => p.entryId === entry.id);
+              const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
+              return (
+                <li key={entry.id} id={`roadmap-entry-${roadmap.id}-${entry.id}`}>
+                  <a
+                    href={buildPath({
+                      name: 'work-item',
+                      workspaceId,
+                      workItemId: entry.workItemId,
+                    })}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      onOpenWorkItem(entry.workItemId);
+                    }}
+                  >
+                    {[entry.sourceId, entry.executionScope?.kind, entry.title]
+                      .filter((part) => part !== undefined && part !== '')
+                      .join(' · ')}
+                  </a>
+                  <p>
+                    <strong>
+                      {state?.status === 'awaiting-merge'
+                        ? entry.executionScope && entry.executionScope.kind !== 'slice'
+                          ? 'Ready for scope acceptance'
+                          : 'Awaiting merge approval'
+                        : state?.status === 'paused'
+                          ? 'Item paused'
+                          : state?.status === 'capacity-blocked'
+                            ? 'Waiting for capacity'
+                            : state?.status === 'exclusion-blocked'
+                              ? 'Waiting for exclusion group'
+                              : state?.status === 'dependency-blocked'
+                                ? 'Waiting on prerequisites'
+                                : state?.status === 'needs-attention'
+                                  ? 'Needs attention'
+                                  : state?.status === 'completed'
+                                    ? 'Completed'
+                                    : state?.status === 'running'
+                                      ? 'Running'
+                                      : 'Queued'}
+                    </strong>{' '}
+                    · <code>{entry.integrationBranch}</code>
+                  </p>
+                  <p className="hint">{state?.reason}</p>
+                  {entry.executionScope &&
+                    state?.blockers?.some((b) =>
+                      ['environment-approval', 'resource-unsupported'].includes(
+                        phaseBlockerCode(b),
+                      ),
+                    ) && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() =>
+                          revealElement(`runtime-evidence-roadmap-${roadmap.id}-native`)
+                        }
+                      >
+                        Set up verification environment
+                      </button>
+                    )}
+                  {entry.executionScope && state?.blockers?.some((b) => b.kind === 'review') && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => revealElement(`map-reviewers-roadmap-${roadmap.id}`)}
+                    >
+                      Assign independent reviewer responsibilities
+                    </button>
+                  )}
+                  {entry.executionScope && entry.executionScope.kind !== 'slice' ? (
+                    <p className="hint">
+                      Independent review records scope evidence; it does not merge a branch.
+                    </p>
+                  ) : (
+                    <StatusStrip
+                      compact
+                      facts={[
+                        {
+                          label: 'Integration merge',
+                          value:
+                            (
+                              state?.effectiveAutomation ??
+                              entry.automation ??
+                              roadmap.definition.automation
+                            )?.integrationMerge === 'automatic'
+                              ? 'Automatic when reviewed and ready'
+                              : 'Your approval required',
+                        },
+                        {
+                          label: 'Conflicts',
+                          value:
+                            (
+                              state?.effectiveAutomation ??
+                              entry.automation ??
+                              roadmap.definition.automation
+                            )?.integrationConflicts === 'automatic'
+                              ? 'Automatic delegation'
+                              : 'Ask you',
+                        },
+                        ...(entry.exclusionGroups?.length
+                          ? [
+                              {
+                                label: 'Exclusion groups',
+                                value: entry.exclusionGroups.join(', '),
+                              },
+                            ]
+                          : []),
+                      ]}
+                    />
+                  )}
+                  {canMutate &&
+                    roadmap.status === 'running' &&
+                    roadmap.definition.scheduling?.mode === 'parallel' &&
+                    state?.status !== 'completed' && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={busy}
+                        onClick={() =>
+                          void command(
+                            roadmap,
+                            ['paused', 'needs-attention'].includes(state?.status ?? '')
+                              ? 'resume'
+                              : 'pause',
+                            entry.id,
+                          )
+                        }
+                      >
+                        {['paused', 'needs-attention'].includes(state?.status ?? '')
+                          ? 'Resume item'
+                          : 'Pause item'}
+                      </button>
+                    )}
+                  <ReverifyItem
+                    reverifiable={!!state?.reverifiable}
+                    canMutate={canMutate}
+                    busy={busy}
+                    onReverify={() => void command(roadmap, 'reverify', entry.id)}
+                  />
+                  <details>
+                    <summary>Bound plan and cycle settings</summary>
+                    <p className="hint">
+                      Plan version: <code>{entry.planVersionId}</code>
+                      {attempt && <> · Execution revision {attempt.definitionRevision}</>}
+                    </p>
+                    <ul>
+                      {CYCLE_STEPS.map((step) => (
+                        <li key={step}>
+                          {step}: {entry.profiles[step].backend} ·{' '}
+                          <code>{entry.profiles[step].model ?? 'Backend default'}</code> ·{' '}
+                          {entry.profiles[step].permissionMode}
+                        </li>
+                      ))}
+                    </ul>
+                    <p>
+                      Zero blocking, major, or minor findings; at most {entry.policy.maxNits} nits.
+                      Up to {entry.policy.maxRemediationRounds} remediation rounds,{' '}
+                      {entry.policy.maxRunMinutes} minutes per step.
+                    </p>
+                    {entry.instructions && (
+                      <pre className="roadmap-instructions">{entry.instructions}</pre>
+                    )}
+                  </details>
+                </li>
+              );
+            })}
+          </ol>
+        </details>
+        {history?.id === roadmap.id && (
+          <details open>
+            <summary>Saved revisions</summary>
+            {history.definitions.map((def) => (
+              <details key={def.revision}>
+                <summary>
+                  Revision {def.revision} · {def.name} · {new Date(def.createdAt).toLocaleString()}
+                </summary>
+                <pre className="roadmap-instructions">{JSON.stringify(def, null, 2)}</pre>
+              </details>
+            ))}
+          </details>
+        )}
+      </>
+    );
+  }
+  const shownRoadmaps =
+    only === undefined ? roadmaps : roadmaps.filter((r) => r.roadmap.id === only);
+  const focused = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (focus === undefined || focused.current === focus || !loaded) return;
+    focused.current = focus;
+    revealElement(focus);
+  }, [focus, loaded]);
+  const roadmapSections = shownRoadmaps.map(({ roadmap, progress, hostCapacity }) => {
+    const completed = progress.filter((p) => p.status === 'completed').length;
+    const items = attention.filter((item) => item.refs.roadmapId === roadmap.id);
+    // The roadmap needs the operator exactly when an open attention item says so (R-A5).
+    const needsYou = items.length > 0;
+    return (
+      <Section
+        key={roadmap.id}
+        title={roadmap.definition.name}
+        label={roadmap.definition.name}
+        summary={`${completed}/${progress.length} completed · revision ${roadmap.definition.revision}`}
+        {...(needsYou ? { tone: 'attention' as const } : {})}
+      >
+        <p role="status">
+          <strong>Scheduler: </strong>
+          <span>{roadmap.reason}</span>
+        </p>
+        {needsYou && (
+          <section aria-label="Needs you on this roadmap" className="roadmap-next-actions">
+            <ul className="attention-list compact">
+              {items.map((item) => (
+                <li key={item.id} className="attention-row">
+                  <a
+                    className="text-button"
+                    href={buildPath({ name: 'inbox', workspaceId, itemId: item.id })}
+                    onClick={(event) => {
+                      if (!onOpenAttention) return;
+                      event.preventDefault();
+                      onOpenAttention(item.id);
+                    }}
+                  >
+                    {ATTENTION_CODE_LABELS[item.code]}
+                  </a>
+                  <span className="attention-reason">{item.title}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {renderRoadmapBody(roadmap, progress, hostCapacity, needsYou)}
+      </Section>
+    );
+  });
+  if (only !== undefined)
+    return (
+      <div className="embedded-roadmap">
+        {error && (
+          <p role="alert" className="error-state">
+            {error}
+          </p>
+        )}
+        {!loaded && <p className="empty-state">Loading roadmap…</p>}
+        {roadmapSections}
+      </div>
+    );
   return (
     <div className="page">
       <PageHeader
@@ -675,427 +1158,7 @@ export function RoadmapsPage({
           No roadmaps yet. Create a sequence from your imported work items.
         </p>
       )}
-      {roadmaps.map(({ roadmap, progress, hostCapacity }) => {
-        const completed = progress.filter((p) => p.status === 'completed').length;
-        const attention =
-          ['needs-attention'].includes(roadmap.status) ||
-          progress.some(
-            (p) =>
-              (p.status === 'awaiting-merge' || p.status === 'needs-attention') &&
-              (!p.blockers?.length ||
-                p.blockers.every((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b)))),
-          );
-        return (
-          <Section
-            key={roadmap.id}
-            title={roadmap.definition.name}
-            label={roadmap.definition.name}
-            summary={`${completed}/${progress.length} completed · revision ${roadmap.definition.revision}`}
-            {...(attention ? { tone: 'attention' as const } : {})}
-          >
-            <RoadmapAttention roadmap={roadmap} progress={progress} workspaceId={workspaceId} />
-            <StatusStrip
-              label="Roadmap status"
-              facts={[
-                {
-                  label: 'Status',
-                  value: roadmapStatusLabel(roadmap, labels[roadmap.status]),
-                  accent: attention
-                    ? 'var(--color-attention)'
-                    : roadmap.status === 'running'
-                      ? 'var(--color-active)'
-                      : undefined,
-                },
-                {
-                  label: 'Mode',
-                  value:
-                    roadmap.definition.scheduling?.mode === 'parallel'
-                      ? `Parallel · ${roadmap.definition.scheduling.maxInFlight} in flight · ${roadmap.definition.scheduling.maxPerRepository} per repository`
-                      : 'Sequential',
-                },
-                {
-                  label: 'In flight',
-                  value: roadmap.attempts.filter((a) => a.status !== 'completed').length,
-                  mono: true,
-                },
-                {
-                  label: 'Cycles running',
-                  value: progress.filter((p) => p.status === 'running').length,
-                  mono: true,
-                },
-              ]}
-            />
-            {hostCapacity && (
-              <>
-                <StatusStrip
-                  label="Shared workstation capacity"
-                  facts={[
-                    {
-                      label: 'Development/work-item review slots',
-                      value: `${hostCapacity.development.inUse}/${hostCapacity.development.limit}`,
-                      mono: true,
-                    },
-                    {
-                      label: 'Independent verification slots',
-                      value: `${hostCapacity.verification.inUse}/${hostCapacity.verification.limit}`,
-                      mono: true,
-                    },
-                  ]}
-                />
-                <p className="subtle">
-                  These workstation slots are shared across projects. Roadmap limits include items
-                  waiting for review or merge; they do not increase workstation capacity.
-                </p>
-                <p>
-                  <a
-                    href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#execution-capacity`}
-                  >
-                    Manage capacity
-                  </a>{' '}
-                  ·{' '}
-                  <a
-                    href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#roadmap-agent-profiles`}
-                  >
-                    Manage agent profiles
-                  </a>
-                </p>
-                {roadmap.definition.scheduling?.mode === 'parallel' &&
-                  roadmap.definition.scheduling.maxInFlight > hostCapacity.development.limit && (
-                    <p role="status">
-                      This roadmap permits {roadmap.definition.scheduling.maxInFlight} items in
-                      flight, but the workstation permits only {hostCapacity.development.limit}{' '}
-                      concurrent scoped development runs across all projects.
-                    </p>
-                  )}
-              </>
-            )}
-            {(dirtyRoadmaps[roadmap.id] || dependencyDrafts[roadmap.id]) && (
-              <p role="status">
-                Save the unsaved{' '}
-                {dirtyRoadmaps[roadmap.id] ? 'queued roadmap settings' : 'dependency settings'}{' '}
-                below before starting or resuming, then review plan acceptance for the updated
-                configuration.
-              </p>
-            )}
-            <ActionBar label="Roadmap controls">
-              {canMutate && (
-                <>
-                  {roadmap.status === 'draft' && (
-                    <button
-                      type="button"
-                      className="primary-button"
-                      disabled={
-                        busy || !!draft || dirtyRoadmaps[roadmap.id] || dependencyDrafts[roadmap.id]
-                      }
-                      onClick={() => void command(roadmap, 'start')}
-                    >
-                      Start roadmap
-                    </button>
-                  )}
-                  {roadmap.status === 'running' && (
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={busy}
-                      onClick={() => void command(roadmap, 'pause')}
-                    >
-                      Pause roadmap
-                    </button>
-                  )}
-                  {['paused', 'needs-attention'].includes(roadmap.status) && (
-                    <button
-                      type="button"
-                      className="primary-button"
-                      disabled={
-                        busy || !!draft || dirtyRoadmaps[roadmap.id] || dependencyDrafts[roadmap.id]
-                      }
-                      onClick={() => void command(roadmap, 'resume')}
-                    >
-                      Resume roadmap
-                    </button>
-                  )}
-                  {!roadmap.definition.crossProject &&
-                    ['draft', 'paused', 'needs-attention'].includes(roadmap.status) && (
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        disabled={busy || !!draft}
-                        onClick={() => edit(roadmap)}
-                      >
-                        Edit queued entries
-                      </button>
-                    )}
-                  {!['completed', 'stopped'].includes(roadmap.status) && (
-                    <button
-                      type="button"
-                      className="secondary-button danger"
-                      disabled={busy || !!draft}
-                      onClick={() => void command(roadmap, 'stop')}
-                    >
-                      Stop roadmap
-                    </button>
-                  )}
-                </>
-              )}
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() =>
-                  void loadRoadmapHistory(roadmap)
-                    .then((result) =>
-                      setHistory({ id: roadmap.id, definitions: result.definitions }),
-                    )
-                    .catch((e) =>
-                      setError(e instanceof Error ? e.message : 'Could not load history.'),
-                    )
-                }
-              >
-                View revisions
-              </button>
-            </ActionBar>
-            {roadmap.definition.crossProject && (
-              <>
-                <ScopeRecoveryPanel
-                  roadmap={roadmap}
-                  csrfToken={csrfToken}
-                  canMutate={canMutate}
-                  onChange={apply}
-                  onOpenWorkItem={onOpenWorkItem}
-                />
-                <CrossProjectPanel
-                  workspaceId={workspaceId}
-                  definitionId={roadmap.definition.crossProject.definitionId}
-                  bindingRevision={roadmap.definition.crossProject.bindingRevision}
-                  targets={[
-                    {
-                      id: roadmap.definition.crossProject.targetId,
-                      scope:
-                        roadmap.definition.crossProject.selection === 'target-only'
-                          ? 'Only the selected target prerequisite scope is delegated.'
-                          : 'Full retained roadmap with the selected target prioritized.',
-                    },
-                  ]}
-                  roadmap={roadmap}
-                  runtimeView={runtimeViews[roadmap.id]}
-                  dependencySettingsDirty={dependencyDrafts[roadmap.id]}
-                  onDraftChange={draftChanged}
-                  csrfToken={csrfToken}
-                  canMutate={canMutate}
-                />
-                <RuntimeEvidencePanel
-                  panelId={`runtime-evidence-roadmap-${roadmap.id}`}
-                  roadmapId={roadmap.id}
-                  roadmapRevision={roadmap.definition.revision}
-                  roadmapSettingsDirty={dirtyRoadmaps[roadmap.id]}
-                  onViewChange={runtimeChanged}
-                  onDraftChange={dependencyDraftChanged}
-                  workspaceId={workspaceId}
-                  definitionId={roadmap.definition.crossProject.definitionId}
-                  bindingRevision={roadmap.definition.crossProject.bindingRevision}
-                  csrfToken={csrfToken}
-                  canMutate={canMutate}
-                />
-                <MapAmendmentPanel
-                  key={`${roadmap.id}:${roadmap.definition.revision}`}
-                  workspaceId={workspaceId}
-                  roadmap={roadmap}
-                  csrfToken={csrfToken}
-                  canMutate={canMutate}
-                />
-              </>
-            )}
-            <details open={!roadmap.definition.crossProject}>
-              <summary>
-                Execution attempts and individual controls ({roadmap.definition.entries.length})
-              </summary>
-              <ol className="roadmap-entries">
-                {roadmap.definition.entries.map((entry) => {
-                  const state = progress.find((p) => p.entryId === entry.id);
-                  const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
-                  return (
-                    <li key={entry.id} id={`roadmap-entry-${roadmap.id}-${entry.id}`}>
-                      <a
-                        href={buildPath({
-                          name: 'work-item',
-                          workspaceId,
-                          workItemId: entry.workItemId,
-                        })}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          onOpenWorkItem(entry.workItemId);
-                        }}
-                      >
-                        {[entry.sourceId, entry.executionScope?.kind, entry.title]
-                          .filter((part) => part !== undefined && part !== '')
-                          .join(' · ')}
-                      </a>
-                      <p>
-                        <strong>
-                          {state?.status === 'awaiting-merge'
-                            ? entry.executionScope && entry.executionScope.kind !== 'slice'
-                              ? 'Ready for scope acceptance'
-                              : 'Awaiting merge approval'
-                            : state?.status === 'paused'
-                              ? 'Item paused'
-                              : state?.status === 'capacity-blocked'
-                                ? 'Waiting for capacity'
-                                : state?.status === 'exclusion-blocked'
-                                  ? 'Waiting for exclusion group'
-                                  : state?.status === 'dependency-blocked'
-                                    ? 'Waiting on prerequisites'
-                                    : state?.status === 'needs-attention'
-                                      ? 'Needs attention'
-                                      : state?.status === 'completed'
-                                        ? 'Completed'
-                                        : state?.status === 'running'
-                                          ? 'Running'
-                                          : 'Queued'}
-                        </strong>{' '}
-                        · <code>{entry.integrationBranch}</code>
-                      </p>
-                      <p className="hint">{state?.reason}</p>
-                      {entry.executionScope &&
-                        state?.blockers?.some((b) =>
-                          ['environment-approval', 'resource-unsupported'].includes(
-                            phaseBlockerCode(b),
-                          ),
-                        ) && (
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={() =>
-                              revealElement(`runtime-evidence-roadmap-${roadmap.id}-native`)
-                            }
-                          >
-                            Set up verification environment
-                          </button>
-                        )}
-                      {entry.executionScope &&
-                        state?.blockers?.some((b) => b.kind === 'review') && (
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={() => revealElement(`map-reviewers-roadmap-${roadmap.id}`)}
-                          >
-                            Assign independent reviewer responsibilities
-                          </button>
-                        )}
-                      {entry.executionScope && entry.executionScope.kind !== 'slice' ? (
-                        <p className="hint">
-                          Independent review records scope evidence; it does not merge a branch.
-                        </p>
-                      ) : (
-                        <StatusStrip
-                          compact
-                          facts={[
-                            {
-                              label: 'Integration merge',
-                              value:
-                                (
-                                  state?.effectiveAutomation ??
-                                  entry.automation ??
-                                  roadmap.definition.automation
-                                )?.integrationMerge === 'automatic'
-                                  ? 'Automatic when reviewed and ready'
-                                  : 'Your approval required',
-                            },
-                            {
-                              label: 'Conflicts',
-                              value:
-                                (
-                                  state?.effectiveAutomation ??
-                                  entry.automation ??
-                                  roadmap.definition.automation
-                                )?.integrationConflicts === 'automatic'
-                                  ? 'Automatic delegation'
-                                  : 'Ask you',
-                            },
-                            ...(entry.exclusionGroups?.length
-                              ? [
-                                  {
-                                    label: 'Exclusion groups',
-                                    value: entry.exclusionGroups.join(', '),
-                                  },
-                                ]
-                              : []),
-                          ]}
-                        />
-                      )}
-                      {canMutate &&
-                        roadmap.status === 'running' &&
-                        roadmap.definition.scheduling?.mode === 'parallel' &&
-                        state?.status !== 'completed' && (
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            disabled={busy}
-                            onClick={() =>
-                              void command(
-                                roadmap,
-                                ['paused', 'needs-attention'].includes(state?.status ?? '')
-                                  ? 'resume'
-                                  : 'pause',
-                                entry.id,
-                              )
-                            }
-                          >
-                            {['paused', 'needs-attention'].includes(state?.status ?? '')
-                              ? 'Resume item'
-                              : 'Pause item'}
-                          </button>
-                        )}
-                      <ReverifyItem
-                        reverifiable={!!state?.reverifiable}
-                        canMutate={canMutate}
-                        busy={busy}
-                        onReverify={() => void command(roadmap, 'reverify', entry.id)}
-                      />
-                      <details>
-                        <summary>Bound plan and cycle settings</summary>
-                        <p className="hint">
-                          Plan version: <code>{entry.planVersionId}</code>
-                          {attempt && <> · Execution revision {attempt.definitionRevision}</>}
-                        </p>
-                        <ul>
-                          {CYCLE_STEPS.map((step) => (
-                            <li key={step}>
-                              {step}: {entry.profiles[step].backend} ·{' '}
-                              <code>{entry.profiles[step].model ?? 'Backend default'}</code> ·{' '}
-                              {entry.profiles[step].permissionMode}
-                            </li>
-                          ))}
-                        </ul>
-                        <p>
-                          Zero blocking, major, or minor findings; at most {entry.policy.maxNits}{' '}
-                          nits. Up to {entry.policy.maxRemediationRounds} remediation rounds,{' '}
-                          {entry.policy.maxRunMinutes} minutes per step.
-                        </p>
-                        {entry.instructions && (
-                          <pre className="roadmap-instructions">{entry.instructions}</pre>
-                        )}
-                      </details>
-                    </li>
-                  );
-                })}
-              </ol>
-            </details>
-            {history?.id === roadmap.id && (
-              <details open>
-                <summary>Saved revisions</summary>
-                {history.definitions.map((def) => (
-                  <details key={def.revision}>
-                    <summary>
-                      Revision {def.revision} · {def.name} ·{' '}
-                      {new Date(def.createdAt).toLocaleString()}
-                    </summary>
-                    <pre className="roadmap-instructions">{JSON.stringify(def, null, 2)}</pre>
-                  </details>
-                ))}
-              </details>
-            )}
-          </Section>
-        );
-      })}
+      {roadmapSections}
       <ConcurrencyImports
         key={workspaceId}
         workspaceId={workspaceId}

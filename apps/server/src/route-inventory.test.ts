@@ -18,6 +18,7 @@ const EXPECTED_ROUTES = [
   'GET /api/workspaces/:workspaceId/host-scheduling',
   'POST /api/workspaces/:workspaceId/host-scheduling',
   'GET /api/workspaces/:workspaceId/operator-wait',
+  'GET /api/workspaces/:workspaceId/attention',
   'GET /api/workspaces/:workspaceId/cycles/:cycleId/baseline-evidence',
   'GET /api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',
   'POST /api/workspaces/:workspaceId/cycles/:cycleId/baseline-preparation',

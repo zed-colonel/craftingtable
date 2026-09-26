@@ -12,6 +12,8 @@ export function describeEvent(event: WorkspaceEventEnvelope): string {
       return `Roadmap ${event.payload.status}: ${event.payload.reason}`;
     case 'notifications-changed':
       return `Notifications: ${event.payload.action} updated`;
+    case 'attention-changed':
+      return `Needs you: ${event.payload.open} open`;
     case 'branches-changed':
       return `Branch settings ${event.payload.action}`;
     case 'work-cycle-changed':

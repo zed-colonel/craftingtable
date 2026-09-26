@@ -1,5 +1,6 @@
 import type {
   AgentRunDetailResponse,
+  AttentionItemView,
   AuditRecordSummary,
   AuthenticatedSessionResponse,
   ExecutionStatusResponse,
@@ -22,6 +23,7 @@ import type {
 import type {
   AgentRunId,
   PlanArtifactId,
+  PlanVersionId,
   SessionId,
   SourceRepositoryId,
   WorkCycle,
@@ -32,7 +34,10 @@ import type {
 } from '@craftingtable/domain';
 import { type ReactElement, useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ActivityPanel } from './components/ActivityPanel.js';
-import { AttentionStrip, attentionCycles } from './components/AttentionStrip.js';
+import { NeedsYou } from './components/NeedsYou.js';
+import { InboxPage } from './features/inbox/InboxPage.js';
+import { loadAttention } from './lib/attention-api.js';
+import { inboxHost } from './lib/inbox-host.js';
 import { AuditPanel } from './components/AuditPanel.js';
 import { LoginPage } from './components/LoginPage.js';
 import { PageHeader } from './components/PageHeader.js';
@@ -132,7 +137,7 @@ import {
   documentHidden,
   RefreshSignalsProvider,
 } from './lib/refresh-signals.js';
-import { type Route, routeWorkspaceId } from './lib/route.js';
+import { buildPath, type Route, routeWorkspaceId } from './lib/route.js';
 import {
   currentTheme,
   persistTheme,
@@ -301,6 +306,11 @@ export function App() {
     cycles: readonly WorkCycle[];
   }>();
   const [cycleLoadError, setCycleLoadError] = useState<WorkspaceId>();
+  /** The daemon's open attention items: the one list of what needs the operator (R-A5). */
+  const [attentionState, setAttentionState] = useState<{
+    workspaceId: WorkspaceId;
+    items: readonly AttentionItemView[];
+  }>();
   /** The work-item page's own cycles, history and design recovery included. */
   const [itemCycleState, setItemCycleState] = useState<{
     workspaceId: WorkspaceId;
@@ -600,6 +610,37 @@ export function App() {
     };
   }, [workspaceId, authenticationStatus, refreshToken]);
 
+  const attentionItems =
+    attentionState !== undefined && attentionState.workspaceId === workspaceId
+      ? attentionState.items
+      : [];
+  const attentionLoaded = attentionState?.workspaceId === workspaceId;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attention-changed events refresh the feed
+  useEffect(() => {
+    if (authenticationStatus !== 'authenticated' || workspaceId === undefined) return;
+    let cancelled = false;
+    trackLoad(
+      loadAttention(workspaceId)
+        .then((feed) => {
+          if (!cancelled && activeWorkspaceIdRef.current === workspaceId)
+            setAttentionState({ workspaceId, items: feed.items });
+        })
+        .catch(() => undefined),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, authenticationStatus, refreshToken]);
+  /** An inbox item hosts its work item's controls, so it loads that item like its page. */
+  const inboxItem =
+    route.name === 'inbox' && route.itemId !== undefined
+      ? attentionItems.find((item) => item.id === route.itemId)
+      : undefined;
+  const focusWorkItemId: WorkItemId | undefined =
+    route.name === 'work-item'
+      ? route.workItemId
+      : (inboxItem?.refs.workItemId as WorkItemId | undefined);
+
   // Detail views refetch whenever their route or the refresh token changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: deliberate refetch trigger
   useEffect(() => {
@@ -662,8 +703,11 @@ export function App() {
           }
         })
         .catch(fail);
-    } else if (route.name === 'work-item') {
-      const workItemId = route.workItemId;
+    } else if (
+      focusWorkItemId !== undefined &&
+      (route.name === 'work-item' || route.name === 'inbox')
+    ) {
+      const workItemId = focusWorkItemId;
       // The item's own cycles, history and design recovery included (PERF-05).
       const itemCycles = loadWorkCycles(workspaceId, workItemId)
         .then((result) => {
@@ -676,8 +720,8 @@ export function App() {
           if (current()) setItemCycleLoadError(workItemId);
         });
       const detail = Promise.all([
-        loadWorkItem(workspaceId, route.workItemId),
-        loadWorkItemExecution(workspaceId, route.workItemId),
+        loadWorkItem(workspaceId, workItemId),
+        loadWorkItemExecution(workspaceId, workItemId),
         loadRepositories(workspaceId),
         loadExecutionStatus(),
         loadRunProfiles(workspaceId),
@@ -738,7 +782,7 @@ export function App() {
     return () => {
       canceled = true;
     };
-  }, [route, workspaceId, authenticationStatus, refreshToken]);
+  }, [route, workspaceId, authenticationStatus, refreshToken, focusWorkItemId]);
 
   // Closes the round opened by this refresh token once every load registered
   // above has settled, so the scheduler never starts a second round meanwhile.
@@ -1238,9 +1282,9 @@ export function App() {
   const recentRuns = runsState?.scope === 'recent' ? runsState.response : undefined;
   const itemCycles =
     itemCycleState !== undefined &&
-    route.name === 'work-item' &&
+    focusWorkItemId !== undefined &&
     itemCycleState.workspaceId === workspaceId &&
-    itemCycleState.workItemId === route.workItemId
+    itemCycleState.workItemId === focusWorkItemId
       ? itemCycleState.cycles
       : undefined;
   const itemInProgress =
@@ -1248,20 +1292,227 @@ export function App() {
     workItemExecution?.workItemId === route.workItemId &&
     (workItemExecution.worktrees.some((worktree) => worktree.status === 'active') ||
       workItemExecution.runs.some((entry) => isLiveStatus(entry.status)));
-  /** A cycle belongs to a work item or, for finalization, to a plan version. */
-  const openCycle = (cycle: WorkCycle): void => {
-    if (workspaceId === undefined) return;
-    if (cycle.workItemId) {
-      setSelectedCycleWorktreeId(cycle.worktreeId);
-      go({ name: 'work-item', workspaceId, workItemId: cycle.workItemId });
-    } else if (cycle.planVersionId) {
-      go({
-        name: 'plan-version',
-        workspaceId,
-        projectId: cycle.projectId,
-        planVersionId: cycle.planVersionId,
-      });
-    }
+  /** The work item's automated cycle controls: its page and its inbox items host them (R-A5). */
+  const cycleControls = (workItemId: WorkItemId): ReactElement | undefined => {
+    if (
+      workspaceId === undefined ||
+      authenticated === undefined ||
+      workItem?.workItem.id !== workItemId ||
+      workItemExecution?.workItemId !== workItemId ||
+      itemCycles === undefined
+    )
+      return undefined;
+    return (
+      <CyclePanel
+        key={workItemId}
+        {...(selectedCycleWorktreeId ? { selectedWorktreeId: selectedCycleWorktreeId } : {})}
+        onSelectWorktree={setSelectedCycleWorktreeId}
+        renderDesignRecovery={(cycle) => (
+          <DesignRecoveryPanel
+            key={`${cycle.id}-${cycle.currentRunId}`}
+            cycle={cycle}
+            backends={executionStatus?.backends ?? []}
+            csrfToken={authenticated.csrfToken}
+            onChanged={() => refreshNow()}
+          />
+        )}
+        renderReviewRecovery={(cycle, liveRun) => (
+          <>
+            {['paused', 'needs-attention'].includes(cycle.status) && (
+              <ScopeRepairPanel
+                key={`repair-${cycle.id}`}
+                cycle={cycle}
+                disabled={executionBusy || !canMutate || liveRun}
+                csrfToken={authenticated.csrfToken}
+                refreshToken={refreshToken}
+                onOpen={setSelectedCycleWorktreeId}
+                onStarted={(repair) => {
+                  setSelectedCycleWorktreeId(repair.worktreeId);
+                  refreshNow();
+                }}
+              />
+            )}
+            <ScopeReviewRecovery
+              key={cycle.id}
+              cycle={cycle}
+              disabled={executionBusy || !canMutate || liveRun}
+              refreshToken={refreshToken}
+              onResume={(instructions) =>
+                executionCommand(async (csrfToken) => {
+                  await controlWorkCycle(
+                    cycle,
+                    cycle.status === 'completed' ? 'review-again' : 'resume',
+                    csrfToken,
+                    instructions,
+                  );
+                })
+              }
+            />
+          </>
+        )}
+        cycles={itemCycles}
+        worktrees={workItemExecution.worktrees}
+        runs={workItemExecution.runs}
+        backends={executionStatus?.backends ?? []}
+        profiles={runProfiles?.profiles ?? []}
+        canMutate={canMutate}
+        busy={executionBusy}
+        admitted={workItem.workItem.status === 'admitted'}
+        onStart={(input) =>
+          executionCommand(async (csrfToken, forWorkspace) => {
+            await startWorkCycle(forWorkspace, workItem.workItem.id, input, csrfToken);
+          })
+        }
+        onAuthorizeRemediation={(cycle, input) =>
+          executionCommand(async (csrfToken) => {
+            await authorizeWorkCycleRemediation(cycle, input, csrfToken);
+          })
+        }
+        onControl={(cycle, action, instructions) =>
+          executionCommand(async (csrfToken) => {
+            await controlWorkCycle(cycle, action, csrfToken, instructions);
+          })
+        }
+        onResolution={(cycle, input) =>
+          executionCommand(async (csrfToken) => {
+            await resolveIntegration(cycle, input, csrfToken);
+          })
+        }
+        onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
+      />
+    );
+  };
+  /** The work item's worktrees, runs and merges. */
+  const delegationControls = (workItemId: WorkItemId): ReactElement | undefined => {
+    if (
+      workspaceId === undefined ||
+      authenticated === undefined ||
+      workItem?.workItem.id !== workItemId ||
+      workItemExecution?.workItemId !== workItemId
+    )
+      return undefined;
+    return (
+      <DelegationPanel
+        repositories={repositories}
+        hideCreateWorktree
+        automationActive={cycles.some(
+          (cycle) =>
+            cycle.workItemId === workItemId && !['stopped', 'completed'].includes(cycle.status),
+        )}
+        renderBranchControls={(worktree) => (
+          <WorktreeBranchPanel
+            key={worktree.id}
+            workspaceId={workspaceId}
+            worktree={worktree}
+            csrfToken={authenticated.csrfToken}
+            canMutate={canMutate}
+            refreshToken={refreshToken}
+            onChanged={() => refreshNow()}
+          />
+        )}
+        worktrees={workItemExecution.worktrees}
+        runs={workItemExecution.runs}
+        mergeGates={workItemExecution.mergeGates}
+        {...(branches === undefined ? {} : { branches })}
+        backends={executionStatus?.backends ?? []}
+        itemCompleted={workItem.workItem.status === 'completed'}
+        canMutate={canMutate}
+        busy={executionBusy}
+        {...(executionError === undefined ? {} : { error: executionError })}
+        onCreateWorktree={(repositoryId) =>
+          handleCreateWorktree(workItem.workItem.id, repositoryId)
+        }
+        onRemoveWorktree={handleRemoveWorktree}
+        {...(removalRefused === undefined ? {} : { removalRefused })}
+        onKeepWorktree={() => {
+          setRemovalRefused(undefined);
+          setExecutionError(undefined);
+        }}
+        onMergeWorktree={handleMergeWorktree}
+        onLoadBranches={handleLoadBranches}
+        onLaunch={(input) => handleLaunch(workItem.workItem.id, input)}
+        {...(runProfiles === undefined ? {} : { profiles: runProfiles.profiles })}
+        onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
+        onOpenDiff={handleLoadDiff}
+      />
+    );
+  };
+
+  /**
+   * The existing controls that resolve one inbox item, unchanged (R-A5): the work item's
+   * cycle or delegation controls, a finalization, the roadmap's own controls, or storage.
+   * R-A6 replaces each kind with one consolidated component.
+   */
+  const renderInboxHost = (item: AttentionItemView): ReactElement => {
+    const { workItemId, roadmapId, planVersionId, projectId, runId } = item.refs;
+    const host = inboxHost(item);
+    const cycle = host.cycle && workItemId ? cycleControls(workItemId as WorkItemId) : undefined;
+    const delegation =
+      host.delegation && workItemId ? delegationControls(workItemId as WorkItemId) : undefined;
+    return (
+      <>
+        {workItemId !== undefined &&
+          (cycle || delegation ? (
+            <>
+              {cycle}
+              {delegation}
+            </>
+          ) : (
+            <p className="empty-state">Loading controls…</p>
+          ))}
+        {host.finalization &&
+          planVersionId !== undefined &&
+          projectId !== undefined &&
+          workspaceId !== undefined &&
+          authenticated !== undefined && (
+            <FinalizationPanel
+              key={`finalize-${planVersionId}`}
+              workspaceId={workspaceId}
+              planVersionId={planVersionId as PlanVersionId}
+              csrfToken={authenticated.csrfToken}
+              canMutate={canMutate}
+              onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
+            />
+          )}
+        {host.storage && activeWorkspace?.role === 'owner' && authenticated !== undefined && (
+          <StoragePanel workspaceId={activeWorkspace.id} csrfToken={authenticated.csrfToken} />
+        )}
+        {host.run && runId !== undefined && workspaceId !== undefined && (
+          <p>
+            <a
+              className="text-button"
+              href={buildPath({ name: 'run', workspaceId, runId: runId as AgentRunId })}
+              onClick={(event) => {
+                event.preventDefault();
+                go({ name: 'run', workspaceId, runId: runId as AgentRunId });
+              }}
+            >
+              Open the run
+            </a>
+          </p>
+        )}
+        {host.roadmap !== undefined &&
+          roadmapId !== undefined &&
+          workspaceId !== undefined &&
+          activeWorkspace !== undefined &&
+          authenticated !== undefined && (
+            <details open={host.roadmap.open}>
+              <summary>Roadmap controls</summary>
+              <RoadmapsPage
+                key={`inbox-${item.id}`}
+                workspaceId={workspaceId}
+                csrfToken={authenticated.csrfToken}
+                canMutate={['owner', 'editor'].includes(activeWorkspace.role)}
+                onOpenWorkItem={(id) => go({ name: 'work-item', workspaceId, workItemId: id })}
+                attention={attentionItems}
+                onOpenAttention={(id) => go({ name: 'inbox', workspaceId, itemId: id })}
+                only={roadmapId}
+                {...(host.roadmap.focus === undefined ? {} : { focus: host.roadmap.focus })}
+              />
+            </details>
+          )}
+      </>
+    );
   };
 
   const workspaceContent = (): ReactElement | undefined => {
@@ -1305,8 +1556,13 @@ export function App() {
             Cycle status could not be loaded. Refresh before controlling automation.
           </p>
         )}
-        {route.name !== 'dashboard' && (
-          <AttentionStrip cycles={cycles} variant="strip" onOpen={openCycle} />
+        {route.name !== 'dashboard' && route.name !== 'inbox' && (
+          <NeedsYou
+            items={attentionItems}
+            workspaceId={workspaceId}
+            variant="strip"
+            onNavigate={go}
+          />
         )}
 
         {route.name === 'dashboard' && (
@@ -1326,7 +1582,12 @@ export function App() {
                 </button>
               }
             />
-            <AttentionStrip cycles={cycles} variant="section" onOpen={openCycle} />
+            <NeedsYou
+              items={attentionItems}
+              workspaceId={workspaceId}
+              variant="section"
+              onNavigate={go}
+            />
             <OperatorWaitSection
               workspaceId={workspaceId}
               refreshKey={cycles
@@ -1410,6 +1671,20 @@ export function App() {
             csrfToken={authenticated.csrfToken}
             canMutate={['owner', 'editor'].includes(activeWorkspace.role)}
             onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
+            attention={attentionItems}
+            onOpenAttention={(itemId) => go({ name: 'inbox', workspaceId, itemId })}
+          />
+        )}
+
+        {route.name === 'inbox' && (
+          <InboxPage
+            workspaceId={workspaceId}
+            items={attentionItems}
+            loaded={attentionLoaded}
+            {...(route.itemId === undefined ? {} : { selectedId: route.itemId })}
+            now={now}
+            onNavigate={go}
+            renderHost={renderInboxHost}
           />
         )}
 
@@ -1617,133 +1892,8 @@ export function App() {
                 })
               }
             />
-            {workItemExecution?.workItemId === route.workItemId && itemCycles !== undefined && (
-              <CyclePanel
-                key={route.workItemId}
-                {...(selectedCycleWorktreeId
-                  ? { selectedWorktreeId: selectedCycleWorktreeId }
-                  : {})}
-                onSelectWorktree={setSelectedCycleWorktreeId}
-                renderDesignRecovery={(cycle) => (
-                  <DesignRecoveryPanel
-                    key={`${cycle.id}-${cycle.currentRunId}`}
-                    cycle={cycle}
-                    backends={executionStatus?.backends ?? []}
-                    csrfToken={authenticated.csrfToken}
-                    onChanged={() => refreshNow()}
-                  />
-                )}
-                renderReviewRecovery={(cycle, liveRun) => (
-                  <>
-                    {['paused', 'needs-attention'].includes(cycle.status) && (
-                      <ScopeRepairPanel
-                        key={`repair-${cycle.id}`}
-                        cycle={cycle}
-                        disabled={executionBusy || !canMutate || liveRun}
-                        csrfToken={authenticated.csrfToken}
-                        refreshToken={refreshToken}
-                        onOpen={setSelectedCycleWorktreeId}
-                        onStarted={(repair) => {
-                          setSelectedCycleWorktreeId(repair.worktreeId);
-                          refreshNow();
-                        }}
-                      />
-                    )}
-                    <ScopeReviewRecovery
-                      key={cycle.id}
-                      cycle={cycle}
-                      disabled={executionBusy || !canMutate || liveRun}
-                      refreshToken={refreshToken}
-                      onResume={(instructions) =>
-                        executionCommand(async (csrfToken) => {
-                          await controlWorkCycle(
-                            cycle,
-                            cycle.status === 'completed' ? 'review-again' : 'resume',
-                            csrfToken,
-                            instructions,
-                          );
-                        })
-                      }
-                    />
-                  </>
-                )}
-                cycles={itemCycles}
-                worktrees={workItemExecution.worktrees}
-                runs={workItemExecution.runs}
-                backends={executionStatus?.backends ?? []}
-                profiles={runProfiles?.profiles ?? []}
-                canMutate={canMutate}
-                busy={executionBusy}
-                admitted={workItem.workItem.status === 'admitted'}
-                onStart={(input) =>
-                  executionCommand(async (csrfToken, forWorkspace) => {
-                    await startWorkCycle(forWorkspace, workItem.workItem.id, input, csrfToken);
-                  })
-                }
-                onAuthorizeRemediation={(cycle, input) =>
-                  executionCommand(async (csrfToken) => {
-                    await authorizeWorkCycleRemediation(cycle, input, csrfToken);
-                  })
-                }
-                onControl={(cycle, action, instructions) =>
-                  executionCommand(async (csrfToken) => {
-                    await controlWorkCycle(cycle, action, csrfToken, instructions);
-                  })
-                }
-                onResolution={(cycle, input) =>
-                  executionCommand(async (csrfToken) => {
-                    await resolveIntegration(cycle, input, csrfToken);
-                  })
-                }
-                onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
-              />
-            )}
-            {workItemExecution?.workItemId === route.workItemId && (
-              <DelegationPanel
-                repositories={repositories}
-                hideCreateWorktree
-                automationActive={cycles.some(
-                  (cycle) =>
-                    cycle.workItemId === route.workItemId &&
-                    !['stopped', 'completed'].includes(cycle.status),
-                )}
-                renderBranchControls={(worktree) => (
-                  <WorktreeBranchPanel
-                    key={worktree.id}
-                    workspaceId={workspaceId}
-                    worktree={worktree}
-                    csrfToken={authenticated.csrfToken}
-                    canMutate={canMutate}
-                    refreshToken={refreshToken}
-                    onChanged={() => refreshNow()}
-                  />
-                )}
-                worktrees={workItemExecution.worktrees}
-                runs={workItemExecution.runs}
-                mergeGates={workItemExecution.mergeGates}
-                {...(branches === undefined ? {} : { branches })}
-                backends={executionStatus?.backends ?? []}
-                itemCompleted={workItem.workItem.status === 'completed'}
-                canMutate={canMutate}
-                busy={executionBusy}
-                {...(executionError === undefined ? {} : { error: executionError })}
-                onCreateWorktree={(repositoryId) =>
-                  handleCreateWorktree(workItem.workItem.id, repositoryId)
-                }
-                onRemoveWorktree={handleRemoveWorktree}
-                {...(removalRefused === undefined ? {} : { removalRefused })}
-                onKeepWorktree={() => {
-                  setRemovalRefused(undefined);
-                  setExecutionError(undefined);
-                }}
-                onMergeWorktree={handleMergeWorktree}
-                onLoadBranches={handleLoadBranches}
-                onLaunch={(input) => handleLaunch(workItem.workItem.id, input)}
-                {...(runProfiles === undefined ? {} : { profiles: runProfiles.profiles })}
-                onOpenRun={(runId) => go({ name: 'run', workspaceId, runId })}
-                onOpenDiff={handleLoadDiff}
-              />
-            )}
+            {cycleControls(route.workItemId)}
+            {delegationControls(route.workItemId)}
             <ExecutionScopesPanel
               key={`scopes-${workspaceId}-${route.workItemId}`}
               cycles={itemCycles ?? []}
@@ -1885,7 +2035,7 @@ export function App() {
       username={authenticated.user.username}
       workspaces={workspaces}
       {...(activeWorkspaceId === undefined ? {} : { selectedWorkspaceId: activeWorkspaceId })}
-      attentionCount={attentionCycles(cycles).length}
+      attentionCount={attentionItems.length}
       connection={projection.connection}
       route={route}
       theme={theme}

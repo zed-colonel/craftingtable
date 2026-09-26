@@ -30,6 +30,7 @@ import { HostSchedulingService } from './services/host-scheduling-service.js';
 import { MapAmendmentService } from './services/map-amendment-service.js';
 import { ControllerPasses, OperatorPresence } from './services/attention-gates.js';
 import { AttentionProjector } from './services/attention-projector.js';
+import { AttentionService } from './services/attention-service.js';
 import { NotificationService } from './services/notification-service.js';
 import {
   type NotificationTransport,
@@ -61,6 +62,7 @@ export interface ServiceSet {
   readonly storageService: StorageService;
   readonly hostSchedulingService: HostSchedulingService;
   readonly operatorWaitService: OperatorWaitService;
+  readonly attentionService: AttentionService;
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
@@ -289,6 +291,7 @@ export async function createServices(
     storageService,
     hostSchedulingService: new HostSchedulingService(storage, workspaceService, notifier, now),
     operatorWaitService: new OperatorWaitService(storage, workspaceService, now),
+    attentionService: new AttentionService(storage, workspaceService, attention),
     finalizationService: new FinalizationService(
       storage,
       workspaceService,
@@ -382,6 +385,7 @@ export async function createRuntime(
         storageService: services.storageService,
         hostSchedulingService: services.hostSchedulingService,
         operatorWaitService: services.operatorWaitService,
+        attentionService: services.attentionService,
         authService: services.authService,
         workspaceService: services.workspaceService,
         planImportService: services.planImportService,

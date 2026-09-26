@@ -77,3 +77,5 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-09-25-vocabulary-copy-review-after | `61e41cb` | 2026-09-25 | 57 (1 phone only) | 1× |
 | 2026-09-25-upstream-transitions-before | `70b0398` | 2026-09-25 | 57 (1 phone only) | 1× |
 | 2026-09-25-upstream-transitions-after | `50da8f8` | 2026-09-25 | 58 (1 phone only) | 1× |
+| 2026-09-26-inbox-before | `16d94de` | 2026-09-26 | 58 (1 phone only) | 1× |
+| 2026-09-26-inbox-after | `40d3a9b` | 2026-09-26 | 61 (1 phone only) | 1× |

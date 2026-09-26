@@ -33,6 +33,7 @@ describe('workspace event vocabulary', () => {
       'scope-evidence-recorded',
       'scope-scheduling-authorized',
       'runtime-evidence-changed',
+      'attention-changed',
     ]);
     expect(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA).toEqual({
       'workspace-created': 1,
@@ -60,6 +61,7 @@ describe('workspace event vocabulary', () => {
       'scope-evidence-recorded': 18,
       'scope-scheduling-authorized': 19,
       'runtime-evidence-changed': 20,
+      'attention-changed': 32,
     });
     expect(Object.keys(WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA)).toEqual(WORKSPACE_EVENT_KINDS);
   });

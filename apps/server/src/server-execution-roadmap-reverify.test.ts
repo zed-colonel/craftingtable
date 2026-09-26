@@ -102,6 +102,25 @@ itNeedsCargo(
       expect((await progress(entry.id)).status).not.toBe('completed');
       expect((await progress(entry.id)).reverifiable).toBe(true);
     }
+    // The scheduler holds each stale entry with its own code, and the inbox offers Re-verify
+    // for it (R-A5), without any navigation prose in the hold.
+    await roadmapControl(state, 'resume');
+    await stepDaemons();
+    const inbox = () => {
+      state.context.services.roadmapService.syncAttention(true);
+      return state.context.services.attentionService.feed(f.auth, ws).items;
+    };
+    for (const entry of [A, B]) {
+      expect(storedRoadmap(state).entryHolds?.[entry.id]).toMatchObject({
+        status: 'needs-attention',
+        attention: { code: 'evidence-not-current' },
+        reason: 'This review evidence is no longer current; prior attempts remain in history.',
+      });
+      expect(
+        inbox().find((item) => item.subjectKey === `roadmap:${roadmapId}:entry:${entry.id}`),
+      ).toMatchObject({ code: 'evidence-not-current', actions: ['reverify'] });
+    }
+    await roadmapControl(state, 'pause');
 
     // A: its completed cycle and worktree are intact, so it reviews again in place.
     const oldA = cycle(A.id)!;
@@ -237,6 +256,9 @@ itNeedsCargo(
       'failed in-place review holds the item',
     );
     expect((await progress(A.id)).reverifiable).toBe(true);
+    expect(
+      inbox().find((item) => item.subjectKey === `roadmap:${roadmapId}:entry:${A.id}`)?.actions,
+    ).toEqual(['reverify']);
     const replaced = await reverify(A.id);
     expect(replaced.statusCode, replaced.body).toBe(200);
     expect(attempt(A.id)).toBeUndefined();

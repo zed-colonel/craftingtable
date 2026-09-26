@@ -51,8 +51,8 @@ export function phaseResources(tx: StorageRepositories, r: ResolvedScope, phase:
         refs: { resourceKey: id },
         message:
           id === 'controlled-native-test-host'
-            ? 'Resource controlled-native-test-host needs a qualified environment approval. Open Dependency environments and evidence → Verification environments, audit this workstation, then approve native verification.'
-            : `Resource ${id} has no managed execution adapter. Review its requirements in Verification environments; externally reviewed evidence remains available.`,
+            ? 'Resource controlled-native-test-host needs a qualified environment approval for this workstation.'
+            : `Resource ${id} has no managed execution adapter; externally reviewed evidence remains available.`,
       });
       continue;
     }

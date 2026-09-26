@@ -13,7 +13,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-A2](#r-a2) | P0 | S | done (012447b, 67e2e9b) | Stop journaling notification delivery bookkeeping as workspace events |
 | [R-A3](#r-a3) | P1 | M-L | done (eb757da, 57a3a16) | Controller-declared, typed attention on every blocking transition |
 | [R-A4](#r-a4) | P2 | M-L | done (16d94de, see review) | Durable attention items, delivery log, quiescence and presence |
-| [R-A5](#r-a5) | P2 | L | open | One "Needs you" inbox that every surface reads |
+| [R-A5](#r-a5) | P2 | L | done (see Progress) | One "Needs you" inbox that every surface reads |
 | [R-A6](#r-a6) | P3 | L | open | Consolidate decision and recovery components; delete per-page hosts |
 | [R-A7](#r-a7) | P1 | M | partial (9339d01, c6e4042, 27266c0, 9084e50) | Offer only actions that can make progress; one transition gate for commands and launch |
 | **B** | | | | **Controller core (pain point 3)** |
@@ -184,11 +184,29 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-A5
 
-**One "Needs you" inbox that every surface reads** · Phase P2 · Effort L · Status: open
+**One "Needs you" inbox that every surface reads** · Phase P2 · Effort L · Status: done (see Progress)
 
 - **Resolves:** [UI-01](findings/UI-information-architecture.md#ui-01-there-is-no-single-needs-the-operator-model-the-dashboard-misses-most-roadmap-level-decisions), [UI-03](findings/UI-information-architecture.md#ui-03-the-same-decision-concept-is-surfaced-in-several-places-with-different-names-and-forms), [UI-04](findings/UI-information-architecture.md#ui-04-shared-architecture-decisions-are-buried-inside-dependency-environments-and-evidence), [UI-08](findings/UI-information-architecture.md#ui-08-dead-ends-blockers-that-tell-the-operator-to-go-elsewhere-without-a-link-generic-landing-pages-and-deep-links-that-silently-do-nothing), [NOTIF-09](findings/NOTIF-attention-notifications.md#notif-09-attention-has-no-single-source-of-truth-there-is-no-operator-inbox)
 - **Change:** Serve the attention items at GET /workspaces/:ws/attention with an attention-changed event. Build /inbox (list, sorted by downstream items blocked then age) and /inbox/:id (detail). First mount the existing decision/recovery forms inside the detail unchanged; replace AttentionStrip, the rail count, RoadmapAttention and the roadmap tone logic with the attention feed; point notification deep links at inbox items. Architecture decisions, plan acceptance, verification-environment approval, map adoption, amendments, dependency refresh and restart resume all appear as inbox items. Moved from R-A3: render each attention and blocker code's destination as a link in the UI, then remove the navigation prose ("Open Dependency environments and evidence → …") from daemon messages.
 - **Done when:** For any seeded walkthrough state, the dashboard/rail count, the inbox, and the push log list the same items; every inbox item has a working action; every notification path opens /inbox/:id.
+- **Progress 2026-09-25: done.**
+  - **Feed.** `GET /api/workspaces/:id/attention` serves the open attention items (R-A4), most blocking first, then oldest (`AttentionService`). "Blocks" counts the dependent plan items still open for a work item's stop, the unfinished entries for a roadmap's own stop, and the map milestones waiting on a checkpoint. Viewers see the feed; host alerts (storage) only the installation owner. An `attention-changed` event with the open count replaces the `notifications-changed` "attention" journal entry.
+  - **Inbox.** `/workspaces/:id/inbox` lists the items; `/inbox/:itemId` shows the stop, what waits on it, and hosts the existing controls unchanged (`lib/inbox-host.ts` decides which from the code and refs): the work item's cycle panel (resume, guidance, provider, design and scope-review recovery), its delegation panel (merge form, runs), the plan's finalization panel, the storage settings, or the roadmap's own controls (`RoadmapsPage` in a single-roadmap mode, open for roadmap stops, shared decisions and undeclared upstream transitions, and scrolled to a held entry's Re-verify).
+  - **Every surface reads it.** The rail has a **Needs you** link with the count (the Dashboard link no longer counts cycles); the dashboard's first section and the strip on every other page list the items; each roadmap lists its own and takes its attention tone from them. `AttentionStrip`, `attentionCycles` and `RoadmapAttention` are deleted.
+  - **Pushes open the inbox:** one item opens `/inbox/:itemId`, a digest opens `/inbox`; the Settings push log links there too.
+  - **The 2026-09-25 stops**, each with its resolving controls (`inbox-host.test.ts`, and the server feed test): `shared-decision-required` and `upstream-transition-undeclared` (the cycle's resume plus the roadmap's decision and upstream-transition controls), `service-failure-not-retryable` and `service-retries-exhausted` (the cycle panel's provider recovery and resume), `work-item-questions`, `scope-review-open-questions` and `scope-review-recovery` (guidance and scope-review recovery), and a held entry with stale evidence, now its own code `evidence-not-current` with the `reverify` action (the roadmap's Re-verify control, brought into view).
+  - **More stops as items:** each map checkpoint ready for acceptance is its own item, `architecture-decision`, `plan-acceptance` or `checkpoint-evidence` by the checkpoint's kind (they were one set before); verification setup, amendments, dependency refresh and restart resume were already items (R-A4).
+  - **Navigation prose removed** from daemon messages: the native-environment blocker, the resource-without-adapter blocker, the ambiguous finding owner, and the stale-evidence hold ("Use Re-verify on this item…"). The inbox renders the destination.
+  - **Done-when:**
+    - *Same items everywhere:* the walkthrough checks, at two seeded states (one merge approval; a running roadmap), that the rail count, the inbox rows, the dashboard's Needs you section and the push log's open records agree. They all read the same feed, and the push log reads the same rows.
+    - *Every inbox item has a working action:* `inbox-host.ts` maps every code to existing controls, tested for each 2026-09-25 stop. The walkthrough answers the implementation questions from the inbox item itself and shows the merge form on the merge-approval item.
+    - *Every notification path opens the inbox:* single-item pushes open `/inbox/:itemId`, digests `/inbox` (the list); server tests assert the links.
+  - **Walkthroughs:** `2026-09-26-inbox-before` and `2026-09-26-inbox-after` (three new captures: the inbox, an item with its cycle controls, the inbox with a roadmap running).
+  - **Checks:** replays on a copy of the 2026-09-23 snapshot report 0 changed (278 every-run, 51 current-run); the stale-evidence hold code and the blocker texts are not part of step decisions. `pnpm check` passes: 187 test files and 1,455 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check.
+  - **Not done here, with reasons:**
+    - A running roadmap held because a checkpoint needs a map or decision adoption is not an item: the map evaluation reports those blockers as text, and branching on it would break program rule 4. It needs typed map blockers (R-F1/R-F2).
+    - The hosted controls are the old panels, so a roadmap item shows the whole roadmap card. R-A6 replaces them with one component per kind.
+    - In-app links outside the inbox still reload the page (R-E1).
 
 ### R-A6
 

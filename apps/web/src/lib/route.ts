@@ -33,6 +33,8 @@ export type Route =
   | { readonly name: 'roadmaps'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'projects'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'dashboard'; readonly workspaceId: WorkspaceId }
+  /** `/workspaces/:id/inbox[/:itemId]`: what needs the operator, and one item's decision. */
+  | { readonly name: 'inbox'; readonly workspaceId: WorkspaceId; readonly itemId?: string }
   | { readonly name: 'settings'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'import'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'repositories'; readonly workspaceId: WorkspaceId }
@@ -99,6 +101,8 @@ export function parseRoute(pathname: string): Route {
     switch (section) {
       case 'roadmaps':
         return { name: 'roadmaps', workspaceId };
+      case 'inbox':
+        return { name: 'inbox', workspaceId };
       case 'projects':
         return { name: 'projects', workspaceId };
       case 'import':
@@ -120,6 +124,12 @@ export function parseRoute(pathname: string): Route {
     return isAgendaFilter(filter)
       ? { name: 'agenda', workspaceId, filter }
       : { name: 'agenda', workspaceId, filter: 'all' };
+  }
+  if (section === 'inbox' && segments.length === 4) {
+    const itemId = decode(segments[3]);
+    return itemId === undefined
+      ? { name: 'inbox', workspaceId }
+      : { name: 'inbox', workspaceId, itemId };
   }
   if (section === 'runs') {
     const runId = decode(segments[3]) as AgentRunId | undefined;
@@ -161,6 +171,10 @@ export function buildPath(route: Route): string {
       return workspace(route.workspaceId);
     case 'roadmaps':
       return `${workspace(route.workspaceId)}/roadmaps`;
+    case 'inbox':
+      return route.itemId === undefined
+        ? `${workspace(route.workspaceId)}/inbox`
+        : `${workspace(route.workspaceId)}/inbox/${encodeURIComponent(route.itemId)}`;
     case 'projects':
       return `${workspace(route.workspaceId)}/projects`;
     case 'settings':

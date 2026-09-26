@@ -75,19 +75,23 @@ structural UI work.
 ## Shell
 
 - A 220px navigation rail on the left holds the workspace picker, the workspace's
-  pages (Dashboard, Runs, Work items, Roadmaps, Projects, Repositories, Import plan,
-  Settings), the cross-workspace pages (Workspaces, Account), the live-connection badge,
+  pages (Dashboard, Needs you, Runs, Work items, Roadmaps, Projects, Repositories,
+  Import plan, Settings), the cross-workspace pages (Workspaces, Account), the live-connection badge,
   the theme toggle, and Log out. Navigation appears nowhere else.
 - A page's `h1` is its rail label. The Dashboard is the one exception: its `h1` is the
   workspace's name, because the dashboard is the workspace's home.
 - `/` resolves to the last workspace used; `/workspaces` lists every workspace as a
   card with its projects and counts and hosts the new-workspace form.
-- The dashboard is: a Needs your attention section (cycles waiting for a merge
-  approval or a decision; absent when empty), status cards (live runs, in agenda,
-  ready for admission, dependency-blocked, completed, and needs-attention when
-  non-zero), the live runs list, project cards, then Activity and Audit as collapsed
-  disclosures. Every other workspace page shows the same waiting cycles as one compact
-  strip above its header, and the Dashboard rail link carries their count.
+- **Needs you** (`/workspaces/:id/inbox`) is the one place decisions are made. It lists the
+  daemon's open attention items, most blocking first, then oldest; each item
+  (`/inbox/:itemId`) names its stop, says what waits on it, and hosts the controls that
+  resolve it. Notifications open these pages. The Needs you rail link carries the count.
+- The dashboard is: a Needs you section (the top items; absent when empty), status cards
+  (live runs, in agenda, ready for admission, dependency-blocked, completed, and
+  needs-attention when non-zero), the live runs list, project cards, then Activity and
+  Audit as collapsed disclosures. Every other workspace page shows the same items as one
+  compact strip above its header, and a roadmap lists its own items. None of them decides
+  what needs you: they all read the same items.
 
 ## Vocabulary
 

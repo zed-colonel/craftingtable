@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { notificationStatusSchema } from '@craftingtable/contracts';
+import { attentionFeedSchema, notificationStatusSchema } from '@craftingtable/contracts';
 import {
   asAgentRunEventId,
   asAgentRunId,
@@ -339,10 +339,12 @@ describe('persistent notifications', () => {
     await f.service.tick();
     await f.service.tick();
     expect(f.send).toHaveBeenCalledTimes(1);
+    // The push opens the item in the inbox, which hosts the work item's own controls (R-A5).
     expect(f.send.mock.calls[0]?.[0]).toMatchObject({
       title: 'ActionQueue · AQ-05 · Ready for merge',
-      url: `https://craft.example/workspaces/${f.workspaceId}/work-items/item-1`,
+      url: `https://craft.example/workspaces/${f.workspaceId}/inbox/${cycleItems(f)[0]?.id}`,
     });
+    expect(cycleItems(f)[0]?.path).toBe(`/workspaces/${f.workspaceId}/work-items/item-1`);
     expect(f.send.mock.calls[0]?.[0].message).toContain('ct/aq-05 → aq-cont-1');
     f.advance(29);
     await f.service.tick();
@@ -860,7 +862,7 @@ it('repeats roadmap preparation alerts and resolves on pause', async () => {
   expect(f.send).toHaveBeenCalledTimes(1);
   expect(f.send.mock.calls[0]?.[0]).toMatchObject({
     title: 'AQ sequence · Roadmap needs attention',
-    url: `https://craft.example/workspaces/${f.workspaceId}/roadmaps`,
+    url: expect.stringMatching(`^https://craft.example/workspaces/${f.workspaceId}/inbox/`),
   });
   f.advance(30);
   await f.service.tick();
@@ -1137,7 +1139,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
     const events = () =>
       f.context.storage.workspaceEvents
         .listAfter({ workspaceId: f.workspaceId, after: 0, limit: 1000 })
-        .filter((event) => event.kind === 'notifications-changed');
+        .filter((event) => ['notifications-changed', 'attention-changed'].includes(event.kind));
     await f.service.tick(); // The item is already open; this is its first push.
     expect(f.send).toHaveBeenCalledTimes(1);
     const before = events().length;
@@ -1167,10 +1169,11 @@ describe('notification noise controls (R-A1, R-A2)', () => {
       'accepted',
       'accepted',
     ]);
-    // Resolution changes the attention set, so it is journaled.
+    // Resolution changes the attention set, so it is journaled, with the open count.
     f.setCycle('running');
     await f.service.tick();
     expect(events()).toHaveLength(before + 1);
+    expect(events().at(-1)).toMatchObject({ kind: 'attention-changed', payload: { open: 0 } });
   });
   it('backs off a transport error per item without holding other alerts', async () => {
     const f = await fixture();
@@ -1283,7 +1286,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
     expect(f.send).toHaveBeenCalledTimes(1);
     expect(f.send.mock.calls[0]?.[0]).toMatchObject({
       title: 'CraftingTable · 2 items need you',
-      url: `https://craft.example/workspaces/${f.workspaceId}`,
+      url: `https://craft.example/workspaces/${f.workspaceId}/inbox`,
     });
     expect(f.send.mock.calls[0]?.[0].message).toContain('AQ sequence · Roadmap needs attention');
     expect(f.send.mock.calls[0]?.[0].message).toContain('ActionQueue · AQ-05 · Needs attention');
@@ -1503,6 +1506,123 @@ describe('durable attention items (R-A4)', () => {
         message: `${finalization.integrationBranch}: The branch has commits that are not on the target.`,
       },
     ]);
+  });
+  it('serves the inbox feed to members, most blocking first, without the host alerts for others', async () => {
+    const f = await fixture();
+    f.context.storage.roadmaps.save(roadmapFixture(f), 0);
+    f.context.services.storageService.syncAttention([
+      { key: 'storage:volumes', message: 'Future run files: below reserve.', members: ['/runs'] },
+    ]);
+    const feed = async (cookie = f.headers.cookie) => {
+      const response = await f.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${f.workspaceId}/attention`,
+        headers: { cookie },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      return attentionFeedSchema.parse(response.json()).items;
+    };
+    const items = await feed();
+    expect(items.map((item) => item.code).sort()).toEqual([
+      'merge-approval',
+      'scheduler-error',
+      'storage-pressure',
+    ]);
+    for (const item of items)
+      expect(item.inboxPath).toBe(`/workspaces/${f.workspaceId}/inbox/${item.id}`);
+    // Sorted by work waiting on the item: a successor of AQ-05 now waits on its merge.
+    f.context.storage.transaction((tx) => {
+      tx.planning.workItems.insertMany([
+        {
+          id: asWorkItemId('item-2'),
+          workspaceId: f.workspaceId,
+          projectId: f.projectId,
+          planVersionId: asPlanVersionId('plan-1'),
+          sourceId: 'AQ-06',
+          ordinal: 1,
+          title: 'After the queue improvement',
+          risk: 'low',
+          primaryAreas: [],
+          exitGate: 'Checks pass',
+          sourceFields: {},
+        },
+      ]);
+      tx.planning.dependencies.insertMany([
+        {
+          id: 'dependency-1' as never,
+          workspaceId: f.workspaceId,
+          planVersionId: asPlanVersionId('plan-1'),
+          predecessorWorkItemId: f.workItemId,
+          successorWorkItemId: asWorkItemId('item-2'),
+          kind: 'required',
+          ordinal: 0,
+        },
+      ]);
+    });
+    const sorted = await feed();
+    expect(sorted[0]).toMatchObject({ code: 'merge-approval', blocks: 1 });
+    // A viewer sees the work items but not the host's storage alert.
+    const viewer = asUserId('viewer');
+    f.context.storage.users.insert({
+      id: viewer,
+      username: 'viewer',
+      usernameNormalized: 'viewer',
+      passwordHash: '$argon2id$unused',
+      occurredAt: f.now().toISOString(),
+    });
+    f.context.storage.workspaces.insertMembership({
+      id: asWorkspaceMembershipId('viewer-membership'),
+      workspaceId: f.workspaceId,
+      userId: viewer,
+      role: 'viewer',
+      occurredAt: f.now().toISOString(),
+    });
+    const auth = { ...f.auth, user: { ...f.auth.user, id: viewer } };
+    expect(
+      f.context.services.attentionService
+        .feed(auth, f.workspaceId)
+        .items.map((item) => item.code)
+        .sort(),
+    ).toEqual(['merge-approval', 'scheduler-error']);
+    expect(
+      (
+        await f.context.app.inject({
+          method: 'GET',
+          url: `/api/workspaces/${f.workspaceId}/attention`,
+        })
+      ).statusCode,
+    ).toBe(401);
+  });
+  it('lists every stop kind of 2026-09-25 in the inbox feed with the refs its controls need', async () => {
+    const f = await fixture();
+    const owner = {
+      roadmapId: randomUUID(),
+      attemptId: randomUUID(),
+      entryId: randomUUID(),
+      definitionRevision: 1,
+    };
+    for (const code of [
+      'shared-decision-required',
+      'service-failure-not-retryable',
+      'service-retries-exhausted',
+      'work-item-questions',
+      'scope-review-open-questions',
+      'scope-review-recovery',
+      'upstream-transition-undeclared',
+    ] as const) {
+      f.setCycle('needs-attention', { attention: cycleAttention(code), owner });
+      const [item] = f.context.services.attentionService.feed(f.auth, f.workspaceId).items;
+      expect(item, code).toMatchObject({
+        code,
+        refs: {
+          cycleId: f.cycle().id,
+          workItemId: f.workItemId,
+          roadmapId: owner.roadmapId,
+          entryId: owner.entryId,
+        },
+        inboxPath: `/workspaces/${f.workspaceId}/inbox/${item?.id}`,
+      });
+    }
   });
   it('keeps history: a resolved item and the delivery log cannot be changed or deleted', async () => {
     const f = await fixture();

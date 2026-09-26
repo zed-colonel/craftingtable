@@ -57,6 +57,8 @@ export const WORKSPACE_EVENT_KINDS = [
   'scope-evidence-recorded',
   'scope-scheduling-authorized',
   'runtime-evidence-changed',
+  /* Attention items (schema 32). */
+  'attention-changed',
 ] as const;
 export type WorkspaceEventKind = (typeof WORKSPACE_EVENT_KINDS)[number];
 
@@ -86,8 +88,9 @@ export const WORKSPACE_EVENT_KIND_INTRODUCED_IN_SCHEMA = {
   'scope-evidence-recorded': 18,
   'scope-scheduling-authorized': 19,
   'runtime-evidence-changed': 20,
+  'attention-changed': 32,
 } as const satisfies Readonly<
-  Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11 | 12 | 17 | 18 | 19 | 20>
+  Record<WorkspaceEventKind, 1 | 2 | 4 | 5 | 6 | 9 | 10 | 11 | 12 | 17 | 18 | 19 | 20 | 32>
 >;
 
 export function isWorkspaceEventKind(value: unknown): value is WorkspaceEventKind {
@@ -433,6 +436,18 @@ export interface BranchesChangedEvent extends WorkspaceEventBase {
   };
 }
 
+/** The workspace's open attention items changed (R-A5): items opened or resolved. */
+export interface AttentionChangedEvent extends WorkspaceEventBase {
+  readonly kind: 'attention-changed';
+  readonly projectId?: never;
+  readonly workItemId?: never;
+  readonly runId?: never;
+  readonly repositoryId?: never;
+  readonly repositoryInspectionId?: never;
+  readonly repositoryBindingId?: never;
+  readonly payload: { readonly open: number };
+}
+
 export interface NotificationsChangedEvent extends WorkspaceEventBase {
   readonly kind: 'notifications-changed';
   readonly projectId?: never;
@@ -489,6 +504,7 @@ export type WorkspaceEvent =
   | ScopeEvidenceRecordedEvent
   | RoadmapChangedEvent
   | NotificationsChangedEvent
+  | AttentionChangedEvent
   | BranchesChangedEvent
   | WorkCycleChangedEvent
   | WorkspaceCreatedEvent

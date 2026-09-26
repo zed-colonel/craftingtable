@@ -18,6 +18,7 @@ import { sendApiError } from './routes/http.js';
 import { registerMapAmendmentRoutes } from './routes/map-amendments.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerOperatorWaitRoutes } from './routes/operator-wait.js';
+import { registerAttentionRoutes } from './routes/attention.js';
 import { registerPackageImportRoutes } from './routes/package-imports.js';
 import { registerPlanningRoutes } from './routes/planning.js';
 import { registerRoadmapRoutes } from './routes/roadmaps.js';
@@ -65,6 +66,7 @@ export interface ServerDependencies {
   readonly storageService: StorageService;
   readonly hostSchedulingService: HostSchedulingService;
   readonly operatorWaitService: OperatorWaitService;
+  readonly attentionService: import('./services/attention-service.js').AttentionService;
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
@@ -156,6 +158,7 @@ export function buildServer(
   registerStorageRoutes(app, deps.authService, deps.storageService, config);
   registerHostSchedulingRoutes(app, deps.authService, deps.hostSchedulingService, config);
   registerOperatorWaitRoutes(app, deps.authService, deps.operatorWaitService);
+  registerAttentionRoutes(app, deps.authService, deps.attentionService);
   registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);
   registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);
   registerNotificationRoutes(app, deps.authService, deps.notificationService, config);

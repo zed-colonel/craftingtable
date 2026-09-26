@@ -59,8 +59,7 @@ export function scopeRecoveryDecision(
       parent.required_slices.length !== 1)
   )
     return {
-      reason:
-        'Finding ownership is ambiguous. Use Fix in owning slice on the work item to select the responsible slice.',
+      reason: 'Finding ownership is ambiguous: more than one slice could own it.',
     };
   const candidate = preview.candidates[0]!;
   const owner = roadmap.definition.entries.find(

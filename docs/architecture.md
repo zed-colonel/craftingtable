@@ -419,7 +419,11 @@ The app has no router library and no data-fetching library. Routes are parsed by
 refetches the authoritative endpoints, batching background invalidations in a bounded window.
 `/` resolves to the last used workspace, `/workspaces` lists them all, and every workspace page
 hangs off `/workspaces/:id`. The run page loads the committed events once and then follows the
-live stream from the last sequence. No agent output is ever rendered as markup. Commands carry the
+live stream from the last sequence. What needs the operator comes from one feed,
+`GET /api/workspaces/:id/attention` (the open attention items, most blocking first), reloaded on
+`attention-changed` events; the Needs you inbox, the rail count, the dashboard, the strip on other
+pages and each roadmap read it, and no page derives it from cycle or roadmap state. No agent output
+is ever rendered as markup. Commands carry the
 daemon versions they were shown and are refused when stale. The visual language and page anatomy
 are in `docs/ui-principles.md`.
 

@@ -77,6 +77,15 @@ import type { AttentionProjector, ProjectedItem } from './attention-projector.js
 class SupersededRoadmapOperation extends Error {}
 
 const ended = (roadmap: Roadmap) => ['stopped', 'completed'].includes(roadmap.status);
+/** An entry the scheduler holds for a typed reason the operator resolves (R-A5). */
+class EntryHoldError extends ExecutionRequestError {
+  constructor(
+    readonly attentionCode: 'evidence-not-current',
+    message: string,
+  ) {
+    super('conflict', message);
+  }
+}
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
@@ -1306,7 +1315,12 @@ export class RoadmapService {
               [entry.id]: {
                 status: 'needs-attention',
                 reason: reason.slice(0, 4000),
-                attention: roadmapAttention('entry-preparation-failed', { entryId: entry.id }),
+                attention: roadmapAttention(
+                  error instanceof EntryHoldError
+                    ? error.attentionCode
+                    : 'entry-preparation-failed',
+                  { entryId: entry.id },
+                ),
               },
             },
           });
@@ -1466,8 +1480,9 @@ export class RoadmapService {
           )
             return;
           if (cycle.status === 'completed')
-            conflict(
-              'This review evidence is no longer current. Use Re-verify on this item to run a fresh independent review; prior attempts remain in history.',
+            throw new EntryHoldError(
+              'evidence-not-current',
+              'This review evidence is no longer current; prior attempts remain in history.',
             );
           if (cycle.status === 'awaiting-merge') {
             const definition = attemptDefinition(this.storage, roadmap, attempt);
@@ -2514,23 +2529,53 @@ export class RoadmapService {
         members: environmentEntries,
       });
     if (roadmap.definition.crossProject) {
-      const ready = crossProjectState(tx, workspaceId, roadmap.definition.crossProject)
-        .nodes.filter(
-          (n) => n.included && !n.satisfied && n.kind === 'checkpoint' && !n.blockers.length,
-        )
-        .map((n) => n.sourceId)
-        .sort();
-      if (ready.length)
+      // Each checkpoint ready for the operator's acceptance is its own item, named by its kind
+      // and counting the map milestones that wait on it (R-A5).
+      const selection = roadmap.definition.crossProject;
+      const nodes = crossProjectState(tx, workspaceId, selection).nodes;
+      const source = tx.imports.definition(workspaceId, selection.definitionId)?.source;
+      const dependents = new Map<string, string[]>();
+      for (const node of nodes)
+        for (const key of node.requirements)
+          dependents.set(key, [...(dependents.get(key) ?? []), node.key]);
+      const waiting = (key: string) => {
+        const seen = new Set<string>();
+        const queue = [...(dependents.get(key) ?? [])];
+        while (queue.length) {
+          const next = queue.pop()!;
+          if (seen.has(next)) continue;
+          seen.add(next);
+          queue.push(...(dependents.get(next) ?? []));
+        }
+        return nodes.filter((n) => seen.has(n.key) && n.included && !n.satisfied).length;
+      };
+      for (const node of nodes) {
+        if (!node.included || node.satisfied || node.kind !== 'checkpoint' || node.blockers.length)
+          continue;
+        const kind = source?.checkpoints.find((c) => c.id === node.sourceId)?.kind;
+        const code =
+          kind === 'architecture_decision'
+            ? ('architecture-decision' as const)
+            : kind === 'plan_approval'
+              ? ('plan-acceptance' as const)
+              : ('checkpoint-evidence' as const);
         items.push({
-          subjectKey: `roadmap:${roadmap.id}:checkpoints`,
-          code: 'checkpoint-evidence',
+          subjectKey: `roadmap:${roadmap.id}:checkpoint:${node.sourceId}`,
+          code,
           kind: 'attention',
-          title: `${name} · Checkpoint evidence needed`,
-          message: `These checkpoints are eligible for independent evidence review: ${ready.join(', ')}. Expected dependency waits do not need action.`,
+          title: `${name} · ${node.sourceId} · ${
+            code === 'architecture-decision'
+              ? 'Decision to accept'
+              : code === 'plan-acceptance'
+                ? 'Plan to accept'
+                : 'Evidence to review'
+          }`,
+          message: `${node.title}\nReady for independent evidence review and your acceptance.`,
           path,
           refs: { roadmapId: roadmap.id },
-          members: ready,
+          blocks: waiting(node.key),
         });
+      }
     }
     for (const [entryId, hold] of Object.entries(roadmap.entryHolds ?? {})) {
       const held = effectiveHoldAttention(hold);

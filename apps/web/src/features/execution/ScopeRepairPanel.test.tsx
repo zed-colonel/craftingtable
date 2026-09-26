@@ -3,7 +3,6 @@ import { asAgentRunId, cycleAttention, type WorkCycle } from '@craftingtable/dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { delegateScopeRepair, previewScopeRepair } from '../../lib/work-cycle-api.js';
-import { attentionCycles } from '../../components/AttentionStrip.js';
 import { ScopeRepairPanel } from './ScopeRepairPanel.js';
 vi.mock('../../lib/work-cycle-api.js', () => ({
   delegateScopeRepair: vi.fn(),
@@ -160,7 +159,9 @@ it('offers retry when preview loading fails and blocks delegation on current pha
   fireEvent.submit(screen.getByRole('form', { name: 'Delegate source fixes' }));
   expect(delegateScopeRepair).not.toHaveBeenCalled();
 });
-it('keeps current attention but omits prerequisite waits without mutating historical reasons', () => {
+// Whether a claimed stop needs the operator is the daemon's attention items (R-A5); the
+// server's notification tests cover that a claimed stop opens no item.
+it('keeps a claimed stop\u2019s historical reason unchanged', () => {
   // The daemon declares that prerequisite work claims this stop (R-A3).
   const waiting = {
     ...cycle,
@@ -172,7 +173,7 @@ it('keeps current attention but omits prerequisite waits without mutating histor
       detail: 'Waiting for prerequisite work: verify repaired slice.',
     }),
   };
-  expect(attentionCycles([waiting, cycle])).toEqual([cycle]);
+  expect(waiting.attention.owner).toBe('controller');
   expect(waiting.reason).toBe('Old policy question');
 });
 

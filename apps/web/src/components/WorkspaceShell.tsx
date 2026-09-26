@@ -36,7 +36,7 @@ export function WorkspaceShell({
   username: string;
   workspaces: readonly WorkspaceOverview[];
   selectedWorkspaceId?: WorkspaceId;
-  /** Cycles waiting on the operator; shown on the Dashboard link. */
+  /** Open attention items: the same list the inbox shows and pushes are sent from (R-A5). */
   attentionCount?: number;
   connection: ConnectionState;
   route: Route;
@@ -68,9 +68,10 @@ export function WorkspaceShell({
     selected === undefined
       ? []
       : [
+          { route: { name: 'dashboard', workspaceId: selected.id }, label: 'Dashboard' },
           {
-            route: { name: 'dashboard', workspaceId: selected.id },
-            label: 'Dashboard',
+            route: { name: 'inbox', workspaceId: selected.id },
+            label: 'Needs you',
             ...(attentionCount > 0 ? { count: attentionCount } : {}),
           },
           {

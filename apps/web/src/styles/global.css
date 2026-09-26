@@ -2328,6 +2328,13 @@ button:disabled {
   flex-basis: 100%;
 }
 
+.attention-message {
+  white-space: pre-wrap;
+}
+.inbox-host {
+  display: grid;
+  gap: var(--space-3, 12px);
+}
 .attention-list.compact {
   gap: var(--space-1);
 }

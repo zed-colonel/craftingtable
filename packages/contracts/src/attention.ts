@@ -94,3 +94,27 @@ export const attentionItemRefsSchema = z.strictObject({
 });
 export const attentionItemActionSchema = z.enum(ATTENTION_ITEM_ACTIONS);
 export const attentionResolutionSchema = z.enum(['operator', 'automation', 'superseded']);
+
+/** One open item as the inbox shows it (R-A5). Delivery internals stay on the daemon. */
+export const attentionItemViewSchema = z.strictObject({
+  id: z.string().min(1),
+  subjectKey: z.string().min(1),
+  code: attentionItemCodeSchema,
+  kind: z.enum(['merge', 'attention']),
+  title: z.string(),
+  message: z.string(),
+  /** Where the subject's own controls live. */
+  path: z.string(),
+  /** The item's page in the inbox; notifications link here. */
+  inboxPath: z.string(),
+  refs: attentionItemRefsSchema,
+  members: z.array(z.string()).optional(),
+  actions: z.array(attentionItemActionSchema).optional(),
+  /** Work waiting on this item: dependent plan items, roadmap entries or map milestones. */
+  blocks: z.number().int().nonnegative(),
+  openedAt: z.iso.datetime(),
+  pushedAt: z.iso.datetime().nullable(),
+});
+export type AttentionItemView = z.infer<typeof attentionItemViewSchema>;
+export const attentionFeedSchema = z.strictObject({ items: z.array(attentionItemViewSchema) });
+export type AttentionFeed = z.infer<typeof attentionFeedSchema>;

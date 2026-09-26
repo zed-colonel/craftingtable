@@ -579,6 +579,15 @@ const notificationsChangedEventSchema = workspaceEventBaseSchema.extend({
   payload: z.strictObject({ action: z.enum(['settings', 'attention', 'delivery', 'test']) }),
 });
 
+const attentionChangedEventSchema = workspaceEventBaseSchema.extend({
+  kind: z.literal('attention-changed'),
+  projectId: forbiddenCorrelationSchema,
+  workItemId: forbiddenCorrelationSchema,
+  runId: forbiddenCorrelationSchema,
+  ...noRepositoryCorrelations,
+  payload: z.strictObject({ open: z.number().int().nonnegative() }),
+});
+
 const roadmapChangedEventSchema = workspaceEventBaseSchema.extend({
   kind: z.literal('roadmap-changed'),
   projectId: forbiddenCorrelationSchema,
@@ -615,6 +624,7 @@ export const workspaceEventEnvelopeSchema = z.discriminatedUnion('kind', [
     payload: z.strictObject({ workItemId: workItemIdSchema, sourceId: z.string().min(1).max(200) }),
   }),
   notificationsChangedEventSchema,
+  attentionChangedEventSchema,
   roadmapChangedEventSchema,
   workspaceCreatedEventSchema,
   projectCreatedEventSchema,

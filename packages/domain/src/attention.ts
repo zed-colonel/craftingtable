@@ -102,6 +102,8 @@ export const ROADMAP_ATTENTION = {
   'scheduler-error': 'operator',
   'entry-preparation-failed': 'operator',
   'entry-blocked': 'operator',
+  // A verification or acceptance entry whose review evidence went stale; Re-verify resolves it.
+  'evidence-not-current': 'operator',
   'cycle-needs-attention': 'operator',
   'legacy-attention': 'operator',
 } as const satisfies Record<string, AttentionOwner>;

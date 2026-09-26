@@ -38,6 +38,9 @@ export const ITEM_ATTENTION = {
   // Roadmap-level sets the scheduler derives on each pass.
   'verification-setup': 'operator',
   'checkpoint-evidence': 'operator',
+  // One map checkpoint ready for the operator's acceptance, by the checkpoint's kind.
+  'architecture-decision': 'operator',
+  'plan-acceptance': 'operator',
   'storage-pressure': 'operator',
   'storage-maintenance-failed': 'operator',
 } as const satisfies Record<string, AttentionOwner>;
@@ -120,6 +123,8 @@ export interface AttentionItem {
   /** Members of a set-valued item; a new member is new work and pages again. */
   readonly members?: readonly string[];
   readonly actions?: readonly AttentionItemAction[];
+  /** Map milestones waiting on this item, for items the scheduler derives from the map. */
+  readonly blocks?: number;
   readonly state: 'open' | 'resolved';
   readonly openedAt: string;
   readonly resolvedAt?: string;

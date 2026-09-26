@@ -271,6 +271,11 @@ const validEvents = {
     kind: 'notifications-changed',
     payload: { action: 'settings' },
   },
+  'attention-changed': {
+    ...base,
+    kind: 'attention-changed',
+    payload: { open: 2 },
+  },
   'worktree-merged': {
     ...base,
     projectId: 'project-1',
@@ -468,6 +473,7 @@ describe('WorkspaceEventEnvelope', () => {
       'work-cycle-changed': [],
       'branches-changed': [],
       'notifications-changed': [],
+      'attention-changed': [],
       'roadmap-changed': [],
       'scope-evidence-recorded': [],
       'scope-scheduling-authorized': [],

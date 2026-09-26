@@ -195,6 +195,9 @@ function invalidatedBy(event: WorkspaceEventEnvelope, current: StaleScopes): Sta
       return { ...current, workspaceSummary: true, roadmaps: true };
     case 'notifications-changed':
       return { ...current, notifications: true };
+    case 'attention-changed':
+      // The feed loads with the page round; roadmaps list their own items (R-A5).
+      return { ...current, workspaceSummary: true, roadmaps: true, notifications: true };
     case 'workspace-updated':
       return { ...current, workspaceSummary: true };
     case 'work-item-completed':

@@ -17,6 +17,7 @@ import type {
   StoredNotificationSettings,
 } from '@craftingtable/storage';
 import type { ControllerPasses, OperatorPresence } from './attention-gates.js';
+import { inboxPath } from './attention-service.js';
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError } from './errors.js';
 import type { DeliveryResult, NotificationTransport } from './notification-transport.js';
@@ -117,7 +118,7 @@ export class NotificationService {
         kind: item.kind,
         title: item.title,
         message: item.message,
-        path: item.path,
+        path: inboxPath(workspaceId, item.id),
         state: item.state === 'open' ? ('active' as const) : ('resolved' as const),
         createdAt: item.openedAt,
         lastSentAt: item.delivery.lastSentAt,
@@ -609,7 +610,8 @@ export class NotificationService {
       return {
         title: notificationText(only.title, 250),
         message: notificationText(`${reminder(only) ? 'Reminder: ' : ''}${only.message}`, 1024),
-        path: only.path,
+        // Every push opens the inbox: the item itself, or the list for a digest (R-A5).
+        path: inboxPath(workspaceId, only.id),
       };
     const fresh = claim.items.filter((item) => !reminder(item));
     const lines = [...fresh, ...claim.items.filter(reminder)].map(
@@ -618,7 +620,7 @@ export class NotificationService {
     return {
       title: notificationText(`CraftingTable · ${claim.items.length} items need you`, 250),
       message: notificationText(lines.join('\n'), 1024),
-      path: `/workspaces/${encodeURIComponent(workspaceId)}`,
+      path: inboxPath(workspaceId),
     };
   }
   private journal(

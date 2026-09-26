@@ -25,6 +25,8 @@ const ROUTES: readonly Route[] = [
   { name: 'plan-version', workspaceId: WORKSPACE, projectId: PROJECT, planVersionId: VERSION },
   { name: 'work-item', workspaceId: WORKSPACE, workItemId: ITEM },
   { name: 'run', workspaceId: WORKSPACE, runId: RUN },
+  { name: 'inbox', workspaceId: WORKSPACE },
+  { name: 'inbox', workspaceId: WORKSPACE, itemId: 'item-9' },
 ];
 
 describe('route parsing', () => {
@@ -46,6 +48,10 @@ describe('route parsing', () => {
     );
     expect(buildPath({ name: 'agenda', workspaceId: WORKSPACE, filter: 'admitted' })).toBe(
       '/workspaces/workspace-1/agenda/admitted',
+    );
+    // Notification links open these (R-A5).
+    expect(buildPath({ name: 'inbox', workspaceId: WORKSPACE, itemId: 'item-9' })).toBe(
+      '/workspaces/workspace-1/inbox/item-9',
     );
     expect(buildPath({ name: 'runs', workspaceId: WORKSPACE })).toBe(
       '/workspaces/workspace-1/runs',

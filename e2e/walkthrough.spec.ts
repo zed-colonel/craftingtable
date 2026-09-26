@@ -58,6 +58,33 @@ async function navigate(page: Page, name: string): Promise<void> {
   await page.getByRole('link', { name: new RegExp(`^${label}( \\d+)?$`) }).click();
 }
 
+/**
+ * R-A5's done-when: in a seeded state, the rail count, the inbox, the dashboard and the
+ * push log (Settings) list the same open items. Leaves the page on Settings.
+ */
+async function attentionAgrees(page: Page): Promise<number> {
+  await navigate(page, 'Needs you');
+  await expect(page.getByRole('heading', { name: 'Needs you', exact: true })).toBeVisible();
+  await settled(page);
+  const count = await page
+    .getByRole('region', { name: 'Open items' })
+    .getByRole('listitem')
+    .count();
+  await expect(page.getByRole('link', { name: /^Needs you/ })).toHaveText(
+    count ? new RegExp(`^Needs you\\s*${count}$`) : /^Needs you$/,
+  );
+  await navigate(page, 'Dashboard');
+  await settled(page);
+  const dashboard = page.getByRole('region', { name: 'Needs you' });
+  if (count) await expect(dashboard.getByRole('listitem')).toHaveCount(Math.min(count, 5));
+  else await expect(dashboard).toHaveCount(0);
+  await navigate(page, 'Settings');
+  await expect(
+    page.locator('.notification-records li', { hasText: 'Still needs attention' }),
+  ).toHaveCount(count);
+  return count;
+}
+
 function initRepository(prefix: string, files: Readonly<Record<string, string>>): string {
   const path = mkdtempSync(join(tmpdir(), prefix));
   git(['init', '--initial-branch=main', '.'], path);
@@ -424,19 +451,45 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
       'work-item-guided-recovery',
       'Work item · answer implementation questions using the remaining allowance',
     );
-    await cycle
+    // The questions are answered from the inbox item, whose host is the same cycle form (R-A5).
+    const guidedRecovery = page.url();
+    await navigate(page, 'Needs you');
+    await page.getByRole('region', { name: 'Open items' }).getByRole('link').first().click();
+    const decision = page.getByRole('region', { name: 'Decision' });
+    await decision
       .getByLabel('Answers and recovery guidance')
       // Guidance belongs to the step it is given for (R-G3), so the recovery instruction is
       // repeated with the answer.
       .fill(
         'E2E-AUTHORIZED-RECOVERY E2E-ANSWERED-QUESTION: Use the approved pinned baseline and retain every check.',
       );
-    await cycle.getByRole('button', { name: 'Continue with guidance', exact: true }).click();
+    await decision.getByRole('button', { name: 'Continue with guidance', exact: true }).click();
+    await page.goto(guidedRecovery);
 
     await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible({
       timeout: 30_000,
     });
     await walk.capture('work-item-awaiting-merge', 'Work item · cycle awaiting merge approval');
+    // The merge approval is an inbox item that hosts the same cycle controls (R-A5).
+    const awaitingMerge = page.url();
+    expect(await attentionAgrees(page)).toBe(1);
+    await navigate(page, 'Needs you');
+    await walk.capture('inbox', 'Needs you · one merge approval');
+    await page
+      .getByRole('region', { name: 'Open items' })
+      .getByRole('link', { name: 'Merge approval' })
+      .click();
+    await expect(
+      page.getByRole('region', { name: 'Decision' }).getByText('Awaiting merge approval', {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: 'Decision' }).getByRole('button', { name: 'Merge…' }),
+    ).toBeVisible();
+    await walk.capture('inbox-item', 'Needs you · the merge approval with its cycle controls');
+    await page.goto(awaitingMerge);
+    await expect(cycle.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
     await walk.capture('work-item-merge-form', 'Work item · merge confirmation', async (p) => {
       await p.getByRole('button', { name: 'Merge…', exact: true }).click();
       await expect(p.getByRole('form', { name: 'Merge target' })).toBeVisible();
@@ -826,6 +879,10 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await navigate(page, 'Dashboard');
     await expect(page.getByRole('heading', { name: 'Walkthrough', exact: true })).toBeVisible();
     await walk.capture('dashboard', 'Dashboard with work in flight');
+    await attentionAgrees(page);
+    await navigate(page, 'Needs you');
+    await walk.capture('inbox-roadmap', 'Needs you · with a roadmap running');
+    await navigate(page, 'Dashboard');
     await phone.getByRole('button', { name: 'Menu', exact: true }).click();
     await expect(phone.getByRole('navigation', { name: 'Primary' })).toBeVisible();
     await walk.capturePhoneOnly('menu-open', 'Phone navigation menu');

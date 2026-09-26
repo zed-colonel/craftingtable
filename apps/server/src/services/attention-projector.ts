@@ -27,7 +27,16 @@ import type { ControllerPasses } from './attention-gates.js';
 /** What a projection unit wants open; the projector gives it identity and history. */
 export type ProjectedItem = Pick<
   AttentionItem,
-  'subjectKey' | 'code' | 'kind' | 'title' | 'message' | 'path' | 'refs' | 'members' | 'actions'
+  | 'subjectKey'
+  | 'code'
+  | 'kind'
+  | 'title'
+  | 'message'
+  | 'path'
+  | 'refs'
+  | 'members'
+  | 'actions'
+  | 'blocks'
 >;
 
 const UNIT = '\u0000';
@@ -122,11 +131,24 @@ export class AttentionProjector implements WriteObserver {
   }
 
   beforeCommit(tx: StorageRepositories): void {
-    if (this.pending.size === 0) return;
-    const units = [...this.pending];
-    this.pending.clear();
-    this.flushing.push(...units);
-    this.project(tx, units);
+    if (this.pending.size) {
+      const units = [...this.pending];
+      this.pending.clear();
+      this.flushing.push(...units);
+      this.project(tx, units);
+    }
+    // One event per workspace per commit tells browsers the attention set changed.
+    for (const workspaceId of this.changed) {
+      if (this.journaled.has(workspaceId)) continue;
+      this.journaled.add(workspaceId);
+      tx.workspaceEvents.appendEvent({
+        id: asEventId(randomUUID()),
+        workspaceId,
+        occurredAt: this.now().toISOString(),
+        kind: 'attention-changed',
+        payload: { open: tx.attention.open(workspaceId).length },
+      });
+    }
   }
 
   ended(committed: boolean): void {
@@ -268,7 +290,6 @@ export class AttentionProjector implements WriteObserver {
       this.changed.add(workspaceId);
       touched.push(item);
     }
-    if (this.changed.has(workspaceId)) this.journal(tx, workspaceId, now);
     return touched;
   }
 
@@ -463,18 +484,6 @@ export class AttentionProjector implements WriteObserver {
     return last !== undefined && last >= since;
   }
 
-  private journal(tx: StorageRepositories, workspaceId: WorkspaceId, at: string): void {
-    // One event per workspace per commit tells browsers the attention set changed.
-    if (this.journaled.has(workspaceId)) return;
-    this.journaled.add(workspaceId);
-    tx.workspaceEvents.appendEvent({
-      id: asEventId(randomUUID()),
-      workspaceId,
-      occurredAt: at,
-      kind: 'notifications-changed',
-      payload: { action: 'attention' },
-    });
-  }
   private readonly journaled = new Set<WorkspaceId>();
 
   /* ------------------------------------------------------------------------ */
@@ -771,6 +780,7 @@ function itemOf(
     refs: wanted.refs,
     ...(wanted.members ? { members: wanted.members } : {}),
     ...(wanted.actions?.length ? { actions: wanted.actions } : {}),
+    ...(wanted.blocks ? { blocks: wanted.blocks } : {}),
     state: 'open',
     openedAt: base.openedAt,
     ...(base.continues ? { continues: base.continues } : {}),

@@ -172,7 +172,7 @@ itNeedsCargo(
     const checkpointItems = () =>
       state.context.storage.attention
         .recent(ws, 100)
-        .filter((n) => n.subjectKey.endsWith(':checkpoints'));
+        .filter((n) => n.subjectKey.includes(':checkpoint:'));
     state.context.services.roadmapService.syncAttention(true);
     await notifications.tick();
     expect(checkpointItems()).toHaveLength(0);
@@ -203,8 +203,11 @@ itNeedsCargo(
     expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(true);
     state.context.services.roadmapService.syncAttention(true);
     await notifications.tick();
-    const alert = checkpointItems().find((n) => n.state === 'open')!;
-    expect(alert.message).toContain('LOCAL-TARGET');
+    // One item per checkpoint ready for acceptance, counting the milestones it blocks (R-A5).
+    const alert = checkpointItems().find(
+      (n) => n.state === 'open' && n.subjectKey.endsWith(':checkpoint:LOCAL-TARGET'),
+    )!;
+    expect(alert.title).toContain('LOCAL-TARGET');
     const delivered = alert.delivery.deliveredCount;
     state.context.services.roadmapService.syncAttention(true);
     await notifications.tick();

@@ -156,6 +156,7 @@ function assertStructuralShape(
     case 'scope-evidence-recorded':
     case 'roadmap-changed':
     case 'notifications-changed':
+    case 'attention-changed':
     case 'workspace-updated':
       if (
         !repositoryCorrelationsNull ||
@@ -271,6 +272,7 @@ function assertPayloadCorrelations(
     case 'scope-evidence-recorded':
     case 'roadmap-changed':
     case 'notifications-changed':
+    case 'attention-changed':
     case 'workspace-updated':
       return;
     case 'worktree-created':
@@ -468,6 +470,8 @@ function mapEvent(row: WorkspaceEventRow): WorkspaceEvent {
       return { ...commonFields(base), kind, payload: mapPayload<'roadmap-changed'>(payload) };
     case 'notifications-changed':
       return { ...commonFields(base), kind, payload: mapPayload<'notifications-changed'>(payload) };
+    case 'attention-changed':
+      return { ...commonFields(base), kind, payload: mapPayload<'attention-changed'>(payload) };
     case 'workspace-updated':
       return {
         ...commonFields(base),
@@ -573,6 +577,7 @@ function assertAppendAgreement(input: AppendWorkspaceEventInput): void {
     case 'scope-evidence-recorded':
     case 'roadmap-changed':
     case 'notifications-changed':
+    case 'attention-changed':
     case 'workspace-updated':
       return;
     case 'worktree-created':

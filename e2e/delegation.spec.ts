@@ -279,9 +279,11 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     ).toBe(beforeCycle);
     await page.reload();
     await expect(cyclePanel.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Cycles needing attention' })).toContainText(
-      'AQ-02: Awaiting merge approval',
-    );
+    // The stop is an item in Needs you, listed on every page and counted on the rail (R-A5).
+    const needsYou = page.getByRole('region', { name: 'Needs you' });
+    await expect(needsYou).toContainText('Merge approval');
+    await expect(needsYou).toContainText('AQ-02 · Ready for merge');
+    await expect(page.getByRole('link', { name: /^Needs you/ })).toContainText('1');
     await expect(cyclePanel).toBeVisible();
     // A sibling merge advances integration while this item waits for approval.
     git(['checkout', 'revision-test'], repository);

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { RAW_LINE_LIMIT_BYTES, TOOL_RESULT_LIMIT_BYTES } from '../bounded.js';
 import { CodexStreamNormalizer } from './normalize.js';
-import type { CodexAuthMode } from './provider-failure.js';
+import { type CodexAuthMode, codexCredentialRejection } from './provider-failure.js';
 
 it('normalizes tool lifecycle once, ignores deltas and user echoes, and keeps final text and per-turn usage', () => {
   const normalizer = new CodexStreamNormalizer();
@@ -261,7 +261,7 @@ it('does not retry ambiguous tools, interactive requests, auth, quotas or unknow
 
 /**
  * Replays a recorded app-server stream as the session feeds it: notifications, requests
- * Codex made (answered by the session), and stderr lines, under a sign-in mode.
+ * Codex made (answered by the session), and stderr, under a sign-in mode.
  */
 function replayFixture(name: string, auth: CodexAuthMode = 'chatgpt') {
   const normalizer = new CodexStreamNormalizer();
@@ -274,7 +274,7 @@ function replayFixture(name: string, auth: CodexAuthMode = 'chatgpt') {
   for (const line of fixture.trim().split('\n')) {
     const { method, params, id, stderr } = JSON.parse(line);
     if (stderr !== undefined) normalizer.observeStderr(stderr);
-    else if (id !== undefined) normalizer.requireOperator(method);
+    else if (id !== undefined) normalizer.requireOperator();
     else if (method === 'turn/started') normalizer.beginTurn();
     else if (method === 'turn/completed') events.push(normalizer.complete(params.turn, 'model'));
     else events.push(...normalizer.normalize(method, params));
@@ -292,9 +292,8 @@ it.each([
   ['codex-rate-limit-http', 'quota', false],
   ['codex-unauthorized', 'authentication', false],
   ['codex-bad-request', 'unknown', false],
-  // The 2026-09-25 outage: a failed implement turn, and a review whose approval review failed.
+  // The 2026-09-25 outage, as a failed implement turn.
   ['codex-provider-credential-rejected', 'credential-rejected', true],
-  ['codex-approval-review-rejected', 'credential-rejected', true],
 ] as const)('recorded %s is classified as %s (retry %s)', (name, kind, safeToRetry) => {
   const turn = replayFixture(name).at(-1);
   expect(turn).toMatchObject({
@@ -314,27 +313,85 @@ it('names the evidence of a provider-side credential rejection (R-C11)', () => {
       },
     },
   });
-  // The review ended with the agent asking about the approval service: that is the outage,
-  // reported as a failed turn, not an operator question.
-  expect(replayFixture('codex-approval-review-rejected').at(-1)).toMatchObject({
+});
+
+it('reports an approval review the provider refused with the turn, which keeps its outcome (R-C11)', () => {
+  // The recorded review: a command's approval review hit the outage (on stderr only), the
+  // agent asked about it and still completed its report. The report stands; the controller
+  // decides whether the outage explains the stop.
+  const turn = replayFixture('codex-approval-review-rejected').at(-1);
+  expect(turn).toMatchObject({
+    kind: 'turn-completed',
     payload: {
-      outcome: 'error',
-      providerFailure: {
+      outcome: 'success',
+      resultText: expect.stringContaining('## Open questions'),
+      suspectedOutage: {
         kind: 'credential-rejected',
-        evidence: expect.stringMatching(
-          /^automatic approval review: HTTP 401 from https:\/\/chatgpt\.com/,
-        ),
+        safeToRetry: true,
+        evidence:
+          'automatic approval review: HTTP 401 from https://chatgpt.com/backend-api/codex/responses naming an API key sk-svcac…fvMA (request db2c9b6c-ca97-4793-8968-d6542b741ff7)',
       },
     },
   });
+  expect(turn?.payload).not.toHaveProperty('providerFailure');
+});
+
+it('reads the approval failure within its own stderr line, however the output is chunked', () => {
+  const line = readFileSync(
+    new URL(
+      '../../fixtures/provider-failures/codex-approval-review-rejected.jsonl',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+    .split('\n')
+    .map((entry) => (entry ? JSON.parse(entry).stderr : undefined))
+    .find((entry) => entry !== undefined) as string;
+  const outage = (...chunks: string[]) => {
+    const n = new CodexStreamNormalizer();
+    n.setAuthMode('chatgpt');
+    n.beginTurn();
+    for (const chunk of chunks) n.observeStderr(chunk);
+    const turn = n.complete({ status: 'completed' }, 'model');
+    return turn.kind === 'turn-completed' ? turn.payload.suspectedOutage : undefined;
+  };
+  expect(outage(line)?.kind).toBe('credential-rejected');
+  // Split mid-line across two reads.
+  expect(outage(line.slice(0, 300), line.slice(300))?.kind).toBe('credential-rejected');
+  // After a long run of other log lines in the same read.
+  expect(outage(`${'INFO other log line\n'.repeat(1000)}${line}`)?.kind).toBe(
+    'credential-rejected',
+  );
+  // An endpoint on another line is not this rejection's.
+  const unterminated = line.slice(0, line.indexOf(', url:'));
+  expect(outage(`${unterminated}\nurl: https://chatgpt.com/backend-api/other\n`)).toBeUndefined();
+});
+
+it('bounds the rejection match and shows no more of a key than the vendor does', () => {
+  const prefix = 'unexpected status 401 Unauthorized: Incorrect API key provided: sk-svcac';
+  const started = performance.now();
+  expect(codexCredentialRejection(`${prefix} `.repeat(15_000))).toBeUndefined();
+  expect(codexCredentialRejection(`${prefix}${'*'.repeat(1_000_000)}`)).toBeUndefined();
+  expect(performance.now() - started).toBeLessThan(1000);
+  expect(
+    codexCredentialRejection(
+      'unexpected status 401 Unauthorized: Incorrect API key provided: sk-abcdefghijklmnopqrst. url: https://chatgpt.com/backend-api/codex/responses',
+    ),
+  ).toBe(
+    'HTTP 401 from https://chatgpt.com/backend-api/codex/responses naming an API key sk-abcde…qrst',
+  );
 });
 
 it('keeps a local login problem with the operator, asking to sign in again (R-C11)', () => {
   // The same rejection under an API-key login is that key being refused.
-  for (const name of ['codex-provider-credential-rejected', 'codex-approval-review-rejected'])
-    expect(replayFixture(name, 'api-key').at(-1)?.payload).not.toMatchObject({
-      providerFailure: { kind: 'credential-rejected' },
-    });
+  expect(
+    replayFixture('codex-provider-credential-rejected', 'api-key').at(-1)?.payload,
+  ).not.toMatchObject({
+    providerFailure: { kind: 'credential-rejected' },
+  });
+  expect(
+    replayFixture('codex-approval-review-rejected', 'api-key').at(-1)?.payload,
+  ).not.toHaveProperty('suspectedOutage');
   expect(replayFixture('codex-provider-credential-rejected', 'api-key').at(-1)).toMatchObject({
     payload: {
       providerFailure: {
@@ -368,11 +425,11 @@ it('keeps a local login problem with the operator, asking to sign in again (R-C1
   });
 });
 
-it('still stops for an unanswered question when no outage explains it', () => {
+it('still stops for an unanswered request', () => {
   const n = new CodexStreamNormalizer();
   n.setAuthMode('chatgpt');
   n.beginTurn();
-  n.requireOperator('item/tool/requestUserInput');
+  n.requireOperator();
   n.normalize('error', { error: { codexErrorInfo: 'serverOverloaded' }, willRetry: false });
   expect(n.complete({ status: 'failed' }, 'model').payload).toMatchObject({
     providerFailure: { kind: 'capacity', safeToRetry: false },

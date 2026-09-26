@@ -129,6 +129,8 @@ export class ScriptedBackend implements AgentBackend {
 
 export interface ScriptedReply {
   readonly providerFailure?: import('@craftingtable/domain').ProviderFailure;
+  /** Reported with a successful turn (R-C11). */
+  readonly suspectedOutage?: import('@craftingtable/domain').ProviderFailure;
   readonly backgroundWorkPending?: boolean;
   readonly exitReason?: AgentExitReason;
   readonly messages?: readonly string[];
@@ -239,6 +241,7 @@ export class ScriptedSession implements AgentSession {
         payload: {
           outcome: reply?.providerFailure ? 'error' : 'success',
           ...(reply?.providerFailure ? { providerFailure: reply.providerFailure } : {}),
+          ...(reply?.suspectedOutage ? { suspectedOutage: reply.suspectedOutage } : {}),
           resultText: reply?.resultText ?? this.resultText(text),
           ...(reply?.truncated === undefined ? {} : { truncated: reply.truncated }),
           costUsd: 0.5 * this.turns,

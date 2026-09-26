@@ -2055,10 +2055,20 @@ export class WorkCycleService {
       )
         return;
       const parent = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
+      // A run that finished is retried only for the outage its last turn reported (R-C11).
+      const lastTurn =
+        parent?.status === 'finished'
+          ? this.storage.execution.runEvents.latestOfKind(
+              cycle.workspaceId,
+              parent.id,
+              'turn-completed',
+            )
+          : undefined;
       if (
         !parent ||
         parent.id !== cycle.providerRecovery.sourceRunId ||
-        parent.status !== 'failed' ||
+        (parent.status !== 'failed' &&
+          !(lastTurn?.kind === 'turn-completed' && lastTurn.payload.suspectedOutage)) ||
         this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId)[0]?.id !==
           parent.id
       ) {

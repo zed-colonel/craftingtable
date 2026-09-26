@@ -31,7 +31,7 @@ function finish(status = 'completed') {
   }
   if (mode === 'approval-outage') {
     process.stderr.write('ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: Rejected(Automatic approval review failed: ' + REJECTED + ') }' + String.fromCharCode(10));
-    emit({id: 'server-question', method: 'item/tool/requestUserInput', params: {threadId, turnId: id, questions: [{title: 'Can you restore the automatic approval service?'}]}});
+    notify('item/completed', {turnId: id, item: {id: 'question-' + id, type: 'agentMessage', text: 'Can you restore the automatic approval service?', delivery: 'async', questions: [{title: 'Can you restore the automatic approval service?'}]}});
   }
   notify('item/completed', {turnId: id, item: {id: 'message-' + id, type: 'agentMessage', text: texts.join(' | ')}});
   notify('thread/tokenUsage/updated', {turnId: id, tokenUsage: {total: {inputTokens: 10 * turns, cachedInputTokens: 5 * turns, outputTokens: 2 * turns, reasoningOutputTokens: turns, totalTokens: 12 * turns}, last: {inputTokens: 10, cachedInputTokens: 5, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 12}}});
@@ -107,7 +107,11 @@ afterEach(() => {
   for (const session of sessions.splice(0)) session.kill();
   for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true });
 });
-async function launch(mode = '', overrides: Partial<AgentLaunchRequest> = {}) {
+async function launch(
+  mode = '',
+  overrides: Partial<AgentLaunchRequest> = {},
+  env: Record<string, string> = {},
+) {
   const cwd = mkdtempSync(join(tmpdir(), 'craftingtable-codex-'));
   directories.push(cwd);
   const executable = join(cwd, 'codex');
@@ -115,7 +119,7 @@ async function launch(mode = '', overrides: Partial<AgentLaunchRequest> = {}) {
   chmodSync(executable, 0o755);
   const session = await new CodexBackend({
     executable,
-    env: { FAKE_MODE: mode },
+    env: { FAKE_MODE: mode, ...env },
     terminationGraceMs: 50,
     requestTimeoutMs: 300,
   }).launch({ cwd, prompt: 'first\nmultiline', permissionMode: 'auto', ...overrides });
@@ -391,15 +395,18 @@ it('reports a provider-side credential rejection, and fails the run it blocked (
     providerFailure: { kind: 'credential-rejected', safeToRetry: true },
   });
   expect(rejected.items.at(-1)).toMatchObject({ type: 'exited', exitCode: 1 });
-  // A command refused because the approval review hit the same rejection, after which the
-  // agent asked for help and "completed", is the same outage and ends the run as failed.
+  // A command refused because its approval review hit the same rejection: the turn keeps its
+  // outcome and reports the suspected outage; the session stays usable.
   const approval = await launch('approval-outage');
-  await approval.done;
+  await waitFor(() => turns(approval.items).length === 1);
   expect(turns(approval.items)[0]).toMatchObject({
-    outcome: 'error',
-    providerFailure: { kind: 'credential-rejected', safeToRetry: true },
+    outcome: 'success',
+    suspectedOutage: { kind: 'credential-rejected', safeToRetry: true },
   });
-  expect(approval.items.at(-1)).toMatchObject({ type: 'exited', exitCode: 1 });
+  expect(turns(approval.items)[0]).not.toHaveProperty('providerFailure');
+  approval.session.end();
+  await approval.done;
+  expect(approval.items.at(-1)).toEqual({ type: 'exited', exitCode: 0, signal: null });
 });
 
 it('asks for a new sign-in when the local login is gone or uses an API key (R-C11)', async () => {
@@ -408,21 +415,20 @@ it('asks for a new sign-in when the local login is gone or uses an API key (R-C1
   expect(turns(loggedOut.items)[0]).toMatchObject({
     providerFailure: { kind: 'authentication', safeToRetry: false },
   });
-  const cwd = mkdtempSync(join(tmpdir(), 'craftingtable-codex-'));
-  directories.push(cwd);
-  const executable = join(cwd, 'codex');
-  writeFileSync(executable, FAKE);
-  chmodSync(executable, 0o755);
-  const session = await new CodexBackend({
-    executable,
-    env: { FAKE_MODE: 'provider-401', FAKE_API: '1' },
-    terminationGraceMs: 50,
-    requestTimeoutMs: 300,
-  }).launch({ cwd, prompt: 'first', permissionMode: 'auto' });
-  sessions.push(session);
-  const items: AgentSessionItem[] = [];
-  for await (const item of session.items) items.push(item);
-  expect(turns(items)[0]).toMatchObject({
-    providerFailure: { kind: 'authentication', message: expect.stringContaining('Sign in again') },
-  });
+  // An API-key login, or an API key in the environment Codex runs with: the key may be sent.
+  const keys: Record<string, string>[] = [
+    { FAKE_API: '1' },
+    { OPENAI_API_KEY: 'sk-local' },
+    { CODEX_API_KEY: 'k' },
+  ];
+  for (const env of keys) {
+    const keyed = await launch('provider-401', {}, env);
+    await keyed.done;
+    expect(turns(keyed.items)[0]).toMatchObject({
+      providerFailure: {
+        kind: 'authentication',
+        message: expect.stringContaining('Sign in again'),
+      },
+    });
+  }
 });

@@ -12,6 +12,9 @@ import type { CodexBackendOptions } from './backend.js';
 import { CodexStreamNormalizer } from './normalize.js';
 import { CodexRpc, CodexRpcError } from './rpc.js';
 
+/** Variables through which Codex can send an API key instead of the ChatGPT login. */
+const CODEX_API_KEY_VARIABLES = ['OPENAI_API_KEY', 'CODEX_API_KEY'] as const;
+
 /** A single local app-server owns the thread for the entire operator session. */
 export class CodexSession implements AgentSession {
   private readonly child: SupervisedProcess;
@@ -135,9 +138,15 @@ export class CodexSession implements AgentSession {
       if (account.account.type === 'chatgpt') billing = 'subscription';
       if (account.account.type === 'apiKey') billing = 'api-key';
     }
-    // A 401 naming an API key is the provider's when the login sends none (R-C11).
+    // A 401 naming an API key is the provider's only when the host supplies none (R-C11): a
+    // ChatGPT login, and no API key in the environment Codex runs with.
+    const env = this.options.env ?? process.env;
     this.normalizer.setAuthMode(
-      billing === 'subscription' ? 'chatgpt' : billing === 'api-key' ? 'api-key' : 'unknown',
+      billing === 'api-key'
+        ? 'api-key'
+        : billing === 'subscription' && !CODEX_API_KEY_VARIABLES.some((name) => env[name])
+          ? 'chatgpt'
+          : 'unknown',
     );
     if (this.killed || this.closed) return;
     const resume = this.request.resumeSessionId;
@@ -277,7 +286,7 @@ export class CodexSession implements AgentSession {
     }
     // Before calling a rejection the provider's, confirm the local login is still ChatGPT
     // mode; a login that is gone is the operator's to restore (R-C11).
-    if (!this.killed && this.normalizer.suspectsProviderRejection(turn)) {
+    if (!this.killed && !this.closed && this.normalizer.suspectsProviderRejection(turn)) {
       try {
         const account = await this.rpc.request(
           'account/read',
@@ -290,18 +299,10 @@ export class CodexSession implements AgentSession {
         /* An unanswered check leaves the observed classification. */
       }
     }
-    const completed = this.normalizer.complete(turn, this.model, costUsd);
-    this.emit(completed);
+    this.emit(this.normalizer.complete(turn, this.model, costUsd));
     this.completing = false;
-    const failed = completed.kind === 'turn-completed' && completed.payload.outcome === 'error';
-    if ((turn.status !== 'completed' || failed) && !this.killed)
-      this.fail(
-        new Error(
-          turn.status === 'completed'
-            ? 'Codex could not do its work: the provider rejected its credentials'
-            : `Codex turn ${stringOf(turn.status)}`,
-        ),
-      );
+    if (turn.status !== 'completed' && !this.killed)
+      this.fail(new Error(`Codex turn ${stringOf(turn.status)}`));
     else void this.pump();
   }
   private notification(method: string, params: Record<string, unknown>): void {
@@ -337,7 +338,7 @@ export class CodexSession implements AgentSession {
   }
   private serverRequest(value: Record<string, unknown>): void {
     const method = stringOf(value.method);
-    this.normalizer.requireOperator(method);
+    this.normalizer.requireOperator();
     let result: unknown;
     if (
       method === 'item/commandExecution/requestApproval' ||

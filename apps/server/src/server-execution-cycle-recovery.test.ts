@@ -638,7 +638,7 @@ describe('bounded model service recovery', () => {
   });
 
   /** Replays a recorded vendor failure through the real adapter normalizer. */
-  function recordedFailure(name: string) {
+  function recordedTurn(name: string) {
     const lines = readFileSync(
       new URL(`../../../packages/agents/fixtures/provider-failures/${name}.jsonl`, import.meta.url),
       'utf8',
@@ -663,16 +663,20 @@ describe('bounded model service recovery', () => {
       for (const line of lines) {
         const { method, params, id, stderr } = JSON.parse(line);
         if (stderr !== undefined) normalizer.observeStderr(stderr);
-        else if (id !== undefined) normalizer.requireOperator(method);
+        else if (id !== undefined) normalizer.requireOperator();
         else if (method === 'turn/started') normalizer.beginTurn();
         else if (method === 'turn/completed') events.push(normalizer.complete(params.turn, 'm'));
         else events.push(...normalizer.normalize(method, params));
       }
     }
     const turn = events.at(-1);
-    if (turn?.kind !== 'turn-completed' || !turn.payload.providerFailure)
-      throw new Error(`${name} did not record a provider failure`);
-    return turn.payload.providerFailure;
+    if (turn?.kind !== 'turn-completed') throw new Error(`${name} did not complete a turn`);
+    return turn.payload;
+  }
+  function recordedFailure(name: string) {
+    const failure = recordedTurn(name).providerFailure;
+    if (!failure) throw new Error(`${name} did not record a provider failure`);
+    return failure;
   }
 
   it.each([
@@ -743,43 +747,120 @@ describe('bounded model service recovery', () => {
     ]);
   });
 
-  it.each([
-    ['codex-provider-credential-rejected', 'API Error'],
-    // The review asked the operator to restore the approval service: the outage, not a question.
-    [
-      'codex-approval-review-rejected',
-      '## Open questions\n- Can you restore the automatic approval service so I can run the required ct-act jobs? The approval service returned HTTP 401.',
-    ],
-  ])(
-    'waits out the recorded 2026-09-25 credential outage (%s), then continues without the operator (R-C11)',
-    async (name, resultText) => {
-      let now = new Date('2026-09-25T22:41:00Z');
-      const failure = recordedFailure(name);
-      expect(failure).toMatchObject({ kind: 'credential-rejected', safeToRetry: true });
-      const { state, backend, worktree } = await cycleFixture(
-        [{ resultText, providerFailure: failure }, designDone],
-        () => now,
-      );
-      const cycle = await startCycle(state, worktree.id);
-      const deadline = Date.parse(currentCycle(state, cycle).runDeadlineAt);
-      await waitFor(
-        () => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
-        'credential wait',
-      );
-      const waiting = currentCycle(state, cycle);
-      expect(waiting).toMatchObject({
-        status: 'running',
-        providerRecovery: { attempts: 0, failure, nextRetryAt: '2026-09-25T22:46:00.000Z' },
-      });
-      expect(waiting.attention).toBeUndefined();
-      expect(Date.parse(waiting.runDeadlineAt) - deadline).toBe(5 * 60_000);
-      expect(waiting.reason).toContain('provider-side outage is suspected');
-      expect(waiting.reason).toContain('Evidence: ');
-      now = new Date('2026-09-25T22:46:00Z');
-      await waitFor(() => backend.launches.length === 3, 'retried design, then implementation');
-      expect(currentCycle(state, cycle).attention).toBeUndefined();
-    },
-  );
+  it('waits out the recorded 2026-09-25 credential outage, then continues without the operator (R-C11)', async () => {
+    let now = new Date('2026-09-25T22:41:00Z');
+    const failure = recordedFailure('codex-provider-credential-rejected');
+    expect(failure).toMatchObject({ kind: 'credential-rejected', safeToRetry: true });
+    const { state, backend, worktree } = await cycleFixture(
+      [{ resultText: 'API Error', providerFailure: failure }, designDone],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id);
+    const deadline = Date.parse(currentCycle(state, cycle).runDeadlineAt);
+    await waitFor(
+      () => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+      'credential wait',
+    );
+    const waiting = currentCycle(state, cycle);
+    expect(waiting).toMatchObject({
+      status: 'running',
+      providerRecovery: { attempts: 0, failure, nextRetryAt: '2026-09-25T22:46:00.000Z' },
+    });
+    expect(waiting.attention).toBeUndefined();
+    expect(Date.parse(waiting.runDeadlineAt) - deadline).toBe(5 * 60_000);
+    expect(waiting.reason).toContain('provider-side outage is suspected');
+    expect(waiting.reason).toContain('Evidence: ');
+    now = new Date('2026-09-25T22:46:00Z');
+    await waitFor(() => backend.launches.length === 3, 'retried design, then implementation');
+    expect(currentCycle(state, cycle).attention).toBeUndefined();
+  });
+
+  it('retries a step that stopped with questions after the provider refused its approval review (R-C11)', async () => {
+    // The recorded review: its report asks the operator to restore the approval service.
+    let now = new Date('2026-09-25T22:41:00Z');
+    const { resultText, suspectedOutage } = recordedTurn('codex-approval-review-rejected');
+    expect(resultText).toContain(
+      '## Open questions\n\nCan the automatic approval service be restored',
+    );
+    expect(suspectedOutage).toMatchObject({ kind: 'credential-rejected', safeToRetry: true });
+    const { state, backend, worktree } = await cycleFixture(
+      [designDone, { resultText, suspectedOutage }, implementationDone],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id);
+    const deadline = () => Date.parse(currentCycle(state, cycle).runDeadlineAt);
+    await waitFor(() => backend.launches.length === 2, 'implementation');
+    const before = deadline();
+    await waitFor(
+      () => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+      'credential wait',
+    );
+    const waiting = currentCycle(state, cycle);
+    expect(waiting).toMatchObject({
+      status: 'running',
+      step: 'implement',
+      providerRecovery: {
+        attempts: 0,
+        failure: suspectedOutage,
+        nextRetryAt: '2026-09-25T22:46:00.000Z',
+      },
+    });
+    expect(waiting.attention).toBeUndefined();
+    expect(deadline() - before).toBe(5 * 60_000);
+    // The operator can see which stop the retry set aside.
+    expect(waiting.reason).toContain('implementation-open-questions');
+    now = new Date('2026-09-25T22:46:00Z');
+    await waitFor(() => backend.launches.length === 3, 'retried implementation');
+    expect(backend.launches.map((launch) => launch.model).slice(1)).toEqual([
+      'implement-model',
+      'implement-model',
+    ]);
+    await waitFor(() => currentCycle(state, cycle).step !== 'implement', 'implementation done');
+    expect(currentCycle(state, cycle).attention).toBeUndefined();
+  });
+
+  it('lets a step that finished despite a refused approval review stand (R-C11)', async () => {
+    const { suspectedOutage } = recordedTurn('codex-approval-review-rejected');
+    const { state, backend, worktree } = await cycleFixture([{ ...designDone, suspectedOutage }]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => backend.launches.length === 2, 'implementation');
+    expect(currentCycle(state, cycle)).toMatchObject({ step: 'implement' });
+    expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
+  });
+
+  it('keeps the operator stop when a refused approval review comes with clipped output (R-C11)', async () => {
+    const { resultText, suspectedOutage } = recordedTurn('codex-approval-review-rejected');
+    const { state, backend, worktree } = await cycleFixture([
+      designDone,
+      { resultText, suspectedOutage, truncated: true },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'clipped stop');
+    expect(backend.launches).toHaveLength(2);
+    expect(currentCycle(state, cycle)).toMatchObject({
+      attention: { code: 'step-incomplete' },
+      reason: expect.stringContaining('Evidence: automatic approval review: HTTP 401'),
+    });
+    expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
+  });
+
+  it('keeps the questions of a failed turn with the operator, even in a credential outage (R-C11)', async () => {
+    const failure = recordedFailure('codex-provider-credential-rejected');
+    const { state, backend, worktree } = await cycleFixture([
+      {
+        resultText: 'API Error',
+        providerFailure: failure,
+        messages: ['## Open questions\n- Should the migration keep the old column?'],
+      },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'question stop');
+    expect(backend.launches).toHaveLength(1);
+    expect(currentCycle(state, cycle)).toMatchObject({
+      attention: { code: 'provider-credentials-rejected' },
+      reason: expect.stringContaining('Automatic retry is not safe here'),
+    });
+  });
 
   it('stops with the suspected outage and its evidence once the credential retries are spent (R-C11)', async () => {
     let now = new Date('2026-09-25T22:41:00Z');
@@ -815,7 +896,7 @@ describe('bounded model service recovery', () => {
     expect(stopped.reason).toContain(
       'Evidence: HTTP 401 from https://chatgpt.com/backend-api/codex/responses naming an API key sk-svcac…fvMA',
     );
-    expect(stopped.reason).toContain('Three retries');
+    expect(stopped.reason).toContain('three service retries for this step are spent');
   });
 
   it('still stops a locally expired login for a new sign-in (R-C11)', async () => {

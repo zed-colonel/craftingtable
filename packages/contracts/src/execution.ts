@@ -507,6 +507,7 @@ export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
     kind: z.literal('turn-completed'),
     payload: z.strictObject({
       providerFailure: providerFailureSchema.optional(),
+      suspectedOutage: providerFailureSchema.optional(),
       outcome: z.enum(['success', 'error']),
       resultText: z.string(),
       truncated: z.boolean().optional(),

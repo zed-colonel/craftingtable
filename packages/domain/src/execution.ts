@@ -347,6 +347,12 @@ export interface AgentRunEventPayloads {
   };
   readonly 'turn-completed': {
     readonly providerFailure?: ProviderFailure;
+    /**
+     * A provider outage the adapter observed during a turn that still completed, such as a
+     * command whose approval review the provider refused (R-C11). The turn's outcome stands;
+     * the controller decides whether the outage explains a stop.
+     */
+    readonly suspectedOutage?: ProviderFailure;
     readonly outcome: 'success' | 'error';
     readonly resultText: string;
     readonly truncated?: boolean;

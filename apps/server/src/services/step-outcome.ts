@@ -9,6 +9,7 @@ import {
   OUTPUT_REPAIR_LIMIT,
   openQuestionsCheckpoint,
   ownsIntegrationResolution,
+  type ProviderFailure,
   remediationAllowance,
   remediationUsed,
   type ReviewReportAssessment,
@@ -213,7 +214,126 @@ function attention(code: StepAttentionCode, message: string, workflow?: WorkCycl
   return { kind: 'attention' as const, code, message, ...(workflow ? { workflow } : {}) };
 }
 
+/**
+ * ADR-062 and R-C8/R-C11: retry the same step on the same agent after a service failure,
+ * or stop for the operator. `eligible` is what the caller established about the run itself;
+ * `stop` is the step's own stop, kept when an approval outage cannot be retried.
+ */
+function serviceRecovery(
+  cycle: WorkCycle,
+  facts: StepOutcomeFacts,
+  failure: ProviderFailure,
+  eligible: boolean,
+  stop?: Extract<StepOutcomeDecision, { kind: 'attention' }>,
+): StepOutcomeDecision {
+  const { run } = facts;
+  const attempts = cycle.providerRecovery?.attempts ?? 0;
+  const model = cycle.providerRecovery?.profile.model ?? run.model ?? run.resolvedModel;
+  const resetAt =
+    failure.kind === 'quota' && failure.resetsAt ? Date.parse(failure.resetsAt) : Number.NaN;
+  const quotaWait =
+    Number.isFinite(resetAt) && resetAt - facts.now.getTime() <= QUOTA_WAIT_LIMIT_MS;
+  const credentials = failure.kind === 'credential-rejected';
+  const retryable =
+    failure.safeToRetry &&
+    (['capacity', 'unavailable', 'transport'].includes(failure.kind) || quotaWait || credentials) &&
+    eligible &&
+    !ownsIntegrationResolution(cycle) &&
+    !!model &&
+    model !== 'default';
+  if (!retryable || attempts >= 3) {
+    // An approval outage that cannot be retried leaves the step's own stop, with the evidence.
+    if (stop && attempts < 3)
+      return {
+        ...stop,
+        message: `${stop.message} ${failure.message} Evidence: ${failure.evidence ?? 'none recorded'}.`,
+      };
+    if (credentials)
+      return attention(
+        'provider-credentials-rejected',
+        `${failure.message} Evidence: ${failure.evidence ?? 'none recorded'}. ${
+          attempts >= 3
+            ? 'The three service retries for this step are spent, and the provider still rejects the credentials. Check the provider’s status, then resume; resuming grants a new step window.'
+            : 'Automatic retry is not safe here. Inspect the outcome, then resume once the provider accepts requests.'
+        }`,
+      );
+    return attention(
+      attempts >= 3 ? 'service-retries-exhausted' : 'service-failure-not-retryable',
+      `${failure.message} ${
+        attempts >= 3
+          ? 'The three service retries are exhausted. Inspect the outcome; an explicit resume grants a new step window.'
+          : 'Automatic retry is not safe or applicable. Inspect the outcome and provide any required guidance before resuming.'
+      }`,
+    );
+  }
+  // attempts is 0, 1 or 2 here: three and more stopped above.
+  // ADR-062's backoff is the floor for every retry, so a reset time already in the past
+  // cannot use up the three retries within minutes.
+  const backoff = credentials
+    ? (CREDENTIAL_RETRY_DELAYS_MS[attempts] ?? CREDENTIAL_RETRY_DELAYS_MS[2])
+    : (SERVICE_RETRY_DELAYS_MS[attempts] ?? SERVICE_RETRY_DELAYS_MS[2]);
+  const delay = quotaWait
+    ? Math.max(backoff, resetAt + QUOTA_RESET_MARGIN_MS - facts.now.getTime())
+    : backoff;
+  const nextRetryAt = new Date(facts.now.getTime() + delay).toISOString();
+  return {
+    kind: 'schedule-service-retry',
+    // A resource-free wait for the allowance or for the provider to accept credentials
+    // does not use up the step's own time.
+    ...(quotaWait || credentials
+      ? { runDeadlineAt: new Date(Date.parse(cycle.runDeadlineAt) + delay).toISOString() }
+      : {}),
+    providerRecovery: {
+      attempts,
+      sourceRunId: run.id,
+      failure,
+      profile: cycle.providerRecovery?.profile ?? {
+        backend: run.backend,
+        permissionMode: run.permissionMode,
+        ...(run.reasoningEffort ? { reasoningEffort: run.reasoningEffort } : {}),
+        model,
+      },
+      nextRetryAt,
+    },
+    reason: quotaWait
+      ? `${failure.message} The allowance resets at ${failure.resetsAt}; retry ${attempts + 1} of 3 on the same agent is scheduled for ${nextRetryAt}, and the step time limit moves with the wait. Roadmap pauses hold retries.`
+      : credentials
+        ? `${failure.message} Evidence: ${failure.evidence ?? 'none recorded'}. Retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}, and the step time limit moves with the wait. Roadmap pauses hold retries.`
+        : `${failure.message} Service retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}. Roadmap pauses hold retries.`,
+  };
+}
+
 export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcomeDecision {
+  const decision = decideOwnOutcome(input, facts);
+  const { run, turn } = facts;
+  const outage = turn?.payload.suspectedOutage;
+  // R-C11: the provider refused a command's approval review during a turn that completed.
+  // When the step then stops for the operator, the outage is the likelier cause, and the
+  // agent's questions are about it: wait for the provider as for a failed turn. A step that
+  // finished anyway stands, and clipped output always goes to the operator.
+  if (
+    decision.kind !== 'attention' ||
+    outage?.kind !== 'credential-rejected' ||
+    run.status !== 'finished' ||
+    turn?.payload.outcome !== 'success'
+  )
+    return decision;
+  const clipped =
+    !!turn.payload.truncated || facts.assistantMessages().some((message) => message.truncated);
+  const recovery = serviceRecovery(input, facts, outage, !clipped, decision);
+  if (recovery.kind === 'schedule-service-retry')
+    return {
+      ...recovery,
+      reason:
+        `${recovery.reason} The step stopped (${decision.code}) after the provider refused a command's approval review; the retry discards that stop: ${decision.message}`.slice(
+          0,
+          4000,
+        ),
+    };
+  return recovery;
+}
+
+function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcomeDecision {
   let cycle = input;
   const { run, turn, ended } = facts;
   /**
@@ -262,7 +382,6 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
 
   const failure = turn?.payload.providerFailure;
   if (failure && run.status === 'failed' && ended !== undefined && !ended.payload.reason) {
-    const attempts = cycle.providerRecovery?.attempts ?? 0;
     // A backend error message can follow the actual partial outcome. Any unanswered
     // question or clipped assistant message requires a person, never a service retry.
     const questions = facts
@@ -272,79 +391,15 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
           message.truncated ||
           (OPEN_QUESTIONS.test(message.text) && !finalizationHasNoQuestions(message.text)),
       );
-    const model = cycle.providerRecovery?.profile.model ?? run.model ?? run.resolvedModel;
-    const resetAt =
-      failure.kind === 'quota' && failure.resetsAt ? Date.parse(failure.resetsAt) : Number.NaN;
-    const quotaWait =
-      Number.isFinite(resetAt) && resetAt - facts.now.getTime() <= QUOTA_WAIT_LIMIT_MS;
-    // The agent's questions during a credential outage are about the outage (R-C11).
-    const credentials = failure.kind === 'credential-rejected';
-    const retryable =
-      failure.safeToRetry &&
-      (['capacity', 'unavailable', 'transport'].includes(failure.kind) ||
-        quotaWait ||
-        credentials) &&
+    return serviceRecovery(
+      cycle,
+      facts,
+      failure,
       turn !== undefined &&
-      turn.payload.outcome === 'error' &&
-      !turn.payload.truncated &&
-      (!questions || credentials) &&
-      !ownsIntegrationResolution(cycle) &&
-      !!model &&
-      model !== 'default';
-    if (!retryable || attempts >= 3) {
-      if (credentials)
-        return attention(
-          'provider-credentials-rejected',
-          `${failure.message} Evidence: ${failure.evidence ?? 'none recorded'}. ${
-            attempts >= 3
-              ? 'Three retries over about 50 minutes were rejected the same way. Check the provider’s status, then resume; resuming grants a new step window.'
-              : 'Automatic retry is not safe here (work was still outstanding). Inspect the outcome, then resume once the provider accepts requests.'
-          }`,
-        );
-      return attention(
-        attempts >= 3 ? 'service-retries-exhausted' : 'service-failure-not-retryable',
-        `${failure.message} ${
-          attempts >= 3
-            ? 'The three service retries are exhausted. Inspect the outcome; an explicit resume grants a new step window.'
-            : 'Automatic retry is not safe or applicable. Inspect the outcome and provide any required guidance before resuming.'
-        }`,
-      );
-    }
-    // attempts is 0, 1 or 2 here: three and more stopped above.
-    // ADR-062's backoff is the floor for every retry, so a reset time already in the past
-    // cannot use up the three retries within minutes.
-    const backoff = credentials
-      ? (CREDENTIAL_RETRY_DELAYS_MS[attempts] ?? CREDENTIAL_RETRY_DELAYS_MS[2])
-      : (SERVICE_RETRY_DELAYS_MS[attempts] ?? SERVICE_RETRY_DELAYS_MS[2]);
-    const delay = quotaWait
-      ? Math.max(backoff, resetAt + QUOTA_RESET_MARGIN_MS - facts.now.getTime())
-      : backoff;
-    const nextRetryAt = new Date(facts.now.getTime() + delay).toISOString();
-    return {
-      kind: 'schedule-service-retry',
-      // A resource-free wait for the allowance or for the provider to accept credentials
-      // does not use up the step's own time.
-      ...(quotaWait || credentials
-        ? { runDeadlineAt: new Date(Date.parse(cycle.runDeadlineAt) + delay).toISOString() }
-        : {}),
-      providerRecovery: {
-        attempts,
-        sourceRunId: run.id,
-        failure,
-        profile: cycle.providerRecovery?.profile ?? {
-          backend: run.backend,
-          permissionMode: run.permissionMode,
-          ...(run.reasoningEffort ? { reasoningEffort: run.reasoningEffort } : {}),
-          model,
-        },
-        nextRetryAt,
-      },
-      reason: quotaWait
-        ? `${failure.message} The allowance resets at ${failure.resetsAt}; retry ${attempts + 1} of 3 on the same agent is scheduled for ${nextRetryAt}, and the step time limit moves with the wait. Roadmap pauses hold retries.`
-        : credentials
-          ? `${failure.message} Evidence: ${failure.evidence ?? 'none recorded'}. Retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}, and the step time limit moves with the wait. Roadmap pauses hold retries.`
-          : `${failure.message} Service retry ${attempts + 1} of 3 is scheduled for ${nextRetryAt}. Roadmap pauses hold retries.`,
-    };
+        turn.payload.outcome === 'error' &&
+        !turn.payload.truncated &&
+        !questions,
+    );
   }
   if (ended?.payload.reason) {
     const attempts = cycle.resultContinuations ?? 0;

@@ -34,6 +34,8 @@ const INFORMATIONAL_ITEM_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 const UNKNOWN_REPORT_LIMIT = 64;
+const APPROVAL_REVIEW_FAILED = 'Automatic approval review failed';
+const STDERR_LINE_LIMIT = 64 * 1024;
 
 /** Only the selected thread's notifications reach this adapter-local normalizer. */
 export class CodexStreamNormalizer {
@@ -41,28 +43,37 @@ export class CodexStreamNormalizer {
   private failure: ProviderFailure | undefined;
   private unsafeContinuation = false;
   private readonly pendingTools = new Set<string>();
-  /** Interactive requests Codex made this turn; CraftingTable answered none of them. */
-  private readonly interactions = new Set<string>();
   /** A command whose automatic approval review failed on a provider credential rejection. */
   private approvalOutage: ProviderFailure | undefined;
+  /** Stderr after its last newline: the sentinel is matched within one line. */
+  private stderrLine = '';
   private auth: CodexAuthMode = 'unknown';
   /** The session's sign-in mode, which tells a provider-side rejection from a local one. */
   setAuthMode(mode: CodexAuthMode): void {
     this.auth = mode;
   }
-  requireOperator(method = 'unknown'): void {
-    this.interactions.add(method);
+  requireOperator(): void {
+    this.unsafeContinuation = true;
   }
   /**
-   * Codex reports a command its automatic approval review could not decide only on stderr.
-   * A review that failed on the provider's credential rejection is the same outage as a
-   * failed turn (R-C11), not a question for the operator about approvals.
+   * Codex reports a command its automatic approval review could not decide only on stderr,
+   * as one log line; the app-server stream carries no item for it. A review that failed on
+   * the provider's credential rejection is the same outage as a failed turn (R-C11). It is
+   * reported with the turn as a suspected outage, never as the turn's outcome: the agent
+   * may have recovered, and only the controller knows whether the step stopped because of it.
    */
   observeStderr(text: string): void {
-    if (!text.includes('Automatic approval review failed')) return;
-    const rejected = codexCredentialRejection(text);
-    if (rejected && this.auth === 'chatgpt')
-      this.approvalOutage ??= credentialRejected(`automatic approval review: ${rejected}`);
+    const lines = `${this.stderrLine}${text}`.split('\n');
+    const partial = lines.pop() ?? '';
+    // A line this long is not the status line; its start is dropped rather than buffered.
+    this.stderrLine = partial.length > STDERR_LINE_LIMIT ? '' : partial;
+    for (const line of lines) {
+      const at = line.indexOf(APPROVAL_REVIEW_FAILED);
+      if (at < 0) continue;
+      const rejected = codexCredentialRejection(line.slice(at));
+      if (rejected && this.auth === 'chatgpt')
+        this.approvalOutage ??= credentialRejected(`automatic approval review: ${rejected}`);
+    }
   }
   /** Whether the turn ending now would be classified as a provider-side rejection. */
   suspectsProviderRejection(turn: Record<string, unknown>): boolean {
@@ -111,7 +122,6 @@ export class CodexStreamNormalizer {
   beginTurn(): void {
     this.failure = undefined;
     this.unsafeContinuation = false;
-    this.interactions.clear();
     this.approvalOutage = undefined;
     this.pendingTools.clear();
     this.lastMessage = '';
@@ -199,32 +209,21 @@ export class CodexStreamNormalizer {
   }
   complete(turn: Record<string, unknown>, model: string, costUsd?: number): NormalizedAgentEvent {
     this.turns += 1;
-    // A turn that "completed" after its approval review was rejected by the provider did not
-    // do its work: it is the outage, and retrying the step is the remedy (R-C11).
-    const outage = turn.status === 'completed' ? this.approvalOutage : undefined;
-    const failed = turn.status !== 'completed' || outage !== undefined;
+    const failed = turn.status !== 'completed';
     const result = failed
       ? truncateUtf8(
           (isRecord(turn.error) ? stringOf(turn.error.message) : '') ||
-            (outage ? `${outage.message} ${outage.evidence ?? ''}`.trim() : '') ||
             `Codex turn ${stringOf(turn.status)}`,
           MESSAGE_TEXT_LIMIT_BYTES,
         )
       : { text: this.lastMessage, truncated: this.lastMessageTruncated };
     const failure =
-      outage ??
       this.failure ??
       codexProviderFailure(
         isRecord(turn.error) ? turn.error.codexErrorInfo : undefined,
         isRecord(turn.error) ? stringOf(turn.error.message) : '',
         this.auth,
       );
-    // Questions CraftingTable left unanswered make a retry unsafe, except the agent asking
-    // about the outage itself.
-    const interactionsSafe =
-      this.interactions.size === 0 ||
-      (outage !== undefined &&
-        [...this.interactions].every((method) => method === 'item/tool/requestUserInput'));
     return {
       kind: 'turn-completed',
       payload: {
@@ -234,14 +233,20 @@ export class CodexStreamNormalizer {
               providerFailure: {
                 ...failure,
                 safeToRetry:
-                  (turn.status === 'failed' || outage !== undefined) &&
+                  turn.status === 'failed' &&
                   failure.safeToRetry &&
                   !this.unsafeContinuation &&
-                  interactionsSafe &&
                   this.pendingTools.size === 0,
               },
             }
-          : {}),
+          : this.approvalOutage
+            ? {
+                suspectedOutage: {
+                  ...this.approvalOutage,
+                  safeToRetry: !this.unsafeContinuation && this.pendingTools.size === 0,
+                },
+              }
+            : {}),
         resultText: result.text,
         ...(result.truncated ? { truncated: true } : {}),
         turns: this.turns,

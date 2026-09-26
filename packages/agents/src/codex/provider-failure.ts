@@ -11,14 +11,21 @@ export type CodexAuthMode = 'chatgpt' | 'api-key' | 'unknown';
  * sends one, so it is the provider rejecting credentials the host did not supply.
  */
 const PROVIDER_REJECTION =
-  /unexpected status 401 Unauthorized: Incorrect API key provided: (sk-[A-Za-z]{0,12})\**([A-Za-z0-9]{0,8})[.,]?[\s\S]*?url: (https:\/\/chatgpt\.com\/backend-api\/[^\s,]+)(?:[\s\S]*?request id: ([0-9A-Fa-f-]{8,64}))?/;
+  /unexpected status 401 Unauthorized: Incorrect API key provided: (sk-[A-Za-z]{0,5})[A-Za-z0-9_-]{0,200}?\*{0,400}([A-Za-z0-9]{4})[.,][^\n]{0,600}?url: (https:\/\/chatgpt\.com\/backend-api\/[^\s,]{1,200})(?:[^\n]{0,600}?request id: ([0-9A-Fa-f-]{8,64}))?/;
+/** The status line sits near the start of a message; the rest is never read. */
+const SCANNED_CHARACTERS = 4096;
 
-/** The observed facts of a provider-side rejection, or undefined when the text is not one. */
+/**
+ * The observed facts of a provider-side rejection, or undefined when the text is not one.
+ * Every quantifier is bounded and stays within one line, so a pathological message cannot
+ * stall the daemon, and the endpoint and request id are the rejection's own. The key is shown
+ * no wider than the vendor's own masking: a short prefix and the last four characters.
+ */
 export function codexCredentialRejection(message: string): string | undefined {
-  const match = PROVIDER_REJECTION.exec(message);
+  const match = PROVIDER_REJECTION.exec(message.slice(0, SCANNED_CHARACTERS));
   if (!match) return undefined;
   const [, prefix, suffix, url, request] = match;
-  return `HTTP 401 from ${url} naming an API key ${prefix}…${suffix ?? ''}${
+  return `HTTP 401 from ${url} naming an API key ${prefix}…${suffix}${
     request ? ` (request ${request})` : ''
   }`;
 }

@@ -573,6 +573,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Tests:** decision-table cases and an end-to-end cycle (investigate, then an automatic continue on the design agent, then implementation). Both fail without the change.
   - **Replays:** 278 and 51 decisions, 0 changed. The one recorded investigation (run 117cd918) still stops: it left an operator decision.
   - **Gate:** `pnpm check` stages all pass: 187 test files and 1,487 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. Under load average 20, 10 controller tests timed out in waitFor; the 6 files passed rerun serially.
+- **Independent review of bf329f6 (2026-09-25), and what changed:** no loop, and eligibility is stricter than an ordinary design advance. The launch goes through the cycle creator's authority.
+  - *MEDIUM, fixed:* the automatic continue inherited the investigation's service-retry state, so it got a "service retry" brief, a smaller retry budget and the investigation's agent for retries. It is now a new step: service retry, output repair and step guidance are cleared. `recoverDesign` had the same gap for a stop reached after a retry, and is fixed too.
+  - *MEDIUM, fixed:* an investigation could label as `resolved` a decision that the stop it came from had left to the operator. Nothing then asked the operator, which conflicts with ADR-059. If the source stop named an operator decision or planning conflict, the investigation now always stops. This also covers the "Clarify checkpoint" flow, whose source is a decision stop.
+  - *LOW, fixed:* a failure while preparing the continue (for example an unavailable design backend) became a generic controller error. It now falls back to the investigation stop, with the reason, and the backend is checked first.
+  - *LOW, accepted:*
+    - `designRecovery.automatic` is recorded but not yet shown; the audit entry is a system `design-continue`.
+    - After an automatic continue, the Resolve panel defaults to the design agent.
+    - Replay covers only one recorded investigation (117cd918), because older investigation runs replay as ordinary designs.
+  - Regression tests (the source-decision rule, a service retry inside the investigation, and the unavailable-backend fallback) each fail without the fix. Replays: 278 and 51, 0 changed.
+  - Gate: `pnpm check` stages all pass: 187 test files and 1,494 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. One scope-recovery test timed out in waitFor under load; its file and the other scope suites passed rerun serially.
 - **R-C3b (open):** prepare the roadmap's shared architecture decisions before the slices that need them start, so they are answered once, in a batch; count "unblocks N slices" as slices, not graph nodes; and add batch approval (still operator-only and paused). It needs an ADR-065 amendment for the grant. The done-when metric belongs to R-C3b.
 
 ### R-C4

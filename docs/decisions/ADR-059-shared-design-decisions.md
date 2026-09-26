@@ -49,9 +49,14 @@ the journal or requesting a replacement run.
 
 An explicit investigation still stops for operator review, unless its design classification is
 complete and every item is `resolved`: each has an answer and cited sources, no operator
-decision or planning conflict remains, and Open questions is `none`. Then the controller starts
+decision or planning conflict remains, and Open questions is `none`. If the stop it started
+from already named an operator decision or planning conflict, it always stops: an
+investigation gathers evidence for a decision and never makes it. Then the controller starts
 the continue run the operator would have started with Resolve design questions. That run uses
 the investigation's evidence, the operator's guidance and attachments, the design agent, and
-an ordinary deadline. It is recorded as `automatic` and judged as an ordinary design. This
+an ordinary deadline. It is a new step: the investigation's service retries, repairs and
+guidance end with it. It is recorded as `automatic` and judged as an ordinary design. If it
+cannot be prepared, for example because the design backend is unavailable, the investigation
+stops as before. This
 happens at most once per operator-started investigation. An investigation without a
 classification, or one that classified nothing, still stops.

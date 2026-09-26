@@ -156,6 +156,8 @@ export interface StepOutcomeFacts {
   ) => { readonly supported: boolean; readonly pending: readonly string[] };
   readonly reviewAssessment: () => ReviewReportAssessment | undefined;
   readonly scopeIssue: (assessment: ReviewReportAssessment | undefined) => string | undefined;
+  /** The final report of the run a design recovery started from (R-C3a). */
+  readonly designRecoverySource: (cycle: WorkCycle) => string | undefined;
 }
 
 export function stepOutcomeFacts(
@@ -186,6 +188,13 @@ export function stepOutcomeFacts(
     designDependencyState: (current, requirements) =>
       designDependencyState(storage, current, requirements),
     reviewAssessment: () => latestReviewReport(storage.execution, run),
+    designRecoverySource: (current) => {
+      const source = current.designRecovery?.sourceRunId;
+      const event =
+        source &&
+        storage.execution.runEvents.latestOfKind(current.workspaceId, source, 'turn-completed');
+      return event && event.kind === 'turn-completed' ? event.payload.resultText : undefined;
+    },
     scopeIssue: (assessment) => {
       const tree = storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
       return tree && scopedReviewIssue(storage, tree, assessment);
@@ -551,8 +560,17 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
     const classified = parseDesignReport(text);
     if (cycle.designRecovery?.runId === run.id && cycle.designRecovery.mode === 'investigate') {
       // R-C3a: an investigation that answered every question, each with its sources, leaves
-      // nothing for the operator to decide; the design continues with that evidence.
+      // nothing for the operator to decide; the design continues with that evidence. A stop
+      // that already named an operator decision or a planning conflict stays the operator's:
+      // an investigation gathers evidence for a decision, it never makes it (ADR-059).
+      const source = parseDesignReport(facts.designRecoverySource(cycle) ?? '');
       if (
+        !(
+          source.status === 'complete' &&
+          source.report.items.some(
+            (item) => item.kind === 'operator-decision' || item.kind === 'planning-conflict',
+          )
+        ) &&
         classified.status === 'complete' &&
         classified.report.items.length > 0 &&
         classified.report.items.every((item) => item.kind === 'resolved') &&

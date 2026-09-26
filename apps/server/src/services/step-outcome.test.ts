@@ -135,6 +135,7 @@ function facts(overrides: Partial<StepOutcomeFacts> = {}): StepOutcomeFacts {
     designDependencyState: () => ({ supported: true, pending: [] }),
     reviewAssessment: () => undefined,
     scopeIssue: () => undefined,
+    designRecoverySource: () => undefined,
     ...overrides,
   };
 }
@@ -344,6 +345,29 @@ const rows: readonly Row[] = [
     name: 'a design investigation that answered every question with sources continues (R-C3a)',
     cycle: { step: 'design', designRecovery: { runId: 'run-1', mode: 'investigate' } },
     facts: { run: runOf({ role: 'design' }), turn: turnOf(design([ANSWERED])) },
+    expected: { kind: 'continue-design' },
+  },
+  {
+    name: 'a design investigation cannot answer a decision the stop left for the operator',
+    cycle: { step: 'design', designRecovery: { runId: 'run-1', mode: 'investigate' } },
+    facts: {
+      run: runOf({ role: 'design' }),
+      turn: turnOf(design([ANSWERED])),
+      designRecoverySource: () =>
+        design([
+          { kind: 'operator-decision', question: 'Adopt WI-ADR-016?', answer: '', sources: [] },
+        ]),
+    },
+    expected: { kind: 'attention', code: 'design-investigation-finished' },
+  },
+  {
+    name: 'a design investigation after a stop over evidence continues',
+    cycle: { step: 'design', designRecovery: { runId: 'run-1', mode: 'investigate' } },
+    facts: {
+      run: runOf({ role: 'design' }),
+      turn: turnOf(design([ANSWERED])),
+      designRecoverySource: () => withQuestions,
+    },
     expected: { kind: 'continue-design' },
   },
   {

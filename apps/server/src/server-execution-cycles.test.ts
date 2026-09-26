@@ -33,6 +33,7 @@ import {
   itNeedsCargo,
   mutationHeaders,
   present,
+  type Ready,
   ready,
   registerAndWorktree,
   reviewText,
@@ -489,6 +490,87 @@ describe('single work-item automation', () => {
       profile: { model: 'design-model' },
     });
     expect(currentCycle(state, cycle).attention?.code).not.toBe('design-investigation-finished');
+  });
+
+  const answeredInvestigation = `Investigated.\n\n\`\`\`craftingtable-design\n${JSON.stringify({
+    version: 1,
+    items: [
+      {
+        kind: 'resolved',
+        question: 'Where do the baseline measurements come from?',
+        answer: 'The committed benchmark report.',
+        sources: ['bench/report.md'],
+      },
+    ],
+  })}\n\`\`\`\n\n## Open questions\nnone`;
+  async function investigate(state: Ready, cycle: WorkCycle) {
+    const url = `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/design-recovery`;
+    const snapshot = (
+      await state.context.app.inject({ method: 'GET', url, headers: { cookie: state.cookie } })
+    ).json();
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: snapshot.expectedVersion,
+        snapshotDigest: snapshot.snapshotDigest,
+        mode: 'investigate',
+        profile: { backend: 'claude-code', model: 'investigation-model' },
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+  }
+
+  it('starts the automatic design continue as a new step, not a service retry of the investigation (R-C3a review)', async () => {
+    let now = new Date('2026-09-25T12:00:00Z');
+    const { state, backend, worktree } = await cycleFixture(
+      [
+        { resultText: '## Open questions\nWhere do the baseline measurements come from?' },
+        {
+          resultText: 'At capacity.',
+          providerFailure: { kind: 'capacity', message: 'At capacity.', safeToRetry: true },
+        },
+        { resultText: answeredInvestigation },
+        designDone,
+        implementationDone,
+      ],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'design pause');
+    await investigate(state, cycle);
+    await waitFor(
+      () => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+      'investigation service retry',
+    );
+    now = new Date('2026-09-25T12:02:00Z');
+    await waitFor(() => backend.launches.length >= 5, 'continued design, then implementation');
+    const continued = present(backend.launches[3]);
+    expect(continued.model).toBe('design-model');
+    expect(continued.prompt).not.toContain('service retry');
+    expect(currentCycle(state, cycle).designRecovery).toMatchObject({ automatic: true });
+  });
+
+  it('keeps the investigation stop when the design cannot continue automatically (R-C3a review)', async () => {
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: '## Open questions\nWhere do the baseline measurements come from?' },
+      { resultText: answeredInvestigation },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'design pause');
+    await investigate(state, cycle);
+    // The design agent's backend goes away while the investigation runs.
+    const runs = state.context.services.agentRunService;
+    await waitFor(() => backend.launches.length === 2, 'investigation launched');
+    runs.hasBackend = () => false;
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'fallback stop');
+    expect(currentCycle(state, cycle)).toMatchObject({
+      attention: { code: 'design-investigation-finished' },
+      designRecovery: { mode: 'investigate' },
+      reason: expect.stringContaining('could not continue automatically'),
+    });
+    expect(backend.launches).toHaveLength(2);
   });
 
   it('can adopt a manual design after an investigation without retaining the investigation stop', async () => {

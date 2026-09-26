@@ -613,6 +613,8 @@ export class WorkCycleService {
         designWait: null,
         designDependencyContinuations: 0,
         resultContinuations: 0,
+        providerRecovery: null,
+        outputRepair: null,
         runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
         designRecovery: {
           runId,
@@ -648,6 +650,8 @@ export class WorkCycleService {
       collectDesignRecovery(tx, cycle, investigation.id),
     );
     const design = effectiveCycleProfiles(this.storage, cycle).design;
+    if (!this.runs.hasBackend(design.backend))
+      throw new ExecutionRequestError('unavailable', 'The design backend is unavailable.');
     const runId = asAgentRunId(randomUUID());
     return this.change(
       cycle,
@@ -660,6 +664,10 @@ export class WorkCycleService {
         designWait: null,
         designDependencyContinuations: 0,
         resultContinuations: 0,
+        // A new step: the investigation's service retries, repairs and guidance end with it.
+        providerRecovery: null,
+        outputRepair: null,
+        stepGuidance: undefined,
         runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
         designRecovery: {
           runId,
@@ -2228,7 +2236,20 @@ export class WorkCycleService {
         await this.advanceResolution(cycle);
         return;
       case 'continue-design':
-        this.continueDesign(cycle, run, decision.reason);
+        try {
+          this.continueDesign(cycle, run, decision.reason);
+        } catch (error) {
+          // The investigation's stop stays the operator's, with its results panel.
+          this.attention(
+            cycle,
+            'design-investigation-finished',
+            `Design investigation answered every question, but the design could not continue automatically: ${
+              error instanceof ExecutionRequestError
+                ? error.message
+                : 'unexpected controller error.'
+            } Review the evidence, then use Resolve design questions to continue.`,
+          );
+        }
         return;
       case 'design-wait':
         this.change(cycle, { designWait: decision.designWait, reason: decision.reason });

@@ -106,6 +106,9 @@ describe('ClaudeCodeBackend', () => {
       executable,
       `#!${process.execPath}
 const out = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+// A background shell in the session's process group.
+const shell = require('node:child_process').spawn('sleep', ['60'], { stdio: 'ignore' });
+require('node:fs').writeFileSync('background.pid', String(shell.pid));
 out({ type: 'system', subtype: 'init', session_id: 'limit-session', model: 'fake-model' });
 out({ type: 'system', subtype: 'task_started', task_id: 'sub-1', tool_use_id: 'toolu_1', description: 'Sub-agent' });
 out({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: 1789483800 } });
@@ -133,6 +136,18 @@ setInterval(() => out(limited), 50);
     const exited = items.at(-1);
     expect(exited).toMatchObject({ type: 'exited' });
     expect(exited?.type === 'exited' && exited.reason).toBeFalsy();
+    // Nothing in the process group outlives the session.
+    const background = Number(readFileSync(join(directory, 'background.pid'), 'utf8'));
+    await expect
+      .poll(() => {
+        try {
+          process.kill(background, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      })
+      .toBe(false);
   });
 
   it('terminates a process that ignores SIGTERM', async () => {

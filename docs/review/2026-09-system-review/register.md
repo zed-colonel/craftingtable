@@ -621,6 +621,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Done-when met:** replayed whole, all nine recorded results stay unsafe (the old outcome); replayed as the session now reads it, the stream ends at the first quota result (10:11:28) with reset 14:50, and the cycle schedules its retry at 14:52 and then continues (`normalize.test.ts`, `server-execution-cycle-recovery.test.ts`). A fake `claude` with a running sub-agent and results failing every 50 ms is ended within seconds with the reset (`backend.test.ts`).
   - **Regression tests fail without the fix** (the terminal-quota detection and the termination, each reverted alone). Replays on a copy of the 2026-09-23 snapshot: 278 and 51 decisions, 0 changed.
   - **Gate:** `pnpm check` stages all pass: 187 test files and 1,475 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. Under load average 19 from the live daemon, 9 controller tests timed out in waitFor, as did one walkthrough visibility check; each passed rerun alone.
+  - **Independent review of 1b34b0b (2026-09-25), and what changed:** no high-severity findings. The incident path, the exit sequence and the fixture (2,472 lines, the same line types and ids as the backup) were confirmed.
+    - *MEDIUM, fixed:* the latched "latest reset" was never needed for the incident, and could end a session at an unrelated later 429 using a stale reset. The latch is removed. Only a rejected report still in force counts, and an `allowed_warning` for the rejected window now withdraws it (reports carry their window). The misleading test is replaced.
+    - *LOW, fixed:* a result that did not fail could end the session. Now only a failed result (`error_during_execution` or an API error) ends it.
+    - *LOW, fixed:* the final failure ignored denied permissions; they now keep the retry with the operator. ADR-062 now says "ever made an interactive request" rather than "waiting on the operator".
+    - *LOW, fixed:* a weekly reset stopped with "retry is not safe". The stop now names the reset time and asks to resume after it.
+    - *LOW, fixed:* the test's "sub-agent" had no real process. The fake now starts a `sleep` in its process group, and the test asserts that it is gone. The assertion fails when the `sleep` detaches.
+    - *LOW, documented:* ending the session discards background checks that would have finished before the reset (in 736446e8, a release-gate run completed at 10:43). The retry repeats them. ADR-062 says so, and that a detached (`setsid`) process outlives the session, as before.
+    - *LOW, accepted:* a quota kill records two turns (the real result and the final one), so the run's turn count is one higher. The controller reads the latest turn.
+    - *LOW, accepted:* a quota kill landing while the daemon stops is recorded as a restart interruption; resuming hits the limit again and ends the session.
+    - The new tests fail against 1b34b0b's normalizer and the previous stop message.
+    - Replays: 278 and 51 decisions, 0 changed. Gate: `pnpm check` stages all pass: 187 test files and 1,480 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. Under load average 35, 25 controller tests timed out in waitFor; the 10 files passed rerun serially.
 
 ### R-C10
 

@@ -262,7 +262,13 @@ function serviceRecovery(
       `${failure.message} ${
         attempts >= 3
           ? 'The three service retries are exhausted. Inspect the outcome; an explicit resume grants a new step window.'
-          : 'Automatic retry is not safe or applicable. Inspect the outcome and provide any required guidance before resuming.'
+          : failure.kind === 'quota' &&
+              failure.resetsAt &&
+              failure.safeToRetry &&
+              eligible &&
+              !quotaWait
+            ? `The allowance resets at ${failure.resetsAt}, too far away to wait for automatically. Resume after the reset.`
+            : 'Automatic retry is not safe or applicable. Inspect the outcome and provide any required guidance before resuming.'
       }`,
     );
   }

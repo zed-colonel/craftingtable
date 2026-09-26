@@ -367,14 +367,7 @@ describe('recorded provider failures', () => {
     });
   });
 
-  it('keeps the latest reset for a later quota result until an allowed report (R-C9)', () => {
-    const subject = normalizer();
-    const send = (message: unknown) => subject.normalizeLine(JSON.stringify(message));
-    send({
-      type: 'rate_limit_event',
-      rate_limit_info: { status: 'rejected', resetsAt: 1789483800 },
-    });
-    // A result without its own report still knows when the allowance resets.
+  it('ends the session only at a failed result with its own rejected report (R-C9)', () => {
     const limited = {
       type: 'result',
       subtype: 'success',
@@ -382,24 +375,48 @@ describe('recorded provider failures', () => {
       api_error_status: 429,
       terminal_reason: 'api_error',
     };
-    send(limited);
-    send(limited);
-    expect(subject.quotaExhausted).toBe(true);
-    expect(subject.endedForQuota().payload).toMatchObject({
-      providerFailure: { resetsAt: '2026-09-15T14:50:00.000Z' },
+    const rejected = {
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: 1789483800 },
+    };
+    const ends = (...messages: unknown[]) => {
+      const subject = normalizer();
+      for (const message of messages) subject.normalizeLine(JSON.stringify(message));
+      return subject;
+    };
+    expect(ends(rejected, limited).endedForQuota().payload).toMatchObject({
+      providerFailure: { safeToRetry: true, resetsAt: '2026-09-15T14:50:00.000Z' },
     });
-    const fresh = normalizer();
-    fresh.normalizeLine(
-      JSON.stringify({
-        type: 'rate_limit_event',
-        rate_limit_info: { status: 'rejected', resetsAt: 1789483800 },
-      }),
-    );
-    fresh.normalizeLine(
-      JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } }),
-    );
-    fresh.normalizeLine(JSON.stringify(limited));
-    expect(fresh.quotaExhausted).toBe(false);
+    // A rejection the session got past does not end it at a later rate limit.
+    const warning = (rateLimitType: string) => ({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'allowed_warning', rateLimitType, resetsAt: 1789483800 },
+    });
+    const fiveHour = {
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', rateLimitType: 'five_hour', resetsAt: 1789483800 },
+    };
+    expect(ends(fiveHour, warning('five_hour'), limited).quotaExhausted).toBe(false);
+    // A warning about another window leaves the rejected one in force.
+    expect(ends(fiveHour, warning('seven_day'), limited).quotaExhausted).toBe(true);
+    expect(ends(rejected, limited, limited).quotaExhausted).toBe(true);
+    const unusable = { type: 'rate_limit_event', rate_limit_info: { status: 'rejected' } };
+    expect(
+      ends(rejected, { ...limited, subtype: 'error_during_execution', is_error: true }, unusable)
+        .quotaExhausted,
+    ).toBe(true);
+    expect(ends(unusable, limited).quotaExhausted).toBe(false);
+    expect(
+      ends(rejected, { type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } }, limited)
+        .quotaExhausted,
+    ).toBe(false);
+    // A result that did not fail does not end the session.
+    expect(ends(rejected, { ...limited, is_error: false }).quotaExhausted).toBe(false);
+    // Denied permissions keep the retry with the operator.
+    expect(
+      ends(rejected, { ...limited, permission_denials: [{ tool_name: 'Bash' }] }).endedForQuota()
+        .payload,
+    ).toMatchObject({ providerFailure: { safeToRetry: false } });
   });
 
   it('carries the reset time of a rejected allowance so the controller can wait for it', () => {

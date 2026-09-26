@@ -678,6 +678,9 @@ describe('controller step classification (R-B2)', () => {
     expect(decide('2026-09-28T00:00:00.000Z')).toMatchObject({
       kind: 'attention',
       code: 'service-failure-not-retryable',
+      message: expect.stringContaining(
+        'resets at 2026-09-28T00:00:00.000Z, too far away to wait for automatically',
+      ),
     });
   });
 

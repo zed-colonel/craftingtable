@@ -176,11 +176,8 @@ export class ClaudeStreamNormalizer {
   private providerFailure: ProviderFailure | undefined;
   /** When the allowance a `rejected` rate-limit report named resets (R-C8). */
   private quotaResetsAt: string | undefined;
-  /**
-   * The latest reset any rejected report named, kept across results until an `allowed`
-   * report (R-C9): only some quota results carry one, and the turn's final failure needs it.
-   */
-  private latestResetAt: string | undefined;
+  /** The window (`five_hour`, …) the rejected report named. */
+  private quotaWindow: unknown;
   /** A quota failure with a known reset ended a result: the session should end now (R-C9). */
   private terminalQuota: ProviderFailure | undefined;
   /** The last assistant message's structured error discriminant, e.g. `billing_error`. */
@@ -204,7 +201,8 @@ export class ClaudeStreamNormalizer {
   /**
    * The step's final result once the session was ended for a used-up allowance. The session
    * and its process group are gone, so no tool or background work outlives it, and the step
-   * can be retried after the reset unless the agent was waiting on the operator.
+   * can be retried after the reset unless the session ever made an interactive request or
+   * the quota result reported denied permissions.
    */
   endedForQuota(): NormalizedAgentEvent {
     const failure = this.terminalQuota!;
@@ -215,7 +213,7 @@ export class ClaudeStreamNormalizer {
         providerFailure: {
           ...failure,
           message: `${failure.message} CraftingTable ended the session and its background work until the reset.`,
-          safeToRetry: !this.interactiveRequest,
+          safeToRetry: failure.safeToRetry && !this.interactiveRequest,
         },
         resultText: `The allowance is used up until ${failure.resetsAt}.`,
         turns: 0,
@@ -467,15 +465,22 @@ export class ClaudeStreamNormalizer {
       combined?.kind === 'quota' && this.quotaResetsAt && !billing
         ? { ...combined, safeToRetry: true, resetsAt: this.quotaResetsAt }
         : combined;
-    const resetsAt = this.quotaResetsAt ?? this.latestResetAt;
-    if (combined?.kind === 'quota' && resetsAt && !billing && !this.terminalQuota)
-      this.terminalQuota = { ...combined, safeToRetry: true, resetsAt };
+    const isError = message.is_error === true || message.subtype !== 'success';
+    const denied =
+      Array.isArray(message.permission_denials) && message.permission_denials.length > 0;
+    // R-C9: only a failed result with its own rejected report ends the session.
+    if (
+      failure?.resetsAt &&
+      isError &&
+      (message.subtype === 'error_during_execution' || apiError) &&
+      !this.terminalQuota
+    )
+      this.terminalQuota = { ...failure, safeToRetry: !denied };
     this.providerFailure = undefined;
     this.providerError = undefined;
     this.quotaResetsAt = undefined;
     const pendingBackground = this.hasUncollectedBackgroundWork;
     this.backgroundAfterResult = false;
-    const isError = message.is_error === true || message.subtype !== 'success';
     const cost = typeof message.total_cost_usd === 'number' ? message.total_cost_usd : undefined;
     const turns =
       typeof message.num_turns === 'number' ? Math.max(0, Math.trunc(message.num_turns)) : 0;
@@ -498,9 +503,7 @@ export class ClaudeStreamNormalizer {
                     failure.safeToRetry &&
                     (message.subtype === 'error_during_execution' || apiError) &&
                     !this.interactiveRequest &&
-                    !(
-                      Array.isArray(message.permission_denials) && message.permission_denials.length
-                    ) &&
+                    !denied &&
                     this.pendingTools.size === 0 &&
                     !pendingBackground,
                 },
@@ -520,17 +523,22 @@ export class ClaudeStreamNormalizer {
     const info = isRecord(message.rate_limit_info) ? message.rate_limit_info : {};
     if (info.status === 'allowed') {
       this.quotaResetsAt = undefined;
-      this.latestResetAt = undefined;
       return [];
     }
+    // A warning for the rejected window means that allowance is usable again (R-C9 review).
+    if (
+      info.status === 'allowed_warning' &&
+      (info.rateLimitType === undefined || info.rateLimitType === this.quotaWindow)
+    )
+      this.quotaResetsAt = undefined;
     if (info.status === 'rejected') {
+      this.quotaWindow = info.rateLimitType;
       const seconds = info.resetsAt;
       // Epoch seconds; anything past year 5000 (e.g. milliseconds) is not a usable reset.
       this.quotaResetsAt =
         typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 && seconds < 1e11
           ? new Date(seconds * 1000).toISOString()
           : undefined;
-      if (this.quotaResetsAt) this.latestResetAt = this.quotaResetsAt;
     }
     return [
       {

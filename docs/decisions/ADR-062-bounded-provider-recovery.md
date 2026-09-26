@@ -71,7 +71,13 @@ stops at once and asks the operator to sign in again.
 A quota failure used to be retried only when nothing was outstanding, but a session with
 sub-agents and background shells kept producing failing results against the used-up allowance
 (run 736446e8: 31 minutes, nine results, every one unsafe). The Claude adapter now ends the
-session, with its process group, at the first quota result that has a known reset, keeping the
-latest reset any rejected report named until an `allowed` report. The step's final result is
-then a quota failure with that reset, safe to retry unless the agent was waiting on the
-operator, and R-C8's wait applies.
+session, with its process group, at the first failed result that has a known reset from a
+rejected report still in force. An `allowed` report, or an `allowed_warning` for the rejected
+window, withdraws the reset. The step's final result is then a quota failure with that reset. It
+is safe to retry unless the session ever made an interactive request or the result reported
+denied permissions, and R-C8's wait applies. A reset beyond the wait limit stops for the
+operator with the reset time.
+
+Ending the session discards background checks still running, even ones that would finish before
+the reset. The retry repeats them. Only processes that stay in the session's process group are
+ended; one that detaches itself (`setsid`) outlives the session, as it did before.

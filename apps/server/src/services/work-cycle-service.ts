@@ -89,6 +89,7 @@ import {
   securityReviewCurrent,
   workflowContext,
   workflowDelegation,
+  controllerReviewRunnable,
 } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -1834,10 +1835,16 @@ export class WorkCycleService {
   private onlyOperatorCanAdvance(cycle: WorkCycle): boolean {
     try {
       if (this.refreshOwner(cycle)) return false;
+      if (cycle.executionScope?.kind !== 'slice' || !cycle.workflow) return true;
+      const delegation = workflowDelegation(this.storage, cycle);
+      if (delegation) return delegation.runnable !== true;
+      // Without a delegating roadmap, only a due security review can advance the cycle.
+      const review = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
       return (
-        cycle.executionScope?.kind !== 'slice' ||
-        !cycle.workflow ||
-        workflowDelegation(this.storage, cycle)?.runnable !== true
+        !cycle.workflow.securityRequired ||
+        !review ||
+        securityReviewCurrent(this.storage, cycle, review) ||
+        !controllerReviewRunnable(this.storage, cycle)
       );
     } catch {
       return false;
@@ -1966,7 +1973,7 @@ export class WorkCycleService {
     if (
       !pendingRun &&
       cycle.workflow?.activeReview &&
-      !workflowDelegation(this.storage, cycle)?.runnable
+      !controllerReviewRunnable(this.storage, cycle)
     ) {
       this.waitForPhase(
         cycle,
@@ -2261,7 +2268,13 @@ export class WorkCycleService {
   ): Promise<void> {
     const context = workflowContext(this.storage, cycle);
     const delegation = workflowDelegation(this.storage, cycle);
-    if (!context || delegation?.runnable !== true) return;
+    // Without a delegating roadmap only the source-required security review runs.
+    if (
+      !context ||
+      !controllerReviewRunnable(this.storage, cycle) ||
+      (!delegation && kind !== 'security')
+    )
+      return;
     this.requireReady(cycle.workspaceId, cycle.workItemId!, cycle.executionScope);
     const checkpoint = context.checkpoints.find((c) => c.id === checkpointId);
     if (
@@ -2271,6 +2284,7 @@ export class WorkCycleService {
       throw new ExecutionRequestError('conflict', 'Checkpoint review requirements are not ready.');
     if (
       kind === 'security' &&
+      delegation &&
       !delegation.roles.includes('independent-security-reviewer-if-required-by-source')
     ) {
       this.attention(
@@ -2326,8 +2340,12 @@ export class WorkCycleService {
       return false;
     const initialVersion = cycle.version;
     const delegation = workflowDelegation(this.storage, cycle);
-    if (!delegation) return false;
-    if (!delegation.runnable) {
+    // A cycle no cross-project roadmap delegates still owes its source-required security
+    // review, on the authority of the operator who started it. Checkpoint and reassessment
+    // reviews remain roadmap delegations.
+    if (!delegation && !cycle.workflow.securityRequired && !cycle.workflow.activeReview)
+      return false;
+    if (!controllerReviewRunnable(this.storage, cycle)) {
       if (cycle.status !== 'awaiting-merge')
         this.change(cycle, {
           status: 'awaiting-merge',
@@ -2373,9 +2391,20 @@ export class WorkCycleService {
       );
     }
     if (cycle.workflow!.securityRequired && !securityReviewCurrent(this.storage, cycle, run)) {
+      // A security review that just passed this candidate and still is not current would
+      // only be repeated without end; its inputs need the operator.
+      if (active?.kind === 'security') {
+        this.attention(
+          cycle,
+          'workflow-obligation',
+          'The separate security review finished, but its receipt is not current for this candidate and its runtime inputs. Inspect the review and the map runtime configuration before resuming.',
+        );
+        return true;
+      }
       await this.startWorkflowReview(cycle, run, 'security');
       return true;
     }
+    if (!delegation) return cycle.version !== initialVersion;
     // Accepting an active review's checkpoint changes the obligations; otherwise reuse them.
     const current = active ? workflowContext(this.storage, cycle)! : context;
     const missing = current.checkpoints.filter((c) => !c.accepted);

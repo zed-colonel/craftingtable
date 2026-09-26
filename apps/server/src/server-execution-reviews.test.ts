@@ -15,8 +15,10 @@ import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
   commitFile,
+  configureLocalRuntime,
   currentCycle,
   cycleFixture,
+  designDone,
   implementationDone,
   itNeedsCargo,
   merge,
@@ -24,7 +26,9 @@ import {
   present,
   reviewScope,
   roadmapControl,
+  runScopedFixtureCheck,
   runToFinish,
+  scopeReport,
   scopeTree,
   slicedFixture,
   startCycle,
@@ -457,6 +461,53 @@ itNeedsCargo(
     expect(
       f.backend.launches.filter((r) => r.model === 'review-model').length,
     ).toBeGreaterThanOrEqual(2);
+  },
+);
+
+itNeedsCargo.each([true, false])(
+  'runs a source-required security review on operator authority when no roadmap owns the slice cycle (runtime configured: %s)',
+  { timeout: 20000 },
+  async (configured) => {
+    const f = await slicedFixture();
+    if (configured) configureLocalRuntime(f.auth, f.state, f.scopes[0]!.definitionId);
+    const tree = await scopeTree(f, f.scopes[0]!);
+    const security: AgentLaunchRequest[] = [];
+    f.backend.replyForRequest = (request) => {
+      if (request.model === 'design-model') return designDone;
+      if (request.model !== 'review-model') {
+        commitFile(request.cwd, 'session.txt', 'Security-sensitive session handling');
+        return implementationDone;
+      }
+      runScopedFixtureCheck(request);
+      if (request.prompt.includes('This is a separate security review.')) security.push(request);
+      return {
+        resultText: withWorkflowReport(
+          `## Open questions\nnone\n\n## Review report\n${scopeReport(f.state, tree.executionScope!)}`,
+          { securityReview: { required: true, sources: ['Approved security review policy'] } },
+        ),
+      };
+    };
+    const cycle = await startCycle(f.state, tree.id);
+    await waitFor(
+      () => currentCycle(f.state, cycle).status !== 'running',
+      'security-reviewed candidate',
+      15000,
+    );
+    const reviewed = currentCycle(f.state, cycle);
+    expect(reviewed.owner ?? null).toBeNull();
+    expect(security).toHaveLength(1);
+    expect(reviewed.workflow?.securityReceipt?.runId).toBe(reviewed.currentRunId);
+    if (!configured) {
+      // A receipt that cannot become current stops instead of repeating the review.
+      expect(reviewed.attention?.code).toBe('workflow-obligation');
+      await stepDaemons(3);
+      expect(security).toHaveLength(1);
+      expect((await merge(f.state, tree.id)).statusCode).toBe(409);
+      return;
+    }
+    expect(reviewed.status, reviewed.reason).toBe('awaiting-merge');
+    const merged = await merge(f.state, tree.id);
+    expect(merged.statusCode, merged.body).toBe(200);
   },
 );
 

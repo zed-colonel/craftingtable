@@ -32,6 +32,7 @@ export * from './workflow.js';
 export * from './agent-profiles.js';
 export * from './attention.js';
 export * from './attention-legacy.js';
+export * from './attention-item.js';
 export * from './operator-wait.js';
 export * from './cycle-actions.js';
 export * from './bounded-text.js';

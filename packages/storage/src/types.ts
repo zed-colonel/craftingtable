@@ -173,6 +173,8 @@ export interface WorkspaceRepository {
   listAuthorized(userId: UserId): readonly AuthorizedWorkspace[];
   findAuthorized(userId: UserId, workspaceId: WorkspaceId): AuthorizedWorkspace | undefined;
   exists(workspaceId: WorkspaceId): boolean;
+  /** Ids of every active workspace. */
+  listActiveIds(): readonly WorkspaceId[];
   slugExists(slug: string): boolean;
   rename(input: {
     readonly workspaceId: WorkspaceId;
@@ -184,6 +186,8 @@ export interface WorkspaceRepository {
 export interface AuditRepository {
   append(input: AppendAuditInput): AuditEvent;
   count(): number;
+  /** When a user last did something recorded in the workspace, optionally one user (R-A4). */
+  lastUserAction(workspaceId: WorkspaceId, userId?: UserId): string | undefined;
   /**
    * A workspace's recorded cycle transitions from `from` to `until`, oldest first, plus
    * each cycle's last transition before `from` (R-C1).
@@ -232,6 +236,7 @@ export interface StorageRepositories {
   readonly maintenance: import('./maintenance-types.js').StorageMaintenanceRepository;
   readonly roadmaps: RoadmapRepository;
   readonly notifications: NotificationRepository;
+  readonly attention: import('./notification-types.js').AttentionRepository;
   readonly users: UserRepository;
   readonly sessions: SessionRepository;
   readonly workspaces: WorkspaceRepository;
@@ -249,9 +254,27 @@ export interface MigrationStatus {
   readonly pendingVersions: readonly number[];
 }
 
+/**
+ * Sees every record the storage writes, so a projection can follow them in the same
+ * transaction (R-A4). Writes outside a transaction are seen too; the observer catches up
+ * on them in the next transaction.
+ */
+export interface WriteObserver {
+  written<K extends import('./records.js').PersistedRecordKind>(
+    kind: K,
+    record: import('./records.js').PersistedRecords[K],
+  ): void;
+  /** Runs inside the outermost write transaction, just before it commits. */
+  beforeCommit(tx: StorageRepositories): void;
+  /** The outermost write transaction ended; `committed` says how. */
+  ended(committed: boolean): void;
+}
+
 export interface CraftingTableStorage extends StorageRepositories {
   readonly databasePath: string;
   readonly migrationStatus: MigrationStatus;
+  /** Installs the one write observer; the daemon's attention projection. */
+  observeWrites(observer: WriteObserver): void;
   transaction<T>(operation: (tx: StorageRepositories) => T): T;
   readTransaction<T>(operation: (tx: StorageRepositories) => T): T;
   backup(destination: string): Promise<void>;

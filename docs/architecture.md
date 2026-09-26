@@ -391,16 +391,26 @@ scheduler, cycle and notification workers wait on workflow changes (turn complet
 persisted commands), with periodic checks for deadlines and external changes. Map projections
 share memoized reads only within one synchronous read pass (`services/map-read-snapshot.ts`).
 
-`NotificationService` reconciles operator-owned attention, as the controller declared it, and
-roadmap-level alerts from `RoadmapService.attentionAlerts` into a SQLite outbox; it evaluates no
-scheduling policy itself. It claims deliveries with expiring leases and wakes on workflow changes
-or every five seconds, with no browser needed. Pushover sits behind an injectable transport. A new
-occurrence waits a 30-second settle period and the claim re-derives attention, so a stop the
-controller clears on its own is never sent. Occurrences are keyed by condition, not row version;
-one that reopens within ten minutes keeps its reminder schedule (+30 minutes, +1 hour, then hourly
-to +6 hours, then daily at the configured local time, 21:00 America/Los_Angeles by default).
-Storage alerts use hysteresis. Only a provider rate limit or rejection holds every alert;
-transport errors back off per record (ADR-027).
+**Attention items (ADR-070).** What needs the operator is stored, not re-derived:
+`attention_items` holds one row per occurrence of a subject stopped at one operator-owned code.
+The storage reports every write to `AttentionProjector`, which re-derives only the affected
+worktree, roadmap or finalization just before the transaction commits, so an item opens and
+resolves with the state that causes it. The roadmap scheduler syncs the sets it evaluates from
+the map (verification setup, checkpoints ready for evidence, held entries) after each pass, and
+the storage monitor syncs capacity alerts on its own timer. Resolved items are immutable, and
+record whether the operator, automation or a new stop resolved them.
+
+`NotificationService` delivers from items only; its storage type has no cycles, roadmaps, maps
+or filesystem. It wakes on workflow changes or every five seconds, claims due items with
+expiring leases and sends one digest per workspace, rendered from the items' current text, to
+Pushover behind an injectable transport. A first push waits a 30-second settle period, a
+completed pass of every running controller worker that began after the item opened, and a
+five-minute grace while the operator is watching (an open event stream or a recent command).
+Reminders (+30 minutes, +1 hour, then hourly to +6 hours, then daily at the configured local
+time, 21:00 America/Los_Angeles by default) wait while the operator is issuing commands; an item
+that reopens within ten minutes continues its predecessor's schedule. Every attempt is appended
+to `notification_deliveries`. Storage alerts use hysteresis. Only a provider rate limit or
+rejection holds every alert; transport errors back off per item (ADR-027).
 
 ## Browser
 

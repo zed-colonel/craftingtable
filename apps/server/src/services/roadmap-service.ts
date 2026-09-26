@@ -71,7 +71,8 @@ import { securityReviewCurrent } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
-import type { RoadmapAlert } from './notification-service.js';
+import type { ControllerPasses } from './attention-gates.js';
+import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 
 class SupersededRoadmapOperation extends Error {}
 
@@ -117,6 +118,13 @@ export class RoadmapService {
     private readonly agents?: import('./agent-run-service.js').AgentRunService,
     private readonly git?: import('@craftingtable/git').GitOperations,
   ) {}
+  private attention: AttentionProjector | undefined;
+  private passes: ControllerPasses | undefined;
+  /** Attention projection and controller quiescence (R-A4); the daemon always attaches them. */
+  attachAttention(attention: AttentionProjector, passes: ControllerPasses): void {
+    this.attention = attention;
+    this.passes = passes;
+  }
 
   list(context: AuthContext, workspaceId: WorkspaceId): readonly RoadmapView[] {
     this.workspaces.requireAuthorized(context, workspaceId);
@@ -1137,10 +1145,12 @@ export class RoadmapService {
     return stopped;
   }
   startWorker(): void {
+    this.passes?.register('roadmaps');
     this.task ??= this.loop();
   }
   async shutdown(): Promise<void> {
     this.abort.abort();
+    this.passes?.unregister('roadmaps');
     await this.task;
   }
   private async loop(): Promise<void> {
@@ -1170,6 +1180,7 @@ export class RoadmapService {
   async tick(): Promise<void> {
     if (this.ticking || this.abort.signal.aborted || this.admissionsHeld) return;
     this.ticking = true;
+    const pass = this.passes?.started();
     try {
       for (const roadmap of this.storage.roadmaps.list()) {
         if (this.abort.signal.aborted) break;
@@ -1198,6 +1209,12 @@ export class RoadmapService {
             });
         }
       }
+      try {
+        this.syncAttention();
+      } catch {
+        /* The next pass re-derives the set; delivery reads whatever is stored meanwhile. */
+      }
+      if (pass !== undefined) this.passes?.completed('roadmaps', pass);
     } finally {
       this.ticking = false;
     }
@@ -2429,70 +2446,129 @@ export class RoadmapService {
     return roadmap;
   }
   /**
-   * Roadmap-level waits the operator must resolve, derived by the scheduler that owns the
-   * policy (R-A3): verification setup for slice verifications it cannot start, checkpoints
-   * ready for independent evidence, and entries held for attention. The notification
-   * service formats them; it evaluates no policy itself.
+   * Brings the scheduler's derived attention up to date (R-A4): verification setup for
+   * slice verifications it cannot start, checkpoints ready for independent evidence, and
+   * entries held for the operator. They need the map, so the scheduler evaluates them after
+   * its pass, from a read snapshot, and writes only the difference. A stopped or paused
+   * roadmap's items are resolved with the roadmap's own write.
    */
-  attentionAlerts(storage: StorageRepositories, workspaceId: WorkspaceId): RoadmapAlert[] {
-    const tx = mapReadSnapshot(storage);
-    const alerts: RoadmapAlert[] = [];
-    for (const roadmap of tx.roadmaps.list(workspaceId)) {
+  syncAttention(force = false): void {
+    const attention = this.attention;
+    if (!attention) return;
+    const generation = this.notifier.generation;
+    const now = this.now().getTime();
+    if (
+      !force &&
+      generation === this.attentionSynced.generation &&
+      now - this.attentionSynced.at < 30_000
+    )
+      return;
+    this.attentionSynced = { generation, at: now };
+    const snapshot = mapReadSnapshot(this.storage);
+    for (const roadmap of this.storage.roadmaps.list()) {
       if (roadmap.status !== 'running') continue;
-      const environmentEntries: string[] = [];
-      const environmentLines = roadmap.definition.entries.flatMap((entry) => {
-        if (entry.executionScope?.kind !== 'slice-verification') return [];
-        if (roadmap.attempts.some((a) => a.entryId === entry.id)) return [];
-        const blockers = scopePhaseBlockers(
+      const items = this.attentionItems(snapshot, roadmap);
+      this.storage.transaction((tx) => {
+        const current = tx.roadmaps.find(roadmap.workspaceId, roadmap.id);
+        attention.sync(
           tx,
-          workspaceId,
-          entry.workItemId,
-          entry.executionScope,
-          'verify',
+          roadmap.workspaceId,
+          `roadmap-pass:${roadmap.id}`,
+          current?.status === 'running' ? items : [],
         );
-        const setup = blockers.filter((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b)));
-        if (!setup.length || setup.length !== blockers.length) return [];
-        environmentEntries.push(entry.id);
-        return setup.map((b) => `${entry.sourceId}: ${b.message}`);
       });
-      if (environmentLines.length)
-        alerts.push({
-          kind: 'verification-setup',
-          roadmap,
-          members: environmentEntries.sort(),
-          lines: environmentLines.sort(),
-        });
-      if (roadmap.definition.crossProject) {
-        const ready = crossProjectState(tx, workspaceId, roadmap.definition.crossProject)
-          .nodes.filter(
-            (n) => n.included && !n.satisfied && n.kind === 'checkpoint' && !n.blockers.length,
-          )
-          .map((n) => n.sourceId)
-          .sort();
-        if (ready.length)
-          alerts.push({ kind: 'checkpoint-evidence', roadmap, members: ready, lines: ready });
-      }
-      for (const [entryId, hold] of Object.entries(roadmap.entryHolds ?? {})) {
-        if (!effectiveHoldAttention(hold)) continue;
-        const entry = roadmap.definition.entries.find((e) => e.id === entryId);
-        if (!entry) continue;
-        const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
-        const cycle = attempt && tx.execution.cycles.find(workspaceId, attempt.cycleId);
-        // A manual recovery has taken over this checkpoint. The saved hold remains
-        // historical until reconciliation; it is not a second task.
-        if (cycle && (cycle.status === 'running' || this.cycles.isTransitioning(cycle.id)))
-          continue;
-        if (entry.executionScope && this.scopeComplete(tx, roadmap, entry)) continue;
-        alerts.push({
-          kind: 'entry-hold',
-          roadmap,
-          entry,
-          reason: hold.reason,
-          ...(cycle ? { cycleId: cycle.id } : {}),
-        });
-      }
     }
-    return alerts;
+  }
+  private attentionSynced = { generation: -1, at: 0 };
+
+  private attentionItems(tx: StorageRepositories, roadmap: Roadmap): ProjectedItem[] {
+    const workspaceId = roadmap.workspaceId;
+    const path = `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`;
+    const name = roadmap.definition.name;
+    const items: ProjectedItem[] = [];
+    const environmentEntries: string[] = [];
+    const environmentLines = roadmap.definition.entries.flatMap((entry) => {
+      if (entry.executionScope?.kind !== 'slice-verification') return [];
+      if (roadmap.attempts.some((a) => a.entryId === entry.id)) return [];
+      const blockers = scopePhaseBlockers(
+        tx,
+        workspaceId,
+        entry.workItemId,
+        entry.executionScope,
+        'verify',
+      );
+      const setup = blockers.filter((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b)));
+      if (!setup.length || setup.length !== blockers.length) return [];
+      environmentEntries.push(entry.id);
+      return setup.map((b) => `${entry.sourceId}: ${b.message}`);
+    });
+    if (environmentLines.length)
+      items.push({
+        subjectKey: `roadmap:${roadmap.id}:environments`,
+        code: 'verification-setup',
+        kind: 'attention',
+        title: `${name} · Verification setup needed`,
+        message: environmentLines.sort().join('\n'),
+        path,
+        refs: { roadmapId: roadmap.id },
+        members: environmentEntries,
+      });
+    if (roadmap.definition.crossProject) {
+      const ready = crossProjectState(tx, workspaceId, roadmap.definition.crossProject)
+        .nodes.filter(
+          (n) => n.included && !n.satisfied && n.kind === 'checkpoint' && !n.blockers.length,
+        )
+        .map((n) => n.sourceId)
+        .sort();
+      if (ready.length)
+        items.push({
+          subjectKey: `roadmap:${roadmap.id}:checkpoints`,
+          code: 'checkpoint-evidence',
+          kind: 'attention',
+          title: `${name} · Checkpoint evidence needed`,
+          message: `These checkpoints are eligible for independent evidence review: ${ready.join(', ')}. Expected dependency waits do not need action.`,
+          path,
+          refs: { roadmapId: roadmap.id },
+          members: ready,
+        });
+    }
+    for (const [entryId, hold] of Object.entries(roadmap.entryHolds ?? {})) {
+      const held = effectiveHoldAttention(hold);
+      if (!held) continue;
+      const entry = roadmap.definition.entries.find((e) => e.id === entryId);
+      if (!entry) continue;
+      const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
+      const cycle = attempt && tx.execution.cycles.find(workspaceId, attempt.cycleId);
+      // A manual recovery has taken over this checkpoint. The saved hold remains
+      // historical until reconciliation; it is not a second task.
+      if (cycle?.status === 'running') continue;
+      if (entry.executionScope && this.scopeComplete(tx, roadmap, entry)) continue;
+      // The cycle's own item already carries this stop, with its findings and branch.
+      if (
+        cycle &&
+        tx.attention
+          .openInScope(workspaceId, `worktree:${cycle.worktreeId}`)
+          .some((item) => item.subjectKey === `cycle:${cycle.id}`)
+      )
+        continue;
+      const reverifiable = !('refused' in this.reverification(roadmap, entry, tx));
+      items.push({
+        subjectKey: `roadmap:${roadmap.id}:entry:${entry.id}`,
+        code: held.code,
+        kind: 'attention',
+        title: `${entry.sourceId} · Roadmap item needs attention`,
+        message: `${entry.title}\n${hold.reason}`,
+        path,
+        refs: {
+          roadmapId: roadmap.id,
+          entryId: entry.id,
+          workItemId: entry.workItemId,
+          ...(cycle ? { cycleId: cycle.id } : {}),
+        },
+        ...(reverifiable ? { actions: ['reverify' as const] } : {}),
+      });
+    }
+    return items;
   }
 
   /** The entry's own milestone is already satisfied, so its old hold needs nobody. */

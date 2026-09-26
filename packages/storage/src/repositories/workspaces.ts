@@ -148,6 +148,14 @@ export class SqliteWorkspaceRepository implements WorkspaceRepository {
     );
   }
 
+  listActiveIds(): readonly WorkspaceId[] {
+    return (
+      this.database
+        .prepare(`SELECT id FROM workspaces WHERE status = 'active' ORDER BY rowid`)
+        .all() as { id: WorkspaceId }[]
+    ).map((row) => row.id);
+  }
+
   slugExists(slug: string): boolean {
     return this.database.prepare(`SELECT 1 FROM workspaces WHERE slug = ?`).get(slug) !== undefined;
   }

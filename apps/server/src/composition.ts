@@ -28,6 +28,8 @@ import { ExecutionService, type ExecutionStatus } from './services/execution-ser
 import { FinalizationService } from './services/finalization-service.js';
 import { HostSchedulingService } from './services/host-scheduling-service.js';
 import { MapAmendmentService } from './services/map-amendment-service.js';
+import { ControllerPasses, OperatorPresence } from './services/attention-gates.js';
+import { AttentionProjector } from './services/attention-projector.js';
 import { NotificationService } from './services/notification-service.js';
 import {
   type NotificationTransport,
@@ -62,6 +64,10 @@ export interface ServiceSet {
   readonly roadmapService: RoadmapService;
   readonly finalizationService: FinalizationService;
   readonly notificationService: NotificationService;
+  /** The attention projection and the gates pushes wait on (R-A4). */
+  readonly attention: AttentionProjector;
+  readonly controllerPasses: ControllerPasses;
+  readonly operatorPresence: OperatorPresence;
   readonly bootstrapService: BootstrapService;
   readonly authService: AuthService;
   readonly workspaceService: WorkspaceService;
@@ -99,6 +105,13 @@ export async function createServices(
   const now = overrides.now ?? (() => new Date());
   const tokenService = new SessionTokenService();
   const notifier = new WorkspaceEventNotifier();
+  // Attention items follow every write from here on, in the writing transaction (R-A4).
+  const controllerPasses = new ControllerPasses();
+  const operatorPresence = new OperatorPresence();
+  const attention = new AttentionProjector(storage, controllerPasses, now, () =>
+    notifier.notify('activity'),
+  );
+  storage.observeWrites(attention);
   const dummyPasswordHash = await passwordHasher.hash('craftingtable dummy password');
   const authService = new AuthService(
     storage,
@@ -157,6 +170,7 @@ export async function createServices(
     now,
     worktreeMutations,
   );
+  storageService.attachAttention(attention);
   const runtimeEvidenceService = new RuntimeEvidenceService(
     storage,
     workspaceService,
@@ -221,7 +235,8 @@ export async function createServices(
     executionService,
     runtimeEvidenceService,
   );
-  const restartedCycleIds = workCycleService.recoverInterrupted({ cleanStop });
+  workCycleService.attachPasses(controllerPasses);
+  workCycleService.recoverInterrupted({ cleanStop });
   const roadmapService = new RoadmapService(
     storage,
     workspaceService,
@@ -234,7 +249,10 @@ export async function createServices(
     agentRunService,
     gitOperations,
   );
-  const restartedRoadmapIds = roadmapService.recoverInterrupted({ cleanStop });
+  roadmapService.attachAttention(attention, controllerPasses);
+  roadmapService.recoverInterrupted({ cleanStop });
+  // Anything written while the daemon was down, or before items existed, is projected now.
+  attention.rebuild();
   const crossProjectService = new CrossProjectService(
     storage,
     workspaceService,
@@ -287,14 +305,15 @@ export async function createServices(
       notifier,
       overrides.notificationTransport ?? new PushoverTransport(fetch, now),
       config.publicOrigin,
+      attention,
+      controllerPasses,
+      operatorPresence,
       now,
-      () => storageService.alerts(),
       (id) => workCycleService.isTransitioning(id),
-      {
-        restartedAtBoot: { cycleIds: restartedCycleIds, roadmapIds: restartedRoadmapIds },
-        roadmapAlerts: (tx, workspaceId) => roadmapService.attentionAlerts(tx, workspaceId),
-      },
     ),
+    attention,
+    controllerPasses,
+    operatorPresence,
     packageImportService: new PackageImportService(
       storage,
       workspaceService,
@@ -315,6 +334,7 @@ export async function createServices(
       workspaceService,
       notifier,
       overrides.streamHooks,
+      operatorPresence,
     ),
     executionService,
     agentRunService,

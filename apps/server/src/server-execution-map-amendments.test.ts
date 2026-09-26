@@ -58,6 +58,14 @@ it('holds a roadmap for reviewed amendments, checks stale previews and preserves
   const view = proposed.json(),
     pending = view.history[0];
   expect(f.state.context.storage.roadmaps.find(ws, roadmapId)?.status).toBe('paused');
+  // The pending decision is the operator's: it is an attention item until decided (R-A4).
+  const amendmentItems = () =>
+    f.state.context.storage.attention
+      .recent(ws, 100)
+      .filter((item) => item.code === 'amendment-decision');
+  expect(amendmentItems()).toMatchObject([
+    { state: 'open', subjectKey: `roadmap:${roadmapId}:amendment` },
+  ]);
   await expect(
     f.state.context.services.roadmapService.control(
       f.auth,
@@ -80,6 +88,7 @@ it('holds a roadmap for reviewed amendments, checks stale previews and preserves
     impactDigest: view.pendingImpact.digest,
   });
   expect(applied.statusCode, applied.body).toBe(200);
+  expect(amendmentItems()).toMatchObject([{ state: 'resolved', resolvedBy: 'operator' }]);
   expect(applied.json().history[0].decision.previous.definition.crossProject.selection).toBe(
     'target-only',
   );
@@ -374,6 +383,10 @@ itNeedsCargo(
     expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(false);
     expect(storedRoadmap(state).status).toBe('paused');
     expect(storedRoadmap(state).attempts.filter((a) => a.dependencyRefresh)).toHaveLength(3);
+    // Resuming runs the queued reviews; until then that is the operator's step (R-A4).
+    const refreshItems = () =>
+      tx.attention.recent(ws, 100).filter((item) => item.code === 'dependency-refresh-resume');
+    expect(refreshItems()).toMatchObject([{ state: 'open' }]);
     state.context.services.workCycleService.recoverInterrupted();
     state.context.services.roadmapService.recoverInterrupted();
     const reopened = openDaemonStorage(tx.databasePath);
@@ -385,6 +398,7 @@ itNeedsCargo(
       reopened.close();
     }
     await roadmapControl(state, 'resume');
+    expect(refreshItems()).toMatchObject([{ state: 'resolved', resolvedBy: 'operator' }]);
     await waitFor(
       () => f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted,
       'refreshed parent acceptance',

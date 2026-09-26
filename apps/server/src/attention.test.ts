@@ -57,12 +57,12 @@ function enableNotifications(f: CycleFixture) {
   });
 }
 
+/** The cycle's open attention items: what the inbox lists and pushes are sent from (R-A4). */
 function cycleAlerts(f: CycleFixture, cycle: WorkCycle) {
-  return f.context.storage.notifications
-    .records(f.workspaceId)
-    .filter(
-      (record) => record.sourceKey.startsWith(`cycle:${cycle.id}:`) && record.state === 'active',
-    );
+  f.services.attention.flush();
+  return f.context.storage.attention
+    .open(f.workspaceId)
+    .filter((item) => item.subjectKey === `cycle:${cycle.id}`);
 }
 
 /** Design, implementation and a clean review, stepped to the merge boundary. */

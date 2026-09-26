@@ -397,6 +397,7 @@ describe('migration 0002 journal preservation', () => {
       'roadmap-definition-revision',
       'worktree-build-caches',
       'upstream-transition-records',
+      'attention-items',
     ]);
     // The recorded checksum of 0001 is what every already-migrated installation
     // validates against; changing that file would lock operators out.

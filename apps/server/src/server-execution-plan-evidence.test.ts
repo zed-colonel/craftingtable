@@ -605,17 +605,20 @@ it('alerts for an eligible missing native environment, not future dependency wai
     applicationToken: 'a'.repeat(30),
     userKey: 'u'.repeat(30),
   });
-  await notifications.tick();
+  // Verification setup is derived by the scheduler's pass and kept as an item (R-A4).
+  const schedulerPass = () => state.context.services.roadmapService.syncAttention(true);
+  schedulerPass();
   const alerts = () =>
-    tx.notifications.records(ws).filter((n) => n.sourceKey.endsWith(':environments'));
+    tx.attention.recent(ws, 100).filter((n) => n.subjectKey.endsWith(':environments'));
   expect(alerts()).toHaveLength(0);
   const tree = await scopeTree(f, f.scopes[0]!);
   commitFile(tree.path, 'a.txt', 'A');
   await reviewScope(f, tree);
   expect((await merge(state, tree.id)).statusCode).toBe(200);
+  schedulerPass();
   await notifications.tick();
   expect(alerts()).toHaveLength(1);
-  expect(alerts()[0]?.state).toBe('active');
+  expect(alerts()[0]?.state).toBe('open');
   expect(alerts()[0]?.message).toContain('controlled-native-test-host');
   const { nativeHostDigest } = await import('@craftingtable/agents');
   const runtimeId = randomUUID();
@@ -646,14 +649,14 @@ it('alerts for an eligible missing native environment, not future dependency wai
     createdAt: new Date().toISOString(),
     createdByUserId: state.userId,
   });
-  await notifications.tick();
-  expect(alerts().filter((n) => n.state === 'active')).toHaveLength(1);
-  expect(alerts().find((n) => n.state === 'active')?.message).toContain('reviewer qualifications');
+  schedulerPass();
+  expect(alerts().filter((n) => n.state === 'open')).toHaveLength(1);
+  expect(alerts().find((n) => n.state === 'open')?.message).toContain('reviewer qualifications');
   const roleSpy = vi
     .spyOn(await import('./services/map-adoption-policy.js'), 'scopeReviewerRoles')
     .mockReturnValue(['repository-maintainer']);
   try {
-    await notifications.tick();
+    schedulerPass();
     expect(alerts().every((n) => n.state === 'resolved')).toBe(true);
   } finally {
     roleSpy.mockRestore();

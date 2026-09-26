@@ -357,10 +357,16 @@ uses Pushover's public service and requires outbound HTTPS from the workstation;
 phone does not need Tailscale just to receive a push. Normal priority respects Pushover
 quiet hours. No email or SMS provider is configured.
 
-Alerts cover automated merge checkpoints and attention stops (design questions, failed
-runs, exhausted limits, restart interruption), plus manual review outcomes, unresolved
-design conclusions, and failed/interrupted manual runs. Explicit cycle pause/stop does
-not nag. Resuming, completing, merging, or removing the work resolves the corresponding
+Alerts are sent from the daemon's attention items (schema 32, ADR-070): every stop that
+waits for the operator, such as merge approvals, design and review questions, failed runs,
+exhausted limits, restart interruption, interrupted merges and failed cleanups, pending
+planning amendments, queued dependency refreshes, held roadmap items, checkpoints ready for
+evidence and verification setup, plus manual review outcomes, unresolved design conclusions
+and failed or interrupted manual runs. Explicit cycle pause/stop does not nag. Items that are
+due in the same wake go out as one message. A new item is pushed only after it has settled
+for 30 seconds and both controllers have completed a pass since it opened; while you have the
+workspace open, or issued a command in the last five minutes, a new item waits up to five
+minutes and reminders wait until you stop issuing commands. Resuming, completing, merging, or removing the work resolves the corresponding
 alert. Manual review alerts report the reviewer verdict; opening the item and the merge
 command still check current Git state. Git is not polled by the notification service.
 
@@ -376,7 +382,12 @@ quota reset / Retry-After and apply across the workspace. Rejected credentials p
 delivery until settings are saved or a test is requested. Save corrected credentials to
 retry pending deliveries. Tests are durable, have no reminder schedule, and are limited
 to one pending test and one request per minute. Disabling attention notifications still
-allows an explicitly requested test. The status list shows the latest 50 records.
+allows an explicitly requested test. The status list shows the latest 50 items, open ones
+first. Every push attempt is kept in `notification_deliveries`. To count false alarms, pushed
+items the daemon resolved without any operator command, query a read-only copy:
+`SELECT count(*) FROM attention_items i WHERE resolved_by = 'automation' AND EXISTS (SELECT 1
+FROM notification_deliveries d, json_each(d.state_json, '$.itemIds') e WHERE d.result =
+'accepted' AND e.value = i.id)`.
 
 The SQLite database holds schedules, attempts, and credentials, so include it in private
 backups. Delivery means Pushover accepted a request, not proof the phone displayed it or

@@ -25,11 +25,9 @@ import {
   asWorkspaceId,
   asWorkspaceMembershipId,
   asWorktreeId,
-  DEFAULT_NOTIFICATION_PREFERENCES,
 } from '@craftingtable/domain';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
-import { NotificationService } from './services/notification-service.js';
 import {
   STORAGE_ALERT_CLEAR_HOLD_MS,
   STORAGE_UNAVAILABLE_GRACE_MS,
@@ -487,45 +485,21 @@ it('refuses new writes after a configured volume disappears and raises a stable 
     const alerts = s.service.alerts();
     expect(alerts).toHaveLength(1);
     expect(alerts[0]?.key).toBe('storage:volumes');
-    const notifications = new NotificationService(
-      s.context.storage,
-      s.context.services.workspaceService,
-      s.context.services.workspaceEventNotifier,
-      { send: async () => ({ status: 'accepted' }) },
-      s.context.config.publicOrigin,
-      () => new Date(),
-      () => s.service.alerts(),
-      undefined,
-      { settleMs: 0 },
-    );
-    notifications.save(s.auth, s.workspaceId, {
-      expectedVersion: 0,
-      preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, enabled: true },
-      applicationToken: 'a'.repeat(30),
-      userKey: 'u'.repeat(30),
-      clearCredentials: false,
-    });
-    await notifications.tick();
-    expect(
-      s.context.storage.notifications
-        .records(s.workspaceId)
-        .some((record) => record.sourceKey === alerts[0]?.key && record.state === 'active'),
-    ).toBe(true);
+    // The storage monitor writes the alert as an attention item of the workspace (R-A4).
+    const storageItems = () =>
+      s.context.storage.attention
+        .recent(s.workspaceId, 50)
+        .filter((item) => item.subjectKey.startsWith('storage:'));
+    s.service.syncAttention();
+    expect(storageItems()).toMatchObject([
+      { subjectKey: alerts[0]?.key, code: 'storage-pressure', state: 'open' },
+    ]);
     renameSync(`${root}-offline`, root);
-    await notifications.tick();
-    expect(
-      s.context.storage.notifications
-        .records(s.workspaceId)
-        .some((record) => record.state === 'active'),
-    ).toBe(true);
+    s.service.syncAttention();
+    expect(storageItems().some((item) => item.state === 'open')).toBe(true);
     vi.setSystemTime(Date.now() + STORAGE_ALERT_CLEAR_HOLD_MS);
-    await notifications.tick();
-    expect(
-      s.context.storage.notifications
-        .records(s.workspaceId)
-        .every((record) => record.state === 'resolved'),
-    ).toBe(true);
-    await notifications.shutdown();
+    s.service.syncAttention();
+    expect(storageItems().every((item) => item.state === 'resolved')).toBe(true);
   } finally {
     vi.useRealTimers();
   }

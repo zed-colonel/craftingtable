@@ -1,4 +1,4 @@
-import type { AuditEvent, WorkspaceId } from '@craftingtable/domain';
+import type { AuditEvent, UserId, WorkspaceId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { type RecordGuard, readRecord, readWritten } from '../records.js';
 import type { AppendAuditInput, AuditRepository } from '../types.js';
@@ -59,6 +59,23 @@ export class SqliteAuditRepository implements AuditRepository {
    */
   append(input: AppendAuditInput): AuditEvent {
     return this.database.transaction(() => this.insert(input))();
+  }
+
+  lastUserAction(workspaceId: WorkspaceId, userId?: UserId): string | undefined {
+    const row = (
+      userId === undefined
+        ? this.database
+            .prepare(
+              "SELECT max(occurred_at) AS at FROM audit_events WHERE workspace_id = ? AND actor_kind = 'user'",
+            )
+            .get(workspaceId)
+        : this.database
+            .prepare(
+              "SELECT max(occurred_at) AS at FROM audit_events WHERE workspace_id = ? AND actor_kind = 'user' AND actor_user_id = ?",
+            )
+            .get(workspaceId, userId)
+    ) as { at: string | null };
+    return row.at ?? undefined;
   }
 
   private insert(input: AppendAuditInput): AuditEvent {

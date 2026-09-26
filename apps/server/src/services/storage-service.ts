@@ -54,6 +54,8 @@ export class StorageService {
   private stopping = false;
   private readonly alertGate = new StorageAlertGate();
   private timer: ReturnType<typeof setInterval> | undefined;
+  private alertTimer: ReturnType<typeof setInterval> | undefined;
+  private attention: import('./attention-projector.js').AttentionProjector | undefined;
   readonly executionConfig: ExecutionConfig;
 
   constructor(
@@ -146,6 +148,40 @@ export class StorageService {
   get(context: AuthContext, workspaceId: WorkspaceId): StorageStatus {
     this.authorize(context, workspaceId);
     return this.status();
+  }
+  /** Attention projection for capacity alerts (R-A4); the daemon always attaches it. */
+  attachAttention(attention: import('./attention-projector.js').AttentionProjector): void {
+    this.attention = attention;
+  }
+  /**
+   * Evaluates the capacity alerts, which reads the filesystem, and makes them the storage
+   * items of every active workspace. It runs on its own timer, so no delivery or controller
+   * pass ever touches the filesystem for attention (R-A4).
+   */
+  syncAttention(alerts: readonly StorageAlert[] = this.alerts()): void {
+    const attention = this.attention;
+    if (!attention) return;
+    this.storage.transaction((tx) => {
+      for (const workspaceId of tx.workspaces.listActiveIds())
+        attention.sync(
+          tx,
+          workspaceId,
+          'storage',
+          alerts.map((alert) => ({
+            subjectKey: alert.key,
+            code:
+              alert.key === 'storage:maintenance'
+                ? 'storage-maintenance-failed'
+                : 'storage-pressure',
+            kind: 'attention' as const,
+            title: 'CraftingTable · Storage needs attention',
+            message: alert.message,
+            path: `/workspaces/${encodeURIComponent(workspaceId)}/settings`,
+            refs: {},
+            ...(alert.members ? { members: alert.members } : {}),
+          })),
+        );
+    });
   }
   /** Notification sources: one coalesced, hysteresis-gated volume alert plus maintenance. */
   alerts(): readonly StorageAlert[] {
@@ -761,6 +797,16 @@ export class StorageService {
       void this.tick().catch(() => undefined);
     }, 60_000);
     this.timer.unref();
+    const watch = () => {
+      try {
+        this.syncAttention();
+      } catch {
+        /* The next reading retries; the stored items stay as they were. */
+      }
+    };
+    watch();
+    this.alertTimer = setInterval(watch, 30_000);
+    this.alertTimer.unref();
   }
   async tick(): Promise<void> {
     if (this.operation) return;
@@ -820,7 +866,9 @@ export class StorageService {
   async shutdown(): Promise<void> {
     this.stopping = true;
     clearInterval(this.timer);
+    clearInterval(this.alertTimer);
     this.timer = undefined;
+    this.alertTimer = undefined;
     await this.operation?.catch(() => undefined);
     await Promise.allSettled(this.runCleanups.values());
   }

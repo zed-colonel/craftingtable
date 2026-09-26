@@ -1,5 +1,8 @@
 import {
   ATTENTION_CLAIMS,
+  ATTENTION_ITEM_ACTIONS,
+  ATTENTION_ITEM_CODES,
+  type AttentionItemCode,
   CYCLE_ATTENTION,
   CYCLE_ATTENTION_CODES,
   type CycleAttentionCode,
@@ -72,3 +75,22 @@ export const operatorWaitReportSchema = z.strictObject({
     .max(200),
 });
 export type OperatorWaitReportResponse = z.infer<typeof operatorWaitReportSchema>;
+
+/** An attention item's code (R-A4): a cycle, roadmap or item-only stop. */
+export const attentionItemCodeSchema = z.enum(
+  ATTENTION_ITEM_CODES as [AttentionItemCode, ...AttentionItemCode[]],
+);
+const itemRef = z.string().min(1).max(200).optional();
+export const attentionItemRefsSchema = z.strictObject({
+  cycleId: itemRef,
+  runId: itemRef,
+  worktreeId: itemRef,
+  workItemId: itemRef,
+  projectId: itemRef,
+  planVersionId: itemRef,
+  roadmapId: itemRef,
+  entryId: itemRef,
+  finalizationId: itemRef,
+});
+export const attentionItemActionSchema = z.enum(ATTENTION_ITEM_ACTIONS);
+export const attentionResolutionSchema = z.enum(['operator', 'automation', 'superseded']);

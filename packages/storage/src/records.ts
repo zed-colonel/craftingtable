@@ -1,5 +1,6 @@
 import {
   type AgentRun,
+  type AttentionItem,
   type AgentRunEvent,
   type ArchiveImportAttempt,
   type AuditEvent,
@@ -11,6 +12,7 @@ import {
   type MapAdoption,
   type MapAmendment,
   type MergeOperation,
+  type NotificationDelivery,
   type NativeVerificationApproval,
   type PlanArchiveLink,
   type PlanBranchSettings,
@@ -56,6 +58,8 @@ export interface PersistedRecords {
   readonly 'plan-branch-settings': PlanBranchSettings;
   readonly 'notification-settings': StoredNotificationSettings;
   readonly 'notification-record': NotificationRecord;
+  readonly 'attention-item': AttentionItem;
+  readonly 'notification-delivery': NotificationDelivery;
   readonly 'storage-settings': StoredStorageSettings;
   readonly worktree: Worktree;
   readonly 'agent-run': AgentRun;
@@ -130,6 +134,8 @@ export const RECORD_UPCASTERS: { readonly [K in PersistedRecordKind]: readonly R
     'plan-branch-settings': [],
     'notification-settings': [],
     'notification-record': [],
+    'attention-item': [],
+    'notification-delivery': [],
     'storage-settings': [],
     worktree: [],
     'agent-run': [

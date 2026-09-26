@@ -9,6 +9,7 @@ import {
   type UnreadableRecord,
 } from './record-scan.js';
 import type { RecordGuard, UpcastObserver } from './records.js';
+import { SqliteAttentionRepository } from './repositories/attention.js';
 import { SqliteAuditRepository } from './repositories/audit.js';
 import { executionRepositories } from './repositories/execution/index.js';
 import { SqliteImportRepository } from './repositories/imports.js';
@@ -24,7 +25,12 @@ import { SqliteSessionRepository } from './repositories/sessions.js';
 import { SqliteUserRepository } from './repositories/users.js';
 import { SqliteWorkspaceEventRepository } from './repositories/workspace-events.js';
 import { SqliteWorkspaceRepository } from './repositories/workspaces.js';
-import type { CraftingTableStorage, MigrationStatus, StorageRepositories } from './types.js';
+import type {
+  CraftingTableStorage,
+  MigrationStatus,
+  StorageRepositories,
+  WriteObserver,
+} from './types.js';
 
 function repositories(
   database: Database.Database,
@@ -40,6 +46,7 @@ function repositories(
     maintenance: new SqliteStorageMaintenanceRepository(database, guard),
     roadmaps: new SqliteRoadmapRepository(database, guard, definitions),
     notifications: new SqliteNotificationRepository(database, guard),
+    attention: new SqliteAttentionRepository(database, guard),
     users: new SqliteUserRepository(database),
     sessions: new SqliteSessionRepository(database),
     workspaces: new SqliteWorkspaceRepository(database),
@@ -59,6 +66,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   readonly maintenance;
   readonly roadmaps;
   readonly notifications;
+  readonly attention;
   readonly users;
   readonly sessions;
   readonly workspaces;
@@ -70,14 +78,22 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   private closed = false;
   /** Parsed roadmap definitions, shared by every transaction on this database (R-B3). */
   private readonly definitions = new DefinitionCache();
+  private observer: WriteObserver | undefined;
+  private depth = 0;
+  /** Every write passes the contract guard, then the observer sees it. */
+  private readonly guard: RecordGuard;
 
   constructor(
     readonly databasePath: string,
     private readonly database: Database.Database,
     readonly migrationStatus: MigrationStatus,
-    private readonly guard: RecordGuard,
+    contractGuard: RecordGuard,
   ) {
-    const repos = repositories(database, guard, this.definitions);
+    this.guard = (kind, record) => {
+      contractGuard(kind, record);
+      this.observer?.written(kind, record);
+    };
+    const repos = repositories(database, this.guard, this.definitions);
     this.amendments = repos.amendments;
     this.runtimeEvidence = repos.runtimeEvidence;
     this.phaseScheduling = repos.phaseScheduling;
@@ -86,6 +102,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     this.maintenance = repos.maintenance;
     this.roadmaps = repos.roadmaps;
     this.notifications = repos.notifications;
+    this.attention = repos.attention;
     this.users = repos.users;
     this.sessions = repos.sessions;
     this.workspaces = repos.workspaces;
@@ -95,17 +112,33 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     this.execution = repos.execution;
   }
 
+  observeWrites(observer: WriteObserver): void {
+    this.observer = observer;
+  }
+
   transaction<T>(operation: (tx: StorageRepositories) => T): T {
+    // A nested call runs as a savepoint of the outer transaction, which owns the commit.
+    const outermost = this.depth === 0;
     this.definitions.begin();
+    this.depth += 1;
     try {
       const result = this.database
-        .transaction(() => operation(repositories(this.database, this.guard, this.definitions)))
+        .transaction(() => {
+          const tx = repositories(this.database, this.guard, this.definitions);
+          const value = operation(tx);
+          if (outermost) this.observer?.beforeCommit(tx);
+          return value;
+        })
         .immediate();
       this.definitions.commit();
+      if (outermost) this.observer?.ended(true);
       return result;
     } catch (error) {
       this.definitions.rollback();
+      if (outermost) this.observer?.ended(false);
       throw error;
+    } finally {
+      this.depth -= 1;
     }
   }
 

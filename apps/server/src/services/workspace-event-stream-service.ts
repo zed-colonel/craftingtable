@@ -1,5 +1,6 @@
 import type { WorkspaceEvent, WorkspaceId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
+import type { OperatorPresence } from './attention-gates.js';
 import type { AuthContext, AuthService } from './auth-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -22,6 +23,7 @@ export class WorkspaceEventStreamService {
     private readonly workspaceService: WorkspaceService,
     private readonly notifier: WorkspaceEventNotifier,
     private readonly hooks: WorkspaceEventStreamHooks = {},
+    private readonly presence?: OperatorPresence,
   ) {}
 
   async *stream(input: {
@@ -31,41 +33,51 @@ export class WorkspaceEventStreamService {
     readonly signal: AbortSignal;
   }): AsyncIterable<WorkspaceStreamItem> {
     let cursor = input.after;
-    while (!input.signal.aborted) {
-      let context: AuthContext;
-      try {
-        context = this.authService.authenticate(input.rawSessionToken, false);
-      } catch {
-        yield { type: 'authentication-expired' };
-        return;
-      }
-      if (!this.workspaceService.isAuthorized(context, input.workspaceId)) {
-        return;
-      }
-
-      const generation = this.notifier.generation;
-      const events = this.storage.workspaceEvents.listAfter({
-        workspaceId: input.workspaceId,
-        after: cursor,
-        limit: 100,
-      });
-      if (events.length > 0) {
-        for (const event of events) {
-          if (input.signal.aborted) {
-            return;
-          }
-          yield { type: 'workspace-event', event };
-          cursor = event.sequence;
+    // An open stream means the operator is watching this workspace (NOTIF-04).
+    let watching: AuthContext['user']['id'] | undefined;
+    try {
+      while (!input.signal.aborted) {
+        let context: AuthContext;
+        try {
+          context = this.authService.authenticate(input.rawSessionToken, false);
+        } catch {
+          yield { type: 'authentication-expired' };
+          return;
         }
-        continue;
-      }
+        if (!this.workspaceService.isAuthorized(context, input.workspaceId)) {
+          return;
+        }
+        if (watching === undefined) {
+          watching = context.user.id;
+          this.presence?.opened(input.workspaceId, watching);
+        }
 
-      await this.hooks.afterEmptyQuery?.();
-      await this.notifier.waitForChangeOrTimeout({
-        generation,
-        timeoutMs: this.hooks.waitTimeoutMs ?? STREAM_REQUERY_INTERVAL_MS,
-        signal: input.signal,
-      });
+        const generation = this.notifier.generation;
+        const events = this.storage.workspaceEvents.listAfter({
+          workspaceId: input.workspaceId,
+          after: cursor,
+          limit: 100,
+        });
+        if (events.length > 0) {
+          for (const event of events) {
+            if (input.signal.aborted) {
+              return;
+            }
+            yield { type: 'workspace-event', event };
+            cursor = event.sequence;
+          }
+          continue;
+        }
+
+        await this.hooks.afterEmptyQuery?.();
+        await this.notifier.waitForChangeOrTimeout({
+          generation,
+          timeoutMs: this.hooks.waitTimeoutMs ?? STREAM_REQUERY_INTERVAL_MS,
+          signal: input.signal,
+        });
+      }
+    } finally {
+      if (watching !== undefined) this.presence?.closed(input.workspaceId, watching);
     }
   }
 }

@@ -12,6 +12,8 @@ export interface WorkCycleRepository {
   /** Every cycle in every workspace, ended ones included, oldest first (replay, diagnostics). */
   listAll(): readonly WorkCycle[];
   activeForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): WorkCycle | undefined;
+  /** The worktree's newest cycle, whatever its status. */
+  latestForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): WorkCycle | undefined;
   replace(cycle: WorkCycle, expectedVersion: number): WorkCycle | undefined;
 }
 function map(row: unknown): WorkCycle | undefined {
@@ -74,6 +76,15 @@ export class SqliteWorkCycleRepository implements WorkCycleRepository {
       this.database
         .prepare(
           "SELECT state_json FROM work_cycles WHERE workspace_id = ? AND worktree_id = ? AND status NOT IN ('stopped', 'completed')",
+        )
+        .get(workspaceId, worktreeId),
+    );
+  }
+  latestForWorktree(workspaceId: WorkspaceId, worktreeId: WorktreeId): WorkCycle | undefined {
+    return map(
+      this.database
+        .prepare(
+          'SELECT state_json FROM work_cycles WHERE workspace_id = ? AND worktree_id = ? ORDER BY rowid DESC LIMIT 1',
         )
         .get(workspaceId, worktreeId),
     );

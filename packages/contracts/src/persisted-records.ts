@@ -1,10 +1,12 @@
 import {
   type ArchiveImportAttempt,
+  type AttentionItem,
   type ConcurrencyBindingRevision,
   type ConcurrencyDefinition,
   type ConcurrencySource,
   type MapAdoption,
   type MergeOperation,
+  type NotificationDelivery,
   PLAN_BUNDLE_DIGEST_ALGORITHM,
   PLAN_BUNDLE_DIGEST_FORMAT_VERSION,
   PLAN_SOURCE_PROFILES,
@@ -19,6 +21,12 @@ import {
   type WorkItem,
 } from '@craftingtable/domain';
 import { z } from 'zod';
+import {
+  attentionItemActionSchema,
+  attentionItemCodeSchema,
+  attentionItemRefsSchema,
+  attentionResolutionSchema,
+} from './attention.js';
 import {
   agentRunSummarySchema,
   gitBranchNameSchema,
@@ -309,6 +317,55 @@ export const notificationRecordSchema = z.strictObject({
   resolvedAt: z.iso.datetime().optional(),
   members: z.array(name).optional(),
 });
+
+/** An attention occurrence (R-A4). Resolved items are immutable; storage refuses updates. */
+export const attentionItemSchema = equivalentSchema<AttentionItem>()(
+  z.strictObject({
+    id: name,
+    workspaceId: workspaceIdSchema,
+    scopeKey: name,
+    subjectKey: name,
+    code: attentionItemCodeSchema,
+    kind: z.enum(['merge', 'attention']),
+    title: text.max(250),
+    message: text.max(4000),
+    path: name,
+    refs: attentionItemRefsSchema,
+    members: z.array(name).optional(),
+    actions: z.array(attentionItemActionSchema).optional(),
+    state: z.enum(['open', 'resolved']),
+    openedAt: z.iso.datetime(),
+    resolvedAt: z.iso.datetime().optional(),
+    resolvedBy: attentionResolutionSchema.optional(),
+    continues: name.optional(),
+    delivery: z.strictObject({
+      firstSentAt: z.iso.datetime().nullable(),
+      lastSentAt: z.iso.datetime().nullable(),
+      deliveredCount: count,
+      nextAttemptAt: z.iso.datetime(),
+      failures: count,
+      lastError: text.nullable(),
+      leaseToken: text.nullable(),
+      leaseUntil: z.iso.datetime().nullable(),
+    }),
+  }),
+);
+
+/** One push attempt; the log is append-only (R-A4). */
+export const notificationDeliverySchema = equivalentSchema<NotificationDelivery>()(
+  z.strictObject({
+    id: name,
+    workspaceId: workspaceIdSchema,
+    attemptedAt: z.iso.datetime(),
+    itemIds: z.array(name),
+    reminderItemIds: z.array(name),
+    testId: name.optional(),
+    title: text.max(250),
+    message: text.max(1024),
+    result: z.enum(['accepted', 'retry', 'blocked']),
+    error: text.optional(),
+  }),
+);
 
 const storageRootSchema = z.strictObject({ path: name, device: count });
 export const storedStorageSettingsSchema = z.strictObject({

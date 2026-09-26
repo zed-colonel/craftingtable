@@ -108,6 +108,8 @@ const SOURCES: readonly Source[] = [
   },
   documents('notification-settings', 'notification_settings', 'workspace_id', 'state_json'),
   documents('notification-record', 'notification_records', 'id', 'state_json'),
+  documents('attention-item', 'attention_items', 'id', 'state_json'),
+  documents('notification-delivery', 'notification_deliveries', 'id', 'state_json'),
   documents('storage-settings', 'storage_settings', 'id', 'state_json'),
   {
     kind: 'worktree',

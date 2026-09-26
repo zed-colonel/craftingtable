@@ -168,12 +168,14 @@ itNeedsCargo(
       applicationToken: 'a'.repeat(30),
       userKey: 'u'.repeat(30),
     });
+    // Checkpoints ready for evidence are derived by the scheduler's pass (R-A4).
+    const checkpointItems = () =>
+      state.context.storage.attention
+        .recent(ws, 100)
+        .filter((n) => n.subjectKey.endsWith(':checkpoints'));
+    state.context.services.roadmapService.syncAttention(true);
     await notifications.tick();
-    expect(
-      state.context.storage.notifications
-        .records(ws)
-        .some((n) => n.sourceKey.endsWith(':checkpoints')),
-    ).toBe(false);
+    expect(checkpointItems()).toHaveLength(0);
     expect((await roadmapControl(state, 'start')).statusCode).toBe(200);
     await waitFor(
       () => {
@@ -199,17 +201,16 @@ itNeedsCargo(
     expect(storedRoadmap(state).status).toBe('running');
     expect(f.service.view(f.auth, ws, f.input.configuration).targetReached).toBe(false);
     expect(f.service.view(f.auth, ws, f.input.configuration).fullPlanAccepted).toBe(true);
+    state.context.services.roadmapService.syncAttention(true);
     await notifications.tick();
-    const alert = state.context.storage.notifications
-      .records(ws)
-      .find((n) => n.sourceKey.endsWith(':checkpoints'))!;
+    const alert = checkpointItems().find((n) => n.state === 'open')!;
     expect(alert.message).toContain('LOCAL-TARGET');
-    const delivered = alert.deliveredCount;
+    const delivered = alert.delivery.deliveredCount;
+    state.context.services.roadmapService.syncAttention(true);
     await notifications.tick();
-    expect(
-      state.context.storage.notifications.records(ws).find((n) => n.id === alert.id)
-        ?.deliveredCount,
-    ).toBe(delivered);
+    expect(state.context.storage.attention.find(ws, alert.id)?.delivery.deliveredCount).toBe(
+      delivered,
+    );
     await roadmapControl(state, 'pause');
     const before = storedRoadmap(state);
     const changed = f.service.save(f.auth, ws, {

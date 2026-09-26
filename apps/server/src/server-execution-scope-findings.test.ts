@@ -88,11 +88,7 @@ itNeedsCargo.each([false, true])(
       userKey: 'u'.repeat(30),
     });
     await notifications.tick();
-    expect(
-      tx.notifications
-        .records(ws)
-        .some((n) => n.sourceKey.startsWith(`cycle:${parent.id}:`) && n.state === 'active'),
-    ).toBe(true);
+    expect(tx.attention.open(ws).some((n) => n.subjectKey === `cycle:${parent.id}`)).toBe(true);
     const verification = tx.execution.cycles
       .listForWorkspace(ws)
       .find((c) => c.executionScope?.kind === 'slice-verification')!;

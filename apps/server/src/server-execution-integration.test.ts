@@ -739,6 +739,73 @@ it('neither refreshes nor merges a started automatic entry once a delegation gra
   expect(storedRoadmap(state).status).toBe('running');
 });
 
+it('refreshes before the review of a cycle the operator resumed while its roadmap is paused (R-C4)', {
+  timeout: 20000,
+}, async () => {
+  // Cycle 6f1dfb47 (2026-09-20): the roadmap was paused, the operator resumed a stopped slice
+  // with guidance, and the review then stopped because integration had advanced meanwhile.
+  const fixture = await roadmapFixture();
+  const { state, backend, root } = fixture;
+  const ws = state.workspaceId;
+  await useIntegration(fixture);
+  let implementations = 0;
+  backend.replyForRequest = (request) =>
+    request.model === 'design-model'
+      ? designDone
+      : request.model === 'review-model'
+        ? { resultText: reviewText([]) }
+        : implementations++ === 0
+          ? {
+              resultText: 'Partly implemented.\n\n## Open questions\n- Which format should it use?',
+            }
+          : implementationDone;
+  await saveRoadmapRequest(state, {
+    ...roadmapInput(state, [state.workItemId]),
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
+  });
+  await roadmapControl(state, 'start');
+  await waitFor(() => {
+    const attempt = storedRoadmap(state).attempts[0];
+    return (
+      !!attempt &&
+      state.context.storage.execution.cycles.find(ws, attempt.cycleId)?.attention?.code ===
+        'implementation-open-questions'
+    );
+  }, 'implementation question');
+  const attempt = present(storedRoadmap(state).attempts[0]);
+  if (storedRoadmap(state).status === 'running') await roadmapControl(state, 'pause');
+  expect(storedRoadmap(state).status).not.toBe('running');
+  const target = advanceIntegration(root);
+  const stopped = present(state.context.storage.execution.cycles.find(ws, attempt.cycleId));
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/cycles/${stopped.id}/control`,
+    headers: mutationHeaders(state),
+    payload: {
+      action: 'resume',
+      expectedVersion: stopped.version,
+      instructions: 'Use the existing format.',
+    },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  await waitFor(
+    () => state.context.storage.execution.cycles.find(ws, stopped.id)?.status !== 'running',
+    'resumed cycle settles',
+    15000,
+  );
+  const cycle = present(state.context.storage.execution.cycles.find(ws, stopped.id));
+  expect(cycle).toMatchObject({ status: 'awaiting-merge', integrationRefreshes: 1 });
+  // Waiting for the operator's merge approval, not for an integration update.
+  expect(cycle.attention?.code).toBe('merge-approval');
+  expect(
+    state.context.storage.execution.runs.find(ws, cycle.currentRunId)?.reviewBranchContext
+      ?.targetSha,
+  ).toBe(target);
+  // The paused roadmap still does not merge.
+  await stepDaemons(2);
+  expect(state.context.storage.execution.merges.latest(ws, attempt.worktreeId)).toBeUndefined();
+});
+
 it('cleans an interrupted reserved scratch worktree before retrying an uncommitted merge', {
   timeout: 15000,
 }, async () => {

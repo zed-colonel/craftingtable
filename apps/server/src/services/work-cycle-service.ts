@@ -2113,6 +2113,7 @@ export class WorkCycleService {
           cycle.parentRunId
             ? this.storage.execution.runs.find(cycle.workspaceId, cycle.parentRunId)
             : undefined,
+          true,
         ))
       )
         return;
@@ -2184,7 +2185,7 @@ export class WorkCycleService {
       case 'finalize-implementation': {
         const finalized = await this.finalizeImplementation(cycle, run);
         if (!finalized) return;
-        if (await this.refreshIntegration(finalized, run)) return;
+        if (await this.refreshIntegration(finalized, run, true)) return;
         await this.next(finalized, 'review', run);
         return;
       }
@@ -2612,7 +2613,7 @@ export class WorkCycleService {
       );
       return false;
     }
-    if (await this.refreshIntegration(cycle, run)) return false;
+    if (await this.refreshIntegration(cycle, run, true)) return false;
     await this.branches?.assertReview(tree, run);
     return true;
   }
@@ -3177,7 +3178,15 @@ export class WorkCycleService {
   }
 
   /** Only an actively delegated parallel attempt may refresh itself. Settings bind to its revision. */
-  private refreshOwner(cycle: WorkCycle) {
+  /**
+   * Who may refresh this cycle from integration automatically, under which settings.
+   * `launching`: the cycle is about to start a review because it is running, for example after
+   * an operator resumed it while its roadmap is paused or its entry held (R-C4). The review
+   * would otherwise meet an advanced integration branch and stop; refreshing only updates the
+   * cycle's own worktree, so the roadmap's scheduling gates do not apply. Delegation, binding
+   * and authority still do, and merges keep the full gate.
+   */
+  private refreshOwner(cycle: WorkCycle, launching = false) {
     const finalization = finalizationForCycle(this.storage, cycle);
     if (finalization) {
       const user = this.storage.users.findById(cycle.createdByUserId);
@@ -3194,14 +3203,15 @@ export class WorkCycleService {
       };
     }
     const owner = cycleOwnership(this.storage, cycle);
-    if (owner?.attempt.status !== 'active' || owner.roadmap.status !== 'running') return;
+    if (owner?.attempt.status !== 'active') return;
     const { roadmap, attempt } = owner;
-    if (roadmap.entryHolds?.[attempt.entryId]) return;
-    if (
-      attempt.recovery &&
-      (!roadmap.scopeRecovery?.enabled || roadmap.entryHolds?.[attempt.recovery.sourceEntryId])
-    )
-      return;
+    const scheduled = launching
+      ? cycle.status === 'running'
+      : roadmap.status === 'running' &&
+        !roadmap.entryHolds?.[attempt.entryId] &&
+        !(attempt.recovery && roadmap.entryHolds?.[attempt.recovery.sourceEntryId]);
+    if (!scheduled) return;
+    if (attempt.recovery && !roadmap.scopeRecovery?.enabled) return;
     const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId);
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (
@@ -3240,17 +3250,26 @@ export class WorkCycleService {
   }
 
   private readonly refreshing = new Set<string>();
-  async refreshIntegration(cycle: WorkCycle, parent?: AgentRun): Promise<boolean> {
+  /** `launching`: a review is about to start; see `refreshOwner`. */
+  async refreshIntegration(
+    cycle: WorkCycle,
+    parent?: AgentRun,
+    launching = false,
+  ): Promise<boolean> {
     if (this.refreshing.has(cycle.id)) return true;
     this.refreshing.add(cycle.id);
     try {
-      return await this.performIntegrationRefresh(cycle, parent);
+      return await this.performIntegrationRefresh(cycle, parent, launching);
     } finally {
       this.refreshing.delete(cycle.id);
     }
   }
-  private async performIntegrationRefresh(cycle: WorkCycle, parent?: AgentRun): Promise<boolean> {
-    const owner = this.refreshOwner(cycle);
+  private async performIntegrationRefresh(
+    cycle: WorkCycle,
+    parent: AgentRun | undefined,
+    launching: boolean,
+  ): Promise<boolean> {
+    const owner = this.refreshOwner(cycle, launching);
     if (!owner || !this.branches) return false;
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (
@@ -3271,7 +3290,7 @@ export class WorkCycleService {
     if (
       this.abort.signal.aborted ||
       current?.version !== cycle.version ||
-      !this.refreshOwner(cycle)
+      !this.refreshOwner(cycle, launching)
     )
       return true;
     if ((cycle.integrationRefreshes ?? 0) >= owner.settings.maxIntegrationRefreshes) {
@@ -3293,7 +3312,7 @@ export class WorkCycleService {
         this.abort.signal.aborted ||
         latest?.version !== reserved.version ||
         latest.status !== 'running' ||
-        !this.refreshOwner(reserved)
+        !this.refreshOwner(reserved, launching)
       )
         throw new ExecutionRequestError(
           'conflict',

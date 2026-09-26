@@ -31,7 +31,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
 | [R-C3](#r-c3) | P2 | M | open | Design stage: continue automatically and batch real decisions ahead of time |
-| [R-C4](#r-c4) | P2 | M | open | Refresh and re-review automatically when only upstream integration advanced |
+| [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
 | [R-C5](#r-c5) | P2 | M | open | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
@@ -555,11 +555,20 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C4
 
-**Refresh and re-review automatically when only upstream integration advanced** · Phase P2 · Effort M · Status: open
+**Refresh and re-review automatically when only upstream integration advanced** · Phase P2 · Effort M · Status: done (see Progress)
 
 - **Resolves:** [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes)
 - **Change:** Under automatic integration policy, an integration-advanced blocker triggers the existing refresh + fresh review without an operator request (33 manual update requests in the live data).
 - **Done when:** No "Integration branch advanced; update the worktree" operator stop occurs under automatic policy.
+- **Progress 2026-09-25: done** (effort S in the end).
+  - **What the live data shows** (read-only audit query, and an independent trace of the code paths):
+    - Only one "Integration branch advanced" stop ever occurred: cycle 6f1dfb47 on 2026-09-20T20:17. Roadmap b81d5f92 had been paused since 17:29. The operator resumed the stopped slice with guidance, and the review launch met the advanced branch.
+    - The "33 manual update requests" are not integration stops. Each user `branches.updated` pair is the fast-forward that an operator resume or review-again of a scope review performs as part of the command. Those stops were scope-review recovery (HIST-04, R-C5), and from 2026-09-19 the same loop ran as system updates.
+  - **The one remaining gap:** `refreshOwner` required the roadmap to be `running` and the entry unheld, including just before a review launch. Now, just before a review launches (the pending launch, after implementation, at a finalization stage), a cycle that is itself running refreshes from integration under its delegation, binding and authority checks, even while its roadmap is paused or its entry held. Awaiting-merge refreshes and merges keep the full gate, so a paused roadmap still does not merge. `docs/security.md` records the rule.
+  - **Other paths checked, no change needed:** a scope review's resume and review-again fast-forward themselves; automatic scope recovery refreshes; refresh conflicts under automatic conflict policy start resolution; finalization always refreshes. The refresh limit and manual conflict policy stop by design, with their own codes.
+  - **Done-when:** `server-execution-integration.test.ts` reproduces 6f1dfb47. The roadmap is paused, integration advances, the operator resumes the stopped slice with guidance, and the cycle refreshes once and reviews against the new target. It then waits for merge approval with no integration stop and no merge. The test fails without the fix. The existing test that a paused awaiting-merge cycle is not refreshed still passes.
+  - **Replays:** 278 and 51 decisions, 0 changed (refresh happens after the decision is applied).
+  - **Gate:** `pnpm check` passes in one run: 187 test files and 1,481 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check.
 
 ### R-C5
 

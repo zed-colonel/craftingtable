@@ -187,11 +187,12 @@ requires an active parallel or automatic-integration delegation, the frozen bran
 permissions, and no live sessions. It merges integration into the item branch only. Review
 context is invalidated durably before mutation; each refresh uses the repository and worktree
 guards and rechecks delegation before Git and before reserving another review. Pause/stop
-can supersede an in-flight update without permitting a late agent launch. A cycle the operator
-resumed while its roadmap is paused or its entry held refreshes the same way just before its
-review launches (R-C4). The operator's resume authorizes that cycle to proceed, and the refresh
-touches only its own branch. Awaiting-merge refreshes and merges still wait for the roadmap to
-run. Exclusion groups
+can supersede an in-flight update without permitting a late agent launch. A running cycle
+whose roadmap is paused or needs attention, or whose entry the operator paused, refreshes the
+same way just before its review launches or is approved (R-C4). It can only be running
+because the operator resumed it, and the refresh touches only its own branch. A stopped or
+completed roadmap has ended its delegation, and a hold the system placed stays in force.
+Awaiting-merge refreshes and merges still wait for the roadmap to run. Exclusion groups
 and capacities coordinate daemon work; they do not constrain arbitrary external Git processes
 or an agent running with the operator's OS authority.
 

@@ -585,12 +585,32 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Progress 2026-09-25: done** (effort S in the end).
   - **What the live data shows** (read-only audit query, and an independent trace of the code paths):
     - Only one "Integration branch advanced" stop ever occurred: cycle 6f1dfb47 on 2026-09-20T20:17. Roadmap b81d5f92 had been paused since 17:29. The operator resumed the stopped slice with guidance, and the review launch met the advanced branch.
-    - The "33 manual update requests" are not integration stops. Each user `branches.updated` pair is the fast-forward that an operator resume or review-again of a scope review performs as part of the command. Those stops were scope-review recovery (HIST-04, R-C5), and from 2026-09-19 the same loop ran as system updates.
-  - **The one remaining gap:** `refreshOwner` required the roadmap to be `running` and the entry unheld, including just before a review launch. Now, just before a review launches (the pending launch, after implementation, at a finalization stage), a cycle that is itself running refreshes from integration under its delegation, binding and authority checks, even while its roadmap is paused or its entry held. Awaiting-merge refreshes and merges keep the full gate, so a paused roadmap still does not merge. `docs/security.md` records the rule.
+    - The "33 manual update requests" were almost all not integration stops.
+      - 31 were the fast-forward that an operator resume or review-again of a scope review performs as part of the command. Those stops were scope-review recovery (HIST-04, R-C5), and from 2026-09-19 the same loop ran as system updates.
+      - 1 was the operator's update after the 6f1dfb47 stop.
+      - 1 was a retry after a refresh hit conflicts (2026-09-12).
+  - **The one remaining gap:** `refreshOwner` required the roadmap to be `running` and the entry unheld, including just before a review launched or was approved.
+    - Now a running cycle refreshes from integration just before a review launches (the pending launch, after implementation) or is approved, under its delegation, binding and authority checks. This applies while its roadmap is paused or needs attention, or while the operator has paused its entry.
+    - A stopped or completed roadmap, or a hold the system placed, still prevents it.
+    - Awaiting-merge refreshes and merges keep the full gate, so a paused roadmap still does not merge. Finalization already refreshed regardless.
+    - `docs/security.md` records the rule.
   - **Other paths checked, no change needed:** a scope review's resume and review-again fast-forward themselves; automatic scope recovery refreshes; refresh conflicts under automatic conflict policy start resolution; finalization always refreshes. The refresh limit and manual conflict policy stop by design, with their own codes.
-  - **Done-when:** `server-execution-integration.test.ts` reproduces 6f1dfb47. The roadmap is paused, integration advances, the operator resumes the stopped slice with guidance, and the cycle refreshes once and reviews against the new target. It then waits for merge approval with no integration stop and no merge. The test fails without the fix. The existing test that a paused awaiting-merge cycle is not refreshed still passes.
+  - **Done-when:** `server-execution-integration.test.ts` exercises the 6f1dfb47 code path with a non-conflicting advance. The roadmap is paused, integration advances, and the operator resumes the stopped slice with guidance.
+    - The cycle refreshes once and reviews against the new target. It then waits for merge approval with no integration stop and no merge.
+    - A variant where integration advances again during the review refreshes again at approval.
+    - Variants with a stopped roadmap and with a system-placed hold do not refresh.
+    - Each fails without its fix. The existing test that a paused awaiting-merge cycle is not refreshed still passes.
+    - The real 6f1dfb47 update conflicted in 7 files under a manual conflict policy, so today it would stop as `integration-conflict`: earlier and better labelled, but still the operator's.
   - **Replays:** 278 and 51 decisions, 0 changed (refresh happens after the decision is applied).
   - **Gate:** `pnpm check` passes in one run: 187 test files and 1,481 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check.
+  - **Independent review of 9c41c1a (2026-09-25), and what changed:** no path lets a paused or held roadmap merge, and an in-flight refresh is still superseded by a pause.
+    - *MEDIUM, fixed:* the pre-review refresh also ran under a stopped roadmap and under system-placed holds. A stop pauses an integration resolution rather than stopping it, so an operator resuming the resolution could refresh under an ended delegation. Both are now refused.
+    - *MEDIUM, fixed:* approving a review still used the full gate. If integration advanced during the review of an operator-resumed cycle, the same "Integration branch advanced" stop returned. Approval now refreshes the same way.
+    - *LOW-MEDIUM, fixed:* the test and entry claimed to reproduce 6f1dfb47. That update actually conflicted, so the entry now says so.
+    - *LOW, fixed:* the 33 manual updates are broken down exactly.
+    - *LOW, fixed:* security.md and the code comment now describe the rule as the code applies it.
+    - *Nits, fixed:* a no-op flag at the finalization stage, and a duplicate doc comment.
+    - Replays: not affected (refresh runs after the decision). Gate: `pnpm check` stages all pass: 187 test files and 1,490 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check.
 
 ### R-C5
 

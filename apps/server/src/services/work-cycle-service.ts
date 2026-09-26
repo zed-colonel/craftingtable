@@ -2296,7 +2296,7 @@ export class WorkCycleService {
       );
       return;
     }
-    if (await this.refreshIntegration(cycle, run)) return;
+    if (await this.refreshIntegration(cycle, run, true)) return;
     const reviewedWorktree = this.storage.execution.worktrees.find(
       cycle.workspaceId,
       cycle.worktreeId,
@@ -2664,7 +2664,7 @@ export class WorkCycleService {
       );
       return false;
     }
-    if (await this.refreshIntegration(cycle, run, true)) return false;
+    if (await this.refreshIntegration(cycle, run)) return false;
     await this.branches?.assertReview(tree, run);
     return true;
   }
@@ -3228,14 +3228,15 @@ export class WorkCycleService {
     }
   }
 
-  /** Only an actively delegated parallel attempt may refresh itself. Settings bind to its revision. */
   /**
-   * Who may refresh this cycle from integration automatically, under which settings.
-   * `launching`: the cycle is about to start a review because it is running, for example after
-   * an operator resumed it while its roadmap is paused or its entry held (R-C4). The review
-   * would otherwise meet an advanced integration branch and stop; refreshing only updates the
-   * cycle's own worktree, so the roadmap's scheduling gates do not apply. Delegation, binding
-   * and authority still do, and merges keep the full gate.
+   * Who may refresh this cycle from integration automatically, under which settings: only an
+   * actively delegated attempt, with settings bound to its revision.
+   * `launching`: the cycle is running and about to start or approve a review (R-C4), for
+   * example after the operator resumed it while its roadmap was paused, needed attention, or
+   * held its entry. The review would otherwise meet an advanced integration branch and stop;
+   * refreshing touches only the cycle's own branch, so the pause does not hold it. A stopped
+   * or completed roadmap has ended its delegation, and a hold the system placed stays in
+   * force. Delegation, binding and authority still apply, and merges keep the full gate.
    */
   private refreshOwner(cycle: WorkCycle, launching = false) {
     const finalization = finalizationForCycle(this.storage, cycle);
@@ -3256,11 +3257,17 @@ export class WorkCycleService {
     const owner = cycleOwnership(this.storage, cycle);
     if (owner?.attempt.status !== 'active') return;
     const { roadmap, attempt } = owner;
-    const scheduled = launching
-      ? cycle.status === 'running'
-      : roadmap.status === 'running' &&
-        !roadmap.entryHolds?.[attempt.entryId] &&
-        !(attempt.recovery && roadmap.entryHolds?.[attempt.recovery.sourceEntryId]);
+    const held = (entryId: string | undefined) => {
+      const hold = entryId === undefined ? undefined : roadmap.entryHolds?.[entryId];
+      return !!hold && (!launching || hold.status !== 'paused');
+    };
+    const scheduled =
+      (launching
+        ? cycle.status === 'running' &&
+          ['running', 'paused', 'needs-attention'].includes(roadmap.status)
+        : roadmap.status === 'running') &&
+      !held(attempt.entryId) &&
+      !held(attempt.recovery?.sourceEntryId);
     if (!scheduled) return;
     if (attempt.recovery && !roadmap.scopeRecovery?.enabled) return;
     const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId);

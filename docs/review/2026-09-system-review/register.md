@@ -644,6 +644,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The packet guidance and the repair brief say to treat every round's examples as remaining work until verified fixed. The operator's preview leaves the history out, so no contract changes.
   - **Test:** `server-execution-scope-findings.test.ts` runs a second verification round of the same F-003 with new examples and asserts the repair packet carries the first round's explanation. It fails without the change.
   - **Gate:** `pnpm check` passes in one run: 187 test files and 1,494 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. No controller decision is involved, so no replay was needed.
+  - **Independent review of e11940d (2026-09-25), and what changed:** no blocking defects. Determinism, per-source separation and the strict preview were confirmed.
+    - *MEDIUM, fixed:* history left out the fields that carry each round's examples in the live EXO-01 data. Titles and recommendations named each round's sampled families. Rounds now keep severity, title and recommendation too.
+    - *LOW, fixed:* history was built on every call, including previews and turn checks. Only the packet file builds it now.
+    - *LOW, fixed:* rounds were matched by worktree and time. They now follow the pinned review's `parentRunId` lineage, within which reviewers carry IDs forward, so an unrelated review that restarted numbering is never mixed in.
+    - *LOW, fixed:* rounds of any terminal status with a complete report now count.
+    - *LOW, fixed:* the guidance separates open rounds (remaining work) from resolved ones (must not regress).
+    - *LOW, fixed:* location paths are capped.
+    - *LOW, fixed:* the test asserts the history directly, and that the preview omits it. It fails against both e11940d and the code before R-C5.
+    - *Noted for increment 3:* history does not survive a replaced review worktree (WI-02/domain has had three), so the progress classifier must not rely on it.
+    - Gate: `pnpm check` passes in one run: 187 test files and 1,494 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check.
 
 ### R-C6
 

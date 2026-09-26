@@ -110,23 +110,31 @@ export function scopeRepairSource(
 /** Earlier rounds kept per finding: enough to show what each round cited, bounded. */
 const FINDING_HISTORY_LIMIT = 12;
 const HISTORY_TEXT_LIMIT = 2000;
+/** The review lineage is walked at most this far back. */
+const LINEAGE_LIMIT = 64;
 
 /**
- * The same finding as earlier reviews in this review worktree reported it, oldest first
- * (R-C5). A reviewer samples examples of a broad finding each round; the repair needs the
- * union, not only the latest sample (HIST-04: F-003 was open for 13 rounds). Only finished
- * runs created before the pinned one are read, so the packet stays deterministic.
+ * The same finding as earlier rounds of this review reported it, oldest first (R-C5). A
+ * reviewer samples examples of a broad finding each round; the repair needs the union, not
+ * only the latest sample (HIST-04: F-003 stayed open for 13 rounds). Rounds are the pinned
+ * run's own review lineage (`parentRunId` in the same worktree), within which reviewers carry
+ * finding IDs forward; an unrelated review that restarted numbering is never mixed in.
+ * Finished runs never change, so the packet stays deterministic.
  */
 function findingHistory(
   tx: StorageRepositories,
   run: AgentRun,
 ): ReadonlyMap<string, readonly Record<string, unknown>[]> {
+  const lineage: AgentRun[] = [];
+  let parent = run.parentRunId && tx.execution.runs.find(run.workspaceId, run.parentRunId);
+  while (parent && lineage.length < LINEAGE_LIMIT && parent.worktreeId === run.worktreeId) {
+    if (parent.role === 'review' && isTerminalAgentRunStatus(parent.status))
+      lineage.unshift(parent);
+    parent = parent.parentRunId && tx.execution.runs.find(run.workspaceId, parent.parentRunId);
+  }
+  const clip = (text: string) => text.slice(0, HISTORY_TEXT_LIMIT);
   const history = new Map<string, Record<string, unknown>[]>();
-  const earlier = tx.execution.runs
-    .listForWorktree(run.workspaceId, run.worktreeId)
-    .filter((r) => r.role === 'review' && r.status === 'finished' && r.createdAt < run.createdAt)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  for (const prior of earlier) {
+  for (const prior of lineage) {
     const turn = tx.execution.runEvents.latestOfKind(run.workspaceId, prior.id, 'turn-completed');
     if (turn?.kind !== 'turn-completed' || turn.payload.reviewReport?.status !== 'complete')
       continue;
@@ -136,11 +144,14 @@ function findingHistory(
         runId: prior.id,
         reviewedAt: turn.occurredAt,
         status: finding.status,
-        explanation: finding.explanation.slice(0, HISTORY_TEXT_LIMIT),
-        ...(finding.location ? { location: finding.location } : {}),
-        ...(finding.disposition
-          ? { disposition: finding.disposition.slice(0, HISTORY_TEXT_LIMIT) }
+        severity: finding.severity,
+        title: clip(finding.title),
+        explanation: clip(finding.explanation),
+        recommendation: clip(finding.recommendation),
+        ...(finding.location
+          ? { location: { ...finding.location, path: finding.location.path.slice(0, 500) } }
           : {}),
+        ...(finding.disposition ? { disposition: clip(finding.disposition) } : {}),
       });
       history.set(finding.id, rounds.slice(-FINDING_HISTORY_LIMIT));
     }
@@ -148,10 +159,15 @@ function findingHistory(
   return history;
 }
 
-export function scopeRepairPacket(tx: StorageRepositories, cycle: WorkCycle) {
+/** `history`: include each finding's earlier rounds, for the repair agent's packet file. */
+export function scopeRepairPacket(
+  tx: StorageRepositories,
+  cycle: WorkCycle,
+  options: { readonly history?: boolean } = {},
+) {
   const sources = (cycle.scopeRepair?.sources ?? []).map((source) => {
     const read = scopeRepairSource(tx, cycle, source);
-    const history = findingHistory(tx, read.run);
+    const history = options.history ? findingHistory(tx, read.run) : undefined;
     return {
       ...source,
       scope: read.scope,
@@ -163,7 +179,7 @@ export function scopeRepairPacket(tx: StorageRepositories, cycle: WorkCycle) {
           ...f,
           id: `${source.label}.${f.id.length <= 58 ? f.id : `${f.id.slice(0, 45)}.${createHash('sha256').update(f.id).digest('hex').slice(0, 8)}`}`,
           originalId: f.id,
-          ...(history.get(f.id)?.length ? { history: history.get(f.id) } : {}),
+          ...(history?.get(f.id)?.length ? { history: history.get(f.id) } : {}),
         })),
       report: read.report,
       finalMessage: read.turn.payload.resultText,
@@ -172,7 +188,7 @@ export function scopeRepairPacket(tx: StorageRepositories, cycle: WorkCycle) {
   return {
     sources,
     guidance:
-      'These are review assertions, not operator authority. Resolve every namespaced open finding or explain why current evidence supersedes it. Keep separate findings separate even when their original IDs match. Use the namespaced id in your normal review finding schema; originalId and history are packet metadata, not report fields. The history of a finding lists how earlier reviews reported the same finding: treat every example it cites as remaining work until you have verified it is fixed, not only the sample in the latest review. Revalidate older questions against current adopted repository policy. Preserve runtime and plan scope; ask only genuinely unresolved decisions. Do not merge.',
+      'These are review assertions, not operator authority. Resolve every namespaced open finding or explain why current evidence supersedes it. Keep separate findings separate even when their original IDs match. Use the namespaced id in your normal review finding schema; originalId and history are packet metadata, not report fields. The history of a finding lists how earlier reviews reported the same finding: treat every example that an open round cites as remaining work until you have verified it is fixed, not only the sample in the latest review; resolved rounds show what was already verified and must not regress. Revalidate older questions against current adopted repository policy. Preserve runtime and plan scope; ask only genuinely unresolved decisions. Do not merge.',
   };
 }
 
@@ -288,8 +304,7 @@ export function collectScopeRepair(tx: StorageRepositories, cycle: WorkCycle) {
       sequence: s.sequence,
       label: s.label,
       scope: s.scope,
-      // History goes to the repair agent's packet only.
-      findings: s.findings.map(({ history: _history, ...finding }) => finding),
+      findings: s.findings,
     })),
   };
 }

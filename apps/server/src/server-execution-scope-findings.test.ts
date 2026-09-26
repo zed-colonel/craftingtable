@@ -204,12 +204,13 @@ itNeedsCargo.each([false, true])(
     expect((await delegate(input, { cookie: state.cookie })).statusCode).toBe(403);
     expect((await delegate({ ...input, snapshotDigest: '0'.repeat(64) })).statusCode).toBe(409);
     expect((await delegate({ ...input, sourceId: 'foreign-slice' })).statusCode).toBe(409);
+    let repeatedHistory: unknown;
     let packet:
       | {
           sources: {
             runId: string;
             findings: (typeof structuredFinding & {
-              history?: { runId: string; status: string; explanation: string }[];
+              history?: Record<string, unknown>[];
             })[];
             finalMessage: string;
           }[];
@@ -222,16 +223,9 @@ itNeedsCargo.each([false, true])(
       packet = JSON.parse(readFileSync(file!, 'utf8'));
       expect(packet!.sources).toHaveLength(2);
       // The repair sees every round's examples of the verification finding, not only the latest.
-      const repeated = packet!.sources
+      repeatedHistory ??= packet!.sources
         .flatMap((s) => s.findings)
-        .find((finding) => finding.explanation === laterExplanation);
-      expect(repeated?.history).toEqual([
-        expect.objectContaining({
-          runId: firstRound,
-          status: 'open',
-          explanation: verifyFinding.explanation,
-        }),
-      ]);
+        .find((finding) => finding.explanation === laterExplanation)?.history;
       expect(packet!.sources.every((s) => s.finalMessage.includes('F-003'))).toBe(true);
       expect(request.prompt).toContain('Repair both distinct findings');
       if (request.model !== 'review-model') {
@@ -261,6 +255,18 @@ itNeedsCargo.each([false, true])(
     };
     const started = await delegate();
     expect(started.statusCode, started.body).toBe(200);
+    await waitFor(() => packet !== undefined, 'repair packet');
+    expect(repeatedHistory).toEqual([
+      expect.objectContaining({
+        runId: firstRound,
+        status: 'open',
+        title: verifyFinding.title,
+        explanation: verifyFinding.explanation,
+        recommendation: verifyFinding.recommendation,
+      }),
+    ]);
+    // The operator's preview stays the reviewed findings alone.
+    expect(JSON.stringify(preview)).not.toContain('"history"');
     const repair = workCycleResponseSchema.parse(started.json()).cycle;
     expect(repair).toMatchObject({
       step: 'remediate',

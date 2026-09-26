@@ -424,6 +424,30 @@ Exit criteria:
 - An idle tab makes no requests.
 - The design-stage stop rate is well below the 10-of-11 baseline.
 
+**Progress, 2026-09-25/26 (branch `remediation/p2` from a4fabdf; not merged or deployed).** Each item had an
+independent review; every finding is fixed or its disposition is recorded in register.md.
+- **Done:**
+  - R-A4: 16d94de, 40d3a9b (ADR-070, schema 32).
+  - R-A5: a4635c7, 52ab71a, e271f8f.
+  - R-C11: 8900aa0, 4a76d76.
+  - R-C9: 1b34b0b, 1a505a3.
+  - R-C4: 9c41c1a, e53ea8a.
+  - R-C3a: bf329f6, 8f6d6f8. The operator approved splitting R-C3 on 2026-09-25.
+  - R-C5 increment 1 of 5: e11940d plus its review fixes.
+  - f4fb00a removes a diagnostic script committed by mistake.
+- **Open:**
+  - R-C3b: prepare shared ADR decisions per roadmap before slices start. It needs the operator's design for a standing preparation grant (ADR-065). It also carries the design-stop exit criterion: of the 15 live design stops, up to 11 would go, and R-C3a removes none on its own.
+  - R-C5 increments 2 to 5: roadmap ownership of operator-delegated repairs, a progress classifier with the EXO-01 fixture, one typed escalation, and a split offer.
+  - The other P2 items: R-E1, R-E2, R-D4, R-D5, R-G4 to R-G6, R-G9, R-H4, R-I4, R-I9.
+- **Replays:** every controller change kept the 2026-09-23 replays at 278 and 51 decisions, 0 changed.
+- **Gate at the head:** `pnpm check` passes in one run. 187 test files and 1,494 unit tests, 20 e2e tests,
+  the walkthrough rehearsal and the scope check. At load averages of 20 to 35, earlier runs timed out in waitFor;
+  the failing files passed rerun serially each time.
+- **Live-data work left:**
+  1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
+  2. Enable notifications, and check that the inbox, rail count and push log agree.
+  3. After a few days, count false alarms (`resolved_by = 'automation'` on pushed items).
+
 ### P3: Progress view and consolidation (2–3 weeks)
 
 | Item | Notes |

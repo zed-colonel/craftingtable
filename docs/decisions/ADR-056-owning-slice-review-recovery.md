@@ -36,9 +36,12 @@ Missing authority, reviewer qualifications and external execution evidence remai
 
 ## Amendment 2026-09-25: finding history in the repair packet (R-C5)
 
-Each open finding in the packet carries its history: how earlier finished reviews in the same
-review worktree reported the same finding ID (status, explanation, location, disposition),
-oldest first, at most 12 rounds of 2,000 characters each. A reviewer samples examples of a
-broad finding each round. The repair treats the examples of every round as remaining work
-until it verifies them fixed. Only runs created before the pinned review are read, so the
-packet stays deterministic. The preview for the operator leaves the history out.
+Each open finding in the packet carries its history: how earlier rounds of the same review
+reported the same finding ID (status, severity, title, explanation, recommendation, location,
+disposition), oldest first, at most 12 rounds of 2,000 characters per field. Rounds are the pinned
+review's own lineage (`parentRunId` within its worktree), within which reviewers carry finding
+IDs forward, so a review that restarted numbering is never mixed in; history does not survive a
+replaced review worktree. A reviewer samples examples of a broad finding each round: the repair
+treats the examples of every open round as remaining work until it verifies them fixed, and
+resolved rounds as what must not regress. Finished runs never change, so the packet stays
+deterministic. Only the packet file carries the history; previews and fingerprints do not.

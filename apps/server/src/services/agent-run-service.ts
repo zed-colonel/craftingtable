@@ -867,9 +867,13 @@ export class AgentRunService {
       }
       if (cycle?.scopeRepair) {
         const path = join(planDirectory, 'craftingtable-scope-repair.json');
-        writeFileSync(path, JSON.stringify(scopeRepairPacket(this.storage, cycle), null, 2), {
-          mode: 0o600,
-        });
+        writeFileSync(
+          path,
+          JSON.stringify(scopeRepairPacket(this.storage, cycle, { history: true }), null, 2),
+          {
+            mode: 0o600,
+          },
+        );
         planDocuments.push({
           filename: 'craftingtable-scope-repair.json',
           role: 'supporting',

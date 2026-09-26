@@ -33,3 +33,12 @@ Project prerequisite waits as waits instead of stale operator questions. Hide du
 header attention and resolve corresponding outbox reminders while these prerequisites are
 pending, without rewriting the historical cycle reason or dismissing current findings.
 Missing authority, reviewer qualifications and external execution evidence remain actionable.
+
+## Amendment 2026-09-25: finding history in the repair packet (R-C5)
+
+Each open finding in the packet carries its history: how earlier finished reviews in the same
+review worktree reported the same finding ID (status, explanation, location, disposition),
+oldest first, at most 12 rounds of 2,000 characters each. A reviewer samples examples of a
+broad finding each round. The repair treats the examples of every round as remaining work
+until it verifies them fixed. Only runs created before the pinned review are read, so the
+packet stays deterministic. The preview for the operator leaves the history out.

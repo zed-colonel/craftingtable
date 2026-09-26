@@ -122,6 +122,25 @@ itNeedsCargo.each([false, true])(
       () => currentCycle(state, verification).status === 'needs-attention',
       'verification finding',
     );
+    // A second round samples other examples of the same finding (HIST-04, R-C5).
+    const firstRound = currentCycle(state, verification).currentRunId;
+    const laterExplanation = 'Contribution guidance is still missing in amend.rs.';
+    f.backend.replyForRequest = (request) => {
+      const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
+      runScopedFixtureCheck(request);
+      return {
+        resultText: reportWith(tree.executionScope!, [
+          { ...verifyFinding, explanation: laterExplanation },
+        ]),
+      };
+    };
+    expect((await command(verification, 'resume')).statusCode).toBe(200);
+    await waitFor(
+      () =>
+        currentCycle(state, verification).status === 'needs-attention' &&
+        currentCycle(state, verification).currentRunId !== firstRound,
+      'second verification finding',
+    );
     const latestVerification = currentCycle(state, verification);
     // Resuming without guidance would review the unchanged snapshot again (R-A7, 10dbc912).
     const repeat = await state.context.app.inject({
@@ -189,7 +208,9 @@ itNeedsCargo.each([false, true])(
       | {
           sources: {
             runId: string;
-            findings: (typeof structuredFinding)[];
+            findings: (typeof structuredFinding & {
+              history?: { runId: string; status: string; explanation: string }[];
+            })[];
             finalMessage: string;
           }[];
         }
@@ -200,6 +221,17 @@ itNeedsCargo.each([false, true])(
       expect(file, request.prompt).toBeTruthy();
       packet = JSON.parse(readFileSync(file!, 'utf8'));
       expect(packet!.sources).toHaveLength(2);
+      // The repair sees every round's examples of the verification finding, not only the latest.
+      const repeated = packet!.sources
+        .flatMap((s) => s.findings)
+        .find((finding) => finding.explanation === laterExplanation);
+      expect(repeated?.history).toEqual([
+        expect.objectContaining({
+          runId: firstRound,
+          status: 'open',
+          explanation: verifyFinding.explanation,
+        }),
+      ]);
       expect(packet!.sources.every((s) => s.finalMessage.includes('F-003'))).toBe(true);
       expect(request.prompt).toContain('Repair both distinct findings');
       if (request.model !== 'review-model') {

@@ -32,7 +32,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
 | [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b open | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
-| [R-C5](#r-c5) | P2 | M | open | Converge the parent/slice repair loop |
+| [R-C5](#r-c5) | P2 | M | in progress (1 of 5) | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
@@ -624,11 +624,26 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C5
 
-**Converge the parent/slice repair loop** · Phase P2 · Effort M · Status: open
+**Converge the parent/slice repair loop** · Phase P2 · Effort M · Status: in progress (increment 1 of 5 done)
 
 - **Resolves:** [HIST-04](findings/HIST-history-and-live-usage.md#hist-04-exo-01-parent-acceptance--owning-slice-repair-ping-pong-consumed-29-of-all-runs-without-convergence-detection), [HIST-08](findings/HIST-history-and-live-usage.md#hist-08-merge-approvals-and-record-scope-verification-still-require-manual-clicks-in-delegated-flows)
 - **Change:** Track finding identity across parent-acceptance -> owning-slice repair -> re-review rounds; give repair briefs the cumulative remaining work for a finding; detect no-progress vs progress; escalate once with a progress summary; offer to split an oversized finding into a follow-up slice through the amendment path. Verify no repair path still needs manual merge or manual integration update.
 - **Done when:** A replay of EXO-01 would escalate once instead of 13 rounds; repair cycles are always roadmap-owned.
+- **Scoping 2026-09-25** (read-only DB and code trace). It fits M, delivered in increments.
+  - **HIST-04 hypothesis confirmed.** The 16 EXO-01/domain repair cycles each got a packet with one parent source and only the current `R1.F-003`, citing that round's examples. Each review verified the previous round's corrections (194, 184, 131, 442, … corrections) and sampled new examples. The finding's ID, title and severity never changed; only the explanation did, so the exact-repeat fingerprint never matched.
+  - **Ownership:** 13 of the 16 repairs came from the operator's work-item route (`delegate-scope-repair`), which creates an unowned cycle. Only 3 were roadmap recovery attempts.
+  - **Increments, in order:**
+    1. Finding history in the repair packet.
+    2. Roadmap ownership of operator-delegated repairs.
+    3. A pure progress classifier with a redacted EXO-01 fixture.
+    4. One typed escalation with a progress summary (ADR-057 amendment). The allowance stays hard.
+    5. A split offered through the amendment path, as an offer only (ADR-049): never proposed automatically.
+  - **Replays:** the logic lives outside `decideStepOutcome`, so none are expected to change.
+- **Increment 1, done 2026-09-25** (ADR-056 amended):
+  - Each open finding in the repair packet carries its history: how earlier finished reviews in the same review worktree reported the same finding ID (status, explanation, location, disposition). History is oldest first and bounded, and is read only from runs before the pinned review, so the packet is deterministic.
+  - The packet guidance and the repair brief say to treat every round's examples as remaining work until verified fixed. The operator's preview leaves the history out, so no contract changes.
+  - **Test:** `server-execution-scope-findings.test.ts` runs a second verification round of the same F-003 with new examples and asserts the repair packet carries the first round's explanation. It fails without the change.
+  - **Gate:** `pnpm check` passes in one run: 187 test files and 1,494 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. No controller decision is involved, so no replay was needed.
 
 ### R-C6
 

@@ -40,7 +40,12 @@ export function mapReadSnapshot(source: StorageRepositories): StorageRepositorie
     },
     execution: {
       ...source.execution,
-      worktrees: memo(source.execution.worktrees, ['find', 'listActive', 'listForWorkItem']),
+      worktrees: memo(source.execution.worktrees, [
+        'find',
+        'listActive',
+        'listForWorkItem',
+        'mergedIntoAfter',
+      ]),
       cycles: memo(source.execution.cycles, [
         'find',
         'listActive',

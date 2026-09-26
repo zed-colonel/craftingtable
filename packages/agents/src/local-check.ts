@@ -10,10 +10,11 @@ import {
   existsSync,
   rmSync,
   readFileSync,
+  statSync,
   realpathSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { PinnedCargoManifest } from './pinned-cargo.js';
 
 // Generated launchers also run directly from TypeScript in adapter tests.
@@ -176,6 +177,90 @@ export function localActArguments(
     `CRAFTINGTABLE_CI_ARTIFACTS_DIR=${join(evidenceDirectory, 'artifacts')}`,
   ];
 }
+/**
+ * act names its job containers and volumes after the workflow's `name` and the job, with no
+ * per-invocation part, so two runs of one workflow on the same Docker host remove each other's
+ * containers (exit 137, "volume is in use"). One ct-act per workflow name runs at a time on a
+ * host; the lock lives beside the shared CI cache and survives only as long as its owner.
+ */
+export function localCiLockPath(ci: LocalCiConfig, workspacePath: string, args: readonly string[]) {
+  const workflow = args[args.indexOf('-W') + 1] ?? '';
+  const text = readFileSync(join(workspacePath, workflow), 'utf8');
+  const named = /^name:[ \t]*(['"]?)(.*?)\1[ \t]*(?:#.*)?$/m.exec(text)?.[2]?.trim();
+  return join(ci.cacheRoot, 'locks', `act-${hash(named || basename(workflow))}`);
+}
+/** A process identity that a reused PID cannot fake: its start time where /proc has one. */
+function processIdentity(pid: number): string | undefined {
+  try {
+    process.kill(pid, 0);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ESRCH') return undefined;
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return `${pid}:${stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]}`;
+  } catch {
+    return `${pid}`;
+  }
+}
+export async function acquireLocalCiLock(
+  path: string,
+  runId: string,
+  timeoutMs: number,
+  pollMs = 2000,
+): Promise<void> {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const identity = processIdentity(process.pid)!;
+  const deadline = Date.now() + timeoutMs;
+  let announced = false;
+  for (;;) {
+    try {
+      mkdirSync(path, { mode: 0o700 });
+      writeFileSync(join(path, 'owner.json'), JSON.stringify({ identity, runId }), { mode: 0o600 });
+      return;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    }
+    let owner: { identity?: string; runId?: string } = {};
+    try {
+      owner = JSON.parse(readFileSync(join(path, 'owner.json'), 'utf8'));
+    } catch {
+      // The owner is between creating the lock and naming itself.
+    }
+    const pid = Number(owner.identity?.split(':')[0]);
+    let age = 0;
+    try {
+      age = Date.now() - statSync(path).mtimeMs;
+    } catch {
+      continue; // Released meanwhile.
+    }
+    if (
+      owner.identity ? !pid || processIdentity(pid) !== owner.identity : age > 10_000 // Its owner died before naming itself.
+    ) {
+      rmSync(path, { recursive: true, force: true });
+      continue;
+    }
+    if (Date.now() >= deadline)
+      throw new Error(
+        `Another run (${owner.runId ?? 'unknown'}) held this workflow's local CI past the check time limit.`,
+      );
+    if (!announced) {
+      announced = true;
+      console.error(
+        `Waiting for run ${owner.runId ?? 'unknown'} to finish this workflow's local CI; act cannot run it twice at once on one Docker host.`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+}
+function releaseLocalCiLock(path: string): void {
+  try {
+    const owner = JSON.parse(readFileSync(join(path, 'owner.json'), 'utf8'));
+    if (owner.identity === processIdentity(process.pid)) rmSync(path, { recursive: true });
+  } catch {
+    // Not ours, or already gone.
+  }
+}
 /** Only this run's labelled containers; never global Docker prune. */
 export function cleanupLocalCi(ci: LocalCiConfig, runId: string): void {
   if (!/^[a-zA-Z0-9_-]+$/.test(runId)) throw new Error('Invalid CI run identity.');
@@ -222,6 +307,7 @@ export async function runLocalCheck(
   const isNative = kind === 'ct-native';
   const lease = join(directory, isNative ? 'native-active' : 'act-active');
   let ownsLease = false;
+  let workflowLock: string | undefined;
   try {
     verifySources(m);
     if (isCi) {
@@ -229,6 +315,9 @@ export async function runLocalCheck(
       command = m.localCi!.actExecutable;
       mkdirSync(lease); // One act invocation at a time per supervised run.
       ownsLease = true;
+      const lock = localCiLockPath(m.localCi!, m.workspacePath, args);
+      await acquireLocalCiLock(lock, m.runId, m.checkTimeoutMs ?? 30 * 60000);
+      workflowLock = lock;
       for (const part of ['cargo-registry', 'cargo-git'])
         mkdirSync(join(m.localCi!.cacheRoot, part), { recursive: true, mode: 0o700 });
       mkdirSync(join(directory, 'artifacts'), { recursive: true, mode: 0o700 });
@@ -379,6 +468,8 @@ export async function runLocalCheck(
         diagnostic += ` ${e instanceof Error ? e.message : 'CI cleanup failed.'}`;
       }
     }
+    // Released after this run's containers are gone, so the next run starts clean.
+    if (workflowLock) releaseLocalCiLock(workflowLock);
     const after = gitState(m);
     writeFileSync(logPath, `${log}\n${diagnostic}\n`, { mode: 0o600 });
     appendFileSync(

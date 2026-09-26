@@ -1,10 +1,15 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { hostGit } from './host-tools-test-support.js';
-import { loadLocalCiConfig, localActArguments, prepareLocalCheckLaunchers } from './local-check.js';
+import {
+  loadLocalCiConfig,
+  localActArguments,
+  localCiLockPath,
+  prepareLocalCheckLaunchers,
+} from './local-check.js';
 import {
   cargoManifestDigest as hash,
   type PinnedCargoManifest,
@@ -188,6 +193,67 @@ it('binds act to one repository workflow, pinned image, local storage and no aut
   const config = join(f.root, 'act.json');
   writeFileSync(config, JSON.stringify({ ...localCi, image: 'image:latest' }));
   expect(() => loadLocalCiConfig(config)).toThrow('pinned by digest');
+});
+it('runs one act invocation per workflow at a time across runs on a Docker host', async () => {
+  const shared = mkdtempSync(join(tmpdir(), 'ct-act-shared-'));
+  roots.push(shared);
+  const log = join(shared, 'act.log');
+  const tool = (name: string, body: string) => {
+    const path = join(shared, name);
+    writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o700 });
+    return path;
+  };
+  // act records its interval; the docker stub lists no containers for cleanup.
+  const localCi = {
+    actExecutable: tool(
+      'act',
+      `echo "start $(date +%s%N)" >> ${log}; sleep 1; echo "end $(date +%s%N)" >> ${log}`,
+    ),
+    dockerExecutable: tool('docker', 'exit 0'),
+    dockerHost: 'unix:///run/user/1000/docker.sock',
+    image: `image@sha256:${'a'.repeat(64)}`,
+    cacheRoot: join(shared, 'cache'),
+  };
+  const run = (runId: string) => {
+    const f = fixture();
+    mkdirSync(join(f.m.workspacePath, '.github/workflows'), { recursive: true });
+    writeFileSync(
+      join(f.m.workspacePath, '.github/workflows/contract.yml'),
+      'name: "Shared contract" # act names containers after this\non: push\n',
+    );
+    const launcher = f.launch({ ...f.m, runId, localCi });
+    return { f, launcher };
+  };
+  const [a, b] = [run('run-a'), run('run-b')];
+  const lock = localCiLockPath(localCi, a.f.m.workspacePath, [
+    '-W',
+    '.github/workflows/contract.yml',
+  ]);
+  expect(lock).toBe(
+    localCiLockPath(localCi, b.f.m.workspacePath, ['-W', '.github/workflows/contract.yml']),
+  );
+  // A lock left by a process that no longer exists does not hold anyone.
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(
+    join(lock, 'owner.json'),
+    JSON.stringify({ identity: '999999999:1', runId: 'gone' }),
+  );
+  const act = ({ f, launcher }: ReturnType<typeof run>) =>
+    new Promise<number | null>((done) =>
+      spawn(
+        join(launcher.binDirectory, 'ct-act'),
+        ['-W', '.github/workflows/contract.yml', '-j', 'contract'],
+        { cwd: f.m.workspacePath, stdio: 'ignore' },
+      ).once('close', done),
+    );
+  expect(await Promise.all([act(a), act(b)])).toEqual([0, 0]);
+  const times = readFileSync(log, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => line.split(' ')[0]);
+  // Serialized: each act ends before the next starts.
+  expect(times).toEqual(['start', 'end', 'start', 'end']);
+  expect(() => readFileSync(join(lock, 'owner.json'))).toThrow();
 });
 it('refuses native qualification without approval and keeps ordinary checks distinct', () => {
   const f = fixture();

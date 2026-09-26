@@ -433,6 +433,64 @@ describe('single work-item automation', () => {
     expect(currentCycle(state, cycle).step).toBe('design');
   });
 
+  it('continues the design once after an investigation that answered every question with sources (R-C3a)', async () => {
+    const answered = {
+      version: 1,
+      items: [
+        {
+          kind: 'resolved',
+          question: 'Where do the baseline measurements come from?',
+          answer: 'The committed benchmark report.',
+          sources: ['bench/report.md'],
+        },
+      ],
+    };
+    const { state, backend, worktree } = await cycleFixture([
+      { resultText: '## Open questions\nWhere do the baseline measurements come from?' },
+      {
+        resultText: `Investigated.\n\n\`\`\`craftingtable-design\n${JSON.stringify(answered)}\n\`\`\`\n\n## Open questions\nnone`,
+      },
+      designDone,
+      implementationDone,
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'design pause');
+    const url = `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/design-recovery`;
+    const snapshot = (
+      await state.context.app.inject({ method: 'GET', url, headers: { cookie: state.cookie } })
+    ).json();
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: snapshot.expectedVersion,
+        snapshotDigest: snapshot.snapshotDigest,
+        mode: 'investigate',
+        profile: { backend: 'claude-code', model: 'investigation-model' },
+        instructions: 'Check the benchmark report.',
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const investigation = response.json().cycle.currentRunId;
+    await waitFor(() => backend.launches.length >= 4, 'continued design, then implementation');
+    const continued = present(backend.launches[2]);
+    // The design agent, not the investigation's, continues from the investigation's evidence
+    // and the operator's guidance.
+    expect(continued.model).toBe('design-model');
+    expect(continued.prompt).toContain('Apply the operator answers and supporting evidence');
+    expect(continued.prompt).toContain('design-recovery/manifest.json');
+    expect(present(backend.launches[3]).model).toBe('implement-model');
+    expect(currentCycle(state, cycle).designRecovery).toMatchObject({
+      mode: 'continue',
+      automatic: true,
+      sourceRunId: investigation,
+      instructions: 'Check the benchmark report.',
+      profile: { model: 'design-model' },
+    });
+    expect(currentCycle(state, cycle).attention?.code).not.toBe('design-investigation-finished');
+  });
+
   it('can adopt a manual design after an investigation without retaining the investigation stop', async () => {
     const { state, worktree } = await cycleFixture([
       { resultText: '## Open questions\nWhich owner?' },

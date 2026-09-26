@@ -286,13 +286,13 @@ export function DesignRecoveryPanel({
                       setReasoningEffort(p.reasoningEffort);
                     }}
                   >
-                    <option value="investigate">Investigate and stop for review</option>
+                    <option value="investigate">Investigate first</option>
                     <option value="continue">Continue design</option>
                   </select>
                 </label>
                 <p className="hint">
                   {mode === 'investigate'
-                    ? 'Investigation always stops for your review, even if all questions are resolved.'
+                    ? 'If the investigation answers every question with sources, the design continues automatically; otherwise it stops for your review.'
                     : 'Implementation starts only after the design reports no open questions.'}
                 </p>
                 <label className="field" id="design-recovery-guidance" tabIndex={-1}>

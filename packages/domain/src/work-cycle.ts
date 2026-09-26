@@ -78,6 +78,11 @@ export interface DesignRecovery {
   readonly runId: AgentRunId;
   readonly sourceRunId: AgentRunId;
   readonly mode: 'investigate' | 'continue';
+  /**
+   * Started by the controller, not the operator: the investigation before it answered every
+   * question with cited sources (R-C3a). At most one per operator-started investigation.
+   */
+  readonly automatic?: true;
   readonly profile: FinalizationAgentSelection;
   readonly instructions: string;
   readonly snapshotDigest: string;

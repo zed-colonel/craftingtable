@@ -116,6 +116,8 @@ export type StepOutcomeDecision = {
       readonly action: string;
     }
   | { readonly kind: 'advance-resolution' }
+  /** Continue the design from an investigation that left no question open (R-C3a). */
+  | { readonly kind: 'continue-design'; readonly reason: string }
   | {
       readonly kind: 'design-wait';
       readonly designWait: NonNullable<WorkCycle['designWait']>;
@@ -546,14 +548,28 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
     );
   }
   if (cycle.step === 'design') {
-    if (cycle.designRecovery?.runId === run.id && cycle.designRecovery.mode === 'investigate')
+    const classified = parseDesignReport(text);
+    if (cycle.designRecovery?.runId === run.id && cycle.designRecovery.mode === 'investigate') {
+      // R-C3a: an investigation that answered every question, each with its sources, leaves
+      // nothing for the operator to decide; the design continues with that evidence.
+      if (
+        classified.status === 'complete' &&
+        classified.report.items.length > 0 &&
+        classified.report.items.every((item) => item.kind === 'resolved') &&
+        designHasNoOpenQuestions(text)
+      )
+        return withWorkflow({
+          kind: 'continue-design',
+          reason:
+            'Design investigation answered every question with cited sources. Continuing the design with that evidence.',
+        });
       return withWorkflow(
         attention(
           'design-investigation-finished',
           'Design investigation finished. Review the evidence and answers, then use Resolve design questions to continue.',
         ),
       );
-    const classified = parseDesignReport(text);
+    }
     if (classified.status === 'invalid')
       return withWorkflow(
         formatFault('design-report-invalid', classified.reason, [classified.reason]),

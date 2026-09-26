@@ -86,6 +86,12 @@ const minor = {
 };
 const noQuestions = 'Done.\n\n## Open questions\nnone';
 const withQuestions = 'Done.\n\n## Open questions\nWhich queue should own retries?';
+const ANSWERED = {
+  kind: 'resolved',
+  question: 'Which queue owns retries?',
+  answer: 'The worker queue.',
+  sources: ['docs/queues.md#retries'],
+};
 const design = (items: readonly Record<string, unknown>[]) =>
   `Design.\n\n\`\`\`craftingtable-design\n${JSON.stringify({ version: 1, items })}\n\`\`\`\n\n## Open questions\nnone`;
 const workflow = (questions: readonly Record<string, unknown>[]) =>
@@ -329,10 +335,54 @@ const rows: readonly Row[] = [
     expected: { kind: 'repair-output', code: 'finalization-needs-input', attempt: 1 },
   },
   {
-    name: 'a design investigation always stops for review',
+    name: 'a design investigation without a classification stops for review',
     cycle: { step: 'design', designRecovery: { runId: 'run-1', mode: 'investigate' } },
     facts: { run: runOf({ role: 'design' }), turn: turnOf(noQuestions) },
     expected: { kind: 'attention', code: 'design-investigation-finished' },
+  },
+  {
+    name: 'a design investigation that answered every question with sources continues (R-C3a)',
+    cycle: { step: 'design', designRecovery: { runId: 'run-1', mode: 'investigate' } },
+    facts: { run: runOf({ role: 'design' }), turn: turnOf(design([ANSWERED])) },
+    expected: { kind: 'continue-design' },
+  },
+  {
+    name: 'a design investigation that leaves an operator decision stops for review',
+    cycle: { step: 'design', designRecovery: { runId: 'run-1', mode: 'investigate' } },
+    facts: {
+      run: runOf({ role: 'design' }),
+      turn: turnOf(
+        design([
+          ANSWERED,
+          { kind: 'operator-decision', question: 'Adopt WI-ADR-016?', answer: '', sources: [] },
+        ]),
+      ),
+    },
+    expected: { kind: 'attention', code: 'design-investigation-finished' },
+  },
+  {
+    name: 'a design investigation with answers but open questions listed stops for review',
+    cycle: { step: 'design', designRecovery: { runId: 'run-1', mode: 'investigate' } },
+    facts: {
+      run: runOf({ role: 'design' }),
+      turn: turnOf(design([ANSWERED]).replace(/none$/, 'Who approves the budget?')),
+    },
+    expected: { kind: 'attention', code: 'design-investigation-finished' },
+  },
+  {
+    name: 'a design investigation that classified nothing stops for review',
+    cycle: { step: 'design', designRecovery: { runId: 'run-1', mode: 'investigate' } },
+    facts: { run: runOf({ role: 'design' }), turn: turnOf(design([])) },
+    expected: { kind: 'attention', code: 'design-investigation-finished' },
+  },
+  {
+    name: 'a design continuation the controller started is judged as an ordinary design',
+    cycle: {
+      step: 'design',
+      designRecovery: { runId: 'run-1', mode: 'continue', automatic: true },
+    },
+    facts: { run: runOf({ role: 'design' }), turn: turnOf(design([ANSWERED])) },
+    expected: { kind: 'next-step', step: 'implement' },
   },
   {
     name: 'an invalid design classification is sent back for repair',

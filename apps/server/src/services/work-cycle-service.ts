@@ -627,11 +627,59 @@ export class WorkCycleService {
         },
         reason:
           input.mode === 'investigate'
-            ? 'Investigating design questions; this attempt stops for operator review.'
+            ? 'Investigating design questions. The design continues automatically only if every question is answered with sources; otherwise it stops for operator review.'
             : 'Continuing design with collected evidence and operator guidance.',
       },
       'design-recovery',
       context,
+    );
+  }
+
+  /**
+   * The controller's one continue after an investigation that answered every question
+   * (R-C3a): the same bounded run the operator would start with Resolve design questions,
+   * from the investigation's evidence and the operator's guidance, on the design agent.
+   */
+  private continueDesign(cycle: WorkCycle, investigation: AgentRun, reason: string): WorkCycle {
+    const recovery = cycle.designRecovery;
+    if (recovery?.mode !== 'investigate' || recovery.runId !== investigation.id)
+      throw new ExecutionRequestError('conflict', 'Only an investigation continues automatically.');
+    const preview = this.storage.readTransaction((tx) =>
+      collectDesignRecovery(tx, cycle, investigation.id),
+    );
+    const design = effectiveCycleProfiles(this.storage, cycle).design;
+    const runId = asAgentRunId(randomUUID());
+    return this.change(
+      cycle,
+      {
+        status: 'running',
+        step: 'design',
+        currentRunId: runId,
+        parentRunId: investigation.id,
+        phaseWait: null,
+        designWait: null,
+        designDependencyContinuations: 0,
+        resultContinuations: 0,
+        runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+        designRecovery: {
+          runId,
+          sourceRunId: investigation.id,
+          mode: 'continue',
+          automatic: true,
+          profile: {
+            backend: design.backend,
+            ...(design.model === undefined ? {} : { model: design.model }),
+            ...(design.reasoningEffort ? { reasoningEffort: design.reasoningEffort } : {}),
+          },
+          instructions: recovery.instructions,
+          attachments: recovery.attachments,
+          snapshotDigest: preview.snapshotDigest,
+          facts: preview.facts,
+          sources: preview.sources.map((entry) => entry.source),
+        },
+        reason,
+      },
+      'design-continue',
     );
   }
 
@@ -2178,6 +2226,9 @@ export class WorkCycleService {
         return;
       case 'advance-resolution':
         await this.advanceResolution(cycle);
+        return;
+      case 'continue-design':
+        this.continueDesign(cycle, run, decision.reason);
         return;
       case 'design-wait':
         this.change(cycle, { designWait: decision.designWait, reason: decision.reason });

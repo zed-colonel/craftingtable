@@ -44,3 +44,14 @@ The inbox includes report-validation errors and on-demand access to the original
 report. Investigation evidence remains readable without a valid structured recommendation;
 it never becomes an approval by discovery. Existing reports are projected without rewriting
 the journal or requesting a replacement run.
+
+## Amendment 2026-09-25: an answered investigation continues (R-C3a)
+
+An explicit investigation still stops for operator review, unless its design classification is
+complete and every item is `resolved`: each has an answer and cited sources, no operator
+decision or planning conflict remains, and Open questions is `none`. Then the controller starts
+the continue run the operator would have started with Resolve design questions. That run uses
+the investigation's evidence, the operator's guidance and attachments, the design agent, and
+an ordinary deadline. It is recorded as `automatic` and judged as an ordinary design. This
+happens at most once per operator-started investigation. An investigation without a
+classification, or one that classified nothing, still stops.

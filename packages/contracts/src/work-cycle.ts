@@ -237,6 +237,7 @@ export const workCycleSchema = z
         runId: agentRunIdSchema,
         sourceRunId: agentRunIdSchema,
         mode: z.enum(['investigate', 'continue']),
+        automatic: z.literal(true).optional(),
         profile: finalizationAgentSelectionSchema,
         instructions: z.string().max(16000),
         snapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),

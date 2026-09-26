@@ -30,7 +30,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
-| [R-C3](#r-c3) | P2 | M | open | Design stage: continue automatically and batch real decisions ahead of time |
+| [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b open | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
 | [R-C5](#r-c5) | P2 | M | open | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
@@ -547,11 +547,33 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C3
 
-**Design stage: continue automatically and batch real decisions ahead of time** · Phase P2 · Effort M · Status: open
+**Design stage: continue automatically and batch real decisions ahead of time** · Phase P2 · Effort M (larger: split into R-C3a, S, and R-C3b, M-L) · Status: R-C3a done; R-C3b open
 
 - **Resolves:** [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes), [HIST-19](findings/HIST-history-and-live-usage.md#hist-19-real-cross-project-workload-is-10-the-scale-the-uis-lists-were-designed-for-progress-and-dependencies-are-hard-to-see)
 - **Change:** When a design investigation finishes and every question has a cited answer with no operator-classified decision left, continue without a stop. Build the per-roadmap decision queue before dependent slices start (extend ADR-065 decision preparation) so shared architecture decisions are answered once, in a batch, in the inbox.
 - **Done when:** On the cross-project roadmap, design stops per started slice fall well below the 10-of-11 baseline; decisions show "unblocks N slices".
+- **Scoping 2026-09-25 (larger than M; split with the operator's approval the same day):**
+  - **Live data** (read-only): 12 cross-project slices have started, and 10 hit at least one design stop across 15 distinct runs:
+    - `design-decision-required`: 5
+    - `design-investigation-finished`: 5
+    - `design-open-questions`: 4
+    - `design-report-invalid`: 1 (now parsed as a decision, after R-C2)
+  - **What each part removes:**
+    - The 5 investigations each still had ADR or administrative questions, so auto-continue alone (R-C3a) removes none of the historical stops. It pays off once decisions exist before designs run.
+    - Deciding shared ADRs ahead of time (R-C3b) would remove up to 11 of the 15. WI-ADR-016 alone was asked for in 4 stops across 3 slices.
+    - The other 4 stops are administrative or evidence questions (branch protection, benchmarks, CI runners, the AQ pin), which belong with R-C1 and controller obligations.
+  - **The split, decided by the operator:** do R-C3a now and defer R-C3b. R-C3b changes ADR-065's boundaries, so its grant design is the operator's to decide:
+    - preparation runs start from a standing, revocable grant instead of a per-run command;
+    - they run while the roadmap runs;
+    - `prepareDecision`'s check binds to the map, binding revision and digest rather than the roadmap version.
+- **R-C3a, done 2026-09-25** (ADR-059 amended): an operator-started investigation whose design classification is complete and all `resolved` (answers with cited sources, Open questions `none`) now continues the design automatically, once.
+  - The run is the same one Resolve design questions would start: the investigation's evidence, the operator's guidance and attachments, the design agent and an ordinary deadline, recorded as `designRecovery.automatic`. It is judged as an ordinary design.
+  - Anything else still stops as `design-investigation-finished`: an unclassified report, an empty classification, an operator decision or planning conflict, or listed open questions.
+  - The investigation brief, the Resolve design questions hint and the recovery reason now say so. The UI change is text only, so no walkthrough captures were needed.
+  - **Tests:** decision-table cases and an end-to-end cycle (investigate, then an automatic continue on the design agent, then implementation). Both fail without the change.
+  - **Replays:** 278 and 51 decisions, 0 changed. The one recorded investigation (run 117cd918) still stops: it left an operator decision.
+  - **Gate:** `pnpm check` stages all pass: 187 test files and 1,487 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. Under load average 20, 10 controller tests timed out in waitFor; the 6 files passed rerun serially.
+- **R-C3b (open):** prepare the roadmap's shared architecture decisions before the slices that need them start, so they are answered once, in a batch; count "unblocks N slices" as slices, not graph nodes; and add batch approval (still operator-only and paused). It needs an ADR-065 amendment for the grant. The done-when metric belongs to R-C3b.
 
 ### R-C4
 

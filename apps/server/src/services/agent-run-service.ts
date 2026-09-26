@@ -451,7 +451,7 @@ export class AgentRunService {
                 'Collect verifiable facts and cite exact artifacts, commits and commands. Saved pins and imported documents are context, not proof that tests passed. Separate repository observations, missing evidence, and decisions that require the operator. Do not invent owners, measurements, protection rules or acceptance receipts.',
                 'Do not implement product changes, create/publish tags, change branch protection, push, merge or amend adopted requirements. Preserve source code; keep collected reports and logs in the supplied run scratch directory. Repository administration needs a separate explicit operator action.',
                 recovery.mode === 'investigate'
-                  ? 'Investigate the unresolved questions and report evidence and remaining decisions. The controller will pause after this run for operator review even if all questions are answered.'
+                  ? 'Investigate the unresolved questions and report evidence and remaining decisions. Classify each question in the design report: resolved only with a cited answer; anything the operator must decide stays an operator decision. If every question is resolved and Open questions is none, the controller continues the design with your evidence; otherwise it pauses for operator review.'
                   : 'Apply the operator answers and supporting evidence to complete the design. The controller advances only if no genuine questions remain. Keep unresolved evidence requirements explicit.',
               ]
             : []),

@@ -203,17 +203,66 @@ function processIdentity(pid: number): string | undefined {
     return `${pid}`;
   }
 }
+/** The lock's recorded owner, or nothing while its owner is between creating and naming it. */
+function lockOwner(path: string): { identity?: string; runId?: string } {
+  try {
+    return JSON.parse(readFileSync(join(path, 'owner.json'), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+/** A lock whose owner is gone, or that no owner named within ten seconds. */
+function staleLock(path: string): boolean {
+  const owner = lockOwner(path);
+  if (owner.identity) {
+    const pid = Number(owner.identity.split(':')[0]);
+    return !pid || processIdentity(pid) !== owner.identity;
+  }
+  try {
+    return Date.now() - statSync(path).mtimeMs > 10_000;
+  } catch {
+    return false; // Released meanwhile.
+  }
+}
+/**
+ * Removes a stale lock. Contenders that each saw it stale must not each remove it, or a later
+ * one deletes the lock an earlier one has just taken (LIVE-03). Removal is serialized by a
+ * guard directory and decided again under it. The guard's holder only does a few synchronous
+ * file operations, so a guard older than ten seconds belonged to a process that died.
+ */
+function reclaimStaleLock(path: string): void {
+  const guard = `${path}.reclaim`;
+  try {
+    mkdirSync(guard, { mode: 0o700 });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    try {
+      if (Date.now() - statSync(guard).mtimeMs > 10_000)
+        rmSync(guard, { recursive: true, force: true });
+    } catch {
+      // Released meanwhile.
+    }
+    return;
+  }
+  try {
+    if (staleLock(path)) rmSync(path, { recursive: true, force: true });
+  } finally {
+    rmSync(guard, { recursive: true, force: true });
+  }
+}
 export async function acquireLocalCiLock(
   path: string,
   runId: string,
   timeoutMs: number,
   pollMs = 2000,
+  signal?: AbortSignal,
 ): Promise<void> {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const identity = processIdentity(process.pid)!;
   const deadline = Date.now() + timeoutMs;
   let announced = false;
   for (;;) {
+    if (signal?.aborted) throw new Error("Interrupted while waiting for this workflow's local CI.");
     try {
       mkdirSync(path, { mode: 0o700 });
       writeFileSync(join(path, 'owner.json'), JSON.stringify({ identity, runId }), { mode: 0o600 });
@@ -221,25 +270,11 @@ export async function acquireLocalCiLock(
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
     }
-    let owner: { identity?: string; runId?: string } = {};
-    try {
-      owner = JSON.parse(readFileSync(join(path, 'owner.json'), 'utf8'));
-    } catch {
-      // The owner is between creating the lock and naming itself.
-    }
-    const pid = Number(owner.identity?.split(':')[0]);
-    let age = 0;
-    try {
-      age = Date.now() - statSync(path).mtimeMs;
-    } catch {
-      continue; // Released meanwhile.
-    }
-    if (
-      owner.identity ? !pid || processIdentity(pid) !== owner.identity : age > 10_000 // Its owner died before naming itself.
-    ) {
-      rmSync(path, { recursive: true, force: true });
+    if (staleLock(path)) {
+      reclaimStaleLock(path);
       continue;
     }
+    const owner = lockOwner(path);
     if (Date.now() >= deadline)
       throw new Error(
         `Another run (${owner.runId ?? 'unknown'}) held this workflow's local CI past the check time limit.`,
@@ -250,7 +285,15 @@ export async function acquireLocalCiLock(
         `Waiting for run ${owner.runId ?? 'unknown'} to finish this workflow's local CI; act cannot run it twice at once on one Docker host.`,
       );
     }
-    await new Promise((r) => setTimeout(r, pollMs));
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(done, pollMs);
+      function done() {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', done);
+        resolve();
+      }
+      signal?.addEventListener('abort', done, { once: true });
+    });
   }
 }
 function releaseLocalCiLock(path: string): void {
@@ -316,7 +359,24 @@ export async function runLocalCheck(
       mkdirSync(lease); // One act invocation at a time per supervised run.
       ownsLease = true;
       const lock = localCiLockPath(m.localCi!, m.workspacePath, args);
-      await acquireLocalCiLock(lock, m.runId, m.checkTimeoutMs ?? 30 * 60000);
+      // The wait can be long, so an interruption ends it through this function's cleanup
+      // rather than the default exit, which would leave the run's lease behind.
+      const waiting = new AbortController();
+      const abandon = () => waiting.abort();
+      process.once('SIGTERM', abandon);
+      process.once('SIGINT', abandon);
+      try {
+        await acquireLocalCiLock(
+          lock,
+          m.runId,
+          m.checkTimeoutMs ?? 30 * 60000,
+          2000,
+          waiting.signal,
+        );
+      } finally {
+        process.off('SIGTERM', abandon);
+        process.off('SIGINT', abandon);
+      }
       workflowLock = lock;
       for (const part of ['cargo-registry', 'cargo-git'])
         mkdirSync(join(m.localCi!.cacheRoot, part), { recursive: true, mode: 0o700 });

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { hostGit } from './host-tools-test-support.js';
 import {
+  acquireLocalCiLock,
   loadLocalCiConfig,
   localActArguments,
   localCiLockPath,
@@ -254,6 +255,118 @@ it('runs one act invocation per workflow at a time across runs on a Docker host'
   // Serialized: each act ends before the next starts.
   expect(times).toEqual(['start', 'end', 'start', 'end']);
   expect(() => readFileSync(join(lock, 'owner.json'))).toThrow();
+});
+/** This process's identity as the lock records it (PID and /proc start time). */
+function ownIdentity() {
+  const stat = readFileSync(`/proc/${process.pid}/stat`, 'utf8');
+  return `${process.pid}:${stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]}`;
+}
+it('releases its run when a ct-act is interrupted while it waits for the workflow lock', async () => {
+  const shared = mkdtempSync(join(tmpdir(), 'ct-act-wait-'));
+  roots.push(shared);
+  const tool = (name: string, body: string) => {
+    const path = join(shared, name);
+    writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o700 });
+    return path;
+  };
+  const localCi = {
+    actExecutable: tool('act', 'exit 0'),
+    dockerExecutable: tool('docker', 'exit 0'),
+    dockerHost: 'unix:///run/user/1000/docker.sock',
+    image: `image@sha256:${'a'.repeat(64)}`,
+    cacheRoot: join(shared, 'cache'),
+  };
+  const f = fixture();
+  mkdirSync(join(f.m.workspacePath, '.github/workflows'), { recursive: true });
+  writeFileSync(join(f.m.workspacePath, '.github/workflows/contract.yml'), 'name: C\non: push\n');
+  const launcher = f.launch({ ...f.m, runId: 'run-w', localCi });
+  const lock = localCiLockPath(localCi, f.m.workspacePath, [
+    '-W',
+    '.github/workflows/contract.yml',
+  ]);
+  // Another live run (this test process) holds the workflow's lock.
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(
+    join(lock, 'owner.json'),
+    JSON.stringify({ identity: ownIdentity(), runId: 'other' }),
+  );
+  const act = () =>
+    spawn(join(launcher.binDirectory, 'ct-act'), ['-W', '.github/workflows/contract.yml'], {
+      cwd: f.m.workspacePath,
+      stdio: 'ignore',
+    });
+  const waiting = act();
+  await new Promise((r) => setTimeout(r, 1500));
+  // The agent's shell tool gives up on the waiting command.
+  waiting.kill('SIGTERM');
+  await new Promise((r) => waiting.once('close', r));
+  rmSync(lock, { recursive: true });
+  // The run's next ct-act is not refused by a lease the interrupted one left behind.
+  expect(await new Promise<number | null>((done) => act().once('close', done))).toBe(0);
+  expect(f.receipts().at(-1)?.diagnostic ?? '').not.toContain('EEXIST');
+});
+it('grants a stale workflow lock to one of several contenders reclaiming it at once', async () => {
+  const lock = join(mkdtempSync(join(tmpdir(), 'ct-act-reclaim-')), 'locks', 'act-z');
+  roots.push(join(lock, '..', '..'));
+  const moduleUrl = new URL('./local-check.ts', import.meta.url).href;
+  let overlaps = 0;
+  for (let round = 0; round < 6; round++) {
+    rmSync(lock, { recursive: true, force: true });
+    mkdirSync(lock, { recursive: true });
+    writeFileSync(
+      join(lock, 'owner.json'),
+      JSON.stringify({ identity: '999999999:1', runId: 'gone' }),
+    );
+    const go = Date.now() + 1500;
+    // Each winner holds 300 ms and exits without releasing, like a killed launcher, so
+    // acquisitions that honour the lock are at least 300 ms apart.
+    const results = await Promise.all(
+      Array.from(
+        { length: 10 },
+        (_, i) =>
+          new Promise<string>((done) => {
+            const p = spawn(
+              process.execPath,
+              [
+                '--input-type=module',
+                '-e',
+                `import { acquireLocalCiLock } from ${JSON.stringify(moduleUrl)};
+                 while (Date.now() < ${go}) {}
+                 await acquireLocalCiLock(${JSON.stringify(lock)}, 'r${i}', 400, 10).then(
+                   () => { const t = Date.now(); while (Date.now() < t + 300) {} process.stdout.write('held ' + t); },
+                   () => process.stdout.write('timeout'));`,
+              ],
+              { stdio: ['ignore', 'pipe', 'pipe'] },
+            );
+            let out = '';
+            p.stdout.on('data', (d) => (out += d));
+            p.stderr.on('data', (d) => (out += d));
+            p.once('close', () => done(out));
+          }),
+      ),
+    );
+    const held = results
+      .filter((r) => r.startsWith('held'))
+      .map((r) => Number(r.split(' ')[1]))
+      .sort((x, y) => x - y);
+    expect(held.length, results.join(' | ')).toBeGreaterThan(0);
+    for (let i = 1; i < held.length; i++) if (held[i]! - held[i - 1]! < 300) overlaps++;
+  }
+  expect(overlaps).toBe(0);
+}, 120000);
+it('does not reclaim a lock whose owner is alive with its recorded start time', async () => {
+  const lock = join(mkdtempSync(join(tmpdir(), 'ct-act-live-')), 'act-y');
+  roots.push(join(lock, '..'));
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(
+    join(lock, 'owner.json'),
+    JSON.stringify({ identity: ownIdentity(), runId: 'live' }),
+  );
+  await expect(acquireLocalCiLock(lock, 'new', 300, 50)).rejects.toThrow('(live) held');
+  // PID 1 is alive, but not with this start time: its PID was reused.
+  writeFileSync(join(lock, 'owner.json'), JSON.stringify({ identity: '1:123', runId: 'old' }));
+  await acquireLocalCiLock(lock, 'new', 1000, 50);
+  expect(JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8')).runId).toBe('new');
 });
 it('refuses native qualification without approval and keeps ordinary checks distinct', () => {
   const f = fixture();

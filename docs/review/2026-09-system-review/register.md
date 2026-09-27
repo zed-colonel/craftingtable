@@ -1715,6 +1715,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - the retry of a reservation that created a worktree;
     - the automatic-merge wait for checkpoint reviews.
 - **Done when:** each commit's review findings are fixed or have a recorded disposition in the relevant LIVE finding or R-C5, and `pnpm check` and both replays pass at the head.
+- **Independent review, 2026-09-27 (in progress).** Findings are fixed one commit each, test first.
+  - **a2bb20a, HIGH, fixed:** a ct-act interrupted while it waited for the workflow lock left its run's `act-active` lease behind. The wait was outside the signal handlers, so SIGTERM took the default exit. Every later ct-act in the run failed with EEXIST, and the run's build record was lost at freeze. The wait is now abortable, and SIGTERM/SIGINT end it through the check's own cleanup.
+  - **a2bb20a, MEDIUM, fixed:** two contenders that both saw a dead owner could each remove the lock, so one deleted the lock the other had just taken, and both ran act (10 overlapping holds in 6 rounds of 10 contenders). Removal is now serialized by a guard directory, and staleness is decided again under it.
 
 ## Finding index
 

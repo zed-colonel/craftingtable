@@ -100,6 +100,12 @@ export interface RoadmapAttempt {
     readonly phase: 'repair' | 'verification' | 'parent-review' | 'completed';
     readonly reviewRunIds: Readonly<Record<string, string>>;
     readonly reviewRestarts?: Readonly<Record<string, number>>;
+    /**
+     * Set when the operator delegated this repair from the work item. The roadmap carries the
+     * round through even with automatic recovery off, and it does not use the automatic
+     * allowance.
+     */
+    readonly requestedByUserId?: UserId;
   };
   readonly id: string;
   readonly entryId: string;

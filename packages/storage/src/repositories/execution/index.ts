@@ -382,6 +382,23 @@ class SqliteWorktreeRepository implements WorktreeRepository {
     return (rows as WorktreeRow[]).map(mapWorktree);
   }
 
+  mergedIntoAfter(
+    workspaceId: WorkspaceId,
+    repositoryId: Worktree['repositoryId'],
+    integrationBranch: string,
+    mergedAt: string,
+  ): boolean {
+    return (
+      this.database
+        .prepare(
+          `SELECT 1 FROM worktrees
+           WHERE workspace_id = ? AND repository_id = ? AND integration_branch = ? AND merged_at > ?
+           LIMIT 1`,
+        )
+        .get(workspaceId, repositoryId, integrationBranch, mergedAt) !== undefined
+    );
+  }
+
   setIntegrationBranch(input: {
     workspaceId: WorkspaceId;
     worktreeId: WorktreeId;

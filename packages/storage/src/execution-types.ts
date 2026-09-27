@@ -136,6 +136,13 @@ export interface WorktreeRepository {
   find(workspaceId: WorkspaceId, worktreeId: WorktreeId): Worktree | undefined;
   listForWorkItem(workspaceId: WorkspaceId, workItemId: WorkItemId): readonly Worktree[];
   listActive(workspaceId?: WorkspaceId): readonly Worktree[];
+  /** Whether the controller merged another worktree into this branch after `mergedAt`. */
+  mergedIntoAfter(
+    workspaceId: WorkspaceId,
+    repositoryId: Worktree['repositoryId'],
+    integrationBranch: string,
+    mergedAt: string,
+  ): boolean;
   markRemoved(input: {
     readonly workspaceId: WorkspaceId;
     readonly worktreeId: WorktreeId;

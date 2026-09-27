@@ -17,6 +17,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from '../config.js';
 import type { AuthService } from '../services/auth-service.js';
+import type { RoadmapService } from '../services/roadmap-service.js';
 import type { WorkCycleService } from '../services/work-cycle-service.js';
 import { noStore, sendApiError } from './http.js';
 import { authenticate, authorizeMutation } from './request-security.js';
@@ -26,6 +27,8 @@ export function registerWorkCycleRoutes(
   auth: AuthService,
   cycles: WorkCycleService,
   config: ServerConfig,
+  /** Owns repairs of a roadmap's reviews as recovery rounds. */
+  roadmaps: Pick<RoadmapService, 'delegateScopeRepair'>,
 ): void {
   app.get<{ Params: { workspaceId: string; cycleId: string } }>(
     '/api/workspaces/:workspaceId/cycles/:cycleId/scope-repair',
@@ -53,7 +56,7 @@ export function registerWorkCycleRoutes(
         return sendApiError(reply, 400, 'invalid-request', 'Invalid scope repair request');
       return noStore(reply).send(
         workCycleResponseSchema.parse({
-          cycle: await cycles.delegateScopeRepair(
+          cycle: await roadmaps.delegateScopeRepair(
             context,
             workspace.data,
             request.params.cycleId,

@@ -92,16 +92,7 @@ export function scopeRecoveryDecision(
           'A related independent review has unresolved questions. Provide guidance before automatic recovery.',
       };
   }
-  const fingerprint = createHash('sha256')
-    .update(
-      JSON.stringify(
-        turn.payload.reviewReport.report.findings
-          .filter((f) => f.status === 'open')
-          .map(({ id: _id, ...finding }) => finding)
-          .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
-      ),
-    )
-    .digest('hex');
+  const fingerprint = findingFingerprint(turn.payload.reviewReport.report.findings);
   const rounds = roadmap.attempts.filter(
     (a) =>
       a.recovery &&
@@ -109,7 +100,11 @@ export function scopeRecoveryDecision(
         (e) => e.id === a.entryId && e.workItemId === entry.workItemId,
       ),
   );
-  if (rounds.length >= (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0))
+  // Rounds the operator requested do not use the automatic allowance.
+  if (
+    rounds.filter((a) => !a.recovery!.requestedByUserId).length >=
+    (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0)
+  )
     return {
       reason: `Automatic recovery allowance exhausted (${rounds.length} rounds for this parent). Pause the roadmap and raise the total allowance, or continue manually.`,
     };
@@ -119,6 +114,22 @@ export function scopeRecoveryDecision(
         'Independent review repeated the same substantive findings after repair. Inspect the work item and provide guidance or delegate a manual repair before continuing.',
     };
   return { preview, owner, fingerprint, sourceSequence: turn.sequence };
+}
+
+/** Identifies a review's open findings apart from their per-review IDs. */
+export function findingFingerprint(
+  findings: readonly { readonly id: string; readonly status: string }[],
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify(
+        findings
+          .filter((f) => f.status === 'open')
+          .map(({ id: _id, ...finding }) => finding)
+          .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+      ),
+    )
+    .digest('hex');
 }
 
 /** Suppress stale parent attention only while an actual delegated recovery owns the next action. */
@@ -133,7 +144,7 @@ export function automatedScopeRecoveryWait(
   )
     return;
   for (const roadmap of tx.roadmaps.list(cycle.workspaceId)) {
-    if (roadmap.status !== 'running' || !roadmap.scopeRecovery?.enabled) continue;
+    if (roadmap.status !== 'running') continue;
     const entry = roadmap.definition.entries.find(
       (e) =>
         e.workItemId === cycle.workItemId &&
@@ -148,6 +159,8 @@ export function automatedScopeRecoveryWait(
           (e) => e.id === a.entryId && e.workItemId === cycle.workItemId,
         ),
     );
+    // Automatic recovery drives every round; an operator-requested round is driven regardless.
+    if (!roadmap.scopeRecovery?.enabled && !active?.recovery?.requestedByUserId) continue;
     if (
       active &&
       !roadmap.entryHolds?.[active.entryId] &&

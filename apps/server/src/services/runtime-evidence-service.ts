@@ -907,14 +907,15 @@ export class RuntimeEvidenceService {
     const git = this.requireGit();
     const target = await git.resolveCommit(repo.rootPath, tree.integrationBranch);
     if (tree.mergeSha) {
+      const changed =
+        'Integration changed after this candidate was merged. Prepare fresh checkpoint evidence.';
       if (
-        !target.ok ||
-        target.value.commitSha !== tree.mergeSha ||
-        target.value.treeSha !== c.treeSha
+        (!target.ok ||
+          target.value.commitSha !== tree.mergeSha ||
+          target.value.treeSha !== c.treeSha) &&
+        !issues.includes(changed)
       )
-        issues.push(
-          'Integration changed after this candidate was merged. Prepare fresh checkpoint evidence.',
-        );
+        issues.push(changed);
     } else {
       const source = await git.inspectRepository(tree.path);
       if (

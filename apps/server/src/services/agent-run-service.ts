@@ -76,7 +76,7 @@ import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-h
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { scopeRepairPacket } from './scope-repair.js';
 import type { StorageService } from './storage-service.js';
-import { workflowDelegation, workflowPrompt } from './workflow-policy.js';
+import { controllerReviewRunnable, workflowPrompt } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -359,7 +359,7 @@ export class AgentRunService {
         'Cycle no longer has authority to launch this step',
       );
     }
-    if (cycle.workflow?.activeReview && !workflowDelegation(this.storage, cycle)?.runnable)
+    if (cycle.workflow?.activeReview && !controllerReviewRunnable(this.storage, cycle))
       throw new ExecutionRequestError(
         'conflict',
         'Controller review is held by paused scheduling or an entry hold.',
@@ -382,7 +382,7 @@ export class AgentRunService {
 
   async startForCycle(cycle: WorkCycle): Promise<AgentRun> {
     this.requireCycleLaunchAuthority(cycle);
-    if (cycle.workflow?.activeReview && workflowDelegation(this.storage, cycle)?.runnable !== true)
+    if (cycle.workflow?.activeReview && !controllerReviewRunnable(this.storage, cycle))
       throw new ExecutionRequestError(
         'conflict',
         'Roadmap scheduling is paused; controller review launch is held.',

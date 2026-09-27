@@ -112,6 +112,21 @@ export function candidateCheckpointIssues(
     (tree.status !== 'active' || tree.version !== run?.reviewBranchContext?.worktreeVersion)
   )
     issues.push('The candidate worktree changed after its review.');
+  // After its merge the integration tree must stay the reviewed tree (ADR-060). A later
+  // controller merge changes it; transition commands also compare the live branch.
+  if (
+    tree?.mergedAt &&
+    tree.integrationBranch &&
+    tx.execution.worktrees.mergedIntoAfter(
+      s.workspaceId,
+      tree.repositoryId,
+      tree.integrationBranch,
+      tree.mergedAt,
+    )
+  )
+    issues.push(
+      'Integration changed after this candidate was merged. Prepare fresh checkpoint evidence.',
+    );
   const plan = tree && worktreePlan(tx, tree);
   if (tree && plan) {
     const binding = tx.imports

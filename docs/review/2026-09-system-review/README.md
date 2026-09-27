@@ -11,7 +11,7 @@ written against; [commit-map-2026-09-23.txt](commit-map-2026-09-23.txt) maps old
 
 This directory is an operator-requested exception to the "no planning documents" rule in
 `AGENTS.md`. It is a working record: update item statuses in [register.md](register.md) as
-work lands. Do not rewrite the findings files; they are evidence captured at `bf08c0b`.
+work lands. Do not rewrite the findings files; they are evidence captured at `bf08c0b`. The LIVE report is the exception: it collects live stops recorded after the review.
 
 ## How to use this record
 
@@ -38,6 +38,7 @@ Area reports and their prefixes:
 | FMT | [Plan and roadmap formats](findings/FMT-plan-and-roadmap-formats.md) | Field-by-field format specification, how services consume it, format appendix |
 | DATA | [Storage, domain, contracts](findings/DATA-storage-domain-contracts.md) | Schema, JSON state, DB growth, contracts, routes, dead code |
 | AGT/GIT/SEC | [Agents, Git, security](findings/AGT-GIT-SEC-agents-git-security.md) | Backends, supervision, briefs, failure classification, Git, security |
+| LIVE | [Live run, 2026-09-25 to 2026-09-27](findings/LIVE-live-run-2026-09-25.md) | Blockers from running the live roadmap, written after the review; new live stops are added here ([R-I10](register.md#r-i10)) |
 | HIST | [History and live usage](findings/HIST-history-and-live-usage.md) | Commit history since the pivot, and an operational profile from the live database |
 | QA/DOC/REPO | [Tests, docs, hygiene](findings/QA-DOC-REPO-tests-docs-hygiene.md) | Test suite, tooling, documentation, repository size and hygiene |
 

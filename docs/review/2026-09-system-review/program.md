@@ -30,6 +30,13 @@ are suitable for delegation to CraftingTable itself.
    requires. Once R-I1 lands, captures live outside the repository.
 6. **Commit messages say which stop or finding motivated the change** and which register
    item they advance. Update the register status in the same commit.
+7. **Live plan data is test data (operator, 2026-09-27).** WI/EXO delivery is paused until P2
+   is done.
+   - A live stop becomes a [LIVE finding](findings/LIVE-live-run-2026-09-25.md) plus a
+     replay case or a redacted fixture ([R-I10](register.md#r-i10)). It is not a patch.
+   - A fix goes on `main` ahead of the P2 line only for data loss, a safety issue, or a stop
+     with no working control. It is merged into the P2 line the same day, and gets an
+     independent review like any P2 item.
 
 ## Phases
 
@@ -416,6 +423,9 @@ done-when by an independent agent, and the confirmed findings were fixed.
 | R-I9 (added 2026-09-24) | One workspace per e2e spec, so the gate can run with more workers. The rest of QA-05 after R-I5. |
 | R-C10 (added 2026-09-25; done) | Re-verify a roadmap item whose evidence went stale, without stopping the roadmap. It unblocks WI-02 now and every later decision-set or policy change. |
 | R-C11 (added 2026-09-25) | Give a provider-side credential rejection (the 25 Sep Codex 401 outage) its own stop code and a bounded scheduled retry, instead of "backend failed" and agent questions about approval authentication. |
+| R-I10, R-I11 (added 2026-09-27) | The live roadmap as the test corpus: a 2026-09-27 snapshot, scheduler-decision replay, and record-don't-patch. Independent review of the five live-run fixes made on `main`. |
+| R-C12, R-C13 (added 2026-09-27) | The open live stops: automatic recovery that silently did not start (LIVE-06), and a checkpoint review that repeats a failed attestation on resume (LIVE-07). |
+| R-E3a (split 2026-09-27) | A read-only roadmap status list: every entry's state, what it waits on and who acts next. It was pulled forward from P3 because the operator cannot run the roadmap without it (LIVE-08). R-E3b, the board and graph, stays in P3. |
 | R-F7 (added 2026-09-25; code done 2026-09-25, 2713a6a..9c1904c, awaiting deploy and the live wi→aq record) | Map-declared upstream pin transitions for each consumer link. It blocks the live roadmap now (WI-02/domain cannot build on the migrated `wi-fabric-2` head), so it comes ahead of R-F5's wider format additions and adds only its own optional field. |
 
 Exit criteria:
@@ -423,6 +433,9 @@ Exit criteria:
 - No in-app navigation reloads the document.
 - An idle tab makes no requests.
 - The design-stage stop rate is well below the 10-of-11 baseline.
+- Loaded from the 2026-09-27 snapshot, the status list (R-E3a) states what each open entry is
+  doing or waiting on, and who acts, with no database query (added 2026-09-27).
+- No scheduler path leaves a stopped item without a recorded reason (R-C12).
 
 **Progress, 2026-09-25/26 (branch `remediation/p2` from a4fabdf; not merged or deployed).** Each item had an
 independent review; every finding is fixed or its disposition is recorded in register.md.
@@ -440,6 +453,19 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - R-C5 increments 2 to 5: roadmap ownership of operator-delegated repairs, a progress classifier with the EXO-01 fixture, one typed escalation, and a split offer.
   - The other P2 items: R-E1, R-E2, R-D4, R-D5, R-G4 to R-G6, R-G9, R-H4, R-I4, R-I9.
 - **Replays:** every controller change kept the 2026-09-23 replays at 278 and 51 decisions, 0 changed.
+- **Live run and sync (2026-09-25 to 27).**
+  - Five blocker fixes landed on `main` while the live roadmap ran; see the [LIVE findings](findings/LIVE-live-run-2026-09-25.md). They are ca7b954, 1727f3b, a2bb20a, 616f323 and 18f0bb8, and the last is R-C5 increment 2.
+  - They were merged into this line on `remediation/p2-sync` in f471830. There was one textual conflict: R-A5's `EntryHoldError` beside the new hold helpers. Both were kept.
+  - At f471830, `pnpm check` passes (187 files, 1,500 unit tests, e2e, scope). Both 2026-09-23 replays report 0 changed.
+  - The operator then paused WI/EXO delivery until P2 is done (rule 7).
+- **Next, in order (reordered 2026-09-27):**
+  1. **R-I11.** Review the five live fixes, while the change is still small.
+  2. **R-I10.** Snapshot the paused live database. Record its goldens. Add the scheduler replay.
+  3. **R-C12 and R-C13.** Reproduce LIVE-06 and LIVE-07 on that snapshot, then fix them. Each leaves a typed reason where the operator or the status list can see it.
+  4. **R-E3a.** The status list, reading R-A4's items and R-C12's reasons.
+  5. **Deploy the P2 line.** Schema 32 rebuilds the attention items, then do the notification checks below. The live roadmap stays paused while R-E3a is checked against it.
+  6. **R-C5 increments 3 to 5, then R-C3b.** These remove the largest operator-stop causes (HIST-03, HIST-04) once the stops are visible.
+  7. **The rest of P2:** R-E1, R-E2, R-D4, R-D5, R-G4 to R-G6, R-G9, R-H4, R-I4, R-I9. R-G4 should take over CI execution and its lock from a2bb20a (LIVE-03).
 - **Gate at the head:** `pnpm check` passes in one run. 187 test files and 1,494 unit tests, 20 e2e tests,
   the walkthrough rehearsal and the scope check. At load averages of 20 to 35, earlier runs timed out in waitFor;
   the failing files passed rerun serially each time.
@@ -452,7 +478,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
 
 | Item | Notes |
 |---|---|
-| R-E3 | The roadmap board and graph: the answer to pain point 2. It can start once R-E2 and R-D5 exist. |
+| R-E3b | The roadmap board and graph: the answer to pain point 2. It can start once R-E2 and R-D5 exist. It builds on R-E3a's status list from P2 (split 2026-09-27). |
 | R-A6 | Consolidate decision components and delete the per-page recovery panels. |
 | R-E4, R-E5 | Work-item page as drill-down; consolidated settings. |
 | R-C6, R-C7 | Evidence ceremony; verification layering and finalization stops. |
@@ -504,6 +530,8 @@ R-D1/R-D2 ──────────────► R-D4 ─► R-D5 ─► 
 R-B3 ownership ─────────► R-B5, R-B6, R-B7
 R-G4 daemon receipts ───► R-C6 automatic acceptance of controller-verifiable checkpoints
 R-B9 drain + R-I8 deploy ► makes self-hosted remediation (CraftingTable working on itself) practical
+R-I10 snapshot + scheduler replay ► R-C12, R-C13 (reproduce before fixing) (added 2026-09-27)
+R-A4 items + R-C12 reasons ► R-E3a status list ► R-E3b board (added 2026-09-27)
 R-H3 upcasters/db:verify ► R-H6 journal rebuild (added 2026-09-24)
 R-C9 terminal quota ────► R-C8 covers the recorded incident (added 2026-09-24)
 R-A6 one decision component per kind ► R-A7's "UI renders only returned actions" (2026-09-24)

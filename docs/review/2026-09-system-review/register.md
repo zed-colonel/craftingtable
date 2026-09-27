@@ -32,13 +32,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
 | [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b open | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
-| [R-C5](#r-c5) | P2 | M | in progress (1 of 5) | Converge the parent/slice repair loop |
+| [R-C5](#r-c5) | P2 | M | in progress (2 of 5; increment 2 in 18f0bb8) | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
 | [R-C9](#r-c9) | P2 | S-M | done (see Progress) | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
 | [R-C10](#r-c10) | P2 | S-M | done (see entry) | Re-verify a roadmap item whose evidence is no longer current, without stopping the roadmap (added 2026-09-25) |
 | [R-C11](#r-c11) | P2 | S-M | done (see Progress) | Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry (added 2026-09-25) |
+| [R-C12](#r-c12) | P2 | S-M | open | Automatic recovery records why it did not start a round (added 2026-09-27) |
+| [R-C13](#r-c13) | P2 | S-M | open | Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation (added 2026-09-27) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -49,7 +51,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **E** | | | | **Progress view and navigation (pain points 2 and 1)** |
 | [R-E1](#r-e1) | P2 | M | open | Real routes and one Link component |
 | [R-E2](#r-e2) | P2 | M | open | Split the Roadmaps mega-page |
-| [R-E3](#r-e3) | P3 | L | open | Roadmap board: progress and dependencies at a glance |
+| [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | R-E3a open; R-E3b open | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
 | [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
 | [R-E5](#r-e5) | P3 | M | open | Consolidate settings and agent selection |
 | [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
@@ -91,6 +93,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 | [R-I9](#r-i9) | P2 | S-M | open | Independent e2e specs: one workspace per spec (added 2026-09-24) |
+| [R-I10](#r-i10) | P2 | M | open | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
+| [R-I11](#r-i11) | P2 | S | open | Independent review of the live-run fixes made on `main` (added 2026-09-27) |
 
 ## Workstream A — Attention, decisions and notifications (pain points 1 and 3)
 
@@ -654,6 +658,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, fixed:* the test asserts the history directly, and that the preview omits it. It fails against both e11940d and the code before R-C5.
     - *Noted for increment 3:* history does not survive a replaced review worktree (WI-02/domain has had three), so the progress classifier must not rely on it.
     - Gate: `pnpm check` passes in one run: 187 test files and 1,494 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check.
+- **Increment 2, done 2026-09-26 on `main` (18f0bb8), merged into the P2 line in f471830.** It was built as a live blocker fix ([LIVE-05](findings/LIVE-live-run-2026-09-25.md#live-05-delegate-source-fixes-created-repairs-outside-the-roadmap-that-owned-the-review)), not from this branch, and it has not had an independent review yet ([R-I11](#r-i11)).
+  - **Delegate source fixes** on a review owned by a running, paused or stopped-for-attention roadmap now reserves an operator-requested recovery round. This is the attempt automatic recovery already uses, marked `recovery.requestedByUserId`. The repair cycle is owned by the round and uses the slice entry's frozen profiles and policy with the operator's remediation limit. Its instructions are the entry's followed by the operator's. Outside a live roadmap, the repair is still the operator's own cycle.
+  - **Operator decisions (2026-09-26):**
+    - The roadmap carries an operator-requested round through its merge, fresh verification and parent review, even with automatic recovery off.
+    - Operator rounds do not use the automatic allowance. They still count for the repeated-findings check. Increment 4's "the allowance stays hard" applies to automatic rounds.
+    - Open repairs delegated earlier without an owner are adopted on the next roadmap pass, including while the roadmap is paused.
+  - Creating or adopting a round releases its source entry's needs-attention hold; an explicit item pause stays. The roadmap's automatic merge also waits while the cycle can run a checkpoint review itself.
+  - **Test:** `server-execution-scope-recovery.test.ts` ("carries an operator repair round through with automatic recovery off") runs two variants: requested through the route, and adopted while paused. Each covers the hold release, the merge, fresh verification, parent acceptance and reopening the database. It fails without the change.
+  - **Gaps:**
+    - The allowance exclusion is a one-line filter that no test isolates.
+    - Adoption ran live on 2026-09-27 (EXO-04's `b0de849a`). It was observed only through the resulting state.
 
 ### R-C6
 
@@ -810,6 +825,36 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Every regression test was shown to fail with its fix reverted (annotation, recorded-report retry, clipped output, failed-turn questions, stderr lines, regex bound, environment key). Replays: 278 and 51 decisions, 0 changed.
     - Gate after the fixes: `pnpm check` stages all pass: 187 test files and 1,480 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. Under load average 23, 24 controller tests timed out in waitFor; all 9 files passed rerun alone.
 
+### R-C12
+
+**Automatic recovery records why it did not start a round** · Phase P2 · Effort S-M · Status: open
+
+- **Added 2026-09-27** from [LIVE-06](findings/LIVE-live-run-2026-09-25.md#live-06-automatic-recovery-did-not-start-a-round-for-exo-02domain-and-nothing-said-why). The live roadmap was running with scope recovery enabled, EXO-02/domain's verification was stopped on a complete major finding, and no round started. Nothing on the roadmap, the entry or the inbox said why.
+- **Change:**
+  - First reproduce it offline on the 2026-09-27 snapshot with [R-I10](#r-i10)'s scheduler replay, and find which branch returned. Candidates: `scopeRecoveryDecision`'s `reason` or `waiting`, a swallowed `PhaseGateError.waiting` or `SupersededRoadmapOperation`, `deferredEntries`, or `advanceEntry` never reaching the verification entry.
+  - Then make every scheduler pass that leaves a stopped review without a round record a typed reason. It is either a controller wait ("waiting for X") or an operator stop, as an R-A4 attention item. Branch on codes, never on reason text (program rule 4).
+  - Fix the underlying cause if it is a defect.
+- **Done when:**
+  - The 2026-09-27 snapshot's scheduler replay shows EXO-02 either starting a round or holding a typed reason that the inbox and [R-E3a](#r-e3)'s status list show.
+  - No return path in `advanceScopeRecovery` or `advanceEntry` leaves a stopped review without a recorded reason. A table test covers each path.
+
+### R-C13
+
+**Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation** · Phase P2 · Effort S-M · Status: open
+
+- **Added 2026-09-27** from [LIVE-07](findings/LIVE-live-run-2026-09-25.md#live-07-a-delegated-checkpoint-review-repeats-the-same-failed-attestation-on-every-resume). WI-04/domain's delegated WI-WORKER-G1 review ran three times, and failed the same attestation each time.
+  - The controller judged the checkpoint ready (`supported && assigned && !pending.length`).
+  - The reviewer found the producing-slice receipts of WI-09 and WI-10, which was still at design, missing.
+  - Each Resume re-ran the same review.
+- **Change:**
+  - Confirm the hypothesis on the snapshot.
+  - Make checkpoint readiness (`workflowContext` → `prerequisiteIssues`) include every input the attestation needs, such as producing-slice receipts and coverage bindings. Readiness and the attestation check must use one evaluator ([R-F1](#r-f1)).
+  - A failed attestation whose inputs have not changed becomes a typed stop. A plain Resume is refused and redirected to the control that can change it ([R-A7](#r-a7)).
+- **Done when:**
+  - On the 2026-09-27 snapshot, WI-04 waits as `controller-wait`, naming the missing WI-09/WI-10 inputs, instead of launching the review.
+  - A resume after a failed attestation with unchanged inputs is refused with the resolving control.
+  - Both replays are unchanged except for the explained WI-04 decision.
+
 ## Workstream D — Read side and browser performance (pain point 3)
 
 ### R-D1
@@ -883,7 +928,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E3
 
-**Roadmap board: progress and dependencies at a glance** · Phase P3 · Effort L · Status: open
+**Roadmap board: progress and dependencies at a glance** · Phase P2 (a) / P3 (b) · Effort S-M then L · Status: R-E3a open; R-E3b open
+
+- **Split 2026-09-27.** [LIVE-08](findings/LIVE-live-run-2026-09-25.md#live-08-the-operator-cannot-see-what-is-supposed-to-run-and-what-blocks-it) showed the operator cannot run the live roadmap without this view. The operator paused delivery work to finish P2, and asked for this visibility first.
+- **R-E3a (P2, S-M): the roadmap status list.**
+  - A read-only list for one roadmap: every entry, with its state, what it waits on and who acts next (controller, agent or operator), and since when.
+    - The state comes from the daemon's status vocabulary.
+    - "What it waits on" is a typed reason with a link to its subject: an item, a checkpoint, a decision or a run.
+  - It reads R-A4's attention items for operator stops, plus the controller waits that R-C12 and R-C13 record. It shows only what the daemon records, never a status derived in the browser.
+  - It adds no decision controls: the actions stay in the inbox (program rule 1).
+  - It can live in the existing roadmap section until R-E1 and R-E2 give it a route.
+  - **Done when:** loaded from the 2026-09-27 snapshot, the list shows each open entry that LIVE-08 names, with the reason established there by database queries, without leaving the page.
+- **R-E3b (P3, L): the board and graph** below, unchanged.
 
 - **Resolves:** [UI-06](findings/UI-information-architecture.md#ui-06-there-is-no-high-level-progress-or-dependency-view-dependencies-appear-as-text-and-are-often-unlinked), [HIST-19](findings/HIST-history-and-live-usage.md#hist-19-real-cross-project-workload-is-10-the-scale-the-uis-lists-were-designed-for-progress-and-dependencies-are-hard-to-see), [DATA-12](findings/DATA-storage-domain-contracts.md#data-12-no-unified-dependency-and-progress-read-model-data-side-of-pain-point-2)
 - **Change:** Daemon read models GET roadmaps/:id/board ({nodes, edges, gates, attention, summary}) and GET plan-versions/:id/graph (from work_item_dependencies). UI: project swimlanes with parent cards and slice chips (development -> merged -> verified -> accepted), one daemon-derived status vocabulary, a focused upstream/downstream neighbourhood graph with checkpoints as gate badges, live-run pulse, attention markers with "unblocks N", critical path to the selected target, and a phone list layout. Supersede ADR-015's "no graph canvas" clause with a short ADR (layout computed in TypeScript; ask before adding a layout dependency).
@@ -1628,9 +1684,41 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The walkthrough keeps its own daemon.
 - **Done when:** Every gate spec runs in its own workspace; the gate runs with more than 2 workers; `pnpm test:e2e` passes 10 consecutive runs.
 
+### R-I10
+
+**Live plan data as the test corpus: record live stops, replay scheduler decisions** · Phase P2 · Effort M · Status: open
+
+- **Added 2026-09-27; direction set by the operator** after the 2026-09-25/26 live run ([LIVE findings](findings/LIVE-live-run-2026-09-25.md)). WI/EXO delivery is paused until P2 is done. The live roadmap's data is now test data.
+- **Why:** every live blocker so far was diagnosed by ad hoc database queries in an agent session, then patched on `main`. `controller:replay` covers step outcomes only (`decideStepOutcome`), so a scheduler decision such as LIVE-06's missing recovery round cannot be reproduced offline.
+- **Change:**
+  - **Snapshot.** Take a read-only `.backup` of the live database in its paused 2026-09-27 state. Keep it with its goldens under `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-27/`, outside the repository, because it holds real plans and agent output. Record `controller:replay --record` and `--every-run --record` from the P2 head.
+  - **Scheduler replay.** Extend the harness to the roadmap scheduler. For each non-draft roadmap entry of the snapshot, record the decision one pass would take (start, advance, recover, wait with its reason, or hold) without launching anything. Its golden goes beside the step-outcome goldens. It uses `RoadmapService.tick()` under R-B2's stepping seam, on a copy.
+  - **Record, don't patch.** Each live stop the operator hits becomes a LIVE finding plus a replay case or a redacted fixture test. The fix lands with its replay difference explained. A fix goes on `main` ahead of P2 only for data loss, a safety issue, or a stop with no working control. It is then merged into the P2 line the same day (program rule 7).
+- **Done when:**
+  - The 2026-09-27 snapshot and its step-outcome and scheduler goldens are recorded.
+  - The scheduler replay reproduces LIVE-06 (EXO-02 without a round) and LIVE-07 (WI-04's readiness), which R-C12 and R-C13 then change on purpose.
+  - Every LIVE finding has a replay case or test.
+
+### R-I11
+
+**Independent review of the live-run fixes made on `main`** · Phase P2 · Effort S · Status: open
+
+- **Added 2026-09-27.** Five fixes landed on `main` during the live run, each with a failing-first test and a full `pnpm check`, but without the independent review every P2 item gets. They are ca7b954 (LIVE-01), 1727f3b (LIVE-02), a2bb20a (LIVE-03), 616f323 (LIVE-04) and 18f0bb8 (LIVE-05, R-C5 increment 2). They reached the P2 line in f471830; both replays report 0 changed there.
+- **Review focus:**
+  - **1727f3b:** security reviews authorized by the operator for unowned slice cycles. Check `docs/security.md` and ADR-063's delegation wording.
+  - **a2bb20a:** the ct-act lock's stale-owner detection (PID plus `/proc` start time) and its behaviour at the check time limit.
+  - **616f323:** the `mergedIntoAfter` proxy against ADR-060. Changes outside the controller are still caught only by Git.
+  - **18f0bb8:**
+    - adoption;
+    - the hold release;
+    - the untested allowance exclusion;
+    - the retry of a reservation that created a worktree;
+    - the automatic-merge wait for checkpoint reviews.
+- **Done when:** each commit's review findings are fixed or have a recorded disposition in the relevant LIVE finding or R-C5, and `pnpm check` and both replays pass at the head.
+
 ## Finding index
 
-All 202 findings, in report order. Severity and status are the reviewer's; "Item" is the remediation item that resolves it.
+All 202 review findings in report order, then the LIVE findings recorded during the 2026-09-25/26 live run. Severity and status are the reviewer's; "Item" is the remediation item that resolves it.
 
 | Finding | Severity | Evidence | Effort | Item | Title |
 |---|---|---|---|---|---|
@@ -1836,6 +1924,14 @@ All 202 findings, in report order. Severity and status are the reviewer's; "Item
 | [UI-17](findings/UI-information-architecture.md#ui-17-roadmap-supervision-panels-share-mutable-page-level-dirty-gates-that-disable-unrelated-decisions) | low | CONFIRMED | S | [R-A6](#r-a6), [R-E2](#r-e2) | Roadmap supervision panels share mutable page-level "dirty" gates that disable unrelated decisions |
 | [UI-18](findings/UI-information-architecture.md#ui-18-the-work-item-page-stacks-up-to-about-a-dozen-conditional-panels-in-one-automated-cycle-section-slice-gates-sit-at-the-bottom) | medium | CONFIRMED | M | [R-A6](#r-a6), [R-E4](#r-e4) | The work-item page stacks up to about a dozen conditional panels in one "Automated cycle" section; slice gates sit at the bottom |
 | [UI-19](findings/UI-information-architecture.md#ui-19-the-e2e-and-walkthrough-suites-are-coupled-to-current-accessible-names-so-an-ia-migration-needs-a-test-plan) | low | CONFIRMED | M | [R-A6](#r-a6) | The e2e and walkthrough suites are coupled to current accessible names, so an IA migration needs a test plan |
+| [LIVE-01](findings/LIVE-live-run-2026-09-25.md#live-01-continue-with-guidance-was-refused-after-a-failed-step-though-the-stop-asked-for-guidance) | high | CONFIRMED; fixed ca7b954 | S | [R-A7](#r-a7), [R-I11](#r-i11) | Continue with guidance was refused after a failed step, though the stop asked for guidance |
+| [LIVE-02](findings/LIVE-live-run-2026-09-25.md#live-02-a-slice-cycle-no-roadmap-owned-never-ran-its-required-security-review-and-the-merge-refused-forever) | high | CONFIRMED; fixed 1727f3b | S-M | [R-A7](#r-a7), [R-I11](#r-i11) | A slice cycle no roadmap owned never ran its required security review, and the merge refused forever |
+| [LIVE-03](findings/LIVE-live-run-2026-09-25.md#live-03-concurrent-ct-act-runs-of-one-workflow-destroyed-each-others-containers) | high | CONFIRMED; fixed a2bb20a | S | [R-G4](#r-g4), [R-I11](#r-i11) | Concurrent ct-act runs of one workflow destroyed each other's containers |
+| [LIVE-04](findings/LIVE-live-run-2026-09-25.md#live-04-workflow-acceptance-and-the-merge-gate-disagreed-about-merged-candidate-checkpoint-evidence) | high | CONFIRMED; fixed 616f323 | S | [R-F1](#r-f1), [R-I11](#r-i11) | Workflow acceptance and the merge gate disagreed about merged-candidate checkpoint evidence |
+| [LIVE-05](findings/LIVE-live-run-2026-09-25.md#live-05-delegate-source-fixes-created-repairs-outside-the-roadmap-that-owned-the-review) | high | CONFIRMED; fixed 18f0bb8 | M | [R-C5](#r-c5), [R-I11](#r-i11) | Delegate source fixes created repairs outside the roadmap that owned the review |
+| [LIVE-06](findings/LIVE-live-run-2026-09-25.md#live-06-automatic-recovery-did-not-start-a-round-for-exo-02domain-and-nothing-said-why) | high | CONFIRMED; cause open | S-M | [R-C12](#r-c12), [R-I10](#r-i10) | Automatic recovery did not start a round for EXO-02/domain, and nothing said why |
+| [LIVE-07](findings/LIVE-live-run-2026-09-25.md#live-07-a-delegated-checkpoint-review-repeats-the-same-failed-attestation-on-every-resume) | medium | CONFIRMED; cause HYPOTHESIS | S-M | [R-C13](#r-c13), [R-I10](#r-i10) | A delegated checkpoint review repeats the same failed attestation on every resume |
+| [LIVE-08](findings/LIVE-live-run-2026-09-25.md#live-08-the-operator-cannot-see-what-is-supposed-to-run-and-what-blocks-it) | critical | CONFIRMED | S-M then L | [R-E3](#r-e3), [R-C12](#r-c12) | The operator cannot see what is supposed to run and what blocks it |
 
 **Finding-index amendments (2026-09-24, phase 1 review).**
 - **DATA-09.** Its remedy, dropping the three empty registry tables in a forward migration, is infeasible. `workspace_events` has foreign keys into them, and SQLite rejects inserts into it once they are missing. The finding stands. The code and configuration part is resolved by R-B8. The schema part needs a journal rebuild and moved to R-H6.

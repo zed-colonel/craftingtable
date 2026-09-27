@@ -2135,8 +2135,14 @@ export class RoadmapService {
         });
         return true;
       }
-      // The operator's command prepares its own round; a failed one is retried from there.
-      if (reserved.status === 'preparing' && reserved.recovery!.requestedByUserId) return true;
+      // The operator's command prepares its own round; a failed one is retried from there. One
+      // that no request is preparing (it failed, or the daemon stopped) waits on the operator.
+      if (reserved.status === 'preparing' && reserved.recovery!.requestedByUserId) {
+        if (this.preparingRounds.has(reserved.id)) return true;
+        conflict(
+          'Delegating source fixes did not finish. Repeat Delegate source fixes on the stopped review to continue this repair.',
+        );
+      }
       if (reserved.status === 'preparing') {
         const sourceTurn = this.storage.execution.runEvents.latestOfKind(
           ws,

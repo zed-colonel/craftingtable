@@ -365,3 +365,58 @@ itNeedsCargo(
     expect(outcome.rounds, JSON.stringify(outcome)).toBe(1);
   },
 );
+
+itNeedsCargo(
+  'a round a restart left half-prepared holds its entry until the operator repeats the request',
+  { timeout: 45000 },
+  async () => {
+    const { state, ws, tx, parent, sourceEntry, ownerEntry, input } = await stoppedParentReview();
+    const roadmap = storedRoadmap(state);
+    const ownerAttempt = roadmap.attempts.find((a) => a.entryId === ownerEntry.id && !a.recovery)!;
+    // What the request commits before it creates anything; the daemon then stopped.
+    const reserved: RoadmapAttempt = {
+      id: randomUUID(),
+      entryId: ownerEntry.id,
+      definitionRevision: ownerAttempt.definitionRevision,
+      worktreeId: randomUUID() as RoadmapAttempt['worktreeId'],
+      cycleId: randomUUID(),
+      status: 'preparing',
+      createdAt: new Date().toISOString(),
+      recovery: {
+        sourceEntryId: sourceEntry.id,
+        sourceRunId: parent.currentRunId,
+        sourceSequence: 1,
+        findingFingerprint: 'a'.repeat(64),
+        phase: 'repair',
+        reviewRunIds: {},
+        requestedByUserId: state.userId,
+      },
+    };
+    state.context.services.roadmapService['change'](roadmap, {
+      attempts: [...roadmap.attempts, reserved],
+    });
+    for (let i = 0; i < 2; i++) await state.context.services.roadmapService.tick();
+    // Nothing runs until the operator repeats the request, so the entry says so.
+    expect(storedRoadmap(state).entryHolds?.[sourceEntry.id]).toMatchObject({
+      status: 'needs-attention',
+      attention: { code: 'entry-preparation-failed' },
+    });
+    // The inbox shows the stopped review, whose controls repeat the request.
+    expect(
+      tx.attention
+        .recent(ws, 100)
+        .filter((item) => !item.resolvedAt)
+        .map((item) => [item.subjectKey, item.code]),
+    ).toContainEqual([`cycle:${parent.id}`, 'scope-review-recovery']);
+    // Repeating it prepares the same round and answers the hold.
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
+      headers: mutationHeaders(state),
+      payload: input,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().cycle.id).toBe(reserved.cycleId);
+    expect(storedRoadmap(state).entryHolds?.[sourceEntry.id]).toBeUndefined();
+  },
+);

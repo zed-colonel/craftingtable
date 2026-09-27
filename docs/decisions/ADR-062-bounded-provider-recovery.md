@@ -55,14 +55,17 @@ stderr never authorize retries", and they are the only ones:
 Both reads match the fixed status line within one line and the first 4 KB, with bounded
 quantifiers. The stderr read never changes a turn's outcome: it is reported with the completed
 turn as a suspected outage. The controller uses it only when that step would otherwise stop for
-the operator, and never when output was clipped: the stop is set aside for a credential retry,
-and the retry's reason names it. A step that completed anyway stands. The questions of a failed
+the operator with the agent's questions, and never when output was clipped: the question stop is
+set aside for a credential retry, and the retry's reason names it. A decision the step reached
+(an operator design decision, a shared decision, a rejected report) stays with the operator,
+with the outage noted (amended 2026-09-27). A step that completed anyway stands. The questions of a failed
 turn still keep it with the operator, credential rejection or not.
 
 The controller retries a `credential-rejected` step three times, after 5, 15 and 30 minutes,
 and moves the step deadline by each wait. Spent or unsafe retries stop with the code
 `provider-credentials-rejected`, naming the suspected outage and the evidence. When an approval
-outage cannot be retried, the step's own stop is kept, with the evidence added. A rejected
+outage cannot be retried, or its retries are spent, the step's own stop is kept, with the
+evidence added, so its code still leads to the control that answers it. A rejected
 local login (Codex's `unauthorized`, an API-key login or key, or a login that is gone) still
 stops at once and asks the operator to sign in again.
 

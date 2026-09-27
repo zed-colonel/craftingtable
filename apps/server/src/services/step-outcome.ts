@@ -253,8 +253,9 @@ function serviceRecovery(
     !!model &&
     model !== 'default';
   if (!retryable || attempts >= 3) {
-    // An approval outage that cannot be retried leaves the step's own stop, with the evidence.
-    if (stop && attempts < 3)
+    // An approval outage that cannot be, or can no longer be, retried leaves the step's own
+    // stop, so its code still routes the operator to the control that answers it.
+    if (stop)
       return {
         ...stop,
         message: `${stop.message} ${failure.message} Evidence: ${failure.evidence ?? 'none recorded'}.`,
@@ -320,6 +321,16 @@ function serviceRecovery(
   };
 }
 
+/** Question stops that a refused approval review during the turn may have caused (R-C11). */
+const OUTAGE_QUESTION_STOPS: ReadonlySet<string> = new Set([
+  'exit-with-open-questions',
+  'work-item-questions',
+  'design-open-questions',
+  'implementation-open-questions',
+  'review-open-questions',
+  'scope-review-open-questions',
+]);
+
 export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcomeDecision {
   const decision = decideOwnOutcome(input, facts);
   const { run, turn } = facts;
@@ -335,6 +346,13 @@ export function decideStepOutcome(input: WorkCycle, facts: StepOutcomeFacts): St
     turn?.payload.outcome !== 'success'
   )
     return decision;
+  // Only the agent's questions can be the outage's doing. A decision the step reached stays
+  // the operator's, with the outage noted.
+  if (!OUTAGE_QUESTION_STOPS.has(decision.code))
+    return {
+      ...decision,
+      message: `${decision.message} ${outage.message} Evidence: ${outage.evidence ?? 'none recorded'}.`,
+    };
   const clipped =
     !!turn.payload.truncated || facts.assistantMessages().some((message) => message.truncated);
   const recovery = serviceRecovery(input, facts, outage, !clipped, decision);

@@ -677,6 +677,58 @@ describe('controller step classification (R-B2)', () => {
     ).toMatchObject({ kind: 'attention', code: 'provider-credentials-rejected' });
   });
 
+  it('sets aside only question stops after a refused approval review, and keeps them once spent (R-C11)', () => {
+    const outage = credentialFailure();
+    const annotated = (
+      overrides: Partial<StepOutcomeFacts>,
+      attempts?: number,
+      step = 'implement',
+    ) =>
+      decideStepOutcome(
+        cycleOf({
+          step,
+          ...(attempts === undefined
+            ? {}
+            : {
+                providerRecovery: {
+                  attempts,
+                  sourceRunId: 'run-0',
+                  failure: outage,
+                  profile: { backend: 'codex', permissionMode: 'auto', model: 'implement-model' },
+                },
+              }),
+        }),
+        facts(overrides),
+      );
+    const question = { turn: turnOf(withQuestions, { suspectedOutage: outage }) };
+    // The agent's questions are likely about the outage: wait for the provider.
+    expect(annotated(question)).toMatchObject({ kind: 'schedule-service-retry' });
+    // A decision the step reached stays the operator's; the outage is only noted.
+    expect(
+      annotated(
+        {
+          run: runOf({ role: 'design' }),
+          turn: turnOf(
+            design([{ kind: 'operator-decision', question: 'Store?', answer: '', sources: [] }]),
+            { suspectedOutage: outage },
+          ),
+        },
+        undefined,
+        'design',
+      ),
+    ).toMatchObject({
+      kind: 'attention',
+      code: 'design-decision-required',
+      message: expect.stringContaining('Evidence: HTTP 401'),
+    });
+    // Once the retries are spent, the step's own question stop remains, naming the outage.
+    expect(annotated(question, 3)).toMatchObject({
+      kind: 'attention',
+      code: 'implementation-open-questions',
+      message: expect.stringContaining('Evidence: HTTP 401'),
+    });
+  });
+
   it('schedules service retries after 1, 5 and 15 minutes on the same agent', () => {
     const decide = (attempts: number) =>
       decideStepOutcome(

@@ -290,6 +290,14 @@ export class WorkCycleService {
     return collectScopeRepair(mapReadSnapshot(this.storage), cycle);
   }
 
+  /** Records the roadmap round that adopted a repair delegated without an owner. */
+  adoptRoadmapRound(cycle: WorkCycle, owner: CycleOwner): WorkCycle {
+    const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+    if (current?.version !== cycle.version || current.owner !== null || !current.scopeRepair)
+      throw new ConcurrentModificationError('Repair cycle changed; adoption is retried.');
+    return this.change(current, { owner }, 'adopt-roadmap-round');
+  }
+
   private readonly repairing = new Set<string>();
   async delegateScopeRepair(
     context: CommandContext,

@@ -165,6 +165,7 @@ export const roadmapAttemptSchema = z.strictObject({
       phase: z.enum(['repair', 'verification', 'parent-review', 'completed']),
       reviewRunIds: z.record(z.string().uuid(), z.string().uuid()),
       reviewRestarts: z.record(z.string().uuid(), z.number().int().nonnegative()).optional(),
+      requestedByUserId: userIdSchema.optional(),
     })
     .optional(),
   id: z.string().uuid(),

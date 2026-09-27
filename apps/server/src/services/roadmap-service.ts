@@ -2,7 +2,7 @@ import {
   decisionBindingDigest,
   supportsArchitectureDecision,
 } from './architecture-decision-policy.js';
-import { ownerOf } from './cycle-ownership.js';
+import { cycleOwnership, ownerOf } from './cycle-ownership.js';
 import { predecessorGate } from './transition-gate.js';
 import { currentDecisionPreparation } from './decision-preparation-policy.js';
 import {
@@ -20,6 +20,7 @@ import type {
   SaveRoadmapCapacity,
   SaveRoadmapRequest,
   ScopeRecoveryPolicyRequest,
+  ScopeRepairRequest,
 } from '@craftingtable/contracts';
 import {
   selectionsForPurpose,
@@ -63,11 +64,11 @@ import { mapReadSnapshot } from './map-read-snapshot.js';
 import { PhaseGateError } from './phase-resources.js';
 import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
 import { acceptedEvidence } from './runtime-evidence-policy.js';
-import { scopeRecoveryDecision } from './scope-recovery-policy.js';
+import { findingFingerprint, scopeRecoveryDecision } from './scope-recovery-policy.js';
 import { collectScopeRepair } from './scope-repair.js';
 import type { WorkCycleService } from './work-cycle-service.js';
 import type { WorkItemService } from './work-item-service.js';
-import { securityReviewCurrent } from './workflow-policy.js';
+import { securityReviewCurrent, workflowContext } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
@@ -76,6 +77,18 @@ import type { RoadmapAlert } from './notification-service.js';
 class SupersededRoadmapOperation extends Error {}
 
 const ended = (roadmap: Roadmap) => ['stopped', 'completed'].includes(roadmap.status);
+/**
+ * The holds left once the operator answered a stopped review with a repair round: its
+ * needs-attention hold is answered, an explicit item pause stays.
+ */
+function answeredHolds(roadmap: Roadmap, entryId: string): Roadmap['entryHolds'] {
+  const { [entryId]: hold, ...others } = roadmap.entryHolds ?? {};
+  return hold?.status === 'needs-attention' ? others : roadmap.entryHolds;
+}
+/** Automatic recovery carries every round; a round the operator requested is always carried. */
+function drivesRound(roadmap: Roadmap, attempt: RoadmapAttempt): boolean {
+  return !!roadmap.scopeRecovery?.enabled || !!attempt.recovery?.requestedByUserId;
+}
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
@@ -812,11 +825,10 @@ export class RoadmapService {
         const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
         // Recovery, not another review of unchanged source, owns these stopped checkpoints.
         if (
-          roadmap.scopeRecovery?.enabled &&
           cycle?.executionScope &&
           cycle.executionScope.kind !== 'slice' &&
-          (cycle.status === 'needs-attention' ||
-            !!this.recoveryFor(
+          ((roadmap.scopeRecovery?.enabled && cycle.status === 'needs-attention') ||
+            !!this.roundFor(
               roadmap,
               roadmap.definition.entries.find((e) => e.id === attempt.entryId)!,
             ))
@@ -946,10 +958,10 @@ export class RoadmapService {
           ['paused', 'needs-attention'].includes(cycle.status) &&
           this.resumable(cycle) &&
           !(
-            roadmap.scopeRecovery?.enabled &&
             cycle.executionScope &&
             cycle.executionScope.kind !== 'slice' &&
-            (cycle.status === 'needs-attention' || !!recovery)
+            ((roadmap.scopeRecovery?.enabled && cycle.status === 'needs-attention') ||
+              !!this.roundFor(roadmap, entry))
           )
         )
           await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
@@ -1173,9 +1185,19 @@ export class RoadmapService {
     try {
       for (const roadmap of this.storage.roadmaps.list()) {
         if (this.abort.signal.aborted) break;
-        if (roadmap.status !== 'running' || this.controlling.has(roadmap.id)) continue;
+        if (this.controlling.has(roadmap.id)) continue;
+        // A paused roadmap adopts open repairs too; its pause holds their controller reviews.
+        if (['paused', 'needs-attention'].includes(roadmap.status)) {
+          try {
+            this.adoptManualRepairs(roadmap);
+          } catch {
+            // Adoption is retried on the next pass.
+          }
+          continue;
+        }
+        if (roadmap.status !== 'running') continue;
         try {
-          await this.advance(roadmap);
+          await this.advance(this.adoptManualRepairs(roadmap));
         } catch (error) {
           if (
             error instanceof SupersededRoadmapOperation ||
@@ -1444,7 +1466,7 @@ export class RoadmapService {
           }
           if (
             !reviewingRecovery &&
-            roadmap.scopeRecovery?.enabled &&
+            (roadmap.scopeRecovery?.enabled || this.roundFor(roadmap, entry)) &&
             (await this.advanceScopeRecovery(roadmap, entry, cycle))
           )
             return;
@@ -1529,7 +1551,7 @@ export class RoadmapService {
           this.authority(current);
           if (
             boundAttempt.recovery &&
-            (!current.scopeRecovery?.enabled ||
+            (!drivesRound(current, boundAttempt) ||
               current.entryHolds?.[boundAttempt.recovery.sourceEntryId] ||
               !current.attempts.some(
                 (a) => a.id === boundAttempt.id && a.recovery?.phase === 'repair',
@@ -1590,7 +1612,11 @@ export class RoadmapService {
             if (
               cycle.workflow.activeReview ||
               (cycle.workflow.securityRequired &&
-                (!review || !securityReviewCurrent(this.storage, cycle, review)))
+                (!review || !securityReviewCurrent(this.storage, cycle, review))) ||
+              // A checkpoint review the cycle runs itself, e.g. after evidence went stale.
+              workflowContext(this.storage, cycle)?.checkpoints.some(
+                (c) => !c.accepted && c.supported && c.assigned && !c.pending.length,
+              )
             )
               return;
           }
@@ -1741,6 +1767,231 @@ export class RoadmapService {
         ),
     );
   }
+  /** The review each of the work item's verification and parent entries last ran. */
+  private reviewRunIds(roadmap: Roadmap, entry: RoadmapEntry): Record<string, string> {
+    return Object.fromEntries(
+      roadmap.attempts.flatMap((a) => {
+        const e = roadmap.definition.entries.find((e) => e.id === a.entryId);
+        const c = this.storage.execution.cycles.find(roadmap.workspaceId, a.cycleId);
+        return e?.workItemId === entry.workItemId && e.executionScope?.kind !== 'slice' && c
+          ? [[e.id, c.currentRunId]]
+          : [];
+      }),
+    );
+  }
+  /**
+   * Delegates source fixes the operator chose from an independent review. When a live roadmap
+   * owns that review and the owning slice, the repair is an operator-requested recovery round
+   * of the roadmap: it keeps the roadmap's reviewer delegation, holds and merge policy, and
+   * the roadmap re-runs verification and parent review afterwards. Otherwise the repair is
+   * the operator's own cycle.
+   */
+  async delegateScopeRepair(
+    context: AuthContext,
+    ws: WorkspaceId,
+    cycleId: string,
+    input: ScopeRepairRequest,
+  ): Promise<WorkCycle> {
+    const source = this.storage.execution.cycles.find(ws, cycleId);
+    const owned = source && cycleOwnership(this.storage, source);
+    let roadmap = owned?.roadmap;
+    const sourceEntry = roadmap?.definition.entries.find((e) => e.id === owned!.attempt.entryId);
+    const owner = roadmap?.definition.entries.find(
+      (e) =>
+        e.workItemId === source!.workItemId &&
+        e.executionScope?.kind === 'slice' &&
+        e.executionScope.sourceId === input.sourceId,
+    );
+    if (!roadmap || ended(roadmap) || roadmap.status === 'draft' || !sourceEntry || !owner)
+      return this.cycles.delegateScopeRepair(context, ws, cycleId, input);
+    this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    const ownerAttempt = roadmap.attempts.find((a) => a.entryId === owner.id && !a.recovery);
+    if (!ownerAttempt)
+      conflict('The owning slice has not run in this roadmap yet. Start it from the roadmap.');
+    const frozen = attemptDefinition(this.storage, roadmap, ownerAttempt)?.entries.find(
+      (e) => e.id === owner.id,
+    );
+    if (!frozen) conflict('The owning slice’s roadmap settings are unavailable.');
+    const open = this.recoveryFor(roadmap, sourceEntry);
+    // A round this command prepared earlier and that created nothing is retried in place.
+    const retry =
+      open?.status === 'preparing' &&
+      open.recovery!.requestedByUserId &&
+      open.entryId === owner.id &&
+      !this.storage.execution.cycles.find(ws, open.cycleId)
+        ? open
+        : undefined;
+    if (open && !retry)
+      conflict('A recovery round for this work item is already open. Continue it from its cycle.');
+    let reserved = retry;
+    if (!reserved) {
+      const turn = this.storage.execution.runEvents.latestOfKind(
+        ws,
+        source!.currentRunId,
+        'turn-completed',
+      );
+      const report = turn?.kind === 'turn-completed' ? turn.payload.reviewReport : undefined;
+      if (!turn || report?.status !== 'complete')
+        conflict('Source fixes need the review’s complete report.');
+      // The owning slice's existing worktree, if any, is where the repair continues.
+      const existing = collectScopeRepair(mapReadSnapshot(this.storage), source!).candidates.find(
+        (c) => c.scope.sourceId === input.sourceId,
+      )?.worktreeId;
+      reserved = {
+        id: randomUUID(),
+        entryId: owner.id,
+        definitionRevision: ownerAttempt.definitionRevision,
+        worktreeId: existing ?? asWorktreeId(randomUUID()),
+        cycleId: randomUUID(),
+        status: 'preparing',
+        createdAt: this.now().toISOString(),
+        recovery: {
+          sourceEntryId: sourceEntry.id,
+          sourceRunId: source!.currentRunId,
+          sourceSequence: turn.sequence,
+          findingFingerprint: findingFingerprint(report.report.findings),
+          phase: 'repair',
+          reviewRunIds: this.reviewRunIds(roadmap, sourceEntry),
+          requestedByUserId: context.user.id,
+        },
+      };
+      roadmap = this.change(
+        roadmap,
+        {
+          attempts: [...roadmap.attempts, reserved],
+          entryHolds: answeredHolds(roadmap, sourceEntry.id),
+        },
+        'reserve-scope-recovery',
+        context,
+      );
+    }
+    const round = reserved;
+    const id = roadmap.id;
+    try {
+      return await this.cycles.delegateScopeRepair(
+        context,
+        ws,
+        cycleId,
+        {
+          ...input,
+          instructions: [frozen.instructions, input.instructions]
+            .map((text) => text.trim())
+            .filter(Boolean)
+            .join('\n\n'),
+        },
+        {
+          worktreeId: round.worktreeId,
+          cycleId: round.cycleId,
+          owner: ownerOf(roadmap, round),
+          profiles: frozen.profiles,
+          policy: { ...frozen.policy, maxRemediationRounds: input.maxRemediationRounds },
+          check: () => {
+            const current = this.find(ws, id);
+            if (
+              ended(current) ||
+              !current.attempts.some((a) => a.id === round.id && a.status === 'preparing')
+            )
+              conflict('The roadmap changed while this repair was being prepared. Refresh.');
+          },
+          attach: () => this.updateRecovery(this.find(ws, id), round, { status: 'active' }),
+        },
+      );
+    } catch (error) {
+      // Nothing was created: release the reservation so it does not hold the work item.
+      const current = this.find(ws, id);
+      if (
+        !this.storage.execution.worktrees.find(ws, round.worktreeId) &&
+        !this.storage.execution.cycles.find(ws, round.cycleId) &&
+        current.attempts.some((a) => a.id === round.id && a.status === 'preparing')
+      )
+        this.change(current, { attempts: current.attempts.filter((a) => a.id !== round.id) });
+      throw error;
+    }
+  }
+  /**
+   * Repairs delegated from a roadmap's review before they kept their roadmap (2026-09-26) are
+   * adopted as operator-requested rounds while they are still open, so they get the roadmap's
+   * reviewer delegation and the roadmap finishes them.
+   */
+  private adoptManualRepairs(roadmap: Roadmap): Roadmap {
+    const ws = roadmap.workspaceId;
+    for (const cycle of this.storage.execution.cycles.listActive()) {
+      if (
+        cycle.workspaceId !== ws ||
+        cycle.owner !== null ||
+        !cycle.scopeRepair ||
+        cycle.executionScope?.kind !== 'slice' ||
+        this.cycles.isTransitioning(cycle.id)
+      )
+        continue;
+      const source = this.storage.execution.cycles.find(ws, cycle.scopeRepair.sourceCycleId);
+      const owned = source && cycleOwnership(this.storage, source);
+      if (owned?.roadmap.id !== roadmap.id) continue;
+      const sourceEntry = roadmap.definition.entries.find((e) => e.id === owned.attempt.entryId);
+      const owner = roadmap.definition.entries.find(
+        (e) =>
+          e.workItemId === cycle.workItemId &&
+          sameExecutionScope(e.executionScope, cycle.executionScope),
+      );
+      const ownerAttempt =
+        owner && roadmap.attempts.find((a) => a.entryId === owner.id && !a.recovery);
+      if (!sourceEntry || !owner || !ownerAttempt || this.recoveryFor(roadmap, sourceEntry))
+        continue;
+      // The pinned source the repair was delegated from: the review in the source worktree.
+      const pinned =
+        cycle.scopeRepair.sources.find(
+          (s) =>
+            this.storage.execution.runs.find(ws, asAgentRunId(s.runId))?.worktreeId ===
+            source!.worktreeId,
+        ) ?? cycle.scopeRepair.sources[0];
+      if (!pinned) continue;
+      const turn = this.storage.execution.runEvents.latestOfKind(
+        ws,
+        asAgentRunId(pinned.runId),
+        'turn-completed',
+      );
+      const report = turn?.kind === 'turn-completed' ? turn.payload.reviewReport : undefined;
+      const round: RoadmapAttempt = {
+        id: randomUUID(),
+        entryId: owner.id,
+        definitionRevision: ownerAttempt.definitionRevision,
+        worktreeId: cycle.worktreeId,
+        cycleId: cycle.id,
+        status: 'active',
+        createdAt: this.now().toISOString(),
+        recovery: {
+          sourceEntryId: sourceEntry.id,
+          sourceRunId: asAgentRunId(pinned.runId),
+          sourceSequence: pinned.sequence,
+          findingFingerprint: findingFingerprint(
+            report?.status === 'complete' ? report.report.findings : [],
+          ),
+          phase: 'repair',
+          reviewRunIds: this.reviewRunIds(roadmap, sourceEntry),
+          requestedByUserId: cycle.createdByUserId,
+        },
+      };
+      const adopted = roadmap;
+      roadmap = this.storage.transaction(() => {
+        const next = this.change(
+          adopted,
+          {
+            attempts: [...adopted.attempts, round],
+            entryHolds: answeredHolds(adopted, sourceEntry.id),
+          },
+          'adopt-scope-repair',
+        );
+        this.cycles.adoptRoadmapRound(cycle, ownerOf(next, round));
+        return next;
+      });
+    }
+    return roadmap;
+  }
+  /** The live recovery round for this work item that the roadmap carries through. */
+  private roundFor(roadmap: Roadmap, entry: RoadmapEntry) {
+    const round = this.recoveryFor(roadmap, entry);
+    return round && drivesRound(roadmap, round) ? round : undefined;
+  }
   private updateRecovery(
     roadmap: Roadmap,
     attempt: RoadmapAttempt,
@@ -1760,7 +2011,7 @@ export class RoadmapService {
     let attempt = this.recoveryFor(roadmap, entry);
     if (attempt && attempt.recovery!.sourceEntryId !== entry.id) return true;
     if (!attempt) {
-      if (sourceCycle.status !== 'needs-attention') return false;
+      if (sourceCycle.status !== 'needs-attention' || !roadmap.scopeRecovery?.enabled) return false;
       const decision = scopeRecoveryDecision(
         mapReadSnapshot(this.storage),
         roadmap,
@@ -1792,15 +2043,7 @@ export class RoadmapService {
           sourceSequence: decision.sourceSequence!,
           findingFingerprint: decision.fingerprint!,
           phase: 'repair',
-          reviewRunIds: Object.fromEntries(
-            roadmap.attempts.flatMap((a) => {
-              const e = roadmap.definition.entries.find((e) => e.id === a.entryId);
-              const c = this.storage.execution.cycles.find(ws, a.cycleId);
-              return e?.workItemId === entry.workItemId && e.executionScope?.kind !== 'slice' && c
-                ? [[e.id, c.currentRunId]]
-                : [];
-            }),
-          ),
+          reviewRunIds: this.reviewRunIds(roadmap, entry),
         },
       };
       roadmap = this.change(
@@ -1815,7 +2058,7 @@ export class RoadmapService {
       const current = this.find(ws, roadmap.id);
       if (
         current.status !== 'running' ||
-        !current.scopeRecovery?.enabled ||
+        !current.attempts.some((a) => a.id === reserved.id && drivesRound(current, a)) ||
         this.controlling.has(current.id) ||
         this.abort.signal.aborted ||
         current.entryHolds?.[entry.id] ||
@@ -1846,6 +2089,8 @@ export class RoadmapService {
         });
         return true;
       }
+      // The operator's command prepares its own round; a failed one is retried from there.
+      if (reserved.status === 'preparing' && reserved.recovery!.requestedByUserId) return true;
       if (reserved.status === 'preparing') {
         const sourceTurn = this.storage.execution.runEvents.latestOfKind(
           ws,
@@ -2071,11 +2316,7 @@ export class RoadmapService {
     tx: StorageRepositories = this.storage,
     ignoreRecovery = false,
   ): boolean {
-    if (
-      roadmap.scopeRecovery?.enabled &&
-      !ignoreRecovery &&
-      this.recoveryFor(roadmap, entry)?.recovery?.sourceEntryId === entry.id
-    )
+    if (!ignoreRecovery && this.roundFor(roadmap, entry)?.recovery?.sourceEntryId === entry.id)
       return false;
     if (entry.executionScope) {
       const scope = entry.executionScope;
@@ -2307,12 +2548,8 @@ export class RoadmapService {
             };
           if (hold && currentCycle?.status !== 'running')
             return { entryId: entry.id, status: hold.status, reason: hold.reason };
-          const recovery = this.recoveryFor(roadmap, entry);
-          if (
-            roadmap.scopeRecovery?.enabled &&
-            recovery &&
-            entry.executionScope?.kind !== 'slice'
-          ) {
+          const recovery = this.roundFor(roadmap, entry);
+          if (recovery && entry.executionScope?.kind !== 'slice') {
             const repair = snapshot.execution.cycles.find(roadmap.workspaceId, recovery.cycleId);
             const repairNeedsYou =
               recovery.recovery!.phase === 'repair' &&

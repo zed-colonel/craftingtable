@@ -159,7 +159,13 @@ export function buildServer(
   registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);
   registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);
   registerNotificationRoutes(app, deps.authService, deps.notificationService, config);
-  registerWorkCycleRoutes(app, deps.authService, deps.workCycleService, config);
+  registerWorkCycleRoutes(
+    app,
+    deps.authService,
+    deps.workCycleService,
+    config,
+    deps.roadmapService,
+  );
   registerHealthRoute(app);
   registerAuthRoutes(app, deps.authService, config);
   registerWorkspaceRoutes(app, deps.authService, deps.workspaceService, config);

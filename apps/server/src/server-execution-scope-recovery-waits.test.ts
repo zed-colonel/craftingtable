@@ -92,13 +92,15 @@ async function stoppedVerification(holderWaitsOnOwner = false) {
 itNeedsCargo.each([
   'a slot another item holds',
   'a slot held by work that waits on this slice',
+  'two slots held by work that waits on this slice',
 ] as const)(
   'automatic recovery that needs %s records why, or borrows it (LIVE-06)',
   {
     timeout: 45000,
   },
   async (shape) => {
-    const deadlock = shape === 'a slot held by work that waits on this slice';
+    const deadlock = shape !== 'a slot another item holds';
+    const overLimit = shape === 'two slots held by work that waits on this slice';
     const { state, ws, tx, sourceEntryId, ownerEntryId } = await stoppedVerification(deadlock);
     await roadmapControl(state, 'pause');
     const enabled = await state.context.app.inject({
@@ -120,30 +122,57 @@ itNeedsCargo.each([
       .bindings(ws, merged.executionScope!.definitionId)[0]!
       .bindings.flatMap((b) => b.workItems)
       .find((w) => w.sourceId === 'local/AQ-02')!.workItemId;
-    tx.execution.worktrees.insert({
-      id: asWorktreeId(randomUUID()),
-      workspaceId: ws,
-      repositoryId: merged.repositoryId,
-      projectId: merged.projectId,
-      workItemId: next,
-      ...(merged.planVersionId ? { planVersionId: merged.planVersionId } : {}),
-      executionScope: { ...merged.executionScope!, sourceId: 'local/AQ-02/a' },
-      branchName: 'slot-holder',
-      baseSha: merged.baseSha,
-      baseBranch: merged.baseBranch,
-      ...(merged.integrationBranch ? { integrationBranch: merged.integrationBranch } : {}),
-      path: join(state.context.directory, 'slot-holder'),
-      createdAt: merged.createdAt,
-      createdByUserId: merged.createdByUserId,
-    });
+    const holder = (name: string) =>
+      tx.execution.worktrees.insert({
+        id: asWorktreeId(randomUUID()),
+        workspaceId: ws,
+        repositoryId: merged.repositoryId,
+        projectId: merged.projectId,
+        workItemId: next,
+        ...(merged.planVersionId ? { planVersionId: merged.planVersionId } : {}),
+        executionScope: { ...merged.executionScope!, sourceId: 'local/AQ-02/a' },
+        branchName: name,
+        baseSha: merged.baseSha,
+        baseBranch: merged.baseBranch,
+        ...(merged.integrationBranch ? { integrationBranch: merged.integrationBranch } : {}),
+        path: join(state.context.directory, name),
+        createdAt: merged.createdAt,
+        createdByUserId: merged.createdByUserId,
+      });
+    holder('slot-holder');
+    if (overLimit) holder('second-slot-holder');
+    if (deadlock && !overLimit) {
+      // Only a recovery round borrows the slot; an ordinary start of the slice does not.
+      const roadmap = storedRoadmap(state);
+      const owner = roadmap.definition.entries.find((e) => e.id === ownerEntryId)!;
+      const blocker = (recovery: boolean) =>
+        state.context.services.roadmapService['blocker'](roadmap, owner, undefined, tx, recovery);
+      expect(blocker(false)?.kind).toBe('capacity-blocked');
+      expect(blocker(true)).toBeUndefined();
+    }
     await roadmapControl(state, 'resume');
     await state.context.services.roadmapService.tick();
     const roadmap = storedRoadmap(state);
     const round = roadmap.attempts.find((a) => a.recovery?.sourceEntryId === sourceEntryId);
+    if (overLimit) {
+      // One slot more would not be enough: the circular wait is the operator's to resolve.
+      expect(round).toBeUndefined();
+      expect(roadmap.entryHolds?.[sourceEntryId]).toMatchObject({
+        status: 'needs-attention',
+        attention: { code: 'entry-blocked' },
+      });
+      expect(roadmap.entryHolds?.[sourceEntryId]?.reason).toContain('cannot free by themselves');
+      return;
+    }
     if (deadlock) {
       // The holder can never merge before this slice is verified: the round takes one slot more.
       expect(round).toBeDefined();
-      expect(roadmap.entryWaits?.[sourceEntryId]?.code).not.toBe('capacity-blocked');
+      await state.context.services.roadmapService.tick();
+      expect(tx.execution.cycles.find(ws, round!.cycleId)).toBeDefined();
+      expect(storedRoadmap(state).entryWaits?.[sourceEntryId]).toMatchObject({
+        code: 'recovery-round',
+        refs: { entryId: ownerEntryId, cycleId: round!.cycleId },
+      });
       return;
     }
     expect(round).toBeUndefined();
@@ -158,12 +187,26 @@ itNeedsCargo.each([
   },
 );
 
-itNeedsCargo.each(['paused', 'running'] as const)(
+itNeedsCargo.each(['paused', 'running', 'running, review paused'] as const)(
   'an open repair the roadmap cannot adopt holds the review it came from: %s (R-I11 → R-C12)',
   { timeout: 45000 },
-  async (status) => {
+  async (shape) => {
+    const status = shape === 'paused' ? 'paused' : 'running';
     const { f, state, ws, tx, review, sourceEntryId } = await stoppedVerification();
     if (status === 'paused') await roadmapControl(state, 'pause');
+    if (shape === 'running, review paused') {
+      const paused = await state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/control`,
+        headers: mutationHeaders(state),
+        payload: {
+          action: 'pause',
+          entryId: sourceEntryId,
+          expectedVersion: storedRoadmap(state).version,
+        },
+      });
+      expect(paused.statusCode, paused.body).toBe(200);
+    }
     const preview = state.context.services.workCycleService.previewScopeRepair(
       f.auth,
       ws,
@@ -175,7 +218,7 @@ itNeedsCargo.each(['paused', 'running'] as const)(
       ws,
       review.id,
       {
-        expectedVersion: review.version,
+        expectedVersion: tx.execution.cycles.find(ws, review.id)!.version,
         snapshotDigest: preview.snapshotDigest,
         sourceId: preview.candidates[0]!.scope.sourceId,
         instructions: 'Repair the missing family.',
@@ -191,6 +234,15 @@ itNeedsCargo.each(['paused', 'running'] as const)(
     await state.context.services.roadmapService.tick();
     const held = storedRoadmap(state);
     expect(held.status).toBe(status);
+    if (shape === 'running, review paused') {
+      // The operator's pause of that review stands through the failure and the adoption.
+      expect(held.entryHolds?.[sourceEntryId]?.status).toBe('paused');
+      refused.mockRestore();
+      await state.context.services.roadmapService.tick();
+      expect(tx.execution.cycles.find(ws, repair.id)?.owner).toBeTruthy();
+      expect(storedRoadmap(state).entryHolds?.[sourceEntryId]?.status).toBe('paused');
+      return;
+    }
     expect(held.entryHolds?.[sourceEntryId]).toMatchObject({
       status: 'needs-attention',
       attention: { code: 'entry-preparation-failed', refs: { cycleId: repair.id } },

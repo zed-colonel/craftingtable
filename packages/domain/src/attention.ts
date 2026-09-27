@@ -119,7 +119,8 @@ export const ROADMAP_ATTENTION_CODES = Object.keys(ROADMAP_ATTENTION) as Roadmap
  * is who acts next: the controller when the wait clears without anyone (capacity, prerequisite
  * work, a running review or recovery round, a cycle's own controller wait), the operator when
  * the entry waits on a stop the operator owns (the cycle's attention item, a hold, or their own
- * pause). An operator-owned wait always points at the item or pause that carries the stop.
+ * pause or stop). An operator-owned wait always points at the item, pause or stop that carries
+ * it.
  */
 export const ENTRY_WAIT = {
   // The scheduler's own blockers (`RoadmapService.blocker`).
@@ -137,6 +138,8 @@ export const ENTRY_WAIT = {
   'cycle-waiting': 'controller',
   'cycle-attention': 'operator',
   'cycle-paused': 'operator',
+  // The entry's cycle ended (stopped, or completed without the entry completing).
+  'cycle-ended': 'operator',
   'entry-held': 'operator',
 } as const satisfies Record<string, AttentionOwner>;
 export type EntryWaitCode = keyof typeof ENTRY_WAIT;

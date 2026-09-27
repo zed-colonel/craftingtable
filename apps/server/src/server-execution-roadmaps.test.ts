@@ -31,6 +31,21 @@ import {
 afterEach(cleanupExecutionFixtures);
 
 describe('sequential roadmaps', () => {
+  it('records why the entry a pass evaluates waits (R-C12)', async () => {
+    const { state } = await roadmapFixture();
+    expect((await saveRoadmapRequest(state)).statusCode).toBe(200);
+    await roadmapControl(state, 'start');
+    const first = await awaitRoadmapMerge(state, 0);
+    await state.context.services.roadmapService.tick();
+    // The first item waits on the operator's merge approval; the second is not evaluated.
+    expect(storedRoadmap(state).entryWaits).toEqual({
+      [first.entryId]: expect.objectContaining({
+        code: 'cycle-attention',
+        refs: { cycleId: first.cycleId },
+      }),
+    });
+  });
+
   it('saves without execution, delegates each item, and advances only after operator merges', async () => {
     const { state, backend, root, second } = await roadmapFixture([
       designDone,

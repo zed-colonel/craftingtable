@@ -61,7 +61,12 @@ describe('the wait a cycle the scheduler leaves alone implies', () => {
     [
       'the operator stopped it',
       cycle('stopped'),
-      waiting('cycle-attention', 'Cycle is stopped.', { cycleId: 'cycle-1' }),
+      waiting('cycle-ended', 'Cycle is stopped.', { cycleId: 'cycle-1' }),
+    ],
+    [
+      'it completed without the entry completing',
+      cycle('completed'),
+      waiting('cycle-ended', 'Cycle is completed.', { cycleId: 'cycle-1' }),
     ],
   ])('%s', (_name, input, expected) => {
     expect(cycleStep(input)).toEqual(expected);

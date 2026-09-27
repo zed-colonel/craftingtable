@@ -19,6 +19,8 @@ export interface EntryBlocker {
   readonly reason: string;
   readonly needsAttention: boolean;
   readonly kind: 'dependency-blocked' | 'capacity-blocked' | 'exclusion-blocked';
+  /** A recovery round's capacity is held by work that waits on the slice it repairs. */
+  readonly circular?: true;
 }
 export type EntryWaitInput = Omit<RoadmapEntryWait, 'since'>;
 export type EntryStep = { readonly moved: true } | { readonly wait: EntryWaitInput };
@@ -54,6 +56,8 @@ export function cycleStep(cycle: WorkCycle): EntryStep {
   if (cycle.status === 'running') return MOVED;
   const refs = { cycleId: cycle.id };
   if (cycle.status === 'paused') return waiting('cycle-paused', cycle.reason, refs);
+  if (cycle.status === 'stopped' || cycle.status === 'completed')
+    return waiting('cycle-ended', cycle.reason, refs);
   const attention = effectiveCycleAttention(cycle);
   return waiting(
     attention?.owner === 'controller' ? 'cycle-waiting' : 'cycle-attention',

@@ -45,6 +45,7 @@ import {
   type WorkCycle,
   type WorkspaceId,
   type Worktree,
+  type ExecutionScope,
   startedAttempts,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -108,7 +109,7 @@ const ended = (roadmap: Roadmap) => ['stopped', 'completed'].includes(roadmap.st
 /** An entry the scheduler holds for a typed reason the operator resolves (R-A5). */
 class EntryHoldError extends ExecutionRequestError {
   constructor(
-    readonly attentionCode: 'evidence-not-current',
+    readonly attentionCode: 'evidence-not-current' | 'entry-blocked',
     message: string,
   ) {
     super('conflict', message);
@@ -1471,6 +1472,15 @@ export class RoadmapService {
     try {
       const step = await this.advanceEntry(roadmap, entry);
       this.observer?.entry(roadmap, entry, { kind: 'evaluated', step });
+      // A sequential pass evaluates one entry, and records its wait the same way (R-C12).
+      const current = this.find(roadmap.workspaceId, roadmap.id);
+      const waits = nextEntryWaits(
+        current.entryWaits,
+        new Map([[entry.id, step]]),
+        this.now().toISOString(),
+      );
+      if (current.status === 'running' && !sameEntryWaits(current.entryWaits, waits))
+        this.change(current, { entryWaits: waits });
     } catch (error) {
       this.observer?.entry(
         roadmap,
@@ -2129,6 +2139,11 @@ export class RoadmapService {
         )
           continue;
         const current = this.find(ws, roadmap.id);
+        // The operator's own pause of that review stays; the failure is recorded once it lifts.
+        if (current.entryHolds?.[sourceEntry.id]?.status === 'paused') {
+          roadmap = current;
+          continue;
+        }
         const hold = {
           status: 'needs-attention' as const,
           reason: `Could not adopt the open repair of ${owner.sourceId} into this roadmap: ${
@@ -2197,6 +2212,7 @@ export class RoadmapService {
       if (!ownerAttempt) conflict('The owning slice has no roadmap-bound implementation settings.');
       const blocked = this.blocker(roadmap, decision.owner, undefined, this.storage, true);
       if (blocked) {
+        if (blocked.circular) throw new EntryHoldError('entry-blocked', blocked.reason);
         if (blocked.needsAttention) conflict(blocked.reason);
         return blockerWait(blocked, decision.owner.id);
       }
@@ -2283,6 +2299,7 @@ export class RoadmapService {
           );
         const blocked = this.blocker(roadmap, owner, reserved, this.storage, true);
         if (blocked) {
+          if (blocked.circular) throw new EntryHoldError('entry-blocked', blocked.reason);
           if (blocked.needsAttention) conflict(blocked.reason);
           return blockerWait(blocked, owner.id);
         }
@@ -2552,7 +2569,8 @@ export class RoadmapService {
       reason: string,
       needsAttention = true,
       kind: EntryBlocker['kind'] = 'dependency-blocked',
-    ): EntryBlocker => ({ reason, needsAttention, kind });
+      circular = false,
+    ): EntryBlocker => ({ reason, needsAttention, kind, ...(circular ? { circular } : {}) });
     const item = tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId);
     if (!item || item.planVersionId !== entry.planVersionId)
       return blocked(`${entry.sourceId}: Bound plan item is unavailable.`);
@@ -2632,12 +2650,27 @@ export class RoadmapService {
         ),
     );
     const reviewOnly = !!entry.executionScope && entry.executionScope.kind !== 'slice';
-    if (!reviewOnly && parallel && activeAttempts.length >= policy.maxInFlight)
-      return blocked(
-        `${entry.sourceId}: All ${policy.maxInFlight} in-flight slots are occupied (including items awaiting merge or attention).`,
-        false,
-        'capacity-blocked',
+    // A recovery round whose slots are held by work that waits on the very slice it repairs
+    // would wait forever: that is the operator's to resolve (LIVE-06).
+    const circular = (holders: readonly Worktree[]) =>
+      recoveryRound &&
+      entry.executionScope?.kind === 'slice' &&
+      holders.some((tree) => this.waitsOnSlice(tx, tree, entry.executionScope!))
+        ? ` Work holding those slots waits on ${entry.sourceId}, which this recovery round repairs, so they cannot free by themselves. Raise the limit, or pause or finish a holder.`
+        : undefined;
+    if (!reviewOnly && parallel && activeAttempts.length >= policy.maxInFlight) {
+      const deadlock = circular(
+        activeAttempts.flatMap(
+          (a) => tx.execution.worktrees.find(roadmap.workspaceId, a.worktreeId) ?? [],
+        ),
       );
+      return blocked(
+        `${entry.sourceId}: All ${policy.maxInFlight} in-flight slots are occupied (including items awaiting merge or attention).${deadlock ?? ''}`,
+        !!deadlock,
+        'capacity-blocked',
+        !!deadlock,
+      );
+    }
     const trees = tx.execution.worktrees
       .listActive()
       .filter(
@@ -2704,22 +2737,26 @@ export class RoadmapService {
       }
     }
     const used = occupied.length + reservations;
-    const borrowed =
-      recoveryRound &&
-      used === repositoryLimit &&
-      entry.executionScope?.kind === 'slice' &&
-      occupied.some((tree) => this.waitsOnSlice(tx, tree, entry.executionScope!.sourceId));
-    if (!reviewOnly && used >= repositoryLimit && !borrowed)
+    const deadlock = used >= repositoryLimit ? circular(occupied) : undefined;
+    // The round may take one slot beyond the limit, never more (operator decision 2026-09-27).
+    if (!reviewOnly && used >= repositoryLimit && !(deadlock && used === repositoryLimit))
       return blocked(
-        `${entry.sourceId}: Repository has ${occupied.length + reservations} unmerged worktree(s) or reservations; capacity is ${repositoryLimit}. Finish or remove existing work before this item starts.`,
-        false,
+        `${entry.sourceId}: Repository has ${occupied.length + reservations} unmerged worktree(s) or reservations; capacity is ${repositoryLimit}. Finish or remove existing work before this item starts.${deadlock ?? ''}`,
+        !!deadlock,
         'capacity-blocked',
+        !!deadlock,
       );
     return undefined;
   }
-  /** Whether this unmerged slice worktree's merge waits on the named slice. */
-  private waitsOnSlice(tx: StorageRepositories, tree: Worktree, sliceId: string): boolean {
-    if (tree.executionScope?.kind !== 'slice' || !tree.workItemId) return false;
+  /** Whether this unmerged slice worktree's merge waits on the given slice of the same map. */
+  private waitsOnSlice(tx: StorageRepositories, tree: Worktree, slice: ExecutionScope): boolean {
+    if (
+      tree.executionScope?.kind !== 'slice' ||
+      !tree.workItemId ||
+      tree.executionScope.definitionId !== slice.definitionId ||
+      tree.executionScope.bindingRevision !== slice.bindingRevision
+    )
+      return false;
     try {
       return scopePhaseBlockers(
         tx,
@@ -2728,7 +2765,9 @@ export class RoadmapService {
         tree.executionScope,
         'merge',
         { resources: false },
-      ).some((b) => phaseBlockerCode(b) === 'slice-requirement' && b.refs?.sliceId === sliceId);
+      ).some(
+        (b) => phaseBlockerCode(b) === 'slice-requirement' && b.refs?.sliceId === slice.sourceId,
+      );
     } catch {
       // A scope that no longer resolves lends nothing: the round keeps the ordinary limit.
       return false;

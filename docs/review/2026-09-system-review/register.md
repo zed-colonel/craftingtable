@@ -94,7 +94,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 | [R-I9](#r-i9) | P2 | S-M | open | Independent e2e specs: one workspace per spec (added 2026-09-24) |
 | [R-I10](#r-i10) | P2 | M | open | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
-| [R-I11](#r-i11) | P2 | S | open | Independent review of the live-run fixes made on `main` (added 2026-09-27) |
+| [R-I11](#r-i11) | P2 | S | done (2026-09-27, see entry) | Independent review of the live-run fixes made on `main` (added 2026-09-27) |
 
 ## Workstream A — Attention, decisions and notifications (pain points 1 and 3)
 
@@ -185,6 +185,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **LOW:** the in-memory quiescence marks now change only when their transaction commits; a cycle item that opens or resolves through a worktree or merge write re-derives its roadmap's own stop in the same commit; a roadmap stop or entry hold replaced by its cycle's item resolves as `superseded`, not `automation`, and the hold no longer shares a digest with the cycle item; storage items of an archived workspace resolve; merge items carry the worktree's active cycle, so a command in flight holds them too; a controller pass that throws still counts as completed.
   - **Checked and found sound by the reviewer:** nested transactions and rollback re-marking, no cross-scope unique conflicts, all writes reach the observer, `resolvedBy` timing, `ControllerPasses`, leases and backoff, the replacement for `attentionAlerts`.
   - **Live copy after the fixes** (18:00 local): 5 items in 36 ms, `db:verify` passes, including the EXO-04 merge approval that appeared since the first check.
+- **Second independent review (2026-09-27, the P2 review with R-I11), against the live fixes merged in f471830:**
+  - *HIGH, fixed in 49686f6 (R-C5):* an operator-requested or adopted round's repair opened an operator `merge-approval` item that the roadmap then merged itself: a measured false alarm, and a push once 18f0bb8's checkpoint-review wait passed the settle window. The claim now follows the roadmap's own rule.
+  - *LOW-MEDIUM, open:* every merge opens `merge-recovery-required` while its reservation is in flight and resolves it by automation about 30 ms later. That costs two `attention-changed` events and one permanent history row per merge. A push would need a reservation held past the settle and quiescence window (about 2.5 minutes), and merges are Git-only. Fixing it needs the projector to see in-process merges *and* a re-derive when a failed merge keeps its reservation; without the second part a stranded reservation could go unannounced, which is worse. Left for the attention follow-up with R-E3a.
+  - *LOW, accepted:* an entry hold released by a command on a running roadmap resolves at the next pass's `syncAttention`, so the inbox can be one pass stale.
+  - *Checked and sound:* schema 32 only adds tables, indexes, triggers and one event kind, touches no existing rows, and moves forward only. 18f0bb8's writes all go through observed repositories, with no raw SQL. `resolvedBy` is right for command-created rounds (`operator`) and adoption (`system`). Spot-checked regression tests fail without their fixes: the completed-item filter, the quiescence gate and inbox-host's subject rule.
 
 ### R-A5
 
@@ -221,6 +226,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **LOW-MEDIUM: splitting checkpoint sets would re-page and count a false alarm on deploy.** The old set item is superseded and hands its push schedule to the per-checkpoint items.
   - **LOW:** "blocks" counts only required successors and never the item itself, and a checkpoint that blocks nothing reports 0; in-place refreshes (text, counts, members) now emit `attention-changed`; a failed feed load shows a warning instead of an empty inbox; the activity line no longer shows a count that could disagree with the rail; resolved push-log rows link to their subject. Not changed: `attention-changed` shares schema 32 with R-A4, which was never deployed, so there is no rollback to guard.
   - **Walkthrough:** the agreement check now compares item titles between the inbox, the dashboard section and the push log, not only counts.
+- **Second independent review (2026-09-27):** no new R-A5 defect. An operator round's repair stop is a `cycle:` item and gets the cycle panel. The one wrong control, a merge form for a merge the roadmap performs itself, came from the attention claim, fixed in 49686f6. The stranded-round and refused-request stops of 18f0bb8 now keep a typed hold, which the inbox shows (31afe57, c5d4078).
 
 ### R-A6
 
@@ -587,6 +593,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Replay covers only one recorded investigation (117cd918), because older investigation runs replay as ordinary designs.
   - Regression tests (the source-decision rule, a service retry inside the investigation, and the unavailable-backend fallback) each fail without the fix. Replays: 278 and 51, 0 changed.
   - Gate: `pnpm check` stages all pass: 187 test files and 1,494 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. One scope-recovery test timed out in waitFor under load; its file and the other scope suites passed rerun serially.
+- **Second independent review of R-C3a (2026-09-27):** no defects. The automatic continue cannot fire twice: it needs `designRecovery.mode === 'investigate'` for the finished run, `continueDesign` persists `mode: 'continue'` through the version-checked write, and a restart after it resumes rather than continues again. *LOW, accepted:* the test named "continues the design once" does not assert the absence of a second continue. All three R-C3a cycle tests fail with the condition disabled.
 - **R-C3b (open):** prepare the roadmap's shared architecture decisions before the slices that need them start, so they are answered once, in a batch; count "unblocks N slices" as slices, not graph nodes; and add batch approval (still operator-only and paused). It needs an ADR-065 amendment for the grant. The done-when metric belongs to R-C3b.
 
 ### R-C4
@@ -625,10 +632,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, fixed:* security.md and the code comment now describe the rule as the code applies it.
     - *Nits, fixed:* a no-op flag at the finalization stage, and a duplicate doc comment.
     - Replays: not affected (refresh runs after the decision). Gate: `pnpm check` stages all pass: 187 test files and 1,490 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check.
+  - **Second independent review (2026-09-27), with the live fixes:**
+    - *HIGH, fixed in 49686f6:* `refreshOwner` still required automatic recovery for a recovery round, so an operator-requested round (18f0bb8) never refreshed before its review or at merge, and "Integration branch advanced" came back. Its test advances integration during an operator round's repair.
+    - *Checked and sound:* no refresh can race the roadmap merge (the launch refresh needs a running cycle, the merge an awaiting-merge one under a running roadmap, and both are serialized and version-checked); 18f0bb8 releases only `needs-attention` holds, so R-C4's refusal of system holds is unchanged; each R-C4 test fails without its change.
 
 ### R-C5
 
-**Converge the parent/slice repair loop** · Phase P2 · Effort M · Status: in progress (increment 1 of 5 done)
+**Converge the parent/slice repair loop** · Phase P2 · Effort M · Status: in progress (increments 1 and 2 of 5 done)
 
 - **Resolves:** [HIST-04](findings/HIST-history-and-live-usage.md#hist-04-exo-01-parent-acceptance--owning-slice-repair-ping-pong-consumed-29-of-all-runs-without-convergence-detection), [HIST-08](findings/HIST-history-and-live-usage.md#hist-08-merge-approvals-and-record-scope-verification-still-require-manual-clicks-in-delegated-flows)
 - **Change:** Track finding identity across parent-acceptance -> owning-slice repair -> re-review rounds; give repair briefs the cumulative remaining work for a finding; detect no-progress vs progress; escalate once with a progress summary; offer to split an oversized finding into a follow-up slice through the amendment path. Verify no repair path still needs manual merge or manual integration update.
@@ -657,6 +667,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, fixed:* location paths are capped.
     - *LOW, fixed:* the test asserts the history directly, and that the preview omits it. It fails against both e11940d and the code before R-C5.
     - *Noted for increment 3:* history does not survive a replaced review worktree (WI-02/domain has had three), so the progress classifier must not rely on it.
+    - *Second review (2026-09-27):* adopted repairs keep their finding history. It follows the pinned run's `parentRunId` lineage, which adoption does not change.
     - Gate: `pnpm check` passes in one run: 187 test files and 1,494 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check.
 - **Increment 2, done 2026-09-26 on `main` (18f0bb8), merged into the P2 line in f471830.** It was built as a live blocker fix ([LIVE-05](findings/LIVE-live-run-2026-09-25.md#live-05-delegate-source-fixes-created-repairs-outside-the-roadmap-that-owned-the-review)), not from this branch, and it has not had an independent review yet ([R-I11](#r-i11)).
   - **Delegate source fixes** on a review owned by a running, paused or stopped-for-attention roadmap now reserves an operator-requested recovery round. This is the attempt automatic recovery already uses, marked `recovery.requestedByUserId`. The repair cycle is owned by the round and uses the slice entry's frozen profiles and policy with the operator's remediation limit. Its instructions are the entry's followed by the operator's. Outside a live roadmap, the repair is still the operator's own cycle.
@@ -746,6 +757,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, accepted:* a quota kill landing while the daemon stops is recorded as a restart interruption; resuming hits the limit again and ends the session.
     - The new tests fail against 1b34b0b's normalizer and the previous stop message.
     - Replays: 278 and 51 decisions, 0 changed. Gate: `pnpm check` stages all pass: 187 test files and 1,480 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. Under load average 35, 25 controller tests timed out in waitFor; the 10 files passed rerun serially.
+  - **Second independent review (2026-09-27):** no findings. The kill signals only the detached process group (falling back to the child). A session ends only on a failed result while a rejected rate-limit report is in force, never on a bare 429. Billing is excluded. The backend test fails with the termination removed.
 
 ### R-C10
 
@@ -841,6 +853,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *HIGH, fixed:* the recorded incident's step was a review (run 40ee8364), but the cycle test replayed it as an implementation. As a review, the credential retry reached the launch with `providerRecovery` set and a *finished* source run, and the launch accepts only a failed one as a continuation. So the retry became `controller-error` ("Review continuation requires the interrupted review…"), which neither Resume nor Continue with guidance could clear (the stop still had its open questions, and the current run id never launched). A retry of a finished review now starts a fresh review. The new test replays the recorded turn as a review; it fails without the fix.
     - *MEDIUM, fixed:* the suspected-outage path set aside *every* operator stop of a completed turn, not only its questions as the first review recorded: an operator design decision, a shared decision or a rejected report waited up to about 50 minutes and three re-runs, and the retry brief left it to the agent whether to ask again. Only question stops (`OUTAGE_QUESTION_STOPS`, by code) are retried now; other stops keep their code and note the outage. ADR-062 amended.
     - *LOW-MEDIUM, fixed:* once the three retries were spent, the step's own question stop was replaced by `provider-credentials-rejected`, which lost its code and so its routing to Continue with guidance. The step's stop is now kept, with the evidence. The decision-table test covers both; it fails without the fix.
+    - *LOW, accepted:*
+      - The stderr sentinel is matched anywhere in a line, not anchored to Codex's log prefix. A spoof could at most delay a stop; it grants no authority.
+      - The local-login check is `account/read` (present, ChatGPT mode), thinner than the Change's "tokens well-formed and fresh". The regex needs "Incorrect API key provided: sk-", which a ChatGPT token failure does not produce.
+      - Guidance is capped at 16,000 characters, and a step whose stored guidance is near the cap cannot take more (shared with the provider-retry branch).
+    - *Checked and sound:* guidance given while a retry is pending joins that retry, with a single launch. Guidance after spent retries opens a new window, as ADR-062 intends. The guided path cannot launch a second live agent (R-G1). Carried guidance never crosses a step (R-G3).
 
 ### R-C12
 
@@ -1718,7 +1735,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I11
 
-**Independent review of the live-run fixes made on `main`** · Phase P2 · Effort S · Status: open
+**Independent review of the live-run fixes made on `main`** · Phase P2 · Effort S · Status: done (2026-09-27)
 
 - **Added 2026-09-27.** Five fixes landed on `main` during the live run, each with a failing-first test and a full `pnpm check`, but without the independent review every P2 item gets. They are ca7b954 (LIVE-01), 1727f3b (LIVE-02), a2bb20a (LIVE-03), 616f323 (LIVE-04) and 18f0bb8 (LIVE-05, R-C5 increment 2). They reached the P2 line in f471830; both replays report 0 changed there.
 - **Review focus:**
@@ -1732,12 +1749,33 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - the retry of a reservation that created a worktree;
     - the automatic-merge wait for checkpoint reviews.
 - **Done when:** each commit's review findings are fixed or have a recorded disposition in the relevant LIVE finding or R-C5, and `pnpm check` and both replays pass at the head.
-- **Independent review, 2026-09-27 (in progress).** Findings are fixed one commit each, test first.
+- **Independent review, 2026-09-27.** Five reviewers read one area each, in isolated worktrees, and every finding was verified again before it was acted on. Findings are fixed one commit each, test first, and each test fails without its fix. Fixes to 18f0bb8 are recorded on [R-C5](#r-c5) (increment 2), to R-C11's interaction with the live fixes on [R-C11](#r-c11), and the rest here.
   - **a2bb20a, HIGH, fixed:** a ct-act interrupted while it waited for the workflow lock left its run's `act-active` lease behind. The wait was outside the signal handlers, so SIGTERM took the default exit. Every later ct-act in the run failed with EEXIST, and the run's build record was lost at freeze. The wait is now abortable, and SIGTERM/SIGINT end it through the check's own cleanup.
   - **a2bb20a, MEDIUM, fixed:** two contenders that both saw a dead owner could each remove the lock, so one deleted the lock the other had just taken, and both ran act (10 overlapping holds in 6 rounds of 10 contenders). Removal is now serialized by a guard directory, and staleness is decided again under it.
   - **1727f3b, MEDIUM, fixed (operator decision 2026-09-27):** the operator's authority for a source-required security review applied wherever no cross-project delegation existed, which also covered slice cycles owned by single-project roadmaps, and neither `docs/security.md` nor ADR-063 recorded it. The operator chose to keep it to cycles no roadmap owns. A single-project roadmap's slice now stops as `security-reviewer-unassigned`. Tested; the test fails without the fix.
   - **1727f3b, LOW-MEDIUM, fixed (operator decision 2026-09-27):** a cross-project attempt whose saved definition or entry could not be read fell through to the operator's authority and skipped the reviewer-assignment check. It now fails closed as `authority-lost`. ADR-063 and `docs/security.md` are amended for both, and `docs/security.md` now says an adopted or operator-requested round can run under a paused roadmap (R-C4's refresh note).
   - **ca7b954, MEDIUM-LOW, fixed:** the guided-continuation gate now accepts a drain-interrupted run. Continuing it with guidance resumed the vendor session with the restart prompt, which says the step's instructions are unchanged and omits the guidance, so the guidance reached only the brief file. The resume prompt now carries the step's guidance when there is any. Reached only by a Pause between the drain and the automatic resume, or through the API.
+  - **Dispositions without a code change:**
+    - **a2bb20a, LOW:** the lock wait is not charged to the check's time limit, so one ct-act can take twice the limit, and a wait that times out is a failed `local-ci` receipt that only its prose tells apart from a failing job. It is left for [R-G4](#r-g4), which takes over CI execution and its lock.
+    - **a2bb20a, LOW, plausible:** three edge cases are also left for R-G4:
+      - the lock is scoped by the CI cache root, not the Docker host, so two daemons sharing a socket with different act configurations do not exclude each other;
+      - an act process group orphaned by a SIGKILLed launcher can outlive its reclaimed lock;
+      - PID identity assumes a shared PID namespace.
+
+      Agents can delete or plant locks under the cache root, which is consistent with ct-act being a cooperative control, not a sandbox (`docs/security.md`).
+    - **a2bb20a, sound:** `/proc/<pid>/stat` parsing handles spaces and parentheses in `comm`, and start times compare as strings. The lock name is a hash of an already validated workflow path. Directories are 0700 and the owner file 0600. Release checks ownership and is unconditional in `finally`. Spawns use argument arrays only.
+    - **1727f3b, LOW:** the repeat bound also stops a legitimate one-off re-review when runtime inputs changed during the review; Resume clears it and reviews again. It branches on codes. `onlyOperatorCanAdvance` now evaluates `securityReviewCurrent` each tick for unowned security-required cycles at merge, a small idle cost for R-D.
+    - **1727f3b, sound:** the authorizer is the cycle's creator, checked as an active owner or editor at review start and again at launch. A removed or demoted creator authorizes nothing.
+    - **616f323, LOW:** `mergedIntoAfter` scans the workspace's worktrees without an index on `(workspace_id, repository_id, integration_branch, merged_at)`. It is cheap at today's sizes, and an index needs a migration, so it is left for R-D. A later merge with an identical timestamp, or a legacy row without an integration branch, is still caught by the merge command's Git comparison. The test's "accepted before" precondition is conditional, and it simulates the later merge by a direct insert.
+    - **616f323, sound:** keyed by workspace, repository and branch; every merge path goes through `markMerged`; conservative against ADR-060's tree-equality rule; `merged_at` strings order correctly.
+    - **18f0bb8, open gap:** the automatic merge's wait for a checkpoint review the cycle can run itself has no test (replacing it with `false` leaves the suite green). Its predicate is the cycle's own launch condition, and it branches on structured fields.
+    - **18f0bb8, LOW, for [R-C12](#r-c12):** adoption failures are swallowed while the roadmap is paused or needs attention (retried next pass, no reason recorded), and become a whole-roadmap `scheduler-error` while it runs.
+    - **18f0bb8, by design:** a legacy repair the operator had paused is adopted anyway (operator decision 2026-09-26: adopt open unowned repairs). `answeredHolds` releases a `needs-attention` hold whatever its code, including `evidence-not-current`, which is harmless because the round re-verifies.
+    - **18f0bb8, plausible, not constructible:** a retried reservation keeps its recorded source run; the phase gates prevent a stale one from being reused today.
+    - **ca7b954, LOW:** the review-remediation shortcut's new `run.status === 'finished'` guard has no test of its own.
+    - **f471830 (merge), sound:** both sides' helpers were kept unchanged, and hold removal is an ordinary roadmap write, which the projector observes.
+    - **0a7d641 (docs), LOW, fixed:** the R-C5 header still said "increment 1 of 5".
+  - **Done-when met.** Every finding is fixed or has a disposition here, on R-C5 or R-C11, and on each LIVE finding. At 2184f9a, `pnpm check` passes in one run: 188 test files and 1,518 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. On a fresh copy of the 2026-09-23 snapshot, `controller:replay --check` reports 51 decisions and `--every-run --check` (a4aa12d golden) 278, both with 0 changed. The step-outcome change (question stops only) alters no recorded decision, because no recorded turn carries a suspected outage.
 
 ## Finding index
 

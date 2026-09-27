@@ -40,7 +40,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 ### LIVE-01: Continue with guidance was refused after a failed step, though the stop asked for guidance
 - Severity: high
 - Category: operator dead end
-- Status: CONFIRMED; fixed in ca7b954
+- Status: CONFIRMED; fixed in ca7b954. Reviewed 2026-09-27 ([R-I11](../register.md#r-i11)): guidance given on a drain-interrupted step now reaches the resumed session (dab7c24).
 - Evidence:
   - WI-02/domain slice cycle `72717cd3`, step `remediate`. Run `1d3cabf6` failed within 30 s on
     the Codex 401 outage (R-C11) and stopped as `service-failure-not-retryable`. That stop's
@@ -58,7 +58,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 ### LIVE-02: A slice cycle no roadmap owned never ran its required security review, and the merge refused forever
 - Severity: high
 - Category: operator dead end; controller/merge-gate disagreement
-- Status: CONFIRMED; fixed in 1727f3b
+- Status: CONFIRMED; fixed in 1727f3b. Reviewed 2026-09-27 ([R-I11](../register.md#r-i11)): by operator decision the operator's authority is kept to cycles no roadmap owns, an unreadable delegation fails closed, and ADR-063 and `docs/security.md` record the rule (2184f9a).
 - Evidence:
   - EXO-04/domain repair cycle `b0de849a` (`owner: null`) reached `merge-approval` with
     `workflow.securityRequired: true` and no security receipt.
@@ -77,7 +77,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 ### LIVE-03: Concurrent ct-act runs of one workflow destroyed each other's containers
 - Severity: high
 - Category: verification reliability
-- Status: CONFIRMED; fixed in a2bb20a
+- Status: CONFIRMED; fixed in a2bb20a. Reviewed 2026-09-27 ([R-I11](../register.md#r-i11)): an interrupted wait no longer leaves the run's lease behind, and a stale lock is reclaimed by one contender only (ccd618c).
 - Evidence:
   - act 0.2.89 names job containers and volumes after the workflow `name` and job only, for
     example `act-EXO-V3-development-contract-contract-93e0…-env`. It has no per-run prefix
@@ -97,7 +97,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 ### LIVE-04: Workflow acceptance and the merge gate disagreed about merged-candidate checkpoint evidence
 - Severity: high
 - Category: two evaluators of one requirement ([R-F1](../register.md#r-f1))
-- Status: CONFIRMED; fixed in 616f323
+- Status: CONFIRMED; fixed in 616f323. Reviewed 2026-09-27 ([R-I11](../register.md#r-i11)): no defects; an index for the check is left for R-D.
 - Evidence:
   - `EXO-WI-TIME-REVIEW` (a stack-owned `semantic_review`, so it records no tested commits) was
     accepted from EXO-04/domain's first merge.
@@ -116,7 +116,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 ### LIVE-05: Delegate source fixes created repairs outside the roadmap that owned the review
 - Severity: high
 - Category: ownership ([R-B3](../register.md#r-b3)); HIST-04 repeated
-- Status: CONFIRMED; fixed in 18f0bb8 ([R-C5](../register.md#r-c5) increment 2)
+- Status: CONFIRMED; fixed in 18f0bb8 ([R-C5](../register.md#r-c5) increment 2). Reviewed 2026-09-27 ([R-I11](../register.md#r-i11)); five follow-up fixes on R-C5 (49686f6, c5d4078, 76bf280, 31afe57, 9eb327b).
 - Evidence: EXO-04/domain's repair (`b0de849a`) came from the verification cycle `b29ec411`,
   which roadmap `b81d5f92` owns. Because the repair had no owner:
   - it had no reviewer delegation, which caused LIVE-02 and left the checkpoint review of

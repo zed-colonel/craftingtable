@@ -459,7 +459,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - At f471830, `pnpm check` passes (187 files, 1,500 unit tests, e2e, scope). Both 2026-09-23 replays report 0 changed.
   - The operator then paused WI/EXO delivery until P2 is done (rule 7).
 - **Next, in order (reordered 2026-09-27):**
-  1. **R-I11.** Review the five live fixes, while the change is still small.
+  1. **R-I11.** Review the five live fixes, while the change is still small. **Done 2026-09-27.**
   2. **R-I10.** Snapshot the paused live database. Record its goldens. Add the scheduler replay.
   3. **R-C12 and R-C13.** Reproduce LIVE-06 and LIVE-07 on that snapshot, then fix them. Each leaves a typed reason where the operator or the status list can see it.
   4. **R-E3a.** The status list, reading R-A4's items and R-C12's reasons.
@@ -469,6 +469,28 @@ independent review; every finding is fixed or its disposition is recorded in reg
 - **Gate at the head:** `pnpm check` passes in one run. 187 test files and 1,494 unit tests, 20 e2e tests,
   the walkthrough rehearsal and the scope check. At load averages of 20 to 35, earlier runs timed out in waitFor;
   the failing files passed rerun serially each time.
+- **Independent review of P2 and the live fixes (2026-09-27, R-I11 done).**
+  - The review ran on `remediation/p2` after a fast-forward to `remediation/p2-sync` (0a7d641). It covered every P2 item since a4fabdf, the five live fixes, the f471830 merge and the 0a7d641 docs. Five reviewers read one area each, and every finding was verified again before it was acted on.
+  - Twelve commits: eleven fixes and one added test. Each fix's test fails without it, and each commit updates its item.
+    - **LIVE-03 (a2bb20a): ccd618c.** An interrupted lock wait wedged the run. Two contenders could both reclaim a stale lock.
+    - **R-C11: 0b8c688 and 34524ed.** A review retried after a refused approval review became a stop with no exit. The suspected-outage path set aside genuine decisions. Spent retries lost the step's own stop.
+    - **LIVE-01 (ca7b954): dab7c24.** Guidance given on a drain-interrupted step reached only the brief file.
+    - **R-C5 increment 2 (18f0bb8): 49686f6, c5d4078, 76bf280, 31afe57, 9eb327b, and the test commit 5a595d0.**
+      - Three places ignored operator rounds: a false merge-approval item, R-C4's refresh, and the runtime refresh.
+      - A refused request dropped the hold.
+      - Overlapping requests lost both rounds.
+      - A stranded round waited silently.
+      - The allowance count shown to the operator was misleading.
+      - Two test gaps are closed.
+    - **LIVE-02 (1727f3b): 2184f9a.** By operator decision, the operator authorizes the security review only for cycles no roadmap owns, and an unreadable delegation fails closed. ADR-063 and `docs/security.md` are amended.
+  - **Left open:**
+    - R-A4's per-merge `merge-recovery-required` flicker (low-medium; reasons on R-A4).
+    - No test for 18f0bb8's checkpoint-review merge wait.
+    - ct-act lock edge cases, for R-G4.
+    - An index for `mergedIntoAfter`, for R-D.
+    - Swallowed adoption failures, for R-C12.
+  - **Gate at 2184f9a:** `pnpm check` passes in one run: 188 test files and 1,518 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. Both 2026-09-23 replays report 0 changed (51 and 278).
+  - **Next:** R-I10 (item 2 above).
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

@@ -260,7 +260,7 @@ itNeedsCargo.each([
   ).toBe(true);
 });
 
-itNeedsCargo.each(['requested', 'adopted'] as const)(
+itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
   'carries an operator repair round through with automatic recovery off: %s',
   { timeout: 45000 },
   async (origin) => {
@@ -378,7 +378,8 @@ itNeedsCargo.each(['requested', 'adopted'] as const)(
       repairId = response.json().cycle.id;
     } else {
       // A repair delegated before rounds kept their roadmap: no owner.
-      await roadmapControl(state, 'pause');
+      const paused = origin === 'adopted';
+      if (paused) await roadmapControl(state, 'pause');
       const unowned = await state.context.services.workCycleService.delegateScopeRepair(
         f.auth,
         ws,
@@ -387,10 +388,10 @@ itNeedsCargo.each(['requested', 'adopted'] as const)(
       );
       expect(unowned.owner).toBeNull();
       repairId = unowned.id;
-      // Adopted while the roadmap is paused; the pause still holds it.
+      // Adopted on the next pass, while paused (the pause still holds it) or running.
       await state.context.services.roadmapService.tick();
       expect(tx.execution.cycles.find(ws, repairId)?.owner).toBeTruthy();
-      await roadmapControl(state, 'resume');
+      if (paused) await roadmapControl(state, 'resume');
     }
     // The repair answers the stopped review, so its needs-attention hold is released.
     expect(storedRoadmap(state).entryHolds?.[sourceEntryId]?.status).not.toBe('needs-attention');

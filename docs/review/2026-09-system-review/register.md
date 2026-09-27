@@ -681,6 +681,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW-MEDIUM, fixed:* an operator round left `preparing` by a failed request or a daemon stop was waited on forever, with entry progress "Roadmap recovery: repair and integration" while nothing ran. The stopped review's inbox item stayed open (its controls repeat the request), so this was a misleading status rather than a dead end. A preparing operator round that no request is preparing now holds its source entry as `entry-preparation-failed`, asking to repeat Delegate source fixes; the repeat retries the same round and answers the hold.
     - *LOW, fixed:* the "allowance exhausted (N rounds)" stop and the recovery panel's "N / M rounds used" counted operator rounds, which the allowance excludes. Both now count automatic rounds only.
     - *Gap closed:* the allowance exclusion now has an isolating test (the decision with operator rounds only, the `>=` boundary, and the repeat check still counting operator rounds). It fails with the filter removed.
+    - *Gap closed:* adoption on a running roadmap had no test (only the paused path did). The operator-round test gains an "adopted while running" variant, which fails with the running tick's adoption removed.
 
 ### R-C6
 

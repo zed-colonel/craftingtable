@@ -41,6 +41,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 - Severity: high
 - Category: operator dead end
 - Status: CONFIRMED; fixed in ca7b954. Reviewed 2026-09-27 ([R-I11](../register.md#r-i11)): guidance given on a drain-interrupted step now reaches the resumed session (dab7c24).
+- Test: `server-execution-cycle-recovery.test.ts`, "continues a nonretryable service stop with the guidance its stop asks for" (ca7b954), and `restart-drain.test.ts`, "gives a resumed session the guidance the operator added while its step was interrupted" (dab7c24).
 - Evidence:
   - WI-02/domain slice cycle `72717cd3`, step `remediate`. Run `1d3cabf6` failed within 30 s on
     the Codex 401 outage (R-C11) and stopped as `service-failure-not-retryable`. That stop's
@@ -59,6 +60,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 - Severity: high
 - Category: operator dead end; controller/merge-gate disagreement
 - Status: CONFIRMED; fixed in 1727f3b. Reviewed 2026-09-27 ([R-I11](../register.md#r-i11)): by operator decision the operator's authority is kept to cycles no roadmap owns, an unreadable delegation fails closed, and ADR-063 and `docs/security.md` record the rule (2184f9a).
+- Test: `server-execution-reviews.test.ts`, "runs a source-required security review on operator authority when no roadmap owns the slice cycle" (1727f3b), and the two roadmap-owned cases added in 2184f9a.
 - Evidence:
   - EXO-04/domain repair cycle `b0de849a` (`owner: null`) reached `merge-approval` with
     `workflow.securityRequired: true` and no security receipt.
@@ -78,6 +80,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 - Severity: high
 - Category: verification reliability
 - Status: CONFIRMED; fixed in a2bb20a. Reviewed 2026-09-27 ([R-I11](../register.md#r-i11)): an interrupted wait no longer leaves the run's lease behind, and a stale lock is reclaimed by one contender only (ccd618c).
+- Test: `packages/agents/src/local-check.test.ts`, "runs one act invocation per workflow at a time across runs on a Docker host" (a2bb20a), and the interrupted-wait and stale-lock cases (ccd618c).
 - Evidence:
   - act 0.2.89 names job containers and volumes after the workflow `name` and job only, for
     example `act-EXO-V3-development-contract-contract-93e0…-env`. It has no per-run prefix
@@ -98,6 +101,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 - Severity: high
 - Category: two evaluators of one requirement ([R-F1](../register.md#r-f1))
 - Status: CONFIRMED; fixed in 616f323. Reviewed 2026-09-27 ([R-I11](../register.md#r-i11)): no defects; an index for the check is left for R-D.
+- Test: `server-execution-reviews.test.ts`, "delegated $kind checkpoint requires complete attestation", `semantic_review` case (616f323).
 - Evidence:
   - `EXO-WI-TIME-REVIEW` (a stack-owned `semantic_review`, so it records no tested commits) was
     accepted from EXO-04/domain's first merge.
@@ -117,6 +121,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 - Severity: high
 - Category: ownership ([R-B3](../register.md#r-b3)); HIST-04 repeated
 - Status: CONFIRMED; fixed in 18f0bb8 ([R-C5](../register.md#r-c5) increment 2). Reviewed 2026-09-27 ([R-I11](../register.md#r-i11)); five follow-up fixes on R-C5 (49686f6, c5d4078, 76bf280, 31afe57, 9eb327b).
+- Test: `server-execution-scope-recovery.test.ts`, "carries an operator repair round through with automatic recovery off" (requested, adopted while paused, adopted while running), and `server-execution-scope-repair-rounds.test.ts` (R-I11 fixes).
 - Evidence: EXO-04/domain's repair (`b0de849a`) came from the verification cycle `b29ec411`,
   which roadmap `b81d5f92` owns. Because the repair had no owner:
   - it had no reviewer delegation, which caused LIVE-02 and left the checkpoint review of
@@ -132,6 +137,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 - Severity: high
 - Category: silent controller wait (the visibility gap of LIVE-08)
 - Status: OPEN; cause not investigated ([R-C12](../register.md#r-c12))
+- Replay case: the 2026-09-27 scheduler golden records `exo/EXO-02/domain` verification as `none`: evaluated, no round, nothing recorded ([R-I10](../register.md#r-i10)).
 - Evidence:
   - The operator's WI pin refresh queued a fresh EXO-02/domain verification. Cycle `556d0bca`,
     run `ca42c1d2`, started at 2026-09-27 00:45 UTC. At 01:01 it found a new major defect,
@@ -153,6 +159,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 - Severity: medium
 - Category: controller-readiness/reviewer disagreement; a plain resume reproduces the stop ([R-A7](../register.md#r-a7))
 - Status: OPEN; cause is a HYPOTHESIS ([R-C13](../register.md#r-c13))
+- Replay case: the 2026-09-27 scheduler golden records WI-04/domain's WI-WORKER-G1 as ready, with `receipt:wi/WI-09/domain`, `receipt:wi/WI-10/domain` and coverage `WP-001`…`WP-008` missing from its evidence packet ([R-I10](../register.md#r-i10)).
 - Evidence:
   - WI-04/domain slice cycle `2f1ab211` waited at 2026-09-26 07:17 with "WI-WORKER-G1: Slice
     wi/WI-09/domain must be verified" (`controller-wait`).
@@ -173,6 +180,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 - Severity: critical
 - Category: visibility (pain point 2; UI-06, HIST-19, DATA-12)
 - Status: CONFIRMED
+- Replay case: the 2026-09-27 scheduler golden's five `none` entries (EXO-02, EXO-03 and EXO-04 verification, WI-04/domain, EXO-18) are the entries the operator could not explain ([R-I10](../register.md#r-i10)).
 - Evidence: on 2026-09-27 the operator refreshed the WI pin, generated plan evidence,
   resumed scheduling and unblocked EXO-03 and EXO-04. After that, "nothing seems to be going"
   except WI-04. The actual state, which took several database queries to establish:

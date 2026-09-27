@@ -111,6 +111,31 @@ function entryReason(parallel: boolean, reason: string): { reason?: string } {
   return parallel ? {} : { reason };
 }
 
+/** Why the scheduler would not start an entry now; `needsAttention` blockers hold it. */
+export interface EntryBlocker {
+  readonly reason: string;
+  readonly needsAttention: boolean;
+  readonly kind: 'dependency-blocked' | 'capacity-blocked' | 'exclusion-blocked';
+}
+/**
+ * How one parallel scheduler pass left one entry. The pass skips an entry that is complete,
+ * held, or deferred by a blocker; it evaluates the rest, and an evaluation either returns,
+ * throws an error the pass retries next time, or holds the entry.
+ */
+export type EntryPassOutcome =
+  | { readonly kind: 'complete' }
+  | { readonly kind: 'deferred'; readonly blocker: EntryBlocker }
+  | { readonly kind: 'held' }
+  | { readonly kind: 'evaluated' }
+  | { readonly kind: 'retry'; readonly error: unknown }
+  | { readonly kind: 'hold-recorded'; readonly error: unknown };
+/** Sees each entry a pass reaches, with the roadmap as the pass found it (the R-I10 replay). */
+export type SchedulerObserver = (
+  roadmap: Roadmap,
+  entry: RoadmapEntry,
+  outcome: EntryPassOutcome,
+) => void;
+
 /** One delegated roadmap per workspace. The cycle controller owns every agent step. */
 /** A roadmap write: entering `needs-attention` must declare its typed stop (R-A3). */
 type RoadmapChanges = Omit<Partial<Roadmap>, 'status' | 'attention'> &
@@ -144,6 +169,11 @@ export class RoadmapService {
   ) {}
   private attention: AttentionProjector | undefined;
   private passes: ControllerPasses | undefined;
+  private observer: SchedulerObserver | undefined;
+  /** Replay seam: observe how each pass leaves each entry it reaches. */
+  observeScheduling(observer: SchedulerObserver | undefined): void {
+    this.observer = observer;
+  }
   /** Attention projection and controller quiescence (R-A4); the daemon always attaches them. */
   attachAttention(attention: AttentionProjector, passes: ControllerPasses): void {
     this.attention = attention;
@@ -1282,7 +1312,15 @@ export class RoadmapService {
       // any await/mutation. Eligible entries still pass every fresh admission check below.
       const deferred = this.deferredEntries(roadmap);
       for (const entry of roadmap.definition.entries) {
-        if (deferred.has(entry.id)) continue;
+        const skipped = deferred.get(entry.id);
+        if (skipped) {
+          this.observer?.(
+            roadmap,
+            entry,
+            skipped === 'complete' ? { kind: 'complete' } : { kind: 'deferred', blocker: skipped },
+          );
+          continue;
+        }
         const current = this.find(roadmap.workspaceId, roadmap.id);
         if (
           current.status !== 'running' ||
@@ -1292,6 +1330,7 @@ export class RoadmapService {
           return;
         this.authority(current);
         if (this.complete(current, entry)) {
+          this.observer?.(current, entry, { kind: 'complete' });
           const attempt = current.attempts.find((a) => a.entryId === entry.id);
           // Evidence that became current again also ends a queued re-verification.
           if (attempt && (attempt.status !== 'completed' || attempt.reverification))
@@ -1314,9 +1353,13 @@ export class RoadmapService {
           heldAttempt &&
           this.storage.execution.worktrees.find(current.workspaceId, heldAttempt.worktreeId)
             ?.mergedAt;
-        if (current.entryHolds?.[entry.id] && !merged) continue;
+        if (current.entryHolds?.[entry.id] && !merged) {
+          this.observer?.(current, entry, { kind: 'held' });
+          continue;
+        }
         try {
           await this.advanceEntry(current, entry);
+          this.observer?.(current, entry, { kind: 'evaluated' });
         } catch (error) {
           if (error instanceof SupersededRoadmapOperation) throw error;
           if (
@@ -1325,10 +1368,13 @@ export class RoadmapService {
             error instanceof RepositoryMutationBusyError ||
             error instanceof WorktreeMutationBusyError ||
             error instanceof IntegrationHeldError
-          )
+          ) {
+            this.observer?.(current, entry, { kind: 'retry', error });
             continue;
+          }
           const latest = this.find(roadmap.workspaceId, roadmap.id);
           if (latest.status !== 'running' || this.controlling.has(latest.id)) return;
+          this.observer?.(current, entry, { kind: 'hold-recorded', error });
           const reason =
             error instanceof ExecutionRequestError
               ? error.message
@@ -1398,6 +1444,7 @@ export class RoadmapService {
       return;
     }
     await this.advanceEntry(roadmap, entry);
+    this.observer?.(roadmap, entry, { kind: 'evaluated' });
   }
   private async advanceEntry(
     roadmap: Roadmap,
@@ -2349,16 +2396,17 @@ export class RoadmapService {
     });
     return changed ? this.change(roadmap, { attempts, entryHolds }) : roadmap;
   }
-  private deferredEntries(roadmap: Roadmap): ReadonlySet<string> {
+  /** Entries this pass skips: complete ones, and unstarted ones a blocker defers. */
+  private deferredEntries(roadmap: Roadmap): ReadonlyMap<string, 'complete' | EntryBlocker> {
     const tx = mapReadSnapshot(this.storage);
-    return new Set(
-      roadmap.definition.entries.flatMap((entry) => {
+    return new Map(
+      roadmap.definition.entries.flatMap((entry): [string, 'complete' | EntryBlocker][] => {
         const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
         if (this.complete(roadmap, entry, tx))
-          return !attempt || attempt.status === 'completed' ? [entry.id] : [];
+          return !attempt || attempt.status === 'completed' ? [[entry.id, 'complete']] : [];
         if (attempt) return [];
         const blocker = this.blocker(roadmap, entry, undefined, tx);
-        return blocker && !blocker.needsAttention ? [entry.id] : [];
+        return blocker && !blocker.needsAttention ? [[entry.id, blocker]] : [];
       }),
     );
   }
@@ -2400,18 +2448,12 @@ export class RoadmapService {
     entry: RoadmapEntry,
     attempt?: RoadmapAttempt,
     tx: StorageRepositories = this.storage,
-  ):
-    | {
-        reason: string;
-        needsAttention: boolean;
-        kind: 'dependency-blocked' | 'capacity-blocked' | 'exclusion-blocked';
-      }
-    | undefined {
+  ): EntryBlocker | undefined {
     const blocked = (
       reason: string,
       needsAttention = true,
-      kind: 'dependency-blocked' | 'capacity-blocked' | 'exclusion-blocked' = 'dependency-blocked',
-    ) => ({ reason, needsAttention, kind });
+      kind: EntryBlocker['kind'] = 'dependency-blocked',
+    ): EntryBlocker => ({ reason, needsAttention, kind });
     const item = tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId);
     if (!item || item.planVersionId !== entry.planVersionId)
       return blocked(`${entry.sourceId}: Bound plan item is unavailable.`);

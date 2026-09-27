@@ -93,7 +93,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
 | [R-I9](#r-i9) | P2 | S-M | open | Independent e2e specs: one workspace per spec (added 2026-09-24) |
-| [R-I10](#r-i10) | P2 | M | open | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
+| [R-I10](#r-i10) | P2 | M | done (2026-09-27) | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
 | [R-I11](#r-i11) | P2 | S | done (2026-09-27, see entry) | Independent review of the live-run fixes made on `main` (added 2026-09-27) |
 
 ## Workstream A — Attention, decisions and notifications (pain points 1 and 3)
@@ -1720,7 +1720,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I10
 
-**Live plan data as the test corpus: record live stops, replay scheduler decisions** · Phase P2 · Effort M · Status: open
+**Live plan data as the test corpus: record live stops, replay scheduler decisions** · Phase P2 · Effort M · Status: done (2026-09-27)
 
 - **Added 2026-09-27; direction set by the operator** after the 2026-09-25/26 live run ([LIVE findings](findings/LIVE-live-run-2026-09-25.md)). WI/EXO delivery is paused until P2 is done. The live roadmap's data is now test data.
 - **Why:** every live blocker so far was diagnosed by ad hoc database queries in an agent session, then patched on `main`. `controller:replay` covers step outcomes only (`decideStepOutcome`), so a scheduler decision such as LIVE-06's missing recovery round cannot be reproduced offline.
@@ -1732,6 +1732,21 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The 2026-09-27 snapshot and its step-outcome and scheduler goldens are recorded.
   - The scheduler replay reproduces LIVE-06 (EXO-02 without a round) and LIVE-07 (WI-04's readiness), which R-C12 and R-C13 then change on purpose.
   - Every LIVE finding has a replay case or test.
+- **Done 2026-09-27.**
+  - **Snapshot.** One read-only `sqlite3 … ".backup …"` of the live database at 21:26 UTC (schema 31, integrity ok, SHA-256 `3f43f73a…`), kept in `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-27/snapshot.sqlite`. The live roadmap `b81d5f92` is `running` in it, with no controller write after 03:57 UTC, so LIVE-06 and LIVE-07 are preserved as the operator left them.
+  - **Step-outcome goldens**, recorded at d81db74 (this item does not change step classification): `golden.json` (58 decisions) and `every-run-golden-d81db74.json` (352).
+  - **Scheduler replay.** `pnpm controller:replay <snapshot> --scheduler [--record|--check <golden>]` (`scheduler-replay.ts`). It opens a private copy through the real daemon composition and runs one `RoadmapService.tick()`.
+    - Every command that would launch an agent, create a worktree, merge or refresh is replaced by a recorder that stops the entry there. Git is present for presence checks, but any call is recorded and stops the entry, because the snapshot's worktrees are real repositories. Agent backends carry the default model lists and a missing executable, so settings validate and nothing can launch. The snapshot file is never modified.
+    - It keeps the stored phase capacities: the daemon's configured default would otherwise replace the operator's development capacity (4 live, 2 by default), and plan-acceptance evidence is bound to that capacity, so STACK-PLAN-ACCEPTED and everything behind it would falsely go stale. A clean-stop record models the drained restart that keeps a running roadmap running (R-B9).
+    - The pass reports how it left each entry through a new observer seam, `RoadmapService.observeScheduling` (outcomes: complete, deferred with its typed blocker, held, evaluated, retried with the swallowed error, hold recorded). No scheduler decision changed.
+    - For every entry of every non-draft roadmap it records start, advance, recover, wait (code and reason), hold, complete, `none` (evaluated and nothing recorded) or `not-scheduled`. For every roadmap-owned slice cycle with checkpoints it records each checkpoint's readiness (`supported && assigned && !pending`) and, for a ready or active checkpoint, the attestation inputs its evidence packet lacks.
+    - Golden `scheduler-golden.json` (4 roadmaps, 181 entries, 3 cycles). The pass runs at the snapshot's last controller write, so it is deterministic: a re-check reports 188 records, 0 changed.
+  - **LIVE-06 reproduced:** `exo/EXO-02/domain` verification is `none`, one of five silent entries (also EXO-03 and EXO-04 verification, WI-04/domain, EXO-18). The branch is `advanceScopeRecovery`: `scopeRecoveryDecision` names the owning slice, then `this.blocker(roadmap, owner)` returns a `capacity-blocked` blocker ("Repository has 2 unmerged worktree(s) or reservations; capacity is 2") and the method returns `true` with nothing recorded. The two slots are EXO-04/domain's repair, which waits for EXO-02/domain to be verified, and EXO-18, which waits on the operator's EXO-ADR-022. Meanwhile the verification cycle's own item is suppressed as "Waiting for the roadmap to delegate a bounded owning-slice repair" (`automatedScopeRecoveryWait`), so nothing reached the inbox. See [R-C12](#r-c12).
+  - **LIVE-07 reproduced:** WI-04/domain's WI-WORKER-G1 is ready with nothing pending, while its packet lacks `receipt:wi/WI-09/domain`, `receipt:wi/WI-10/domain` and the coverage bindings `WP-001`…`WP-008`. See [R-C13](#r-c13).
+  - **A replay case or test for every LIVE finding:** each is listed on its finding.
+  - **Test:** `scheduler-replay.test.ts` replays a stepped parallel roadmap before its first pass (the first item starts at `createWorktree`, the two that need its merge wait as `dependency-blocked`) and at its first merge boundary (`none`), and checks that the replay launched nothing and left the source database's roadmap unchanged. It fails without the change.
+  - **Replays:** the 2026-09-23 goldens are unchanged (51 and 278, 0 changed). Its scheduler replay records the roadmap at `restart-resume`, so every entry is `not-scheduled`.
+  - **Found along the way, not changed:** a daemon started without `CRAFTINGTABLE_DEVELOPMENT_CAPACITY=4` in its environment file would reset the live development capacity to 2 and silently invalidate the accepted plan evidence and every checkpoint behind it. Operational note for the deploy.
 
 ### R-I11
 

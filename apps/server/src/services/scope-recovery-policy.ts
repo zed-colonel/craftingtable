@@ -110,12 +110,10 @@ export function scopeRecoveryDecision(
       ),
   );
   // Rounds the operator requested do not use the automatic allowance.
-  if (
-    rounds.filter((a) => !a.recovery!.requestedByUserId).length >=
-    (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0)
-  )
+  const automatic = rounds.filter((a) => !a.recovery!.requestedByUserId).length;
+  if (automatic >= (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0))
     return {
-      reason: `Automatic recovery allowance exhausted (${rounds.length} rounds for this parent). Pause the roadmap and raise the total allowance, or continue manually.`,
+      reason: `Automatic recovery allowance exhausted (${automatic} automatic round${automatic === 1 ? '' : 's'} for this parent). Pause the roadmap and raise the total allowance, or continue manually.`,
     };
   if (rounds.some((a) => a.recovery!.findingFingerprint === fingerprint))
     return {

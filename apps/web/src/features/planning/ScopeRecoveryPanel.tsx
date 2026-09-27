@@ -85,8 +85,9 @@ export function ScopeRecoveryPanel({
         return (
           <div key={id} className="card">
             <button type="button" className="text-button" onClick={() => onOpenWorkItem(id)}>
-              {entry.sourceId.split('/').slice(0, 2).join('/')}: {history.length} /{' '}
-              {roadmap.scopeRecovery?.maxRoundsPerParent ?? 0} rounds used
+              {entry.sourceId.split('/').slice(0, 2).join('/')}:{' '}
+              {history.filter((a) => !a.recovery!.requestedByUserId).length} /{' '}
+              {roadmap.scopeRecovery?.maxRoundsPerParent ?? 0} automatic rounds used
             </button>
             <p>
               {active

@@ -136,9 +136,9 @@ itNeedsCargo(
     expect(decide([round(true, baseline.fingerprint!)]).reason).toContain(
       'same substantive findings',
     );
-    // The stop message counts operator rounds as used allowance (finding: misleading count).
+    // The stop counts only the rounds that used the allowance.
     expect(decide([round(false, 'a'.repeat(64)), round(true, 'b'.repeat(64))]).reason).toContain(
-      '(2 rounds for this parent)',
+      '(1 automatic round for this parent)',
     );
   },
 );

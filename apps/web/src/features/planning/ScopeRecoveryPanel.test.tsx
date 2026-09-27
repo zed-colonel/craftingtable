@@ -90,7 +90,7 @@ it('shows durable rounds and opens the owning work item', () => {
       },
     ],
   } as unknown as Roadmap);
-  fireEvent.click(screen.getByRole('button', { name: 'exo/EXO-01: 1 / 3 rounds used' }));
+  fireEvent.click(screen.getByRole('button', { name: 'exo/EXO-01: 1 / 3 automatic rounds used' }));
   expect(onOpenWorkItem).toHaveBeenCalledWith('item');
   expect(screen.getByText('Fresh independent verification')).toBeTruthy();
 });

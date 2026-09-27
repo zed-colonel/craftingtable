@@ -64,7 +64,11 @@ import { mapReadSnapshot } from './map-read-snapshot.js';
 import { PhaseGateError } from './phase-resources.js';
 import { PLAN_CHECKPOINT } from './plan-acceptance-policy.js';
 import { acceptedEvidence } from './runtime-evidence-policy.js';
-import { findingFingerprint, scopeRecoveryDecision } from './scope-recovery-policy.js';
+import {
+  findingFingerprint,
+  roadmapCarriesRound,
+  scopeRecoveryDecision,
+} from './scope-recovery-policy.js';
 import { collectScopeRepair } from './scope-repair.js';
 import type { WorkCycleService } from './work-cycle-service.js';
 import type { WorkItemService } from './work-item-service.js';
@@ -94,10 +98,6 @@ class EntryHoldError extends ExecutionRequestError {
 function answeredHolds(roadmap: Roadmap, entryId: string): Roadmap['entryHolds'] {
   const { [entryId]: hold, ...others } = roadmap.entryHolds ?? {};
   return hold?.status === 'needs-attention' ? others : roadmap.entryHolds;
-}
-/** Automatic recovery carries every round; a round the operator requested is always carried. */
-function drivesRound(roadmap: Roadmap, attempt: RoadmapAttempt): boolean {
-  return !!roadmap.scopeRecovery?.enabled || !!attempt.recovery?.requestedByUserId;
 }
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
@@ -1583,7 +1583,7 @@ export class RoadmapService {
           this.authority(current);
           if (
             boundAttempt.recovery &&
-            (!drivesRound(current, boundAttempt) ||
+            (!roadmapCarriesRound(current, boundAttempt) ||
               current.entryHolds?.[boundAttempt.recovery.sourceEntryId] ||
               !current.attempts.some(
                 (a) => a.id === boundAttempt.id && a.recovery?.phase === 'repair',
@@ -2022,7 +2022,7 @@ export class RoadmapService {
   /** The live recovery round for this work item that the roadmap carries through. */
   private roundFor(roadmap: Roadmap, entry: RoadmapEntry) {
     const round = this.recoveryFor(roadmap, entry);
-    return round && drivesRound(roadmap, round) ? round : undefined;
+    return round && roadmapCarriesRound(roadmap, round) ? round : undefined;
   }
   private updateRecovery(
     roadmap: Roadmap,
@@ -2090,7 +2090,7 @@ export class RoadmapService {
       const current = this.find(ws, roadmap.id);
       if (
         current.status !== 'running' ||
-        !current.attempts.some((a) => a.id === reserved.id && drivesRound(current, a)) ||
+        !current.attempts.some((a) => a.id === reserved.id && roadmapCarriesRound(current, a)) ||
         this.controlling.has(current.id) ||
         this.abort.signal.aborted ||
         current.entryHolds?.[entry.id] ||

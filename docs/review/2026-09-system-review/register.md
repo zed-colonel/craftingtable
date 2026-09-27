@@ -669,6 +669,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Gaps:**
     - The allowance exclusion is a one-line filter that no test isolates.
     - Adoption ran live on 2026-09-27 (EXO-04's `b0de849a`). It was observed only through the resulting state.
+  - **Independent review (2026-09-27, R-I11).** Findings are fixed one commit each, test first.
+    - *HIGH, fixed:* 18f0bb8 taught the scheduler that the roadmap carries an operator-requested round with automatic recovery off (`drivesRound`), but three other places still asked only whether automatic recovery was on:
+      - `roadmapClaim` did not claim the round's merge, so every operator or adopted round's repair opened an operator `merge-approval` item that the roadmap then merged itself (a measured false alarm, and a push once the checkpoint-review wait passed the settle window);
+      - `refreshOwner` refused the round, so R-C4's refresh before review and at merge never ran, and an integration advance stopped the repair with "Integration branch advanced" again;
+      - the runtime refresh did not see the round, and queued a second re-verification beside it.
+
+      One predicate, `roadmapCarriesRound` (`scope-recovery-policy.ts`), now answers it for all of them. The operator-round test asserts no merge-approval item, and a new test advances integration during the repair; both fail without the fix.
 
 ### R-C6
 

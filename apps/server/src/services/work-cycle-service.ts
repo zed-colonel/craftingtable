@@ -82,7 +82,7 @@ import { drainInterrupted } from './restart-resume.js';
 import { latestReviewReport, runLineage } from './run-handoff.js';
 import { decideStepOutcome, type StepOutcomeDecision, stepOutcomeFacts } from './step-outcome.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
-import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
+import { automatedScopeRecoveryWait, roadmapCarriesRound } from './scope-recovery-policy.js';
 import { collectScopeRepair, scopeMergeWait, scopeReviewWait } from './scope-repair.js';
 import {
   operatorQuestionRoutes,
@@ -3339,7 +3339,7 @@ export class WorkCycleService {
       !held(attempt.entryId) &&
       !held(attempt.recovery?.sourceEntryId);
     if (!scheduled) return;
-    if (attempt.recovery && !roadmap.scopeRecovery?.enabled) return;
+    if (attempt.recovery && !roadmapCarriesRound(roadmap, attempt)) return;
     const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId);
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (

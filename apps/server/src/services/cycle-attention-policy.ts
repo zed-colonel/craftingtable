@@ -10,7 +10,7 @@ import type { StorageRepositories } from '@craftingtable/storage';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { attemptDelegation } from './roadmap-delegation-policy.js';
 import { scopeMergeWait, scopeReviewWait } from './scope-repair.js';
-import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
+import { automatedScopeRecoveryWait, roadmapCarriesRound } from './scope-recovery-policy.js';
 import { cycleOwnership } from './cycle-ownership.js';
 
 /**
@@ -63,7 +63,7 @@ function roadmapClaim(tx: StorageRepositories, cycle: WorkCycle): AttentionClaim
   if (roadmap.entryHolds?.[attempt.entryId]) return undefined;
   if (
     attempt.recovery &&
-    (!roadmap.scopeRecovery?.enabled || roadmap.entryHolds?.[attempt.recovery.sourceEntryId])
+    (!roadmapCarriesRound(roadmap, attempt) || roadmap.entryHolds?.[attempt.recovery.sourceEntryId])
   )
     return undefined;
   const delegation = attemptDelegation(tx, roadmap, attempt);

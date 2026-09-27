@@ -9,6 +9,7 @@ import type { RuntimeRefreshPreview } from '@craftingtable/contracts';
 import type { StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
+import { roadmapCarriesRound } from './scope-recovery-policy.js';
 import {
   currentScopeReceipt,
   scopeRuntimeChanges,
@@ -143,15 +144,13 @@ export function runtimeRefreshImpact(
         (!env || !scopeRuntimeChanges(tx, ws, scope, env.runtimeId, candidate).length)
       )
         continue;
-      const recovery =
-        r.scopeRecovery?.enabled &&
-        r.attempts.some(
-          (other) =>
-            other.recovery &&
-            other.recovery.phase !== 'completed' &&
-            r.definition.entries.find((e) => e.id === other.entryId)?.workItemId ===
-              entry.workItemId,
-        );
+      const recovery = r.attempts.some(
+        (other) =>
+          other.recovery &&
+          other.recovery.phase !== 'completed' &&
+          roadmapCarriesRound(r, other) &&
+          r.definition.entries.find((e) => e.id === other.entryId)?.workItemId === entry.workItemId,
+      );
       const action = recovery
         ? 'existing-recovery'
         : unstarted || ['completed', 'awaiting-merge'].includes(cycle.status)

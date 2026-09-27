@@ -1,10 +1,19 @@
 import { createHash } from 'node:crypto';
-import type { Roadmap, RoadmapEntry, WorkCycle } from '@craftingtable/domain';
+import type { Roadmap, RoadmapAttempt, RoadmapEntry, WorkCycle } from '@craftingtable/domain';
 import { isTerminalAgentRunStatus, sameExecutionScope } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { finalizationHasNoQuestions } from './finalization-policy.js';
 import { collectScopeRepair } from './scope-repair.js';
 import { resolveScope, scopedReviewIssue } from './execution-scope.js';
+
+/**
+ * Whether the roadmap carries this recovery round through its merge, verification and parent
+ * review: automatic recovery carries every round, and a round the operator requested is always
+ * carried (R-C5 increment 2). Every place that asks whether a round is the roadmap's asks this.
+ */
+export function roadmapCarriesRound(roadmap: Roadmap, attempt: RoadmapAttempt): boolean {
+  return !!roadmap.scopeRecovery?.enabled || !!attempt.recovery?.requestedByUserId;
+}
 
 /** Conservative routing: review assertions never choose between multiple owning slices. */
 export function scopeRecoveryDecision(
@@ -159,8 +168,8 @@ export function automatedScopeRecoveryWait(
           (e) => e.id === a.entryId && e.workItemId === cycle.workItemId,
         ),
     );
-    // Automatic recovery drives every round; an operator-requested round is driven regardless.
-    if (!roadmap.scopeRecovery?.enabled && !active?.recovery?.requestedByUserId) continue;
+    if (!roadmap.scopeRecovery?.enabled && !(active && roadmapCarriesRound(roadmap, active)))
+      continue;
     if (
       active &&
       !roadmap.entryHolds?.[active.entryId] &&

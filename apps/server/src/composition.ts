@@ -96,6 +96,11 @@ export interface ServiceOverrides {
   /** Test seam: an agent backend or `null` to simulate a missing executable. */
   readonly agentBackends?: ReadonlyMap<AgentBackendKind, AgentBackend>;
   readonly runLog?: RunLog;
+  /**
+   * Replay seam (R-I10): false takes the database as a live daemon's next pass would find it,
+   * instead of recovering interrupted runs, cycles and roadmaps as a restart does.
+   */
+  readonly restartRecovery?: false;
 }
 
 export async function createServices(
@@ -222,8 +227,12 @@ export async function createServices(
   });
   // A completed drain left a clean-stop record (R-B9). It only counts when no run was
   // still live in the database, i.e. the drain really finished before the process ended.
-  const previousStop = storage.transaction((tx) => tx.maintenance.takeCleanStop());
-  const cleanStop = agentRunService.recoverInterrupted() === 0 && previousStop !== undefined;
+  const recovering = overrides.restartRecovery !== false;
+  const previousStop = recovering
+    ? storage.transaction((tx) => tx.maintenance.takeCleanStop())
+    : undefined;
+  const cleanStop =
+    recovering && agentRunService.recoverInterrupted() === 0 && previousStop !== undefined;
   const workCycleService = new WorkCycleService(
     storage,
     workspaceService,
@@ -238,7 +247,7 @@ export async function createServices(
     runtimeEvidenceService,
   );
   workCycleService.attachPasses(controllerPasses);
-  workCycleService.recoverInterrupted({ cleanStop });
+  if (recovering) workCycleService.recoverInterrupted({ cleanStop });
   const roadmapService = new RoadmapService(
     storage,
     workspaceService,
@@ -252,7 +261,7 @@ export async function createServices(
     gitOperations,
   );
   roadmapService.attachAttention(attention, controllerPasses);
-  roadmapService.recoverInterrupted({ cleanStop });
+  if (recovering) roadmapService.recoverInterrupted({ cleanStop });
   // Anything written while the daemon was down, or before items existed, is projected now.
   attention.rebuild();
   const crossProjectService = new CrossProjectService(

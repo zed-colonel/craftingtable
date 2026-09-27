@@ -121,7 +121,7 @@ async function main(args: readonly string[]): Promise<number> {
   if (
     !snapshot ||
     !existsSync(snapshot) ||
-    (mode && !['--record', '--check'].includes(mode)) ||
+    (mode && (!['--record', '--check'].includes(mode) || !golden)) ||
     (everyRun && schedulerMode)
   ) {
     process.stderr.write(

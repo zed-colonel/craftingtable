@@ -93,6 +93,16 @@ import type { ControllerPasses } from './attention-gates.js';
 import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 
 class SupersededRoadmapOperation extends Error {}
+/** Errors a pass leaves for the next one: a lost race, busy Git, or a gate that clears itself. */
+function retried(error: unknown): boolean {
+  return (
+    error instanceof ConcurrentModificationError ||
+    (error instanceof PhaseGateError && error.waiting) ||
+    error instanceof RepositoryMutationBusyError ||
+    error instanceof WorktreeMutationBusyError ||
+    error instanceof IntegrationHeldError
+  );
+}
 
 const ended = (roadmap: Roadmap) => ['stopped', 'completed'].includes(roadmap.status);
 /** An entry the scheduler holds for a typed reason the operator resolves (R-A5). */
@@ -135,13 +145,16 @@ export type EntryPassOutcome =
   | { readonly kind: 'held' }
   | { readonly kind: 'evaluated'; readonly step: EntryStep }
   | { readonly kind: 'retry'; readonly error: unknown }
-  | { readonly kind: 'hold-recorded'; readonly error: unknown };
-/** Sees each entry a pass reaches, with the roadmap as the pass found it (the R-I10 replay). */
-export type SchedulerObserver = (
-  roadmap: Roadmap,
-  entry: RoadmapEntry,
-  outcome: EntryPassOutcome,
-) => void;
+  | { readonly kind: 'hold-recorded'; readonly error: unknown }
+  // A sequential roadmap's entry whose error stops the roadmap.
+  | { readonly kind: 'failed'; readonly error: unknown };
+/** Sees how each pass leaves each entry and each roadmap (the R-I10 replay). */
+export interface SchedulerObserver {
+  /** An entry the pass reached, with the roadmap as the pass found it. */
+  entry(roadmap: Roadmap, entry: RoadmapEntry, outcome: EntryPassOutcome): void;
+  /** The pass over this roadmap ended, with the error it retries or stops on, if any. */
+  passEnded(roadmapId: string, error?: unknown): void;
+}
 
 /** One delegated roadmap per workspace. The cycle controller owns every agent step. */
 /** A roadmap write: entering `needs-attention` must declare its typed stop (R-A3). */
@@ -1257,16 +1270,10 @@ export class RoadmapService {
         if (roadmap.status !== 'running') continue;
         try {
           await this.advance(this.adoptManualRepairs(roadmap));
+          this.observer?.passEnded(roadmap.id);
         } catch (error) {
-          if (
-            error instanceof SupersededRoadmapOperation ||
-            error instanceof ConcurrentModificationError ||
-            (error instanceof PhaseGateError && error.waiting) ||
-            error instanceof RepositoryMutationBusyError ||
-            error instanceof WorktreeMutationBusyError ||
-            error instanceof IntegrationHeldError
-          )
-            continue;
+          this.observer?.passEnded(roadmap.id, error);
+          if (error instanceof SupersededRoadmapOperation || retried(error)) continue;
           const current = this.find(roadmap.workspaceId, roadmap.id);
           if (current.status === 'running')
             this.change(current, {
@@ -1323,7 +1330,7 @@ export class RoadmapService {
       for (const entry of roadmap.definition.entries) {
         const skipped = deferred.get(entry.id);
         if (skipped) {
-          this.observer?.(
+          this.observer?.entry(
             roadmap,
             entry,
             skipped === 'complete' ? { kind: 'complete' } : { kind: 'deferred', blocker: skipped },
@@ -1339,7 +1346,7 @@ export class RoadmapService {
           return;
         this.authority(current);
         if (this.complete(current, entry)) {
-          this.observer?.(current, entry, { kind: 'complete' });
+          this.observer?.entry(current, entry, { kind: 'complete' });
           const attempt = current.attempts.find((a) => a.entryId === entry.id);
           // Evidence that became current again also ends a queued re-verification.
           if (attempt && (attempt.status !== 'completed' || attempt.reverification))
@@ -1363,22 +1370,15 @@ export class RoadmapService {
           this.storage.execution.worktrees.find(current.workspaceId, heldAttempt.worktreeId)
             ?.mergedAt;
         if (current.entryHolds?.[entry.id] && !merged) {
-          this.observer?.(current, entry, { kind: 'held' });
+          this.observer?.entry(current, entry, { kind: 'held' });
           continue;
         }
+        let step: EntryStep;
         try {
-          const step = await this.advanceEntry(current, entry);
-          evaluated.set(entry.id, step);
-          this.observer?.(current, entry, { kind: 'evaluated', step });
+          step = await this.advanceEntry(current, entry);
         } catch (error) {
           if (error instanceof SupersededRoadmapOperation) throw error;
-          if (
-            error instanceof ConcurrentModificationError ||
-            (error instanceof PhaseGateError && error.waiting) ||
-            error instanceof RepositoryMutationBusyError ||
-            error instanceof WorktreeMutationBusyError ||
-            error instanceof IntegrationHeldError
-          ) {
+          if (retried(error)) {
             // Gates that clear by themselves are typed waits; a lost race keeps the last one.
             evaluated.set(
               entry.id,
@@ -1388,12 +1388,11 @@ export class RoadmapService {
                   ? waiting('integration-held', error.message)
                   : 'keep',
             );
-            this.observer?.(current, entry, { kind: 'retry', error });
+            this.observer?.entry(current, entry, { kind: 'retry', error });
             continue;
           }
           const latest = this.find(roadmap.workspaceId, roadmap.id);
           if (latest.status !== 'running' || this.controlling.has(latest.id)) return;
-          this.observer?.(current, entry, { kind: 'hold-recorded', error });
           const reason =
             error instanceof ExecutionRequestError
               ? error.message
@@ -1413,7 +1412,11 @@ export class RoadmapService {
               },
             },
           });
+          this.observer?.entry(current, entry, { kind: 'hold-recorded', error });
+          continue;
         }
+        evaluated.set(entry.id, step);
+        this.observer?.entry(current, entry, { kind: 'evaluated', step });
       }
       let current = this.find(roadmap.workspaceId, roadmap.id);
       if (current.status !== 'running') return;
@@ -1465,8 +1468,17 @@ export class RoadmapService {
       this.change(roadmap, { status: 'completed', reason: 'All roadmap entries are completed.' });
       return;
     }
-    const step = await this.advanceEntry(roadmap, entry);
-    this.observer?.(roadmap, entry, { kind: 'evaluated', step });
+    try {
+      const step = await this.advanceEntry(roadmap, entry);
+      this.observer?.entry(roadmap, entry, { kind: 'evaluated', step });
+    } catch (error) {
+      this.observer?.entry(
+        roadmap,
+        entry,
+        retried(error) ? { kind: 'retry', error } : { kind: 'failed', error },
+      );
+      throw error;
+    }
   }
   private async advanceEntry(
     roadmap: Roadmap,

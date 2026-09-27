@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -9,10 +10,13 @@ import {
   parallelFixture,
   type Ready,
   roadmapControl,
+  roadmapFixture,
   saveRoadmapRequest,
   storedRoadmap,
+  useIntegration,
 } from './execution-test-support.js';
-import { replaySchedulerSnapshot } from './scheduler-replay.js';
+import { openDaemonStorage } from './persisted-records.js';
+import { replaySchedulerDecisions, replaySchedulerSnapshot } from './scheduler-replay.js';
 
 /**
  * The scheduler replay (R-I10) runs one real roadmap pass over a copy of a snapshot and
@@ -41,16 +45,19 @@ const decisionsOf = (replay: Awaited<ReturnType<typeof replaySchedulerSnapshot>>
     ]),
   );
 
+const digest = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
+
 it('records each roadmap entry’s decision for one pass without launching or writing', {
   timeout: 20000,
 }, async () => {
-  const { state, backend, input } = await parallelFixture();
+  const { state, input } = await parallelFixture();
   expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
   await roadmapControl(state, 'start');
-  const version = storedRoadmap(state).version;
-  const launches = backend.launches.length;
+  const source = await snapshot(state);
+  const before = digest(source);
 
-  const started = await replaySchedulerSnapshot(await snapshot(state), new Date());
+  const started = await replaySchedulerSnapshot(source, new Date());
+  expect(digest(source)).toBe(before);
   expect(started.roadmaps).toEqual([
     expect.objectContaining({ before: 'running', after: 'running' }),
   ]);
@@ -62,8 +69,24 @@ it('records each roadmap entry’s decision for one pass without launching or wr
     [second]: { decision: 'wait', action: undefined, code: 'dependency-blocked' },
     [input.entries[2]!.id]: { decision: 'wait', action: undefined, code: 'dependency-blocked' },
   });
-  expect(backend.launches).toHaveLength(launches);
-  expect(storedRoadmap(state).version).toBe(version);
+
+  // The replay's own copy: the pass reserved the attempt, but created no worktree, cycle or run.
+  const copyDirectory = mkdtempSync(join(tmpdir(), 'scheduler-replay-copy-'));
+  directories.push(copyDirectory);
+  const copy = join(copyDirectory, 'copy.sqlite');
+  copyFileSync(source, copy);
+  await replaySchedulerDecisions(copy, copyDirectory, new Date());
+  const replayed = openDaemonStorage(copy);
+  try {
+    expect(replayed.roadmaps.find(state.workspaceId, storedRoadmap(state).id)?.attempts).toEqual([
+      expect.objectContaining({ entryId: first, status: 'preparing' }),
+    ]);
+    expect(replayed.execution.worktrees.listActive(state.workspaceId)).toEqual([]);
+    expect(replayed.execution.cycles.listForWorkspace(state.workspaceId)).toEqual([]);
+    expect(replayed.execution.runs.listRecent(state.workspaceId, 10)).toEqual([]);
+  } finally {
+    replayed.close();
+  }
 
   // At the merge boundary the pass leaves the first item to the operator's merge approval,
   // and says so with a typed wait (R-C12) instead of returning silently.
@@ -75,4 +98,57 @@ it('records each roadmap entry’s decision for one pass without launching or wr
     code: 'cycle-attention',
   });
   expect(merging.cycles).toEqual([]);
+});
+
+it('replays a snapshot taken while a run is live as the next pass, not as a restart', {
+  timeout: 20000,
+}, async () => {
+  const { state, input } = await parallelFixture();
+  expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  await state.context.services.roadmapService.tick();
+  await state.context.services.workCycleService.tick();
+  const cycle = state.context.storage.execution.cycles.find(
+    state.workspaceId,
+    storedRoadmap(state).attempts[0]!.cycleId,
+  )!;
+  expect(
+    state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId)?.status,
+  ).toBe('waiting');
+
+  const replay = await replaySchedulerSnapshot(await snapshot(state), new Date());
+  expect(replay.roadmaps).toEqual([
+    expect.objectContaining({ before: 'running', after: 'running' }),
+  ]);
+  expect(decisionsOf(replay)[entryIds[0]!]).toEqual({
+    decision: 'running',
+    action: undefined,
+    code: undefined,
+  });
+});
+
+it('reports the entry a sequential roadmap acts on', { timeout: 20000 }, async () => {
+  const fixture = await roadmapFixture();
+  const { state } = fixture;
+  expect((await saveRoadmapRequest(state)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  // A sequential pass acts on its first unfinished entry only.
+  expect(decisionsOf(await replaySchedulerSnapshot(await snapshot(state), new Date()))).toEqual({
+    [entryIds[0]!]: { decision: 'start', action: 'createWorktree', code: undefined },
+    [entryIds[1]!]: { decision: 'not-scheduled', action: undefined, code: 'not-reached' },
+  });
+});
+
+it('reports the typed hold a pass records', { timeout: 20000 }, async () => {
+  // The plan's branch settings moved: a parallel pass holds each entry, and says with what.
+  const parallel = await parallelFixture();
+  expect((await saveRoadmapRequest(parallel.state, parallel.input)).statusCode).toBe(200);
+  await roadmapControl(parallel.state, 'start');
+  await useIntegration(parallel);
+  const held = await replaySchedulerSnapshot(await snapshot(parallel.state), new Date());
+  expect(decisionsOf(held)[entryIds[0]!]).toEqual({
+    decision: 'hold',
+    action: 'new-hold',
+    code: 'entry-preparation-failed',
+  });
 });

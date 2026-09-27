@@ -37,6 +37,11 @@ import { workflowContext } from './services/workflow-policy.js';
  * recorder that stops the entry there, so nothing is launched and the snapshot is never
  * modified. It also records each roadmap-owned slice cycle's checkpoint readiness, and the
  * inputs a ready checkpoint's attestation needs that its evidence packet lacks (LIVE-07).
+ *
+ * The pass takes the snapshot as the live daemon's next pass would find it: live runs stay
+ * live and no restart recovery runs. It runs on this host, so decisions that read the host
+ * (native toolchain identity, `CRAFTINGTABLE_KATA_READINESS` in the environment) follow the
+ * replaying shell, not the daemon's unit; replay on the workstation that took the snapshot.
  */
 
 export interface SchedulerEntryDecision {
@@ -66,6 +71,10 @@ export interface SchedulerRoadmapPass {
   readonly after: string;
   readonly code?: string;
   readonly reason?: string;
+  /** A command the pass issued outside any entry, e.g. the completion check. */
+  readonly action?: string;
+  /** Open repairs the pass adopted as operator-requested rounds. */
+  readonly adopted?: number;
 }
 export interface CheckpointReadiness {
   readonly cycleId: string;
@@ -129,7 +138,10 @@ export async function replaySchedulerSnapshot(
   }
 }
 
-/** Runs one pass over `database`, which it modifies: pass a copy. */
+/**
+ * Runs one pass over `database`, which it modifies: pass a copy. Opening an older schema
+ * migrates it and first writes a pre-migration copy beside it, so allow twice its size.
+ */
 export async function replaySchedulerDecisions(
   database: string,
   dataDir: string,
@@ -138,12 +150,9 @@ export async function replaySchedulerDecisions(
   const storage = openDaemonStorage(database);
   try {
     // The stored capacities, so the daemon's configured defaults do not replace them: plan
-    // evidence is bound to them. A clean-stop record models the drained restart that keeps
-    // running roadmaps running (R-B9).
+    // evidence is bound to them.
     const capacity = (key: string) => String(storage.phaseScheduling.capacity(key));
-    storage.transaction((tx) =>
-      tx.maintenance.recordCleanStop({ stoppedAt: now.toISOString(), interruptedRunCount: 0 }),
-    );
+    const before = storage.roadmaps.list().filter((r) => r.status !== 'draft');
     const config = configFromEnv({
       CRAFTINGTABLE_DATA_DIR: dataDir,
       CRAFTINGTABLE_PUBLIC_ORIGIN: 'http://127.0.0.1:5173',
@@ -152,7 +161,7 @@ export async function replaySchedulerDecisions(
       CRAFTINGTABLE_DEVELOPMENT_CAPACITY: capacity('local-development'),
       CRAFTINGTABLE_VERIFICATION_CAPACITY: capacity('local-verification'),
     });
-    let issued: { command: string; decision: SchedulerEntryDecision['decision'] } | undefined;
+    let issued: Issued | undefined;
     const record = (command: string, decision: SchedulerEntryDecision['decision']) => {
       issued ??= { command, decision };
     };
@@ -162,8 +171,9 @@ export async function replaySchedulerDecisions(
     // are real repositories.
     const missing = join(dataDir, 'no-agent-executable');
     const git = new Proxy({} as GitOperations, {
+      // The replay cannot follow a pass past Git, read or write: it records where it stopped.
       get: (_target, method) => () => {
-        record(`git:${String(method)}`, 'advance');
+        record(`git:${String(method)}`, 'not-scheduled');
         throw new ReplayIntercept(`git:${String(method)}`);
       },
     });
@@ -175,21 +185,29 @@ export async function replaySchedulerDecisions(
       ]),
       now: () => now,
       notificationTransport: { send: async () => ({ status: 'accepted' }) },
+      // The snapshot as the live daemon's next pass finds it, live runs included: no restart.
+      restartRecovery: false,
     });
     const cycles = checkpointReadiness(storage);
-    const before = storage.roadmaps.list().filter((r) => r.status !== 'draft');
     intercept(services, record);
     const observed = new Map<string, SchedulerEntryDecision>();
-    services.roadmapService.observeScheduling((roadmap, entry, outcome) => {
-      const key = `${roadmap.id}/${entry.id}`;
-      if (!observed.has(key))
-        observed.set(
-          key,
-          decide(roadmap, entry, outcome, issued, () =>
-            storage.roadmaps.find(roadmap.workspaceId, roadmap.id),
-          ),
-        );
-      issued = undefined;
+    const passActions = new Map<string, string>();
+    services.roadmapService.observeScheduling({
+      entry: (roadmap, entry, outcome) => {
+        const key = `${roadmap.id}/${entry.id}`;
+        if (!observed.has(key))
+          observed.set(
+            key,
+            decide(roadmap, entry, outcome, issued, () =>
+              storage.roadmaps.find(roadmap.workspaceId, roadmap.id),
+            ),
+          );
+        issued = undefined;
+      },
+      passEnded: (roadmapId) => {
+        if (issued) passActions.set(roadmapId, issued.command);
+        issued = undefined;
+      },
     });
     await services.roadmapService.tick();
     const entries: SchedulerEntryDecision[] = [];
@@ -197,21 +215,32 @@ export async function replaySchedulerDecisions(
     for (const prior of before) {
       const after = storage.roadmaps.find(prior.workspaceId, prior.id) ?? prior;
       const attention = effectiveRoadmapAttention(after);
+      const action = passActions.get(prior.id);
+      const adopted = after.attempts.filter(
+        (a) =>
+          a.recovery?.requestedByUserId &&
+          a.status === 'active' &&
+          !prior.attempts.some((p) => p.id === a.id),
+      ).length;
       roadmaps.push({
         roadmapId: prior.id,
         before: prior.status,
         after: after.status,
         ...(attention ? { code: attention.code } : {}),
         ...(after.status !== prior.status ? { reason: after.reason } : {}),
+        ...(action ? { action } : {}),
+        ...(adopted ? { adopted } : {}),
       });
       for (const entry of prior.definition.entries) {
         const found = observed.get(`${prior.id}/${entry.id}`);
         entries.push(
-          found ??
-            describe(prior, entry, {
-              decision: 'not-scheduled',
-              code: after.status === 'running' ? 'not-reached' : `roadmap-${after.status}`,
-            }),
+          found?.action === 'roadmap-stopped' && attention
+            ? { ...found, code: attention.code }
+            : (found ??
+                describe(prior, entry, {
+                  decision: 'not-scheduled',
+                  code: after.status === 'running' ? 'not-reached' : `roadmap-${after.status}`,
+                })),
         );
       }
     }
@@ -235,15 +264,24 @@ function describe(
   };
 }
 
+interface Issued {
+  readonly command: string;
+  readonly decision: SchedulerEntryDecision['decision'];
+}
+
 function decide(
   roadmap: Roadmap,
   entry: RoadmapEntry,
   outcome: EntryPassOutcome,
-  issued: { command: string; decision: SchedulerEntryDecision['decision'] } | undefined,
+  issued: Issued | undefined,
   latest: () => Roadmap | undefined,
 ): SchedulerEntryDecision {
   if (issued)
-    return describe(roadmap, entry, { decision: issued.decision, action: issued.command });
+    return describe(roadmap, entry, {
+      decision: issued.decision,
+      action: issued.command,
+      ...(issued.command.startsWith('git:') ? { code: 'replay-stopped-at-git' } : {}),
+    });
   switch (outcome.kind) {
     case 'complete':
       return describe(roadmap, entry, { decision: 'complete' });
@@ -284,6 +322,13 @@ function decide(
         reason: outcome.error instanceof Error ? outcome.error.message : String(outcome.error),
       });
     }
+    case 'failed':
+      // The pass stops the roadmap after this report; its code is read once the pass ends.
+      return describe(roadmap, entry, {
+        decision: 'hold',
+        action: 'roadmap-stopped',
+        reason: outcome.error instanceof Error ? outcome.error.message : String(outcome.error),
+      });
     case 'evaluated': {
       const changed = changedAttempts(roadmap, latest(), entry);
       if (changed)

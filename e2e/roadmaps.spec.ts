@@ -173,7 +173,10 @@ for (const mode of ['sequential', 'parallel'] as const) {
         });
         await navigate('Roadmaps');
         if (mode === 'parallel' && sourceId === 'AQ-02') {
-          await expect(roadmap.getByText('Needs attention', { exact: true })).toBeVisible({
+          // The entry's own state label; the status list repeats the state beside its reason.
+          await expect(
+            roadmap.getByRole('strong').filter({ hasText: /^Needs attention$/ }),
+          ).toBeVisible({
             timeout: 15000,
           });
           await roadmap.getByRole('link', { name: /^AQ-03 ·/ }).click();

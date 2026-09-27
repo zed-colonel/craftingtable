@@ -32,6 +32,7 @@ describe('cycle actions (R-A7)', () => {
     ['remediation-exhausted', 'authorize-remediation'],
     ['review-open-questions-at-limit', 'authorize-remediation'],
     ['integration-conflict', 'resolve-integration'],
+    ['checkpoint-attestation-failed', 'continue-with-guidance'],
   ] as const)('sends %s to %s instead of a resume', (code, action) => {
     expect(cycleActions(cycle('needs-attention', code))).toEqual([action, 'stop']);
     expect(resumeRedirect(cycle('needs-attention', code))?.message).toBeTruthy();

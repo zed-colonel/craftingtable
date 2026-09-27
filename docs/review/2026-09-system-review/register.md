@@ -40,7 +40,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C10](#r-c10) | P2 | S-M | done (see entry) | Re-verify a roadmap item whose evidence is no longer current, without stopping the roadmap (added 2026-09-25) |
 | [R-C11](#r-c11) | P2 | S-M | done (see Progress) | Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry (added 2026-09-25) |
 | [R-C12](#r-c12) | P2 | S-M | done (2026-09-27) | Automatic recovery records why it did not start a round (added 2026-09-27) |
-| [R-C13](#r-c13) | P2 | S-M | open | Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation (added 2026-09-27) |
+| [R-C13](#r-c13) | P2 | S-M | done (2026-09-27) | Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation (added 2026-09-27) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -897,7 +897,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C13
 
-**Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation** · Phase P2 · Effort S-M · Status: open
+**Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation** · Phase P2 · Effort S-M · Status: done (2026-09-27)
 
 - **Added 2026-09-27** from [LIVE-07](findings/LIVE-live-run-2026-09-25.md#live-07-a-delegated-checkpoint-review-repeats-the-same-failed-attestation-on-every-resume). WI-04/domain's delegated WI-WORKER-G1 review ran three times, and failed the same attestation each time.
   - The controller judged the checkpoint ready (`supported && assigned && !pending.length`).
@@ -911,6 +911,19 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - On the 2026-09-27 snapshot, WI-04 waits as `controller-wait`, naming the missing WI-09/WI-10 inputs, instead of launching the review.
   - A resume after a failed attestation with unchanged inputs is refused with the resolving control.
   - Both replays are unchanged except for the explained WI-04 decision.
+- **Done 2026-09-27.**
+  - **Hypothesis refuted on the snapshot.** Readiness was right. WI-09/domain merged at 00:38 and was verified at 00:53:48 with a current scope receipt; WI-10/domain's receipt was current too. WI-04's WI-WORKER-G1 review started at 00:53, as soon as nothing was pending. "WI-09/domain was still at design" was stale when LIVE-07 was written: it was true on 2026-09-26, when WI-04 first waited. The defect was the evidence given to the reviewer. The ledger `craftingtable-scope-evidence.json` (`scopeEvidenceLedger`) collected receipts only for the work items the slice's own requirements name, and did not expand a required *checkpoint's* own prerequisites. So WI-04's ledger held WI-02's receipts, but not WI-09's or WI-10's, and no coverage bindings for WP-001…WP-008. The reviewer said exactly that each time ("The supplied ledger contains WI-02 receipts but lacks WI-09/WI-10 producing-slice receipts … contains no acceptance_coverage bindings").
+  - **Restated done-when (operator decision 2026-09-27).** WI-04's next checkpoint review is given the WI-09/WI-10 receipts and coverage bindings, instead of "WI-04 waits naming them": those inputs are met. The rest stands: a failed attestation with unchanged inputs is a typed stop, and Resume is refused and redirected. The new code `checkpoint-attestation-failed` is an additive value of the persisted cycle attention enum, approved with the restatement.
+  - **One evaluator.** `prerequisiteEvaluation` (`runtime-evidence-policy.ts`) returns a subject's gaps and the exact record that met each other requirement: accepted evidence, a scope receipt, a merge, a staged decision, a started run or an accepted parent. `prerequisiteGaps`/`prerequisiteIssues` are its gaps, so readiness is unchanged. From the same evaluation:
+    - `workflowContext` reads `pending` and adds each checkpoint's `inputs` (stable keys), so its `contextDigest` and the reviewer's prompt cover every input the controller counted;
+    - the ledger gains `checkpoints`: for each checkpoint the scope requires, its requirements, the met prerequisites with the receipts themselves, what is still pending, and its coverage bindings. For WI-04 that is 19 KB beside the ledger's existing 816 KB.
+  - **Typed stop.** `checkpointAttested` is the one check of a delegated attestation (passed; evidence for every exact requirement and none other; every case), shared by the candidate's issues and the accept path. A failed attestation throws `CheckpointAttestationError`, and the cycle stops as `checkpoint-attestation-failed` (operator, `refs.checkpointId`) instead of `controller-error`.
+  - **Resume ([R-A7](#r-a7)).** `cycleActions` sends this stop to Continue with guidance. The daemon refuses a plain Resume while the checkpoint's inputs are the ones its review was given (the current `contextDigest` equals the active review's), and accepts it once they changed. A review that runs again records the digest of the inputs it is given, so a second identical failure is refused again; a continued session keeps the digest it was launched with.
+  - **Tests,** each failing without the change:
+    - `server-execution-checkpoint-attestation.test.ts`: LIVE-07's shape. AQ-01/a's merge needs LOCAL-REVIEW, which needs AQ-02/a, another item's slice, verified. The checkpoint review's ledger carries AQ-02/a's receipt under `checkpoints`, from the evaluation that made the checkpoint ready, and the prompt names the same input.
+    - `server-execution-reviews.test.ts`, "delegated contract checkpoint requires complete attestation: false": the stop is `checkpoint-attestation-failed`. A plain Resume is refused with "Continue with guidance", and accepted once the inputs differ from those the review was given; the relaunched review records the current digest.
+    - `cycle-actions.test.ts`: the redirect row.
+  - **Replays.** Step outcomes unchanged: 2026-09-23 51 and 278, 2026-09-27 58 and 352. Scheduler, against R-I10's golden: R-C12's five entry changes, plus one intended cycle change. WI-04/domain's WI-WORKER-G1 is still ready, and `packetMissing` goes from the WI-09/WI-10 receipts and WP-001…WP-008 to nothing. Its stored stop is the old `controller-error`, so after deploy Resume re-runs the review with the complete packet.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

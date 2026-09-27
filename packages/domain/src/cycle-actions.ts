@@ -68,6 +68,11 @@ const RESOLUTION: Partial<Record<CycleAttentionCode, readonly [CycleAction, stri
     'resolve-integration',
     'Use Resolve integration conflicts to delegate the detected conflict.',
   ],
+  // The daemon also accepts a plain resume once the checkpoint's inputs have changed.
+  'checkpoint-attestation-failed': [
+    'continue-with-guidance',
+    'The checkpoint review could not attest with this evidence, and Resume would repeat it. Use Continue with guidance, or add the missing evidence in the roadmap.',
+  ],
 };
 
 /** The action and message that replace a plain Resume for this stop, if any. */

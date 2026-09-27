@@ -158,7 +158,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 ### LIVE-07: A delegated checkpoint review repeats the same failed attestation on every resume
 - Severity: medium
 - Category: controller-readiness/reviewer disagreement; a plain resume reproduces the stop ([R-A7](../register.md#r-a7))
-- Status: OPEN; cause is a HYPOTHESIS ([R-C13](../register.md#r-c13))
+- Status: CONFIRMED; fixed 2026-09-27 ([R-C13](../register.md#r-c13)). The hypothesis was refuted on the snapshot: readiness was right, because WI-09/domain was verified at 00:53:48 with current receipts. The reviewer's evidence ledger omitted the checkpoint's own prerequisites (the WI-09/WI-10 receipts) and its coverage bindings. Readiness and the ledger now come from one evaluation. A failed attestation stops as `checkpoint-attestation-failed`, and Resume is refused until its inputs change.
 - Replay case: the 2026-09-27 scheduler golden records WI-04/domain's WI-WORKER-G1 as ready, with `receipt:wi/WI-09/domain`, `receipt:wi/WI-10/domain` and coverage `WP-001`…`WP-008` missing from its evidence packet ([R-I10](../register.md#r-i10)).
 - Evidence:
   - WI-04/domain slice cycle `2f1ab211` waited at 2026-09-26 07:17 with "WI-WORKER-G1: Slice

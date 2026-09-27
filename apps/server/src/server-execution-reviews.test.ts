@@ -39,7 +39,11 @@ import {
   supervisedMapFixture,
   waitFor,
 } from './execution-test-support.js';
-import { controllerReviewRunnable, reviewAuthorityMissing } from './services/workflow-policy.js';
+import {
+  controllerReviewRunnable,
+  reviewAuthorityMissing,
+  workflowContext,
+} from './services/workflow-policy.js';
 
 afterEach(cleanupExecutionFixtures);
 
@@ -697,6 +701,54 @@ itNeedsCargo.each([
         .listForWorkspace(f.state.workspaceId)
         .find((c) => c.status === 'needs-attention')!;
       expect(cycle.reason).toContain('attestation');
+      // The checkpoint's own stop (R-C13, LIVE-07): a plain Resume would repeat the same
+      // review with the same inputs, so it is refused and redirected to guidance.
+      expect(cycle.attention).toMatchObject({
+        code: 'checkpoint-attestation-failed',
+        owner: 'operator',
+        refs: { checkpointId: 'LOCAL-REVIEW' },
+      });
+      const resume = () =>
+        f.state.context.app.inject({
+          method: 'POST',
+          url: `/api/workspaces/${f.state.workspaceId}/cycles/${cycle.id}/control`,
+          headers: mutationHeaders(f.state),
+          payload: {
+            action: 'resume',
+            expectedVersion: f.state.context.storage.execution.cycles.find(
+              f.state.workspaceId,
+              cycle.id,
+            )!.version,
+          },
+        });
+      const refused = await resume();
+      expect(refused.statusCode).toBe(409);
+      expect(refused.body).toContain('Continue with guidance');
+      // Once the checkpoint's inputs differ from those its review was given, Resume reviews
+      // the new inputs. Model a review that ran before them.
+      const stopped = f.state.context.storage.execution.cycles.find(f.state.workspaceId, cycle.id)!;
+      const active = stopped.workflow!.activeReview!;
+      f.state.context.storage.execution.cycles.replace(
+        {
+          ...stopped,
+          version: stopped.version + 1,
+          workflow: {
+            ...stopped.workflow!,
+            activeReview: { ...active, contextDigest: '0'.repeat(64) },
+          },
+        },
+        stopped.version,
+      );
+      const accepted = await resume();
+      expect(accepted.statusCode, accepted.body).toBe(200);
+      const relaunched = f.state.context.storage.execution.cycles.find(
+        f.state.workspaceId,
+        cycle.id,
+      )!;
+      expect(relaunched.workflow?.activeReview?.contextDigest).toBe(
+        workflowContext(f.state.context.storage, relaunched)?.contextDigest,
+      );
+      await roadmapControl(f.state, 'pause');
       expect(
         f.state.context.storage.runtimeEvidence
           .submissions(f.state.workspaceId, f.parentScope.definitionId)

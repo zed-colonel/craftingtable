@@ -21,6 +21,7 @@ import {
 import type { StorageRepositories } from '@craftingtable/storage';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import {
+  prerequisiteEvaluation,
   prerequisiteIssues,
   acceptedEvidence,
   runtimeScopeBlockers,
@@ -702,6 +703,19 @@ function parentEvidenceProducers(r: ResolvedScope): readonly string[] {
     ]),
   ];
 }
+/** The checkpoints a scope's own requirements name. */
+function scopeCheckpointIds(r: ResolvedScope): readonly string[] {
+  return [
+    ...new Set(
+      (r.slice
+        ? [...r.slice.start_requires, ...r.slice.merge_requires, ...r.slice.verify_requires]
+        : r.parent.acceptance_requires
+      )
+        .filter((requirement) => requirement.kind === 'checkpoint')
+        .map((requirement) => requirement.id),
+    ),
+  ];
+}
 /** Retain evidence in a run artifact instead of repeating full reviews inside every prompt. */
 export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
   const bindings = tx.imports
@@ -769,6 +783,27 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
             s.subject,
           )?.id === s.id,
       ),
+    // Each checkpoint this scope requires, with the records that met its prerequisites. It is
+    // the evaluation that decides the checkpoint is ready, so a checkpoint reviewer sees
+    // every input the controller counted (R-C13, LIVE-07).
+    checkpoints: scopeCheckpointIds(r).map((id) => {
+      const checkpoint = r.definition.source.checkpoints.find((c) => c.id === id);
+      const evaluation = prerequisiteEvaluation(tx, r.definition, r.scope.bindingRevision, {
+        kind: 'checkpoint',
+        sourceId: id,
+      });
+      return {
+        id,
+        title: checkpoint?.title,
+        requires: checkpoint?.requires ?? [],
+        prerequisites: evaluation.inputs,
+        pending: evaluation.gaps.map((gap) => gap.message),
+        coverage: r.definition.source.acceptance_coverage.filter((c) => c.checkpoint === id),
+        baselineCoverage: r.definition.source.baseline_acceptance_coverage.filter(
+          (c) => c.capability_gate === id,
+        ),
+      };
+    }),
     receipts:
       bindings?.bindings
         .flatMap((b) => b.workItems)

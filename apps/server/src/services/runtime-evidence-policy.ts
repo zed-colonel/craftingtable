@@ -476,10 +476,61 @@ export function prerequisiteIssues(
   return prerequisiteGaps(tx, d, bindingRevision, subject, visiting).map((gap) => gap.message);
 }
 
+/**
+ * Whether a delegated checkpoint review attested the checkpoint: passed, with evidence for
+ * every exact requirement, no other requirement, and every case (R-C13).
+ */
+export function checkpointAttested(
+  spec: Pick<ReturnType<typeof subjectRequirements>, 'requirements' | 'cases'>,
+  workflow: ReturnType<typeof import('@craftingtable/contracts').parseWorkflowReport> | undefined,
+  checkpointId: string,
+): boolean {
+  const attestation = workflow?.status === 'complete' ? workflow.report.checkpoint : undefined;
+  return (
+    !!attestation &&
+    attestation.id === checkpointId &&
+    attestation.passed &&
+    spec.requirements.every((r) =>
+      attestation.requirements.some((a) => a.requirement === r && a.evidence.trim()),
+    ) &&
+    attestation.requirements.every((a) => spec.requirements.includes(a.requirement)) &&
+    spec.cases.every((c) => attestation.caseIds.includes(c.id))
+  );
+}
+
 /** A missing prerequisite; `checkpointId` names a prerequisite checkpoint without evidence. */
 export interface PrerequisiteGap {
   readonly message: string;
   readonly checkpointId?: string;
+}
+
+/**
+ * The record the controller counted for one met prerequisite (R-C13). Readiness and the
+ * evidence an attestation is given come from the same evaluation, so a reviewer is shown
+ * exactly what made the controller call a checkpoint ready (LIVE-07).
+ */
+export type PrerequisiteInput = {
+  readonly requirement: {
+    readonly kind: 'checkpoint' | 'slice' | 'work_item';
+    readonly id: string;
+    readonly state: string;
+  };
+} & (
+  | { readonly kind: 'accepted-evidence'; readonly submissionId: string }
+  | { readonly kind: 'staged-decision' }
+  | {
+      readonly kind: 'scope-receipt';
+      readonly receiptId: string;
+      readonly receipt: import('@craftingtable/domain').ScopeReceipt;
+    }
+  | { readonly kind: 'merge'; readonly mergeSha: string }
+  | { readonly kind: 'started' }
+  | { readonly kind: 'parent-accepted' }
+);
+
+export interface PrerequisiteEvaluation {
+  readonly gaps: readonly PrerequisiteGap[];
+  readonly inputs: readonly PrerequisiteInput[];
 }
 
 export function prerequisiteGaps(
@@ -489,11 +540,24 @@ export function prerequisiteGaps(
   subject: EvidenceSubject,
   visiting = new Set<string>(),
 ): PrerequisiteGap[] {
+  return [...prerequisiteEvaluation(tx, d, bindingRevision, subject, visiting).gaps];
+}
+
+/** What a subject's prerequisites lack, and the exact records that meet the rest. */
+export function prerequisiteEvaluation(
+  tx: StorageRepositories,
+  d: ConcurrencyDefinition,
+  bindingRevision: number,
+  subject: EvidenceSubject,
+  visiting = new Set<string>(),
+): PrerequisiteEvaluation {
   const key = `${subject.kind}:${subject.sourceId}`;
-  if (visiting.has(key)) return [{ message: 'Circular evidence prerequisite.' }];
+  if (visiting.has(key))
+    return { gaps: [{ message: 'Circular evidence prerequisite.' }], inputs: [] };
   const next = new Set(visiting).add(key),
     spec = subjectRequirements(d, subject),
-    issues: PrerequisiteGap[] = [];
+    issues: PrerequisiteGap[] = [],
+    inputs: PrerequisiteInput[] = [];
   const adopted = adoptedDecisions(tx, d.workspaceId, d.id, bindingRevision);
   const missing = spec.decisionRefs.filter((id) => !adopted.has(id));
   if (missing.length)
@@ -515,6 +579,7 @@ export function prerequisiteGaps(
     .bindings(d.workspaceId, d.id)
     .find((b) => b.revision === bindingRevision);
   for (const r of requirements) {
+    const requirement = { kind: r.kind, id: r.id, state: r.state };
     if (r.kind === 'checkpoint') {
       if (
         spec.slice &&
@@ -524,18 +589,21 @@ export function prerequisiteGaps(
           { kind: 'slice', definitionId: d.id, bindingRevision, sourceId: spec.slice.id },
           r.id,
         )
-      )
+      ) {
+        inputs.push({ requirement, kind: 'staged-decision' });
         continue;
-      if (
-        !acceptedEvidence(
-          tx,
-          d.workspaceId,
-          d.id,
-          bindingRevision,
-          { kind: 'checkpoint', sourceId: r.id },
-          next,
-        )
-      )
+      }
+      const accepted = acceptedEvidence(
+        tx,
+        d.workspaceId,
+        d.id,
+        bindingRevision,
+        { kind: 'checkpoint', sourceId: r.id },
+        next,
+      );
+      if (accepted)
+        inputs.push({ requirement, kind: 'accepted-evidence', submissionId: accepted.id });
+      else
         issues.push({
           message: `Checkpoint ${r.id} must pass with current accepted evidence.`,
           checkpointId: r.id,
@@ -547,8 +615,9 @@ export function prerequisiteGaps(
         .flatMap((b) => b.workItems)
         .find((w) => w.sourceId === parent)?.workItemId;
       if (r.kind === 'work_item') {
-        if (!parentAccepted(tx, d.workspaceId, d.id, bindingRevision, r.id))
-          issues.push({ message: `Parent ${r.id} must be accepted.` });
+        if (parentAccepted(tx, d.workspaceId, d.id, bindingRevision, r.id))
+          inputs.push({ requirement, kind: 'parent-accepted' });
+        else issues.push({ message: `Parent ${r.id} must be accepted.` });
       } else {
         const trees = id
           ? tx.execution.worktrees
@@ -569,38 +638,65 @@ export function prerequisiteGaps(
             bindingRevision,
             sourceId: r.id,
           });
-        const satisfied =
-          r.state === 'started'
-            ? !!integrated ||
+        const met: PrerequisiteInput | undefined = (() => {
+          if (r.state === 'started')
+            return integrated ||
               trees.some((t) =>
                 tx.execution.runs.listForWorktree(d.workspaceId, t.id).some((r) => r.startedAt),
               )
-            : r.state === 'merged'
-              ? !!integrated?.mergeSha
-              : !!acceptedEvidence(
-                  tx,
-                  d.workspaceId,
-                  d.id,
-                  bindingRevision,
-                  { kind: 'slice', sourceId: r.id },
-                  next,
-                ) ||
-                (!!id &&
-                  tx.scopeReceipts
-                    .list(d.workspaceId, id)
-                    .some(
-                      (p) =>
-                        currentScopeReceipt(tx, d.workspaceId, p) &&
-                        p.scope.definitionId === d.id &&
-                        p.scope.bindingRevision === bindingRevision &&
-                        p.scope.sourceId === r.id &&
-                        integrated?.mergeSha === p.integrationSha,
-                    ));
-        if (!satisfied) issues.push({ message: `Slice ${r.id} must be ${r.state}.` });
+              ? { requirement, kind: 'started' }
+              : undefined;
+          if (r.state === 'merged')
+            return integrated?.mergeSha
+              ? { requirement, kind: 'merge', mergeSha: integrated.mergeSha }
+              : undefined;
+          const accepted = acceptedEvidence(
+            tx,
+            d.workspaceId,
+            d.id,
+            bindingRevision,
+            { kind: 'slice', sourceId: r.id },
+            next,
+          );
+          if (accepted)
+            return { requirement, kind: 'accepted-evidence', submissionId: accepted.id };
+          const receipt =
+            id &&
+            tx.scopeReceipts
+              .list(d.workspaceId, id)
+              .find(
+                (p) =>
+                  currentScopeReceipt(tx, d.workspaceId, p) &&
+                  p.scope.definitionId === d.id &&
+                  p.scope.bindingRevision === bindingRevision &&
+                  p.scope.sourceId === r.id &&
+                  integrated?.mergeSha === p.integrationSha,
+              );
+          return receipt
+            ? { requirement, kind: 'scope-receipt', receiptId: receipt.id, receipt }
+            : undefined;
+        })();
+        if (met) inputs.push(met);
+        else issues.push({ message: `Slice ${r.id} must be ${r.state}.` });
       }
     }
   }
-  return issues;
+  return { gaps: issues, inputs };
+}
+
+/** A stable reference to a met prerequisite, for digests and prompts. */
+export function prerequisiteInputKey(input: PrerequisiteInput): string {
+  const subject = `${input.requirement.kind}:${input.requirement.id}:${input.requirement.state}`;
+  switch (input.kind) {
+    case 'accepted-evidence':
+      return `${subject}=evidence:${input.submissionId}`;
+    case 'scope-receipt':
+      return `${subject}=receipt:${input.receiptId}`;
+    case 'merge':
+      return `${subject}=merge:${input.mergeSha}`;
+    default:
+      return `${subject}=${input.kind}`;
+  }
 }
 
 export function currentScopeReceipt(

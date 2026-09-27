@@ -67,6 +67,21 @@ export class UpstreamTransitionUndeclaredError extends ExecutionRequestError {
 }
 
 /**
+ * A delegated checkpoint review ended without a complete, passing attestation (R-C13). The
+ * cycle stops as `checkpoint-attestation-failed`, not as a controller error, so a plain
+ * Resume that would repeat the same review can be refused.
+ */
+export class CheckpointAttestationError extends ExecutionRequestError {
+  constructor(
+    readonly checkpointId: string,
+    message: string,
+  ) {
+    super('conflict', message);
+    this.name = 'CheckpointAttestationError';
+  }
+}
+
+/**
  * An optimistic-concurrency miss: another worker or command committed a newer version of
  * the aggregate first. Callers answer the request as a conflict; the scheduling loops
  * treat it as retryable because the next pass reads the newer version.

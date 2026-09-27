@@ -15,7 +15,8 @@ import { resolveScope } from './execution-scope.js';
 import {
   acceptedEvidence,
   scopeRuntimeChanges,
-  prerequisiteIssues,
+  prerequisiteEvaluation,
+  prerequisiteInputKey,
   subjectRequirements,
 } from './runtime-evidence-policy.js';
 import { cycleOwnership } from './cycle-ownership.js';
@@ -79,6 +80,14 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
         .find((b) => b.revision === cycle.executionScope!.bindingRevision)
         ?.bindings.find((b) => b.workItems.some((w) => w.workItemId === cycle.workItemId))?.alias;
       const supported = supportsTechnicalCheckpoint(scope.definition, checkpoint.id, alias);
+      // One evaluation says what is pending and what met the rest; the reviewer's evidence
+      // packet carries the same records (R-C13, LIVE-07).
+      const prerequisites = prerequisiteEvaluation(
+        tx,
+        scope.definition,
+        cycle.executionScope!.bindingRevision,
+        subject,
+      );
       return {
         id: checkpoint.id,
         title: checkpoint.title,
@@ -101,12 +110,8 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
         requirements: spec.requirements,
         caseIds: spec.cases.map((c) => c.id),
         roles: spec.reviewerRoles,
-        pending: prerequisiteIssues(
-          tx,
-          scope.definition,
-          cycle.executionScope!.bindingRevision,
-          subject,
-        ),
+        pending: prerequisites.gaps.map((gap) => gap.message),
+        inputs: prerequisites.inputs.map(prerequisiteInputKey),
         assigned: spec.reviewerRoles.every((r) => delegation?.roles.includes(r)),
         sources: checkpoint.source_refs,
       };

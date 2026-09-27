@@ -48,6 +48,7 @@ export const ATTENTION_CODE_LABELS: Readonly<Record<AttentionItemCode, string>> 
   'review-baseline-changed': 'Review baseline changed',
   'security-reviewer-unassigned': 'Security reviewer unassigned',
   'workflow-obligation': 'Workflow obligation',
+  'checkpoint-attestation-failed': 'Checkpoint not attested',
   'stage-report-invalid': 'Stage report invalid',
   'finalization-ledger-full': 'Finalization ledger full',
   'plan-change-decision': 'Plan change decision',

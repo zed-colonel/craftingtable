@@ -76,7 +76,7 @@ import {
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext, CommandContext } from './auth-service.js';
-import { ExecutionRequestError, NotFoundError } from './errors.js';
+import { CheckpointAttestationError, ExecutionRequestError, NotFoundError } from './errors.js';
 import {
   chooseUpstreamSources,
   transitionMerges,
@@ -86,6 +86,7 @@ import {
 import { resolveExecutable } from './executables.js';
 import {
   activeRuntime,
+  checkpointAttested,
   subjectRequirements,
   submissionIssues,
   prerequisiteGaps,
@@ -102,6 +103,8 @@ import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
+const ATTESTATION_REQUIRED =
+  'A complete, passing independent checkpoint attestation is required for every exact requirement and case.';
 function packages(files: readonly { path: string; content: Uint8Array }[]) {
   const root = Buffer.from(files.find((f) => f.path === 'Cargo.toml')?.content ?? []).toString(
     'utf8',
@@ -1048,22 +1051,8 @@ export class RuntimeEvidenceService {
           'This checkpoint requires evidence from multiple or different consumer repositories.',
         );
       const workflow = parseWorkflowReport(report);
-      if (delegated) {
-        const attestation = workflow.status === 'complete' ? workflow.report.checkpoint : undefined;
-        if (
-          !attestation ||
-          attestation.id !== checkpoint.id ||
-          !attestation.passed ||
-          spec.requirements.some(
-            (r) => !attestation.requirements.some((a) => a.requirement === r && a.evidence.trim()),
-          ) ||
-          attestation.requirements.some((a) => !spec.requirements.includes(a.requirement)) ||
-          spec.cases.some((c) => !attestation.caseIds.includes(c.id))
-        )
-          issues.push(
-            'A complete, passing independent checkpoint attestation is required for every exact requirement and case.',
-          );
-      }
+      if (delegated && !checkpointAttested(spec, workflow, checkpoint.id))
+        issues.push(ATTESTATION_REQUIRED);
       for (const c of spec.cases)
         if (
           assessment?.status !== 'complete' ||
@@ -1262,6 +1251,27 @@ export class RuntimeEvidenceService {
     const ws = cycle.workspaceId,
       id = cycle.executionScope.definitionId;
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+    // The reviewer's own verdict comes first: without an attestation nothing else can pass,
+    // and the stop is the checkpoint's, not the controller's (R-C13, LIVE-07).
+    const attestationTurn = this.storage.execution.runEvents.latestOfKind(
+      ws,
+      cycle.currentRunId,
+      'turn-completed',
+    );
+    if (
+      !checkpointAttested(
+        subjectRequirements(
+          this.definition(ws, id),
+          { kind: 'checkpoint', sourceId: checkpoint.id },
+          cycle.executionScope.sourceId,
+        ),
+        attestationTurn?.kind === 'turn-completed'
+          ? parseWorkflowReport(attestationTurn.payload.resultText)
+          : undefined,
+        checkpoint.id,
+      )
+    )
+      throw new CheckpointAttestationError(checkpoint.id, ATTESTATION_REQUIRED);
     const check = () => {
       this.workspaces.requireRole(context, ws, ['owner', 'editor']);
       const current = this.storage.execution.cycles.find(ws, cycle.id);

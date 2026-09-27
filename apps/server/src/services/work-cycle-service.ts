@@ -63,6 +63,7 @@ import {
   ExecutionRequestError,
   NotFoundError,
   UpstreamTransitionUndeclaredError,
+  CheckpointAttestationError,
 } from './errors.js';
 import {
   requireScope,
@@ -1450,7 +1451,7 @@ export class WorkCycleService {
     // A plain resume that would only reproduce this stop is refused with the control that
     // can resolve it (R-A7, CTRL-04); guided resumes carry the missing input.
     const redirect =
-      reviewGuidance === undefined
+      reviewGuidance === undefined && !this.attestationInputsChanged(cycle)
         ? resumeRedirect(
             cycle,
             this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId)[0]?.id,
@@ -1820,10 +1821,15 @@ export class WorkCycleService {
             current,
             error instanceof UpstreamTransitionUndeclaredError
               ? 'upstream-transition-undeclared'
-              : 'controller-error',
+              : error instanceof CheckpointAttestationError
+                ? 'checkpoint-attestation-failed'
+                : 'controller-error',
             error instanceof ExecutionRequestError
               ? error.message
               : 'Controller could not advance this step. Inspect the run before resuming.',
+            error instanceof CheckpointAttestationError
+              ? { checkpointId: error.checkpointId }
+              : undefined,
           );
         }
       }
@@ -4012,6 +4018,22 @@ export class WorkCycleService {
           (changes.providerRecovery?.sourceRunId === parent.id &&
             changes.providerRecovery.failure.safeToRetry &&
             (changes.providerRecovery.attempts ?? 0) > 0)));
+    // A checkpoint review that runs again attests the checkpoint's current inputs, so a later
+    // failure compares against them; a session that continues keeps the inputs it was given.
+    const active = cycle.workflow?.activeReview;
+    if (
+      step === 'review' &&
+      !collectingReview &&
+      active?.kind === 'checkpoint' &&
+      changes.workflow === undefined
+    ) {
+      const digest = workflowContext(this.storage, cycle)?.contextDigest;
+      if (digest && digest !== active.contextDigest)
+        changes = {
+          ...changes,
+          workflow: { ...cycle.workflow!, activeReview: { ...active, contextDigest: digest } },
+        };
+    }
     let reviewHeadSha: string | undefined;
     if (collectingReview) {
       const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
@@ -4163,6 +4185,20 @@ export class WorkCycleService {
   }
 
   /** Stops for someone to act: the code says what the stop is, the reason says it in words. */
+  /**
+   * A checkpoint attestation stop whose inputs changed since its review ran: a plain resume
+   * reviews new evidence, so it is not redirected (R-C13). Unchanged inputs would only
+   * repeat the same failed attestation (LIVE-07).
+   */
+  private attestationInputsChanged(cycle: WorkCycle): boolean {
+    const active = cycle.workflow?.activeReview;
+    return (
+      effectiveCycleAttention(cycle)?.code === 'checkpoint-attestation-failed' &&
+      active?.kind === 'checkpoint' &&
+      workflowContext(this.storage, cycle)?.contextDigest !== active.contextDigest
+    );
+  }
+
   private attention(
     cycle: WorkCycle,
     code: CycleAttentionCode,

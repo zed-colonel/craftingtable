@@ -412,6 +412,9 @@ function checkpointReadiness(storage: ReturnType<typeof openDaemonStorage>): Che
         const ready = checkpoint.supported && checkpoint.assigned && !checkpoint.pending.length;
         const source = scope.definition.source.checkpoints.find((c) => c.id === checkpoint.id);
         const attested = ready || checkpoint.id === active?.checkpointId;
+        // Observed on the packet itself: a slice prerequisite needs a current receipt or
+        // accepted evidence somewhere in it, and each case a coverage binding.
+        const section = ledger.checkpoints.find((c) => c.id === checkpoint.id);
         const missing = attested
           ? [
               ...(source?.requires ?? [])
@@ -419,13 +422,21 @@ function checkpointReadiness(storage: ReturnType<typeof openDaemonStorage>): Che
                 .filter(
                   (r) =>
                     !ledger.receipts.some((p) => p.current && p.scope.sourceId === r.id) &&
+                    !section?.prerequisites.some(
+                      (p) => p.kind === 'scope-receipt' && p.receipt.scope.sourceId === r.id,
+                    ) &&
                     !ledger.acceptedExternalEvidence.some(
                       (s) => s.subject.kind === 'slice' && s.subject.sourceId === r.id,
                     ),
                 )
                 .map((r) => `receipt:${r.id}`),
               ...checkpoint.caseIds
-                .filter((id) => !ledger.cases.includes(id))
+                .filter(
+                  (id) =>
+                    !ledger.cases.includes(id) &&
+                    !section?.coverage.some((c) => c.id === id) &&
+                    !section?.baselineCoverage.some((c) => c.id === id),
+                )
                 .map((id) => `coverage:${id}`),
             ]
           : [];

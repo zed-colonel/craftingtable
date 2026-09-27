@@ -61,6 +61,8 @@ export const CYCLE_ATTENTION = {
   'review-baseline-changed': 'operator',
   'security-reviewer-unassigned': 'operator',
   'workflow-obligation': 'operator',
+  // A delegated checkpoint review could not attest with the evidence it was given (R-C13).
+  'checkpoint-attestation-failed': 'operator',
   'stage-report-invalid': 'operator',
   'finalization-ledger-full': 'operator',
   'plan-change-decision': 'operator',

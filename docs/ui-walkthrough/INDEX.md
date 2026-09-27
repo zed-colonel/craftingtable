@@ -82,3 +82,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-09-26-inbox-review-after | `8900aa0` | 2026-09-26 | 61 (1 phone only) | 1× |
 | 2026-09-27-status-list-before | `f80f679` | 2026-09-27 | 61 (1 phone only) | 1× |
 | 2026-09-27-status-list-after-42bca8b | `42bca8b` | 2026-09-27 | 61 (1 phone only) | 1× |
+| 2026-09-27-status-list-review-after | `0727885` | 2026-09-27 | 61 (1 phone only) | 1× |

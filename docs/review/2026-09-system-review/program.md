@@ -460,9 +460,9 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - The operator then paused WI/EXO delivery until P2 is done (rule 7).
 - **Next, in order (reordered 2026-09-27):**
   1. **R-I11.** Review the five live fixes, while the change is still small. **Done 2026-09-27.**
-  2. **R-I10.** Snapshot the paused live database. Record its goldens. Add the scheduler replay.
-  3. **R-C12 and R-C13.** Reproduce LIVE-06 and LIVE-07 on that snapshot, then fix them. Each leaves a typed reason where the operator or the status list can see it.
-  4. **R-E3a.** The status list, reading R-A4's items and R-C12's reasons.
+  2. **R-I10.** Snapshot the paused live database. Record its goldens. Add the scheduler replay. **Done 2026-09-27.**
+  3. **R-C12 and R-C13.** Reproduce LIVE-06 and LIVE-07 on that snapshot, then fix them. Each leaves a typed reason where the operator or the status list can see it. **Done 2026-09-27.**
+  4. **R-E3a.** The status list, reading R-A4's items and R-C12's reasons. **Done 2026-09-27.**
   5. **Deploy the P2 line.** Schema 32 rebuilds the attention items, then do the notification checks below. The live roadmap stays paused while R-E3a is checked against it.
   6. **R-C5 increments 3 to 5, then R-C3b.** These remove the largest operator-stop causes (HIST-03, HIST-04) once the stops are visible.
   7. **The rest of P2:** R-E1, R-E2, R-D4, R-D5, R-G4 to R-G6, R-G9, R-H4, R-I4, R-I9. R-G4 should take over CI execution and its lock from a2bb20a (LIVE-03).
@@ -491,6 +491,28 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - Swallowed adoption failures, for R-C12.
   - **Gate at 2184f9a:** `pnpm check` passes in one run: 188 test files and 1,518 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. Both 2026-09-23 replays report 0 changed (51 and 278).
   - **Next:** R-I10 (item 2 above).
+- **Steps 2 to 4 (2026-09-27, same branch; not merged or deployed).** Each item had an independent adversarial review in an isolated worktree; every finding is fixed or has a disposition on its item in register.md.
+  - **R-I10: done.** 1a75a5b; review fixes 884c66a. Snapshot of the paused live database with its goldens in `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-27/`. `pnpm controller:replay <snapshot> --scheduler` runs one real scheduler pass on a copy with every launch, worktree, merge, refresh and Git call replaced by a recorder, and records each entry's decision, each workflow cycle's checkpoint readiness and each roadmap's status list. It reproduced LIVE-06 and LIVE-07. Every LIVE finding names its replay case or test.
+  - **R-C12: done (LIVE-06 fixed).** 92f6c93; review fixes f80f679. Cause: a circular wait. EXO-02/domain's recovery round needed a repository slot held by EXO-04/domain's repair, which waits for EXO-02/domain to be verified. Every scheduler path now returns a typed step, and each pass records waits on the roadmap (`entryWaits`, operator-approved). A round may borrow one slot from such a holder (operator-approved); a circular wait one slot cannot resolve holds for the operator. Adoption failures are held, not swallowed.
+  - **R-C13: done (LIVE-07 fixed).** 26f213c; review fixes b81b2fa. The hypothesis was refuted: readiness was right, and the reviewer's ledger lacked the checkpoint's own prerequisites. Readiness and the ledger now come from one evaluation. A failed attestation is its own stop, `checkpoint-attestation-failed`, and Resume is refused while its inputs are unchanged. The done-when was restated by operator decision.
+  - **R-E3a: done (LIVE-08).** 42bca8b, walkthrough 2c8d037; review fixes 0727885, a96f4db, 34be397. `GET …/roadmaps/:id/status` and an Entry status block on the Roadmaps page. On the 2026-09-27 snapshot it explains every entry LIVE-08 names, with no database query. Walkthroughs `2026-09-27-status-list-before`, `-after-42bca8b`, `-review-after`.
+  - **Intended decision changes on the 2026-09-27 snapshot**, against the scheduler golden recorded before R-C12:
+    - EXO-02/domain verification: `none` → `recover` (R-C12);
+    - EXO-03, EXO-04 verification, WI-04/domain and EXO-18: silent → typed waits (R-C12);
+    - WI-04/domain's WI-WORKER-G1 packet: WI-09/WI-10 receipts and WP-001…WP-008 missing → none missing (R-C13).
+    
+    Step outcomes are unchanged on both snapshots.
+  - **Gate at 34be397:** `pnpm check` passes in one run: 194 test files and 1,557 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check (load average about 3.5).
+  - **Replays, each on a copy:**
+    - 2026-09-23: `--check golden.json` 51, 0 changed; `--every-run --check every-run-golden-a4aa12d.json` 278, 0 changed.
+    - 2026-09-27: `golden.json` 58, 0 changed; `every-run-golden-d81db74.json` 352, 0 changed. The scheduler replay against `scheduler-golden.json` (recorded before R-C12) reports the six intended changes listed above, plus 151 new `status:` records (R-E3a). New scheduler goldens are recorded at this head for both snapshots (`scheduler-golden-<head>.json`) and re-check with 0 changed; the replay names attention items by subject, because a copy rebuilds them with new ids.
+  - **Operator decisions taken (2026-09-27):**
+    - `entryWaits` persisted on the roadmap (R-C12);
+    - a recovery round may borrow one repository slot from work that waits on its slice (R-C12);
+    - R-C13's done-when restated, with the new stop code `checkpoint-attestation-failed`.
+  - **Before the deploy:**
+    - Confirm that `CRAFTINGTABLE_DEVELOPMENT_CAPACITY=4` stays in the unit's environment file. A restart with the default of 2 would invalidate the accepted plan evidence and every checkpoint behind it (R-I10).
+    - On first boot, R-C12 lets EXO-02/domain's recovery round start, by borrowing a repository slot.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

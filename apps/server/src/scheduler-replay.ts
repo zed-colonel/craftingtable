@@ -247,9 +247,29 @@ export async function replaySchedulerDecisions(
         );
       }
     }
-    const status = before.map((prior) =>
-      services.roadmapService.statusOf(storage.roadmaps.find(prior.workspaceId, prior.id) ?? prior),
-    );
+    // Attention items are rebuilt on every copy with fresh ids; name each by its subject.
+    const status = before.map((prior) => {
+      const list = services.roadmapService.statusOf(
+        storage.roadmaps.find(prior.workspaceId, prior.id) ?? prior,
+      );
+      return {
+        ...list,
+        entries: list.entries.map((entry) =>
+          entry.waitsOn?.attentionItemId
+            ? {
+                ...entry,
+                waitsOn: {
+                  ...entry.waitsOn,
+                  attentionItemId: `subject:${
+                    storage.attention.find(prior.workspaceId, entry.waitsOn.attentionItemId)
+                      ?.subjectKey
+                  }`,
+                },
+              }
+            : entry,
+        ),
+      };
+    });
     return { roadmaps, entries, cycles, status };
   } finally {
     storage.close();

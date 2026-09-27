@@ -725,7 +725,21 @@ itNeedsCargo.each([
       expect(refused.statusCode).toBe(409);
       expect(refused.body).toContain('Continue with guidance');
       // Once the checkpoint's inputs differ from those its review was given, Resume reviews
-      // the new inputs. Model a review that ran before them.
+      // the new inputs, also from a pause taken at the stop. Model a review that ran before
+      // them.
+      const pausedAt = await f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${f.state.workspaceId}/cycles/${cycle.id}/control`,
+        headers: mutationHeaders(f.state),
+        payload: {
+          action: 'pause',
+          expectedVersion: f.state.context.storage.execution.cycles.find(
+            f.state.workspaceId,
+            cycle.id,
+          )!.version,
+        },
+      });
+      expect(pausedAt.statusCode, pausedAt.body).toBe(200);
       const stopped = f.state.context.storage.execution.cycles.find(f.state.workspaceId, cycle.id)!;
       const active = stopped.workflow!.activeReview!;
       f.state.context.storage.execution.cycles.replace(
@@ -745,6 +759,7 @@ itNeedsCargo.each([
         f.state.workspaceId,
         cycle.id,
       )!;
+      expect(relaunched.status).not.toBe('needs-attention');
       expect(relaunched.workflow?.activeReview?.contextDigest).toBe(
         workflowContext(f.state.context.storage, relaunched)?.contextDigest,
       );

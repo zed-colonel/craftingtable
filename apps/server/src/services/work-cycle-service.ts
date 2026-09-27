@@ -4184,21 +4184,22 @@ export class WorkCycleService {
       await this.branches.validateLaunch(tree);
   }
 
-  /** Stops for someone to act: the code says what the stop is, the reason says it in words. */
   /**
    * A checkpoint attestation stop whose inputs changed since its review ran: a plain resume
    * reviews new evidence, so it is not redirected (R-C13). Unchanged inputs would only
-   * repeat the same failed attestation (LIVE-07).
+   * repeat the same failed attestation (LIVE-07). A pause taken at the stop keeps its code.
    */
   private attestationInputsChanged(cycle: WorkCycle): boolean {
     const active = cycle.workflow?.activeReview;
+    const stop = cycle.status === 'paused' ? cycle.attention : effectiveCycleAttention(cycle);
     return (
-      effectiveCycleAttention(cycle)?.code === 'checkpoint-attestation-failed' &&
+      stop?.code === 'checkpoint-attestation-failed' &&
       active?.kind === 'checkpoint' &&
       workflowContext(this.storage, cycle)?.contextDigest !== active.contextDigest
     );
   }
 
+  /** Stops for someone to act: the code says what the stop is, the reason says it in words. */
   private attention(
     cycle: WorkCycle,
     code: CycleAttentionCode,

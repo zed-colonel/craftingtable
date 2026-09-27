@@ -128,6 +128,8 @@ export class RoadmapService {
   private ticking = false;
   private admissionsHeld = false;
   private readonly controlling = new Set<string>();
+  /** Operator-requested rounds whose Delegate source fixes request is still preparing them. */
+  private readonly preparingRounds = new Set<string>();
   constructor(
     private readonly storage: CraftingTableStorage,
     private readonly workspaces: WorkspaceService,
@@ -1849,6 +1851,7 @@ export class RoadmapService {
     const retry =
       open?.status === 'preparing' &&
       open.recovery!.requestedByUserId &&
+      !this.preparingRounds.has(open.id) &&
       open.entryId === owner.id &&
       !this.storage.execution.cycles.find(ws, open.cycleId)
         ? open
@@ -1896,6 +1899,8 @@ export class RoadmapService {
     }
     const round = reserved;
     const id = roadmap.id;
+    // No other request may take this reservation over, or remove it, while this one prepares it.
+    this.preparingRounds.add(round.id);
     try {
       return await this.cycles.delegateScopeRepair(
         context,
@@ -1945,6 +1950,8 @@ export class RoadmapService {
       )
         this.change(current, { attempts: current.attempts.filter((a) => a.id !== round.id) });
       throw error;
+    } finally {
+      this.preparingRounds.delete(round.id);
     }
   }
   /**

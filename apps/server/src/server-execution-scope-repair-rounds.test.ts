@@ -301,3 +301,67 @@ itNeedsCargo(
     expect(progress?.status, JSON.stringify(outcome)).toBe('needs-attention');
   },
 );
+itNeedsCargo('two overlapping requests create one round', { timeout: 45000 }, async () => {
+  const { state, ws, tx, parent, input } = await stoppedParentReview();
+  const post = () =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
+      headers: mutationHeaders(state),
+      payload: input,
+    });
+  const [a, b] = await Promise.all([post(), post()]);
+  const statuses = [a.statusCode, b.statusCode].sort();
+  const rounds = storedRoadmap(state).attempts.filter((x) => x.recovery);
+  const repairs = tx.execution.cycles
+    .listForWorkspace(ws)
+    .filter((c) => c.scopeRepair?.sourceCycleId === parent.id);
+  const trees = tx.execution.worktrees
+    .listForWorkItem(ws, parent.workItemId!)
+    .filter((t) => t.executionScope?.kind === 'slice' && t.status === 'active');
+  // Expected: one request succeeds, one conflicts, one round owns one repair cycle.
+  expect({ statuses, a: a.body, b: b.body }).toMatchObject({ statuses: [200, 409] });
+  expect(repairs).toHaveLength(1);
+  expect(rounds.map((r) => r.cycleId)).toEqual([repairs[0]!.id]);
+  expect(trees).toHaveLength(1);
+});
+
+itNeedsCargo(
+  'a second request during the first one’s worktree creation creates no second round',
+  { timeout: 45000 },
+  async () => {
+    const { state, ws, tx, parent, input } = await stoppedParentReview();
+    const post = () =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/cycles/${parent.id}/scope-repair`,
+        headers: mutationHeaders(state),
+        payload: input,
+      });
+    const ops = (
+      state.context.services.executionService as unknown as {
+        git: { createWorktree: (...args: unknown[]) => Promise<unknown> };
+      }
+    ).git;
+    const original = ops.createWorktree.bind(ops);
+    let second: Awaited<ReturnType<typeof post>> | undefined;
+    const spy = vi.spyOn(ops, 'createWorktree').mockImplementationOnce(async (...args) => {
+      // A double submit arrives while the first request is creating its worktree.
+      second = await post();
+      return original(...args);
+    });
+    const first = await post();
+    spy.mockRestore();
+    const rounds = storedRoadmap(state).attempts.filter((x) => x.recovery);
+    const trees = tx.execution.worktrees
+      .listForWorkItem(ws, parent.workItemId!)
+      .filter((t) => t.executionScope?.kind === 'slice' && t.status === 'active');
+    const outcome = {
+      first: [first.statusCode, first.body],
+      second: [second?.statusCode, second?.body],
+      rounds: rounds.length,
+      trees: trees.map((t) => [t.id, tx.execution.cycles.activeForWorktree(ws, t.id)?.id]),
+    };
+    expect(outcome.rounds, JSON.stringify(outcome)).toBe(1);
+  },
+);

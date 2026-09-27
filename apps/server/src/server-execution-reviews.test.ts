@@ -26,6 +26,8 @@ import {
   present,
   reviewScope,
   roadmapControl,
+  roadmapInput,
+  saveRoadmapRequest,
   runScopedFixtureCheck,
   runToFinish,
   scopeReport,
@@ -37,6 +39,7 @@ import {
   supervisedMapFixture,
   waitFor,
 } from './execution-test-support.js';
+import { controllerReviewRunnable, reviewAuthorityMissing } from './services/workflow-policy.js';
 
 afterEach(cleanupExecutionFixtures);
 
@@ -508,6 +511,95 @@ itNeedsCargo.each([true, false])(
     expect(reviewed.status, reviewed.reason).toBe('awaiting-merge');
     const merged = await merge(f.state, tree.id);
     expect(merged.statusCode, merged.body).toBe(200);
+  },
+);
+
+itNeedsCargo(
+  'keeps a source-required security review of a single-project roadmap slice with the operator (LIVE-02 scope)',
+  { timeout: 20000 },
+  async () => {
+    // Only a cycle no roadmap owns is authorized by the operator who started it. A roadmap
+    // that owns the slice but delegates no reviewer cannot authorize its security review.
+    const f = await slicedFixture();
+    configureLocalRuntime(f.auth, f.state, f.scopes[0]!.definitionId);
+    const security: AgentLaunchRequest[] = [];
+    f.backend.replyForRequest = (request) => {
+      if (request.model === 'design-model') return designDone;
+      if (request.model !== 'review-model') {
+        commitFile(request.cwd, 'session.txt', 'Security-sensitive session handling');
+        return implementationDone;
+      }
+      runScopedFixtureCheck(request);
+      if (request.prompt.includes('This is a separate security review.')) security.push(request);
+      const tree = f.state.context.storage.execution.worktrees
+        .listActive(f.state.workspaceId)
+        .find((t) => t.path === request.cwd)!;
+      return {
+        resultText: withWorkflowReport(
+          `## Open questions\nnone\n\n## Review report\n${scopeReport(f.state, tree.executionScope!)}`,
+          { securityReview: { required: true, sources: ['Approved security review policy'] } },
+        ),
+      };
+    };
+    const [entry] = roadmapInput(f.state, [f.state.workItemId]).entries;
+    const saved = await saveRoadmapRequest(f.state, {
+      expectedVersion: 0,
+      name: 'Slice roadmap',
+      entries: [{ ...entry, executionScope: f.scopes[0] }],
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    await roadmapControl(f.state, 'start');
+    await waitFor(
+      () =>
+        f.state.context.storage.execution.cycles
+          .listForWorkspace(f.state.workspaceId)
+          .some((c) => c.executionScope?.kind === 'slice' && c.status !== 'running'),
+      'reviewed slice',
+      15000,
+    );
+    const cycle = f.state.context.storage.execution.cycles
+      .listForWorkspace(f.state.workspaceId)
+      .find((c) => c.executionScope?.kind === 'slice')!;
+    expect(cycle.owner).toBeTruthy();
+    expect(security).toHaveLength(0);
+    expect(cycle.attention?.code, cycle.reason).toBe('security-reviewer-unassigned');
+  },
+);
+
+itNeedsCargo(
+  'authorizes no controller review for a cross-project slice whose saved delegation cannot be read',
+  { timeout: 20000 },
+  async () => {
+    const f = await supervisedMapFixture(true);
+    await adoptSupervisedMap(f);
+    f.service.save(f.auth, f.state.workspaceId, f.input);
+    await roadmapControl(f.state, 'start');
+    const tx = f.state.context.storage;
+    await waitFor(
+      () =>
+        tx.execution.cycles
+          .listForWorkspace(f.state.workspaceId)
+          .some((c) => c.executionScope?.kind === 'slice' && c.owner),
+      'an owned slice cycle',
+      12000,
+    );
+    await roadmapControl(f.state, 'pause');
+    await roadmapControl(f.state, 'resume');
+    const cycle = tx.execution.cycles
+      .listForWorkspace(f.state.workspaceId)
+      .find((c) => c.executionScope?.kind === 'slice' && c.owner)!;
+    expect(controllerReviewRunnable(tx, cycle)).toBe(true);
+    // The attempt now names a definition revision the roadmap never saved.
+    const roadmap = storedRoadmap(f.state);
+    f.state.context.services.roadmapService['change'](roadmap, {
+      attempts: roadmap.attempts.map((a) =>
+        a.cycleId === cycle.id ? { ...a, definitionRevision: 999 } : a,
+      ),
+    });
+    const current = tx.execution.cycles.find(f.state.workspaceId, cycle.id)!;
+    expect(reviewAuthorityMissing(tx, current)).toBe('delegation-unreadable');
+    // The operator's authority does not stand in for the roadmap's missing delegation.
+    expect(controllerReviewRunnable(tx, current)).toBe(false);
   },
 );
 

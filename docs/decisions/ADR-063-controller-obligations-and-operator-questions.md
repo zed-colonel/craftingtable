@@ -24,6 +24,16 @@ source requirement for a second security review causes a distinct read-only run 
 technical remediation. Its receipt binds source and integration commits, repository policy and consumed dependency
 inputs; changes require a fresh review. The final merge command enforces that receipt even after stopping automation.
 
+Amended 2026-09-27 (LIVE-02, R-I11). A slice cycle that no roadmap owns (a manual start) has no
+saved responsibilities, yet the merge gate still requires the source-required security review.
+The operator who started that cycle authorizes it, and only it: checkpoint and reassessment
+reviews stay roadmap delegations. A roadmap that owns a cycle but delegates no reviewer (a
+single-project roadmap) authorizes no review, and the cycle stops as
+`security-reviewer-unassigned`. A cross-project attempt whose saved delegation cannot be read
+fails closed as `authority-lost`, rather than falling back to the operator's authority. A
+security review that finished and still is not current for the candidate stops as
+`workflow-obligation` instead of repeating.
+
 Local contract, profile and design-level semantic checkpoints may receive a separate
 technical review when their mapped prerequisites are satisfied and every reviewer
 responsibility is assigned. The agent must explicitly attest every source requirement and

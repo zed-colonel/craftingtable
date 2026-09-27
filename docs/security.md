@@ -189,12 +189,22 @@ context is invalidated durably before mutation; each refresh uses the repository
 guards and rechecks delegation before Git and before reserving another review. Pause/stop
 can supersede an in-flight update without permitting a late agent launch. A running cycle
 whose roadmap is paused or needs attention, or whose entry the operator paused, refreshes the
-same way just before its review launches or is approved (R-C4). It can only be running
-because the operator resumed it, and the refresh touches only its own branch. A stopped or
+same way just before its review launches or is approved (R-C4). It is running only because
+the operator resumed it, requested it as a recovery round, or delegated the repair the roadmap
+later adopted (R-C5); the refresh touches only its own branch, under the roadmap delegator's
+authority, rechecked. A stopped or
 completed roadmap has ended its delegation, and a hold the system placed stays in force.
 Awaiting-merge refreshes and merges still wait for the roadmap to run. Exclusion groups
 and capacities coordinate daemon work; they do not constrain arbitrary external Git processes
 or an agent running with the operator's OS authority.
+
+Controller reviews of a slice cycle (checkpoint, reassessment and the source-required
+security review) run on its roadmap's saved reviewer delegation. A cycle no roadmap owns still
+owes the security review the merge gate requires; the operator who started the cycle authorizes
+that one review, rechecked as an active owner or editor at start and launch (LIVE-02). A roadmap
+that owns a cycle without delegating a reviewer, or whose saved delegation can no longer be
+read, authorizes no controller review: the cycle stops for the operator (ADR-063, amended
+2026-09-27).
 
 ## Integration resolution authority
 

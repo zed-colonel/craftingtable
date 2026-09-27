@@ -38,18 +38,28 @@ export function workflowDelegation(tx: StorageRepositories, cycle: WorkCycle) {
 }
 /**
  * Whether a controller review may start or launch for this cycle now. A cross-project roadmap
- * delegates its reviews and holds them while paused. A slice cycle no such roadmap delegates
- * still owes its source-required security review: the operator who started the cycle
- * authorizes it, and an owning roadmap that is paused or holds the entry holds it.
+ * delegates its reviews and holds them while paused. A slice cycle no roadmap owns still owes
+ * its source-required security review, which the operator who started the cycle authorizes
+ * (LIVE-02, operator decision 2026-09-26, scoped 2026-09-27). A roadmap that owns the cycle
+ * without a readable reviewer delegation authorizes nothing (`reviewAuthorityMissing`).
  */
 export function controllerReviewRunnable(tx: StorageRepositories, cycle: WorkCycle): boolean {
   const delegation = workflowDelegation(tx, cycle);
   if (delegation) return delegation.runnable;
+  return !cycleOwnership(tx, cycle);
+}
+/**
+ * Why nobody may authorize this owned cycle's controller reviews: its roadmap delegates no
+ * reviewer (a single-project roadmap), or the cross-project delegation its attempt was saved
+ * with can no longer be read. Undefined when the cycle is unowned or has a delegation.
+ */
+export function reviewAuthorityMissing(
+  tx: StorageRepositories,
+  cycle: WorkCycle,
+): 'no-delegation' | 'delegation-unreadable' | undefined {
   const owner = cycleOwnership(tx, cycle);
-  return (
-    !owner ||
-    (owner.roadmap.status === 'running' && !owner.roadmap.entryHolds?.[owner.attempt.entryId])
-  );
+  if (!owner || workflowDelegation(tx, cycle)) return undefined;
+  return owner.roadmap.definition.crossProject ? 'delegation-unreadable' : 'no-delegation';
 }
 export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
   tx = mapReadSnapshot(tx);

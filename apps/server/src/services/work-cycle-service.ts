@@ -90,6 +90,7 @@ import {
   workflowContext,
   workflowDelegation,
   controllerReviewRunnable,
+  reviewAuthorityMissing,
 } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -2441,11 +2442,30 @@ export class WorkCycleService {
       return false;
     const initialVersion = cycle.version;
     const delegation = workflowDelegation(this.storage, cycle);
-    // A cycle no cross-project roadmap delegates still owes its source-required security
-    // review, on the authority of the operator who started it. Checkpoint and reassessment
-    // reviews remain roadmap delegations.
+    // A cycle no roadmap owns still owes its source-required security review, on the
+    // authority of the operator who started it. Checkpoint and reassessment reviews remain
+    // roadmap delegations.
     if (!delegation && !cycle.workflow.securityRequired && !cycle.workflow.activeReview)
       return false;
+    // An owning roadmap without a readable reviewer delegation authorizes no review, and the
+    // operator's authority does not stand in for it: stop rather than offer a merge the gate
+    // refuses.
+    const unauthorized = reviewAuthorityMissing(this.storage, cycle);
+    if (unauthorized) {
+      if (unauthorized === 'no-delegation')
+        this.attention(
+          cycle,
+          'security-reviewer-unassigned',
+          'The source requires a separate security review, but this roadmap assigns no reviewers. Run the slice outside the roadmap or from a cross-project roadmap that assigns the security reviewer.',
+        );
+      else
+        this.attention(
+          cycle,
+          'authority-lost',
+          'The roadmap delegation this cycle was started with can no longer be read, so no controller review can be authorized. Reconcile the roadmap before resuming.',
+        );
+      return true;
+    }
     if (!controllerReviewRunnable(this.storage, cycle)) {
       if (cycle.status !== 'awaiting-merge')
         this.change(cycle, {

@@ -1889,10 +1889,7 @@ export class RoadmapService {
       };
       roadmap = this.change(
         roadmap,
-        {
-          attempts: [...roadmap.attempts, reserved],
-          entryHolds: answeredHolds(roadmap, sourceEntry.id),
-        },
+        { attempts: [...roadmap.attempts, reserved] },
         'reserve-scope-recovery',
         context,
       );
@@ -1925,7 +1922,17 @@ export class RoadmapService {
             )
               conflict('The roadmap changed while this repair was being prepared. Refresh.');
           },
-          attach: () => this.updateRecovery(this.find(ws, id), round, { status: 'active' }),
+          // The stop is answered once the repair exists, in the transaction that creates it;
+          // a refused request leaves it as it was.
+          attach: () => {
+            const current = this.find(ws, id);
+            this.change(current, {
+              attempts: current.attempts.map((a) =>
+                a.id === round.id ? { ...a, status: 'active' } : a,
+              ),
+              entryHolds: answeredHolds(current, sourceEntry.id),
+            });
+          },
         },
       );
     } catch (error) {

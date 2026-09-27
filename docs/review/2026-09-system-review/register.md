@@ -676,6 +676,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - the runtime refresh did not see the round, and queued a second re-verification beside it.
 
       One predicate, `roadmapCarriesRound` (`scope-recovery-policy.ts`), now answers it for all of them. The operator-round test asserts no merge-approval item, and a new test advances integration during the repair; both fail without the fix.
+    - *MEDIUM, fixed:* Delegate source fixes released the source entry's needs-attention hold when it *reserved* the round, before the repair command checked its version, snapshot and blockers. A refused request removed the reservation but not the release, so the stop the operator never answered was gone, and with automatic recovery on a round could start on the next pass although the hold had stopped it. The hold is now released in `attach`, in the transaction that creates the repair cycle (`server-execution-scope-repair-rounds.test.ts`, which also keeps the reviewer's allowance, retry-in-place and item-pause probes as regression tests).
 
 ### R-C6
 

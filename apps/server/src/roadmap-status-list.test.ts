@@ -56,7 +56,30 @@ it('lists each open entry with what it waits on and who acts next (R-E3a, LIVE-0
       waitsOn: { source: 'progress', reason: expect.stringContaining('AQ-01') },
     });
 
-  // At the merge boundary the operator acts, through the inbox item that says so.
+  // A cycle the operator paused opens no item: the scheduler's recorded wait says so.
+  const cycleId = storedRoadmap(state).attempts[0]!.cycleId;
+  const cycleControl = async (action: 'pause' | 'resume') => {
+    const response = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycleId}/control`,
+      headers: mutationHeaders(state),
+      payload: {
+        action,
+        expectedVersion: state.context.storage.execution.cycles.find(state.workspaceId, cycleId)!
+          .version,
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+  };
+  await cycleControl('pause');
+  await state.context.services.roadmapService.tick();
+  expect((await statusList(state))[first]).toMatchObject({
+    actor: 'operator',
+    waitsOn: { source: 'entry-wait', code: 'cycle-paused', cycleId },
+  });
+  await cycleControl('resume');
+
+  // At the merge boundary the operator acts, through the inbox item that says why.
   await awaitRoadmapMerge(state, 0);
   await state.context.services.roadmapService.tick();
   const item = state.context.storage.attention
@@ -70,6 +93,7 @@ it('lists each open entry with what it waits on and who acts next (R-E3a, LIVE-0
       code: 'merge-approval',
       attentionItemId: item.id,
       since: item.openedAt,
+      reason: item.message,
     },
   });
 

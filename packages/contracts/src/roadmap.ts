@@ -328,6 +328,7 @@ export const roadmapStatusListSchema = z.strictObject({
           cycleId: z.string().optional(),
           runId: z.string().optional(),
           entryId: z.string().optional(),
+          blockers: z.array(phaseBlockerCodeSchema).max(50).optional(),
         })
         .optional(),
     }),

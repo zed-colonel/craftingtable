@@ -2480,6 +2480,9 @@ button:disabled {
 .roadmap-status-row code {
   overflow-wrap: anywhere;
 }
+.roadmap-status-row .reason-text {
+  white-space: pre-line;
+}
 .reviewer-responsibilities {
   min-width: 0;
 }

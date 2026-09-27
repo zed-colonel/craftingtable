@@ -246,6 +246,8 @@ export interface RoadmapStatusEntry {
     readonly cycleId?: string;
     readonly runId?: string;
     readonly entryId?: string;
+    /** The phase blocker codes behind a wait, where it has them. */
+    readonly blockers?: readonly import('./attention.js').PhaseBlockerCode[];
   };
 }
 export interface RoadmapStatusList {

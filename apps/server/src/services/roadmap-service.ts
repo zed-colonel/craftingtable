@@ -614,12 +614,20 @@ export class RoadmapService {
     for (const entry of roadmap.definition.entries) {
       const state = progress.find((p) => p.entryId === entry.id);
       if (!state || state.status === 'completed') continue;
-      // The entry's own cycles, and those of recovery rounds that carry its review.
+      // The recovery round that carries this work item's review, if any: its repair cycle is
+      // where the entry's work happens while the round repairs.
+      const round = this.roundFor(roadmap, entry);
+      const repair =
+        round?.recovery?.phase === 'repair'
+          ? snapshot.execution.cycles.find(ws, round.cycleId)
+          : undefined;
+      // The entry's own cycles, and those of the rounds that carry it.
       const cycleIds = new Set(
         roadmap.attempts
           .filter((a) => a.entryId === entry.id || a.recovery?.sourceEntryId === entry.id)
           .map((a) => a.cycleId),
       );
+      if (round) cycleIds.add(round.cycleId);
       const item = items
         .filter(
           (i) =>
@@ -630,7 +638,7 @@ export class RoadmapService {
       const hold = roadmap.entryHolds?.[entry.id];
       const wait = roadmap.entryWaits?.[entry.id];
       const attempt = roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
-      const cycle = attempt && snapshot.execution.cycles.find(ws, attempt.cycleId);
+      const own = attempt && snapshot.execution.cycles.find(ws, attempt.cycleId);
       const base = {
         entryId: entry.id,
         sourceId: entry.executionScope?.sourceId ?? entry.sourceId,
@@ -639,27 +647,29 @@ export class RoadmapService {
         workItemId: entry.workItemId,
         state: state.status,
       };
-      // Only the operator can move an entry whose every blocker is the operator's.
-      const operatorOnly =
-        !!state.blockers?.length &&
-        state.blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator');
-      const checkpointItem = (operatorOnly ? state.blockers : undefined)
+      const blockers = state.blockers?.length
+        ? { blockers: [...new Set(state.blockers.map((b) => phaseBlockerCode(b)))] }
+        : {};
+      // A checkpoint the operator is asked to accept, among the entry's blockers.
+      const checkpointItem = state.blockers
         ?.flatMap((b) => (b.refs?.checkpointId ? [b.refs.checkpointId] : []))
         .map((id) => items.find((i) => i.subjectKey === `roadmap:${roadmap.id}:checkpoint:${id}`))
         .find((i) => i !== undefined);
-      if (item ?? (hold?.status !== 'paused' ? checkpointItem : undefined)) {
-        const found = (item ?? checkpointItem)!;
+      const found = item ?? (hold?.status !== 'paused' ? checkpointItem : undefined);
+      if (found) {
         entries.push({
           ...base,
           actor: 'operator',
           waitsOn: {
             source: 'attention-item',
             code: found.code,
-            reason: found.title,
+            // The item's message says why; its title only names the subject.
+            reason: found.message,
             since: found.openedAt,
             attentionItemId: found.id,
             ...(found.refs.cycleId ? { cycleId: found.refs.cycleId } : {}),
             ...(found.refs.runId ? { runId: found.refs.runId } : {}),
+            ...blockers,
           },
         });
       } else if (hold) {
@@ -667,11 +677,7 @@ export class RoadmapService {
         entries.push({
           ...base,
           actor: 'operator',
-          waitsOn: {
-            source: 'entry-hold',
-            code: held?.code ?? hold.status,
-            reason: hold.reason,
-          },
+          waitsOn: { source: 'entry-hold', code: held?.code ?? hold.status, reason: hold.reason },
         });
       } else if (wait) {
         entries.push({
@@ -684,36 +690,45 @@ export class RoadmapService {
             since: wait.since,
             ...(wait.refs?.cycleId ? { cycleId: wait.refs.cycleId } : {}),
             ...(wait.refs?.entryId ? { entryId: wait.refs.entryId } : {}),
+            ...(wait.refs?.blockers ? { blockers: [...wait.refs.blockers] } : {}),
           },
         });
       } else if (state.status === 'running') {
-        const run = cycle && snapshot.execution.runs.find(ws, cycle.currentRunId);
+        // Running only while a cycle runs: the round's repair, else the entry's own cycle.
+        const working = repair ?? own;
+        const run =
+          working?.status === 'running'
+            ? snapshot.execution.runs.find(ws, working.currentRunId)
+            : undefined;
+        const step = working && working.status !== 'running' ? cycleStep(working) : undefined;
         entries.push({
           ...base,
-          actor: 'agent',
+          actor:
+            working?.status === 'running'
+              ? 'agent'
+              : step && 'wait' in step
+                ? ENTRY_WAIT[step.wait.code]
+                : 'controller',
           waitsOn: {
             source: 'progress',
-            reason: state.reason,
+            code: step && 'wait' in step ? step.wait.code : state.status,
+            reason: step && 'wait' in step ? `${state.reason} ${step.wait.reason}` : state.reason,
             ...(run?.startedAt ? { since: run.startedAt } : {}),
-            ...(cycle ? { cycleId: cycle.id } : {}),
+            ...(working ? { cycleId: working.id } : {}),
             ...(run ? { runId: run.id } : {}),
           },
         });
       } else {
-        const operator =
-          operatorOnly ||
-          (!state.blockers?.length &&
-            (state.status === 'needs-attention' || state.status === 'paused'));
+        // The daemon's own classification: an operator-owned blocker makes it needs-attention.
         entries.push({
           ...base,
-          actor: operator ? 'operator' : 'controller',
+          actor: ['needs-attention', 'paused'].includes(state.status) ? 'operator' : 'controller',
           waitsOn: {
             source: 'progress',
-            code: state.blockers?.length
-              ? [...new Set(state.blockers.map((b) => phaseBlockerCode(b)))].join(',')
-              : state.status,
+            code: state.status,
             reason: state.reason,
-            ...(cycle ? { cycleId: cycle.id } : {}),
+            ...(own ? { cycleId: own.id } : {}),
+            ...blockers,
           },
         });
       }

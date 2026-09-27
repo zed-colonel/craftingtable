@@ -713,7 +713,7 @@ export function RoadmapsPage({
             </ul>
           </section>
         )}
-        {only === undefined && roadmap.status !== 'draft' && (
+        {only === undefined && !['draft', 'completed'].includes(roadmap.status) && (
           <RoadmapStatusList
             roadmap={roadmap}
             onOpenWorkItem={onOpenWorkItem}

@@ -6,7 +6,7 @@ import {
   type RoadmapEntryProgress,
   type WorkItemId,
 } from '@craftingtable/domain';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
 import { loadRoadmapStatus } from '../../lib/roadmap-api.js';
 import { buildPath } from '../../lib/route.js';
@@ -57,26 +57,44 @@ export function RoadmapStatusList({
   const [status, setStatus] = useState<RoadmapStatusListResponse>();
   const [error, setError] = useState<string>();
   const { workspaceId, id } = roadmap;
+  // One request at a time: a round that signals both topics, or a burst of rounds, coalesces
+  // into one follow-up request, and an older response never overwrites a newer one.
+  const loading = useRef<{ busy: boolean; again: boolean }>({ busy: false, again: false });
   const refresh = useCallback(() => {
-    loadRoadmapStatus({ workspaceId, id }).then(
-      (loaded) => {
-        setStatus(loaded);
-        setError(undefined);
-      },
-      (failure: unknown) =>
-        setError(failure instanceof Error ? failure.message : 'Status list is unavailable.'),
-    );
+    const state = loading.current;
+    if (state.busy) {
+      state.again = true;
+      return;
+    }
+    state.busy = true;
+    loadRoadmapStatus({ workspaceId, id })
+      .then(
+        (loaded) => {
+          setStatus(loaded);
+          setError(undefined);
+        },
+        (failure: unknown) =>
+          setError(failure instanceof Error ? failure.message : 'Status list is unavailable.'),
+      )
+      .finally(() => {
+        state.busy = false;
+        if (state.again) {
+          state.again = false;
+          refresh();
+        }
+      });
   }, [workspaceId, id]);
   useEffect(() => refresh(), [refresh]);
   useRefreshOn('roadmaps', refresh);
   useRefreshOn('workspace', refresh);
-  if (error)
-    return (
+  if (!status)
+    return error ? (
       <p role="alert" className="error-state">
         {error}
       </p>
+    ) : (
+      <p className="empty-state">Loading status…</p>
     );
-  if (!status) return <p className="empty-state">Loading status…</p>;
   const subject = (entry: Entry) => {
     const waits = entry.waitsOn;
     if (waits?.attentionItemId)
@@ -107,9 +125,20 @@ export function RoadmapStatusList({
   return (
     <section aria-label="Entry status" className="roadmap-status-list">
       <h3>Entry status</h3>
+      {error && (
+        <p role="alert" className="error-state">
+          {error}
+        </p>
+      )}
       <p className="subtle">
         {status.entries.length} open · {status.completed} completed. Read-only: act from Needs you.
       </p>
+      {status.status !== 'running' && (
+        <p role="status" className="warning-state">
+          The roadmap is {status.status === 'needs-attention' ? 'stopped for you' : status.status};
+          nothing starts until it runs. The waits below are from its last pass.
+        </p>
+      )}
       {status.entries.length === 0 && <p className="reasons-satisfied">Every entry is complete.</p>}
       <div className="reasons">
         {GROUPS.map((group) => {

@@ -91,3 +91,18 @@ it('groups open entries by who acts next and links each reason to its record (R-
   // Read-only: the list offers no decision control of its own.
   expect(within(list).queryByRole('button')).toBeNull();
 });
+
+it('says when the roadmap itself is not running', async () => {
+  vi.mocked(request).mockResolvedValue({
+    roadmapId: 'roadmap',
+    name: 'Cross-project roadmap',
+    status: 'paused',
+    reason: 'Paused by operator.',
+    completed: 0,
+    entries: [],
+  } satisfies RoadmapStatusListResponse);
+  render(<RoadmapStatusList roadmap={roadmap} onOpenWorkItem={vi.fn()} />);
+  expect(
+    await screen.findByText(/The roadmap is paused; nothing starts until it runs/),
+  ).toBeTruthy();
+});

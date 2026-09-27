@@ -2462,11 +2462,23 @@ button:disabled {
 }
 
 .roadmap-next-actions,
+.roadmap-status-list,
 .roadmap-setup-status {
   border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 0.75rem;
   margin-bottom: 0.75rem;
+}
+/* The roadmap status list (R-E3a): one row per open entry, wrapping on phones. */
+.roadmap-status-list h3 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+.roadmap-status-list .reason-group summary {
+  cursor: pointer;
+}
+.roadmap-status-row code {
+  overflow-wrap: anywhere;
 }
 .reviewer-responsibilities {
   min-width: 0;

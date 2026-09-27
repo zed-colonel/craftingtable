@@ -1,4 +1,10 @@
-import { ENTRY_WAIT_CODES, type EntryWaitCode, ROADMAP_STATUSES } from '@craftingtable/domain';
+import {
+  ENTRY_WAIT_CODES,
+  type EntryWaitCode,
+  ROADMAP_ATTENTION_CODES,
+  ROADMAP_STATUSES,
+  type RoadmapAttentionCode,
+} from '@craftingtable/domain';
 import { z } from 'zod';
 import { agentSelectionSchema, agentSelectionsSchema } from './agent-profiles.js';
 import { phaseBlockerCodeSchema, roadmapAttentionSchema } from './attention.js';
@@ -293,6 +299,41 @@ export const roadmapViewSchema = z.strictObject({
   ),
 });
 export const roadmapsResponseSchema = z.strictObject({ roadmaps: z.array(roadmapViewSchema) });
+/** A roadmap's read-only status list (R-E3a). */
+export const roadmapStatusListSchema = z.strictObject({
+  roadmapId: z.string().uuid(),
+  name: z.string(),
+  status: z.enum(ROADMAP_STATUSES),
+  reason: z.string(),
+  attentionCode: z
+    .enum(ROADMAP_ATTENTION_CODES as [RoadmapAttentionCode, ...RoadmapAttentionCode[]])
+    .optional(),
+  completed: z.number().int().nonnegative(),
+  entries: z.array(
+    z.strictObject({
+      entryId: z.string().uuid(),
+      sourceId: z.string(),
+      scope: z.enum(['item', 'slice', 'slice-verification', 'parent-acceptance']),
+      title: z.string(),
+      workItemId: workItemIdSchema,
+      state: roadmapViewSchema.shape.progress.element.shape.status,
+      actor: z.enum(['operator', 'controller', 'agent', 'none']),
+      waitsOn: z
+        .strictObject({
+          source: z.enum(['attention-item', 'entry-hold', 'entry-wait', 'progress']),
+          code: z.string().max(200).optional(),
+          reason: z.string(),
+          since: z.iso.datetime().optional(),
+          attentionItemId: z.string().optional(),
+          cycleId: z.string().optional(),
+          runId: z.string().optional(),
+          entryId: z.string().optional(),
+        })
+        .optional(),
+    }),
+  ),
+});
+export type RoadmapStatusListResponse = z.infer<typeof roadmapStatusListSchema>;
 export const roadmapHistoryResponseSchema = z.strictObject({
   definitions: z.array(roadmapDefinitionSchema),
 });

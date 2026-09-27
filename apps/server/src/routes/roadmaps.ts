@@ -9,6 +9,7 @@ import {
   roadmapHistoryResponseSchema,
   roadmapIdSchema,
   roadmapsResponseSchema,
+  roadmapStatusListSchema,
   roadmapViewSchema,
   saveRoadmapCapacitySchema,
   saveRoadmapRequestSchema,
@@ -170,6 +171,20 @@ export function registerRoadmapRoutes(
       if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
       return noStore(reply).send(
         roadmapsResponseSchema.parse({ roadmaps: roadmaps.list(context, workspace.data) }),
+      );
+    },
+  );
+  app.get<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/status',
+    { config: { access: 'member' } },
+    async (request, reply) => {
+      const context = authenticate(request, auth);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const id = roadmapIdSchema.safeParse(request.params.roadmapId);
+      if (!workspace.success || !id.success)
+        return sendApiError(reply, 404, 'not-found', 'Roadmap not found');
+      return noStore(reply).send(
+        roadmapStatusListSchema.parse(roadmaps.statusList(context, workspace.data, id.data)),
       );
     },
   );

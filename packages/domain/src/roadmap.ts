@@ -221,6 +221,43 @@ export interface RoadmapEntryProgress {
     | 'completed';
   readonly reason: string;
 }
+/** Who moves a roadmap entry on next (R-E3a). */
+export type RoadmapActor = 'operator' | 'controller' | 'agent' | 'none';
+/**
+ * One open entry of a roadmap's status list (R-E3a): its state, what it waits on and who
+ * acts next. Each part is read from what the daemon recorded (an attention item, an entry
+ * hold, a scheduler wait, the entry's progress), never derived again.
+ */
+export interface RoadmapStatusEntry {
+  readonly entryId: string;
+  readonly sourceId: string;
+  readonly scope: 'item' | import('./execution-scope.js').ExecutionScope['kind'];
+  readonly title: string;
+  readonly workItemId: WorkItemId;
+  readonly state: RoadmapEntryProgress['status'];
+  readonly actor: RoadmapActor;
+  readonly waitsOn?: {
+    /** The record this reason is read from. */
+    readonly source: 'attention-item' | 'entry-hold' | 'entry-wait' | 'progress';
+    readonly code?: string;
+    readonly reason: string;
+    readonly since?: string;
+    readonly attentionItemId?: string;
+    readonly cycleId?: string;
+    readonly runId?: string;
+    readonly entryId?: string;
+  };
+}
+export interface RoadmapStatusList {
+  readonly roadmapId: string;
+  readonly name: string;
+  readonly status: RoadmapStatus;
+  readonly reason: string;
+  readonly attentionCode?: import('./attention.js').RoadmapAttentionCode;
+  readonly completed: number;
+  /** Every entry that is not completed, in roadmap order. */
+  readonly entries: readonly RoadmapStatusEntry[];
+}
 export interface RoadmapView {
   readonly roadmap: Roadmap;
   readonly progress: readonly RoadmapEntryProgress[];

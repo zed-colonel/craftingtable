@@ -1,0 +1,171 @@
+import type { RoadmapStatusListResponse } from '@craftingtable/contracts';
+import {
+  asAgentRunId,
+  type Roadmap,
+  type RoadmapActor,
+  type RoadmapEntryProgress,
+  type WorkItemId,
+} from '@craftingtable/domain';
+import { useCallback, useEffect, useState } from 'react';
+import { useRefreshOn } from '../../lib/refresh-signals.js';
+import { loadRoadmapStatus } from '../../lib/roadmap-api.js';
+import { buildPath } from '../../lib/route.js';
+
+/**
+ * A roadmap's status list (R-E3a): every open entry, its state, what it waits on and who
+ * acts next, grouped by who acts. Read-only: the decisions stay in the inbox. Everything
+ * shown is what the daemon recorded; the browser derives nothing.
+ */
+
+const STATE_LABELS: Readonly<Record<RoadmapEntryProgress['status'], string>> = {
+  queued: 'Queued',
+  'dependency-blocked': 'Waiting on prerequisites',
+  'capacity-blocked': 'Waiting for capacity',
+  'exclusion-blocked': 'Waiting for exclusion group',
+  paused: 'Paused',
+  running: 'Running',
+  'awaiting-merge': 'Awaiting merge',
+  'needs-attention': 'Needs attention',
+  completed: 'Completed',
+};
+
+const GROUPS: readonly {
+  readonly actor: Exclude<RoadmapActor, 'none'>;
+  readonly title: string;
+  readonly className: string;
+}[] = [
+  { actor: 'operator', title: 'Needs you', className: 'reason-group-you' },
+  { actor: 'agent', title: 'Agents at work', className: 'reason-group-automation' },
+  {
+    actor: 'controller',
+    title: 'Waiting on automation or other work',
+    className: 'reason-group-other-work',
+  },
+];
+
+type Entry = RoadmapStatusListResponse['entries'][number];
+
+export function RoadmapStatusList({
+  roadmap,
+  onOpenWorkItem,
+  onOpenAttention,
+}: {
+  roadmap: Roadmap;
+  onOpenWorkItem: (id: WorkItemId) => void;
+  onOpenAttention?: (itemId: string) => void;
+}) {
+  const [status, setStatus] = useState<RoadmapStatusListResponse>();
+  const [error, setError] = useState<string>();
+  const { workspaceId, id } = roadmap;
+  const refresh = useCallback(() => {
+    loadRoadmapStatus({ workspaceId, id }).then(
+      (loaded) => {
+        setStatus(loaded);
+        setError(undefined);
+      },
+      (failure: unknown) =>
+        setError(failure instanceof Error ? failure.message : 'Status list is unavailable.'),
+    );
+  }, [workspaceId, id]);
+  useEffect(() => refresh(), [refresh]);
+  useRefreshOn('roadmaps', refresh);
+  useRefreshOn('workspace', refresh);
+  if (error)
+    return (
+      <p role="alert" className="error-state">
+        {error}
+      </p>
+    );
+  if (!status) return <p className="empty-state">Loading status…</p>;
+  const subject = (entry: Entry) => {
+    const waits = entry.waitsOn;
+    if (waits?.attentionItemId)
+      return (
+        <a
+          className="text-button"
+          href={buildPath({ name: 'inbox', workspaceId, itemId: waits.attentionItemId })}
+          onClick={(event) => {
+            if (!onOpenAttention) return;
+            event.preventDefault();
+            onOpenAttention(waits.attentionItemId!);
+          }}
+        >
+          Open in Needs you
+        </a>
+      );
+    if (waits?.runId)
+      return (
+        <a
+          className="text-button"
+          href={buildPath({ name: 'run', workspaceId, runId: asAgentRunId(waits.runId) })}
+        >
+          Open run
+        </a>
+      );
+    return null;
+  };
+  return (
+    <section aria-label="Entry status" className="roadmap-status-list">
+      <h3>Entry status</h3>
+      <p className="subtle">
+        {status.entries.length} open · {status.completed} completed. Read-only: act from Needs you.
+      </p>
+      {status.entries.length === 0 && <p className="reasons-satisfied">Every entry is complete.</p>}
+      <div className="reasons">
+        {GROUPS.map((group) => {
+          const entries = status.entries.filter((entry) => entry.actor === group.actor);
+          if (entries.length === 0) return null;
+          const list = (
+            <ul>
+              {entries.map((entry) => (
+                <li key={entry.entryId} className="roadmap-status-row">
+                  <a
+                    href={buildPath({
+                      name: 'work-item',
+                      workspaceId,
+                      workItemId: entry.workItemId,
+                    })}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      onOpenWorkItem(entry.workItemId);
+                    }}
+                  >
+                    <code>{entry.sourceId}</code>
+                    {entry.scope === 'item' ? '' : ` · ${entry.scope}`}
+                  </a>
+                  <span className="reason-kind">{STATE_LABELS[entry.state]}</span>
+                  {entry.waitsOn && <span className="reason-text">{entry.waitsOn.reason}</span>}
+                  {entry.waitsOn?.since && (
+                    <time className="subtle" dateTime={entry.waitsOn.since}>
+                      since {new Date(entry.waitsOn.since).toLocaleString()}
+                    </time>
+                  )}
+                  {subject(entry)}
+                </li>
+              ))}
+            </ul>
+          );
+          return (
+            <div key={group.actor} className={`reason-group ${group.className}`}>
+              {group.actor === 'controller' ? (
+                <details open={entries.length <= 10}>
+                  <summary className="reason-group-title">
+                    {group.title} ({entries.length})
+                  </summary>
+                  {list}
+                </details>
+              ) : (
+                <>
+                  <h4 className="reason-group-title">
+                    {group.title} ({entries.length})
+                  </h4>
+                  {list}
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

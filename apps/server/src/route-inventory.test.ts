@@ -63,6 +63,7 @@ const EXPECTED_ROUTES = [
   'POST /api/workspaces/:workspaceId/finalizations/:finalizationId/control',
   'GET /api/workspaces/:workspaceId/roadmaps',
   'GET /api/workspaces/:workspaceId/roadmaps/:roadmapId/history',
+  'GET /api/workspaces/:workspaceId/roadmaps/:roadmapId/status',
   'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId',
   'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/control',
   'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/scope-recovery',

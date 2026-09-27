@@ -179,7 +179,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 ### LIVE-08: The operator cannot see what is supposed to run and what blocks it
 - Severity: critical
 - Category: visibility (pain point 2; UI-06, HIST-19, DATA-12)
-- Status: CONFIRMED
+- Status: CONFIRMED; addressed 2026-09-27 by the roadmap status list ([R-E3a](../register.md#r-e3)), which explains each of the entries below from the daemon's records, with no database query.
 - Replay case: the 2026-09-27 scheduler golden's five `none` entries (EXO-02, EXO-03 and EXO-04 verification, WI-04/domain, EXO-18) are the entries the operator could not explain ([R-I10](../register.md#r-i10)).
 - Evidence: on 2026-09-27 the operator refreshed the WI pin, generated plan evidence,
   resumed scheduling and unblocked EXO-03 and EXO-04. After that, "nothing seems to be going"

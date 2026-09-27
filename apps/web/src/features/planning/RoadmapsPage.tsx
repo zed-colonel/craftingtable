@@ -47,6 +47,7 @@ import { MapAmendmentPanel } from './MapAmendmentPanel.js';
 import { ATTENTION_CODE_LABELS } from '../../lib/attention-labels.js';
 import { effectiveRoadmapAttention } from '@craftingtable/domain';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
+import { RoadmapStatusList } from './RoadmapStatusList.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { ScopeRecoveryPanel } from './ScopeRecoveryPanel.js';
 import { distinct } from '../../lib/distinct.js';
@@ -711,6 +712,13 @@ export function RoadmapsPage({
               ))}
             </ul>
           </section>
+        )}
+        {only === undefined && roadmap.status !== 'draft' && (
+          <RoadmapStatusList
+            roadmap={roadmap}
+            onOpenWorkItem={onOpenWorkItem}
+            {...(onOpenAttention ? { onOpenAttention } : {})}
+          />
         )}
         {renderRoadmapBody(roadmap, progress, hostCapacity, needsYou)}
       </Section>

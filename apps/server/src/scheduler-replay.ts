@@ -14,6 +14,7 @@ import {
   phaseBlockerCode,
   type Roadmap,
   type RoadmapEntry,
+  type RoadmapStatusList,
 } from '@craftingtable/domain';
 import type { AgentBackend } from '@craftingtable/agents';
 import type { AgentBackendKind } from '@craftingtable/domain';
@@ -95,6 +96,8 @@ export interface SchedulerReplay {
   readonly roadmaps: readonly SchedulerRoadmapPass[];
   readonly entries: readonly SchedulerEntryDecision[];
   readonly cycles: readonly CheckpointReadiness[];
+  /** Each roadmap's status list (R-E3a) as the pass leaves it. Absent in older goldens. */
+  readonly status?: readonly RoadmapStatusList[];
 }
 
 /**
@@ -244,7 +247,10 @@ export async function replaySchedulerDecisions(
         );
       }
     }
-    return { roadmaps, entries, cycles };
+    const status = before.map((prior) =>
+      services.roadmapService.statusOf(storage.roadmaps.find(prior.workspaceId, prior.id) ?? prior),
+    );
+    return { roadmaps, entries, cycles, status };
   } finally {
     storage.close();
   }

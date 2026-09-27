@@ -33,7 +33,11 @@ import {
   type Roadmap,
   type RoadmapAttempt,
   type RoadmapEntry,
+  type RoadmapStatusEntry,
+  type RoadmapStatusList,
   type RoadmapView,
+  effectiveRoadmapAttention,
+  ENTRY_WAIT,
   roadmapAttention,
   type RoadmapAttention,
   effectiveHoldAttention,
@@ -589,6 +593,140 @@ export class RoadmapService {
     });
     this.notifier.notify();
     return this.capacities(context, workspaceId);
+  }
+  /** The roadmap's read-only status list (R-E3a). */
+  statusList(context: AuthContext, workspaceId: WorkspaceId, id: string): RoadmapStatusList {
+    this.workspaces.requireAuthorized(context, workspaceId);
+    return this.statusOf(this.find(workspaceId, id));
+  }
+  /**
+   * Every open entry's state, what it waits on and who acts next, read from what the daemon
+   * recorded: an open attention item (R-A4), the entry's hold, the scheduler's recorded wait
+   * (R-C12), and last the entry's progress. Nothing here decides anything again.
+   */
+  statusOf(roadmap: Roadmap): RoadmapStatusList {
+    const ws = roadmap.workspaceId;
+    const snapshot = mapReadSnapshot(this.storage);
+    const progress = this.view(roadmap, snapshot).progress;
+    const items = this.storage.attention.open(ws);
+    const attention = effectiveRoadmapAttention(roadmap);
+    const entries: RoadmapStatusEntry[] = [];
+    for (const entry of roadmap.definition.entries) {
+      const state = progress.find((p) => p.entryId === entry.id);
+      if (!state || state.status === 'completed') continue;
+      // The entry's own cycles, and those of recovery rounds that carry its review.
+      const cycleIds = new Set(
+        roadmap.attempts
+          .filter((a) => a.entryId === entry.id || a.recovery?.sourceEntryId === entry.id)
+          .map((a) => a.cycleId),
+      );
+      const item = items
+        .filter(
+          (i) =>
+            (i.refs.roadmapId === roadmap.id && i.refs.entryId === entry.id) ||
+            (i.refs.cycleId !== undefined && cycleIds.has(i.refs.cycleId)),
+        )
+        .sort((a, b) => a.openedAt.localeCompare(b.openedAt))[0];
+      const hold = roadmap.entryHolds?.[entry.id];
+      const wait = roadmap.entryWaits?.[entry.id];
+      const attempt = roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
+      const cycle = attempt && snapshot.execution.cycles.find(ws, attempt.cycleId);
+      const base = {
+        entryId: entry.id,
+        sourceId: entry.executionScope?.sourceId ?? entry.sourceId,
+        scope: entry.executionScope?.kind ?? ('item' as const),
+        title: entry.title,
+        workItemId: entry.workItemId,
+        state: state.status,
+      };
+      // Only the operator can move an entry whose every blocker is the operator's.
+      const operatorOnly =
+        !!state.blockers?.length &&
+        state.blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator');
+      const checkpointItem = (operatorOnly ? state.blockers : undefined)
+        ?.flatMap((b) => (b.refs?.checkpointId ? [b.refs.checkpointId] : []))
+        .map((id) => items.find((i) => i.subjectKey === `roadmap:${roadmap.id}:checkpoint:${id}`))
+        .find((i) => i !== undefined);
+      if (item ?? (hold?.status !== 'paused' ? checkpointItem : undefined)) {
+        const found = (item ?? checkpointItem)!;
+        entries.push({
+          ...base,
+          actor: 'operator',
+          waitsOn: {
+            source: 'attention-item',
+            code: found.code,
+            reason: found.title,
+            since: found.openedAt,
+            attentionItemId: found.id,
+            ...(found.refs.cycleId ? { cycleId: found.refs.cycleId } : {}),
+            ...(found.refs.runId ? { runId: found.refs.runId } : {}),
+          },
+        });
+      } else if (hold) {
+        const held = effectiveHoldAttention(hold);
+        entries.push({
+          ...base,
+          actor: 'operator',
+          waitsOn: {
+            source: 'entry-hold',
+            code: held?.code ?? hold.status,
+            reason: hold.reason,
+          },
+        });
+      } else if (wait) {
+        entries.push({
+          ...base,
+          actor: ENTRY_WAIT[wait.code],
+          waitsOn: {
+            source: 'entry-wait',
+            code: wait.code,
+            reason: wait.reason,
+            since: wait.since,
+            ...(wait.refs?.cycleId ? { cycleId: wait.refs.cycleId } : {}),
+            ...(wait.refs?.entryId ? { entryId: wait.refs.entryId } : {}),
+          },
+        });
+      } else if (state.status === 'running') {
+        const run = cycle && snapshot.execution.runs.find(ws, cycle.currentRunId);
+        entries.push({
+          ...base,
+          actor: 'agent',
+          waitsOn: {
+            source: 'progress',
+            reason: state.reason,
+            ...(run?.startedAt ? { since: run.startedAt } : {}),
+            ...(cycle ? { cycleId: cycle.id } : {}),
+            ...(run ? { runId: run.id } : {}),
+          },
+        });
+      } else {
+        const operator =
+          operatorOnly ||
+          (!state.blockers?.length &&
+            (state.status === 'needs-attention' || state.status === 'paused'));
+        entries.push({
+          ...base,
+          actor: operator ? 'operator' : 'controller',
+          waitsOn: {
+            source: 'progress',
+            code: state.blockers?.length
+              ? [...new Set(state.blockers.map((b) => phaseBlockerCode(b)))].join(',')
+              : state.status,
+            reason: state.reason,
+            ...(cycle ? { cycleId: cycle.id } : {}),
+          },
+        });
+      }
+    }
+    return {
+      roadmapId: roadmap.id,
+      name: roadmap.definition.name,
+      status: roadmap.status,
+      reason: roadmap.reason,
+      ...(attention ? { attentionCode: attention.code } : {}),
+      completed: progress.filter((p) => p.status === 'completed').length,
+      entries,
+    };
   }
   history(context: AuthContext, workspaceId: WorkspaceId, id: string) {
     this.workspaces.requireAuthorized(context, workspaceId);

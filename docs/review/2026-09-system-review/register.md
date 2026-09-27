@@ -51,7 +51,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **E** | | | | **Progress view and navigation (pain points 2 and 1)** |
 | [R-E1](#r-e1) | P2 | M | open | Real routes and one Link component |
 | [R-E2](#r-e2) | P2 | M | open | Split the Roadmaps mega-page |
-| [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | R-E3a open; R-E3b open | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
+| [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | R-E3a done (2026-09-27); R-E3b open | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
 | [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
 | [R-E5](#r-e5) | P3 | M | open | Consolidate settings and agent selection |
 | [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
@@ -1010,7 +1010,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E3
 
-**Roadmap board: progress and dependencies at a glance** · Phase P2 (a) / P3 (b) · Effort S-M then L · Status: R-E3a open; R-E3b open
+**Roadmap board: progress and dependencies at a glance** · Phase P2 (a) / P3 (b) · Effort S-M then L · Status: R-E3a done (2026-09-27); R-E3b open
 
 - **Split 2026-09-27.** [LIVE-08](findings/LIVE-live-run-2026-09-25.md#live-08-the-operator-cannot-see-what-is-supposed-to-run-and-what-blocks-it) showed the operator cannot run the live roadmap without this view. The operator paused delivery work to finish P2, and asked for this visibility first.
 - **R-E3a (P2, S-M): the roadmap status list.**
@@ -1021,6 +1021,24 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - It adds no decision controls: the actions stay in the inbox (program rule 1).
   - It can live in the existing roadmap section until R-E1 and R-E2 give it a route.
   - **Done when:** loaded from the 2026-09-27 snapshot, the list shows each open entry that LIVE-08 names, with the reason established there by database queries, without leaving the page.
+- **R-E3a done 2026-09-27.**
+  - **Daemon view model.** `GET /api/workspaces/:ws/roadmaps/:id/status` (member access) returns `RoadmapService.statusOf(roadmap)`: every entry that is not completed, in roadmap order, with its state (the daemon's progress vocabulary), `actor` (operator, controller, agent) and `waitsOn` (reason, code, `since`, and the record it links to). Each part is read, in this order, from what the daemon recorded:
+    1. an open R-A4 attention item for the entry or its cycles (including a recovery round that carries its review), or for a checkpoint when every blocker of the entry is the operator's;
+    2. the entry's hold;
+    3. the scheduler's recorded wait (R-C12 `entryWaits`, owner from `ENTRY_WAIT`);
+    4. the entry's progress: a running cycle is the agent's, with its run and start time; otherwise the operator's only when every blocker is operator-owned, else the controller's (other work or automation).
+
+    Nothing is decided again; the browser derives nothing. Contract `roadmapStatusListSchema`; the route is in the access inventory.
+  - **UI.** An "Entry status" block in each non-draft roadmap's section on the Roadmaps page, read-only, grouped by who acts: *Needs you*, *Agents at work*, *Waiting on automation or other work* (open when it has at most ten entries). Each row links its work item and, where recorded, its inbox item or run. It adds no control (program rule 1). It reloads on the roadmaps and workspace refresh rounds. Walkthrough captures: `2026-09-27-status-list-before` and the after capture in INDEX.md.
+  - **Exit criterion, on the 2026-09-27 snapshot.** The scheduler replay now records each roadmap's status list after its pass (`status` in its output). For the live roadmap: 151 open entries, 20 completed; 3 need the operator, 2 have agents at work, 146 wait on automation or other work. Every entry LIVE-08 names is explained, with no database query:
+    - EXO-02/domain verification: the recovery round (agent at work), no longer silent (R-C12);
+    - EXO-02 parent acceptance: waits for EXO-02/domain to be verified (controller);
+    - EXO-04/domain verification: its round's repair waits for EXO-02/domain to be verified (controller, `cycle-waiting`);
+    - EXO-04 parent acceptance: its recovery round (agent);
+    - EXO-03/domain verification: paused by the operator (`cycle-paused`);
+    - EXO-18: EXO-ADR-022 approval, with its inbox item;
+    - WI-04/domain: its attestation stop, with its inbox item (R-C13).
+  - **Tests,** each failing without the change: `roadmap-status-list.test.ts` (through the route: an agent at work with its run, entries waiting on a predecessor, the operator's merge approval read from its inbox item, and an item pause read from its hold); `RoadmapStatusList.test.tsx` (the groups, the inbox and run links, the work-item link, and no buttons).
 - **R-E3b (P3, L): the board and graph** below, unchanged.
 
 - **Resolves:** [UI-06](findings/UI-information-architecture.md#ui-06-there-is-no-high-level-progress-or-dependency-view-dependencies-appear-as-text-and-are-often-unlinked), [HIST-19](findings/HIST-history-and-live-usage.md#hist-19-real-cross-project-workload-is-10-the-scale-the-uis-lists-were-designed-for-progress-and-dependencies-are-hard-to-see), [DATA-12](findings/DATA-storage-domain-contracts.md#data-12-no-unified-dependency-and-progress-read-model-data-side-of-pain-point-2)

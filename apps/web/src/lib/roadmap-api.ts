@@ -4,6 +4,7 @@ import {
   roadmapsResponseSchema,
   roadmapViewSchema,
   roadmapHistoryResponseSchema,
+  roadmapStatusListSchema,
 } from '@craftingtable/contracts';
 import type { Roadmap, WorkspaceId } from '@craftingtable/domain';
 import { request } from './api-client.js';
@@ -26,6 +27,8 @@ export const configureScopeRecovery = (
   );
 export const loadRoadmaps = (workspaceId: WorkspaceId) =>
   request(base(workspaceId), roadmapsResponseSchema);
+export const loadRoadmapStatus = (roadmap: Pick<Roadmap, 'workspaceId' | 'id'>) =>
+  request(`${base(roadmap.workspaceId)}/${roadmap.id}/status`, roadmapStatusListSchema);
 export const loadRoadmapHistory = (roadmap: Roadmap) =>
   request(`${base(roadmap.workspaceId)}/${roadmap.id}/history`, roadmapHistoryResponseSchema);
 export const saveRoadmap = (

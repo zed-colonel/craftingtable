@@ -1317,6 +1317,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
                 deadlineAt: cycle.runDeadlineAt,
                 previousRunDirectory,
                 runDirectory,
+                ...(cycle.stepGuidance ? { stepGuidance: cycle.stepGuidance } : {}),
               })
           : brief;
       const launch: AgentLaunchRequest = {

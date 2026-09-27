@@ -1722,6 +1722,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Independent review, 2026-09-27 (in progress).** Findings are fixed one commit each, test first.
   - **a2bb20a, HIGH, fixed:** a ct-act interrupted while it waited for the workflow lock left its run's `act-active` lease behind. The wait was outside the signal handlers, so SIGTERM took the default exit. Every later ct-act in the run failed with EEXIST, and the run's build record was lost at freeze. The wait is now abortable, and SIGTERM/SIGINT end it through the check's own cleanup.
   - **a2bb20a, MEDIUM, fixed:** two contenders that both saw a dead owner could each remove the lock, so one deleted the lock the other had just taken, and both ran act (10 overlapping holds in 6 rounds of 10 contenders). Removal is now serialized by a guard directory, and staleness is decided again under it.
+  - **ca7b954, MEDIUM-LOW, fixed:** the guided-continuation gate now accepts a drain-interrupted run. Continuing it with guidance resumed the vendor session with the restart prompt, which says the step's instructions are unchanged and omits the guidance, so the guidance reached only the brief file. The resume prompt now carries the step's guidance when there is any. Reached only by a Pause between the drain and the automatic resume, or through the API.
 
 ## Finding index
 

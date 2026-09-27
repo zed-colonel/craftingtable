@@ -60,10 +60,16 @@ export function restartResumePrompt(input: {
   readonly deadlineAt: string;
   readonly previousRunDirectory: string;
   readonly runDirectory: string;
+  /** The step's operator guidance, which may have been added while the step was interrupted. */
+  readonly stepGuidance?: string;
 }): string {
+  const guidance = input.stepGuidance?.trim();
   return [
-    'CraftingTable restarted while this step was in progress and has resumed your session. The step, its instructions, your permissions and its deadline are unchanged; the deadline is ' +
-      `${input.deadlineAt}.`,
+    guidance
+      ? 'CraftingTable restarted while this step was in progress and has resumed your session. The step, your permissions and its deadline are unchanged; the deadline is ' +
+        `${input.deadlineAt}. The operator's guidance for this step follows, in full; it may add to what you were given before, and it takes precedence:\n\n${guidance}`
+      : 'CraftingTable restarted while this step was in progress and has resumed your session. The step, its instructions, your permissions and its deadline are unchanged; the deadline is ' +
+        `${input.deadlineAt}.`,
     'Your last tool call may have been cut off. Before relying on its result, check what it actually did (files, commits, test output) and redo it if it did not complete. Do not assume an interrupted check passed.',
     `Files from before the restart are still in ${input.previousRunDirectory}. This resumed run's refreshed brief and scratch directory are in ${input.runDirectory}; use its tool paths from now on.`,
     'Continue the step from where you stopped and finish with the final report your original instructions ask for.',

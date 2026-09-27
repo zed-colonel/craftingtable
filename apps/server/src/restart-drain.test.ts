@@ -102,6 +102,46 @@ describe('restart drain and automatic resume (R-B9)', () => {
     expect(storedCycle(f, started.id).step).toBe('implement');
   });
 
+  it('gives a resumed session the guidance the operator added while its step was interrupted', async () => {
+    const f = await fixture();
+    const started = await startCycle(f);
+    await stepController(f.services);
+    f.backend.latest.release(designDone);
+    await stepController(f.services, 3);
+    const interruptedId = storedCycle(f, started.id).currentRunId;
+    expect(storedRun(f, interruptedId)).toMatchObject({ role: 'implement', status: 'running' });
+    expect(await f.services.daemonDrain.drain(0)).toBe(1);
+
+    const services = await restart(f);
+    const auth = services.authService.authenticate(
+      f.headers.cookie!.split('=').slice(1).join('='),
+    )!;
+    // The operator pauses before the restart resumes the step, then continues it with guidance.
+    await services.workCycleService.control(
+      auth,
+      f.workspaceId,
+      started.id,
+      'pause',
+      storedCycle(f, started.id).version,
+    );
+    const guidance = 'Use the queue in module B.';
+    await services.workCycleService.control(
+      auth,
+      f.workspaceId,
+      started.id,
+      'resume',
+      storedCycle(f, started.id).version,
+      guidance,
+    );
+    await stepController(services, 2);
+    const resumed = f.backend.launches.at(-1);
+    expect(resumed?.resumeSessionId).toBe('vendor-session-2');
+    expect(resumed?.prompt).toContain(guidance);
+    expect(resumed?.prompt).not.toContain(
+      'instructions, your permissions and its deadline are unchanged',
+    );
+  });
+
   it('lets a turn that finishes within the bound complete instead of interrupting it', async () => {
     const f = await fixture();
     const started = await startLiveCycle(f);

@@ -112,6 +112,34 @@ export const ROADMAP_ATTENTION = {
 export type RoadmapAttentionCode = keyof typeof ROADMAP_ATTENTION;
 export const ROADMAP_ATTENTION_CODES = Object.keys(ROADMAP_ATTENTION) as RoadmapAttentionCode[];
 
+/**
+ * Why a roadmap's scheduler left an entry it evaluated without moving it on (R-C12). The value
+ * is who acts next: the controller when the wait clears without anyone (capacity, prerequisite
+ * work, a running review or recovery round, a cycle's own controller wait), the operator when
+ * the entry waits on a stop the operator owns (the cycle's attention item, a hold, or their own
+ * pause). An operator-owned wait always points at the item or pause that carries the stop.
+ */
+export const ENTRY_WAIT = {
+  // The scheduler's own blockers (`RoadmapService.blocker`).
+  'dependency-blocked': 'controller',
+  'capacity-blocked': 'controller',
+  'exclusion-blocked': 'controller',
+  // Phase gates that clear by themselves (`PhaseGateError.waiting`).
+  'phase-blocked': 'controller',
+  'integration-held': 'controller',
+  // A related independent review of the same work item is still running.
+  'review-running': 'controller',
+  // A recovery round for this work item is carrying the repair through.
+  'recovery-round': 'controller',
+  // The entry's cycle waits on its own controller.
+  'cycle-waiting': 'controller',
+  'cycle-attention': 'operator',
+  'cycle-paused': 'operator',
+  'entry-held': 'operator',
+} as const satisfies Record<string, AttentionOwner>;
+export type EntryWaitCode = keyof typeof ENTRY_WAIT;
+export const ENTRY_WAIT_CODES = Object.keys(ENTRY_WAIT) as EntryWaitCode[];
+
 export interface AttentionRefs {
   readonly checkpointId?: string;
   readonly cycleId?: string;

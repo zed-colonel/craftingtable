@@ -136,7 +136,7 @@ live stops are recorded here and in the replay corpus instead of being patched (
 ### LIVE-06: Automatic recovery did not start a round for EXO-02/domain, and nothing said why
 - Severity: high
 - Category: silent controller wait (the visibility gap of LIVE-08)
-- Status: OPEN; cause not investigated ([R-C12](../register.md#r-c12))
+- Status: CONFIRMED; fixed 2026-09-27 ([R-C12](../register.md#r-c12)). Cause, found with the scheduler replay: a circular wait. The owning-slice round was `capacity-blocked`, because EXO-04/domain's repair, which waits for EXO-02/domain to be verified, and EXO-18 held both repository slots. `advanceScopeRecovery` returned with nothing recorded. Now every evaluation records a typed wait on the roadmap (`entryWaits`), and a round may borrow one slot from a holder that waits on its own slice.
 - Replay case: the 2026-09-27 scheduler golden records `exo/EXO-02/domain` verification as `none`: evaluated, no round, nothing recorded ([R-I10](../register.md#r-i10)).
 - Evidence:
   - The operator's WI pin refresh queued a fresh EXO-02/domain verification. Cycle `556d0bca`,

@@ -39,7 +39,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C9](#r-c9) | P2 | S-M | done (see Progress) | End the session on a terminal quota error so the reset wait applies (added 2026-09-24) |
 | [R-C10](#r-c10) | P2 | S-M | done (see entry) | Re-verify a roadmap item whose evidence is no longer current, without stopping the roadmap (added 2026-09-25) |
 | [R-C11](#r-c11) | P2 | S-M | done (see Progress) | Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry (added 2026-09-25) |
-| [R-C12](#r-c12) | P2 | S-M | open | Automatic recovery records why it did not start a round (added 2026-09-27) |
+| [R-C12](#r-c12) | P2 | S-M | done (2026-09-27) | Automatic recovery records why it did not start a round (added 2026-09-27) |
 | [R-C13](#r-c13) | P2 | S-M | open | Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation (added 2026-09-27) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
@@ -861,7 +861,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C12
 
-**Automatic recovery records why it did not start a round** · Phase P2 · Effort S-M · Status: open
+**Automatic recovery records why it did not start a round** · Phase P2 · Effort S-M · Status: done (2026-09-27)
 
 - **Added 2026-09-27** from [LIVE-06](findings/LIVE-live-run-2026-09-25.md#live-06-automatic-recovery-did-not-start-a-round-for-exo-02domain-and-nothing-said-why). The live roadmap was running with scope recovery enabled, EXO-02/domain's verification was stopped on a complete major finding, and no round started. Nothing on the roadmap, the entry or the inbox said why.
 - **Change:**
@@ -871,6 +871,29 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Done when:**
   - The 2026-09-27 snapshot's scheduler replay shows EXO-02 either starting a round or holding a typed reason that the inbox and [R-E3a](#r-e3)'s status list show.
   - No return path in `advanceScopeRecovery` or `advanceEntry` leaves a stopped review without a recorded reason. A table test covers each path.
+- **Done 2026-09-27.**
+  - **Cause, found on the snapshot with [R-I10](#r-i10)'s replay:** a circular wait, not a swallowed error. `scopeRecoveryDecision` named EXO-02/domain as the owning slice. `advanceScopeRecovery` then asked `blocker()` for that slice, got a `capacity-blocked` blocker ("Repository has 2 unmerged worktree(s) or reservations; capacity is 2"), and returned `true` with nothing recorded. The two slots were EXO-04/domain's repair, whose merge waits for EXO-02/domain to be verified, and EXO-18, which waits on the operator's EXO-ADR-022. The slot EXO-04 held could never free before EXO-02's round ran. Meanwhile `automatedScopeRecoveryWait` claimed the verification cycle's stop for the controller ("Waiting for the roadmap to delegate…"), so neither the inbox nor the roadmap showed anything.
+  - **Operator decisions (2026-09-27):**
+    - Waits are persisted on the roadmap, as a new optional field `entryWaits` (entry → code, reason, refs, `since`), written only when it changes; absent means none recorded. No migration: it lives in the roadmap's state JSON and its contract.
+    - A recovery round may take one repository slot beyond `maxPerRepository` when a slot holder's merge waits on the round's own slice. Otherwise the ordinary limit applies, and the wait is recorded.
+  - **Typed steps.** `advanceEntry` and `advanceScopeRecovery` now return an `EntryStep` on every path: moved on (a command issued, an attempt or round advanced, the entry's agent at work), or a typed wait (`entry-waits.ts`). A bare `return` no longer compiles. The codes and who acts next are in `ENTRY_WAIT` (domain `attention.ts`):
+    - controller: `dependency-blocked`, `capacity-blocked`, `exclusion-blocked` (the scheduler's own blockers), `phase-blocked` (a phase gate that clears by itself, with its blocker codes), `integration-held`, `review-running`, `recovery-round` (a round carries the stopped review), `cycle-waiting` (the cycle waits on its own controller);
+    - operator: `cycle-attention` (the cycle's own attention item carries the stop), `cycle-paused` (the operator's pause), `entry-held` (the round's next review is held).
+  - **Recorded once per pass.** The parallel pass collects each evaluated entry's step and writes `entryWaits` only when it changes. A wait keeps its `since` while its code and subject stay the same; a lost race keeps the last wait. Entries the pass skips (complete, deferred by a blocker, held) carry no wait, because their attempt, progress or hold already says it. Operator stops that are not waits stay entry holds, so R-A4's inbox shows them.
+  - **The fix.** `blocker()` takes a `recoveryRound` flag, passed by the three checks of an automatic round's owning slice. Such a round may use one slot beyond the repository limit, and never more, when an unmerged slice in that repository has a `slice-requirement` merge blocker on the round's own slice (`refs.sliceId`, the phase evaluator's structured blocker).
+  - **Swallowed adoption failures, handed over by [R-I11](#r-i11):** each open repair is now adopted in its own `try`. A lost race is retried next pass. Any other failure holds the review the repair came from as `entry-preparation-failed`, naming the repair's cycle, and the roadmap keeps running. Before, the failure was swallowed while the roadmap was paused, or became a whole-roadmap `scheduler-error` while it ran. An identical hold is not rewritten, and a later adoption releases it.
+  - **Tests,** each failing without the change:
+    - `entry-waits.test.ts`: a 22-row table test of the wait each kind of path records (every cycle state and owner, each blocker kind, phase gates, rounds) and of how a pass keeps, restarts and clears waits.
+    - `server-execution-scope-recovery-waits.test.ts`: LIVE-06's shape on the scope fixture. A verification stops on a finding with one repository slot. When another item holds the slot, the stopped review records `capacity-blocked` naming the owning slice, starts no round and is not rewritten on the next pass. When the holder's merge waits on the slice under repair, the round borrows the slot and starts. Adoption failures are tested while paused and while running.
+  - **Replay** on the 2026-09-27 snapshot against R-I10's scheduler golden: 5 decisions changed, all intended; there is no other change:
+    - `exo/EXO-02/domain` verification: `none` → `recover` (`delegateScopeRepair`). EXO-04/domain's repair holds a slot and waits for EXO-02/domain to be verified, so the round borrows it. **LIVE-06 fixed.**
+    - `exo/EXO-03/domain` verification: `none` → wait `cycle-paused` (the operator paused it 2026-09-26 22:44).
+    - `wi/WI-04/domain`: `none` → wait `cycle-attention` (its attestation stop, LIVE-07; see [R-C13](#r-c13)).
+    - `exo/EXO-04/domain` verification: `none` → wait `cycle-waiting`, "Slice exo/EXO-02/domain must be verified." (its round's repair waits on its own controller).
+    - `exo/EXO-18/instance-design`: `none` → wait `cycle-attention` (EXO-ADR-022, the operator's approval).
+    
+    The step-outcome goldens are unchanged (2026-09-23: 51 and 278; 2026-09-27: 58 and 352).
+  - **Not changed:** the Roadmaps page's per-entry progress still derives its status from the cycle, so for a stopped review with a recorded controller wait it shows the cycle's reason. [R-E3a](#r-e3)'s status list reads `entryWaits`.
 
 ### R-C13
 

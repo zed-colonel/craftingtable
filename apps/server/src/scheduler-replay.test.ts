@@ -65,14 +65,14 @@ it('records each roadmap entry’s decision for one pass without launching or wr
   expect(backend.launches).toHaveLength(launches);
   expect(storedRoadmap(state).version).toBe(version);
 
-  // At the merge boundary the pass decides nothing for the first item and records nothing:
-  // the silent return R-C12 gives a typed reason.
+  // At the merge boundary the pass leaves the first item to the operator's merge approval,
+  // and says so with a typed wait (R-C12) instead of returning silently.
   await awaitRoadmapMerge(state, 0);
   const merging = await replaySchedulerSnapshot(await snapshot(state), new Date());
   expect(decisionsOf(merging)[first]).toEqual({
-    decision: 'none',
+    decision: 'wait',
     action: undefined,
-    code: undefined,
+    code: 'cycle-attention',
   });
   expect(merging.cycles).toEqual([]);
 });

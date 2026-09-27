@@ -1,7 +1,7 @@
-import { ROADMAP_STATUSES } from '@craftingtable/domain';
+import { ENTRY_WAIT_CODES, type EntryWaitCode, ROADMAP_STATUSES } from '@craftingtable/domain';
 import { z } from 'zod';
 import { agentSelectionSchema, agentSelectionsSchema } from './agent-profiles.js';
-import { roadmapAttentionSchema } from './attention.js';
+import { phaseBlockerCodeSchema, roadmapAttentionSchema } from './attention.js';
 import { crossProjectConfigurationSchema } from './cross-project.js';
 import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
 import {
@@ -225,6 +225,23 @@ export const roadmapSchema = z.strictObject({
         status: z.enum(['paused', 'needs-attention']),
         reason: z.string().max(4000),
         attention: roadmapAttentionSchema.optional(),
+      }),
+    )
+    .optional(),
+  entryWaits: z
+    .record(
+      z.string().uuid(),
+      z.strictObject({
+        code: z.enum(ENTRY_WAIT_CODES as [EntryWaitCode, ...EntryWaitCode[]]),
+        reason: z.string().max(4000),
+        since: z.iso.datetime(),
+        refs: z
+          .strictObject({
+            cycleId: z.string().min(1).max(200).optional(),
+            entryId: z.string().min(1).max(200).optional(),
+            blockers: z.array(phaseBlockerCodeSchema).max(50).optional(),
+          })
+          .optional(),
       }),
     )
     .optional(),

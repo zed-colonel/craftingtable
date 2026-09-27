@@ -51,6 +51,7 @@ export interface SchedulerEntryDecision {
     | 'wait'
     | 'hold'
     | 'complete'
+    | 'running'
     | 'none'
     | 'not-scheduled';
   /** The command the pass issued, or the roadmap write it made. */
@@ -284,11 +285,17 @@ function decide(
       });
     }
     case 'evaluated': {
-      const after = latest();
-      const changed = changedAttempts(roadmap, after, entry);
-      return changed
-        ? describe(roadmap, entry, { decision: changed.decision, action: changed.action })
-        : describe(roadmap, entry, { decision: 'none' });
+      const changed = changedAttempts(roadmap, latest(), entry);
+      if (changed)
+        return describe(roadmap, entry, { decision: changed.decision, action: changed.action });
+      // Every evaluation returns a typed step (R-C12): a wait, or an entry at work on its own.
+      return 'wait' in outcome.step
+        ? describe(roadmap, entry, {
+            decision: 'wait',
+            code: outcome.step.wait.code,
+            reason: outcome.step.wait.reason,
+          })
+        : describe(roadmap, entry, { decision: 'running' });
     }
   }
 }

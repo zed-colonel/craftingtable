@@ -45,6 +45,20 @@ export interface RoadmapEntryHold {
   /** The typed stop for a `needs-attention` hold (R-A3); see `effectiveHoldAttention`. */
   readonly attention?: import('./attention.js').RoadmapAttention;
 }
+/**
+ * A typed reason the scheduler recorded for an entry it evaluated and left as it was (R-C12).
+ * Rewritten only when it changes; `since` is when this code first applied.
+ */
+export interface RoadmapEntryWait {
+  readonly code: import('./attention.js').EntryWaitCode;
+  readonly reason: string;
+  readonly since: string;
+  readonly refs?: {
+    readonly cycleId?: string;
+    readonly entryId?: string;
+    readonly blockers?: readonly import('./attention.js').PhaseBlockerCode[];
+  };
+}
 export interface RoadmapEntry {
   readonly reviewerRoles?: readonly string[];
   readonly executionScope?: import('./execution-scope.js').ExecutionScope;
@@ -185,6 +199,8 @@ export interface Roadmap {
   readonly attempts: readonly RoadmapAttempt[];
   readonly retiredAttempts?: readonly RetiredRoadmapAttempt[];
   readonly entryHolds?: Readonly<Record<string, RoadmapEntryHold>>;
+  /** Why the last pass left each evaluated entry waiting (R-C12); absent means none recorded. */
+  readonly entryWaits?: Readonly<Record<string, RoadmapEntryWait>>;
 }
 export interface RoadmapEntryProgress {
   readonly phase?: import('./phase-scheduling.js').ExecutionPhase;

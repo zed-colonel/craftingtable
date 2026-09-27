@@ -135,8 +135,7 @@ export function RoadmapStatusList({
       </p>
       {status.status !== 'running' && (
         <p role="status" className="warning-state">
-          The roadmap is {status.status === 'needs-attention' ? 'stopped for you' : status.status};
-          nothing starts until it runs. The waits below are from its last pass.
+          {`The roadmap is ${status.status === 'needs-attention' ? 'stopped for you' : status.status}, so nothing starts until it runs. The waits below are from its last pass.`}
         </p>
       )}
       {status.entries.length === 0 && <p className="reasons-satisfied">Every entry is complete.</p>}

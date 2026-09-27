@@ -103,6 +103,6 @@ it('says when the roadmap itself is not running', async () => {
   } satisfies RoadmapStatusListResponse);
   render(<RoadmapStatusList roadmap={roadmap} onOpenWorkItem={vi.fn()} />);
   expect(
-    await screen.findByText(/The roadmap is paused; nothing starts until it runs/),
+    await screen.findByText(/The roadmap is paused, so nothing starts until it runs/),
   ).toBeTruthy();
 });

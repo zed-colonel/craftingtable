@@ -824,6 +824,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, fixed:* the key is shown no wider than the vendor's masking.
     - Every regression test was shown to fail with its fix reverted (annotation, recorded-report retry, clipped output, failed-turn questions, stderr lines, regex bound, environment key). Replays: 278 and 51 decisions, 0 changed.
     - Gate after the fixes: `pnpm check` stages all pass: 187 test files and 1,480 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. Under load average 23, 24 controller tests timed out in waitFor; all 9 files passed rerun alone.
+  - **Second independent review (2026-09-27, P2 review with R-I11):**
+    - *HIGH, fixed:* the recorded incident's step was a review (run 40ee8364), but the cycle test replayed it as an implementation. As a review, the credential retry reached the launch with `providerRecovery` set and a *finished* source run, and the launch accepts only a failed one as a continuation. So the retry became `controller-error` ("Review continuation requires the interrupted review…"), which neither Resume nor Continue with guidance could clear (the stop still had its open questions, and the current run id never launched). A retry of a finished review now starts a fresh review. The new test replays the recorded turn as a review; it fails without the fix.
 
 ### R-C12
 

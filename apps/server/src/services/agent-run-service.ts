@@ -750,11 +750,18 @@ export class AgentRunService {
             cycle.integrationResolution,
           );
         else if (input.role !== 'review') await this.branches?.validateLaunch(prepared.worktree);
+        // A provider retry continues an interrupted review. A review that finished, and is
+        // retried because the provider refused an approval review during it (R-C11), starts
+        // afresh like any other review.
+        const retriesFinishedReview =
+          !!cycle?.providerRecovery &&
+          prepared.parentRun?.id === cycle.providerRecovery.sourceRunId &&
+          prepared.parentRun.status === 'finished';
         if (
           input.role === 'review' &&
           (resume !== undefined ||
             (cycle?.resultContinuations ?? 0) > 0 ||
-            !!cycle?.providerRecovery)
+            (!!cycle?.providerRecovery && !retriesFinishedReview))
         ) {
           const baseline = prepared.parentRun?.reviewBranchContext;
           const ended =

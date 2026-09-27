@@ -863,6 +863,44 @@ describe('bounded model service recovery', () => {
     expect(currentCycle(state, cycle).attention).toBeUndefined();
   });
 
+  it('retries a review that stopped with questions after the provider refused its approval review (R-C11)', async () => {
+    // The recorded incident's step was a review (run 40ee8364). Its run finished, so the
+    // retry is a fresh review, not a continuation of an interrupted one.
+    let now = new Date('2026-09-25T22:41:00Z');
+    const { resultText, suspectedOutage } = recordedTurn('codex-approval-review-rejected');
+    const { state, backend, worktree } = await cycleFixture(
+      [
+        designDone,
+        implementationDone,
+        { resultText, suspectedOutage },
+        { resultText: reviewText([]) },
+      ],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(
+      () => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+      'credential wait',
+    );
+    expect(currentCycle(state, cycle)).toMatchObject({ status: 'running', step: 'review' });
+    now = new Date('2026-09-25T22:46:00Z');
+    await waitFor(() => currentCycle(state, cycle).status !== 'running', 'retried review');
+    expect(backend.launches).toHaveLength(4);
+    // The retried review was judged on its own report (the recorded one carried findings the
+    // scripted retry leaves out), not refused at launch as a missing continuation.
+    const c = currentCycle(state, cycle);
+    expect(c.attention?.code).toBe('review-needs-attention');
+    const turn = state.context.storage.execution.runEvents.latestOfKind(
+      state.workspaceId,
+      c.currentRunId,
+      'turn-completed',
+    );
+    expect(turn?.kind === 'turn-completed' && turn.payload.reviewReport).toMatchObject({
+      status: 'invalid',
+      issues: [expect.stringContaining('Previously recorded findings are missing')],
+    });
+  });
+
   it('lets a step that finished despite a refused approval review stand (R-C11)', async () => {
     const { suspectedOutage } = recordedTurn('codex-approval-review-rejected');
     const { state, backend, worktree } = await cycleFixture([{ ...designDone, suspectedOutage }]);

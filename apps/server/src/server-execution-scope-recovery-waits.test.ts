@@ -264,11 +264,25 @@ itNeedsCargo(
   async () => {
     const { f, state, ws, tx, sourceEntryId } = await stoppedVerification();
     const normal = f.backend.replyForRequest!;
-    // The round's repair asks the operator a question instead of finishing.
-    f.backend.replyForRequest = (request) =>
-      /craftingtable-scope-repair\.json/.test(request.prompt) && request.model !== 'review-model'
-        ? { resultText: 'Stopped.\n\n## Open questions\nWhich queue should own retries?' }
-        : normal(request);
+    // The round's repair asks the operator a question instead of finishing. Its second run (the
+    // bounded reassessment after the first stop) waits for the test, so the test sees it at work.
+    let repairRuns = 0;
+    let releaseReassessment: () => void = () => {};
+    const reassessment = new Promise<void>((resolve) => {
+      releaseReassessment = resolve;
+    });
+    f.backend.replyForRequest = (request) => {
+      if (
+        !/craftingtable-scope-repair\.json/.test(request.prompt) ||
+        request.model === 'review-model'
+      )
+        return normal(request);
+      repairRuns += 1;
+      return {
+        resultText: 'Stopped.\n\n## Open questions\nWhich queue should own retries?',
+        ...(repairRuns === 2 ? { release: reassessment } : {}),
+      };
+    };
     await roadmapControl(state, 'pause');
     const enabled = await state.context.app.inject({
       method: 'POST',
@@ -297,8 +311,14 @@ itNeedsCargo(
       'the stopped round holds its review',
       30000,
     );
+    await waitFor(
+      () => repairRuns === 2 && repair()?.status === 'running',
+      'the round reassesses its repair',
+      30000,
+    );
     // While the round's repair is at work again, nobody is asked anything.
-    if (repair()?.status === 'running') expect(openSubjects()).toEqual([]);
+    expect(openSubjects()).toEqual([]);
+    releaseReassessment();
     await waitFor(
       () => repair()?.status === 'needs-attention',
       'the repair stops on its question',

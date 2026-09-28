@@ -138,6 +138,8 @@ export interface ScriptedReply {
   readonly truncated?: boolean;
   /** What the turn's one tool call prints; `README.md` when absent. */
   readonly toolOutput?: string;
+  /** The turn answers only once this settles, so a test can observe the run while it works. */
+  readonly release?: Promise<void>;
 }
 
 export class ScriptedSession implements AgentSession {
@@ -172,7 +174,12 @@ export class ScriptedSession implements AgentSession {
       },
     });
     this.delayed = request.prompt.includes('DEFER-TURNS');
-    this.respond(request.prompt);
+    const release = replies[0]?.release;
+    if (release)
+      void release.then(() => {
+        if (!this.closed) this.respond(request.prompt);
+      });
+    else this.respond(request.prompt);
   }
 
   /**

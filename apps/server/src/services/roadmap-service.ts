@@ -3720,6 +3720,8 @@ export class RoadmapService {
               preparationId: roadmap.decisionPreparations?.at(-1)?.id,
               checkpointId: roadmap.decisionPreparations?.at(-1)?.checkpointId,
               runId: roadmap.decisionPreparations?.at(-1)?.runId,
+              // A standing preparation is the controller's, acting as the grantor (R-C3b).
+              preparedByUserId: roadmap.decisionPreparations?.at(-1)?.createdByUserId,
             }
           : {}),
         ...(action === 'apply-delegation'

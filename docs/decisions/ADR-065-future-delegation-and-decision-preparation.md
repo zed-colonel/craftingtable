@@ -43,9 +43,10 @@ started cross-project slices stopped at design; WI-ADR-016 alone was asked for i
   scheduler's own work is unaffected, since a preparation holds no development capacity, worktree
   of a work item or merge authority.
 - Approval keeps its rule: the roadmap is paused and no work on the map is live. A live
-  preparation run no longer counts as work on the map. It only proposes, and a proposal is checked
-  against the decisions current when it is saved; a preparation whose context predates an approval
-  is at worst a stale recommendation, which the operator reads before saving.
+  preparation run no longer counts as work on the map. It only proposes; a proposal is checked
+  against its exact binding when it is saved, and the operator reviews its text before approving.
+  A preparation whose context predates another approval is at worst a stale recommendation,
+  which that review catches.
 - A roadmap may carry a standing preparation grant: enabled, a time limit per preparation and the
   number kept in flight at once (1 to 3), with who granted it and when. Like recovery delegation
   (ADR-057), it is changed only while scheduling is paused, it is audited, revoking it stops future

@@ -31,6 +31,13 @@ export function DecisionPreparationPanel({
   const [grantEnabled, setGrantEnabled] = useState(standing?.enabled ?? false),
     [grantMinutes, setGrantMinutes] = useState(standing?.minutes ?? 30),
     [grantConcurrent, setGrantConcurrent] = useState(standing?.maxConcurrent ?? 1);
+  // The saved grant wins when it changes (an amendment revokes it), so a stale form never
+  // re-enables it (R-C3b review).
+  useEffect(() => {
+    setGrantEnabled(standing?.enabled ?? false);
+    setGrantMinutes(standing?.minutes ?? 30);
+    setGrantConcurrent(standing?.maxConcurrent ?? 1);
+  }, [standing?.enabled, standing?.minutes, standing?.maxConcurrent]);
   // Like recovery delegation, the grant changes only while scheduling is paused.
   const grantLocked = disabled || !['draft', 'paused', 'needs-attention'].includes(roadmap.status);
   const [open, setOpen] = useState(false),

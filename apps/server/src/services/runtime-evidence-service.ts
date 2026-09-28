@@ -1762,8 +1762,8 @@ export class RuntimeEvidenceService {
       tx.execution.runs.listLive().some(
         (r) =>
           r.workspaceId === ws &&
-          // A preparation run only proposes, and a proposal is checked against the decisions
-          // current when it is saved, so it does not hold approval (R-C3b, ADR-065).
+          // A preparation run only proposes: its proposal is checked against its exact binding when
+          // saved, and the operator reviews its text, so it does not hold approval (R-C3b, ADR-065).
           tx.execution.worktrees.find(ws, r.worktreeId)?.executionScope?.definitionId === id,
       )
     )

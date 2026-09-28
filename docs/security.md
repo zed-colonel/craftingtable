@@ -206,6 +206,22 @@ that owns a cycle without delegating a reviewer, or whose saved delegation can n
 read, authorizes no controller review: the cycle stops for the operator (ADR-063, amended
 2026-09-27).
 
+## Decision preparation
+
+A decision preparation is a read-only investigation of one shared architecture decision
+(ADR-065). It runs in a separate plan worktree at a pinned integration commit, reads only the
+exact imported archives and recorded decisions, and proposes: it cannot merge, start a cycle or
+approve anything. Its record binds the exact map, binding revision and digest, and its deadline.
+
+An owner or editor starts one by command, or grants a roadmap standing preparation (R-C3b). The
+grant is changed only while scheduling is paused, is audited, and is revoked by the operator or
+by an applied planning amendment. Under it, each pass of the running roadmap starts the
+preparations its selection needs as the grantor: the grantor must still be an active owner or
+editor of the workspace, and the grant must still name them, at every launch stage. Such a
+preparation is audited as the controller's, naming the grantor. Revoking the grant stops future
+launches; a preparation already running finishes within its time limit. Approval stays the
+operator's alone, with scheduling paused.
+
 ## Integration resolution authority
 
 An explicit owner/editor cycle command or saved roadmap conflict policy authorizes a pinned integration merge into the item

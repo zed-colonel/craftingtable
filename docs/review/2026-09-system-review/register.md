@@ -30,7 +30,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
-| [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b in progress | Design stage: continue automatically and batch real decisions ahead of time |
+| [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b code done 2026-09-28, done-when after deploy | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
 | [R-C5](#r-c5) | P2 | M | done (2026-09-28, see entry) | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
@@ -559,7 +559,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C3
 
-**Design stage: continue automatically and batch real decisions ahead of time** · Phase P2 · Effort M (larger: split into R-C3a, S, and R-C3b, M-L) · Status: R-C3a done; R-C3b open
+**Design stage: continue automatically and batch real decisions ahead of time** · Phase P2 · Effort M (larger: split into R-C3a, S, and R-C3b, M-L) · Status: R-C3a done; R-C3b code done (2026-09-28), done-when measured after deploy
 
 - **Resolves:** [HIST-03](findings/HIST-history-and-live-usage.md#hist-03-ranked-operator-intervention-causes-the-highest-leverage-automation-fixes), [HIST-19](findings/HIST-history-and-live-usage.md#hist-19-real-cross-project-workload-is-10-the-scale-the-uis-lists-were-designed-for-progress-and-dependencies-are-hard-to-see)
 - **Change:** When a design investigation finishes and every question has a cited answer with no operator-classified decision left, continue without a stop. Build the per-roadmap decision queue before dependent slices start (extend ADR-065 decision preparation) so shared architecture decisions are answered once, in a batch, in the inbox.
@@ -606,7 +606,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Limit found in the design:** an accepted decision reaches a slice's design only if the slice's map requirements reference it, directly or as a prerequisite of a checkpoint it needs. So "up to 11 of 15 stops" is an upper bound: WI-ADR-016 was asked about by slices that do not reference it.
 - **R-C3b step 1, done 2026-09-28** (ADR-065 amended):
   - `prepareDecision` accepts a running roadmap. It checks the preparation's own record, its exact map binding and digest, and its deadline instead of the roadmap version, which every pass changes. The manual form no longer locks while the roadmap runs.
-  - Approval still needs a paused roadmap with no live work on the map, but a live preparation run no longer counts (it only proposes; a proposal is checked when saved). The shared decision inbox shows the same rule.
+  - Approval still needs a paused roadmap with no live work on the map, but a live preparation run no longer counts (it only proposes; a proposal is checked against its binding when saved, and the operator reviews its text). The shared decision inbox shows the same rule.
   - **Tests:** `server-execution-decision-preparation.test.ts`: a preparation started on a running roadmap survives a roadmap write during its launch; one decision is approved while another is being prepared. `DecisionPreparationPanel.test.tsx`: the form is usable on a running or paused roadmap and locked on a stopped one. Each fails without its change.
 - **R-C3b step 2, done 2026-09-28: the standing grant** (ADR-065 amended; operator decision 2026-09-28: a new persisted roadmap field).
   - `Roadmap.decisionPreparationGrant`: enabled, minutes per preparation (5 to 60) and preparations at once (1 to 3), with who granted it and when. Each run uses its owning entry's investigation profile, as the manual form's default does.
@@ -633,6 +633,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *LOW, fixed:* the launch check re-derived a grantor but did not require the one the preparation acts as, so a re-grant by another editor during a launch passed. It now requires the same user.
   - *MEDIUM (test gap), closed:* nothing tested that batch approval sends only the proposals ticked as reviewed: approving every saved proposal passed all tests. `SharedDecisionInbox.test.tsx` now ticks two of three, lists none with issues, and stops at a refusal saying what it approved; approving the unticked one fails it.
   - *LOW-MEDIUM (test gaps), closed:* two step 3 claims had no test. A decision accepted with no preparation on the binding (as from a design stop's proposal) is now skipped by test, which fails without `neededDecisions`'s accepted filter. A grant naming a non-member prepares nothing, and a launch whose grant is revoked mid-flight ends without a recommendation; removing either check fails the test. (A launch refused by its own last check ends its run as failed rather than recording a failure on the preparation, as the manual path always has.)
+  - *LOW, fixed:* a standing preparation was audited as a system action by the user running the roadmap, not the grantor. The `prepare-decision` audit entry now names who prepared it (`preparedByUserId`), and the test checks it. `docs/security.md` gains a "Decision preparation" section covering the grant and the controller path.
+  - *LOW, fixed (rollback note):* a release before ec35ead cannot read a roadmap carrying `decisionPreparationGrant` (the strict schema refuses unknown fields), even a disabled one. Rolling back past it needs the field removed from the stored roadmap; turning the grant off is not enough.
+  - *NIT, fixed:* the ADR, code comments and this entry said a proposal is checked against the decisions current when saved. It is checked against its binding; the operator's review of its text is what catches a stale recommendation.
+  - *NIT, fixed:* batch approval showed only the proposal text; it now shows full or limited coverage too. The full decision stays on each card.
+  - *NIT, fixed:* the panel's grant form kept its first values, so after an amendment revoked the grant it could still show it on and re-enable it by saving. It now follows the saved grant (test fails without it).
+  - *LOW, disposition:* a manual form opened before an amendment is accepted while the roadmap runs, since a running roadmap's version changes every pass. The preparation still binds to the current binding and only proposes; the operator sees the checkpoint they chose.
+  - *LOW, disposition:* a standing preparation stays live up to its time limit (5 to 60 minutes), and changing delegation waits for live runs, so a pause to change delegation can wait for it. Revoke the grant or choose a short limit; the wait is bounded.
+  - *NIT, disposition:* two roadmaps on one map, both granted, could each prepare the same checkpoint. Both only propose; one grant per map is the expected use.
+- **R-C3b status (2026-09-28):** code complete (steps 1 to 5 and the review fixes). The done-when is a live measurement: on the cross-project roadmap, design stops per started slice well below the 10-of-11 baseline, with standing preparation granted. Measure it a few days after the deploy. Decision items already show "unblocks N" as slices.
 
 ### R-C4
 

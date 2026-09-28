@@ -367,6 +367,15 @@ it('under the grant, the running roadmap prepares what its slices need, most-wai
   expect(prepared(fixture)).toEqual(['LOCAL-ADR-01']);
   const first = preparation(fixture, 'LOCAL-ADR-01')!;
   expect(first.createdByUserId).toBe(f.state.userId);
+  // Audited as the controller's, naming the grantor it acted as (R-C3b review).
+  expect(
+    tx.audit
+      .listWorkspace({ workspaceId: ws, limit: 50 })
+      .find((e) => e.metadata?.action === 'prepare-decision'),
+  ).toMatchObject({
+    actorKind: 'system',
+    metadata: { checkpointId: 'LOCAL-ADR-01', preparedByUserId: f.state.userId },
+  });
   await waitFor(
     () => tx.execution.runs.find(ws, first.runId)?.status === 'running',
     'the first preparation at work',

@@ -145,7 +145,7 @@ function BatchApproval({
               setReviewed(next);
             }}
           />{' '}
-          Reviewed {card.checkpointId}: {record.proposal.proposal}
+          {`Reviewed ${card.checkpointId} (${record.proposal.coverage === 'full' ? 'full' : 'limited'}): ${record.proposal.proposal}`}
         </label>
       ))}
       <label className="field">

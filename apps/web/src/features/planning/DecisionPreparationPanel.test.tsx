@@ -86,3 +86,40 @@ it('saves the standing grant while paused, and shows it while running (R-C3b)', 
       .disabled,
   ).toBe(true);
 });
+
+it('follows the saved grant when it changes, so a revoked grant is not re-enabled (R-C3b review)', async () => {
+  vi.mocked(request).mockResolvedValue({ version: 3, status: 'paused', decisions: [] });
+  const withGrant = (enabled: boolean) =>
+    ({
+      ...roadmap('paused'),
+      decisionPreparationGrant: {
+        enabled,
+        minutes: 20,
+        maxConcurrent: 2,
+        grantedByUserId: 'u',
+        grantedAt: '2026-09-28T00:00:00Z',
+      },
+    }) as unknown as Roadmap;
+  const { rerender } = render(
+    <DecisionPreparationPanel
+      roadmap={withGrant(true)}
+      backends={[]}
+      csrfToken="t"
+      disabled={false}
+    />,
+  );
+  fireEvent.click(screen.getByText('Prepare architecture decision briefs'));
+  const box = () =>
+    screen.getByLabelText('Prepare needed decisions while the roadmap runs') as HTMLInputElement;
+  expect(box().checked).toBe(true);
+  // An applied amendment revoked it.
+  rerender(
+    <DecisionPreparationPanel
+      roadmap={withGrant(false)}
+      backends={[]}
+      csrfToken="t"
+      disabled={false}
+    />,
+  );
+  expect(box().checked).toBe(false);
+});

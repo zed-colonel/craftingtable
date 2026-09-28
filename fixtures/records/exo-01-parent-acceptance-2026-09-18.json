@@ -9,7 +9,7 @@
   "reviews": [
     {
       "review": "P01",
-      "finishedAt": "2026-09-18T00:12Z",
+      "startedAt": "2026-09-18T00:12Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -31,7 +31,7 @@
     },
     {
       "review": "P02",
-      "finishedAt": "2026-09-18T07:08Z",
+      "startedAt": "2026-09-18T07:08Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -63,7 +63,7 @@
     },
     {
       "review": "P03",
-      "finishedAt": "2026-09-18T14:08Z",
+      "startedAt": "2026-09-18T14:08Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -100,7 +100,7 @@
     },
     {
       "review": "P04",
-      "finishedAt": "2026-09-18T17:07Z",
+      "startedAt": "2026-09-18T17:07Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -142,7 +142,7 @@
     },
     {
       "review": "P05",
-      "finishedAt": "2026-09-18T18:36Z",
+      "startedAt": "2026-09-18T18:36Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -184,7 +184,7 @@
     },
     {
       "review": "P06",
-      "finishedAt": "2026-09-18T19:41Z",
+      "startedAt": "2026-09-18T19:41Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -226,7 +226,7 @@
     },
     {
       "review": "P07",
-      "finishedAt": "2026-09-18T20:28Z",
+      "startedAt": "2026-09-18T20:28Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -268,7 +268,7 @@
     },
     {
       "review": "P08",
-      "finishedAt": "2026-09-18T22:03Z",
+      "startedAt": "2026-09-18T22:03Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -325,7 +325,7 @@
     },
     {
       "review": "P09",
-      "finishedAt": "2026-09-19T02:44Z",
+      "startedAt": "2026-09-19T02:44Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -392,7 +392,7 @@
     },
     {
       "review": "P10",
-      "finishedAt": "2026-09-19T03:44Z",
+      "startedAt": "2026-09-19T03:44Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -459,7 +459,7 @@
     },
     {
       "review": "P11",
-      "finishedAt": "2026-09-19T05:04Z",
+      "startedAt": "2026-09-19T05:04Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -531,7 +531,7 @@
     },
     {
       "review": "P12",
-      "finishedAt": "2026-09-19T17:30Z",
+      "startedAt": "2026-09-19T17:30Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -608,7 +608,7 @@
     },
     {
       "review": "P13",
-      "finishedAt": "2026-09-19T23:20Z",
+      "startedAt": "2026-09-19T23:20Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -695,7 +695,7 @@
     },
     {
       "review": "P14",
-      "finishedAt": "2026-09-20T00:23Z",
+      "startedAt": "2026-09-20T00:23Z",
       "verdict": "changes-requested",
       "findings": [
         {
@@ -802,7 +802,7 @@
     },
     {
       "review": "P15",
-      "finishedAt": "2026-09-20T08:12Z",
+      "startedAt": "2026-09-20T08:12Z",
       "verdict": "mergeable",
       "findings": [
         {
@@ -914,7 +914,7 @@
     },
     {
       "review": "P16",
-      "finishedAt": "2026-09-22T00:26Z",
+      "startedAt": "2026-09-22T00:26Z",
       "verdict": "mergeable",
       "findings": [
         {

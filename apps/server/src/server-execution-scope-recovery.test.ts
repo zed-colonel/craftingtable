@@ -271,6 +271,21 @@ itNeedsCargo.each([
       });
       expect(resumed.statusCode, resumed.body).toBe(409);
       expect(storedRoadmap(state).entryHolds?.[heldEntryId]).toEqual(hold);
+      // The ways forward come before the rounds, so a long summary cannot cut them off.
+      expect(hold.reason.indexOf('Delegate source fixes')).toBeLessThan(
+        hold.reason.indexOf('Round 1'),
+      );
+      // Pausing the item first does not open a way around the refusal (R-C5 review).
+      const entryControl = async (action: 'pause' | 'resume') =>
+        state.context.app.inject({
+          method: 'POST',
+          url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/control`,
+          headers: mutationHeaders(state),
+          payload: { action, entryId: heldEntryId, expectedVersion: storedRoadmap(state).version },
+        });
+      expect((await entryControl('pause')).statusCode).toBe(200);
+      const afterPause = await entryControl('resume');
+      expect(afterPause.statusCode, afterPause.body).toBe(409);
     } else expect(hold.attention?.code).not.toBe('recovery-not-converging');
     expect(tx.planning.workItems.find(ws, state.workItemId)?.status).not.toBe('completed');
   }

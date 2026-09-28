@@ -153,7 +153,7 @@ export function scopeRecoveryDecision(
   // One typed stop for every way automatic recovery ends here (R-C5 increment 4, ADR-057).
   const escalate = (why: string) => ({
     escalation: true as const,
-    reason: `${why} ${progress.summary || 'No round has run for this review yet.'} Delegate source fixes with guidance to run a round yourself, or propose a split of the remaining work into a follow-up slice through a planning amendment.`,
+    reason: `${why} Delegate source fixes with guidance to run a round yourself, or propose a split of the remaining work into a follow-up slice through a planning amendment. ${progress.summary || 'No round has run for this review yet.'}`,
   });
   // Rounds the operator requested do not use the automatic allowance.
   const automatic = rounds.filter((a) => !a.recovery!.requestedByUserId).length;

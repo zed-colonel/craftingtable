@@ -59,6 +59,8 @@ export interface RecoveryProgress {
 
 /** Consecutive rounds without progress after which automatic recovery stops. */
 export const STALLED_ROUND_LIMIT = 2;
+/** The rounds a summary names; earlier ones are counted. */
+const SUMMARIZED_ROUNDS = 4;
 
 const rank = (severity: FindingSeverity) => FINDING_SEVERITIES.indexOf(severity);
 
@@ -126,8 +128,12 @@ const named = (findings: readonly { readonly id: string; readonly severity: stri
   findings.map((f) => `${f.id} (${f.severity})`).join(', ');
 
 function summarize(rounds: readonly RoundProgress[]): string {
-  return rounds
-    .map((round, index) => {
+  const skipped = Math.max(0, rounds.length - SUMMARIZED_ROUNDS);
+  const earlier = skipped ? [`${skipped} earlier round${skipped === 1 ? '' : 's'}.`] : [];
+  return [
+    ...earlier,
+    ...rounds.slice(skipped).map((round, offset) => {
+      const index = skipped + offset;
       const parts = [
         `Round ${index + 1}: ${round.outcome}`,
         round.closed.length ? `closed ${round.closed.join(', ')}` : '',
@@ -137,6 +143,6 @@ function summarize(rounds: readonly RoundProgress[]): string {
         round.comparable ? '' : 'review replaced, severities compared',
       ].filter(Boolean);
       return `${parts.join('; ')}.`;
-    })
-    .join(' ');
+    }),
+  ].join(' ');
 }

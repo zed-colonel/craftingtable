@@ -170,4 +170,13 @@ describe('recovery progress (R-C5 increment 3, HIST-04)', () => {
     ]);
     expect(same.rounds[0]).toMatchObject({ outcome: 'stalled', comparable: false });
   });
+
+  it('summarizes the last rounds only, so a long history stays readable (R-C5 review)', () => {
+    const reports = Array.from({ length: 10 }, () => report([['F-1', 'major']]));
+    const { summary, rounds } = classifyRecoveryProgress(reports);
+    expect(rounds).toHaveLength(9);
+    expect(summary).toMatch(/^5 earlier rounds\. Round 6: stalled/);
+    expect(summary).toContain('Round 9: stalled');
+    expect(summary).not.toContain('Round 5:');
+  });
 });

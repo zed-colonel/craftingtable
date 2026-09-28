@@ -1454,11 +1454,14 @@ export class RoadmapService {
           );
       } else {
         // Automatic recovery stopped converging: Resume would stop again the same way until the
-        // rounds, the allowance or the policy change (R-C5 increment 4).
+        // rounds, the allowance or the policy change (R-C5 increment 4), also after the operator
+        // paused the item, which would otherwise re-run the review without a repair (R-C5 review).
         if (
-          holds[entryId]?.attention?.code === 'recovery-not-converging' &&
+          holds[entryId] &&
           roadmap.scopeRecovery?.enabled &&
-          cycle?.status === 'needs-attention' &&
+          (cycle?.status === 'needs-attention' || cycle?.status === 'paused') &&
+          cycle.executionScope &&
+          cycle.executionScope.kind !== 'slice' &&
           !recovery
         ) {
           const decision = scopeRecoveryDecision(

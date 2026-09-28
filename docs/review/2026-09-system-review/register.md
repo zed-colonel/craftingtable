@@ -1871,6 +1871,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, disposition:* a daemon that takes more than 10 s to close is still SIGKILLed with its directory. Closing an idle e2e daemon takes milliseconds; removing the directory before the database closes would fail the close's own writes.
     - *LOW, done by the operator's leave (2026-09-28):* the 202 leaked directories, the 60 unit-test directories and finished agent sessions' scratch were deleted from `/tmp`; the quota fell from 23.7 to 0.7 GiB.
     - *NIT, disposition:* `freePort` can race another process for the port; a collision fails loudly.
+    - *Observed at the batch gate (2026-09-28), open for R-I9:* one of the gate's two e2e daemons left 43 MB. Its database was removed (the SIGTERM cleanup ran), but run directories written before shutdown remained, so the recursive removal stopped partway. The load average was about 20; three walkthroughs and the earlier gate left nothing. This is not reproducible on demand. A removal that retries (`maxRetries`) or waits for the daemon's run cleanup would close it.
 
 ### R-I6
 

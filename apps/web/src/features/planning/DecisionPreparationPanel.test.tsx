@@ -59,7 +59,7 @@ it('saves the standing grant while paused, and shows it while running (R-C3b)', 
   const call = vi
     .mocked(request)
     .mock.calls.find(([url]) => String(url).endsWith('/decision-preparation-grant'));
-  expect(JSON.parse(String((call?.[2] as RequestInit).body))).toEqual({
+  expect(JSON.parse(String((call![2] as RequestInit).body))).toEqual({
     expectedVersion: 3,
     enabled: true,
     minutes: 30,

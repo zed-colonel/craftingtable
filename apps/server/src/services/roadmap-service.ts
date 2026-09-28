@@ -712,7 +712,7 @@ export class RoadmapService {
   private grantor(roadmap: Roadmap) {
     const id = roadmap.decisionPreparationGrant?.grantedByUserId;
     const user = id && this.storage.users.findById(id);
-    if (!user || user.status !== 'active') return undefined;
+    if (user?.status !== 'active') return undefined;
     const access = this.storage.workspaces.findAuthorized(user.id, roadmap.workspaceId);
     return access && ['owner', 'editor'].includes(access.membership.role) ? user : undefined;
   }

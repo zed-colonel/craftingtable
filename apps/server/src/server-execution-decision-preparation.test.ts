@@ -10,6 +10,7 @@ import {
   waitFor,
 } from './execution-test-support.js';
 import { architectureDecisionInbox } from './services/architecture-decision-inbox.js';
+import { RepositoryMutationBusyError } from './services/branch-service.js';
 
 /**
  * R-C3b: shared architecture decisions are prepared ahead of the slices that need them, while
@@ -437,4 +438,65 @@ it('a decision item unblocks the slices that wait on it, counted as slices (R-C3
   // Both slices wait on LOCAL-ADR-01 at start; only the first on LOCAL-ADR-02.
   expect(blocks('LOCAL-ADR-01')).toBe(2);
   expect(blocks('LOCAL-ADR-02')).toBe(1);
+});
+
+/** Grants standing preparation with a bound of one and starts the roadmap. */
+async function grantAndStart(fixture: Fixture) {
+  expect((await grant(fixture, { enabled: true, minutes: 10, maxConcurrent: 1 })).statusCode).toBe(
+    200,
+  );
+  await roadmapControl(fixture.f.state, 'start');
+}
+
+it('a busy repository leaves a standing preparation for the next pass, not failed (R-C3b review)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture();
+  const { f, ws, tx } = fixture;
+  // A slice merge holds the repository when the first preparation would create its worktree.
+  vi.spyOn(
+    f.state.context.services.executionService,
+    'createDecisionWorktree',
+  ).mockRejectedValueOnce(new RepositoryMutationBusyError());
+  await grantAndStart(fixture);
+  await waitFor(
+    () => {
+      const p = preparation(fixture, 'LOCAL-ADR-01');
+      return !!p && tx.execution.runs.find(ws, p.runId)?.status === 'finished';
+    },
+    'LOCAL-ADR-01 prepared on a later pass',
+    15000,
+  );
+  expect((storedRoadmap(f.state).decisionPreparations ?? []).filter((p) => p.failure)).toEqual([]);
+});
+
+it('a decision that cannot be reserved gives its place to the next, and waits before retrying (R-C3b review)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture();
+  const { f, ws, tx } = fixture;
+  const roadmaps = f.state.context.services.roadmapService as unknown as {
+    launchPreparation: (...args: unknown[]) => Promise<void>;
+  };
+  const launch = roadmaps.launchPreparation.bind(roadmaps);
+  let refused = 0;
+  vi.spyOn(roadmaps, 'launchPreparation').mockImplementation(async (...args: unknown[]) => {
+    const target = args[1] as { checkpoint: { id: string } };
+    if (target.checkpoint.id === 'LOCAL-ADR-01') {
+      refused += 1;
+      throw new Error('The owner integration branch is gone.');
+    }
+    return launch(...args);
+  });
+  await grantAndStart(fixture);
+  await waitFor(
+    () => {
+      const p = preparation(fixture, 'LOCAL-ADR-02');
+      return !!p && tx.execution.runs.find(ws, p.runId)?.status === 'finished';
+    },
+    'LOCAL-ADR-02 prepared although LOCAL-ADR-01 cannot be',
+    15000,
+  );
+  for (let pass = 0; pass < 3; pass++) await f.state.context.services.roadmapService.tick();
+  expect(refused).toBe(1);
 });

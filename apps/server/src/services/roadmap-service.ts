@@ -59,7 +59,12 @@ import type { AuthContext, CommandContext } from './auth-service.js';
 import { neededDecisions, slicesWaitingOn } from './decision-demand.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
 import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-project-service.js';
-import { ConcurrentModificationError, ExecutionRequestError, NotFoundError } from './errors.js';
+import {
+  ConcurrentModificationError,
+  DaemonDrainingError,
+  ExecutionRequestError,
+  NotFoundError,
+} from './errors.js';
 import {
   requireScopeOwnership,
   resolveScope,
@@ -112,6 +117,8 @@ function retried(error: unknown): boolean {
 }
 
 const ended = (roadmap: Roadmap) => ['stopped', 'completed'].includes(roadmap.status);
+/** How long a standing preparation that could not be reserved waits before a retry (R-C3b). */
+const PREPARATION_RETRY_MS = 10 * 60_000;
 /** An entry the scheduler holds for a typed reason the operator resolves (R-A5). */
 class EntryHoldError extends ExecutionRequestError {
   constructor(
@@ -598,14 +605,22 @@ export class RoadmapService {
     } catch (e) {
       if (reserved) {
         const current = this.find(ws, roadmap.id);
+        // Busy Git, a lost race or a draining daemon before anything was created is not the
+        // preparation's failure: the reservation goes, and the next pass or request tries again
+        // (R-C3b review).
+        const transient =
+          (retried(e) || e instanceof DaemonDrainingError) &&
+          !this.storage.execution.worktrees.find(ws, reserved.worktreeId);
         this.change(
           current,
           {
-            decisionPreparations: current.decisionPreparations!.map((p) =>
-              p.id === reserved!.id
-                ? { ...p, failure: e instanceof Error ? e.message : 'Preparation failed' }
-                : p,
-            ),
+            decisionPreparations: transient
+              ? current.decisionPreparations!.filter((p) => p.id !== reserved!.id)
+              : current.decisionPreparations!.map((p) =>
+                  p.id === reserved!.id
+                    ? { ...p, failure: e instanceof Error ? e.message : 'Preparation failed' }
+                    : p,
+                ),
           },
           'decision-preparation-failed',
           context.session ? (context as AuthContext) : undefined,
@@ -642,13 +657,19 @@ export class RoadmapService {
       d,
       crossProjectState(this.storage, ws, cp).nodes,
     )) {
-      if (room <= 0) return;
+      if (room <= 0 || this.abort.signal.aborted) return;
       if (done.has(checkpointId)) continue;
+      const key = `${roadmap.id}:${checkpointId}`;
+      if ((this.preparationRetryAt.get(key) ?? 0) > this.now().getTime()) continue;
       const current = this.find(ws, roadmap.id);
       if (current.status !== 'running' || !current.decisionPreparationGrant?.enabled) return;
       const target = this.preparationTarget(current, checkpointId);
       if ('refused' in target) continue;
-      room -= 1;
+      const reservations = () =>
+        (this.find(ws, roadmap.id).decisionPreparations ?? []).filter(
+          (p) => p.checkpointId === checkpointId,
+        ).length;
+      const before = reservations();
       try {
         await this.launchPreparation(
           current,
@@ -663,16 +684,30 @@ export class RoadmapService {
           },
           { user: grantor },
           () => {
+            // Still granted, by the same user this preparation acts as (R-C3b review).
             const latest = this.find(ws, roadmap.id);
-            if (!latest.decisionPreparationGrant?.enabled || !this.grantor(latest))
+            if (
+              !latest.decisionPreparationGrant?.enabled ||
+              this.grantor(latest)?.id !== grantor.id
+            )
               conflict('The standing decision preparation grant was revoked.');
           },
         );
-      } catch {
-        // Recorded on the preparation when it was reserved; otherwise the next pass retries.
+      } catch (error) {
+        // A failure after the reservation is recorded on the preparation. One before it (the
+        // owner's branch is gone, a lost race) leaves no record: this decision gives its place
+        // to the next and waits before it is tried again, unless the cause clears by itself.
+        // A busy repository or a draining daemon holds every decision alike: the next pass
+        // resumes in order.
+        if (retried(error) || error instanceof DaemonDrainingError) return;
+        if (reservations() === before)
+          this.preparationRetryAt.set(key, this.now().getTime() + PREPARATION_RETRY_MS);
       }
+      if (reservations() > before) room -= 1;
     }
   }
+  /** When a standing preparation that could not be reserved is tried again, per decision. */
+  private readonly preparationRetryAt = new Map<string, number>();
   /** Whoever granted standing preparation, while they may still prepare decisions. */
   private grantor(roadmap: Roadmap) {
     const id = roadmap.decisionPreparationGrant?.grantedByUserId;
@@ -1764,7 +1799,14 @@ export class RoadmapService {
     if (this.storage.amendments.pending(roadmap.workspaceId, roadmap.id)) return;
     // Shared decisions are prepared beside the slices that will need them (R-C3b).
     await this.prepareNeededDecisions(roadmap).catch(() => undefined);
+    // The launch awaited: a pause, a command or an amendment may have come meanwhile.
     roadmap = this.find(roadmap.workspaceId, roadmap.id);
+    if (
+      roadmap.status !== 'running' ||
+      this.controlling.has(roadmap.id) ||
+      this.storage.amendments.pending(roadmap.workspaceId, roadmap.id)
+    )
+      return;
     if (roadmap.definition.crossProject) {
       const c = roadmap.definition.crossProject,
         issues = bindingIssues(

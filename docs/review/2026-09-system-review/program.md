@@ -463,7 +463,8 @@ independent review; every finding is fixed or its disposition is recorded in reg
   2. **R-I10.** Snapshot the paused live database. Record its goldens. Add the scheduler replay. **Done 2026-09-27.**
   3. **R-C12 and R-C13.** Reproduce LIVE-06 and LIVE-07 on that snapshot, then fix them. Each leaves a typed reason where the operator or the status list can see it. **Done 2026-09-27.**
   4. **R-E3a.** The status list, reading R-A4's items and R-C12's reasons. **Done 2026-09-27.**
-  5. **Deploy the P2 line.** Schema 32 rebuilds the attention items, then do the notification checks below. The live roadmap stays paused while R-E3a is checked against it.
+  5. **Deploy the P2 line.** Schema 32 rebuilds the attention items, then do the notification checks below. The live roadmap stays paused while R-E3a is checked against it. **Deployed by the operator 2026-09-28**; the first day found LIVE-09 to LIVE-13.
+  5a. **R-C14 and R-C15.** Fix LIVE-09 to LIVE-13 as one batch. **Done 2026-09-28, not merged or deployed.**
   6. **R-C5 increments 3 to 5, then R-C3b.** These remove the largest operator-stop causes (HIST-03, HIST-04) once the stops are visible.
   7. **The rest of P2:** R-E1, R-E2, R-D4, R-D5, R-G4 to R-G6, R-G9, R-H4, R-I4, R-I9. R-G4 should take over CI execution and its lock from a2bb20a (LIVE-03).
 - **Gate at the head:** `pnpm check` passes in one run. 187 test files and 1,494 unit tests, 20 e2e tests,
@@ -513,6 +514,17 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - **Before the deploy:**
     - Confirm that `CRAFTINGTABLE_DEVELOPMENT_CAPACITY=4` stays in the unit's environment file. A restart with the default of 2 would invalidate the accepted plan evidence and every checkpoint behind it (R-I10).
     - On first boot, R-C12 lets EXO-02/domain's recovery round start, by borrowing a repository slot.
+- **Post-deploy batch (2026-09-28, `remediation/p2`; not merged or deployed).** The operator merged steps 2 to 4 into `main` and deployed. The first day found five stops, recorded as LIVE-09 to LIVE-13 with replay cases on a 2026-09-28 snapshot (`$XDG_DATA_HOME/craftingtable-review/replay/2026-09-28/`, sha256 `645b7c3e…`). Two new items: R-C14 (the inbox asks only for what work waits on) and R-C15 (a checkpoint review gets its decisions).
+  - Commits: d39b47a (findings and replay cases), 0ca00cb (LIVE-09), a444901 (LIVE-10), 00077d5 (LIVE-11), 1be7a18 (LIVE-13), 849b5b3 (R-C15, LIVE-12), 69d788d (docs), b0eda31 (status list), fd9c7d6 and 85ad226 (review fixes).
+  - **Independent review:** one HIGH finding, fixed. The first frontier rule hid evidence only the operator supplies, and decisions behind a slice's delegated review. One rule (`operatorActsNext`) now decides the inbox, an entry's state and the status list's actor. Two lower findings are fixed. Three have dispositions and one test gap is open, all on R-C14 in register.md.
+  - **Intended decision changes**, scheduler replay against the golden before the batch (`scheduler-golden-d39b47a.json`) on the 2026-09-28 snapshot:
+    - WI-04/domain's cycle packet no longer lacks decision bodies (R-C15);
+    - 47 entries waiting on unfinished work move from `needs-attention`/operator to `dependency-blocked`/controller;
+    - the 50 checkpoint items, 2 decision-preparation items and the EXO-02 hold item are no longer raised (no entry is on the frontier yet).
+    
+    Against the pre-batch goldens (`scheduler-golden-ac08291.json`), the 2026-09-23 and 2026-09-27 snapshots show the same move for 61 rows, plus two cycle items from d39b47a's new attention section.
+  - **Gate at 85ad226:** format, lint, typecheck, build, 195 test files and 1,562 unit tests, 20 e2e tests and the scope check pass. The walkthrough rehearsal could not run: headless Chrome crashed on the host in three runs, at different steps, with the daemon healthy. It needs a rerun once the host is stable.
+  - **Replays, each on a copy:** `golden.json` and `--every-run` report 0 changed on all three snapshots (51/278, 58/352, 59/356). New scheduler goldens `scheduler-golden-85ad226.json` are recorded for all three.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

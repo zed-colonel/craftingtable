@@ -3280,16 +3280,23 @@ export class RoadmapService {
       if (!entry) continue;
       const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
       const cycle = attempt && tx.execution.cycles.find(workspaceId, attempt.cycleId);
-      // A manual recovery has taken over this checkpoint. The saved hold remains
-      // historical until reconciliation; it is not a second task.
-      if (cycle?.status === 'running') continue;
+      // The recovery round that carries this entry's review, whose repair is where its work
+      // happens (LIVE-13).
+      const round = this.roundFor(roadmap, entry);
+      const repair = round && tx.execution.cycles.find(workspaceId, round.cycleId);
+      // A manual recovery, or the round's repair, has taken over this checkpoint. The saved
+      // hold remains historical until reconciliation; it is not a second task.
+      if (cycle?.status === 'running' || repair?.status === 'running') continue;
       if (entry.executionScope && this.scopeComplete(tx, roadmap, entry)) continue;
       // The cycle's own item already carries this stop, with its findings and branch.
       if (
-        cycle &&
-        tx.attention
-          .openInScope(workspaceId, `worktree:${cycle.worktreeId}`)
-          .some((item) => item.subjectKey === `cycle:${cycle.id}`)
+        [cycle, repair].some(
+          (carrier) =>
+            carrier &&
+            tx.attention
+              .openInScope(workspaceId, `worktree:${carrier.worktreeId}`)
+              .some((item) => item.subjectKey === `cycle:${carrier.id}`),
+        )
       )
         continue;
       const reverifiable = !('refused' in this.reverification(roadmap, entry, tx));

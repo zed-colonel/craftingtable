@@ -257,3 +257,54 @@ itNeedsCargo.each(['paused', 'running', 'running, review paused'] as const)(
     expect(storedRoadmap(state).entryHolds?.[sourceEntryId]).toBeUndefined();
   },
 );
+
+itNeedsCargo(
+  'an owning-slice question during a recovery round is one inbox item (R-C14, LIVE-13)',
+  { timeout: 45000 },
+  async () => {
+    const { f, state, ws, tx, sourceEntryId } = await stoppedVerification();
+    const normal = f.backend.replyForRequest!;
+    // The round's repair asks the operator a question instead of finishing.
+    f.backend.replyForRequest = (request) =>
+      /craftingtable-scope-repair\.json/.test(request.prompt) && request.model !== 'review-model'
+        ? { resultText: 'Stopped.\n\n## Open questions\nWhich queue should own retries?' }
+        : normal(request);
+    await roadmapControl(state, 'pause');
+    const enabled = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/scope-recovery`,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: storedRoadmap(state).version,
+        enabled: true,
+        maxRoundsPerParent: 3,
+      },
+    });
+    expect(enabled.statusCode, enabled.body).toBe(200);
+    await roadmapControl(state, 'resume');
+    const round = () =>
+      storedRoadmap(state).attempts.find((a) => a.recovery?.sourceEntryId === sourceEntryId);
+    const repair = () => {
+      const attempt = round();
+      return attempt && tx.execution.cycles.find(ws, attempt.cycleId);
+    };
+    const openSubjects = () => {
+      state.context.services.roadmapService.syncAttention(true);
+      return tx.attention.open(ws).map((item) => item.subjectKey);
+    };
+    await waitFor(
+      () => !!storedRoadmap(state).entryHolds?.[sourceEntryId],
+      'the stopped round holds its review',
+      30000,
+    );
+    // While the round's repair is at work again, nobody is asked anything.
+    if (repair()?.status === 'running') expect(openSubjects()).toEqual([]);
+    await waitFor(
+      () => repair()?.status === 'needs-attention',
+      'the repair stops on its question',
+      30000,
+    );
+    // The repair's own item carries the question; the review's hold does not repeat it.
+    expect(openSubjects()).toEqual([`cycle:${round()!.cycleId}`]);
+  },
+);

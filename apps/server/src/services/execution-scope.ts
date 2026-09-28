@@ -1,5 +1,6 @@
 import {
   architectureDecisionPacket,
+  decisionPacketEntries,
   scopeArchitectureDecisions,
   stagedDecision,
 } from './architecture-decision-policy.js';
@@ -792,11 +793,26 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
         kind: 'checkpoint',
         sourceId: id,
       });
+      // A prerequisite met by an accepted architecture decision is given as the decision
+      // itself, so its clauses can be reviewed (R-C15, LIVE-12).
+      const accepted = new Set(
+        evaluation.inputs.flatMap((input) =>
+          input.kind === 'accepted-evidence' ? [input.submissionId] : [],
+        ),
+      );
+      const decisions = decisionPacketEntries(
+        tx,
+        r.item.workspaceId,
+        tx.runtimeEvidence
+          .submissions(r.item.workspaceId, r.definition.id)
+          .filter((s) => accepted.has(s.id) && s.architectureDecision),
+      );
       return {
         id,
         title: checkpoint?.title,
         requires: checkpoint?.requires ?? [],
         prerequisites: evaluation.inputs,
+        decisions,
         pending: evaluation.gaps.map((gap) => gap.message),
         coverage: r.definition.source.acceptance_coverage.filter((c) => c.checkpoint === id),
         baselineCoverage: r.definition.source.baseline_acceptance_coverage.filter(

@@ -192,8 +192,16 @@ export function architectureDecisionPacket(
   ws: WorkspaceId,
   scope: ExecutionScope,
 ) {
+  return decisionPacketEntries(tx, ws, scopeArchitectureDecisions(tx, ws, scope));
+}
+/** Accepted decisions as a reviewer is given them: the decision record and its approval. */
+export function decisionPacketEntries(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  submissions: readonly EvidenceSubmission[],
+) {
   const approvals = tx.runtimeEvidence.decisions(ws);
-  return scopeArchitectureDecisions(tx, ws, scope).map((s) => ({
+  return submissions.map((s) => ({
     submissionId: s.id,
     checkpoint: s.subject.sourceId,
     definitionId: s.definitionId,

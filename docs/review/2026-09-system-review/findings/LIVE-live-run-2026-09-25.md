@@ -232,7 +232,7 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
 ### LIVE-12: WI-04's checkpoint review is still missing inputs: the bodies of the decisions its checkpoint requires
 - Severity: high
 - Category: controller-readiness/reviewer disagreement ([R-C13](../register.md#r-c13) one level deeper)
-- Status: CONFIRMED ([R-C15](../register.md#r-c15))
+- Status: CONFIRMED; fixed 2026-09-28 ([R-C15](../register.md#r-c15)): each checkpoint's section of the ledger carries the decisions that met its prerequisites.
 - Replay case: the 2026-09-28 scheduler replay's checkpoint readiness for WI-04/domain reports WI-WORKER-G1 ready with `decision:WI-ADR-016`, `decision:WI-ADR-008` and `decision:WI-ADR-010` missing from its packet.
 - Evidence:
   - After the deploy, the operator's resume at 16:37 UTC ran the WI-WORKER-G1 review (run 328ce485). R-C13's fix worked: "This export supplies the previously missing coverage and producer receipts".

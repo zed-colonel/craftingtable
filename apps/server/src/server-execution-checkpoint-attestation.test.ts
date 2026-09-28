@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterEach, expect } from 'vitest';
 import {
@@ -9,6 +10,7 @@ import {
   supervisedMapFixture,
   waitFor,
 } from './execution-test-support.js';
+import { decisionBindingDigest } from './services/architecture-decision-policy.js';
 import { workflowContext } from './services/workflow-policy.js';
 
 /**
@@ -21,7 +23,7 @@ import { workflowContext } from './services/workflow-policy.js';
 afterEach(cleanupExecutionFixtures);
 
 itNeedsCargo(
-  'a checkpoint review is given the producing-slice receipts its readiness counted (LIVE-07)',
+  'a checkpoint review is given the receipts and decisions its readiness counted (LIVE-07, LIVE-12)',
   { timeout: 45000 },
   async () => {
     // local/AQ-01/a merges only after LOCAL-REVIEW, which needs another item's slice verified.
@@ -55,10 +57,37 @@ itNeedsCargo(
           id: 'LOCAL-REVIEW',
           kind: 'profile' as const,
           owner: 'local',
-          requires: [{ kind: 'slice' as const, id: 'local/AQ-02/a', state: 'verified' as const }],
+          requires: [
+            { kind: 'slice' as const, id: 'local/AQ-02/a', state: 'verified' as const },
+            { kind: 'checkpoint' as const, id: 'LOCAL-ADR-01', state: 'passed' as const },
+          ],
           decision_refs: [],
           pass_criteria: ['Candidate boundary is sound'],
           evidence_profile: 'scope-review',
+        },
+        // A decision the checkpoint requires, as WI-WORKER-G1 requires WI-ADR-008 (LIVE-12).
+        {
+          ...source.checkpoints[0]!,
+          id: 'LOCAL-ADR-01',
+          kind: 'architecture_decision' as const,
+          owner: 'local',
+          requires: [],
+          decision_refs: [],
+          pass_criteria: ['Approve the transport contract.'],
+          evidence_profile: 'decision-review',
+        },
+      ],
+      evidence_profiles: [
+        ...source.evidence_profiles,
+        {
+          id: 'decision-review',
+          required_evidence: [
+            'accepted decision artifact digest and revision',
+            'source contract and affected schema or protocol references',
+            'decision owner approval and applicability to the active plan generation',
+          ],
+          reviewer_roles: ['repository-maintainer'],
+          independence_required: true as const,
         },
       ],
       slices: source.slices.map((s) =>
@@ -79,7 +108,11 @@ itNeedsCargo(
       ws = f.state.workspaceId;
 
     const original = f.backend.replyForRequest!;
-    let packet: { checkpoints: { id: string; prerequisites: { kind: string }[] }[] } | undefined;
+    let packet:
+      | {
+          checkpoints: { id: string; prerequisites: unknown[]; decisions?: unknown[] }[];
+        }
+      | undefined;
     let prompt = '';
     f.backend.replyForRequest = (request) => {
       if (
@@ -109,6 +142,50 @@ itNeedsCargo(
         : reply;
     };
     await adoptSupervisedMap(f);
+    // The operator accepted LOCAL-ADR-01 in full, as the decision packet records it.
+    const definition = tx.imports.definition(ws, f.parentScope.definitionId)!;
+    const decisionId = randomUUID();
+    tx.runtimeEvidence.addSubmission({
+      id: decisionId,
+      workspaceId: ws,
+      definitionId: definition.id,
+      bindingRevision: 1,
+      runtimeId: f.runtime.current!.id,
+      environmentId: 'local-tests',
+      subject: { kind: 'checkpoint', sourceId: 'LOCAL-ADR-01' },
+      architectureDecision: {
+        kind: 'architecture-decision-v1',
+        coverage: 'full',
+        proposal: 'Use the stable transport contract for every boundary.',
+        sourceReferences: 'source-plan.md §4',
+        retainedObligations: '',
+        consumers: [],
+        bindingDigest: decisionBindingDigest(tx, definition, 1),
+      },
+      executedBy: 'CraftingTable decision packet collector',
+      executedAt: new Date().toISOString(),
+      requirements: [],
+      reviewers: [],
+      cases: [],
+      artifacts: [
+        {
+          name: 'decision-review-packet',
+          content: 'Transport contract decision.',
+          digest: createHash('sha256').update('Transport contract decision.').digest('hex'),
+        },
+      ],
+      createdAt: new Date().toISOString(),
+      createdByUserId: f.state.userId,
+    } as never);
+    tx.runtimeEvidence.addDecision({
+      id: randomUUID(),
+      workspaceId: ws,
+      submissionId: decisionId,
+      outcome: 'accepted',
+      rationale: 'Approved.',
+      decidedAt: new Date().toISOString(),
+      decidedByUserId: f.state.userId,
+    } as never);
     // AQ-02 need not wait for AQ-01, as WI-09 need not wait for WI-04: the operator authorizes
     // its slice's early development.
     const producer = tx.imports
@@ -136,6 +213,18 @@ itNeedsCargo(
           scope: expect.objectContaining({ sourceId: 'local/AQ-02/a' }),
         }),
       }),
+      expect.objectContaining({ kind: 'accepted-evidence', submissionId: decisionId }),
+    ]);
+    // The decision itself, not only its ID: the reviewer must review its clauses (LIVE-12).
+    expect(checkpoint?.decisions).toEqual([
+      expect.objectContaining({
+        submissionId: decisionId,
+        checkpoint: 'LOCAL-ADR-01',
+        decision: expect.objectContaining({
+          proposal: 'Use the stable transport contract for every boundary.',
+        }),
+        approval: expect.objectContaining({ outcome: 'accepted' }),
+      }),
     ]);
     const cycle = tx.execution.cycles
       .listForWorkspace(ws)
@@ -146,6 +235,7 @@ itNeedsCargo(
     expect(ready.pending).toEqual([]);
     expect(ready.inputs).toEqual([
       expect.stringMatching(/^slice:local\/AQ-02\/a:verified=receipt:/),
+      `checkpoint:LOCAL-ADR-01:passed=evidence:${decisionId}`,
     ]);
     // The reviewer's prompt names the same inputs.
     expect(prompt).toContain(ready.inputs[0]!);

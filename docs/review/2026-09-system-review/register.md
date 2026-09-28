@@ -42,7 +42,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C12](#r-c12) | P2 | S-M | done (2026-09-27) | Automatic recovery records why it did not start a round (added 2026-09-27) |
 | [R-C13](#r-c13) | P2 | S-M | done (2026-09-27) | Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation (added 2026-09-27) |
 | [R-C14](#r-c14) | P2 | S-M | in progress | Attention says only what needs the operator now, and what the operator can act on (added 2026-09-28) |
-| [R-C15](#r-c15) | P2 | S | open | A checkpoint review is given the decisions its checkpoint requires (added 2026-09-28) |
+| [R-C15](#r-c15) | P2 | S | done (2026-09-28) | A checkpoint review is given the decisions its checkpoint requires (added 2026-09-28) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -979,7 +979,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C15
 
-**A checkpoint review is given the decisions its checkpoint requires** · Phase P2 · Effort S · Status: open
+**A checkpoint review is given the decisions its checkpoint requires** · Phase P2 · Effort S · Status: done (2026-09-28)
 
 - **Added 2026-09-28** from [LIVE-12](findings/LIVE-live-run-2026-09-25.md#live-12-wi-04s-checkpoint-review-is-still-missing-inputs-the-bodies-of-the-decisions-its-checkpoint-requires). R-C13's checkpoint section named the accepted decisions WI-WORKER-G1 requires only by submission ID. WI-04's reviewer therefore failed the attestation for lack of their clauses.
 - **Change:** for each prerequisite met by an accepted architecture decision, the ledger's checkpoint section carries the decision record itself, in the same form as the scope's own `architectureDecisions`, and from the same evaluation (R-C13's one evaluator).
@@ -987,6 +987,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - On the 2026-09-28 snapshot, WI-WORKER-G1's packet lacks no decision (the replay's `packetMissing`).
   - A fixture test shows a checkpoint review given the decision a checkpoint requires.
   - It fails without the change.
+- **Done 2026-09-28.**
+  - **Change.** In the ledger, each checkpoint's section now carries `decisions`: for every prerequisite that R-C13's evaluation met with an accepted architecture decision, the decision record and its approval. The form is the one the scope's own `architectureDecisions` use (`decisionPacketEntries`, shared). The loop is otherwise sound: the remediation after a failed checkpoint review changes the candidate, which the attestation covers, so it runs again on new inputs.
+  - **Test:** `server-execution-checkpoint-attestation.test.ts`. LOCAL-REVIEW now also requires an accepted decision, LOCAL-ADR-01. The checkpoint review's ledger carries its record: the proposal and the approval. The test fails without the change, on the missing record.
+  - **Replay:** on the 2026-09-28 snapshot, WI-WORKER-G1's `packetMissing` goes from WI-ADR-016, 008 and 010 to nothing. That cycle record is the only replay change; the step outcomes are unchanged (59 and 356).
+  - **After deploy:** resuming WI-04 runs WI-WORKER-G1's review with the decision bodies.
 
 ## Workstream D — Read side and browser performance (pain point 3)
 

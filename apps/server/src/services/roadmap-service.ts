@@ -172,6 +172,54 @@ type RoadmapChanges = Omit<Partial<Roadmap>, 'status' | 'attention'> &
       }
   );
 
+/**
+ * The checkpoints the operator is needed for now (R-C14, LIVE-10): those an open entry waits
+ * on while every one of its blockers is the operator's, and once every entry is complete, the
+ * ones the selected scope still needs; then, for each, its own unmet checkpoint prerequisites.
+ * A checkpoint that work will need only after other work is done asks nobody yet.
+ */
+function neededCheckpoints(
+  nodes: readonly {
+    readonly key: string;
+    readonly kind: string;
+    readonly sourceId: string;
+    readonly included: boolean;
+    readonly satisfied: boolean;
+    readonly requirements: readonly string[];
+  }[],
+  progress: RoadmapView['progress'],
+): ReadonlySet<string> {
+  const checkpoints = new Map(
+    nodes.filter((n) => n.kind === 'checkpoint').map((n) => [n.sourceId, n]),
+  );
+  const needed = new Set<string>();
+  for (const p of progress)
+    if (
+      p.status !== 'completed' &&
+      p.blockers?.length &&
+      p.blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator')
+    )
+      for (const b of p.blockers) {
+        const node = b.refs?.checkpointId && checkpoints.get(b.refs.checkpointId);
+        if (node) needed.add(node.key);
+      }
+  if (progress.every((p) => p.status === 'completed'))
+    for (const node of checkpoints.values())
+      if (node.included && !node.satisfied) needed.add(node.key);
+  const byKey = new Map(nodes.map((n) => [n.key, n]));
+  const queue = [...needed];
+  while (queue.length) {
+    for (const key of byKey.get(queue.pop()!)?.requirements ?? []) {
+      const prerequisite = byKey.get(key);
+      if (prerequisite?.kind === 'checkpoint' && !prerequisite.satisfied && !needed.has(key)) {
+        needed.add(key);
+        queue.push(key);
+      }
+    }
+  }
+  return needed;
+}
+
 export class RoadmapService {
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
@@ -3149,7 +3197,8 @@ export class RoadmapService {
           only.map((b) => b.message),
         );
     }
-    for (const progress of this.view(roadmap, tx).progress) {
+    const entryProgress = this.view(roadmap, tx).progress;
+    for (const progress of entryProgress) {
       const entry = roadmap.definition.entries.find((e) => e.id === progress.entryId);
       if (!entry || setup.has(entry.id) || !progress.blockers?.length) continue;
       if (progress.blockers.every((b) => SETUP_BLOCKER_CODES.has(phaseBlockerCode(b))))
@@ -3189,8 +3238,15 @@ export class RoadmapService {
         }
         return nodes.filter((n) => seen.has(n.key) && n.included && !n.satisfied).length;
       };
+      const needed = neededCheckpoints(nodes, entryProgress);
       for (const node of nodes) {
-        if (!node.included || node.satisfied || node.kind !== 'checkpoint' || node.blockers.length)
+        if (
+          !node.included ||
+          node.satisfied ||
+          node.kind !== 'checkpoint' ||
+          node.blockers.length ||
+          !needed.has(node.key)
+        )
           continue;
         const kind = source?.checkpoints.find((c) => c.id === node.sourceId)?.kind;
         const code =

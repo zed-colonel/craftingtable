@@ -967,6 +967,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - On the 2026-09-28 snapshot, the scheduler replay projects no `checkpoint-evidence` item, no decision item that no entry waits on, and neither WI-ADR-008 nor WI-ADR-010's preparation item.
   - It shows one item for EXO-02's owning-slice question.
   - A test covers each rule, and fails without it.
+- **LIVE-10 fixed (2026-09-28), and LIVE-11's controller-produced items with it.** The roadmap pass raises a checkpoint item only for a checkpoint the operator is needed for now (`neededCheckpoints`):
+  - one an open entry waits on while every one of that entry's blockers is operator-owned (`PHASE_BLOCKERS`);
+  - once every entry is complete, one the selected scope still needs;
+  - and the unmet checkpoint prerequisites of those.
+
+  A non-decision checkpoint that a slice requires reaches an entry as the controller-owned `checkpoint-evidence` blocker, so it is never the operator's alone: the 15 checkpoint-evidence items of 2026-09-28 go with the rule. On the 2026-09-28 snapshot the pass projects none of the 50 checkpoint items; no other replay record changes. Test: `roadmap-attention-relevance.test.ts` (a decision that slice b needs is not asked while b waits for slice a, and is asked once a has merged), which fails without the fix; the supervised-map test keeps its target checkpoint's item at completion.
 - **LIVE-09 fixed (2026-09-28).** A decision preparation's design-questions item is not raised once an accepted, full-coverage decision exists for its checkpoint on the preparation's binding. Every evidence decision re-derives the workspace's preparation worktrees, so accepting the decision resolves the item in the same write. Test: `notifications.test.ts`, "names a roadmap decision preparation…", which fails without the fix.
 
 ### R-C15

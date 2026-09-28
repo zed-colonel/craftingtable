@@ -43,6 +43,7 @@ import {
   loadLocalCiConfig,
   cleanupLocalCiManifest,
   prepareLocalCheckLaunchers,
+  resolveGitDirectories,
   observeRustToolchain,
   type PinnedCargoManifest,
 } from '@craftingtable/agents';
@@ -2165,7 +2166,11 @@ export class RuntimeEvidenceService {
     }
     return tree.executionScope;
   }
-  async prepare(tree: Worktree, runId: string, runDirectory: string) {
+  /**
+   * `replyDirectory` is where the daemon answers the run's check launchers: a directory of its
+   * own, outside every writable root of the run (R-G4).
+   */
+  async prepare(tree: Worktree, runId: string, runDirectory: string, replyDirectory?: string) {
     const scope = this.treeContext(tree);
     if (!scope) return;
     const runtime = activeRuntime(
@@ -2384,6 +2389,8 @@ export class RuntimeEvidenceService {
     const manifest: PinnedCargoManifest = {
       ...(nativeVerification ? { nativeVerification } : {}),
       gitExecutable,
+      // Resolved before the agent starts; the daemon never follows the worktree's `.git` pointer.
+      ...resolveGitDirectories(gitExecutable, tree.path),
       checkTimeoutMs: Math.min(
         30 * 60000,
         (this.storage.execution.cycles.activeForWorktree(tree.workspaceId, tree.id)?.policy
@@ -2411,9 +2418,12 @@ export class RuntimeEvidenceService {
     // The launchers only ask the daemon, which runs the check and records the receipt (R-G4).
     const spool = {
       directory: join(directory, 'requests'),
+      replies: replyDirectory ?? join(directory, 'replies'),
       limitMs: (manifest.checkTimeoutMs ?? 30 * 60000) + 5 * 60000,
     };
+    mkdirSync(spool.replies, { recursive: true, mode: 0o700 });
     const spoolDirectory = spool.directory;
+    const replyDirectoryUsed = spool.replies;
     const launch = prepareCargoLauncher(directory, manifest, spool);
     prepareLocalCheckLaunchers(
       launch.binDirectory,
@@ -2424,6 +2434,7 @@ export class RuntimeEvidenceService {
     return {
       ...launch,
       spoolDirectory,
+      replyDirectory: replyDirectoryUsed,
       verification,
       dependencies: dependencyIdentities,
       movedToCurrentPins,

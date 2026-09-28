@@ -81,6 +81,8 @@ export interface CheckRunContext {
   readonly workspaceId: WorkspaceId;
   readonly runId: string;
   readonly spoolDirectory: string;
+  /** The daemon's own directory for answers, outside every writable root of the run. */
+  readonly replyDirectory: string;
   readonly runDirectory: string;
   readonly manifestPath: string;
   readonly manifestDigest: string;
@@ -179,7 +181,10 @@ export class CheckRequestService {
       if (lstatSync(spool).isDirectory() && realpathSync(spool) === resolve(spool))
         for (const id of pendingCheckRequests(spool))
           if (claimCheckRequest(spool, id))
-            new CheckReply(spool, id).finish(1, 'This run has ended; the check did not run.');
+            new CheckReply(spool, run.context.replyDirectory, id).finish(
+              1,
+              'This run has ended; the check did not run.',
+            );
     } catch {
       /* the run directory is gone */
     }
@@ -207,7 +212,7 @@ export class CheckRequestService {
       if (!this.runs.has(runId)) return;
       const claimed = claimCheckRequest(spool, id);
       if (!claimed) continue;
-      const reply = new CheckReply(spool, id);
+      const reply = new CheckReply(spool, run.context.replyDirectory, id);
       if ('refused' in claimed) {
         reply.finish(2, claimed.refused);
         continue;

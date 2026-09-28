@@ -21,8 +21,10 @@ function spool() {
   const root = mkdtempSync(join(tmpdir(), 'ct-check-spool-'));
   roots.push(root);
   const directory = join(root, 'requests');
+  const replies = join(root, 'replies');
   mkdirSync(directory);
-  return { root, directory };
+  mkdirSync(replies);
+  return { root, directory, replies };
 }
 const request = (directory: string, id: string, body: string) =>
   writeFileSync(join(directory, `${id}.request`), body);
@@ -36,7 +38,7 @@ it('relays the daemon output and exit code to the launcher (R-G4)', async () => 
     [
       '--input-type=module',
       '-e',
-      `import(${JSON.stringify(module)}).then(m=>m.submitCheck(${JSON.stringify(s.directory)},'ct-check',['--','true'],60000,30000,20))`,
+      `import(${JSON.stringify(module)}).then(m=>m.submitCheck(${JSON.stringify(s.directory)},${JSON.stringify(s.replies)},'ct-check',['--','true'],60000,30000,20))`,
     ],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );
@@ -53,7 +55,7 @@ it('relays the daemon output and exit code to the launcher (R-G4)', async () => 
   const claimed = claimCheckRequest(s.directory, id!);
   expect(claimed).toEqual({ request: { version: 1, tool: 'ct-check', args: ['--', 'true'] } });
   expect(claimCheckRequest(s.directory, id!)).toBeUndefined();
-  const reply = new CheckReply(s.directory, id!);
+  const reply = new CheckReply(s.directory, s.replies, id!);
   reply.write('first line\n');
   reply.write('second line\n');
   reply.finish(3, 'Check exited 3.');
@@ -69,12 +71,12 @@ it('never follows a link the agent plants in the spool, and never blocks on a FI
   writeFileSync(outside, 'unchanged');
   request(s.directory, ID, JSON.stringify({ version: 1, tool: 'ct-check', args: [] }));
   expect(claimCheckRequest(s.directory, ID)).toHaveProperty('request');
-  symlinkSync(outside, join(s.directory, `${ID}.out`));
-  const reply = new CheckReply(s.directory, ID);
+  symlinkSync(outside, join(s.replies, `${ID}.out`));
+  const reply = new CheckReply(s.directory, s.replies, ID);
   reply.write('check output');
   reply.finish(0);
   expect(readFileSync(outside, 'utf8')).toBe('unchanged');
-  expect(JSON.parse(readFileSync(join(s.directory, `${ID}.exit`), 'utf8'))).toEqual({
+  expect(JSON.parse(readFileSync(join(s.replies, `${ID}.exit`), 'utf8'))).toEqual({
     exitCode: 0,
   });
 

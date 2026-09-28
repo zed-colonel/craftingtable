@@ -7,9 +7,11 @@
  * database; nothing the agent can write is read as a receipt. Files, not a socket: a Codex
  * sandbox without network cannot connect to any Unix socket, but can write inside its roots.
  *
- * Per request `<id>`: the launcher writes `<id>.request` (atomically, by rename); the daemon
- * claims it by renaming it to `<id>.claimed`, appends output to `<id>.out` and finally
- * writes `<id>.exit`. The launcher asks for cancellation with `<id>.cancel`.
+ * Per request `<id>`: the launcher writes `<id>.request` into the spool (atomically, by
+ * rename); the daemon claims it by renaming it to `<id>.claimed`. The daemon answers in a reply
+ * directory of its own, outside every writable root of the run, so the agent can read the
+ * answer but cannot redirect where the daemon writes it: it appends output to `<id>.out` and
+ * finally writes `<id>.exit`. The launcher asks for cancellation with `<id>.cancel` in the spool.
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -53,6 +55,7 @@ const path = (spool: string, id: string, suffix: string) => join(spool, `${id}.$
  */
 export async function submitCheck(
   spool: string,
+  replies: string,
   tool: CheckTool,
   args: readonly string[],
   limitMs: number,
@@ -79,7 +82,7 @@ export async function submitCheck(
   const started = Date.now();
   let offset = 0;
   const relay = () => {
-    const out = path(spool, id, 'out');
+    const out = path(replies, id, 'out');
     if (!existsSync(out)) return;
     const size = statSync(out).size;
     if (size <= offset) return;
@@ -96,7 +99,7 @@ export async function submitCheck(
   try {
     for (;;) {
       relay();
-      const exit = path(spool, id, 'exit');
+      const exit = path(replies, id, 'exit');
       if (existsSync(exit)) {
         relay();
         const result = JSON.parse(readFileSync(exit, 'utf8')) as {
@@ -199,24 +202,26 @@ const createExclusive = (file: string) =>
   );
 
 /**
- * The daemon's answer to one claimed request: relayed output, then the exit code. Every file
- * it writes is created exclusively, so a link the agent planted cannot redirect the daemon's
- * writes elsewhere.
+ * The daemon's answer to one claimed request: relayed output, then the exit code, in the
+ * daemon's reply directory. Every file it writes there is created exclusively and without
+ * following links.
  */
 export class CheckReply {
   private readonly spool: string;
+  private readonly replies: string;
   private readonly id: string;
   private out: number | undefined;
   private failed = false;
   // Plain fields: launchers load this module through Node's type stripping.
-  constructor(spool: string, id: string) {
+  constructor(spool: string, replies: string, id: string) {
     this.spool = spool;
+    this.replies = replies;
     this.id = id;
   }
   write(text: string): void {
     if (this.failed) return;
     try {
-      this.out ??= createExclusive(path(this.spool, this.id, 'out'));
+      this.out ??= createExclusive(path(this.replies, this.id, 'out'));
       writeSync(this.out, text);
     } catch {
       // Output relay is best effort; the retained log is the daemon's.
@@ -233,7 +238,7 @@ export class CheckReply {
   finish(exitCode: number, diagnostic?: string): void {
     if (this.out !== undefined) closeSync(this.out);
     this.out = undefined;
-    const staged = path(this.spool, this.id, `exit-${randomUUID()}`);
+    const staged = path(this.replies, this.id, `exit-${randomUUID()}`);
     try {
       const fd = createExclusive(staged);
       try {
@@ -241,7 +246,7 @@ export class CheckReply {
       } finally {
         closeSync(fd);
       }
-      renameSync(staged, path(this.spool, this.id, 'exit'));
+      renameSync(staged, path(this.replies, this.id, 'exit'));
     } catch {
       /* the run ended and its directory went with it */
     }

@@ -840,7 +840,12 @@ export class AgentRunService {
       const temporaryDirectory = join(runDirectory, 'scratch');
       mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
       const buildCacheDirectory = this.worktreeBuildCache(prepared.worktree);
-      const pinned = await this.runtimeEvidence?.prepare(prepared.worktree, runId, runDirectory);
+      const pinned = await this.runtimeEvidence?.prepare(
+        prepared.worktree,
+        runId,
+        runDirectory,
+        join(this.config.checkLogRoot, runId, 'replies'),
+      );
       const historical =
         cycle?.baselinePreparation?.status === 'prepared'
           ? await this.baselines?.materialize(cycle, runDirectory)
@@ -1316,6 +1321,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           workspaceId,
           runId,
           spoolDirectory: pinned.spoolDirectory,
+          replyDirectory: pinned.replyDirectory,
           runDirectory,
           manifestPath: pinned.manifestPath,
           manifestDigest: pinned.manifestDigest,

@@ -16,6 +16,7 @@ import { nativeHostDigest } from './native-environment.js';
 import {
   acquireLocalCiLock,
   executeCheck,
+  resolveGitDirectories,
   loadLocalCiConfig,
   localActArguments,
   localCiLockPath,
@@ -52,6 +53,7 @@ function fixture() {
     runId: 'run',
     cargoExecutable: '/unused',
     gitExecutable: hostGit(),
+    ...resolveGitDirectories(hostGit(), workspacePath),
     workspacePath,
     targetDirectory: join(root, 'target'),
     packages: [],

@@ -47,6 +47,13 @@ export interface PinnedCargoManifest {
   readonly runId: string;
   readonly cargoExecutable: string;
   readonly gitExecutable: string;
+  /**
+   * The worktree's git directory and the repository's common directory, resolved by the daemon
+   * before the agent starts (R-G4). Daemon Git on the worktree uses them rather than following
+   * the worktree's `.git` pointer, which the agent can rewrite.
+   */
+  readonly gitDirectory?: string;
+  readonly gitCommonDirectory?: string;
   readonly workspacePath: string;
   readonly targetDirectory: string;
   readonly packages: readonly { name: string; path: string }[];
@@ -191,7 +198,7 @@ export function pinnedReceiptKind(
 export function prepareCargoLauncher(
   directory: string,
   manifest: PinnedCargoManifest,
-  spool?: { readonly directory: string; readonly limitMs: number },
+  spool?: { readonly directory: string; readonly replies: string; readonly limitMs: number },
 ) {
   const path = join(directory, 'manifest.json'),
     binDirectory = join(directory, 'bin');
@@ -211,7 +218,7 @@ export async function runPinnedCargo(
   path: string,
   expectedDigest: string,
   args: string[],
-  spool?: { readonly directory: string; readonly limitMs: number },
+  spool?: { readonly directory: string; readonly replies: string; readonly limitMs: number },
 ): Promise<void> {
   const raw = readFileSync(path, 'utf8');
   if (cargoManifestDigest(raw) !== expectedDigest)
@@ -228,7 +235,7 @@ export async function runPinnedCargo(
         import.meta.url,
       ).href
     )) as typeof import('./check-spool.js');
-    await submitCheck(spool.directory, 'cargo', args, spool.limitMs);
+    await submitCheck(spool.directory, spool.replies, 'cargo', args, spool.limitMs);
     return;
   }
   const gitState = () => {

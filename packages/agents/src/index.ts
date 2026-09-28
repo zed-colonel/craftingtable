@@ -5,6 +5,7 @@ export {
   cleanupLocalCi,
   cleanupLocalCiManifest,
   executeCheck,
+  resolveGitDirectories,
   stopCheckUnits,
   confinedCheckArguments,
   type CheckConfinement,

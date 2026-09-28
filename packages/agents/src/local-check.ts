@@ -72,7 +72,7 @@ export function prepareLocalCheckLaunchers(
   bin: string,
   manifest: string,
   digest: string,
-  spool?: { readonly directory: string; readonly limitMs: number },
+  spool?: { readonly directory: string; readonly replies: string; readonly limitMs: number },
 ) {
   const spoolModule = new URL(
     import.meta.url.endsWith('.ts') ? './check-spool.ts' : './check-spool.js',
@@ -82,7 +82,7 @@ export function prepareLocalCheckLaunchers(
   for (const name of ['ct-check', 'ct-act', 'ct-native']) {
     const path = join(bin, name);
     const call = spool
-      ? `import(${JSON.stringify(spoolModule)}).then(m=>m.submitCheck(${JSON.stringify(spool.directory)},${JSON.stringify(name)},process.argv.slice(2),${spool.limitMs}))`
+      ? `import(${JSON.stringify(spoolModule)}).then(m=>m.submitCheck(${JSON.stringify(spool.directory)},${JSON.stringify(spool.replies)},${JSON.stringify(name)},process.argv.slice(2),${spool.limitMs}))`
       : `import(${JSON.stringify(import.meta.url)}).then(m=>m.runLocalCheck(${JSON.stringify(manifest)},${JSON.stringify(digest)},${JSON.stringify(name)},process.argv.slice(2)))`;
     writeFileSync(
       path,
@@ -108,19 +108,72 @@ function gitState(m: PinnedCargoManifest) {
     clean: dirty.status === 0 && !dirty.stdout.trim(),
   };
 }
-/** The same observation without blocking the daemon's event loop. */
+/**
+ * How the daemon runs Git on an agent's worktree (R-G4 review): against the git directory it
+ * resolved before the agent started, never the worktree's `.git` pointer; with no system or
+ * global configuration, no fsmonitor and no hooks; and with named variables only.
+ */
+function daemonGitEnvironment(gitDirectory?: string, workTree?: string): NodeJS.ProcessEnv {
+  return {
+    PATH: process.env.PATH ?? '/usr/bin',
+    ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
+    LANG: 'C',
+    LC_ALL: 'C',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_TERMINAL_PROMPT: '0',
+    ...(gitDirectory ? { GIT_DIR: gitDirectory } : {}),
+    ...(workTree ? { GIT_WORK_TREE: workTree } : {}),
+  };
+}
+const DAEMON_GIT_OPTIONS = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
+
+/**
+ * The worktree's git directory and common directory, resolved by the daemon before the agent
+ * starts, while the `.git` pointer is still the one the daemon created.
+ */
+export function resolveGitDirectories(
+  gitExecutable: string,
+  workspacePath: string,
+): { gitDirectory: string; gitCommonDirectory: string } {
+  const resolved = spawnSync(
+    gitExecutable,
+    [
+      ...DAEMON_GIT_OPTIONS,
+      'rev-parse',
+      '--path-format=absolute',
+      '--absolute-git-dir',
+      '--git-common-dir',
+    ],
+    {
+      cwd: workspacePath,
+      encoding: 'utf8',
+      timeout: 10000,
+      maxBuffer: 65536,
+      env: daemonGitEnvironment(),
+    },
+  );
+  const [gitDirectory, gitCommonDirectory] = (resolved.stdout ?? '').trim().split('\n');
+  if (resolved.status !== 0 || !gitDirectory || !gitCommonDirectory)
+    throw new Error('Could not resolve the worktree git directory.');
+  return { gitDirectory, gitCommonDirectory };
+}
+
+/** The same observation without blocking the daemon's event loop, on the pinned git directory. */
 async function observeGitState(m: PinnedCargoManifest) {
+  if (!m.gitDirectory) throw new Error('The run has no daemon-resolved git directory.');
   const git = (args: string[]) =>
     new Promise<{ ok: boolean; stdout: string }>((resolveResult) =>
       execFile(
         m.gitExecutable,
-        args,
+        [...DAEMON_GIT_OPTIONS, ...args],
         {
           cwd: m.workspacePath,
           encoding: 'utf8',
           timeout: 10000,
           maxBuffer: 1024 * 1024,
-          env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+          env: daemonGitEnvironment(m.gitDirectory, m.workspacePath),
         },
         (error, stdout) => resolveResult({ ok: !error, stdout: String(stdout) }),
       ),
@@ -169,11 +222,16 @@ export function localActArguments(
   const mount = (path: string) => `--mount type=bind,source=${path},target=${path}`;
   // Managed worktrees have a .git file pointing outside the checkout. Supply only
   // their Git metadata read-only so ordinary git/version checks work inside CI.
-  const metadata = spawnSync(
-    m.gitExecutable,
-    ['rev-parse', '--path-format=absolute', '--git-common-dir', '--absolute-git-dir'],
-    { cwd: m.workspacePath, encoding: 'utf8', timeout: 10000, maxBuffer: 65536 },
-  );
+  // A daemon-run check mounts the git directories the daemon resolved before the agent started;
+  // the worktree's `.git` pointer may since have been rewritten (R-G4 review).
+  const metadata =
+    m.gitDirectory && m.gitCommonDirectory
+      ? { status: 0, stdout: `${m.gitCommonDirectory}\n${m.gitDirectory}\n` }
+      : spawnSync(
+          m.gitExecutable,
+          ['rev-parse', '--path-format=absolute', '--git-common-dir', '--absolute-git-dir'],
+          { cwd: m.workspacePath, encoding: 'utf8', timeout: 10000, maxBuffer: 65536 },
+        );
   if (metadata.status !== 0) throw new Error('Could not locate managed worktree Git metadata.');
   const gitPaths = [...new Set(metadata.stdout.trim().split('\n'))].filter((path) => {
     const rel = relative(m.workspacePath, path);
@@ -768,6 +826,8 @@ export function confinedCheckArguments(
   environment: Readonly<Record<string, string>>,
   command: readonly string[],
   network = false,
+  /** Paths inside `writable` that stay read-only, such as a worktree's `.git` pointer. */
+  readOnly: readonly string[] = [],
 ): string[] {
   if (!/^[A-Za-z0-9_.-]+$/.test(unitName)) throw new Error('Invalid check unit name.');
   return [
@@ -793,6 +853,7 @@ export function confinedCheckArguments(
     '-p',
     `RuntimeMaxSec=${Math.max(1, Math.ceil(timeoutSeconds))}`,
     ...writable.flatMap((p) => ['-p', `ReadWritePaths=-${p}`]),
+    ...readOnly.flatMap((p) => ['-p', `ReadOnlyPaths=-${p}`]),
     '--',
     '/usr/bin/env',
     '-i',
@@ -999,6 +1060,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
               writable,
               environment,
               [m.cargoExecutable, ...pinnedMetadataArguments(m, e.args)],
+              false,
+              [join(m.workspacePath, '.git')],
             )
           : pinnedMetadataArguments(m, e.args),
         {
@@ -1079,6 +1142,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           [command, ...actual],
           // act fetches actions itself; its job containers reach Docker's network anyway.
           act,
+          // The worktree's `.git` pointer stays as the daemon made it (R-G4 review).
+          [join(m.workspacePath, '.git')],
         ),
         env: busEnvironment,
       };

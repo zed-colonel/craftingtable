@@ -32,7 +32,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
 | [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b open | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
-| [R-C5](#r-c5) | P2 | M | in progress (2 of 5; increment 2 in 18f0bb8) | Converge the parent/slice repair loop |
+| [R-C5](#r-c5) | P2 | M | in progress (3 of 5; increment 2 in 18f0bb8) | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
@@ -640,7 +640,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C5
 
-**Converge the parent/slice repair loop** · Phase P2 · Effort M · Status: in progress (increments 1 and 2 of 5 done)
+**Converge the parent/slice repair loop** · Phase P2 · Effort M · Status: in progress (increments 1 to 3 of 5 done)
 
 - **Resolves:** [HIST-04](findings/HIST-history-and-live-usage.md#hist-04-exo-01-parent-acceptance--owning-slice-repair-ping-pong-consumed-29-of-all-runs-without-convergence-detection), [HIST-08](findings/HIST-history-and-live-usage.md#hist-08-merge-approvals-and-record-scope-verification-still-require-manual-clicks-in-delegated-flows)
 - **Change:** Track finding identity across parent-acceptance -> owning-slice repair -> re-review rounds; give repair briefs the cumulative remaining work for a finding; detect no-progress vs progress; escalate once with a progress summary; offer to split an oversized finding into a follow-up slice through the amendment path. Verify no repair path still needs manual merge or manual integration update.
@@ -695,6 +695,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, fixed:* the "allowance exhausted (N rounds)" stop and the recovery panel's "N / M rounds used" counted operator rounds, which the allowance excludes. Both now count automatic rounds only.
     - *Gap closed:* the allowance exclusion now has an isolating test (the decision with operator rounds only, the `>=` boundary, and the repeat check still counting operator rounds). It fails with the filter removed.
     - *Gap closed:* adoption on a running roadmap had no test (only the paused path did). The operator-round test gains an "adopted while running" variant, which fails with the running tick's adoption removed.
+- **Increment 3, done 2026-09-28: a pure progress classifier** (`services/recovery-progress.ts`). Nothing calls it yet; increment 4 wires it into automatic recovery, so no replay changes.
+  - **Input:** the pinned source report of each round of one review, oldest first, and the report that just finished. It compares consecutive reports only, never ADR-056's finding history, which a replaced review worktree loses (increment 1's review). Finding IDs are compared only between reports of the same review worktree; across a replacement only the severity profile of the open findings is.
+  - **Per round:** `repeated` (the report's substantive fingerprint matches an earlier one, ADR-057's existing guard), `regressed` (the open findings got graver), `progress` (less grave, or a finding closed or was downgraded) or `stalled`. Automatic recovery should stop at a repeat, or after two consecutive rounds without progress (`STALLED_ROUND_LIMIT`). A display summary names each round's closed, downgraded, opened and still-open findings.
+  - **EXO-01 fixture:** `fixtures/records/exo-01-parent-acceptance-2026-09-18.json`, the 16 parent-acceptance reports of exo/EXO-01 from the 2026-09-23 snapshot, redacted to finding ID, severity and status (run IDs replaced by labels; all prose removed). F-003 (major) stayed open in the first 13 reports that asked for changes. The 14th closed F-003 and opened F-005 (major), which the next review resolved.
+  - **Test:** `recovery-progress.test.ts` runs EXO-01 as automatic recovery would. The loop stops after two rounds, with one escalation that names F-003 (major), where 13 rounds ran. The round that closed F-003 counts as progress although a new major opened. Further cases cover a repeat, regression, downgrade and a replaced review worktree.
 
 ### R-C6
 

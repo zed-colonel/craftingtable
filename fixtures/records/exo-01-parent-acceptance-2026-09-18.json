@@ -1,0 +1,1028 @@
+{
+  "description": "Redacted parent-acceptance review reports of exo/EXO-01 from the 2026-09-23 snapshot (HIST-04), oldest first. Every review ran in the same review worktree, so finding IDs are comparable across them. Run IDs are replaced by sequence labels; titles, explanations, recommendations, locations and dispositions are removed. Between consecutive reviews that requested changes, an owning-slice repair of exo/EXO-01/domain was merged and verified.",
+  "source": {
+    "snapshot": "2026-09-23",
+    "workItem": "exo/EXO-01",
+    "scope": "parent-acceptance"
+  },
+  "reviewWorktree": "exo-01-parent-review",
+  "reviews": [
+    {
+      "review": "P01",
+      "finishedAt": "2026-09-18T00:12Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        }
+      ]
+    },
+    {
+      "review": "P02",
+      "finishedAt": "2026-09-18T07:08Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P03",
+      "finishedAt": "2026-09-18T14:08Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P04",
+      "finishedAt": "2026-09-18T17:07Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P05",
+      "finishedAt": "2026-09-18T18:36Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P06",
+      "finishedAt": "2026-09-18T19:41Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P07",
+      "finishedAt": "2026-09-18T20:28Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P08",
+      "finishedAt": "2026-09-18T22:03Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-004",
+          "severity": "minor",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R2.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P09",
+      "finishedAt": "2026-09-19T02:44Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-004",
+          "severity": "minor",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R2.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8327b9d.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8c80163.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P10",
+      "finishedAt": "2026-09-19T03:44Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-004",
+          "severity": "minor",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R2.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8327b9d.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8c80163.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P11",
+      "finishedAt": "2026-09-19T05:04Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-004",
+          "severity": "minor",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R2.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8327b9d.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8c80163.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "6e0dc452.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P12",
+      "finishedAt": "2026-09-19T17:30Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-004",
+          "severity": "minor",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R2.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8327b9d.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8c80163.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "6e0dc452.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "4b16582a.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P13",
+      "finishedAt": "2026-09-19T23:20Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "open"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-004",
+          "severity": "minor",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R2.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8327b9d.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8c80163.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "6e0dc452.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "4b16582a.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "edec6f23.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "edec6f23.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P14",
+      "finishedAt": "2026-09-20T00:23Z",
+      "verdict": "changes-requested",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-004",
+          "severity": "minor",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R2.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8327b9d.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8c80163.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "6e0dc452.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "4b16582a.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "edec6f23.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "edec6f23.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "a26b1f01.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "a26b1f01.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "a26b1f01.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-005",
+          "severity": "major",
+          "status": "open"
+        }
+      ]
+    },
+    {
+      "review": "P15",
+      "finishedAt": "2026-09-20T08:12Z",
+      "verdict": "mergeable",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-004",
+          "severity": "minor",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R2.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8327b9d.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8c80163.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "6e0dc452.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "4b16582a.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "edec6f23.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "edec6f23.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "a26b1f01.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "a26b1f01.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "a26b1f01.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-005",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-005",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    },
+    {
+      "review": "P16",
+      "finishedAt": "2026-09-22T00:26Z",
+      "verdict": "mergeable",
+      "findings": [
+        {
+          "id": "F-001",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-002",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-003",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R1.R1.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-004",
+          "severity": "minor",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "R2.F-004",
+          "severity": "minor",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8327b9d.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "c8c80163.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "6e0dc452.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "4b16582a.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "edec6f23.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "edec6f23.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "a26b1f01.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "a26b1f01.R1.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "a26b1f01.R2.F-003",
+          "severity": "major",
+          "status": "withdrawn"
+        },
+        {
+          "id": "F-005",
+          "severity": "major",
+          "status": "resolved"
+        },
+        {
+          "id": "R1.F-005",
+          "severity": "major",
+          "status": "withdrawn"
+        }
+      ]
+    }
+  ]
+}

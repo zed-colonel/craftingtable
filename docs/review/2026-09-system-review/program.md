@@ -465,8 +465,13 @@ independent review; every finding is fixed or its disposition is recorded in reg
   4. **R-E3a.** The status list, reading R-A4's items and R-C12's reasons. **Done 2026-09-27.**
   5. **Deploy the P2 line.** Schema 32 rebuilds the attention items, then do the notification checks below. The live roadmap stays paused while R-E3a is checked against it. **Deployed by the operator 2026-09-28**; the first day found LIVE-09 to LIVE-13.
   5a. **R-C14 and R-C15.** Fix LIVE-09 to LIVE-13 as one batch. **Done 2026-09-28, not merged or deployed.**
-  6. **R-C5 increments 3 to 5, then R-C3b.** These remove the largest operator-stop causes (HIST-03, HIST-04) once the stops are visible.
-  7. **The rest of P2:** R-E1, R-E2, R-D4, R-D5, R-G4 to R-G6, R-G9, R-H4, R-I4, R-I9. R-G4 should take over CI execution and its lock from a2bb20a (LIVE-03).
+  6. **R-C5 increments 3 to 5, then R-C3b.** These remove the largest operator-stop causes (HIST-03, HIST-04) once the stops are visible. **Done 2026-09-28, not merged or deployed** (R-C3b's done-when is measured after deploy).
+  7. **The rest of P2, proposed order (2026-09-28, for the operator to confirm):**
+     1. **R-G4** (daemon-owned receipts): agents can still forge the receipts that gate integration (SEC-01), R-C6 depends on it, and it should take over CI execution and its lock from a2bb20a (LIVE-03).
+     2. **R-G5** (agent environment isolation): supervised runs inherit the operator's environment, hooks, skills and MCP servers (SEC-02, SEC-03). Together with R-G4 it closes the open security findings before more delegation is automated.
+     3. **R-E1, then R-E2** (routes; split the Roadmaps page): two P2 exit criteria depend on them (no reloads; the inbox deep-links). The Roadmaps page is now over 7,000 px tall on the desktop capture, and R-E3b's board needs its own route.
+     4. **R-D4, then R-D5** (query store; server view models): the remaining P2 exit criteria (an idle tab makes no requests; the work-item page's request count).
+     5. **R-G9, R-I9, then R-H4, R-I4, R-G6.** Auth hardening beyond the landed guard, e2e specs in their own workspaces so the gate can use more workers, then storage weight, structural test boundaries and brief redesign.
 - **Gate at the head:** `pnpm check` passes in one run. 187 test files and 1,494 unit tests, 20 e2e tests,
   the walkthrough rehearsal and the scope check. At load averages of 20 to 35, earlier runs timed out in waitFor;
   the failing files passed rerun serially each time.
@@ -525,6 +530,28 @@ independent review; every finding is fixed or its disposition is recorded in reg
     Against the pre-batch goldens (`scheduler-golden-ac08291.json`), the 2026-09-23 and 2026-09-27 snapshots show the same move for 61 rows, plus two cycle items from d39b47a's new attention section.
   - **Gate at 85ad226:** format, lint, typecheck, build, 195 test files and 1,562 unit tests, 20 e2e tests and the scope check pass. The walkthrough rehearsal could not run: headless Chrome crashed on the host in three runs, at different steps, with the daemon healthy. It needs a rerun once the host is stable.
   - **Replays, each on a copy:** `golden.json` and `--every-run` report 0 changed on all three snapshots (51/278, 58/352, 59/356). New scheduler goldens `scheduler-golden-85ad226.json` are recorded for all three.
+- **R-C5 and R-C3b batch (2026-09-28, `remediation/p2` from 8146974; not merged or deployed).** A fresh read-only snapshot of the live database, taken with the roadmap running after the 8146974 deploy, is at `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-28b/` (SHA-256 `f5e8d6ca…`, schema 32). Its goldens were recorded at 8146974 before any change: `golden.json` 59, `every-run-golden-8146974.json` 358, `scheduler-golden-8146974.json` 341. Every item had an independent adversarial review in an isolated worktree; every finding is fixed or has a disposition on its item.
+  - **Carry-overs.**
+    - **Walkthrough crash (R-I5, 73e1cd9).** Headless Chrome crashed again (four identical core dumps, a compositor-thread trap), and replays failed with `SQLITE_IOERR_WRITE` in the same minute. Cause: the user's `/tmp` tmpfs quota (25.1 GiB, logind's default) was at 23.7 GiB. 7.5 GB of that was 202 leaked e2e daemon directories: Playwright SIGKILLs a web server unless told otherwise, so `e2e-entry.ts` never removed its data directory. The daemon now stops on SIGTERM. With the operator's leave, the leaked directories and old agent scratch were deleted (quota 0.7 GiB used), and three walkthrough captures have since run cleanly.
+    - **R-C14 test gaps closed.** LIVE-13's running-repair check no longer depends on timing (a73cc06); each of `decisionAccepted`'s conditions has a case (d6c2fba, review fix b784837).
+  - **R-C5 increments 3 to 5: done.**
+    - 54e24d3: a pure progress classifier and a redacted EXO-01 fixture. Replayed through the classifier, EXO-01 escalates once after two rounds, where 13 rounds ran.
+    - 4ded132: one typed escalation, `recovery-not-converging`, with the rounds' progress. Operator decisions: the new code, and two rounds.
+    - d257e06: the stopped review's one inbox item carries it and brings the amendment form into view as the split offer.
+    - Review fixes: acc87e7.
+  - **R-C3b: code done; done-when after deploy.** The operator chose a standing, revocable grant (option A).
+    - 7c21b95: preparation beside a running roadmap; it no longer blocks approval.
+    - ec35ead: the grant (a new persisted roadmap field).
+    - 69cf52a: the scheduler prepares needed decisions, most slices first.
+    - 5748466: "unblocks N" counts slices.
+    - 9e7d22e: batch approval.
+    - Review fixes: 1710c0a, ad81fa0, 8959655.
+  - **Walkthroughs:** `2026-09-28-recovery-escalation-before` (537abf9), `-recovery-escalation-after` (04939b2), `-decision-preparation-after` (573a709).
+  - **Replays, on copies:** `golden.json`, `--every-run` and the scheduler replay report 0 changed on all four snapshots after every item: 2026-09-23 (51/278/346), 09-27 (58/352/341), 09-28 (59/356/344) and 09-28b (59/358/341). No snapshot holds a grant or an automatic round that would escalate.
+  - **Before the deploy:**
+    - Schema stays 32, but two persisted values are new: the hold code `recovery-not-converging` and the roadmap field `decisionPreparationGrant`. A release before this batch cannot read a roadmap carrying either.
+    - To roll back, answer such holds first and remove the grant field from the stored roadmap.
+    - Grant standing preparation only when wanted, while the roadmap is paused.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

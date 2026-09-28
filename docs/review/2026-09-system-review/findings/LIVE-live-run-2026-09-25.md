@@ -216,7 +216,7 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
 ### LIVE-10: Every open shared decision in the map is an inbox item, whether or not work needs it now
 - Severity: high
 - Category: attention relevance; notification noise
-- Status: CONFIRMED; fixed 2026-09-28: a checkpoint is asked for only when an entry waits on it and on nothing that is not the operator's, or when the roadmap's completion waits on it. ([R-C14](../register.md#r-c14))
+- Status: CONFIRMED; fixed 2026-09-28: a checkpoint is asked for only when an entry waits on it and on nothing but the operator and checkpoints, or when the roadmap's completion waits on it. Per the review fix (fd9c7d6), it also asks for a decision that a slice's delegated checkpoint review waits on. The inbox, the entry's state and the status list share this one rule. ([R-C14](../register.md#r-c14))
 - Replay case: the 2026-09-28 scheduler replay projects 35 `architecture-decision` items for the paused roadmap.
 - Evidence: the roadmap pass (`RoadmapService.attentionItems`) raises an item for every included, unsatisfied checkpoint whose own prerequisites are met, with "blocks" counting every map milestone downstream (15 to 185). None asks whether any roadmap entry is waiting on it now. On the snapshot, every one of the 50 checkpoint items blocks only entries that also wait on other, unfinished work: an unmerged slice, an unaccepted predecessor or parent, or an unqualified resource. No entry has an operator decision as its only blocker.
 - Impact: 35 of the 55 items were decisions that can be answered, but need not be answered yet. They would also page once notifications are on, and they bury the few items that do hold work up.
@@ -224,7 +224,7 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
 ### LIVE-11: Checkpoint-evidence items offer the operator nothing to do
 - Severity: high
 - Category: attention ownership (two evaluators disagree)
-- Status: CONFIRMED; fixed 2026-09-28: controller-produced checkpoint evidence no longer reaches the operator, and the checkpoint items that remain open at their form. ([R-C14](../register.md#r-c14))
+- Status: CONFIRMED; fixed 2026-09-28: evidence a slice's own review produces no longer reaches the operator. Evidence only the operator supplies is still asked for when work waits on it (review fix fd9c7d6), and each checkpoint item opens at its form. ([R-C14](../register.md#r-c14))
 - Replay case: the 2026-09-28 scheduler replay projects 15 `checkpoint-evidence` items.
 - Evidence: the pass raises operator items for non-decision checkpoints: contract, profile, semantic review, release. The phase blocker table owns the same checkpoints' evidence as the controller's (`checkpoint-evidence: { owner: 'controller' }` in `PHASE_BLOCKERS`). Their evidence comes from delegated checkpoint reviews that a slice cycle runs itself, or from verification the operator sets up separately (`verification-setup` items). An item opened from the inbox leads to the roadmap page with no form for it.
 - Impact: 15 items the operator cannot act on, which teach that the inbox is not to be trusted.

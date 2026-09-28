@@ -2287,6 +2287,89 @@ describe('attention items: review fixes (R-A4)', () => {
     );
     expect(openItems(f).map((item) => item.subjectKey)).toEqual([`roadmap:${roadmap.id}`]);
   });
+  it('a review whose automatic recovery stopped converging is one item carrying the rounds (R-C5)', async () => {
+    const f = await fixture();
+    const entryId = randomUUID();
+    const base = roadmapFixture(f);
+    const { attention: _none, ...running } = base;
+    const roadmap: Roadmap = {
+      ...running,
+      status: 'running',
+      attempts: [
+        {
+          id: randomUUID(),
+          entryId,
+          definitionRevision: 1,
+          cycleId: f.cycle().id,
+          worktreeId: f.worktreeId,
+          status: 'active',
+          createdAt: f.now().toISOString(),
+        },
+      ],
+      definition: {
+        ...base.definition,
+        entries: [
+          {
+            id: entryId,
+            workItemId: f.workItemId,
+            projectId: f.projectId,
+            planVersionId: asPlanVersionId('plan-1'),
+            sourceId: 'AQ-05',
+            title: 'Parent acceptance',
+            repositoryId: f.repositoryId,
+            integrationBranch: 'aq-cont-1',
+            profiles: f.cycle().profiles,
+            policy: f.cycle().policy,
+            instructions: '',
+          },
+        ],
+      },
+    };
+    f.context.storage.roadmaps.save(roadmap, 0);
+    f.setCycle('needs-attention', {
+      attention: cycleAttention('scope-review-recovery'),
+      owner: {
+        roadmapId: roadmap.id,
+        attemptId: roadmap.attempts[0]!.id,
+        entryId,
+        definitionRevision: 1,
+      },
+    });
+    const open = () => {
+      f.schedulerPass();
+      return openItems(f).map((item) => ({ subject: item.subjectKey, code: item.code }));
+    };
+    expect(open()).toEqual([{ subject: `cycle:${f.cycle().id}`, code: 'scope-review-recovery' }]);
+    // Automatic recovery stops: the roadmap holds the review's entry with the rounds' progress.
+    const held = f.context.storage.roadmaps.find(f.workspaceId, roadmap.id)!;
+    f.context.storage.roadmaps.save(
+      {
+        ...held,
+        version: held.version + 1,
+        entryHolds: {
+          [entryId]: {
+            status: 'needs-attention',
+            reason:
+              'Automatic recovery stopped: the last rounds ended without progress. Round 1: stalled; still open F003 (major).',
+            attention: roadmapAttention('recovery-not-converging', { entryId }),
+          },
+        },
+      },
+      held.version,
+    );
+    // One item: the review's own, with its controls, now saying why recovery stopped.
+    expect(open()).toEqual([{ subject: `cycle:${f.cycle().id}`, code: 'recovery-not-converging' }]);
+    expect(openItems(f)[0]!.message).toContain('F003 (major)');
+    expect(openItems(f)[0]!.refs).toMatchObject({ roadmapId: roadmap.id, entryId });
+    // Answered (the hold goes): the review's own stop again.
+    const answered = f.context.storage.roadmaps.find(f.workspaceId, roadmap.id)!;
+    const { entryHolds: _held, ...cleared } = answered;
+    f.context.storage.roadmaps.save(
+      { ...cleared, version: answered.version + 1 },
+      answered.version,
+    );
+    expect(open()).toEqual([{ subject: `cycle:${f.cycle().id}`, code: 'scope-review-recovery' }]);
+  });
   it('replaces a roadmap hold with its cycle\u2019s own stop, as superseded', async () => {
     const f = await fixture();
     const entryId = randomUUID();

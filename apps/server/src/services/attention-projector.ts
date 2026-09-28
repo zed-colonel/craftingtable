@@ -113,6 +113,10 @@ export class AttentionProjector implements WriteObserver {
       case 'roadmap': {
         const roadmap = record as PersistedRecords['roadmap'];
         this.mark(roadmap.workspaceId, `roadmap:${roadmap.id}`);
+        // A hold on an entry changes what its cycle's own item says (R-C5 increment 5).
+        for (const attempt of roadmap.attempts)
+          if (attempt.status !== 'completed')
+            this.mark(roadmap.workspaceId, `worktree:${attempt.worktreeId}`);
         return;
       }
       case 'map-amendment': {
@@ -595,6 +599,15 @@ export class AttentionProjector implements WriteObserver {
       const attention = effectiveCycleAttention(cycle);
       if (attention?.owner !== 'operator') return items;
       const requirements = attention.code === 'merge-requirements';
+      // Automatic recovery for this review stopped converging: the review's own item, which
+      // hosts its repair controls, carries that stop and the rounds' progress (R-C5).
+      const hold =
+        cycle.owner &&
+        tx.roadmaps.find(workspaceId, cycle.owner.roadmapId)?.entryHolds?.[cycle.owner.entryId];
+      const escalated =
+        hold?.status === 'needs-attention' && hold.attention?.code === 'recovery-not-converging'
+          ? hold
+          : undefined;
       const kind =
         cycle.status === 'awaiting-merge' &&
         !requirements &&
@@ -603,11 +616,15 @@ export class AttentionProjector implements WriteObserver {
           : 'attention';
       items.push({
         subjectKey: `cycle:${cycle.id}`,
-        code: attention.code,
+        code: escalated ? 'recovery-not-converging' : attention.code,
         kind,
         title: heading(kind),
         message: body(
-          requirements && attention.detail ? attention.detail : `${cycle.step}: ${cycle.reason}`,
+          escalated
+            ? escalated.reason
+            : requirements && attention.detail
+              ? attention.detail
+              : `${cycle.step}: ${cycle.reason}`,
         ),
         path,
         refs: { ...refs, cycleId: cycle.id, ...(cycle.owner ? ownerRefs(cycle.owner) : {}) },

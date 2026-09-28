@@ -32,7 +32,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
 | [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b open | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
-| [R-C5](#r-c5) | P2 | M | in progress (4 of 5; increment 2 in 18f0bb8) | Converge the parent/slice repair loop |
+| [R-C5](#r-c5) | P2 | M | done (2026-09-28, see entry) | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
 | [R-C7](#r-c7) | P3 | M | open | Revisit verification layering and finalization stops |
 | [R-C8](#r-c8) | P1 | S | done (5744289, 4abfec2) | Schedule automatic retry for quota/session limits with a known reset time |
@@ -640,7 +640,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C5
 
-**Converge the parent/slice repair loop** · Phase P2 · Effort M · Status: in progress (increments 1 to 4 of 5 done)
+**Converge the parent/slice repair loop** · Phase P2 · Effort M · Status: done (2026-09-28; increments 1 to 5)
 
 - **Resolves:** [HIST-04](findings/HIST-history-and-live-usage.md#hist-04-exo-01-parent-acceptance--owning-slice-repair-ping-pong-consumed-29-of-all-runs-without-convergence-detection), [HIST-08](findings/HIST-history-and-live-usage.md#hist-08-merge-approvals-and-record-scope-verification-still-require-manual-clicks-in-delegated-flows)
 - **Change:** Track finding identity across parent-acceptance -> owning-slice repair -> re-review rounds; give repair briefs the cumulative remaining work for a finding; detect no-progress vs progress; escalate once with a progress summary; offer to split an oversized finding into a follow-up slice through the amendment path. Verify no repair path still needs manual merge or manual integration update.
@@ -707,6 +707,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Tests:** `server-execution-scope-recovery.test.ts` gains a `stalled` outcome: F003 stays open with new evidence every round, and recovery stops after two repairs with the typed hold, where it used to run to the allowance. `unchanged` and `exhausted` assert the code and summary too, and all three assert that Resume is refused and leaves the hold. `accepted`, where one stalled round is followed by resolution, still completes after two repairs. Each fails without its change (the stalled case timed out on the allowance; the Resume check returned 200).
   - **Replays, on copies:** `golden.json`, `--every-run` and the scheduler replay report 0 changed on all four snapshots (2026-09-23, 09-27, 09-28 and 09-28b). No snapshot has an automatic round that stops this way.
   - **Rollback note:** a release before this one cannot read a roadmap holding the new code (the contract enum refuses it). Answer such a hold (Delegate source fixes), or turn automatic recovery off and resume the item, before rolling back.
+- **Increment 5, done 2026-09-28: the split, offered through the amendment path** (ADR-049; operator decision 2026-09-28: the inbox brings the amendment form into view).
+  - **One inbox item.** An entry hold defers to its cycle's own item, so increment 4's hold never reached the inbox: the review's plain `scope-review-recovery` item showed instead, without the rounds. The review cycle's item now carries the escalation while its roadmap entry holds `recovery-not-converging`: that code and the hold's text, with the item's refs to the roadmap and entry. A roadmap write re-projects its open attempts' worktrees, so the item follows the hold both ways.
+  - **The offer.** Opened from the inbox, the item hosts the review's cycle panel with Delegate source fixes, as before. It also opens the roadmap's controls with the planning-amendment form in view, where the remaining work can be split into a follow-up slice. Nothing proposes a split automatically.
+  - **Tests:** `notifications.test.ts` places and removes the hold on a roadmap-owned review and checks its one item's code, text and refs. `inbox-host.test.ts` checks the amendment form's focus. The `stalled` recovery test checks the real escalation's single item. Each fails without its change.
+  - **Walkthrough:** `2026-09-28-recovery-escalation-before` (537abf9) and `-after`; the walk has no escalation state, so the pages are unchanged.
+  - **Replays:** 0 changed on all four snapshots.
+- **Done-when (2026-09-28):** the EXO-01 replay escalates once, after two rounds, instead of 13 (increment 3's test). Repair cycles are roadmap-owned wherever a live roadmap owns the review (increment 2); outside a roadmap, a delegated repair is still the operator's own cycle, by design.
 
 ### R-C6
 

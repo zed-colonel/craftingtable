@@ -108,3 +108,23 @@ it('opens a checkpoint item at the form that settles it (R-C14, LIVE-11)', () =>
     focus: 'runtime-evidence-roadmap-r-plan-acceptance',
   });
 });
+
+it('offers a split through the amendment form when automatic recovery stopped converging (R-C5)', () => {
+  // The review's own item: its Delegate source fixes, and the roadmap's planning-amendment form
+  // in view, where the remaining work can be split into a follow-up slice (ADR-049, offer only).
+  expect(inboxHost(item({ code: 'recovery-not-converging' }))).toEqual({
+    ...none,
+    cycle: true,
+    roadmap: { open: true, focus: 'map-amendments-r' },
+  });
+  // The roadmap's held entry, when no cycle item carries the stop: the same form.
+  expect(
+    inboxHost(
+      item({
+        subjectKey: 'roadmap:r:entry:e',
+        code: 'recovery-not-converging',
+        refs: { roadmapId: 'r', entryId: 'e', workItemId: 'w', cycleId: 'c' },
+      }),
+    ),
+  ).toEqual({ ...none, cycle: false, roadmap: { open: true, focus: 'map-amendments-r' } });
+});

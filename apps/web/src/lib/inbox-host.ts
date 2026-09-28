@@ -64,17 +64,24 @@ export function inboxHost(item: AttentionItemView): InboxHost {
       ? {}
       : {
           roadmap: {
-            open: subject === 'roadmap' || ROADMAP_DECISION_CODES.has(item.code),
-            ...(subject === 'roadmap' && entryId !== undefined
-              ? { focus: `roadmap-entry-${roadmapId}-${entryId}` }
-              : item.code === 'verification-setup'
-                ? { focus: `runtime-evidence-roadmap-${roadmapId}-native` }
-                : // A checkpoint the operator settles opens at its form (LIVE-11).
-                  item.code === 'checkpoint-evidence'
-                  ? { focus: `runtime-evidence-roadmap-${roadmapId}-evidence` }
-                  : item.code === 'plan-acceptance'
-                    ? { focus: `runtime-evidence-roadmap-${roadmapId}-plan-acceptance` }
-                    : {}),
+            open:
+              subject === 'roadmap' ||
+              ROADMAP_DECISION_CODES.has(item.code) ||
+              item.code === 'recovery-not-converging',
+            // Automatic recovery stopped converging: a split of the remaining work into a
+            // follow-up slice is offered through the amendment form (R-C5, ADR-049).
+            ...(item.code === 'recovery-not-converging'
+              ? { focus: `map-amendments-${roadmapId}` }
+              : subject === 'roadmap' && entryId !== undefined
+                ? { focus: `roadmap-entry-${roadmapId}-${entryId}` }
+                : item.code === 'verification-setup'
+                  ? { focus: `runtime-evidence-roadmap-${roadmapId}-native` }
+                  : // A checkpoint the operator settles opens at its form (LIVE-11).
+                    item.code === 'checkpoint-evidence'
+                    ? { focus: `runtime-evidence-roadmap-${roadmapId}-evidence` }
+                    : item.code === 'plan-acceptance'
+                      ? { focus: `runtime-evidence-roadmap-${roadmapId}-plan-acceptance` }
+                      : {}),
           },
         }),
   };

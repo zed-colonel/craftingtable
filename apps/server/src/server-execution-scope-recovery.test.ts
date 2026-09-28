@@ -249,6 +249,15 @@ itNeedsCargo.each([
     if (['unchanged', 'stalled', 'exhausted'].includes(outcome)) {
       expect(hold.attention?.code).toBe('recovery-not-converging');
       expect(hold.reason).toContain('F003 (major)');
+      // One inbox item: the stopped review's own, saying why recovery stopped (increment 5).
+      state.context.services.roadmapService.syncAttention(true);
+      const review = storedRoadmap(state).attempts.find((a) => a.entryId === heldEntryId)!;
+      expect(
+        tx.attention
+          .open(ws)
+          .filter((i) => i.refs.entryId === heldEntryId || i.subjectKey.includes(heldEntryId))
+          .map((i) => [i.subjectKey, i.code]),
+      ).toEqual([[`cycle:${review.cycleId}`, 'recovery-not-converging']]);
       // Resuming would only stop again: the rounds have not changed.
       const resumed = await state.context.app.inject({
         method: 'POST',

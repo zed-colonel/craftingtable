@@ -1575,6 +1575,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - `server-execution-receipt-gates.test.ts`: a `local-ci` line an agent appends is dropped (keeping it fails), and CI still running at the end invalidates the record (ignoring it fails).
 - **Increment 3 (2026-09-28): the daemon runs `ct-native`.** It is a spool client too. The daemon starts the approved native unit, with ADR-054's limits unchanged (ADR-054 amended) and a HOME and TMPDIR it owns. It refuses without a current approval, allows one native check per run, stops the unit at the end, and records a `native-check` receipt with the approval identity. A `native-check` line in the launcher file of a daemon-recorded run is dropped, and a native check still running at freeze invalidates the record.
   - **Tests.** `local-check.test.ts` (on the user manager): refused without approval; approved runs in the native unit with the daemon's HOME. `server-execution-receipt-gates.test.ts`: every daemon-run kind an agent appends is dropped. Keeping `native-check` fails it.
+- **Increment 4 (2026-09-28): the daemon runs pinned Cargo builds; no gating receipt is read from a file** (ADR-047 amended).
+  - The pinned `cargo` launcher sends build commands (`build`, `check`, `test`, `clippy`, …) to the spool. Other commands (`metadata`, `fetch`, `fmt`, …) still run in the agent's tree and record nothing, as before.
+  - The daemon repeats the adapter's checks:
+    - no configuration or toolchain overrides;
+    - unchanged pinned sources;
+    - `cargo metadata` in a confined unit, and the resolved graph against the pins (shared helpers in `pinned-cargo.ts`).
+  - It then runs the build in a confined unit without network, under the check time limit (the operator's fix: pinned builds had no timeout), and records the pinned receipt with `recordedBy: 'daemon'`. The brief says builds run without network, so `cargo fetch` comes first when needed.
+  - A daemon-recorded run's build record is now its receipt rows alone; the launcher file is not read.
+  - **Tests (each fails without its part):**
+    - `local-check.test.ts`: a build through the daemon with the supplied configuration and the receipt; a sleeping build stopped at a 500 ms limit; `cargo fmt` refused.
+    - `server-execution-receipt-gates.test.ts`: a forged pinned-build line is dropped (keeping kindless lines fails it).
+    - `server-execution-scope-evidence.test.ts`: the real integration build is recorded by the daemon and satisfies the gate.
 
 ### R-G5
 

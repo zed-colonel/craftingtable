@@ -15,6 +15,8 @@ A controller-supplied Cargo launcher injects crate patches, checks the resolved 
 graph for mismatched sources/versions, and records execution provenance. Incompatible
 consumer constraints fail visibly rather than using older registry crates. The adapter
 coordinates cooperative builds under the existing OS-user trust model; it is not a sandbox.
+(2026-09-28, R-G4: build commands are run by the daemon in a confined unit, with the check time
+limit, and their receipts are recorded in its database; the launcher only relays them.)
 
 An integration run may also execute independent crates through the same launcher. Successful
 commands whose resolved graph uses none of the configured upstream packages record a

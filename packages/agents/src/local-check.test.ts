@@ -639,3 +639,75 @@ itConfines(
     });
   },
 );
+
+it('runs a pinned Cargo build in the daemon, records its receipt and stops it at the check time limit (R-G4)', async () => {
+  const f = fixture();
+  const cargo = join(f.root, 'fake-cargo');
+  // Answers the version and graph queries; a build sleeps unless asked to finish at once.
+  writeFileSync(
+    cargo,
+    `#!/bin/sh
+case "$1" in
+  --version) echo "cargo 1.0.0 (fixture)";;
+  metadata) echo '{"packages":[],"resolve":{"nodes":[]}}';;
+  *) echo "building $@"; [ -n "$FAST" ] || sleep 30;;
+esac
+`,
+    { mode: 0o700 },
+  );
+  const run = async (environment: Record<string, string>, checkTimeoutMs: number) => {
+    const launcher = f.launch({ ...f.m, cargoExecutable: cargo, checkTimeoutMs });
+    let output = '';
+    const started = Date.now();
+    const outcome = await executeCheck({
+      tool: 'cargo',
+      manifestPath: launcher.manifestPath,
+      manifestDigest: launcher.manifestDigest,
+      args: ['test', '--offline'],
+      logPath: join(f.root, 'daemon-logs', `cargo-${checkTimeoutMs}.log`),
+      logReference: 'check-logs/run/cargo.log',
+      privateDirectory: join(f.root, 'daemon-private'),
+      confinement: 'none',
+      unitName: 'unused',
+      writablePaths: [],
+      environment: { PATH: process.env.PATH ?? '/usr/bin', ...environment },
+      onOutput: (text) => (output += text),
+      signal: new AbortController().signal,
+    });
+    return { outcome, output, elapsed: Date.now() - started };
+  };
+  const built = await run({ FAST: '1' }, 60_000);
+  expect(built.outcome.exitCode, built.output + built.outcome.diagnostic).toBe(0);
+  expect(built.output).toContain(`building test --offline --config ${f.m.configPath}`);
+  expect(built.outcome.receipt).toMatchObject({
+    recordedBy: 'daemon',
+    command: 'test',
+    toolchain: 'cargo 1.0.0 (fixture)',
+    success: true,
+    clean: true,
+    packages: [],
+  });
+  expect(built.outcome.receipt).not.toHaveProperty('kind');
+  const slow = await run({}, 500);
+  expect(slow.elapsed).toBeLessThan(10_000);
+  expect(slow.outcome.receipt).toMatchObject({ success: false, exitCode: null });
+  expect(slow.outcome.diagnostic).toContain('timed out');
+  // Only builds are the daemon's to run; other commands record nothing.
+  const launcher = f.launch({ ...f.m, cargoExecutable: cargo });
+  const refused = await executeCheck({
+    tool: 'cargo',
+    manifestPath: launcher.manifestPath,
+    manifestDigest: launcher.manifestDigest,
+    args: ['fmt'],
+    logPath: join(f.root, 'daemon-logs', 'fmt.log'),
+    logReference: 'check-logs/run/fmt.log',
+    privateDirectory: join(f.root, 'daemon-private'),
+    confinement: 'none',
+    unitName: 'unused',
+    writablePaths: [],
+    environment: {},
+    onOutput: () => undefined,
+    signal: new AbortController().signal,
+  });
+  expect(refused.diagnostic).toContain('records nothing');
+});

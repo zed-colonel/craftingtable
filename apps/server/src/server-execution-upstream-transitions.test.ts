@@ -362,14 +362,13 @@ itNeedsCargo(
     expect(after.manifest.packages.map((p) => p.name)).toEqual(['ct_runtime_provider']);
 
     // The fresh verification builds against the current pin and is told why.
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       expect(request.prompt).toContain(
         `moves to the current pin at ${A}, declared by operator record ${recordId}`,
       );
-      execFileSync(join(request.buildEnvironment!.binDirectory, 'cargo'), ['test', '--offline'], {
-        cwd: request.cwd,
-        env: { ...process.env, CARGO_NET_OFFLINE: 'true' },
-        stdio: 'pipe',
+      await runLauncher(request, 'cargo', ['test', '--offline'], {
+        ...process.env,
+        CARGO_NET_OFFLINE: 'true',
       });
       return { resultText: scopeReport(f.state, verification.executionScope!) };
     };

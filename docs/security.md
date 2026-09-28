@@ -460,8 +460,11 @@ actions itself; job containers reach Docker's network regardless), and a HOME an
 daemon owns, so an agent cannot plant an `.actrc`. One act per workflow and Docker host runs at a time
 through an in-daemon queue; the wait counts against the check's time limit. `ct-native` is a request
 too: the daemon starts the approved native unit (ADR-054's limits, unchanged) with a HOME and TMPDIR it
-owns. Pinned Cargo still runs in the agent's tree until its R-G4 increment lands; Claude runs have no OS sandbox, so
-for them the database itself stays writable by the agent until R-G5's sandbox increment.
+owns. Pinned Cargo's build commands are requests too: the daemon checks the resolved graph and runs the
+build in a confined unit, without network (fetch first), under the check time limit. Other Cargo commands
+still run in the agent's tree and record nothing. A daemon-recorded run's build record therefore reads
+no file the agent can write. Claude runs have no OS sandbox, so for them the database itself stays
+writable by the agent until R-G5's sandbox increment.
 `ct-act` restricts its input to one ordinary repository workflow and optional job; host configuration
 selects the local socket, image digest and storage. Rootless Docker retains ordinary user authority.
 Job containers have no mounted daemon socket or implicit host credential files. These are cooperative

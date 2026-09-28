@@ -35,13 +35,8 @@ afterEach(cleanupExecutionFixtures);
 
 async function checkpointCandidateFixture(
   // A current-upstream scope: only a pinned Cargo build establishes it (ADR-053).
-  check = (request: import('@craftingtable/agents').AgentLaunchRequest) => {
-    execFileSync(
-      join(request.buildEnvironment!.binDirectory, 'cargo'),
-      ['check', '--offline', '--locked'],
-      { cwd: request.cwd, stdio: 'pipe' },
-    );
-  },
+  check: (request: import('@craftingtable/agents').AgentLaunchRequest) => unknown = (request) =>
+    runLauncher(request, 'cargo', ['check', '--offline', '--locked']),
 ) {
   const f = await slicedFixture((source) => ({
     ...source,
@@ -123,8 +118,8 @@ async function checkpointCandidateFixture(
   git(['commit', '-m', 'candidate crate'], f.root);
   const tree = await scopeTree(f, f.scopes[0]!);
   commitFile(tree.path, 'candidate.txt', 'reviewed core');
-  f.backend.replyForRequest = (request) => {
-    check(request);
+  f.backend.replyForRequest = async (request) => {
+    await check(request);
     return {
       resultText:
         '## Open questions\nnone\n\n## Review report\n' +
@@ -881,12 +876,14 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
       };
       const scopedOnly = await runToFinish(f.state, tree.id, { role: 'review' });
       expect(() => svc.assertRun(tree, scopedOnly)).toThrow('successful pinned Cargo');
-      f.backend.replyForRequest = (request) => {
-        execFileSync(
-          join(request.buildEnvironment!.binDirectory, 'cargo'),
-          ['test', '--offline', '--locked', '--manifest-path', 'contract/Cargo.toml'],
-          { cwd: request.cwd, stdio: 'pipe' },
-        );
+      f.backend.replyForRequest = async (request) => {
+        await runLauncher(request, 'cargo', [
+          'test',
+          '--offline',
+          '--locked',
+          '--manifest-path',
+          'contract/Cargo.toml',
+        ]);
         return { resultText: scopeReport(f.state, scope) };
       };
       const supplementaryOnly = await runToFinish(f.state, tree.id, { role: 'review' });
@@ -912,6 +909,8 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
     const frozen = storage.runtimeEvidence.build(ws, run)!;
     expect(frozen.error).toBeUndefined();
     expect(frozen.receipts).toContain('"success":true');
+    // The build or check was run and recorded by the daemon (R-G4).
+    expect(frozen.receipts).toContain('"recordedBy":"daemon"');
     rmSync(manifest.receiptPath, { force: true });
     expect(() => svc.assertRun(tree, run)).not.toThrow();
     const db = openDatabase(storage.databasePath);

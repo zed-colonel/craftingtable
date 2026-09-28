@@ -122,7 +122,7 @@ itNeedsCargo(
     const storage = f.state.context.storage;
     f.backend.replyForRequest = (request) => {
       // Every kind the daemon runs, written by the agent instead.
-      for (const kind of ['scoped-check', 'local-ci', 'native-check'])
+      for (const kind of ['scoped-check', 'local-ci', 'native-check', undefined])
         appendReceipt(request, { kind, recordedBy: 'daemon' });
       return { resultText: scopeReport(f.state, f.tree.executionScope!) };
     };

@@ -2407,13 +2407,19 @@ export class RuntimeEvidenceService {
       receiptPath: join(directory, 'build-receipts.jsonl'),
     };
     await this.assertFreshTree(tree);
-    const launch = prepareCargoLauncher(directory, manifest);
-    // ct-check only asks the daemon, which runs it and records the receipt (R-G4).
-    const spoolDirectory = join(directory, 'requests');
-    prepareLocalCheckLaunchers(launch.binDirectory, launch.manifestPath, launch.manifestDigest, {
-      directory: spoolDirectory,
+    // The launchers only ask the daemon, which runs the check and records the receipt (R-G4).
+    const spool = {
+      directory: join(directory, 'requests'),
       limitMs: (manifest.checkTimeoutMs ?? 30 * 60000) + 5 * 60000,
-    });
+    };
+    const spoolDirectory = spool.directory;
+    const launch = prepareCargoLauncher(directory, manifest, spool);
+    prepareLocalCheckLaunchers(
+      launch.binDirectory,
+      launch.manifestPath,
+      launch.manifestDigest,
+      spool,
+    );
     return {
       ...launch,
       spoolDirectory,
@@ -2600,15 +2606,14 @@ export class RuntimeEvidenceService {
         unfinished.some((tool) => tool === 'ct-act' || tool === 'ct-native')
       )
         throw new Error('Local CI did not finish collection; a fresh review is required.');
-      const daemon = env.receiptAuthority === 'daemon';
-      // A daemon-recorded run may have written no launcher file at all.
-      if (!daemon || existsSync(m.receiptPath)) {
+      if (env.receiptAuthority === 'daemon')
+        // Every receipt of a daemon-recorded run is the daemon's own (R-G4); no file is read.
+        receipts = daemonBuildReceipts(tx.runtimeEvidence.checkReceipts(ws, runId));
+      else {
         if (statSync(m.receiptPath).size > 4 * 1024 * 1024)
           throw new Error('Build receipts exceed 4 MiB.');
         receipts = readFileSync(m.receiptPath, 'utf8');
       }
-      if (daemon)
-        receipts = daemonBuildReceipts(tx.runtimeEvidence.checkReceipts(ws, runId), receipts);
     } catch (e) {
       error = e instanceof Error ? e.message : 'Build record unavailable.';
     }
@@ -2759,29 +2764,10 @@ export class RuntimeEvidenceService {
   }
 }
 
-/** Receipt kinds only the daemon writes for a daemon-recorded run (R-G4). */
-const DAEMON_RUN_KINDS = new Set(['scoped-check', 'local-ci', 'native-check']);
-
-/**
- * The receipts a run with daemon receipt authority freezes (R-G4): every check the daemon
- * recorded, then the launcher file's lines only of kinds the daemon does not run yet. A line
- * of a kind the daemon runs was written by something else and is dropped.
- */
-export function daemonBuildReceipts(
-  recorded: readonly { readonly receipt: string }[],
-  file: string,
-): string {
-  const agentWritten = file
-    .split('\n')
-    .filter((line) => line.trim() !== '')
-    .filter((line) => {
-      try {
-        const kind = (JSON.parse(line) as { kind?: string }).kind;
-        return kind === undefined || !DAEMON_RUN_KINDS.has(kind);
-      } catch {
-        return false;
-      }
-    });
-  const lines = [...recorded.map((r) => r.receipt), ...agentWritten];
-  return lines.length ? `${lines.join('\n')}\n` : '';
+/** The build record of a daemon-recorded run: the checks it recorded, in order (R-G4). */
+export function daemonBuildReceipts(recorded: readonly { readonly receipt: string }[]): string {
+  const lines = recorded.map((r) => r.receipt);
+  const text = lines.length ? `${lines.join('\n')}\n` : '';
+  if (Buffer.byteLength(text) > 4 * 1024 * 1024) throw new Error('Build receipts exceed 4 MiB.');
+  return text;
 }

@@ -25,6 +25,20 @@ const { nativeHostDigest, nativeArguments, nativeExecutables, nativeUnit, stopNa
       import.meta.url,
     ).href
   )) as typeof import('./native-environment.js');
+const {
+  assertPinnedCargoArguments,
+  cargoManifestDigest,
+  PINNED_BUILD_COMMANDS,
+  pinnedCargoArguments,
+  pinnedMetadataArguments,
+  pinnedReceiptKind,
+  pinnedResolvedPackages,
+} = (await import(
+  new URL(
+    import.meta.url.endsWith('.ts') ? './pinned-cargo.ts' : './pinned-cargo.js',
+    import.meta.url,
+  ).href
+)) as typeof import('./pinned-cargo.js');
 
 export interface LocalCiConfig {
   readonly actExecutable: string;
@@ -702,7 +716,7 @@ export type WorkflowHold = (
   onWait: (holder: string) => void,
 ) => Promise<() => void>;
 export interface CheckExecution {
-  readonly tool: 'ct-check' | 'ct-act' | 'ct-native';
+  readonly tool: 'ct-check' | 'ct-act' | 'ct-native' | 'cargo';
   readonly manifestPath: string;
   /** The digest the daemon recorded for this run's manifest; the file must still match it. */
   readonly manifestDigest: string;
@@ -799,6 +813,57 @@ export function stopCheckUnits(prefix: string): void {
   }
 }
 
+/** The daemon's user bus, for systemd-run; a check itself gets only its own environment. */
+function userBusEnvironment(): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    ['PATH', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']
+      .filter((key) => process.env[key] !== undefined)
+      .map((key) => [key, process.env[key]]),
+  );
+}
+
+/** Runs a short helper command in its own process group and keeps its output apart. */
+function captureCheck(
+  command: string,
+  args: readonly string[],
+  options: { readonly cwd: string; readonly env: NodeJS.ProcessEnv; readonly timeoutMs: number },
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolveResult) => {
+    const child = spawn(command, [...args], {
+      cwd: options.cwd,
+      env: options.env,
+      shell: false,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    const kill = () => {
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    };
+    const timer = setTimeout(kill, options.timeoutMs);
+    child.stdout.on('data', (d: Buffer) => {
+      if (stdout.length < 32 * 1024 * 1024) stdout += d.toString();
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      if (stderr.length < 64 * 1024) stderr += d.toString();
+    });
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      resolveResult({ code: null, stdout, stderr: `${stderr}${error.message}` });
+    });
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      kill();
+      resolveResult({ code, stdout, stderr });
+    });
+  });
+}
+
 /** Removes this run's labelled CI containers without blocking the daemon's event loop. */
 async function removeRunContainers(ci: LocalCiConfig, runId: string): Promise<void> {
   if (!/^[a-zA-Z0-9_-]+$/.test(runId)) throw new Error('Invalid CI run identity.');
@@ -853,6 +918,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   const releases: (() => void)[] = [];
   const act = e.tool === 'ct-act';
   const native = e.tool === 'ct-native';
+  const cargo = e.tool === 'cargo';
+  let cargoReceipt: Record<string, unknown> | undefined;
   let ownsNativeUnit = false;
   const started = Date.now();
   try {
@@ -903,6 +970,51 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         XDG_CACHE_HOME: ci.cacheRoot,
       };
       writable = [...writable, ci.cacheRoot, e.privateDirectory];
+    } else if (cargo) {
+      // Pinned Cargo (ADR-047): only builds come here; the daemon resolves the graph itself.
+      const subcommand = assertPinnedCargoArguments(e.args);
+      if (!PINNED_BUILD_COMMANDS.has(subcommand))
+        throw new Error(`cargo ${subcommand} records nothing; run it directly.`);
+      environment = { ...environment, CARGO_TARGET_DIR: m.targetDirectory };
+      const toolchain = (
+        await captureCheck(m.cargoExecutable, ['--version', '--verbose'], {
+          cwd: m.workspacePath,
+          env: environment,
+          timeoutMs: 30000,
+        })
+      ).stdout.trim();
+      if (!toolchain) throw new Error('Could not identify Cargo toolchain.');
+      const metadata = await captureCheck(
+        e.confinement === 'systemd' ? 'systemd-run' : m.cargoExecutable,
+        e.confinement === 'systemd'
+          ? confinedCheckArguments(
+              `${e.unitName}-metadata`,
+              m.workspacePath,
+              330,
+              writable,
+              environment,
+              [m.cargoExecutable, ...pinnedMetadataArguments(m, e.args)],
+            )
+          : pinnedMetadataArguments(m, e.args),
+        {
+          cwd: m.workspacePath,
+          env: e.confinement === 'systemd' ? userBusEnvironment() : environment,
+          timeoutMs: Math.min(300000, Math.max(1, deadline - Date.now())),
+        },
+      );
+      if (metadata.code !== 0)
+        throw new Error(
+          `Pinned dependency resolution failed. Align Cargo version constraints with the pinned crates; registry fallback is not accepted.\n${metadata.stderr}`,
+        );
+      const packages = pinnedResolvedPackages(m, metadata.stdout);
+      cargoReceipt = {
+        ...pinnedReceiptKind(m, packages),
+        toolchain,
+        toolchainDigest: cargoManifestDigest(toolchain),
+        packages,
+      };
+      command = m.cargoExecutable;
+      actual = pinnedCargoArguments(m, e.args);
     } else {
       const args = e.args[0] === '--' ? e.args.slice(1) : [...e.args];
       command = args[0] ?? '';
@@ -921,12 +1033,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     const confined = e.confinement === 'systemd';
     const ci = m.localCi;
     const runId = m.runId;
-    // The daemon's user bus, for systemd-run; the check itself gets only its own environment.
-    const busEnvironment = Object.fromEntries(
-      ['PATH', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']
-        .filter((key) => process.env[key] !== undefined)
-        .map((key) => [key, process.env[key]]),
-    );
+    const busEnvironment = userBusEnvironment();
     let spawned: { command: string; args: string[]; env: NodeJS.ProcessEnv };
     if (native) {
       // The approved native unit (ADR-054): its own limits, a fresh HOME and TMPDIR the daemon
@@ -1016,6 +1123,38 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   const after = m ? await observeGitState(m) : { headSha: '', clean: false };
   mkdirSync(dirname(e.logPath), { recursive: true, mode: 0o700 });
   writeFileSync(e.logPath, `${log}\n${diagnostic}\n`, { mode: 0o600 });
+  if (cargo)
+    return {
+      exitCode: success ? 0 : 1,
+      diagnostic,
+      // The pinned build receipt (ADR-047), as the launcher wrote it, now from the daemon.
+      receipt: {
+        ...(cargoReceipt ? pinnedReceiptKind(m!, cargoReceipt.packages as unknown[]) : {}),
+        recordedBy: 'daemon',
+        runtimeId: m?.runtimeId,
+        runId: m?.runId,
+        ...(m?.verification
+          ? {
+              verificationMode: m.verification.mode,
+              policyDigest: hash(JSON.stringify(m.verification)),
+            }
+          : {}),
+        manifestDigest: e.manifestDigest,
+        command: e.args[0] ?? 'help',
+        args: e.args,
+        toolchain: cargoReceipt?.toolchain,
+        toolchainDigest: cargoReceipt?.toolchainDigest,
+        headSha: after.headSha,
+        clean: before.clean && after.clean && before.headSha === after.headSha,
+        packages: cargoReceipt?.packages ?? [],
+        success,
+        exitCode: code,
+        diagnostic,
+        logPath: e.logReference,
+        logDigest: hash(readFileSync(e.logPath)),
+        at: new Date().toISOString(),
+      },
+    };
   return {
     exitCode: success ? 0 : 1,
     diagnostic,

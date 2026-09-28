@@ -58,3 +58,6 @@ started cross-project slices stopped at design; WI-ADR-016 alone was asked for i
   failed preparation waits for the operator's explicit retry, as before. Each run uses its owning
   entry's investigation profile and acts as the grantor, and stops being launched once the grant
   is revoked or the grantor loses an editor role.
+- Several saved proposals may be approved together in one pause: the operator marks each as
+  reviewed, one rationale is recorded with each, and each is approved through the same command
+  and checks as a single approval. Nothing is approved without the operator.

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ArchitectureDecisionInbox, RuntimeEvidenceView } from '@craftingtable/contracts';
 import { asUserId, asWorkspaceId } from '@craftingtable/domain';
@@ -237,4 +237,74 @@ it('keeps investigation evidence accessible when its structured recommendation i
   expect(screen.getByRole('status').textContent).toContain('invalid coverage');
   expect(screen.queryByRole('button', { name: 'Review recommendation' })).toBeNull();
   expect(request).not.toHaveBeenCalled();
+});
+it('approves several saved decisions in one pause, each reviewed, with one rationale (R-C3b)', async () => {
+  const second: ArchitectureDecisionInbox['decisions'][number] = {
+    ...decisionInbox.decisions[0]!,
+    checkpointId: 'LOCAL-ADR-013',
+    title: 'Retry ownership',
+    records: [
+      {
+        ...decisionRecord,
+        id: '00000000-0000-4000-8000-000000000004',
+        proposal: { ...decisionRecord.proposal, proposal: 'The queue owns retries.' },
+      },
+    ],
+  };
+  const pending: ArchitectureDecisionInbox = {
+    ...decisionInbox,
+    decisions: [{ ...decisionInbox.decisions[0]!, records: [decisionRecord] }, second],
+  };
+  vi.mocked(request).mockResolvedValue(view(pending));
+  const onChanged = vi.fn();
+  render(
+    <SharedDecisionInbox data={pending} csrfToken="csrf" disabled={false} onChanged={onChanged} />,
+  );
+  const batch = screen.getByRole('region', { name: 'Approve saved decisions' });
+  const approve = within(batch).getByRole('button', {
+    name: 'Approve reviewed decisions',
+  }) as HTMLButtonElement;
+  // Each decision is reviewed on its own; nothing is approved without a rationale.
+  expect(approve.disabled).toBe(true);
+  fireEvent.click(within(batch).getByRole('checkbox', { name: /LOCAL-ADR-012/ }));
+  fireEvent.click(within(batch).getByRole('checkbox', { name: /LOCAL-ADR-013/ }));
+  expect(approve.disabled).toBe(true);
+  fireEvent.change(within(batch).getByLabelText('Approval rationale for the batch'), {
+    target: { value: 'Both fit the plan.' },
+  });
+  fireEvent.click(approve);
+  await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  const decided = vi
+    .mocked(request)
+    .mock.calls.filter(([url]) => String(url).endsWith('/decide'))
+    .map(([, , init]) => JSON.parse(String((init as RequestInit).body)));
+  expect(decided).toEqual([
+    { submissionId: decisionRecord.id, outcome: 'accepted', rationale: 'Both fit the plan.' },
+    {
+      submissionId: '00000000-0000-4000-8000-000000000004',
+      outcome: 'accepted',
+      rationale: 'Both fit the plan.',
+    },
+  ]);
+});
+it('offers no batch approval while scheduling runs (R-C3b)', () => {
+  const blocked: ArchitectureDecisionInbox = {
+    ...decisionInbox,
+    blockers: ['Pause roadmap scheduling before approving decisions.'],
+    decisions: [
+      { ...decisionInbox.decisions[0]!, records: [decisionRecord] },
+      {
+        ...decisionInbox.decisions[0]!,
+        checkpointId: 'LOCAL-ADR-013',
+        records: [{ ...decisionRecord, id: '00000000-0000-4000-8000-000000000004' }],
+      },
+    ],
+  };
+  render(
+    <SharedDecisionInbox data={blocked} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />,
+  );
+  const batch = screen.getByRole('region', { name: 'Approve saved decisions' });
+  expect(
+    (within(batch).getByRole('checkbox', { name: /LOCAL-ADR-012/ }) as HTMLInputElement).disabled,
+  ).toBe(true);
 });

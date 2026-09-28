@@ -623,6 +623,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Tests:** `decision-demand.test.ts` (distinct slices, not milestones; finished and unselected slices excluded) and `server-execution-decision-preparation.test.ts` (LOCAL-ADR-01 unblocks 2 slices, LOCAL-ADR-02 one; it counted 8 milestones before).
   - **Test fix:** two step 1 tests waited for a held launch with the stepping `waitFor`, whose step waits for launches to settle; under load that could fail as "Agent runs did not become quiet". They now poll without stepping.
   - **Replays:** 0 changed on all four snapshots (none projects a checkpoint item).
+- **R-C3b step 5, done 2026-09-28: batch approval** (ADR-065 amended).
+  - With two or more saved proposals awaiting approval, the shared decision inbox lists them together. The operator ticks each as reviewed and writes one rationale; each is then approved through the same `decide` command and checks as a single approval, in turn, stopping at the first refusal and saying which were approved. The batch is locked while scheduling runs, like single approval.
+  - **Tests:** `SharedDecisionInbox.test.tsx` (two proposals approved with one rationale, each ticked; locked while scheduling runs). Both fail without the change.
 
 ### R-C4
 

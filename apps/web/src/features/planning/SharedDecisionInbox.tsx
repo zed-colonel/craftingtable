@@ -50,6 +50,7 @@ export function SharedDecisionInbox({
       {data.blockers.length > 0 && (
         <p className="warning-state">Approval unavailable: {data.blockers.join(' ')}</p>
       )}
+      <BatchApproval data={data} csrfToken={csrfToken} disabled={disabled} onChanged={onChanged} />
       {[...data.decisions]
         .sort((a, b) => Number(accepted(a)) - Number(accepted(b)))
         .map((card) => (
@@ -64,6 +65,108 @@ export function SharedDecisionInbox({
           />
         ))}
     </Section>
+  );
+}
+
+/**
+ * Several saved proposals approved in one pause (R-C3b): each is reviewed on its own, one
+ * rationale covers them, and each is approved through the same command as its card.
+ */
+function BatchApproval({
+  data,
+  csrfToken,
+  disabled,
+  onChanged,
+}: {
+  data: ArchitectureDecisionInbox;
+  csrfToken: string;
+  disabled: boolean;
+  onChanged: (view: RuntimeEvidenceView) => void | Promise<void>;
+}) {
+  const [reviewed, setReviewed] = useState<ReadonlySet<string>>(new Set());
+  const [rationale, setRationale] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const saved = data.decisions.flatMap((card) => {
+    const record = card.records.find((r) => !r.decision && !r.issues.length && r.applicable);
+    return record && !card.blockers.length ? [{ card, record }] : [];
+  });
+  if (saved.length < 2) return null;
+  const locked = disabled || busy || !!data.blockers.length;
+  const chosen = saved.filter(({ record }) => reviewed.has(record.id));
+  const approve = async () => {
+    if (locked || !chosen.length || !rationale.trim()) return;
+    setBusy(true);
+    setMessage('');
+    const approved: string[] = [];
+    try {
+      for (const { card, record } of chosen) {
+        const next = await request(
+          `/api/workspaces/${encodeURIComponent(data.workspaceId)}/concurrency-definitions/${encodeURIComponent(data.definitionId)}/runtime/decide`,
+          runtimeEvidenceViewSchema,
+          {
+            method: 'POST',
+            headers: { 'x-craftingtable-csrf': csrfToken },
+            body: JSON.stringify({ submissionId: record.id, outcome: 'accepted', rationale }),
+          },
+        );
+        approved.push(card.checkpointId);
+        await onChanged(next);
+      }
+      setReviewed(new Set());
+      setMessage(`Approved ${approved.join(', ')}.`);
+    } catch (e) {
+      setMessage(
+        `${approved.length ? `Approved ${approved.join(', ')}; ` : ''}stopped: ${e instanceof Error ? e.message : 'approval failed'}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="panel stack" aria-label="Approve saved decisions">
+      <h3>Approve saved decisions</h3>
+      <About label="About approving several decisions">
+        <p>
+          Approve saved proposals together while scheduling is paused. Review each exact text first;
+          one rationale is recorded with each approval.
+        </p>
+      </About>
+      {saved.map(({ card, record }) => (
+        <label key={record.id} className="field">
+          <input
+            type="checkbox"
+            disabled={locked}
+            checked={reviewed.has(record.id)}
+            onChange={(e) => {
+              const next = new Set(reviewed);
+              if (e.target.checked) next.add(record.id);
+              else next.delete(record.id);
+              setReviewed(next);
+            }}
+          />{' '}
+          Reviewed {card.checkpointId}: {record.proposal.proposal}
+        </label>
+      ))}
+      <label className="field">
+        Approval rationale for the batch
+        <textarea
+          value={rationale}
+          disabled={locked}
+          onChange={(e) => setRationale(e.target.value)}
+        />
+      </label>
+      <ActionBar label="Batch approval">
+        <button
+          type="button"
+          disabled={locked || !chosen.length || !rationale.trim()}
+          onClick={() => void approve()}
+        >
+          Approve reviewed decisions
+        </button>
+      </ActionBar>
+      {message && <p role="status">{message}</p>}
+    </section>
   );
 }
 

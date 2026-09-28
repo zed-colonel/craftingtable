@@ -229,7 +229,7 @@ function operatorNeeds(
       if (seen.has(key)) continue;
       seen.add(key);
       const node = byKey.get(key);
-      if (!node || node.kind !== 'checkpoint' || node.satisfied) continue;
+      if (node?.kind !== 'checkpoint' || node.satisfied) continue;
       if (settledByOperator(node) && node.included && !node.blockers.length) needed.push(node);
       queue.push(...node.requirements);
     }

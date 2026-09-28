@@ -1783,6 +1783,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Unit tests pass without Cargo.** With PATH stripped of Cargo and an empty HOME: 1,293 passed, 51 skipped, 0 failed.
   - **Under heavy load** (8–13, from concurrent suites), the earlier commit failed 2 of 5 runs, which led to the two fixes above.
   - **Not changed.** Specs still share one daemon and one admin account (QA-05's "give each spec its own workspace"). The ten runs show that this is not currently a source of flakes.
+- **Amended 2026-09-28: the e2e daemon leaked its data directory on every run.** Playwright stops a web server by SIGKILLing its process group unless the config names a graceful signal, and `e2e-entry.ts` removes its temporary data directory only from its SIGINT/SIGTERM and exit handlers. So every `pnpm test:e2e`, walkthrough and rehearsal left about 72 MB in `/tmp`.
+  - **Found through the walkthrough crash.** On 2026-09-28 headless Chrome crashed on its first screenshot (four core dumps, the same compositor-thread trap), and replays failed with `SQLITE_IOERR_WRITE` in the same minute. `/tmp` is a tmpfs with a per-user quota (logind's default, 80% of 32 GiB = 25.1 GiB); the user had 23.7 GiB of it in use. `df` showed 7.7 GB free, so the quota was the limit. Of that, 7.5 GB was 202 leaked `craftingtable-e2e-*` directories (the rest is agent-session scratch outside the repository). Chrome runs with `--disable-dev-shm-usage`, so its screenshot buffers live in `/tmp` too.
+  - **Fix:** the daemon's `webServer` entry takes `gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 }`. Test: `scripts/e2e-daemon-shutdown.test.mjs` starts the daemon as the config declares it, stops it as Playwright would, and checks no data directory remains. It fails without the change.
+  - **Not changed:** 60 `craftingtable-server-test-*` directories from unit tests also remain in `/tmp` (a test killed at its timeout skips cleanup). They take little space and are left for R-I9.
 
 ### R-I6
 

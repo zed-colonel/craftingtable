@@ -70,6 +70,9 @@ export default defineConfig({
       url: SERVER_HEALTH_URL,
       reuseExistingServer: false,
       timeout: 30_000,
+      // Playwright otherwise SIGKILLs the group, and the daemon's temporary data directory,
+      // which only its signal handlers remove, stays behind on every run.
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 },
       env: {
         CRAFTINGTABLE_CLAUDE_EXECUTABLE: FAKE_CLAUDE,
         CRAFTINGTABLE_CODEX_EXECUTABLE: FAKE_CODEX,

@@ -121,7 +121,9 @@ itNeedsCargo(
     const f = await scopedRuntimeFixture();
     const storage = f.state.context.storage;
     f.backend.replyForRequest = (request) => {
-      appendReceipt(request, { kind: 'scoped-check' });
+      // Every kind the daemon runs, written by the agent instead.
+      for (const kind of ['scoped-check', 'local-ci', 'native-check'])
+        appendReceipt(request, { kind, recordedBy: 'daemon' });
       return { resultText: scopeReport(f.state, f.tree.executionScope!) };
     };
     const forged = await runToFinish(f.state, f.tree.id, { role: 'review' });

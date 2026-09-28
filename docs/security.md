@@ -458,8 +458,9 @@ plain process group instead (tests, or a host without a user manager). `ct-act` 
 runs in a daemon unit with the same file-system limits plus the CI cache, network allowed (act fetches
 actions itself; job containers reach Docker's network regardless), and a HOME and working directory the
 daemon owns, so an agent cannot plant an `.actrc`. One act per workflow and Docker host runs at a time
-through an in-daemon queue; the wait counts against the check's time limit. `ct-native` and pinned
-Cargo still run in the agent's tree until their R-G4 increments land; Claude runs have no OS sandbox, so
+through an in-daemon queue; the wait counts against the check's time limit. `ct-native` is a request
+too: the daemon starts the approved native unit (ADR-054's limits, unchanged) with a HOME and TMPDIR it
+owns. Pinned Cargo still runs in the agent's tree until its R-G4 increment lands; Claude runs have no OS sandbox, so
 for them the database itself stays writable by the agent until R-G5's sandbox increment.
 `ct-act` restricts its input to one ordinary repository workflow and optional job; host configuration
 selects the local socket, image digest and storage. Rootless Docker retains ordinary user authority.

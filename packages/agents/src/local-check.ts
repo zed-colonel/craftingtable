@@ -51,8 +51,8 @@ export function loadLocalCiConfig(path: string | undefined): LocalCiConfig | und
   return c;
 }
 /**
- * Writes the run's check launchers. With a spool, `ct-check` and `ct-act` only ask the daemon to
- * run the check (R-G4); `limitMs` bounds their wait for the daemon's answer.
+ * Writes the run's check launchers. With a spool, each only asks the daemon to run the check
+ * (R-G4); `limitMs` bounds its wait for the daemon's answer.
  */
 export function prepareLocalCheckLaunchers(
   bin: string,
@@ -67,10 +67,9 @@ export function prepareLocalCheckLaunchers(
   if (spool) mkdirSync(spool.directory, { recursive: true, mode: 0o700 });
   for (const name of ['ct-check', 'ct-act', 'ct-native']) {
     const path = join(bin, name);
-    const call =
-      spool && (name === 'ct-check' || name === 'ct-act')
-        ? `import(${JSON.stringify(spoolModule)}).then(m=>m.submitCheck(${JSON.stringify(spool.directory)},${JSON.stringify(name)},process.argv.slice(2),${spool.limitMs}))`
-        : `import(${JSON.stringify(import.meta.url)}).then(m=>m.runLocalCheck(${JSON.stringify(manifest)},${JSON.stringify(digest)},${JSON.stringify(name)},process.argv.slice(2)))`;
+    const call = spool
+      ? `import(${JSON.stringify(spoolModule)}).then(m=>m.submitCheck(${JSON.stringify(spool.directory)},${JSON.stringify(name)},process.argv.slice(2),${spool.limitMs}))`
+      : `import(${JSON.stringify(import.meta.url)}).then(m=>m.runLocalCheck(${JSON.stringify(manifest)},${JSON.stringify(digest)},${JSON.stringify(name)},process.argv.slice(2)))`;
     writeFileSync(
       path,
       `#!${process.execPath}\n${call}.catch(e=>{console.error(e.message);process.exitCode=1;});\n`,
@@ -703,7 +702,7 @@ export type WorkflowHold = (
   onWait: (holder: string) => void,
 ) => Promise<() => void>;
 export interface CheckExecution {
-  readonly tool: 'ct-check' | 'ct-act';
+  readonly tool: 'ct-check' | 'ct-act' | 'ct-native';
   readonly manifestPath: string;
   /** The digest the daemon recorded for this run's manifest; the file must still match it. */
   readonly manifestDigest: string;
@@ -835,8 +834,8 @@ function actWorkflowName(workspacePath: string, args: readonly string[]): string
 }
 
 /**
- * Runs a check an agent asked for, in the daemon (R-G4): `ct-check -- <executable> <arguments>`
- * or `ct-act -W <workflow> [-j <job>]`. The daemon, not the agent, observes the commit and
+ * Runs a check an agent asked for, in the daemon (R-G4): `ct-check -- <executable> <arguments>`,
+ * `ct-act -W <workflow> [-j <job>]` or `ct-native -- <executable> <arguments>`. The daemon, not the agent, observes the commit and
  * cleanliness before and after, applies the time limit and keeps the log; the receipt is
  * returned for the daemon to record in its database. For act, the wait for the workflow's host
  * lock counts against the check's time limit.
@@ -853,6 +852,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let waitExpired = false;
   const releases: (() => void)[] = [];
   const act = e.tool === 'ct-act';
+  const native = e.tool === 'ct-native';
+  let ownsNativeUnit = false;
   const started = Date.now();
   try {
     const raw = readFileSync(e.manifestPath, 'utf8');
@@ -907,7 +908,12 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       command = args[0] ?? '';
       actual = args.slice(1);
       if (!command || command.startsWith('-') || command.includes('\0'))
-        throw new Error('Usage: ct-check -- <executable> <arguments>');
+        throw new Error(`Usage: ${e.tool} -- <executable> <arguments>`);
+      if (
+        native &&
+        (!m.nativeVerification || m.nativeVerification.hostDigest !== nativeHostDigest())
+      )
+        throw new Error('A current approved native environment is required.');
     }
     before = await observeGitState(m);
     const remaining = deadline - Date.now();
@@ -915,39 +921,68 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     const confined = e.confinement === 'systemd';
     const ci = m.localCi;
     const runId = m.runId;
-    const supervised = await superviseCheck(
-      confined ? 'systemd-run' : command,
-      confined
-        ? confinedCheckArguments(
-            e.unitName,
-            cwd,
-            remaining / 1000 + 30,
-            writable,
-            environment,
-            [command, ...actual],
-            // act fetches actions itself; its job containers reach Docker's network anyway.
-            act,
-          )
-        : actual,
-      {
-        cwd,
-        // systemd-run needs the daemon's user bus; the check itself gets only `environment`.
-        env: confined
-          ? Object.fromEntries(
-              ['PATH', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']
-                .filter((key) => process.env[key] !== undefined)
-                .map((key) => [key, process.env[key]]),
-            )
-          : environment,
-        timeoutMs: remaining,
-        onOutput: e.onOutput,
-        signal: e.signal,
-        onStop: () => {
-          if (confined) stopCheckUnit(e.unitName);
-          if (act && ci) void removeRunContainers(ci, runId).catch(() => {});
-        },
-      },
+    // The daemon's user bus, for systemd-run; the check itself gets only its own environment.
+    const busEnvironment = Object.fromEntries(
+      ['PATH', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']
+        .filter((key) => process.env[key] !== undefined)
+        .map((key) => [key, process.env[key]]),
     );
+    let spawned: { command: string; args: string[]; env: NodeJS.ProcessEnv };
+    if (native) {
+      // The approved native unit (ADR-054): its own limits, a fresh HOME and TMPDIR the daemon
+      // owns, and `env -i` with only the toolchain it names.
+      const home = join(e.privateDirectory, 'home');
+      const tmp = join(e.privateDirectory, 'tmp');
+      for (const p of [home, tmp]) mkdirSync(p, { recursive: true, mode: 0o700 });
+      spawned = {
+        command: nativeExecutables.systemdRun,
+        args: nativeArguments(nativeUnit(runId), m.workspacePath, remaining / 1000, [
+          '/usr/bin/env',
+          '-i',
+          `PATH=${dirname(e.manifestPath)}/bin:${join(homedir(), '.cargo/bin')}:/usr/local/bin:/usr/bin`,
+          `HOME=${home}`,
+          `TMPDIR=${tmp}`,
+          `CARGO_HOME=${join(homedir(), '.cargo')}`,
+          `RUSTUP_HOME=${join(homedir(), '.rustup')}`,
+          'RUSTUP_AUTO_INSTALL=0',
+          `CARGO_TARGET_DIR=${m.targetDirectory}`,
+          `CRAFTINGTABLE_CARGO_CONFIG=${m.configPath}`,
+          `CRAFTINGTABLE_DEPENDENCY_MANIFEST=${e.manifestPath}`,
+          command,
+          ...actual,
+        ]),
+        env: busEnvironment,
+      };
+      command = nativeExecutables.systemdRun;
+      ownsNativeUnit = true;
+    } else if (confined)
+      spawned = {
+        command: 'systemd-run',
+        args: confinedCheckArguments(
+          e.unitName,
+          cwd,
+          remaining / 1000 + 30,
+          writable,
+          environment,
+          [command, ...actual],
+          // act fetches actions itself; its job containers reach Docker's network anyway.
+          act,
+        ),
+        env: busEnvironment,
+      };
+    else spawned = { command, args: actual, env: environment };
+    const supervised = await superviseCheck(spawned.command, spawned.args, {
+      cwd,
+      env: spawned.env,
+      timeoutMs: remaining,
+      onOutput: e.onOutput,
+      signal: e.signal,
+      onStop: () => {
+        if (native) void stopNativeUnit(runId).catch(() => {});
+        else if (confined) stopCheckUnit(e.unitName);
+        if (act && ci) void removeRunContainers(ci, runId).catch(() => {});
+      },
+    });
     code = supervised.code;
     log = supervised.log;
     if (hash(readFileSync(e.manifestPath)) !== e.manifestDigest)
@@ -959,6 +994,14 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   } catch (error) {
     diagnostic = error instanceof Error ? error.message : 'Check failed.';
   } finally {
+    if (ownsNativeUnit && m) {
+      try {
+        await stopNativeUnit(m.runId);
+      } catch (error) {
+        success = false;
+        diagnostic += ` ${error instanceof Error ? error.message : 'Native cleanup failed.'}`;
+      }
+    }
     if (act && m?.localCi) {
       try {
         await removeRunContainers(m.localCi, m.runId);
@@ -977,7 +1020,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     exitCode: success ? 0 : 1,
     diagnostic,
     receipt: {
-      kind: act ? 'local-ci' : 'scoped-check',
+      kind: act ? 'local-ci' : native ? 'native-check' : 'scoped-check',
+      ...(native && m?.nativeVerification ? { nativeVerification: m.nativeVerification } : {}),
       recordedBy: 'daemon',
       runtimeId: m?.runtimeId,
       runId: m?.runId,

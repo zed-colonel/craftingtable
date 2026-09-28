@@ -12,6 +12,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { hostGit } from './host-tools-test-support.js';
+import { nativeHostDigest } from './native-environment.js';
 import {
   acquireLocalCiLock,
   executeCheck,
@@ -584,3 +585,57 @@ it('runs ct-act in the daemon with a private HOME, under the workflow hold, and 
   expect(late.diagnostic).toContain('time limit passed before it could start');
   expect(late.receipt).toMatchObject({ success: false });
 });
+
+itConfines(
+  'runs ct-native in the daemon, in the approved native unit with a daemon-owned HOME, and refuses without approval (R-G4)',
+  async () => {
+    const f = fixture();
+    const nativeVerification = {
+      approvalId: 'approval',
+      hostDigest: nativeHostDigest(),
+      auditDigest: 'a'.repeat(64),
+      fixtureDigest: 'b'.repeat(64),
+      toolchainDigest: 'c'.repeat(64),
+      toolchain: 'fixture',
+    };
+    const privateDirectory = join(f.root, 'daemon-private');
+    const run = async (manifest: PinnedCargoManifest) => {
+      const launcher = f.launch(manifest);
+      let output = '';
+      const outcome = await executeCheck({
+        tool: 'ct-native',
+        manifestPath: launcher.manifestPath,
+        manifestDigest: launcher.manifestDigest,
+        args: ['--', '/bin/sh', '-c', 'echo "native home=$HOME"'],
+        logPath: join(f.root, 'daemon-logs', 'native.log'),
+        logReference: 'check-logs/run/native.log',
+        privateDirectory,
+        confinement: 'systemd',
+        unitName: 'unused',
+        writablePaths: [],
+        environment: {},
+        onOutput: (text) => (output += text),
+        signal: new AbortController().signal,
+      });
+      return { outcome, output };
+    };
+    const refused = await run({ ...f.m, runId: `native-refused-${process.pid}` });
+    expect(refused.outcome.exitCode).toBe(1);
+    expect(refused.outcome.receipt).toMatchObject({ kind: 'native-check', success: false });
+    expect(refused.outcome.diagnostic).toContain('approved native');
+    const approved = await run({
+      ...f.m,
+      runId: `native-approved-${process.pid}`,
+      nativeVerification,
+    });
+    expect(approved.outcome.exitCode, approved.output + approved.outcome.diagnostic).toBe(0);
+    expect(approved.output).toContain(`native home=${join(privateDirectory, 'home')}`);
+    expect(approved.outcome.receipt).toMatchObject({
+      kind: 'native-check',
+      recordedBy: 'daemon',
+      success: true,
+      clean: true,
+      nativeVerification,
+    });
+  },
+);

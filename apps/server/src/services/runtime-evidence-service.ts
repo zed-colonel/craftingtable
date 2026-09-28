@@ -2760,7 +2760,7 @@ export class RuntimeEvidenceService {
 }
 
 /** Receipt kinds only the daemon writes for a daemon-recorded run (R-G4). */
-const DAEMON_RUN_KINDS = new Set(['scoped-check', 'local-ci']);
+const DAEMON_RUN_KINDS = new Set(['scoped-check', 'local-ci', 'native-check']);
 
 /**
  * The receipts a run with daemon receipt authority freezes (R-G4): every check the daemon

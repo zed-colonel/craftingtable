@@ -1573,6 +1573,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - `check-request-service.test.ts`: order and who is waited for; a waiter that expires or is cancelled keeps the order. Breaking the chaining fails it.
     - `local-check.test.ts`: act with a private HOME and working directory under the hold, containers removed; an expired hold is a labelled failure and act never runs; a hold granted after the limit runs nothing.
     - `server-execution-receipt-gates.test.ts`: a `local-ci` line an agent appends is dropped (keeping it fails), and CI still running at the end invalidates the record (ignoring it fails).
+- **Increment 3 (2026-09-28): the daemon runs `ct-native`.** It is a spool client too. The daemon starts the approved native unit, with ADR-054's limits unchanged (ADR-054 amended) and a HOME and TMPDIR it owns. It refuses without a current approval, allows one native check per run, stops the unit at the end, and records a `native-check` receipt with the approval identity. A `native-check` line in the launcher file of a daemon-recorded run is dropped, and a native check still running at freeze invalidates the record.
+  - **Tests.** `local-check.test.ts` (on the user manager): refused without approval; approved runs in the native unit with the daemon's HOME. `server-execution-receipt-gates.test.ts`: every daemon-run kind an agent appends is dropped. Keeping `native-check` fails it.
 
 ### R-G5
 

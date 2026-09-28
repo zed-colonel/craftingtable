@@ -19,7 +19,8 @@ The supported controlled-native-test-host resource dispatches a fresh independen
 of integrated code using normal managed worktree provisioning. Its ct-native launcher
 uses a transient systemd user service, four CPU quota, 8 GiB memory, 512 tasks, a maximum
 30 minute deadline, no-new-privileges, and whole-cgroup cleanup. It supplies fresh HOME
-and TMPDIR and a minimal environment. Existing Cargo toolchain/download storage remains
+and TMPDIR and a minimal environment. (2026-09-28, R-G4: the daemon, not the agent's launcher,
+starts this unit, with a daemon-owned HOME and TMPDIR, and records the receipt in its database.) Existing Cargo toolchain/download storage remains
 available. This is cooperative fixture execution under the existing trusted OS-user
 model, not isolation from a malicious repository or host user. Approval covers only
 non-sensitive repository fixtures; remote credentials and live effects remain excluded.

@@ -229,10 +229,13 @@ export class CheckRequestService {
     request: CheckRequest,
     inFlight: ReadonlyMap<string, InFlight>,
   ): string | undefined {
-    if (request.tool !== 'ct-check' && request.tool !== 'ct-act')
-      return `${request.tool} is not served by the daemon for this run.`;
-    if (request.tool === 'ct-act' && [...inFlight.values()].some((c) => c.tool === 'ct-act'))
-      return 'Another ct-act is already running for this run; run one workflow at a time.';
+    if (request.tool === 'cargo') return 'cargo is not served by the daemon for this run.';
+    // One act and one native unit per run, as the per-run leases allowed before.
+    if (
+      (request.tool === 'ct-act' || request.tool === 'ct-native') &&
+      [...inFlight.values()].some((c) => c.tool === request.tool)
+    )
+      return `Another ${request.tool} is already running for this run; run one at a time.`;
     const agentRun = this.storage.execution.runs.find(
       context.workspaceId,
       context.runId as import('@craftingtable/domain').AgentRunId,
@@ -285,7 +288,7 @@ export class CheckRequestService {
     };
     try {
       const outcome = await executeCheck({
-        tool: request.tool === 'ct-act' ? 'ct-act' : 'ct-check',
+        tool: request.tool === 'cargo' ? 'ct-check' : request.tool,
         privateDirectory: join(this.config.checkLogRoot, context.runId, `${id}.private`),
         holdWorkflow: (key, deadline, abort, onWait) =>
           this.workflows.hold(key, context.runId, deadline, abort, onWait),

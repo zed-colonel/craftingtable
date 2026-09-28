@@ -432,3 +432,29 @@ it('keeps an inspected pin when a reload started before the inspection lands aft
   });
   expect(screen.getByText('Supplied crates: aq_e2e_pin')).toBeTruthy();
 });
+it('labels build records the agent reported, from before the daemon recorded receipts (R-G4)', async () => {
+  const build = (runId: string, receiptAuthority: 'daemon' | 'agent') => ({
+    runId,
+    runtimeId,
+    digest: 'a'.repeat(64),
+    successfulBuilds: 1,
+    receiptAuthority,
+  });
+  vi.mocked(request).mockResolvedValue({
+    ...view(),
+    builds: [build('run-before', 'agent'), build('run-after', 'daemon')],
+  });
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+    />,
+  );
+  const before = (await screen.findByText('run-before')).closest('p')!;
+  const after = screen.getByText('run-after').closest('p')!;
+  expect(before.textContent).toContain('agent-reported');
+  expect(after.textContent).not.toContain('agent-reported');
+});

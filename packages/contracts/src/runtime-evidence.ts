@@ -484,6 +484,8 @@ export const runtimeEvidenceViewSchema = z.strictObject({
       runtimeId: z.uuid(),
       digest,
       successfulBuilds: z.number().int().nonnegative(),
+      /** `agent`: frozen from a file the agent could write, before R-G4. */
+      receiptAuthority: z.enum(['daemon', 'agent']),
       error: z.string().optional(),
     }),
   ),

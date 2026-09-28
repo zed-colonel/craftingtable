@@ -1938,6 +1938,7 @@ export class RuntimeEvidenceService {
             runtimeId: env.runtimeId,
             digest: record.digest,
             successfulBuilds,
+            receiptAuthority: env.receiptAuthority === 'daemon' ? 'daemon' : 'agent',
             ...(error ? { error } : {}),
           },
         ];

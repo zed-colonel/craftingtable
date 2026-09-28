@@ -1503,7 +1503,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G4
 
-**Daemon-owned verification receipts** · Phase P2 · Effort M-L · Status: in progress (design approved 2026-09-28)
+**Daemon-owned verification receipts** · Phase P2 · Effort M-L · Status: code complete (2026-09-28), awaiting review
 
 - **Resolves:** [SEC-01](findings/AGT-GIT-SEC-agents-git-security.md#sec-01-agents-can-forge-the-buildcheckcinative-receipts-that-gate-integration), [AGT-08](findings/AGT-GIT-SEC-agents-git-security.md#agt-08-verification-exists-only-for-cargo-non-rust-repositories-get-no-controller-supplied-verification), [AGT-04](findings/AGT-GIT-SEC-agents-git-security.md#agt-04-the-adapters-hard-code-cargo-and-controller-build-concepts)
 - **Change:** Check launchers become thin clients of a daemon-owned socket; the daemon runs the command in its own supervised process group outside the agent's writable roots and writes the receipt to SQLite. Generalize verification beyond Cargo (a declared check command per repository). Until then, label receipts as agent-reported in the UI.
@@ -1591,6 +1591,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The daemon keeps the manifest text it wrote at launch, checked against the digest it recorded, and runs every check from that text. The published `manifest.json` is only for the agent and CI jobs to read.
   - A daemon-recorded run no longer reads the published manifest, or any lease, at freeze or cleanup. A rewritten or deleted copy can neither steer a check nor invalidate the run's own record.
   - **Test.** `server-execution-receipt-gates.test.ts`: the agent rewrites the manifest (a different workspace and Cargo), then its `ct-check` still runs on the verified manifest, is recorded and satisfies the gate. It failed before the change: the launch aborted on "Verification manifest changed".
+- **Increment 6 (2026-09-28): earlier receipts are labelled.** Records frozen before the cutover stay valid for gates (operator decision). The runtime view's build records carry `receiptAuthority` (`daemon` or `agent`), and the panel marks the agent's as "agent-reported". It is a text label, so the page structure is unchanged and no walkthrough capture was taken. Test: `RuntimeEvidencePanel.test.tsx` fails without the label.
+- **Status (2026-09-28): code complete (increments 0 to 6), awaiting independent review.** The done-when holds for runs prepared after the cutover: no gating receipt is read from an agent-writable path. Records frozen earlier are labelled agent-reported. Two gaps remain: `ct-check -- true` counts as a scoped check (the follow-up for declared checks, AGT-08), and Claude runs, which have no OS sandbox until R-G5.
 
 ### R-G5
 

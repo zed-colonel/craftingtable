@@ -875,7 +875,14 @@ export function RuntimeEvidencePanel({
             >
               {b.runId}
             </a>{' '}
-            · {b.successfulBuilds} successful clean builds {b.error && `· ${b.error}`}
+            · {b.successfulBuilds} successful clean builds
+            {b.receiptAuthority === 'agent' && (
+              <span title="Recorded before CraftingTable ran checks itself: the agent wrote these receipts.">
+                {' '}
+                · agent-reported
+              </span>
+            )}{' '}
+            {b.error && `· ${b.error}`}
             <br />
             <a href={`${base}/runs/${encodeURIComponent(b.runId)}/build-record`}>
               Download frozen build record

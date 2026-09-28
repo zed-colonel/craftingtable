@@ -973,6 +973,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - one item for EXO-02's owning-slice question.
 
   No other record changes except R-C15's packet. Each rule has a test that fails without it.
+- **The status list agrees with the inbox (2026-09-28).** R-E3a's list took "who acts next" from the entry's state: any operator-owned blocker made it the operator's. After the frontier rule that put 47 live entries under *Needs you* with no inbox item. Both now use one predicate, `waitsOnlyOnOperator`: the operator acts next when every blocker is theirs, and a blocker-free stop or pause is the operator's by its state. The state label is unchanged. Test: `roadmap-attention-relevance.test.ts` also checks slice b's row, controller before slice a merges and the decision's item after; it fails without the change. On the 2026-09-23 and 2026-09-27 snapshots, 61 rows no longer link a checkpoint item. 14 of them move from the operator to the controller, and the rest stay the operator's by their blockers.
 - **LIVE-10 fixed (2026-09-28), and LIVE-11's controller-produced items with it.** The roadmap pass raises a checkpoint item only for a checkpoint the operator is needed for now (`neededCheckpoints`):
   - one an open entry waits on while every one of that entry's blockers is operator-owned (`PHASE_BLOCKERS`);
   - once every entry is complete, one the selected scope still needs;

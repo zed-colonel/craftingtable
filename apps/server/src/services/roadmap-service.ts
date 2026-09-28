@@ -173,6 +173,16 @@ type RoadmapChanges = Omit<Partial<Roadmap>, 'status' | 'attention'> &
   );
 
 /**
+ * Whether only the operator can move this entry now: it is blocked, and every blocker is
+ * operator-owned. The inbox (`neededCheckpoints`) and the status list use this one rule.
+ */
+function waitsOnlyOnOperator(progress: RoadmapView['progress'][number]): boolean {
+  return (
+    !!progress.blockers?.length &&
+    progress.blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator')
+  );
+}
+/**
  * The checkpoints the operator is needed for now (R-C14, LIVE-10): those an open entry waits
  * on while every one of its blockers is the operator's, and once every entry is complete, the
  * ones the selected scope still needs; then, for each, its own unmet checkpoint prerequisites.
@@ -194,12 +204,8 @@ function neededCheckpoints(
   );
   const needed = new Set<string>();
   for (const p of progress)
-    if (
-      p.status !== 'completed' &&
-      p.blockers?.length &&
-      p.blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator')
-    )
-      for (const b of p.blockers) {
+    if (p.status !== 'completed' && waitsOnlyOnOperator(p))
+      for (const b of p.blockers ?? []) {
         const node = b.refs?.checkpointId && checkpoints.get(b.refs.checkpointId);
         if (node) needed.add(node.key);
       }
@@ -767,10 +773,17 @@ export class RoadmapService {
           },
         });
       } else {
-        // The daemon's own classification: an operator-owned blocker makes it needs-attention.
+        // The operator acts next when every blocker is theirs, as the inbox decides (LIVE-10);
+        // a blocker-free stop or pause is the operator's by its state.
         entries.push({
           ...base,
-          actor: ['needs-attention', 'paused'].includes(state.status) ? 'operator' : 'controller',
+          actor: (
+            state.blockers?.length
+              ? waitsOnlyOnOperator(state)
+              : ['needs-attention', 'paused'].includes(state.status)
+          )
+            ? 'operator'
+            : 'controller',
           waitsOn: {
             source: 'progress',
             code: state.status,

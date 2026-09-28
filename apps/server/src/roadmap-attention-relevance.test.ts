@@ -65,6 +65,7 @@ itNeedsCargo(
     const { state } = f,
       ws = state.workspaceId,
       tx = state.context.storage;
+    const storedRoadmapOf = () => tx.roadmaps.list(ws).find((r) => r.status !== 'draft')!;
     const decisionItem = () => {
       state.context.services.roadmapService.syncAttention(true);
       return tx.attention
@@ -82,6 +83,12 @@ itNeedsCargo(
         .some((t) => t.executionScope?.sourceId === 'local/AQ-01/a' && t.mergedAt),
     ).toBe(false);
     expect(decisionItem()).toBeUndefined();
+    // The status list agrees: slice b waits on other work first, not on the operator.
+    const sliceB = () =>
+      state.context.services.roadmapService
+        .statusOf(storedRoadmapOf())
+        .entries.find((e) => e.sourceId === 'local/AQ-01/b' && e.scope === 'slice');
+    expect(sliceB()?.actor).toBe('controller');
     // Once slice a has merged, the decision is all that holds slice b.
     await waitFor(
       () =>
@@ -92,6 +99,11 @@ itNeedsCargo(
       30000,
     );
     await state.context.services.roadmapService.tick();
-    expect(decisionItem()).toMatchObject({ code: 'architecture-decision' });
+    const item = decisionItem();
+    expect(item).toMatchObject({ code: 'architecture-decision' });
+    expect(sliceB()).toMatchObject({
+      actor: 'operator',
+      waitsOn: { source: 'attention-item', attentionItemId: item!.id },
+    });
   },
 );

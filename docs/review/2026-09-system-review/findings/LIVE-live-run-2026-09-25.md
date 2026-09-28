@@ -208,7 +208,7 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
 ### LIVE-09: Decision preparations kept asking after their decisions were accepted
 - Severity: medium
 - Category: stale attention (R-A4 projection)
-- Status: CONFIRMED ([R-C14](../register.md#r-c14))
+- Status: CONFIRMED; fixed 2026-09-28: a preparation's questions need nobody once its decision is accepted in full. ([R-C14](../register.md#r-c14))
 - Replay case: the 2026-09-28 scheduler replay's `attention` lists `decision-preparation-questions` for runs 81b39a78 (WI-ADR-008) and ad8db1c6 (WI-ADR-010).
 - Evidence: both decisions were accepted on 2026-09-24 (full coverage, submissions 8560d4ab and 751fa25b). Their preparation runs had ended with open questions. The projector raises the item from the preparation's worktree while it is active and its design run left questions (`attention-projector.ts`, `worktreeItems`), and never asks whether the decision was accepted since.
 - Impact: two "Needs attention" items for decisions that are settled, which also read as if the decisions were not accepted.
@@ -216,7 +216,7 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
 ### LIVE-10: Every open shared decision in the map is an inbox item, whether or not work needs it now
 - Severity: high
 - Category: attention relevance; notification noise
-- Status: CONFIRMED ([R-C14](../register.md#r-c14))
+- Status: CONFIRMED; fixed 2026-09-28: a checkpoint is asked for only when an entry waits on it and on nothing that is not the operator's, or when the roadmap's completion waits on it. ([R-C14](../register.md#r-c14))
 - Replay case: the 2026-09-28 scheduler replay projects 35 `architecture-decision` items for the paused roadmap.
 - Evidence: the roadmap pass (`RoadmapService.attentionItems`) raises an item for every included, unsatisfied checkpoint whose own prerequisites are met, with "blocks" counting every map milestone downstream (15 to 185). None asks whether any roadmap entry is waiting on it now. On the snapshot, every one of the 50 checkpoint items blocks only entries that also wait on other, unfinished work: an unmerged slice, an unaccepted predecessor or parent, or an unqualified resource. No entry has an operator decision as its only blocker.
 - Impact: 35 of the 55 items were decisions that can be answered, but need not be answered yet. They would also page once notifications are on, and they bury the few items that do hold work up.
@@ -224,7 +224,7 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
 ### LIVE-11: Checkpoint-evidence items offer the operator nothing to do
 - Severity: high
 - Category: attention ownership (two evaluators disagree)
-- Status: CONFIRMED ([R-C14](../register.md#r-c14))
+- Status: CONFIRMED; fixed 2026-09-28: controller-produced checkpoint evidence no longer reaches the operator, and the checkpoint items that remain open at their form. ([R-C14](../register.md#r-c14))
 - Replay case: the 2026-09-28 scheduler replay projects 15 `checkpoint-evidence` items.
 - Evidence: the pass raises operator items for non-decision checkpoints: contract, profile, semantic review, release. The phase blocker table owns the same checkpoints' evidence as the controller's (`checkpoint-evidence: { owner: 'controller' }` in `PHASE_BLOCKERS`). Their evidence comes from delegated checkpoint reviews that a slice cycle runs itself, or from verification the operator sets up separately (`verification-setup` items). An item opened from the inbox leads to the roadmap page with no form for it.
 - Impact: 15 items the operator cannot act on, which teach that the inbox is not to be trusted.
@@ -243,7 +243,7 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
 ### LIVE-13: One owning-slice question appears twice in the inbox
 - Severity: low
 - Category: duplicate attention
-- Status: CONFIRMED ([R-C14](../register.md#r-c14))
+- Status: CONFIRMED; fixed 2026-09-28: an entry hold defers to the round that carries it. ([R-C14](../register.md#r-c14))
 - Replay case: the 2026-09-28 scheduler replay's `attention` lists both `work-item-questions` on cycle de49d2f6 and `entry-preparation-failed` on the EXO-02/domain verification entry.
 - Evidence: EXO-02/domain's recovery round started after the deploy (R-C12). Its repair (de49d2f6) asked a genuine work-item question. The scheduler holds the source verification entry with "Owning-slice recovery needs your input", and the entry's hold item is deduplicated only against the entry's own cycle, not the round's repair cycle.
 - Impact: two items for one question; answering the question clears one, and the other follows on the next pass.

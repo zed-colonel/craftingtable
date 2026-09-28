@@ -41,7 +41,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C11](#r-c11) | P2 | S-M | done (see Progress) | Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry (added 2026-09-25) |
 | [R-C12](#r-c12) | P2 | S-M | done (2026-09-27) | Automatic recovery records why it did not start a round (added 2026-09-27) |
 | [R-C13](#r-c13) | P2 | S-M | done (2026-09-27) | Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation (added 2026-09-27) |
-| [R-C14](#r-c14) | P2 | S-M | in progress | Attention says only what needs the operator now, and what the operator can act on (added 2026-09-28) |
+| [R-C14](#r-c14) | P2 | S-M | done (2026-09-28) | Attention says only what needs the operator now, and what the operator can act on (added 2026-09-28) |
 | [R-C15](#r-c15) | P2 | S | done (2026-09-28) | A checkpoint review is given the decisions its checkpoint requires (added 2026-09-28) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
@@ -951,7 +951,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C14
 
-**Attention says only what needs the operator now, and what the operator can act on** · Phase P2 · Effort S-M · Status: in progress
+**Attention says only what needs the operator now, and what the operator can act on** · Phase P2 · Effort S-M · Status: done (2026-09-28)
 
 - **Added 2026-09-28** from the first day on the deployed P2 line ([LIVE-09 to LIVE-11 and LIVE-13](findings/LIVE-live-run-2026-09-25.md#after-the-p2-deploy-2026-09-28)). With the roadmap running, the inbox held 55 items, and most were not the operator's to act on now:
   - 35 decisions no entry needs yet;
@@ -967,6 +967,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - On the 2026-09-28 snapshot, the scheduler replay projects no `checkpoint-evidence` item, no decision item that no entry waits on, and neither WI-ADR-008 nor WI-ADR-010's preparation item.
   - It shows one item for EXO-02's owning-slice question.
   - A test covers each rule, and fails without it.
+- **Done-when met (2026-09-28).** Against the batch's baseline golden (`scheduler-golden-d39b47a.json`), the 2026-09-28 scheduler replay projects:
+  - none of the 50 checkpoint items (35 decisions, 15 checkpoint-evidence);
+  - neither preparation item;
+  - one item for EXO-02's owning-slice question.
+
+  No other record changes except R-C15's packet. Each rule has a test that fails without it.
 - **LIVE-10 fixed (2026-09-28), and LIVE-11's controller-produced items with it.** The roadmap pass raises a checkpoint item only for a checkpoint the operator is needed for now (`neededCheckpoints`):
   - one an open entry waits on while every one of that entry's blockers is operator-owned (`PHASE_BLOCKERS`);
   - once every entry is complete, one the selected scope still needs;

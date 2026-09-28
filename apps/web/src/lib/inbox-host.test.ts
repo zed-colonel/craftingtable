@@ -88,3 +88,23 @@ it('hosts the merge form, the slice evidence controls, finalization and storage 
     ).finalization,
   ).toBe(true);
 });
+
+it('opens a checkpoint item at the form that settles it (R-C14, LIVE-11)', () => {
+  const checkpoint = (code: AttentionItemView['code']) =>
+    inboxHost(
+      item({
+        subjectKey: 'roadmap:r:checkpoint:LOCAL-TARGET',
+        code,
+        refs: { roadmapId: 'r' },
+      }),
+    ).roadmap;
+  // Evidence the operator submits, and the saved plan they accept, each have their own form.
+  expect(checkpoint('checkpoint-evidence')).toEqual({
+    open: true,
+    focus: 'runtime-evidence-roadmap-r-evidence',
+  });
+  expect(checkpoint('plan-acceptance')).toEqual({
+    open: true,
+    focus: 'runtime-evidence-roadmap-r-plan-acceptance',
+  });
+});

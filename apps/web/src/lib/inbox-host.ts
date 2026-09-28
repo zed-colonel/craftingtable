@@ -69,7 +69,12 @@ export function inboxHost(item: AttentionItemView): InboxHost {
               ? { focus: `roadmap-entry-${roadmapId}-${entryId}` }
               : item.code === 'verification-setup'
                 ? { focus: `runtime-evidence-roadmap-${roadmapId}-native` }
-                : {}),
+                : // A checkpoint the operator settles opens at its form (LIVE-11).
+                  item.code === 'checkpoint-evidence'
+                  ? { focus: `runtime-evidence-roadmap-${roadmapId}-evidence` }
+                  : item.code === 'plan-acceptance'
+                    ? { focus: `runtime-evidence-roadmap-${roadmapId}-plan-acceptance` }
+                    : {}),
           },
         }),
   };

@@ -1503,11 +1503,31 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G4
 
-**Daemon-owned verification receipts** · Phase P2 · Effort M-L · Status: open
+**Daemon-owned verification receipts** · Phase P2 · Effort M-L · Status: in progress (design approved 2026-09-28)
 
 - **Resolves:** [SEC-01](findings/AGT-GIT-SEC-agents-git-security.md#sec-01-agents-can-forge-the-buildcheckcinative-receipts-that-gate-integration), [AGT-08](findings/AGT-GIT-SEC-agents-git-security.md#agt-08-verification-exists-only-for-cargo-non-rust-repositories-get-no-controller-supplied-verification), [AGT-04](findings/AGT-GIT-SEC-agents-git-security.md#agt-04-the-adapters-hard-code-cargo-and-controller-build-concepts)
 - **Change:** Check launchers become thin clients of a daemon-owned socket; the daemon runs the command in its own supervised process group outside the agent's writable roots and writes the receipt to SQLite. Generalize verification beyond Cargo (a declared check command per repository). Until then, label receipts as agent-reported in the UI.
 - **Done when:** No gating receipt is read from an agent-writable path.
+- **Design, decided by the operator 2026-09-28 (option A).**
+  - **What the survey found.** The launchers (`ct-check`, `ct-act`, `ct-native` and pinned `cargo`) run inside the agent's process tree and append JSONL to `<runDir>/dependencies/build-receipts.jsonl`, which is one of the agent's writable roots, like the manifest, the launchers and the CI lock directories under `<cacheRoot>/locks`. `freezeRun` copies the file verbatim, and `assertRun` and `candidateCheckpointIssues` trust its fields.
+  - **Spikes on the host.** A Codex `workspace-write` sandbox without network cannot connect to any Unix socket (path or abstract: `EPERM`), so SEC-01's socket would need an escalation per check. Writing files inside its roots works. `systemd-run --user` with `ProtectSystem=strict`, `ProtectHome=read-only`, `ReadWritePaths=` and `PrivateNetwork=yes` works.
+  - **Options put to the operator:**
+    - (A) launchers write a request into the run's spool; the daemon runs it in a confined transient user unit, records HEAD and cleanliness itself, and writes the receipt to SQLite; the CI lock becomes an in-daemon queue;
+    - (B) a daemon socket, rejected by the spike;
+    - (C) the daemon re-runs declared checks after the run;
+    - (D) move only the files, which leaves the launcher running as the agent.
+  - **Operator decisions:**
+    - A, in increments: `ct-check`; `ct-act` and its lock; `ct-native`; pinned Cargo's build receipts; a daemon-held manifest; the UI label for earlier receipts.
+    - A new append-only receipts table (schema 33). Records frozen before the cutover stay valid for gates and are labelled agent-reported; runs prepared after it gate only on daemon receipts.
+    - Also fix: a candidate checkpoint needs the receipt kind its mode requires; scoped mode stops accepting local CI; receipt-producing Cargo runs get the check timeout.
+    - `ct-check -- true` still counts as a scoped check, because the agent chooses the command. That stays a residual gap for a follow-up (declared per-repository checks, AGT-08).
+  - **Limit.** Claude runs have no OS sandbox, so for them every path the user can write, the database included, is agent-writable. R-G5's Claude sandbox (approved the same day) is what closes that.
+- **Increment 0 (2026-09-28): receipt kinds.** One rule (`services/build-receipt-policy.ts`, `receiptKindEstablishes`) decides which kinds establish a mode, for `assertRun` and for the checkpoint candidate:
+  - a scoped mode accepts scoped checks, pinned Cargo and native checks made under the scoped policy, but not local CI (ADR-053 amended);
+  - a current-upstream mode accepts only a pinned Cargo build.
+  
+  Before this, a candidate accepted any successful receipt, and a scoped review accepted a CI run alone.
+  - **Tests.** `server-execution-receipt-gates.test.ts` (a scoped review with only a CI receipt is refused; the same line as a scoped check passes) and `server-execution-scope-evidence.test.ts` (a current-upstream candidate with only a CI receipt has the receipt issue). Both failed before the change. Dropping the local CI exclusion fails the first again. The candidate fixture now runs the pinned Cargo launcher, as its current-upstream scope requires.
 
 ### R-G5
 

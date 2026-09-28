@@ -6,6 +6,7 @@ import { workflowContext, workflowDelegation } from './workflow-policy.js';
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import type { WorkCycle } from '@craftingtable/domain';
 import { worktreePlan, repositoryPolicyEvidence } from './repository-policy.js';
+import { parseBuildReceipts, receiptKindEstablishes } from './build-receipt-policy.js';
 import { checkpointDigest, candidateCheckpointIssues } from './checkpoint-candidate-policy.js';
 import { resolveScope, scopeEvidenceIssues } from './execution-scope.js';
 import { finalizationHasNoQuestions } from './finalization-policy.js';
@@ -2518,24 +2519,7 @@ export class RuntimeEvidenceService {
       )
         conflict('The review has no valid frozen pinned build record.');
       const run = this.storage.execution.runs.find(tree.workspaceId, asAgentRunId(runId));
-      const receipts = record.receipts
-        .trim()
-        .split('\n')
-        .map(
-          (line) =>
-            JSON.parse(line) as {
-              success: boolean;
-              clean: boolean;
-              headSha: string;
-              manifestDigest: string;
-              runId: string;
-              runtimeId: string;
-              verificationMode?: string;
-              policyDigest?: string;
-              kind?: string;
-              nativeVerification?: { approvalId: string; hostDigest: string; auditDigest: string };
-            },
-        );
+      const receipts = parseBuildReceipts(record.receipts);
       if (
         nativeRequired &&
         !receipts.some(
@@ -2564,19 +2548,14 @@ export class RuntimeEvidenceService {
             r.manifestDigest === env.manifestDigest &&
             r.runId === runId &&
             r.runtimeId === env.runtimeId &&
-            (verification.mode === 'scoped-checks'
-              ? r.verificationMode === 'scoped-checks' &&
-                r.policyDigest === hash(JSON.stringify(verification))
-              : r.kind !== 'scoped-check' &&
-                r.kind !== 'supplementary-check' &&
-                r.kind !== 'native-check' &&
-                r.kind !== 'local-ci' &&
-                r.verificationMode !== 'scoped-checks'),
+            receiptKindEstablishes(r, verification.mode) &&
+            (verification.mode !== 'scoped-checks' ||
+              r.policyDigest === hash(JSON.stringify(verification))),
         )
       )
         conflict(
           verification.mode === 'scoped-checks'
-            ? 'The review needs a successful scoped check on its exact clean reviewed commit. Use ct-check for repository checks, ct-act for CI, or the supplied Cargo launcher; report every scope obligation separately.'
+            ? 'The review needs a successful scoped check on its exact clean reviewed commit. Use ct-check for repository checks or the supplied Cargo launcher; ct-act CI is supplemental and does not count. Report every scope obligation separately.'
             : 'The review needs a successful pinned Cargo build/test on its exact clean reviewed commit.',
         );
     } catch (error) {

@@ -28,7 +28,8 @@ command endpoints. A separate named adapter owns this authority. Local CI uses o
 executables, a Unix Docker socket, image digest and cache location. Rootless Docker is preferred.
 The runner receives exact dependency configuration and sources; scripts must consume that config.
 CI is supplemental to the current-pinned Cargo gate for integration, not an alternative attestation
-of resolution. Existing native/Kata evidence gates remain distinct.
+of resolution. It is supplemental to scoped checks too (2026-09-28, R-G4): a scoped review needs a
+ct-check, pinned Cargo or native receipt, and a checkpoint candidate needs the kind its mode requires. Existing native/Kata evidence gates remain distinct.
 
 Each act invocation has one job at a time, bounded time/output, CPU/memory limits, a run lease,
 retained log/receipt, and labelled container cleanup. Terminal/restart cleanup runs outside database

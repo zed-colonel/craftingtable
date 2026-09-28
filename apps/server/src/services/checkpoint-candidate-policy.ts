@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { asWorktreeId, type EvidenceSubmission, type ExecutionScope } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { assignedReviewMatches } from './agent-profile-policy.js';
+import { parseBuildReceipts, receiptKindEstablishes } from './build-receipt-policy.js';
 import { worktreePlan } from './repository-policy.js';
 
 export const checkpointDigest = (value: unknown) =>
@@ -85,13 +86,14 @@ export function candidateCheckpointIssues(
       'The checkpoint needs the unchanged latest successful review and frozen build record.',
     );
   try {
-    const receipts = (build?.receipts ?? '')
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line));
+    const receipts = parseBuildReceipts(build?.receipts ?? '');
     if (
       !receipts.some(
         (r) =>
+          receiptKindEstablishes(
+            r,
+            r.verificationMode === 'scoped-checks' ? 'scoped-checks' : 'current-upstream-build',
+          ) &&
           r.success === true &&
           r.clean === true &&
           r.headSha === c.headSha &&

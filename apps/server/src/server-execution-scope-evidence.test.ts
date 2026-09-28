@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { registerSourceRepositoryResponseSchema } from '@craftingtable/contracts';
 import { openDatabase } from '@craftingtable/storage';
@@ -32,7 +32,16 @@ import {
 
 afterEach(cleanupExecutionFixtures);
 
-async function checkpointCandidateFixture() {
+async function checkpointCandidateFixture(
+  // A current-upstream scope: only a pinned Cargo build establishes it (ADR-053).
+  check = (request: import('@craftingtable/agents').AgentLaunchRequest) => {
+    execFileSync(
+      join(request.buildEnvironment!.binDirectory, 'cargo'),
+      ['check', '--offline', '--locked'],
+      { cwd: request.cwd, stdio: 'pipe' },
+    );
+  },
+) {
   const f = await slicedFixture((source) => ({
     ...source,
     work_items: source.work_items.map((w) => ({
@@ -103,14 +112,18 @@ async function checkpointCandidateFixture() {
     ],
   };
   await svc.configure(f.auth, f.state.workspaceId, f.parentScope.definitionId, config);
+  writeFileSync(
+    join(f.root, 'Cargo.toml'),
+    '[package]\nname="ct_candidate"\nversion="0.1.0"\nedition="2021"\n[lib]\npath="lib.rs"\n',
+  );
+  writeFileSync(join(f.root, 'lib.rs'), 'pub fn core() -> u32 { 1 }\n');
+  execFileSync(HOST_CARGO as string, ['generate-lockfile', '--offline'], { cwd: f.root });
+  git(['add', '.'], f.root);
+  git(['commit', '-m', 'candidate crate'], f.root);
   const tree = await scopeTree(f, f.scopes[0]!);
   commitFile(tree.path, 'candidate.txt', 'reviewed core');
   f.backend.replyForRequest = (request) => {
-    execFileSync(
-      join(request.buildEnvironment!.binDirectory, 'ct-check'),
-      ['--', HOST_GIT, 'diff', '--check', 'HEAD'],
-      { cwd: request.cwd },
-    );
+    check(request);
     return {
       resultText:
         '## Open questions\nnone\n\n## Review report\n' +
@@ -193,6 +206,43 @@ itNeedsCargo(
     commitFile(f.root, 'later-integration.txt', 'a changed integration candidate');
     await expect(f.svc.assertSubjectsCurrent(ws, id, 1, [subject])).rejects.toThrow(
       'Integration changed',
+    );
+  },
+);
+itNeedsCargo(
+  'a checkpoint candidate needs the receipt kind its verification mode requires (R-G4)',
+  async () => {
+    // A current-upstream review whose only receipt is local CI: CI is supplemental (ADR-053).
+    const f = await checkpointCandidateFixture((request) => {
+      const raw = readFileSync(
+        join(request.buildEnvironment!.binDirectory, '../manifest.json'),
+        'utf8',
+      );
+      const m = JSON.parse(raw) as import('@craftingtable/agents').PinnedCargoManifest;
+      expect(m.verification?.mode).toBe('current-upstream-build');
+      appendFileSync(
+        m.receiptPath,
+        `${JSON.stringify({
+          kind: 'local-ci',
+          runtimeId: m.runtimeId,
+          runId: m.runId,
+          manifestDigest: createHash('sha256').update(raw).digest('hex'),
+          verificationMode: m.verification?.mode,
+          headSha: git(['rev-parse', 'HEAD'], request.cwd).trim(),
+          clean: true,
+          success: true,
+        })}\n`,
+      );
+    });
+    const { checkpointRecoverySchema } = await import('@craftingtable/contracts');
+    const preview = await f.state.context.app.inject({
+      method: 'GET',
+      url: `${f.base}/checkpoint-recovery/${f.tree.id}`,
+      headers: { cookie: f.state.cookie },
+    });
+    expect(preview.statusCode, preview.body).toBe(200);
+    expect(checkpointRecoverySchema.parse(preview.json()).candidates[0]!.issues).toContain(
+      'The checkpoint needs a successful controller receipt on the exact clean candidate.',
     );
   },
 );

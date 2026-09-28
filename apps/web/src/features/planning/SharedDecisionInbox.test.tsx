@@ -308,3 +308,55 @@ it('offers no batch approval while scheduling runs (R-C3b)', () => {
     (within(batch).getByRole('checkbox', { name: /LOCAL-ADR-012/ }) as HTMLInputElement).disabled,
   ).toBe(true);
 });
+it('approves only the proposals ticked as reviewed, lists none with issues, and stops at a refusal (R-C3b review)', async () => {
+  const record = (id: string, proposal: string) => ({
+    ...decisionRecord,
+    id,
+    proposal: { ...decisionRecord.proposal, proposal },
+  });
+  const card = (
+    checkpointId: string,
+    records: ArchitectureDecisionInbox['decisions'][number]['records'],
+  ) => ({
+    ...decisionInbox.decisions[0]!,
+    checkpointId,
+    records,
+  });
+  const inbox: ArchitectureDecisionInbox = {
+    ...decisionInbox,
+    decisions: [
+      card('LOCAL-ADR-012', [record('00000000-0000-4000-8000-000000000011', 'First.')]),
+      card('LOCAL-ADR-013', [record('00000000-0000-4000-8000-000000000012', 'Second.')]),
+      card('LOCAL-ADR-014', [record('00000000-0000-4000-8000-000000000013', 'Third.')]),
+      card('LOCAL-ADR-015', [
+        { ...record('00000000-0000-4000-8000-000000000014', 'Flawed.'), issues: ['Stale digest'] },
+      ]),
+    ],
+  };
+  vi.mocked(request)
+    .mockResolvedValueOnce(view(inbox))
+    .mockRejectedValueOnce(new Error('Pause roadmap scheduling before approving.'));
+  const onChanged = vi.fn();
+  render(
+    <SharedDecisionInbox data={inbox} csrfToken="csrf" disabled={false} onChanged={onChanged} />,
+  );
+  const batch = screen.getByRole('region', { name: 'Approve saved decisions' });
+  expect(within(batch).queryByRole('checkbox', { name: /LOCAL-ADR-015/ })).toBeNull();
+  fireEvent.click(within(batch).getByRole('checkbox', { name: /LOCAL-ADR-012/ }));
+  fireEvent.click(within(batch).getByRole('checkbox', { name: /LOCAL-ADR-014/ }));
+  fireEvent.change(within(batch).getByLabelText('Approval rationale for the batch'), {
+    target: { value: 'Reviewed.' },
+  });
+  fireEvent.click(within(batch).getByRole('button', { name: 'Approve reviewed decisions' }));
+  await within(batch).findByText(/Approved LOCAL-ADR-012; stopped: Pause roadmap scheduling/);
+  const sent = vi
+    .mocked(request)
+    .mock.calls.filter(([url]) => String(url).endsWith('/decide'))
+    .map(([, , init]) => JSON.parse(String((init as RequestInit).body)).submissionId);
+  // LOCAL-ADR-013 was not ticked; LOCAL-ADR-014 was refused, so nothing after it runs.
+  expect(sent).toEqual([
+    '00000000-0000-4000-8000-000000000011',
+    '00000000-0000-4000-8000-000000000013',
+  ]);
+  expect(onChanged).toHaveBeenCalledTimes(1);
+});

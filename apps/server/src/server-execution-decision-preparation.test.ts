@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ConcurrencySource } from '@craftingtable/domain';
 import {
@@ -499,4 +500,77 @@ it('a decision that cannot be reserved gives its place to the next, and waits be
   );
   for (let pass = 0; pass < 3; pass++) await f.state.context.services.roadmapService.tick();
   expect(refused).toBe(1);
+});
+
+it('skips a decision accepted without a preparation on this binding (R-C3b review)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture();
+  const { f, ws, tx } = fixture;
+  expect((await prepare(fixture, 'LOCAL-ADR-01')).statusCode).toBe(200);
+  const manual = preparation(fixture, 'LOCAL-ADR-01')!;
+  await waitFor(
+    () => tx.execution.runs.find(ws, manual.runId)?.status === 'finished',
+    'the manual preparation finishes',
+  );
+  await proposeAndAccept(fixture, 'LOCAL-ADR-01');
+  // As if it were accepted from a design stop's proposal: no preparation is on record.
+  const current = storedRoadmap(f.state);
+  const { decisionPreparations: _prepared, ...rest } = current;
+  tx.roadmaps.save({ ...rest, version: current.version + 1 }, current.version);
+  await grantAndStart(fixture);
+  await waitFor(() => prepared(fixture).length === 1, 'the standing preparation');
+  expect(prepared(fixture)).toEqual(['LOCAL-ADR-02']);
+});
+
+it('prepares nothing for a grantor who may no longer prepare, and stops a launch the grant no longer covers (R-C3b review)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture();
+  const { f, tx } = fixture;
+  await grantAndStart(fixture);
+  // A grant written by a user who is not a member prepares nothing.
+  const granted = storedRoadmap(f.state);
+  tx.roadmaps.save(
+    {
+      ...granted,
+      version: granted.version + 1,
+      decisionPreparationGrant: {
+        ...granted.decisionPreparationGrant!,
+        grantedByUserId: randomUUID() as never,
+      },
+    },
+    granted.version,
+  );
+  await f.state.context.services.roadmapService.tick();
+  expect(prepared(fixture)).toEqual([]);
+  // The grant is the operator's again; a launch in flight when it is revoked stops.
+  const restored = storedRoadmap(f.state);
+  tx.roadmaps.save(
+    {
+      ...restored,
+      version: restored.version + 1,
+      decisionPreparationGrant: { ...granted.decisionPreparationGrant! },
+    },
+    restored.version,
+  );
+  const release = holdLaunches(fixture);
+  const pass = f.state.context.services.roadmapService.tick();
+  await until(() => tx.execution.runs.listLive().length === 1, 'a standing launch in flight');
+  const inFlight = storedRoadmap(f.state);
+  tx.roadmaps.save(
+    {
+      ...inFlight,
+      version: inFlight.version + 1,
+      decisionPreparationGrant: { ...inFlight.decisionPreparationGrant!, enabled: false },
+    },
+    inFlight.version,
+  );
+  release();
+  await pass;
+  // The launch's own check refuses it: the run ends without a recommendation.
+  const stopped = preparation(fixture, 'LOCAL-ADR-01')!;
+  const run = tx.execution.runs.find(f.state.workspaceId, stopped.runId);
+  expect(stopped.failure ?? run?.status).toMatch(/revoked|failed|cancelled/);
+  expect(run?.status).not.toBe('finished');
 });

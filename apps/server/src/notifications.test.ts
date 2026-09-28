@@ -1454,11 +1454,15 @@ describe('durable attention items (R-A4)', () => {
       readonly coverage?: string;
       readonly outcome?: string;
       readonly definitionId?: string;
+      readonly subjectKind?: string;
     } = {},
   ) {
     const submission = {
       id: randomUUID(),
-      subject: { kind: 'checkpoint', sourceId: shape.sourceId ?? 'AQ-ADR-003' },
+      subject: {
+        kind: shape.subjectKind ?? 'checkpoint',
+        sourceId: shape.sourceId ?? 'AQ-ADR-003',
+      },
       bindingRevision: shape.bindingRevision ?? 1,
       architectureDecision: { coverage: shape.coverage ?? 'full' },
     };
@@ -1514,6 +1518,7 @@ describe('durable attention items (R-A4)', () => {
     ['a rejected decision', { outcome: 'rejected' }],
     ["another checkpoint's decision", { sourceId: 'AQ-ADR-004' }],
     ["another definition's decision", { definitionId: randomUUID() }],
+    ['a decision on a slice of the same name', { subjectKind: 'slice' }],
   ])("keeps a preparation's questions open after %s", async (_name, shape) => {
     const { f, runId, preparation } = await preparationWithQuestions();
     decide(f, preparation, shape);

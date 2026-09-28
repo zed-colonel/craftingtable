@@ -314,7 +314,7 @@ itNeedsCargo(
     await waitFor(
       () => repairRuns === 2 && repair()?.status === 'running',
       'the round reassesses its repair',
-      30000,
+      15000,
     );
     // While the round's repair is at work again, nobody is asked anything.
     expect(openSubjects()).toEqual([]);

@@ -138,7 +138,10 @@ export interface ScriptedReply {
   readonly truncated?: boolean;
   /** What the turn's one tool call prints; `README.md` when absent. */
   readonly toolOutput?: string;
-  /** The turn answers only once this settles, so a test can observe the run while it works. */
+  /**
+   * The launch's first turn answers only once this resolves, so a test can observe the run
+   * while it works. Only a launch's first reply is gated; replies to later messages are not.
+   */
   readonly release?: Promise<void>;
 }
 

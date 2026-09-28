@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +13,12 @@ const temporary = [];
 const running = [];
 afterEach(() => {
   for (const child of running.splice(0)) {
-    if (child.exitCode === null && child.signalCode === null) process.kill(-child.pid, 'SIGKILL');
+    try {
+      // The group, not only the shell: a daemon may outlive its wrapper.
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      // The group has already gone.
+    }
   }
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
@@ -39,53 +44,65 @@ async function waitForHealth(url, child, deadline) {
   throw new Error('the e2e daemon did not become healthy');
 }
 
-function exited(child) {
+/** Playwright waits for `close`, after the whole command has exited. */
+function closed(child) {
   return new Promise((resolve) => {
     if (child.exitCode !== null || child.signalCode !== null) resolve();
-    else child.once('exit', () => resolve());
+    else child.once('close', () => resolve());
   });
 }
+
+// `e2e:start` runs the daemon through tsx, which resolves the workspace packages from their
+// build output: `pnpm check` builds before it tests; a bare `pnpm test` on a fresh checkout
+// skips this until `tsc -b` has run.
+const built = existsSync(new URL('../packages/domain/dist/index.js', import.meta.url));
 
 // Playwright stops a web server by killing its process group: with SIGKILL unless the config
 // asks for a graceful signal. The e2e daemon keeps its database in a temporary directory that
 // only its signal handlers remove, so a SIGKILL left 72 MB behind on every run (2026-09-28:
 // 202 directories, 7.5 GB of the user's /tmp quota, which then crashed headless Chrome).
-it('the e2e daemon leaves no data directory when Playwright stops it', async () => {
-  const daemon = config.webServer.find((server) => server.command.includes('e2e:start'));
-  expect(daemon).toBeDefined();
-  const scratch = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-shutdown-'));
-  temporary.push(scratch);
-  const port = await freePort();
-  // Started as Playwright starts it: through a shell, in its own process group.
-  const child = spawn(daemon.command, {
-    cwd: REPOSITORY_ROOT,
-    shell: true,
-    detached: true,
-    stdio: 'ignore',
-    env: {
-      ...process.env,
-      ...daemon.env,
-      CRAFTINGTABLE_PORT: String(port),
-      TMPDIR: scratch,
-    },
-  });
-  running.push(child);
-  await waitForHealth(`http://127.0.0.1:${port}/api/health`, child, Date.now() + 45_000);
-  expect(readdirSync(scratch).filter((name) => name.startsWith('craftingtable-e2e-'))).toHaveLength(
-    1,
-  );
+it.skipIf(!built)(
+  'the e2e daemon leaves no data directory when Playwright stops it',
+  async () => {
+    const daemon = config.webServer.find((server) => server.command.includes('e2e:start'));
+    expect(daemon).toBeDefined();
+    const scratch = mkdtempSync(join(tmpdir(), 'craftingtable-e2e-shutdown-'));
+    temporary.push(scratch);
+    const port = await freePort();
+    // Started as Playwright starts it: through a shell, in its own process group.
+    const child = spawn(daemon.command, {
+      cwd: REPOSITORY_ROOT,
+      shell: true,
+      detached: true,
+      stdio: 'ignore',
+      env: {
+        ...process.env,
+        ...daemon.env,
+        CRAFTINGTABLE_PORT: String(port),
+        TMPDIR: scratch,
+      },
+    });
+    running.push(child);
+    await waitForHealth(`http://127.0.0.1:${port}/api/health`, child, Date.now() + 45_000);
+    expect(
+      readdirSync(scratch).filter((name) => name.startsWith('craftingtable-e2e-')),
+    ).toHaveLength(1);
 
-  const graceful = daemon.gracefulShutdown;
-  process.kill(-child.pid, graceful?.signal ?? 'SIGKILL');
-  if (graceful) {
-    const timer = setTimeout(() => process.kill(-child.pid, 'SIGKILL'), graceful.timeout);
-    await exited(child);
-    clearTimeout(timer);
-  } else {
-    await exited(child);
-  }
-  // The daemon's own children leave with the group; give the file system a moment.
-  await new Promise((resolve) => setTimeout(resolve, 200));
+    const graceful = daemon.gracefulShutdown;
+    process.kill(-child.pid, graceful?.signal ?? 'SIGKILL');
+    if (graceful) {
+      const timer = setTimeout(() => process.kill(-child.pid, 'SIGKILL'), graceful.timeout);
+      await closed(child);
+      clearTimeout(timer);
+    } else {
+      await closed(child);
+    }
+    // The daemon's own children leave with the group; give the file system a moment.
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
-  expect(readdirSync(scratch).filter((name) => name.startsWith('craftingtable-e2e-'))).toEqual([]);
-}, 90_000);
+    expect(readdirSync(scratch).filter((name) => name.startsWith('craftingtable-e2e-'))).toEqual(
+      [],
+    );
+  },
+  90_000,
+);

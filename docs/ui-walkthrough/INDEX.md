@@ -84,3 +84,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-09-27-status-list-after-42bca8b | `42bca8b` | 2026-09-27 | 61 (1 phone only) | 1× |
 | 2026-09-27-status-list-review-after | `0727885` | 2026-09-27 | 61 (1 phone only) | 1× |
 | 2026-09-28-recovery-escalation-before | `b784837` | 2026-09-28 | 61 (1 phone only) | 1× |
+| 2026-09-28-recovery-escalation-after | `d257e06` | 2026-09-28 | 61 (1 phone only) | 1× |

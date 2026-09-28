@@ -42,6 +42,7 @@ import { PlanImportService } from './services/plan-import-service.js';
 import { PlanningQueryService } from './services/planning-query-service.js';
 import { RoadmapService } from './services/roadmap-service.js';
 import { RunEventStreamService } from './services/run-event-stream-service.js';
+import { CheckRequestService } from './services/check-request-service.js';
 import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import { StorageService } from './services/storage-service.js';
 import { WorkCycleService } from './services/work-cycle-service.js';
@@ -58,6 +59,7 @@ export interface ServiceSet {
   readonly crossProjectService: CrossProjectService;
   readonly mapAmendmentService: MapAmendmentService;
   readonly runtimeEvidenceService: RuntimeEvidenceService;
+  readonly checkRequestService: CheckRequestService;
   readonly packageImportService: PackageImportService;
   readonly storageService: StorageService;
   readonly hostSchedulingService: HostSchedulingService;
@@ -215,6 +217,13 @@ export async function createServices(
     runtimeEvidenceService,
     baselineService,
   );
+  const checkRequests = new CheckRequestService(
+    storage,
+    config.execution,
+    overrides.runLog ?? { warn: () => undefined },
+  );
+  checkRequests.stopLeftoverUnits();
+  agentRunService.attachChecks(checkRequests);
   storage.transaction((tx) => {
     tx.phaseScheduling.initializeCapacity(
       'local-development',
@@ -297,6 +306,7 @@ export async function createServices(
       notifier,
     ),
     runtimeEvidenceService,
+    checkRequestService: checkRequests,
     storageService,
     hostSchedulingService: new HostSchedulingService(storage, workspaceService, notifier, now),
     operatorWaitService: new OperatorWaitService(storage, workspaceService, now),
@@ -425,6 +435,7 @@ export async function createRuntime(
         }
         closed = true;
         await app.close();
+        await services.checkRequestService.closeAll();
         storage.close();
       },
     };

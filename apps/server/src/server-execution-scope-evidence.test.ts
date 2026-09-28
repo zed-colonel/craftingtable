@@ -23,6 +23,7 @@ import {
   itNeedsCargo,
   merge,
   mutationHeaders,
+  runLauncher,
   runToFinish,
   scopeKey,
   scopeReport,
@@ -846,12 +847,15 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
       tree = await scopeTree(f, scope);
     f.backend.replyForRequest = () => ({ resultText: scopeReport(f.state, scope) });
     const withoutBuild = await runToFinish(f.state, tree.id, { role: 'review' });
-    expect(() => svc.assertRun(tree, withoutBuild)).toThrow('frozen pinned build record');
-    f.backend.replyForRequest = (request) => {
+    // The daemon recorded no check, so the frozen record is empty and the gate refuses it (R-G4).
+    expect(storage.runtimeEvidence.build(ws, withoutBuild)).toMatchObject({ receipts: '' });
+    expect(() => svc.assertRun(tree, withoutBuild)).toThrow('The review needs a successful');
+    f.backend.replyForRequest = async (request) => {
       expect(request.buildEnvironment?.namespace).toBeTruthy();
       expect(request.prompt).toContain('Pinned dependency environment:');
-      execFileSync(
-        join(request.buildEnvironment!.binDirectory, mode === 'integration' ? 'cargo' : 'ct-check'),
+      await runLauncher(
+        request,
+        mode === 'integration' ? 'cargo' : 'ct-check',
         mode === 'integration'
           ? ['test', '--offline']
           : [
@@ -860,22 +864,19 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
               '-e',
               'if(!require("node:fs").readFileSync("lib.rs","utf8").includes("pin()"))process.exit(1)',
             ],
-        {
-          cwd: request.cwd,
-          env: { ...process.env, CARGO_NET_OFFLINE: 'true' },
-          stdio: 'pipe',
-        },
+        { ...process.env, CARGO_NET_OFFLINE: 'true' },
       );
       return { resultText: scopeReport(f.state, scope) };
     };
     if (mode === 'integration') {
       const original = f.backend.replyForRequest;
-      f.backend.replyForRequest = (request) => {
-        execFileSync(
-          join(request.buildEnvironment!.binDirectory, 'ct-check'),
-          ['--', process.execPath, '-e', 'console.log("contract checked")'],
-          { cwd: request.cwd },
-        );
+      f.backend.replyForRequest = async (request) => {
+        await runLauncher(request, 'ct-check', [
+          '--',
+          process.execPath,
+          '-e',
+          'console.log("contract checked")',
+        ]);
         return { resultText: scopeReport(f.state, scope) };
       };
       const scopedOnly = await runToFinish(f.state, tree.id, { role: 'review' });
@@ -911,7 +912,7 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
     const frozen = storage.runtimeEvidence.build(ws, run)!;
     expect(frozen.error).toBeUndefined();
     expect(frozen.receipts).toContain('"success":true');
-    rmSync(manifest.receiptPath);
+    rmSync(manifest.receiptPath, { force: true });
     expect(() => svc.assertRun(tree, run)).not.toThrow();
     const db = openDatabase(storage.databasePath);
     try {

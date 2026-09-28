@@ -437,8 +437,8 @@ itNeedsCargo(
     const f = await supervisedMapFixture(true);
     const original = f.backend.replyForRequest!;
     const security: AgentLaunchRequest[] = [];
-    f.backend.replyForRequest = (request) => {
-      const reply = original(request);
+    f.backend.replyForRequest = async (request) => {
+      const reply = await original(request);
       if (request.model !== 'review-model') return reply;
       if (request.prompt.includes('This is a separate security review.')) security.push(request);
       return {
@@ -479,13 +479,13 @@ itNeedsCargo.each([true, false])(
     if (configured) configureLocalRuntime(f.auth, f.state, f.scopes[0]!.definitionId);
     const tree = await scopeTree(f, f.scopes[0]!);
     const security: AgentLaunchRequest[] = [];
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       if (request.model === 'design-model') return designDone;
       if (request.model !== 'review-model') {
         commitFile(request.cwd, 'session.txt', 'Security-sensitive session handling');
         return implementationDone;
       }
-      runScopedFixtureCheck(request);
+      await runScopedFixtureCheck(request);
       if (request.prompt.includes('This is a separate security review.')) security.push(request);
       return {
         resultText: withWorkflowReport(
@@ -527,13 +527,13 @@ itNeedsCargo(
     const f = await slicedFixture();
     configureLocalRuntime(f.auth, f.state, f.scopes[0]!.definitionId);
     const security: AgentLaunchRequest[] = [];
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       if (request.model === 'design-model') return designDone;
       if (request.model !== 'review-model') {
         commitFile(request.cwd, 'session.txt', 'Security-sensitive session handling');
         return implementationDone;
       }
-      runScopedFixtureCheck(request);
+      await runScopedFixtureCheck(request);
       if (request.prompt.includes('This is a separate security review.')) security.push(request);
       const tree = f.state.context.storage.execution.worktrees
         .listActive(f.state.workspaceId)
@@ -642,8 +642,8 @@ itNeedsCargo.each([
     }));
     const original = f.backend.replyForRequest!;
     let independent = 0;
-    f.backend.replyForRequest = (request) => {
-      const reply = original(request);
+    f.backend.replyForRequest = async (request) => {
+      const reply = await original(request);
       if (request.model !== 'review-model') return reply;
       const checkpoint = request.prompt.includes('This is a separate checkpoint review.');
       if (checkpoint) independent++;
@@ -835,9 +835,9 @@ itNeedsCargo(
   async () => {
     const f = await supervisedMapFixture(true);
     const original = f.backend.replyForRequest!;
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       const reassessment = request.prompt.includes('This is a separate reassessment review.');
-      const reply = original(reassessment ? { ...request, model: 'review-model' } : request);
+      const reply = await original(reassessment ? { ...request, model: 'review-model' } : request);
       if (request.model === 'implement-model')
         return {
           ...reply,
@@ -898,8 +898,8 @@ itNeedsCargo(
   async () => {
     const f = await supervisedMapFixture(true);
     const original = present(f.backend.replyForRequest);
-    f.backend.replyForRequest = (request) => {
-      const reply = original(request);
+    f.backend.replyForRequest = async (request) => {
+      const reply = await original(request);
       return request.model === 'implement-model'
         ? {
             ...reply,
@@ -947,13 +947,13 @@ itNeedsCargo(
     const original = f.backend.replyForRequest!;
     let fixed = false,
       securityRuns = 0;
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       if (request.model === 'remediate-model') {
         fixed = true;
         commitFile(request.cwd, 'guard.txt', 'Recovery guard fixed');
         return implementationDone;
       }
-      const reply = original(request);
+      const reply = await original(request);
       if (request.model !== 'review-model') return reply;
       const specialist = request.prompt.includes('This is a separate security review.');
       if (specialist) {
@@ -1048,8 +1048,8 @@ itNeedsCargo(
       ),
     }));
     const original = f.backend.replyForRequest!;
-    f.backend.replyForRequest = (request) => {
-      const reply = original(request);
+    f.backend.replyForRequest = async (request) => {
+      const reply = await original(request);
       return request.model === 'review-model'
         ? { ...reply, resultText: withWorkflowReport(reply.resultText!) }
         : reply;
@@ -1085,8 +1085,8 @@ itNeedsCargo(
     const f = await supervisedMapFixture(true);
     const original = f.backend.replyForRequest!;
     let paused = false;
-    f.backend.replyForRequest = (request) => {
-      const reply = original(request);
+    f.backend.replyForRequest = async (request) => {
+      const reply = await original(request);
       if (request.model !== 'review-model') return reply;
       if (!paused) {
         paused = true;
@@ -1188,8 +1188,8 @@ itNeedsCargo(
       ],
     }));
     const original = f.backend.replyForRequest!;
-    f.backend.replyForRequest = (request) => {
-      const reply = original(request);
+    f.backend.replyForRequest = async (request) => {
+      const reply = await original(request);
       return request.model !== 'review-model'
         ? reply
         : {
@@ -1611,8 +1611,8 @@ itNeedsCargo(
       ),
     }));
     const originalReply = f.backend.replyForRequest!;
-    f.backend.replyForRequest = (request) => {
-      const reply = originalReply(request);
+    f.backend.replyForRequest = async (request) => {
+      const reply = await originalReply(request);
       if (request.model !== 'review-model') return reply;
       const checkpoint = request.prompt.includes('This is a separate checkpoint review.');
       const spec = requireSubjectRequirements(

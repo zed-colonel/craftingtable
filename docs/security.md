@@ -446,6 +446,17 @@ no browser-supplied filesystem path or command is accepted. Genuine design decis
 
 Scoped verification (ADR-053) never waives map requirements or treats historical builds as current
 integration. `ct-check` commands originate inside an already authorized agent process, not HTTP.
+Since R-G4 (2026-09-28) the agent's `ct-check` only leaves a request in its run's spool. The daemon runs
+the command outside the agent's process tree, in a transient systemd user unit (read-only file system
+except the worktree, the run directory and Cargo's download caches; private /tmp; no network; no new
+privileges; a named environment), observes HEAD and cleanliness itself, keeps the log under
+`<data>/check-logs`, and records the receipt in its database while the run is live. A run prepared this
+way freezes its build record from those rows; a line written to the launcher file is not read as a
+`scoped-check` receipt. The spool is agent-owned, so the daemon never follows a link or reads a FIFO
+there and creates each reply file exclusively. `CRAFTINGTABLE_CHECK_CONFINEMENT=none` runs checks as a
+plain process group instead (tests, or a host without a user manager). `ct-act`, `ct-native` and pinned
+Cargo still run in the agent's tree until their R-G4 increments land; Claude runs have no OS sandbox, so
+for them the database itself stays writable by the agent until R-G5's sandbox increment.
 `ct-act` restricts its input to one ordinary repository workflow and optional job; host configuration
 selects the local socket, image digest and storage. Rootless Docker retains ordinary user authority.
 Job containers have no mounted daemon socket or implicit host credential files. These are cooperative

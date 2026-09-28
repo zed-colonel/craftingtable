@@ -20,6 +20,7 @@ import {
   HOST_CARGO,
   itNeedsCargo,
   mutationHeaders,
+  runLauncher,
   runToFinish,
   scopeReport,
   scopeTree,
@@ -382,12 +383,13 @@ itNeedsCargo(
     expect(() => svc.assertRun(tree(), run)).not.toThrow();
 
     // A scoped check alone no longer satisfies it.
-    f.backend.replyForRequest = (request) => {
-      execFileSync(
-        join(request.buildEnvironment!.binDirectory, 'ct-check'),
-        ['--', process.execPath, '-e', 'console.log("domain checked")'],
-        { cwd: request.cwd },
-      );
+    f.backend.replyForRequest = async (request) => {
+      await runLauncher(request, 'ct-check', [
+        '--',
+        process.execPath,
+        '-e',
+        'console.log("domain checked")',
+      ]);
       return { resultText: scopeReport(f.state, verification.executionScope!) };
     };
     const scopedOnly = await runToFinish(f.state, verification.id, { role: 'review' });

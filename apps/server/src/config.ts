@@ -23,6 +23,14 @@ export interface ExecutionConfig {
   /** `id=Label,id=Label` model options for the launch form; absent means the built-in list. */
   readonly claudeModels?: string;
   readonly codexModels?: string;
+  /**
+   * How the daemon isolates the checks it runs for agents (R-G4): `systemd`, a transient user
+   * unit with a read-only file system except the run's own paths and no network, or `none`,
+   * a plain process group (tests; a host without a systemd user manager).
+   */
+  readonly checkConfinement: 'systemd' | 'none';
+  /** Daemon-owned check logs, outside every agent's writable roots. */
+  readonly checkLogRoot: string;
 }
 
 export interface TlsConfig {
@@ -159,6 +167,14 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
   if (pathsOverlap(worktreeRoot, runsRoot)) {
     throw new Error('Worktree and runs roots must not overlap');
   }
+  const checkLogRoot = join(dataDir, 'check-logs');
+  if (pathsOverlap(checkLogRoot, runsRoot) || pathsOverlap(checkLogRoot, worktreeRoot)) {
+    throw new Error('Check logs must lie outside the worktree and runs roots');
+  }
+  const checkConfinement = env.CRAFTINGTABLE_CHECK_CONFINEMENT ?? 'systemd';
+  if (checkConfinement !== 'systemd' && checkConfinement !== 'none') {
+    throw new Error('CRAFTINGTABLE_CHECK_CONFINEMENT must be systemd or none');
+  }
   return Object.freeze({
     ...(gitExecutable === undefined ? {} : { gitExecutable }),
     ...(claudeExecutable === undefined ? {} : { claudeExecutable }),
@@ -168,6 +184,8 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
       : { codexModels: env.CRAFTINGTABLE_CODEX_MODELS }),
     worktreeRoot,
     runsRoot,
+    checkConfinement,
+    checkLogRoot,
     ...(env.CRAFTINGTABLE_CLAUDE_MODELS === undefined
       ? {}
       : { claudeModels: env.CRAFTINGTABLE_CLAUDE_MODELS }),

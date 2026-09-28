@@ -158,6 +158,23 @@ export interface RunEnvironment {
    * the run was held to a current-upstream build (ADR-069). Absent on earlier records.
    */
   readonly verificationMode?: 'current-upstream-build';
+  /**
+   * `daemon` when the run's checks are run and recorded by the daemon (R-G4): its gating
+   * receipts come from the daemon's own records, never from a file the agent can write.
+   * Absent on runs prepared before that; their receipts are agent-reported.
+   */
+  readonly receiptAuthority?: 'daemon';
+}
+
+/** One check the daemon ran for a run and recorded as it finished (R-G4). Immutable. */
+export interface RunCheckReceipt {
+  readonly runId: string;
+  readonly workspaceId: WorkspaceId;
+  /** 1, 2, ... in the order the checks finished. */
+  readonly sequence: number;
+  /** One receipt line, in the format frozen into the run's build record. */
+  readonly receipt: string;
+  readonly recordedAt: string;
 }
 
 export interface ArchitectureDecision {

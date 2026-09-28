@@ -4,8 +4,22 @@ export {
   loadLocalCiConfig,
   cleanupLocalCi,
   cleanupLocalCiManifest,
+  executeCheck,
+  stopCheckUnits,
+  confinedCheckArguments,
+  type CheckConfinement,
+  type CheckOutcome,
   type LocalCiConfig,
 } from './local-check.js';
+export { allowlistedEnvironment } from './child-environment.js';
+export {
+  CheckReply,
+  claimCheckRequest,
+  pendingCheckRequests,
+  submitCheck,
+  type CheckRequest,
+  type CheckTool,
+} from './check-spool.js';
 export {
   prepareCargoLauncher,
   type PinnedCargoManifest,

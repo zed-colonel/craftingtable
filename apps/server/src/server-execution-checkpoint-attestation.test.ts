@@ -114,7 +114,7 @@ itNeedsCargo(
         }
       | undefined;
     let prompt = '';
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       if (
         request.model === 'review-model' &&
         request.prompt.includes('This is a separate checkpoint review.')
@@ -123,7 +123,7 @@ itNeedsCargo(
         if (path) packet ??= JSON.parse(readFileSync(path, 'utf8'));
         prompt ||= request.prompt;
       }
-      const reply = original(request);
+      const reply = await original(request);
       // A delegated review answers the controller's workflow contract.
       return request.model === 'review-model'
         ? {

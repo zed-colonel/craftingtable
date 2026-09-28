@@ -240,6 +240,13 @@ using Codex. Tool status reports executable availability, not authentication hea
 replaces its model picker list. Codex app-server behavior was verified with CLI 0.153.4. The adapter communicates
 over local stdio; do not start a separate app-server listener for CraftingTable.
 
+The daemon runs the checks agents ask for with `ct-check` itself, each in a transient systemd user unit
+(`craftingtable-check-<instance>-<request>.service`) with a read-only file system except the run's own
+paths and no network (R-G4). The unit therefore needs the user manager: the daemon's environment must
+carry `XDG_RUNTIME_DIR` (and the user bus), as the systemd unit provides. Their logs are kept under
+`<data>/check-logs/<run>/`. On a host without a user manager, `CRAFTINGTABLE_CHECK_CONFINEMENT=none` runs
+them as plain process groups. The daemon stops its own leftover check units when it starts.
+
 `pnpm check` needs no care around a running daemon: the end-to-end suite uses ports and
 data directories of its own.
 

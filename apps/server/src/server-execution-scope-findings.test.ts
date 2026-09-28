@@ -54,10 +54,10 @@ itNeedsCargo.each([false, true])(
       scopeReport(state, scope)
         .replace('"findings":[]', `"findings":${JSON.stringify(findings)}`)
         .replaceAll('mergeable', open ? 'changes-requested' : 'mergeable');
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
       if (tree.executionScope?.kind === 'parent-acceptance') {
-        runScopedFixtureCheck(request);
+        await runScopedFixtureCheck(request);
         return { resultText: reportWith(tree.executionScope, [parentFinding]) };
       }
       return normal(request);
@@ -112,9 +112,9 @@ itNeedsCargo.each([false, true])(
           instructions: 'Keep the adopted policy and the original gate.',
         },
       });
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
-      runScopedFixtureCheck(request);
+      await runScopedFixtureCheck(request);
       return { resultText: reportWith(tree.executionScope!, [verifyFinding]) };
     };
     expect((await command(verification, 'review-again')).statusCode).toBe(200);
@@ -125,9 +125,9 @@ itNeedsCargo.each([false, true])(
     // A second round samples other examples of the same finding (HIST-04, R-C5).
     const firstRound = currentCycle(state, verification).currentRunId;
     const laterExplanation = 'Contribution guidance is still missing in amend.rs.';
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
-      runScopedFixtureCheck(request);
+      await runScopedFixtureCheck(request);
       return {
         resultText: reportWith(tree.executionScope!, [
           { ...verifyFinding, explanation: laterExplanation },
@@ -216,7 +216,7 @@ itNeedsCargo.each([false, true])(
           }[];
         }
       | undefined;
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
       const file = /`([^`]+\/craftingtable-scope-repair\.json)`/.exec(request.prompt)?.[1];
       expect(file, request.prompt).toBeTruthy();
@@ -233,7 +233,7 @@ itNeedsCargo.each([false, true])(
         commitFile(request.cwd, 'recovery.txt', 'Fixed both ledger and contribution guidance');
         return implementationDone;
       }
-      runScopedFixtureCheck(request);
+      await runScopedFixtureCheck(request);
       const findings = packet!.sources
         .flatMap((s) => s.findings)
         .map((finding) => ({
@@ -336,9 +336,9 @@ itNeedsCargo.each([false, true])(
     const integrationHead = git(['rev-parse', 'revision'], f.root).trim();
     expect(integrationHead).not.toBe(originalHead);
     expect((await command(parent, 'resume')).statusCode).toBe(409);
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
-      runScopedFixtureCheck(request);
+      await runScopedFixtureCheck(request);
       const finding =
         tree.executionScope?.kind === 'parent-acceptance' ? parentFinding : verifyFinding;
       return {

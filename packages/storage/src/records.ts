@@ -22,6 +22,7 @@ import {
   type RoadmapDefinition,
   type UpstreamTransitionRecord,
   type RunBuildRecord,
+  type RunCheckReceipt,
   type RunEnvironment,
   type RuntimeGeneration,
   type ScopeIntegrationReuse,
@@ -71,6 +72,7 @@ export interface PersistedRecords {
   readonly 'evidence-decision': EvidenceDecision;
   readonly 'run-environment': RunEnvironment;
   readonly 'run-build-record': RunBuildRecord;
+  readonly 'run-check-receipt': RunCheckReceipt;
   readonly 'native-approval': NativeVerificationApproval;
   readonly 'upstream-transition-record': UpstreamTransitionRecord;
   readonly 'scope-receipt': ScopeReceipt;
@@ -184,6 +186,7 @@ export const RECORD_UPCASTERS: { readonly [K in PersistedRecordKind]: readonly R
     'evidence-decision': [],
     'run-environment': [],
     'run-build-record': [],
+    'run-check-receipt': [],
     'native-approval': [],
     'upstream-transition-record': [],
     'scope-receipt': [],

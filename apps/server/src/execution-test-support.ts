@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -625,7 +625,9 @@ export async function runDetail(state: Ready, id: AgentRunId) {
 /* Automated cycle exercises the same real Git/worktree and journal path as manual execution. */
 export class CycleBackend extends ScriptedBackend {
   onLaunch: ((request: AgentLaunchRequest) => void) | undefined;
-  replyForRequest: ((request: AgentLaunchRequest) => ScriptedReply) | undefined;
+  replyForRequest:
+    | ((request: AgentLaunchRequest) => ScriptedReply | Promise<ScriptedReply>)
+    | undefined;
   constructor(
     private readonly outputs: readonly ScriptedReply[],
     kind: AgentBackendKind = 'claude-code',
@@ -637,7 +639,7 @@ export class CycleBackend extends ScriptedBackend {
   private readonly lastReply = new Map<string, ScriptedReply>();
   /** Automatic output-format repairs launched so far (R-C2). */
   repairs = 0;
-  override launch(request: AgentLaunchRequest): Promise<AgentSession> {
+  override async launch(request: AgentLaunchRequest): Promise<AgentSession> {
     this.onLaunch?.(request);
     // An automatic output-format repair resumes the session (R-C2). The scripted agent repeats
     // its report, so scripted outputs and reply scripts stay aligned with the steps.
@@ -646,7 +648,7 @@ export class CycleBackend extends ScriptedBackend {
     if (repair) this.repairs += 1;
     const previous = repair ? this.lastReply.get(request.cwd) : undefined;
     const reply = previous ??
-      this.replyForRequest?.(request) ??
+      (await this.replyForRequest?.(request)) ??
       this.outputs[this.scripted++] ?? { resultText: 'No scripted result' };
     this.lastReply.set(request.cwd, reply);
     this.repliesForNextRun = [reply];
@@ -1381,17 +1383,36 @@ export const HOST_CARGO: string | undefined = resolveExecutable('cargo', undefin
  */
 export const itNeedsCargo: ReturnType<typeof it.skipIf> = it.skipIf(HOST_CARGO === undefined);
 
-export function runScopedFixtureCheck(request: import('@craftingtable/agents').AgentLaunchRequest) {
+/**
+ * Runs one of a run's launchers as its agent would. `ct-check` waits for the daemon in this
+ * same process to run the check (R-G4), so it must not block the event loop.
+ */
+export function runLauncher(
+  request: import('@craftingtable/agents').AgentLaunchRequest,
+  name: 'ct-check' | 'ct-act' | 'ct-native' | 'cargo',
+  args: readonly string[],
+  env?: NodeJS.ProcessEnv,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) =>
+    execFile(
+      join(request.buildEnvironment!.binDirectory, name),
+      [...args],
+      { cwd: request.cwd, encoding: 'utf8', ...(env ? { env } : {}) },
+      (error, stdout, stderr) =>
+        error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr }),
+    ),
+  );
+}
+
+export async function runScopedFixtureCheck(
+  request: import('@craftingtable/agents').AgentLaunchRequest,
+) {
   if (!request.buildEnvironment) return;
   const manifest = JSON.parse(
     readFileSync(join(request.buildEnvironment.binDirectory, '../manifest.json'), 'utf8'),
   );
   if (manifest.verification?.mode === 'scoped-checks')
-    execFileSync(
-      join(request.buildEnvironment.binDirectory, 'ct-check'),
-      ['--', HOST_GIT, 'diff', '--check', 'HEAD'],
-      { cwd: request.cwd },
-    );
+    await runLauncher(request, 'ct-check', ['--', HOST_GIT, 'diff', '--check', 'HEAD']);
 }
 export async function reviewScope(
   f: Awaited<ReturnType<typeof slicedFixture>>,
@@ -1399,8 +1420,8 @@ export async function reviewScope(
   omitRequirement = false,
   omitCase = false,
 ) {
-  f.backend.replyForRequest = (request) => {
-    runScopedFixtureCheck(request);
+  f.backend.replyForRequest = async (request) => {
+    await runScopedFixtureCheck(request);
     return { resultText: scopeReport(f.state, tree.executionScope!, omitRequirement, omitCase) };
   };
   return runToFinish(f.state, tree.id, { role: 'review' });
@@ -1594,10 +1615,10 @@ export async function supervisedMapFixture(
     },
     overrides: [],
   };
-  f.backend.replyForRequest = (request) => {
+  f.backend.replyForRequest = async (request) => {
     if (request.model === 'design-model') return designDone;
     if (request.model === 'review-model') {
-      runScopedFixtureCheck(request);
+      await runScopedFixtureCheck(request);
       const tree = f.state.context.storage.execution.worktrees
         .listActive(ws)
         .find((t) => t.path === request.cwd)!;

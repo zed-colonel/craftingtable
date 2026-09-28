@@ -51,8 +51,8 @@ it('recovers parent review with durable guidance only after current verification
     expect((await recordScope(f, tree)).statusCode).toBe(200);
   }
   const tree = await scopeTree(f, f.parentScope);
-  f.backend.replyForRequest = (request) => {
-    runScopedFixtureCheck(request);
+  f.backend.replyForRequest = async (request) => {
+    await runScopedFixtureCheck(request);
     return {
       resultText: `## Open questions\nWhich policy applies?\n\n## Review report\n${scopeReport(state, f.parentScope)}`,
     };
@@ -104,8 +104,8 @@ it('recovers parent review with durable guidance only after current verification
     await reviewScope(f, verification);
     expect((await recordScope(f, verification)).statusCode).toBe(200);
   }
-  f.backend.replyForRequest = (request) => {
-    runScopedFixtureCheck(request);
+  f.backend.replyForRequest = async (request) => {
+    await runScopedFixtureCheck(request);
     return {
       resultText: `## Open questions\nnone\n\n## Review report\n${scopeReport(state, f.parentScope)}`,
     };
@@ -274,12 +274,12 @@ itNeedsCargo(
       tx = state.context.storage;
     const normal = f.backend.replyForRequest!;
     let verifications = 0;
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
       const scope = tree.executionScope!;
       let findings: unknown[] | undefined;
       if (scope.kind === 'slice-verification') {
-        runScopedFixtureCheck(request);
+        await runScopedFixtureCheck(request);
         findings = [
           {
             ...structuredFinding,
@@ -295,7 +295,7 @@ itNeedsCargo(
           commitFile(request.cwd, 'repair.txt', 'Corrected verification finding');
           return implementationDone;
         }
-        runScopedFixtureCheck(request);
+        await runScopedFixtureCheck(request);
         const packet = JSON.parse(readFileSync(packetPath, 'utf8'));
         findings = packet.sources
           .flatMap((s: { findings: (typeof structuredFinding)[] }) => s.findings)

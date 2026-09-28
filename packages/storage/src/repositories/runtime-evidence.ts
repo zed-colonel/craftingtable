@@ -3,6 +3,7 @@ import type {
   EvidenceSubmission,
   NativeVerificationApproval,
   RunBuildRecord,
+  RunCheckReceipt,
   RunEnvironment,
   RuntimeGeneration,
   UpstreamTransitionRecord,
@@ -36,6 +37,9 @@ export interface RuntimeEvidenceRepository {
   addRun(value: RunEnvironment): void;
   build(ws: string, runId: string): RunBuildRecord | undefined;
   addBuild(value: RunBuildRecord): void;
+  /** In the order the daemon recorded them (R-G4). */
+  checkReceipts(ws: string, runId: string): readonly RunCheckReceipt[];
+  addCheckReceipt(value: RunCheckReceipt): void;
 }
 export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepository {
   constructor(
@@ -151,6 +155,22 @@ export class SqliteRuntimeEvidenceRepository implements RuntimeEvidenceRepositor
     this.db
       .prepare('INSERT INTO run_build_records VALUES (?,?,?)')
       .run(v.runId, v.workspaceId, JSON.stringify(v));
+  }
+  checkReceipts(ws: string, id: string): readonly RunCheckReceipt[] {
+    return decode(
+      'run-check-receipt',
+      this.db
+        .prepare(
+          'SELECT record_json FROM run_check_receipts WHERE workspace_id=? AND run_id=? ORDER BY sequence',
+        )
+        .all(ws, id),
+    );
+  }
+  addCheckReceipt(v: RunCheckReceipt): void {
+    this.guard('run-check-receipt', v);
+    this.db
+      .prepare('INSERT INTO run_check_receipts VALUES (?,?,?,?)')
+      .run(v.runId, v.sequence, v.workspaceId, JSON.stringify(v));
   }
   addRun(v: RunEnvironment): void {
     this.guard('run-environment', v);

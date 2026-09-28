@@ -56,12 +56,12 @@ itNeedsCargo.each([
           ? 'changes-requested'
           : 'mergeable',
       );
-  f.backend.replyForRequest = (request) => {
+  f.backend.replyForRequest = async (request) => {
     const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
     const scope = tree.executionScope!;
     if (scope.kind === 'parent-acceptance') {
       parentReviews++;
-      runScopedFixtureCheck(request);
+      await runScopedFixtureCheck(request);
       const defect = {
         ...structuredFinding,
         id: 'F003',
@@ -97,7 +97,7 @@ itNeedsCargo.each([
           backgroundWorkPending: outcome === 'accepted-after-pause' && repairs === 1,
         };
       }
-      runScopedFixtureCheck(request);
+      await runScopedFixtureCheck(request);
       const packet = JSON.parse(readFileSync(packetPath, 'utf8'));
       const findings = packet.sources
         .flatMap((s: { findings: (typeof structuredFinding)[] }) => s.findings)
@@ -329,12 +329,12 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
             : 'mergeable',
         );
     const defect = { ...structuredFinding, id: 'F003', severity: 'major' };
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
       const scope = tree.executionScope!;
       if (scope.kind === 'parent-acceptance') {
         parentReviews++;
-        runScopedFixtureCheck(request);
+        await runScopedFixtureCheck(request);
         return {
           resultText: reportWith(
             scope,
@@ -351,7 +351,7 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
           commitFile(request.cwd, 'repair.txt', 'Corrected the family');
           return implementationDone;
         }
-        runScopedFixtureCheck(request);
+        await runScopedFixtureCheck(request);
         const packet = JSON.parse(readFileSync(packetPath, 'utf8'));
         return {
           resultText: reportWith(
@@ -497,11 +497,11 @@ itNeedsCargo(
     const normal = f.backend.replyForRequest!;
     const defect = { ...structuredFinding, id: 'F003', severity: 'major' };
     let advancedTo: string | undefined;
-    f.backend.replyForRequest = (request) => {
+    f.backend.replyForRequest = async (request) => {
       const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
       const scope = tree.executionScope!;
       if (scope.kind === 'parent-acceptance') {
-        runScopedFixtureCheck(request);
+        await runScopedFixtureCheck(request);
         return {
           resultText:
             '## Open questions\nnone\n\n## Review report\n' +

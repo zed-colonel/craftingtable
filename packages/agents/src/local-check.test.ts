@@ -1,11 +1,20 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { hostGit } from './host-tools-test-support.js';
 import {
   acquireLocalCiLock,
+  executeCheck,
   loadLocalCiConfig,
   localActArguments,
   localCiLockPath,
@@ -377,4 +386,87 @@ it('refuses native qualification without approval and keeps ordinary checks dist
   expect(p.status).toBe(1);
   expect(f.receipts()[0]).toMatchObject({ kind: 'native-check', success: false });
   expect(f.receipts()[0].diagnostic).toContain('approved native');
+});
+
+const userManager = spawnSync('systemctl', ['--user', 'is-system-running'], {
+  encoding: 'utf8',
+}).stdout?.trim();
+const itConfines = it.skipIf(!['running', 'degraded'].includes(userManager ?? ''));
+
+itConfines(
+  'runs a daemon check in a confined unit: its run directory only, no network, a named environment (R-G4)',
+  async () => {
+    const f = fixture();
+    const run = join(f.root, 'run');
+    const outside = join(homedir(), `.ct-confinement-probe-${process.pid}`);
+    const script = `
+      const fs = require('node:fs');
+      fs.writeFileSync(${JSON.stringify(join(run, 'written'))}, 'ok'); console.log('run-written');
+      try { fs.writeFileSync(${JSON.stringify(outside)}, 'x'); console.log('home-written'); }
+      catch { console.log('home-denied'); }
+      require('node:net').connect(80, '1.1.1.1')
+        .on('connect', () => { console.log('net-open'); process.exit(0); })
+        .on('error', () => { console.log('net-denied'); console.log('env', Object.keys(process.env).sort().join(',')); });
+    `;
+    let output = '';
+    try {
+      const outcome = await executeCheck({
+        manifestPath: f.launcher.manifestPath,
+        manifestDigest: f.launcher.manifestDigest,
+        args: ['--', process.execPath, '-e', script],
+        logPath: join(f.root, 'daemon-logs', '1.log'),
+        logReference: 'check-logs/run/1.log',
+        confinement: 'systemd',
+        unitName: `craftingtable-check-test-${process.pid}-${Date.now()}`,
+        writablePaths: [f.m.workspacePath, run],
+        environment: { PATH: process.env.PATH ?? '/usr/bin', HOME: homedir() },
+        onOutput: (text) => (output += text),
+        signal: new AbortController().signal,
+      });
+      expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+      expect(output).toContain('run-written');
+      expect(output).toContain('home-denied');
+      expect(output).toContain('net-denied');
+      expect(output).toContain('env HOME,PATH\n');
+      expect(existsSync(outside)).toBe(false);
+      expect(outcome.receipt).toMatchObject({
+        kind: 'scoped-check',
+        recordedBy: 'daemon',
+        success: true,
+        clean: true,
+        logPath: 'check-logs/run/1.log',
+      });
+      expect(readFileSync(join(f.root, 'daemon-logs', '1.log'), 'utf8')).toContain('net-denied');
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  },
+);
+
+itConfines('stops a confined check and its unit when the daemon cancels it (R-G4)', async () => {
+  const f = fixture();
+  const unitName = `craftingtable-check-test-${process.pid}-${Date.now()}`;
+  const controller = new AbortController();
+  let output = '';
+  const running = executeCheck({
+    manifestPath: f.launcher.manifestPath,
+    manifestDigest: f.launcher.manifestDigest,
+    args: ['--', process.execPath, '-e', 'console.log("started"); setInterval(() => {}, 1000)'],
+    logPath: join(f.root, 'daemon-logs', '2.log'),
+    logReference: 'check-logs/run/2.log',
+    confinement: 'systemd',
+    unitName,
+    writablePaths: [f.m.workspacePath],
+    environment: { PATH: process.env.PATH ?? '/usr/bin' },
+    onOutput: (text) => {
+      output += text;
+      if (output.includes('started')) controller.abort();
+    },
+    signal: controller.signal,
+  });
+  const outcome = await running;
+  expect(outcome.exitCode).toBe(1);
+  expect(outcome.receipt).toMatchObject({ success: false, exitCode: null });
+  const state = spawnSync('systemctl', ['--user', 'is-active', unitName], { encoding: 'utf8' });
+  expect(state.stdout.trim()).not.toBe('active');
 });

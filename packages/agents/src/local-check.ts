@@ -1,5 +1,5 @@
 /** Local verification adapter; commands originate in the supervised agent, never HTTP. */
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import {
@@ -50,12 +50,30 @@ export function loadLocalCiConfig(path: string | undefined): LocalCiConfig | und
     );
   return c;
 }
-export function prepareLocalCheckLaunchers(bin: string, manifest: string, digest: string) {
+/**
+ * Writes the run's check launchers. With a spool, `ct-check` only asks the daemon to run the
+ * check (R-G4); `limitMs` bounds its wait for the daemon's answer.
+ */
+export function prepareLocalCheckLaunchers(
+  bin: string,
+  manifest: string,
+  digest: string,
+  spool?: { readonly directory: string; readonly limitMs: number },
+) {
+  const spoolModule = new URL(
+    import.meta.url.endsWith('.ts') ? './check-spool.ts' : './check-spool.js',
+    import.meta.url,
+  ).href;
+  if (spool) mkdirSync(spool.directory, { recursive: true, mode: 0o700 });
   for (const name of ['ct-check', 'ct-act', 'ct-native']) {
     const path = join(bin, name);
+    const call =
+      spool && name === 'ct-check'
+        ? `import(${JSON.stringify(spoolModule)}).then(m=>m.submitCheck(${JSON.stringify(spool.directory)},${JSON.stringify(name)},process.argv.slice(2),${spool.limitMs}))`
+        : `import(${JSON.stringify(import.meta.url)}).then(m=>m.runLocalCheck(${JSON.stringify(manifest)},${JSON.stringify(digest)},${JSON.stringify(name)},process.argv.slice(2)))`;
     writeFileSync(
       path,
-      `#!${process.execPath}\nimport(${JSON.stringify(import.meta.url)}).then(m=>m.runLocalCheck(${JSON.stringify(manifest)},${JSON.stringify(digest)},${JSON.stringify(name)},process.argv.slice(2))).catch(e=>{console.error(e.message);process.exitCode=1;});\n`,
+      `#!${process.execPath}\n${call}.catch(e=>{console.error(e.message);process.exitCode=1;});\n`,
       { mode: 0o500 },
     );
     chmodSync(path, 0o500);
@@ -76,6 +94,29 @@ function gitState(m: PinnedCargoManifest) {
     headSha: head.status === 0 ? head.stdout.trim() : '',
     clean: dirty.status === 0 && !dirty.stdout.trim(),
   };
+}
+/** The same observation without blocking the daemon's event loop. */
+async function observeGitState(m: PinnedCargoManifest) {
+  const git = (args: string[]) =>
+    new Promise<{ ok: boolean; stdout: string }>((resolveResult) =>
+      execFile(
+        m.gitExecutable,
+        args,
+        {
+          cwd: m.workspacePath,
+          encoding: 'utf8',
+          timeout: 10000,
+          maxBuffer: 1024 * 1024,
+          env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+        },
+        (error, stdout) => resolveResult({ ok: !error, stdout: String(stdout) }),
+      ),
+    );
+  const [head, dirty] = await Promise.all([
+    git(['rev-parse', 'HEAD']),
+    git(['status', '--porcelain']),
+  ]);
+  return { headSha: head.ok ? head.stdout.trim() : '', clean: dirty.ok && !dirty.stdout.trim() };
 }
 function verifySources(m: PinnedCargoManifest) {
   for (const f of [...m.files, { path: m.configPath, digest: m.configDigest }])
@@ -326,6 +367,102 @@ export function cleanupLocalCi(ci: LocalCiConfig, runId: string): void {
     if (removed.status !== 0) throw new Error('Could not remove this run’s CI containers.');
   }
 }
+
+interface SupervisedCheck {
+  readonly code: number | null;
+  readonly log: string;
+}
+/**
+ * Runs one check in its own process group, so a timeout or cancellation reaches everything it
+ * started (build scripts, test binaries), not only the direct child (AGT-09). Output is kept up
+ * to 2 MiB for the log and relayed as it arrives. `code` is null when the check was stopped.
+ */
+function superviseCheck(
+  command: string,
+  args: readonly string[],
+  options: {
+    readonly cwd: string;
+    readonly env: NodeJS.ProcessEnv;
+    readonly timeoutMs: number;
+    readonly onOutput: (text: string) => void;
+    /** Extra work when the check is stopped, such as stopping its unit or its containers. */
+    readonly onStop?: () => void;
+    /** A launcher in the agent's tree stops the check when it is itself interrupted. */
+    readonly forwardSignals?: boolean;
+    readonly signal?: AbortSignal;
+  },
+): Promise<SupervisedCheck> {
+  return new Promise<SupervisedCheck>((resolveResult, reject) => {
+    const child = spawn(command, [...args], {
+      cwd: options.cwd,
+      env: options.env,
+      shell: false,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let log = '';
+    const signalGroup = (signal: NodeJS.Signals) => {
+      if (child.pid === undefined) return;
+      try {
+        process.kill(-child.pid, signal);
+      } catch {
+        try {
+          child.kill(signal);
+        } catch {
+          /* already gone */
+        }
+      }
+    };
+    let expired = false;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    const stop = (graceMs = 5000) => {
+      killTimer ??= setTimeout(() => signalGroup('SIGKILL'), graceMs);
+      expired = true;
+      signalGroup('SIGTERM');
+      options.onStop?.();
+    };
+    const timer = setTimeout(() => stop(), options.timeoutMs);
+    // The agent supervisor escalates to SIGKILL after its own grace period;
+    // escalate sooner so the detached group never outlives this launcher.
+    const interrupted = () => stop(1000);
+    // Last resort if this launcher exits while the check is still running.
+    const exiting = () => signalGroup('SIGKILL');
+    if (options.forwardSignals) {
+      process.once('SIGTERM', interrupted);
+      process.once('SIGINT', interrupted);
+      process.once('exit', exiting);
+    }
+    if (options.signal?.aborted) interrupted();
+    else options.signal?.addEventListener('abort', interrupted, { once: true });
+    const collect = (data: Buffer) => {
+      const text = data.toString();
+      if (Buffer.byteLength(log) < 2 * 1024 * 1024) log += text;
+      options.onOutput(text);
+    };
+    child.stdout.on('data', collect);
+    child.stderr.on('data', collect);
+    const finish = () => {
+      clearTimeout(timer);
+      clearTimeout(killTimer);
+      options.signal?.removeEventListener('abort', interrupted);
+      if (options.forwardSignals) {
+        process.removeListener('SIGTERM', interrupted);
+        process.removeListener('SIGINT', interrupted);
+        process.removeListener('exit', exiting);
+      }
+      // Nothing a check started may keep running once its result is recorded.
+      signalGroup('SIGKILL');
+    };
+    child.once('error', (error) => {
+      finish();
+      reject(error);
+    });
+    child.once('close', (value) => {
+      finish();
+      resolveResult({ code: expired ? null : value, log });
+    });
+  });
+}
 export async function runLocalCheck(
   path: string,
   digest: string,
@@ -429,35 +566,12 @@ export async function runLocalCheck(
     if (isCi) mkdirSync(env.HOME!, { recursive: true, mode: 0o700 });
     // act reads .actrc from its process cwd. Keep that cwd controller-owned;
     // -C names the worktree separately. No host .env/.secrets are loaded.
-    code = await new Promise<number | null>((resolveResult, reject) => {
-      // The check runs in its own process group so a timeout or cancellation
-      // reaches everything it started (build scripts, test binaries), not only
-      // the direct child (AGT-09).
-      const child = spawn(command, actual, {
-        cwd: isCi ? directory : m.workspacePath,
-        env,
-        shell: false,
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      const signalGroup = (signal: NodeJS.Signals) => {
-        if (child.pid === undefined) return;
-        try {
-          process.kill(-child.pid, signal);
-        } catch {
-          try {
-            child.kill(signal);
-          } catch {
-            /* already gone */
-          }
-        }
-      };
-      let expired = false;
-      let killTimer: ReturnType<typeof setTimeout> | undefined;
-      const stop = (graceMs = 5000) => {
-        killTimer ??= setTimeout(() => signalGroup('SIGKILL'), graceMs);
-        expired = true;
-        signalGroup('SIGTERM');
+    const supervised = await superviseCheck(command, actual, {
+      cwd: isCi ? directory : m.workspacePath,
+      env,
+      timeoutMs: m.checkTimeoutMs ?? 30 * 60000,
+      onOutput: (text) => process.stdout.write(text),
+      onStop: () => {
         if (isNative) void stopNativeUnit(m.runId).catch(() => {});
         if (isCi) {
           try {
@@ -466,41 +580,11 @@ export async function runLocalCheck(
             /* final cleanup reports failures */
           }
         }
-      };
-      const timer = setTimeout(() => stop(), m.checkTimeoutMs ?? 30 * 60000);
-      // The agent supervisor escalates to SIGKILL after its own grace period;
-      // escalate sooner so the detached group never outlives this launcher.
-      const interrupted = () => stop(1000);
-      // Last resort if this launcher exits while the check is still running.
-      const exiting = () => signalGroup('SIGKILL');
-      process.once('SIGTERM', interrupted);
-      process.once('SIGINT', interrupted);
-      process.once('exit', exiting);
-      const collect = (data: Buffer) => {
-        const text = data.toString();
-        if (Buffer.byteLength(log) < 2 * 1024 * 1024) log += text;
-        process.stdout.write(text);
-      };
-      child.stdout.on('data', collect);
-      child.stderr.on('data', collect);
-      const finish = () => {
-        clearTimeout(timer);
-        clearTimeout(killTimer);
-        process.removeListener('SIGTERM', interrupted);
-        process.removeListener('SIGINT', interrupted);
-        process.removeListener('exit', exiting);
-        // Nothing a check started may keep running once its result is recorded.
-        signalGroup('SIGKILL');
-      };
-      child.once('error', (error) => {
-        finish();
-        reject(error);
-      });
-      child.once('close', (value) => {
-        finish();
-        resolveResult(expired ? null : value);
-      });
+      },
+      forwardSignals: true,
     });
+    code = supervised.code;
+    log = supervised.log;
     if (hash(readFileSync(path)) !== digest)
       throw new Error('Verification manifest changed during the check.');
     verifySources(m);
@@ -604,4 +688,190 @@ export async function cleanupLocalCiManifest(path: string, digest: string): Prom
     });
   });
   rmSync(lease, { recursive: true });
+}
+
+/** How the daemon isolates a check it runs for an agent (R-G4). */
+export type CheckConfinement = 'systemd' | 'none';
+export interface CheckExecution {
+  readonly manifestPath: string;
+  /** The digest the daemon recorded for this run's manifest; the file must still match it. */
+  readonly manifestDigest: string;
+  readonly args: readonly string[];
+  /** A daemon-owned file outside every writable root of the run. */
+  readonly logPath: string;
+  /** How the receipt names the log. */
+  readonly logReference: string;
+  readonly confinement: CheckConfinement;
+  /** The transient unit's name under systemd confinement. */
+  readonly unitName: string;
+  /** Paths the check may write under systemd confinement; missing ones are ignored. */
+  readonly writablePaths: readonly string[];
+  /** The check's entire environment. */
+  readonly environment: Readonly<Record<string, string>>;
+  readonly onOutput: (text: string) => void;
+  readonly signal: AbortSignal;
+}
+export interface CheckOutcome {
+  /** One receipt line, in the format frozen into the run's build record. */
+  readonly receipt: Record<string, unknown>;
+  readonly exitCode: number;
+  readonly diagnostic: string;
+}
+
+/**
+ * The systemd-run arguments that run a command in a transient user unit: the file system is
+ * read-only except `writable`, with a private /tmp, no network and no new privileges, and the
+ * whole cgroup stops at the time limit. `env -i` gives the command exactly `environment`,
+ * rather than the user manager's.
+ */
+export function confinedCheckArguments(
+  unitName: string,
+  cwd: string,
+  timeoutSeconds: number,
+  writable: readonly string[],
+  environment: Readonly<Record<string, string>>,
+  command: readonly string[],
+): string[] {
+  if (!/^[A-Za-z0-9_.-]+$/.test(unitName)) throw new Error('Invalid check unit name.');
+  return [
+    '--user',
+    '--wait',
+    '--collect',
+    '--quiet',
+    '--pipe',
+    `--unit=${unitName}`,
+    `--working-directory=${cwd}`,
+    '-p',
+    'ProtectSystem=strict',
+    '-p',
+    'ProtectHome=read-only',
+    '-p',
+    'PrivateTmp=yes',
+    '-p',
+    'PrivateNetwork=yes',
+    '-p',
+    'NoNewPrivileges=yes',
+    '-p',
+    'KillMode=control-group',
+    '-p',
+    `RuntimeMaxSec=${Math.max(1, Math.ceil(timeoutSeconds))}`,
+    ...writable.flatMap((p) => ['-p', `ReadWritePaths=-${p}`]),
+    '--',
+    '/usr/bin/env',
+    '-i',
+    ...Object.entries(environment).map(([key, value]) => `${key}=${value}`),
+    ...command,
+  ];
+}
+
+function stopCheckUnit(unitName: string): void {
+  spawnSync('systemctl', ['--user', 'stop', unitName], { timeout: 10000, stdio: 'ignore' });
+}
+
+/** Stops every check unit whose name starts with `prefix`, such as a previous daemon's. */
+export function stopCheckUnits(prefix: string): void {
+  if (!/^[A-Za-z0-9_.-]+$/.test(prefix)) throw new Error('Invalid check unit prefix.');
+  const listed = spawnSync(
+    'systemctl',
+    ['--user', 'list-units', '--plain', '--no-legend', '--all', `${prefix}*`],
+    { encoding: 'utf8', timeout: 10000 },
+  );
+  for (const line of (listed.stdout ?? '').split('\n')) {
+    const unit = line.trim().split(/\s+/)[0];
+    if (unit?.startsWith(prefix)) stopCheckUnit(unit);
+  }
+}
+
+/**
+ * Runs `ct-check -- <executable> <arguments>` for a run, in the daemon (R-G4). The daemon, not
+ * the agent, observes the commit and cleanliness before and after, applies the time limit and
+ * keeps the log; the receipt is returned for the daemon to record in its database.
+ */
+export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
+  let success = false,
+    diagnostic = '',
+    code: number | null = null,
+    log = '',
+    command = '',
+    actual: string[] = [];
+  let m: PinnedCargoManifest | undefined;
+  let before = { headSha: '', clean: false };
+  try {
+    const raw = readFileSync(e.manifestPath, 'utf8');
+    if (hash(raw) !== e.manifestDigest) throw new Error('Verification manifest changed.');
+    m = JSON.parse(raw) as PinnedCargoManifest;
+    const args = e.args[0] === '--' ? e.args.slice(1) : [...e.args];
+    command = args[0] ?? '';
+    actual = args.slice(1);
+    if (!command || command.startsWith('-') || command.includes('\0'))
+      throw new Error('Usage: ct-check -- <executable> <arguments>');
+    verifySources(m);
+    before = await observeGitState(m);
+    const timeoutMs = m.checkTimeoutMs ?? 30 * 60000;
+    const confined = e.confinement === 'systemd';
+    const supervised = await superviseCheck(
+      confined ? 'systemd-run' : command,
+      confined
+        ? confinedCheckArguments(
+            e.unitName,
+            m.workspacePath,
+            timeoutMs / 1000 + 30,
+            e.writablePaths,
+            e.environment,
+            [command, ...actual],
+          )
+        : actual,
+      {
+        cwd: m.workspacePath,
+        // systemd-run needs the daemon's user bus; the check itself gets only `environment`.
+        env: confined
+          ? Object.fromEntries(
+              ['PATH', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']
+                .filter((key) => process.env[key] !== undefined)
+                .map((key) => [key, process.env[key]]),
+            )
+          : { ...e.environment },
+        timeoutMs,
+        onOutput: e.onOutput,
+        signal: e.signal,
+        ...(confined ? { onStop: () => stopCheckUnit(e.unitName) } : {}),
+      },
+    );
+    code = supervised.code;
+    log = supervised.log;
+    if (hash(readFileSync(e.manifestPath)) !== e.manifestDigest)
+      throw new Error('Verification manifest changed during the check.');
+    verifySources(m);
+    success = code === 0;
+    if (!success)
+      diagnostic = code === null ? 'Check interrupted or timed out.' : `Check exited ${code}.`;
+  } catch (error) {
+    diagnostic = error instanceof Error ? error.message : 'Check failed.';
+  }
+  const after = m ? await observeGitState(m) : { headSha: '', clean: false };
+  mkdirSync(dirname(e.logPath), { recursive: true, mode: 0o700 });
+  writeFileSync(e.logPath, `${log}\n${diagnostic}\n`, { mode: 0o600 });
+  return {
+    exitCode: success ? 0 : 1,
+    diagnostic,
+    receipt: {
+      kind: 'scoped-check',
+      recordedBy: 'daemon',
+      runtimeId: m?.runtimeId,
+      runId: m?.runId,
+      manifestDigest: e.manifestDigest,
+      verificationMode: m?.verification?.mode,
+      policyDigest: m?.verification && hash(JSON.stringify(m.verification)),
+      headSha: after.headSha,
+      clean: before.clean && after.clean && before.headSha === after.headSha,
+      command,
+      args: e.args,
+      success,
+      exitCode: code,
+      diagnostic,
+      logPath: e.logReference,
+      logDigest: hash(readFileSync(e.logPath)),
+      at: new Date().toISOString(),
+    },
+  };
 }

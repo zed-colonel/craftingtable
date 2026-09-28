@@ -173,6 +173,11 @@ export class AgentRunService {
   private serviceStopping = false;
   /** Post-run cleanup still running; the controller skips a worktree until it settles. */
   private readonly cleanups = new Set<Promise<unknown>>();
+  /** Runs and records the checks agents ask for (R-G4); absent, launchers run them inline. */
+  private checks: import('./check-request-service.js').CheckRequestService | undefined;
+  attachChecks(checks: import('./check-request-service.js').CheckRequestService): void {
+    this.checks = checks;
+  }
 
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -1291,6 +1296,9 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
             ...(pinned.movedToCurrentPins
               ? { verificationMode: 'current-upstream-build' as const }
               : {}),
+            ...(pinned.spoolDirectory && this.checks
+              ? { receiptAuthority: 'daemon' as const }
+              : {}),
           });
         return inserted;
       });
@@ -1302,6 +1310,16 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         this.finalize(workspaceId, runId, 'failed', { message: 'Could not register run storage.' });
         throw error;
       }
+      // The daemon runs and records this run's checks from here on (R-G4).
+      if (pinned?.spoolDirectory && this.checks)
+        this.checks.open({
+          workspaceId,
+          runId,
+          spoolDirectory: pinned.spoolDirectory,
+          runDirectory,
+          manifestPath: pinned.manifestPath,
+          manifestDigest: pinned.manifestDigest,
+        });
       const previousRunDirectory = resume && join(this.config.runsRoot, resume.run.id);
       const prompt =
         resume && cycle && previousRunDirectory
@@ -2149,6 +2167,14 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       appendStatusChanged(tx, after, before.status, occurredAt);
       return true;
     });
+    // Checks still running record nothing: the build record was frozen above.
+    const checks = this.checks?.close(runId);
+    if (checks) {
+      const stopping = checks
+        .catch((error) => this.log.warn('Check cleanup failed', { runId, error: String(error) }))
+        .finally(() => this.cleanups.delete(stopping));
+      this.cleanups.add(stopping);
+    }
     if (changed) {
       const run = this.storage.execution.runs.find(workspaceId, runId);
       const cleanup = Promise.resolve(this.runtimeEvidence?.cleanupRun(workspaceId, runId))

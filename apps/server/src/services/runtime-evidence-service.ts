@@ -2408,9 +2408,15 @@ export class RuntimeEvidenceService {
     };
     await this.assertFreshTree(tree);
     const launch = prepareCargoLauncher(directory, manifest);
-    prepareLocalCheckLaunchers(launch.binDirectory, launch.manifestPath, launch.manifestDigest);
+    // ct-check only asks the daemon, which runs it and records the receipt (R-G4).
+    const spoolDirectory = join(directory, 'requests');
+    prepareLocalCheckLaunchers(launch.binDirectory, launch.manifestPath, launch.manifestDigest, {
+      directory: spoolDirectory,
+      limitMs: (manifest.checkTimeoutMs ?? 30 * 60000) + 5 * 60000,
+    });
     return {
       ...launch,
+      spoolDirectory,
       verification,
       dependencies: dependencyIdentities,
       movedToCurrentPins,
@@ -2584,9 +2590,15 @@ export class RuntimeEvidenceService {
         )
       )
         throw new Error('Local CI did not finish collection; a fresh review is required.');
-      if (statSync(m.receiptPath).size > 4 * 1024 * 1024)
-        throw new Error('Build receipts exceed 4 MiB.');
-      receipts = readFileSync(m.receiptPath, 'utf8');
+      const daemon = env.receiptAuthority === 'daemon';
+      // A daemon-recorded run may have written no launcher file at all.
+      if (!daemon || existsSync(m.receiptPath)) {
+        if (statSync(m.receiptPath).size > 4 * 1024 * 1024)
+          throw new Error('Build receipts exceed 4 MiB.');
+        receipts = readFileSync(m.receiptPath, 'utf8');
+      }
+      if (daemon)
+        receipts = daemonBuildReceipts(tx.runtimeEvidence.checkReceipts(ws, runId), receipts);
     } catch (e) {
       error = e instanceof Error ? e.message : 'Build record unavailable.';
     }
@@ -2735,4 +2747,27 @@ export class RuntimeEvidenceService {
       payload: { definitionId: id, message },
     });
   }
+}
+
+/**
+ * The receipts a run with daemon receipt authority freezes (R-G4): every check the daemon
+ * recorded, then the launcher file's lines only of kinds the daemon does not run yet. A
+ * `scoped-check` line in the file was written by something other than the daemon and is dropped.
+ */
+export function daemonBuildReceipts(
+  recorded: readonly { readonly receipt: string }[],
+  file: string,
+): string {
+  const agentWritten = file
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .filter((line) => {
+      try {
+        return (JSON.parse(line) as { kind?: string }).kind !== 'scoped-check';
+      } catch {
+        return false;
+      }
+    });
+  const lines = [...recorded.map((r) => r.receipt), ...agentWritten];
+  return lines.length ? `${lines.join('\n')}\n` : '';
 }

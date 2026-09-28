@@ -7,8 +7,10 @@ import { afterEach, expect } from 'vitest';
 import {
   cleanupExecutionFixtures,
   commitFile,
+  git,
   HOST_GIT,
   itNeedsCargo,
+  runLauncher,
   runToFinish,
   scopeReport,
   scopeTree,
@@ -102,8 +104,86 @@ itNeedsCargo(
         .verification?.mode,
     ).toBe('scoped-checks');
     expect(() => f.svc.assertRun(f.tree, ciOnly)).toThrow('successful scoped check');
-    // The same line as a scoped check satisfies the gate, so only the kind decided it.
-    const scoped = await review('scoped-check');
-    expect(() => f.svc.assertRun(f.tree, scoped)).not.toThrow();
+  },
+);
+
+itNeedsCargo(
+  'a receipt an agent writes to the launcher file satisfies no gate; the daemon runs and records the check (R-G4, SEC-01)',
+  async () => {
+    const f = await scopedRuntimeFixture();
+    const storage = f.state.context.storage;
+    f.backend.replyForRequest = (request) => {
+      appendReceipt(request, { kind: 'scoped-check' });
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    const forged = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    expect(storage.runtimeEvidence.run(f.state.workspaceId, forged)?.receiptAuthority).toBe(
+      'daemon',
+    );
+    expect(storage.runtimeEvidence.build(f.state.workspaceId, forged)?.receipts).toBe('');
+    expect(() => f.svc.assertRun(f.tree, forged)).toThrow('successful scoped check');
+
+    let output = '';
+    f.backend.replyForRequest = async (request) => {
+      // The check reports where it ran; the launcher only relays the daemon's output.
+      output = (
+        await runLauncher(request, 'ct-check', [
+          '--',
+          process.execPath,
+          '-e',
+          'console.log("checked in", process.cwd(), "agent", process.env.CT_AGENT_ONLY ?? "absent")',
+        ])
+      ).stdout;
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    process.env.CT_AGENT_ONLY = 'inherited';
+    let checked: string;
+    try {
+      checked = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    } finally {
+      delete process.env.CT_AGENT_ONLY;
+    }
+    expect(output).toContain(`checked in ${f.tree.path} agent absent`);
+    const [recorded] = storage.runtimeEvidence.checkReceipts(f.state.workspaceId, checked);
+    expect(JSON.parse(recorded!.receipt)).toMatchObject({
+      kind: 'scoped-check',
+      recordedBy: 'daemon',
+      success: true,
+      clean: true,
+      headSha: git(['rev-parse', 'HEAD'], f.tree.path).trim(),
+    });
+    expect(() => f.svc.assertRun(f.tree, checked)).not.toThrow();
+  },
+);
+
+itNeedsCargo(
+  'a check still running when its run ends is stopped and records nothing (R-G4)',
+  async () => {
+    const f = await scopedRuntimeFixture();
+    const storage = f.state.context.storage;
+    let pending: Promise<unknown> | undefined;
+    f.backend.replyForRequest = (request) => {
+      // Not awaited: the agent ends its turn while its check is still running.
+      pending = runLauncher(request, 'ct-check', [
+        '--',
+        process.execPath,
+        '-e',
+        'setTimeout(() => console.log("finished late"), 60000)',
+      ]).then(
+        () => 0,
+        (error: { code?: number }) => error.code,
+      );
+      const checks = f.state.context.services.checkRequestService;
+      const runId = request.buildEnvironment!.namespace!;
+      // The turn ends once the daemon is running the check.
+      const release = (async () => {
+        while (checks.inFlight(runId).length === 0) await new Promise((r) => setTimeout(r, 20));
+      })();
+      return { resultText: scopeReport(f.state, f.tree.executionScope!), release };
+    };
+    const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    expect(await pending).not.toBe(0);
+    expect(storage.runtimeEvidence.checkReceipts(f.state.workspaceId, run)).toEqual([]);
+    expect(storage.runtimeEvidence.build(f.state.workspaceId, run)?.receipts).toBe('');
   },
 );

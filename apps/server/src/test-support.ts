@@ -69,6 +69,8 @@ export async function createTestContext(
     CRAFTINGTABLE_WEB_DIST: '',
     // Closing a test daemon interrupts live fake runs at once instead of draining them.
     CRAFTINGTABLE_DRAIN_TIMEOUT_SECONDS: '0',
+    // Checks run as plain process groups here; the systemd unit has its own adapter test.
+    CRAFTINGTABLE_CHECK_CONFINEMENT: 'none',
     ...options.env,
   });
   const storage = openDaemonStorage(config.databasePath);

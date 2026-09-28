@@ -35,11 +35,11 @@ async function stoppedParentReview() {
     tx = state.context.storage;
   const normal = f.backend.replyForRequest!;
   const defect = { ...structuredFinding, id: 'F003', severity: 'major' };
-  f.backend.replyForRequest = (request) => {
+  f.backend.replyForRequest = async (request) => {
     const tree = tx.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
     const scope: ExecutionScope = tree.executionScope!;
     if (scope.kind === 'parent-acceptance') {
-      runScopedFixtureCheck(request);
+      await runScopedFixtureCheck(request);
       return {
         resultText:
           '## Open questions\nnone\n\n## Review report\n' +

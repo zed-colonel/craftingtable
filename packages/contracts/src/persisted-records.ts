@@ -13,6 +13,7 @@ import {
   type PlanArchiveLink,
   type PlanVersion,
   type RunBuildRecord,
+  type RunCheckReceipt,
   type RunEnvironment,
   type ScopeIntegrationReuse,
   type ScopeReceipt,
@@ -95,6 +96,17 @@ export const runEnvironmentSchema = equivalentSchema<RunEnvironment>()(
     manifestPath: name,
     manifestDigest: digest,
     verificationMode: z.literal('current-upstream-build').optional(),
+    receiptAuthority: z.literal('daemon').optional(),
+  }),
+);
+
+export const runCheckReceiptSchema = equivalentSchema<RunCheckReceipt>()(
+  z.strictObject({
+    runId: name,
+    workspaceId: workspaceIdSchema,
+    sequence: positive,
+    receipt: text,
+    recordedAt: z.iso.datetime(),
   }),
 );
 

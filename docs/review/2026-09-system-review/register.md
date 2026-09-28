@@ -1528,6 +1528,32 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   
   Before this, a candidate accepted any successful receipt, and a scoped review accepted a CI run alone.
   - **Tests.** `server-execution-receipt-gates.test.ts` (a scoped review with only a CI receipt is refused; the same line as a scoped check passes) and `server-execution-scope-evidence.test.ts` (a current-upstream candidate with only a CI receipt has the receipt issue). Both failed before the change. Dropping the local CI exclusion fails the first again. The candidate fixture now runs the pinned Cargo launcher, as its current-upstream scope requires.
+- **Increment 1 (2026-09-28): the daemon runs `ct-check` and records its receipt** (schema 33, `run_check_receipts`; ADR-053 amended; `docs/security.md`, `docs/operations.md`).
+  - **The spool** (`packages/agents/src/check-spool.ts`). A run's `ct-check` writes `<id>.request` into `<runDir>/dependencies/requests` and relays `<id>.out` until `<id>.exit`. The agent owns the directory, so the daemon:
+    - reads a request only as a regular file (no link or FIFO) of at most 64 KiB;
+    - creates each reply file exclusively and without following links;
+    - refuses a spool that was replaced by a link.
+    
+    A request nobody claims within 30 s fails the launcher.
+  - **The executor** (`executeCheck`, `local-check.ts`). The daemon runs the command in a transient user unit, `craftingtable-check-<instance>-<request>`, with:
+    - a read-only file system except the worktree, the run directory and Cargo's `registry`/`git` caches;
+    - a private /tmp, no network and no new privileges;
+    - `env -i` with named variables only (`allowlistedEnvironment` plus the run's overlay);
+    - the check's time limit.
+    
+    It observes HEAD and cleanliness itself, before and after, and keeps the log under `<data>/check-logs/<run>/`. `CRAFTINGTABLE_CHECK_CONFINEMENT=none` runs a plain process group (tests; a host without a user manager).
+  - **The service** (`services/check-request-service.ts`) serves each live run prepared with `receiptAuthority: 'daemon'`, a new optional field on the run environment. It records a receipt only while the run is live and unfrozen. When the run ends it stops the run's checks and answers any request left. At startup it stops the leftover units of its own data directory (the unit names carry an instance hash, so an e2e or replay daemon never stops the live one's).
+  - **Freezing.** A daemon-recorded run's build record is its receipt rows, followed by the launcher file's lines of kinds the daemon does not run yet (CI, native, pinned Cargo). A `scoped-check` line in the file is dropped. A daemon-recorded run with no check freezes an empty record rather than an "unavailable" error, and its gate still refuses it. Runs prepared before this keep the file, as decided.
+  - **Tests (each fails without its part):**
+    - `server-execution-receipt-gates.test.ts`:
+      - a forged `scoped-check` line satisfies nothing, and a real `ct-check` runs in the daemon with only named variables and is recorded (keeping forged file lines fails it);
+      - a check still running when its run ends records nothing (recording after the end fails it).
+    - `check-spool.test.ts`: the output relay; planted links and FIFOs (following links fails it); malformed requests.
+    - `local-check.test.ts`, on the real user manager:
+      - a confined check writes its run directory but not HOME, opens no connection and sees `HOME,PATH` only;
+      - cancelling stops the unit.
+  - **Test harness.** Test replies may be asynchronous. Tests call launchers through `runLauncher`, because a blocking call would starve the daemon that serves it.
+  - **Rollback:** a release before this cannot read schema 33, or run environments carrying `receiptAuthority`.
 
 ### R-G5
 

@@ -3,6 +3,7 @@ import type { Roadmap, RoadmapAttempt, RoadmapEntry, WorkCycle } from '@crafting
 import { isTerminalAgentRunStatus, sameExecutionScope } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { finalizationHasNoQuestions } from './finalization-policy.js';
+import { classifyRecoveryProgress, type RecoveryRoundReport } from './recovery-progress.js';
 import { collectScopeRepair } from './scope-repair.js';
 import { resolveScope, scopedReviewIssue } from './execution-scope.js';
 
@@ -15,13 +16,26 @@ export function roadmapCarriesRound(roadmap: Roadmap, attempt: RoadmapAttempt): 
   return !!roadmap.scopeRecovery?.enabled || !!attempt.recovery?.requestedByUserId;
 }
 
+/** What automatic recovery does with a stopped review: wait, refuse, escalate, or start a round. */
+export interface ScopeRecoveryDecision {
+  readonly waiting?: true;
+  /** Why no round starts; display text, never parsed. */
+  readonly reason?: string;
+  /** Automatic recovery ends here, as a `recovery-not-converging` stop (R-C5 increment 4). */
+  readonly escalation?: true;
+  readonly preview?: ReturnType<typeof collectScopeRepair>;
+  readonly owner?: RoadmapEntry;
+  readonly fingerprint?: string;
+  readonly sourceSequence?: number;
+}
+
 /** Conservative routing: review assertions never choose between multiple owning slices. */
 export function scopeRecoveryDecision(
   tx: StorageRepositories,
   roadmap: Roadmap,
   entry: RoadmapEntry,
   cycle: WorkCycle,
-) {
+): ScopeRecoveryDecision {
   const ws = roadmap.workspaceId;
   const run = tx.execution.runs.find(ws, cycle.currentRunId);
   const turn = run && tx.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
@@ -109,17 +123,50 @@ export function scopeRecoveryDecision(
         (e) => e.id === a.entryId && e.workItemId === entry.workItemId,
       ),
   );
+  // How this review's rounds went, judged from each round's pinned source report and the review
+  // that just finished; never from the review's finding history (R-C5 increment 3).
+  const progress = classifyRecoveryProgress([
+    ...rounds
+      .filter((a) => a.recovery!.sourceEntryId === entry.id && a.recovery!.sourceRunId !== run.id)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .flatMap((a): RecoveryRoundReport[] => {
+        const source = tx.execution.runs.find(ws, a.recovery!.sourceRunId);
+        const report = tx.execution.runEvents.latestOfKind(
+          ws,
+          a.recovery!.sourceRunId,
+          'turn-completed',
+        );
+        return source &&
+          report?.kind === 'turn-completed' &&
+          report.payload.reviewReport?.status === 'complete'
+          ? [
+              {
+                reviewWorktreeId: source.worktreeId,
+                fingerprint: a.recovery!.findingFingerprint,
+                findings: report.payload.reviewReport.report.findings,
+              },
+            ]
+          : [];
+      }),
+    { reviewWorktreeId: tree.id, fingerprint, findings: turn.payload.reviewReport.report.findings },
+  ]);
+  // One typed stop for every way automatic recovery ends here (R-C5 increment 4, ADR-057).
+  const escalate = (why: string) => ({
+    escalation: true as const,
+    reason: `${why} ${progress.summary || 'No round has run for this review yet.'} Delegate source fixes with guidance to run a round yourself, or propose a split of the remaining work into a follow-up slice through a planning amendment.`,
+  });
   // Rounds the operator requested do not use the automatic allowance.
   const automatic = rounds.filter((a) => !a.recovery!.requestedByUserId).length;
   if (automatic >= (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0))
-    return {
-      reason: `Automatic recovery allowance exhausted (${automatic} automatic round${automatic === 1 ? '' : 's'} for this parent). Pause the roadmap and raise the total allowance, or continue manually.`,
-    };
+    return escalate(
+      `Automatic recovery allowance exhausted (${automatic} automatic round${automatic === 1 ? '' : 's'} for this parent). Pause the roadmap and raise the total allowance, or continue manually.`,
+    );
   if (rounds.some((a) => a.recovery!.findingFingerprint === fingerprint))
-    return {
-      reason:
-        'Independent review repeated the same substantive findings after repair. Inspect the work item and provide guidance or delegate a manual repair before continuing.',
-    };
+    return escalate('Independent review repeated the same substantive findings after repair.');
+  if (!progress.converging)
+    return escalate(
+      `Automatic recovery stopped: ${progress.rounds.length === 1 ? 'the last round' : 'the last rounds'} ended without progress.`,
+    );
   return { preview, owner, fingerprint, sourceSequence: turn.sequence };
 }
 

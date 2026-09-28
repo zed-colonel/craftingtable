@@ -113,7 +113,7 @@ const ended = (roadmap: Roadmap) => ['stopped', 'completed'].includes(roadmap.st
 /** An entry the scheduler holds for a typed reason the operator resolves (R-A5). */
 class EntryHoldError extends ExecutionRequestError {
   constructor(
-    readonly attentionCode: 'evidence-not-current' | 'entry-blocked',
+    readonly attentionCode: 'evidence-not-current' | 'entry-blocked' | 'recovery-not-converging',
     message: string,
   ) {
     super('conflict', message);
@@ -1272,6 +1272,22 @@ export class RoadmapService {
             repairCycle.version,
           );
       } else {
+        // Automatic recovery stopped converging: Resume would stop again the same way until the
+        // rounds, the allowance or the policy change (R-C5 increment 4).
+        if (
+          holds[entryId]?.attention?.code === 'recovery-not-converging' &&
+          roadmap.scopeRecovery?.enabled &&
+          cycle?.status === 'needs-attention' &&
+          !recovery
+        ) {
+          const decision = scopeRecoveryDecision(
+            mapReadSnapshot(this.storage),
+            roadmap,
+            entry,
+            cycle,
+          );
+          if (decision.escalation) conflict(decision.reason!);
+        }
         if (cycle && ['stopped', 'completed'].includes(cycle.status) && !recovery)
           conflict(
             'This cycle has ended. For imported maps, use Planning amendments and reconciliation to review a replacement attempt.',
@@ -2458,7 +2474,11 @@ export class RoadmapService {
           'An independent review of this work item is still running; recovery starts after it.',
           { cycleId: sourceCycle.id },
         );
-      if (!decision.owner) conflict(decision.reason!);
+      if (!decision.owner) {
+        if (decision.escalation)
+          throw new EntryHoldError('recovery-not-converging', decision.reason!);
+        conflict(decision.reason!);
+      }
       const ownerAttempt = roadmap.attempts.find(
         (a) => a.entryId === decision.owner!.id && !a.recovery,
       );

@@ -108,6 +108,9 @@ export const ROADMAP_ATTENTION = {
   'entry-blocked': 'operator',
   // A verification or acceptance entry whose review evidence went stale; Re-verify resolves it.
   'evidence-not-current': 'operator',
+  // Automatic scope recovery stopped: a repeat, rounds without progress, or the allowance is
+  // spent. The hold carries the rounds' progress (R-C5 increment 4, ADR-057).
+  'recovery-not-converging': 'operator',
   'cycle-needs-attention': 'operator',
   'legacy-attention': 'operator',
 } as const satisfies Record<string, AttentionOwner>;

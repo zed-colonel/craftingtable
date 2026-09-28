@@ -39,3 +39,27 @@ The browser displays the separate delegation, total allowance, rounds used, curr
 and recovery history, with a link to the work item. Disabling delegation retains manual
 recovery. Planning reconciliation disables recovery until explicitly reauthorized for the
 new selection. Main/final promotion remains exclusively an operator decision.
+
+## Amendment 2026-09-28: convergence and one typed escalation (R-C5)
+
+The exact-repeat guard missed the loop it was meant to stop: EXO-01's parent acceptance kept one
+major finding open for 13 rounds while each round fixed that round's sampled examples, so the
+substance changed every time (HIST-04). Automatic recovery now also judges progress. Each round is
+compared with the next report of the same review, from the round's pinned source report and the
+review that just finished, never from ADR-056's finding history, which a replaced review worktree
+loses. Finding IDs are compared only within one review worktree; across a replacement only the
+severity profile of the open findings is compared. A round makes progress when an open finding
+closes or is downgraded, or the open findings become less grave; it regresses when they become
+graver. Two consecutive rounds without progress stop automatic recovery, as a repeat does. This
+remains a conservative guard, not a proof of semantic progress.
+
+Every way automatic recovery ends for a review that has an owning slice (a repeat, rounds without
+progress, or the spent allowance) is one entry hold with the typed code
+`recovery-not-converging`, whose text summarizes each round: what closed, was downgraded, opened
+and stays open. The allowance stays hard. Resume is refused while the same evaluation would stop
+again, so it succeeds only once the allowance is raised, automatic recovery is turned off, or the
+rounds change. The operator's ways forward are a round of their own (Delegate source fixes, with
+guidance), which the roadmap carries and which does not use the allowance, or a split of the
+remaining work into a follow-up slice through a reviewed planning amendment (ADR-049). The split
+is offered, never proposed automatically. Other refusals (questions, ambiguous ownership, an owner
+outside the roadmap) keep their own stops.

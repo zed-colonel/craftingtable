@@ -33,6 +33,7 @@ itNeedsCargo.each([
   'accepted-after-pause',
   'questions',
   'unchanged',
+  'stalled',
   'exhausted',
   'ambiguous',
 ] as const)('bounded roadmap scope recovery: %s', { timeout: 45000 }, async (outcome) => {
@@ -219,7 +220,8 @@ itNeedsCargo.each([
           .every((a) => a.recovery!.phase === 'completed'),
       'rounds completed',
     );
-    expect(repairs).toBe(2); // Repeated F003 with new evidence is real progress, not ID-based stagnation.
+    // One round that leaves F003 open with new evidence is not yet a stall (R-C5 increment 4).
+    expect(repairs).toBe(2);
     expect(parentReviews).toBe(3);
   } else {
     await waitFor(
@@ -232,13 +234,35 @@ itNeedsCargo.each([
                 ? 'same substantive findings'
                 : outcome === 'exhausted'
                   ? 'allowance exhausted'
-                  : 'ambiguous',
+                  : outcome === 'stalled'
+                    ? 'without progress'
+                    : 'ambiguous',
           ),
         ),
       'bounded recovery stopping reason',
-      22000,
+      outcome === 'stalled' ? 35000 : 22000,
     );
-    expect(repairs).toBe(outcome === 'ambiguous' ? 0 : 1);
+    expect(repairs).toBe(outcome === 'ambiguous' ? 0 : outcome === 'stalled' ? 2 : 1);
+    // Automatic recovery that stops converging is one typed escalation with its progress
+    // (R-C5 increment 4); other refusals keep their own stop.
+    const [heldEntryId, hold] = Object.entries(storedRoadmap(state).entryHolds ?? {})[0]!;
+    if (['unchanged', 'stalled', 'exhausted'].includes(outcome)) {
+      expect(hold.attention?.code).toBe('recovery-not-converging');
+      expect(hold.reason).toContain('F003 (major)');
+      // Resuming would only stop again: the rounds have not changed.
+      const resumed = await state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/control`,
+        headers: mutationHeaders(state),
+        payload: {
+          action: 'resume',
+          entryId: heldEntryId,
+          expectedVersion: storedRoadmap(state).version,
+        },
+      });
+      expect(resumed.statusCode, resumed.body).toBe(409);
+      expect(storedRoadmap(state).entryHolds?.[heldEntryId]).toEqual(hold);
+    } else expect(hold.attention?.code).not.toBe('recovery-not-converging');
     expect(tx.planning.workItems.find(ws, state.workItemId)?.status).not.toBe('completed');
   }
   const rounds = storedRoadmap(state).attempts.filter((a) => a.recovery);

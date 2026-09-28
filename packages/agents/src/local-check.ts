@@ -51,8 +51,8 @@ export function loadLocalCiConfig(path: string | undefined): LocalCiConfig | und
   return c;
 }
 /**
- * Writes the run's check launchers. With a spool, `ct-check` only asks the daemon to run the
- * check (R-G4); `limitMs` bounds its wait for the daemon's answer.
+ * Writes the run's check launchers. With a spool, `ct-check` and `ct-act` only ask the daemon to
+ * run the check (R-G4); `limitMs` bounds their wait for the daemon's answer.
  */
 export function prepareLocalCheckLaunchers(
   bin: string,
@@ -68,7 +68,7 @@ export function prepareLocalCheckLaunchers(
   for (const name of ['ct-check', 'ct-act', 'ct-native']) {
     const path = join(bin, name);
     const call =
-      spool && name === 'ct-check'
+      spool && (name === 'ct-check' || name === 'ct-act')
         ? `import(${JSON.stringify(spoolModule)}).then(m=>m.submitCheck(${JSON.stringify(spool.directory)},${JSON.stringify(name)},process.argv.slice(2),${spool.limitMs}))`
         : `import(${JSON.stringify(import.meta.url)}).then(m=>m.runLocalCheck(${JSON.stringify(manifest)},${JSON.stringify(digest)},${JSON.stringify(name)},process.argv.slice(2)))`;
     writeFileSync(
@@ -692,7 +692,18 @@ export async function cleanupLocalCiManifest(path: string, digest: string): Prom
 
 /** How the daemon isolates a check it runs for an agent (R-G4). */
 export type CheckConfinement = 'systemd' | 'none';
+/**
+ * Holds the host's one act run of a workflow (LIVE-03) for this check until `deadline` and
+ * returns its release. It rejects when the deadline passes or the check is cancelled.
+ */
+export type WorkflowHold = (
+  key: string,
+  deadline: number,
+  signal: AbortSignal,
+  onWait: (holder: string) => void,
+) => Promise<() => void>;
 export interface CheckExecution {
+  readonly tool: 'ct-check' | 'ct-act';
   readonly manifestPath: string;
   /** The digest the daemon recorded for this run's manifest; the file must still match it. */
   readonly manifestDigest: string;
@@ -701,13 +712,19 @@ export interface CheckExecution {
   readonly logPath: string;
   /** How the receipt names the log. */
   readonly logReference: string;
+  /**
+   * A daemon-owned directory outside every writable root of the run. act reads `.actrc` from
+   * its working directory and HOME, so both live here rather than where the agent can write.
+   */
+  readonly privateDirectory: string;
   readonly confinement: CheckConfinement;
   /** The transient unit's name under systemd confinement. */
   readonly unitName: string;
   /** Paths the check may write under systemd confinement; missing ones are ignored. */
   readonly writablePaths: readonly string[];
-  /** The check's entire environment. */
+  /** The check's entire environment (ct-check; act gets its own minimal one). */
   readonly environment: Readonly<Record<string, string>>;
+  readonly holdWorkflow?: WorkflowHold;
   readonly onOutput: (text: string) => void;
   readonly signal: AbortSignal;
 }
@@ -720,9 +737,9 @@ export interface CheckOutcome {
 
 /**
  * The systemd-run arguments that run a command in a transient user unit: the file system is
- * read-only except `writable`, with a private /tmp, no network and no new privileges, and the
- * whole cgroup stops at the time limit. `env -i` gives the command exactly `environment`,
- * rather than the user manager's.
+ * read-only except `writable`, with a private /tmp and no new privileges, no network unless
+ * `network`, and the whole cgroup stops at the time limit. `env -i` gives the command exactly
+ * `environment`, rather than the user manager's.
  */
 export function confinedCheckArguments(
   unitName: string,
@@ -731,6 +748,7 @@ export function confinedCheckArguments(
   writable: readonly string[],
   environment: Readonly<Record<string, string>>,
   command: readonly string[],
+  network = false,
 ): string[] {
   if (!/^[A-Za-z0-9_.-]+$/.test(unitName)) throw new Error('Invalid check unit name.');
   return [
@@ -748,7 +766,7 @@ export function confinedCheckArguments(
     '-p',
     'PrivateTmp=yes',
     '-p',
-    'PrivateNetwork=yes',
+    `PrivateNetwork=${network ? 'no' : 'yes'}`,
     '-p',
     'NoNewPrivileges=yes',
     '-p',
@@ -782,10 +800,46 @@ export function stopCheckUnits(prefix: string): void {
   }
 }
 
+/** Removes this run's labelled CI containers without blocking the daemon's event loop. */
+async function removeRunContainers(ci: LocalCiConfig, runId: string): Promise<void> {
+  if (!/^[a-zA-Z0-9_-]+$/.test(runId)) throw new Error('Invalid CI run identity.');
+  const docker = (args: string[]) =>
+    new Promise<string>((resolveResult, reject) =>
+      execFile(
+        ci.dockerExecutable,
+        args,
+        {
+          env: { PATH: process.env.PATH, DOCKER_HOST: ci.dockerHost },
+          encoding: 'utf8',
+          timeout: 10000,
+          maxBuffer: 65536,
+        },
+        (error, stdout) => (error ? reject(error) : resolveResult(String(stdout))),
+      ),
+    );
+  const ids = (await docker(['ps', '-aq', '--filter', `label=craftingtable.run=${runId}`]))
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (ids.some((id) => !/^[a-f0-9]{12,64}$/.test(id)))
+    throw new Error('Invalid Docker container identity.');
+  if (ids.length) await docker(['rm', '-f', '-v', ...ids]);
+}
+
+/** The name act gives a workflow's containers, which is what two runs must not share. */
+function actWorkflowName(workspacePath: string, args: readonly string[]): string {
+  const workflow = args[args.indexOf('-W') + 1] ?? '';
+  const text = readFileSync(join(workspacePath, workflow), 'utf8');
+  const named = /^name:[ \t]*(['"]?)(.*?)\1[ \t]*(?:#.*)?$/m.exec(text)?.[2]?.trim();
+  return named || basename(workflow);
+}
+
 /**
- * Runs `ct-check -- <executable> <arguments>` for a run, in the daemon (R-G4). The daemon, not
- * the agent, observes the commit and cleanliness before and after, applies the time limit and
- * keeps the log; the receipt is returned for the daemon to record in its database.
+ * Runs a check an agent asked for, in the daemon (R-G4): `ct-check -- <executable> <arguments>`
+ * or `ct-act -W <workflow> [-j <job>]`. The daemon, not the agent, observes the commit and
+ * cleanliness before and after, applies the time limit and keeps the log; the receipt is
+ * returned for the daemon to record in its database. For act, the wait for the workflow's host
+ * lock counts against the check's time limit.
  */
 export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let success = false,
@@ -796,33 +850,87 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     actual: string[] = [];
   let m: PinnedCargoManifest | undefined;
   let before = { headSha: '', clean: false };
+  let waitExpired = false;
+  const releases: (() => void)[] = [];
+  const act = e.tool === 'ct-act';
+  const started = Date.now();
   try {
     const raw = readFileSync(e.manifestPath, 'utf8');
     if (hash(raw) !== e.manifestDigest) throw new Error('Verification manifest changed.');
     m = JSON.parse(raw) as PinnedCargoManifest;
-    const args = e.args[0] === '--' ? e.args.slice(1) : [...e.args];
-    command = args[0] ?? '';
-    actual = args.slice(1);
-    if (!command || command.startsWith('-') || command.includes('\0'))
-      throw new Error('Usage: ct-check -- <executable> <arguments>');
     verifySources(m);
-    before = await observeGitState(m);
     const timeoutMs = m.checkTimeoutMs ?? 30 * 60000;
+    const deadline = started + timeoutMs;
+    let cwd = m.workspacePath;
+    let environment: Record<string, string> = { ...e.environment };
+    let writable = [...e.writablePaths];
+    if (act) {
+      const ci = m.localCi;
+      if (!ci) throw new Error('Local act is not configured by the operator.');
+      const evidence = join(dirname(e.manifestPath), 'checks');
+      mkdirSync(evidence, { recursive: true, mode: 0o700 });
+      actual = localActArguments(m, e.manifestPath, [...e.args], evidence);
+      command = ci.actExecutable;
+      if (!e.holdWorkflow) throw new Error('Local CI needs the daemon workflow queue.');
+      const key = hash(`${ci.dockerHost}\0${actWorkflowName(m.workspacePath, e.args)}`);
+      try {
+        releases.push(
+          await e.holdWorkflow(key, deadline, e.signal, (holder) =>
+            e.onOutput(
+              `Waiting for run ${holder} to finish this workflow's local CI; act cannot run it twice at once on one Docker host.\n`,
+            ),
+          ),
+        );
+        // Launchers of runs prepared before R-G4 still take the file lock; keep excluding them.
+        const lock = localCiLockPath(ci, m.workspacePath, e.args);
+        await acquireLocalCiLock(lock, m.runId, Math.max(0, deadline - Date.now()), 2000, e.signal);
+        releases.push(() => releaseLocalCiLock(lock));
+      } catch (error) {
+        waitExpired = !e.signal.aborted;
+        throw error;
+      }
+      for (const part of ['cargo-registry', 'cargo-git'])
+        mkdirSync(join(ci.cacheRoot, part), { recursive: true, mode: 0o700 });
+      mkdirSync(join(evidence, 'artifacts'), { recursive: true, mode: 0o700 });
+      const home = join(e.privateDirectory, 'home');
+      mkdirSync(home, { recursive: true, mode: 0o700 });
+      cwd = e.privateDirectory;
+      environment = {
+        PATH: process.env.PATH ?? '/usr/bin',
+        HOME: home,
+        DOCKER_HOST: ci.dockerHost,
+        XDG_CACHE_HOME: ci.cacheRoot,
+      };
+      writable = [...writable, ci.cacheRoot, e.privateDirectory];
+    } else {
+      const args = e.args[0] === '--' ? e.args.slice(1) : [...e.args];
+      command = args[0] ?? '';
+      actual = args.slice(1);
+      if (!command || command.startsWith('-') || command.includes('\0'))
+        throw new Error('Usage: ct-check -- <executable> <arguments>');
+    }
+    before = await observeGitState(m);
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('The check time limit passed before it could start.');
     const confined = e.confinement === 'systemd';
+    const ci = m.localCi;
+    const runId = m.runId;
     const supervised = await superviseCheck(
       confined ? 'systemd-run' : command,
       confined
         ? confinedCheckArguments(
             e.unitName,
-            m.workspacePath,
-            timeoutMs / 1000 + 30,
-            e.writablePaths,
-            e.environment,
+            cwd,
+            remaining / 1000 + 30,
+            writable,
+            environment,
             [command, ...actual],
+            // act fetches actions itself; its job containers reach Docker's network anyway.
+            act,
           )
         : actual,
       {
-        cwd: m.workspacePath,
+        cwd,
         // systemd-run needs the daemon's user bus; the check itself gets only `environment`.
         env: confined
           ? Object.fromEntries(
@@ -830,11 +938,14 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
                 .filter((key) => process.env[key] !== undefined)
                 .map((key) => [key, process.env[key]]),
             )
-          : { ...e.environment },
-        timeoutMs,
+          : environment,
+        timeoutMs: remaining,
         onOutput: e.onOutput,
         signal: e.signal,
-        ...(confined ? { onStop: () => stopCheckUnit(e.unitName) } : {}),
+        onStop: () => {
+          if (confined) stopCheckUnit(e.unitName);
+          if (act && ci) void removeRunContainers(ci, runId).catch(() => {});
+        },
       },
     );
     code = supervised.code;
@@ -847,6 +958,17 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       diagnostic = code === null ? 'Check interrupted or timed out.' : `Check exited ${code}.`;
   } catch (error) {
     diagnostic = error instanceof Error ? error.message : 'Check failed.';
+  } finally {
+    if (act && m?.localCi) {
+      try {
+        await removeRunContainers(m.localCi, m.runId);
+      } catch (error) {
+        success = false;
+        diagnostic += ` ${error instanceof Error ? error.message : 'CI cleanup failed.'}`;
+      }
+    }
+    // Released after this run's containers are gone, so the next run starts clean.
+    for (const release of releases.reverse()) release();
   }
   const after = m ? await observeGitState(m) : { headSha: '', clean: false };
   mkdirSync(dirname(e.logPath), { recursive: true, mode: 0o700 });
@@ -855,7 +977,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     exitCode: success ? 0 : 1,
     diagnostic,
     receipt: {
-      kind: 'scoped-check',
+      kind: act ? 'local-ci' : 'scoped-check',
       recordedBy: 'daemon',
       runtimeId: m?.runtimeId,
       runId: m?.runId,
@@ -869,8 +991,10 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       success,
       exitCode: code,
       diagnostic,
+      ...(waitExpired ? { workflowWait: 'expired' } : {}),
       logPath: e.logReference,
       logDigest: hash(readFileSync(e.logPath)),
+      ...(act ? { image: m?.localCi?.image } : {}),
       at: new Date().toISOString(),
     },
   };

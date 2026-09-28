@@ -1,6 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, readFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, PinnedCargoManifest } from '@craftingtable/agents';
 import { afterEach, expect } from 'vitest';
@@ -185,5 +193,81 @@ itNeedsCargo(
     expect(await pending).not.toBe(0);
     expect(storage.runtimeEvidence.checkReceipts(f.state.workspaceId, run)).toEqual([]);
     expect(storage.runtimeEvidence.build(f.state.workspaceId, run)?.receipts).toBe('');
+  },
+);
+
+/** An operator local CI configuration whose act prints and then sleeps for `seconds`. */
+function fakeLocalCi(root: string, seconds: number) {
+  const tool = (name: string, body: string) => {
+    const path = join(root, name);
+    writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o700 });
+    return path;
+  };
+  const config = join(root, 'act.json');
+  writeFileSync(
+    config,
+    JSON.stringify({
+      actExecutable: tool('act', `echo "act ran"; sleep ${seconds}`),
+      dockerExecutable: tool('docker', 'exit 0'),
+      dockerHost: 'unix:///run/user/1000/docker.sock',
+      image: `image@sha256:${'a'.repeat(64)}`,
+      cacheRoot: join(root, 'cache'),
+    }),
+  );
+  return config;
+}
+
+itNeedsCargo(
+  'ct-act runs in the daemon; a local CI line an agent writes is dropped, and CI still running at the end invalidates the record (R-G4, LIVE-03)',
+  async () => {
+    const f = await scopedRuntimeFixture();
+    const storage = f.state.context.storage;
+    const root = mkdtempSync(join(tmpdir(), 'ct-receipt-gates-ci-'));
+    mkdirSync(join(f.tree.path, '.github/workflows'), { recursive: true });
+    writeFileSync(join(f.tree.path, '.github/workflows/ci.yml'), 'name: CI\non: push\n');
+    git(['add', '.'], f.tree.path);
+    git(['commit', '-m', 'workflow'], f.tree.path);
+    const previous = process.env.CRAFTINGTABLE_ACT_CONFIG;
+    process.env.CRAFTINGTABLE_ACT_CONFIG = fakeLocalCi(root, 0);
+    try {
+      let output = '';
+      f.backend.replyForRequest = async (request) => {
+        appendReceipt(request, { kind: 'local-ci' });
+        output = (await runLauncher(request, 'ct-act', ['-W', '.github/workflows/ci.yml'])).stdout;
+        return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+      };
+      const ran = await runToFinish(f.state, f.tree.id, { role: 'review' });
+      expect(output).toContain('act ran');
+      const frozen = storage.runtimeEvidence.build(f.state.workspaceId, ran)!.receipts;
+      // Only the daemon's own receipt: the appended line is gone.
+      expect(
+        frozen
+          .trim()
+          .split('\n')
+          .map((l) => JSON.parse(l)),
+      ).toEqual([
+        expect.objectContaining({ kind: 'local-ci', recordedBy: 'daemon', success: true }),
+      ]);
+
+      process.env.CRAFTINGTABLE_ACT_CONFIG = fakeLocalCi(root, 60);
+      f.backend.replyForRequest = (request) => {
+        void runLauncher(request, 'ct-act', ['-W', '.github/workflows/ci.yml']).catch(() => {});
+        const checks = f.state.context.services.checkRequestService;
+        const runId = request.buildEnvironment!.namespace!;
+        const release = (async () => {
+          while (!checks.inFlight(runId).includes('ct-act'))
+            await new Promise((r) => setTimeout(r, 20));
+        })();
+        return { resultText: scopeReport(f.state, f.tree.executionScope!), release };
+      };
+      const unfinished = await runToFinish(f.state, f.tree.id, { role: 'review' });
+      expect(storage.runtimeEvidence.build(f.state.workspaceId, unfinished)?.error).toContain(
+        'Local CI did not finish collection',
+      );
+    } finally {
+      if (previous === undefined) delete process.env.CRAFTINGTABLE_ACT_CONFIG;
+      else process.env.CRAFTINGTABLE_ACT_CONFIG = previous;
+      rmSync(root, { recursive: true, force: true });
+    }
   },
 );

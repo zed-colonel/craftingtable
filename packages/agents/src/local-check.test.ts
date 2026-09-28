@@ -411,6 +411,8 @@ itConfines(
     let output = '';
     try {
       const outcome = await executeCheck({
+        tool: 'ct-check',
+        privateDirectory: join(f.root, 'daemon-private'),
         manifestPath: f.launcher.manifestPath,
         manifestDigest: f.launcher.manifestDigest,
         args: ['--', process.execPath, '-e', script],
@@ -449,6 +451,8 @@ itConfines('stops a confined check and its unit when the daemon cancels it (R-G4
   const controller = new AbortController();
   let output = '';
   const running = executeCheck({
+    tool: 'ct-check',
+    privateDirectory: join(f.root, 'daemon-private'),
     manifestPath: f.launcher.manifestPath,
     manifestDigest: f.launcher.manifestDigest,
     args: ['--', process.execPath, '-e', 'console.log("started"); setInterval(() => {}, 1000)'],
@@ -469,4 +473,114 @@ itConfines('stops a confined check and its unit when the daemon cancels it (R-G4
   expect(outcome.receipt).toMatchObject({ success: false, exitCode: null });
   const state = spawnSync('systemctl', ['--user', 'is-active', unitName], { encoding: 'utf8' });
   expect(state.stdout.trim()).not.toBe('active');
+});
+
+it('runs ct-act in the daemon with a private HOME, under the workflow hold, and removes its containers (R-G4, LIVE-03)', async () => {
+  const shared = mkdtempSync(join(tmpdir(), 'ct-act-daemon-'));
+  roots.push(shared);
+  const calls = join(shared, 'docker.log');
+  const tool = (name: string, body: string) => {
+    const path = join(shared, name);
+    writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o700 });
+    return path;
+  };
+  const localCi = {
+    actExecutable: tool('act', 'echo "act home=$HOME cwd=$(pwd) docker=$DOCKER_HOST"'),
+    dockerExecutable: tool(
+      'docker',
+      `echo "$@" >> ${calls}; [ "$1" = ps ] && echo 0123456789ab; exit 0`,
+    ),
+    dockerHost: 'unix:///run/user/1000/docker.sock',
+    image: `image@sha256:${'a'.repeat(64)}`,
+    cacheRoot: join(shared, 'cache'),
+  };
+  const f = fixture();
+  mkdirSync(join(f.m.workspacePath, '.github/workflows'), { recursive: true });
+  writeFileSync(join(f.m.workspacePath, '.github/workflows/contract.yml'), 'name: C\non: push\n');
+  spawnSync(hostGit(), ['add', '.'], { cwd: f.m.workspacePath });
+  spawnSync(
+    hostGit(),
+    ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-m', 'workflow'],
+    { cwd: f.m.workspacePath },
+  );
+  const launcher = f.launch({ ...f.m, localCi });
+  const privateDirectory = join(shared, 'daemon-private');
+  const held: string[] = [];
+  const execution = (hold: import('./local-check.js').WorkflowHold) => {
+    let output = '';
+    return executeCheck({
+      tool: 'ct-act',
+      manifestPath: launcher.manifestPath,
+      manifestDigest: launcher.manifestDigest,
+      args: ['-W', '.github/workflows/contract.yml'],
+      logPath: join(shared, 'logs', `${held.length}.log`),
+      logReference: 'check-logs/run/act.log',
+      privateDirectory,
+      confinement: 'none',
+      unitName: 'unused',
+      writablePaths: [],
+      environment: {},
+      holdWorkflow: hold,
+      onOutput: (text) => (output += text),
+      signal: new AbortController().signal,
+    }).then((outcome) => ({ outcome, output }));
+  };
+  const ran = await execution(async (key) => {
+    held.push(key);
+    return () => held.push('released');
+  });
+  expect(ran.outcome.exitCode, ran.output + ran.outcome.diagnostic).toBe(0);
+  expect(ran.output).toContain(
+    `act home=${join(privateDirectory, 'home')} cwd=${privateDirectory}`,
+  );
+  expect(ran.outcome.receipt).toMatchObject({
+    kind: 'local-ci',
+    recordedBy: 'daemon',
+    success: true,
+    clean: true,
+    image: localCi.image,
+  });
+  expect(held).toEqual([expect.stringMatching(/^[a-f0-9]{64}$/), 'released']);
+  expect(readFileSync(calls, 'utf8')).toContain('rm -f -v 0123456789ab');
+
+  // A hold that is not granted before the time limit is a failed, labelled receipt; act never runs.
+  rmSync(calls, { force: true });
+  const expired = await execution(async () => {
+    throw new Error("Another run held this workflow's local CI past the check time limit.");
+  });
+  expect(expired.outcome.exitCode).toBe(1);
+  expect(expired.output).not.toContain('act home');
+  expect(expired.outcome.receipt).toMatchObject({
+    kind: 'local-ci',
+    success: false,
+    workflowWait: 'expired',
+  });
+
+  // The wait counts against the check's time limit (R-I11): a hold granted after the limit
+  // leaves no time for act.
+  const short = f.launch({ ...f.m, localCi, checkTimeoutMs: 200 });
+  let deadline = 0;
+  const late = await executeCheck({
+    tool: 'ct-act',
+    manifestPath: short.manifestPath,
+    manifestDigest: short.manifestDigest,
+    args: ['-W', '.github/workflows/contract.yml'],
+    logPath: join(shared, 'logs', 'late.log'),
+    logReference: 'check-logs/run/late.log',
+    privateDirectory,
+    confinement: 'none',
+    unitName: 'unused',
+    writablePaths: [],
+    environment: {},
+    holdWorkflow: async (_key, until) => {
+      deadline = until;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return () => undefined;
+    },
+    onOutput: () => undefined,
+    signal: new AbortController().signal,
+  });
+  expect(deadline - Date.now()).toBeLessThan(0);
+  expect(late.diagnostic).toContain('time limit passed before it could start');
+  expect(late.receipt).toMatchObject({ success: false });
 });

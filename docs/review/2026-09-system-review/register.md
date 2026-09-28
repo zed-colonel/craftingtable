@@ -1554,6 +1554,25 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - cancelling stops the unit.
   - **Test harness.** Test replies may be asynchronous. Tests call launchers through `runLauncher`, because a blocking call would starve the daemon that serves it.
   - **Rollback:** a release before this cannot read schema 33, or run environments carrying `receiptAuthority`.
+- **Increment 2 (2026-09-28): the daemon runs `ct-act` and owns its lock** (LIVE-03; the R-I11 lock cases).
+  - `ct-act` is a spool client too. The daemon checks the workflow and job as before (`localActArguments`) and runs act in a unit with the same file-system limits, plus the CI cache.
+    - Network is allowed, because act fetches actions itself. Before this, a Codex run needed an escalation for it.
+    - act's HOME and working directory are daemon-owned (`<data>/check-logs/<run>/<request>.private`), so an agent cannot plant an `.actrc`.
+    - The run's labelled containers are removed asynchronously, after the job and when it is stopped.
+  - **The lock** is an in-daemon queue, `WorkflowQueue`, keyed by the Docker host and the workflow's name. Holders are served in order. A waiter that gives up keeps its place in the chain, so nothing behind it starts early. The daemon also takes the old file lock, to exclude the launchers of runs prepared before the cutover.
+  - **The R-I11 edge cases:**
+    - The wait counts against the check's time limit; a hold granted too late runs nothing.
+    - A wait that expires is a failed receipt marked `workflowWait: 'expired'`, not only prose.
+    - The queue is keyed by the Docker host.
+    - No act is orphaned by a killed launcher, because it runs in the daemon's unit.
+    - No PID identity is needed within the daemon.
+    
+    Two daemons with different act configurations sharing one socket still exclude each other only through the file lock (disposition: one daemon per host).
+  - One act per run at a time, as before. At freeze, act still running is unfinished collection and invalidates the record, as the old lease did. A `local-ci` line in the launcher file of a daemon-recorded run is dropped.
+  - **Tests (each fails without its part):**
+    - `check-request-service.test.ts`: order and who is waited for; a waiter that expires or is cancelled keeps the order. Breaking the chaining fails it.
+    - `local-check.test.ts`: act with a private HOME and working directory under the hold, containers removed; an expired hold is a labelled failure and act never runs; a hold granted after the limit runs nothing.
+    - `server-execution-receipt-gates.test.ts`: a `local-ci` line an agent appends is dropped (keeping it fails), and CI still running at the end invalidates the record (ignoring it fails).
 
 ### R-G5
 

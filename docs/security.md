@@ -454,7 +454,11 @@ privileges; a named environment), observes HEAD and cleanliness itself, keeps th
 way freezes its build record from those rows; a line written to the launcher file is not read as a
 `scoped-check` receipt. The spool is agent-owned, so the daemon never follows a link or reads a FIFO
 there and creates each reply file exclusively. `CRAFTINGTABLE_CHECK_CONFINEMENT=none` runs checks as a
-plain process group instead (tests, or a host without a user manager). `ct-act`, `ct-native` and pinned
+plain process group instead (tests, or a host without a user manager). `ct-act` goes the same way: act
+runs in a daemon unit with the same file-system limits plus the CI cache, network allowed (act fetches
+actions itself; job containers reach Docker's network regardless), and a HOME and working directory the
+daemon owns, so an agent cannot plant an `.actrc`. One act per workflow and Docker host runs at a time
+through an in-daemon queue; the wait counts against the check's time limit. `ct-native` and pinned
 Cargo still run in the agent's tree until their R-G4 increments land; Claude runs have no OS sandbox, so
 for them the database itself stays writable by the agent until R-G5's sandbox increment.
 `ct-act` restricts its input to one ordinary repository workflow and optional job; host configuration

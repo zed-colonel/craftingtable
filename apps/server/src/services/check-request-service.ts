@@ -15,6 +15,67 @@ import {
 import { isTerminalAgentRunStatus, type WorkspaceId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 
+/**
+ * One act run per workflow and Docker host at a time (LIVE-03). act names its containers after
+ * the workflow, so two runs of one workflow remove each other's. Waiters are served in order;
+ * one that gives up (its deadline passed, or it was cancelled) keeps its place in the chain, so
+ * no one behind it starts before the holder ahead of it has finished.
+ */
+export class WorkflowQueue {
+  private readonly tails = new Map<string, { readonly done: Promise<void>; holder: string }>();
+
+  async hold(
+    key: string,
+    holder: string,
+    deadline: number,
+    signal: AbortSignal,
+    onWait: (holder: string) => void,
+  ): Promise<() => void> {
+    const previous = this.tails.get(key);
+    let release!: () => void;
+    const mine = new Promise<void>((resolveRelease) => {
+      release = resolveRelease;
+    });
+    const done = (previous?.done ?? Promise.resolve()).then(() => mine);
+    const tail = { done, holder };
+    this.tails.set(key, tail);
+    void done.then(() => {
+      if (this.tails.get(key) === tail) this.tails.delete(key);
+    });
+    if (previous) {
+      onWait(previous.holder);
+      try {
+        await new Promise<void>((resolveWait, reject) => {
+          const giveUp = (reason: string) => {
+            clearTimeout(timer);
+            signal.removeEventListener('abort', aborted);
+            reject(new Error(reason));
+          };
+          const aborted = () => giveUp("Interrupted while waiting for this workflow's local CI.");
+          const timer = setTimeout(
+            () =>
+              giveUp(
+                `Another run (${previous.holder}) held this workflow's local CI past the check time limit.`,
+              ),
+            Math.max(0, deadline - Date.now()),
+          );
+          signal.addEventListener('abort', aborted, { once: true });
+          if (signal.aborted) aborted();
+          void previous.done.then(() => {
+            clearTimeout(timer);
+            signal.removeEventListener('abort', aborted);
+            resolveWait();
+          });
+        });
+      } catch (error) {
+        release();
+        throw error;
+      }
+    }
+    return release;
+  }
+}
+
 /** One run whose check launchers the daemon serves. */
 export interface CheckRunContext {
   readonly workspaceId: WorkspaceId;
@@ -50,6 +111,7 @@ interface ServedRun {
  */
 export class CheckRequestService {
   private readonly runs = new Map<string, ServedRun>();
+  private readonly workflows = new WorkflowQueue();
   private closed = false;
   /** Units are named per data directory, so a second daemon on the host never stops ours. */
   private readonly unitPrefix: string;
@@ -148,7 +210,7 @@ export class CheckRequestService {
         reply.finish(2, claimed.refused);
         continue;
       }
-      const refusal = this.refusal(run.context, claimed.request);
+      const refusal = this.refusal(run.context, claimed.request, run.inFlight);
       if (refusal) {
         reply.finish(2, refusal);
         continue;
@@ -162,9 +224,15 @@ export class CheckRequestService {
   }
 
   /** Why a request cannot run now, or undefined when it can. */
-  private refusal(context: CheckRunContext, request: CheckRequest): string | undefined {
-    if (request.tool !== 'ct-check')
+  private refusal(
+    context: CheckRunContext,
+    request: CheckRequest,
+    inFlight: ReadonlyMap<string, InFlight>,
+  ): string | undefined {
+    if (request.tool !== 'ct-check' && request.tool !== 'ct-act')
       return `${request.tool} is not served by the daemon for this run.`;
+    if (request.tool === 'ct-act' && [...inFlight.values()].some((c) => c.tool === 'ct-act'))
+      return 'Another ct-act is already running for this run; run one workflow at a time.';
     const agentRun = this.storage.execution.runs.find(
       context.workspaceId,
       context.runId as import('@craftingtable/domain').AgentRunId,
@@ -217,6 +285,10 @@ export class CheckRequestService {
     };
     try {
       const outcome = await executeCheck({
+        tool: request.tool === 'ct-act' ? 'ct-act' : 'ct-check',
+        privateDirectory: join(this.config.checkLogRoot, context.runId, `${id}.private`),
+        holdWorkflow: (key, deadline, abort, onWait) =>
+          this.workflows.hold(key, context.runId, deadline, abort, onWait),
         manifestPath: context.manifestPath,
         manifestDigest: context.manifestDigest,
         args: request.args,

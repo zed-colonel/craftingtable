@@ -2114,7 +2114,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
       if (before === undefined || isTerminalAgentRunStatus(before.status)) {
         return false;
       }
-      this.runtimeEvidence?.freezeRun(tx, workspaceId, runId);
+      this.runtimeEvidence?.freezeRun(tx, workspaceId, runId, this.checks?.inFlight(runId));
       const after = tx.execution.runs.transition({
         workspaceId,
         runId,

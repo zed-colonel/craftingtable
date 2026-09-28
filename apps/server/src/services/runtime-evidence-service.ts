@@ -2575,7 +2575,16 @@ export class RuntimeEvidenceService {
     const env = this.storage.runtimeEvidence.run(ws, runId);
     if (env) await cleanupLocalCiManifest(env.manifestPath, env.manifestDigest);
   }
-  freezeRun(tx: StorageRepositories, ws: WorkspaceId, runId: string) {
+  /**
+   * `unfinished` names the daemon-run checks still running for this run (R-G4): CI or native
+   * collection that has not finished invalidates the record, as an unfinished lease does.
+   */
+  freezeRun(
+    tx: StorageRepositories,
+    ws: WorkspaceId,
+    runId: string,
+    unfinished: readonly string[] = [],
+  ) {
     const env = tx.runtimeEvidence.run(ws, runId);
     if (!env || tx.runtimeEvidence.build(ws, runId)) return;
     let receipts = '',
@@ -2587,7 +2596,8 @@ export class RuntimeEvidenceService {
       if (
         ['act-active', 'native-active'].some((name) =>
           existsSync(join(dirname(env.manifestPath), 'checks', name)),
-        )
+        ) ||
+        unfinished.some((tool) => tool === 'ct-act' || tool === 'ct-native')
       )
         throw new Error('Local CI did not finish collection; a fresh review is required.');
       const daemon = env.receiptAuthority === 'daemon';
@@ -2749,10 +2759,13 @@ export class RuntimeEvidenceService {
   }
 }
 
+/** Receipt kinds only the daemon writes for a daemon-recorded run (R-G4). */
+const DAEMON_RUN_KINDS = new Set(['scoped-check', 'local-ci']);
+
 /**
  * The receipts a run with daemon receipt authority freezes (R-G4): every check the daemon
- * recorded, then the launcher file's lines only of kinds the daemon does not run yet. A
- * `scoped-check` line in the file was written by something other than the daemon and is dropped.
+ * recorded, then the launcher file's lines only of kinds the daemon does not run yet. A line
+ * of a kind the daemon runs was written by something else and is dropped.
  */
 export function daemonBuildReceipts(
   recorded: readonly { readonly receipt: string }[],
@@ -2763,7 +2776,8 @@ export function daemonBuildReceipts(
     .filter((line) => line.trim() !== '')
     .filter((line) => {
       try {
-        return (JSON.parse(line) as { kind?: string }).kind !== 'scoped-check';
+        const kind = (JSON.parse(line) as { kind?: string }).kind;
+        return kind === undefined || !DAEMON_RUN_KINDS.has(kind);
       } catch {
         return false;
       }

@@ -20,7 +20,10 @@ afterEach(cleanupExecutionFixtures);
 
 const DECISIONS = ['LOCAL-ADR-01', 'LOCAL-ADR-02'] as const;
 
-/** A map whose slices both wait at start on two shared architecture decisions. */
+/**
+ * A map whose slices wait at start on shared architecture decisions: every slice on LOCAL-ADR-01,
+ * only the first on LOCAL-ADR-02, so LOCAL-ADR-01 unblocks more slices.
+ */
 function withDecisions(source: ConcurrencySource): ConcurrencySource {
   return {
     ...source,
@@ -48,9 +51,9 @@ function withDecisions(source: ConcurrencySource): ConcurrencySource {
         requires: [],
       })),
     ],
-    slices: source.slices.map((s) => ({
+    slices: source.slices.map((s, index) => ({
       ...s,
-      start_requires: DECISIONS.map((id) => ({
+      start_requires: (index === 0 ? DECISIONS : DECISIONS.slice(0, 1)).map((id) => ({
         kind: 'checkpoint' as const,
         id,
         state: 'passed' as const,
@@ -72,13 +75,27 @@ const brief = (checkpointId: string) => ({
 
 async function decisionFixture() {
   const f = await supervisedMapFixture(false, 'automatic', false, false, false, withDecisions);
+  // A preparation's answer can be held, so its run stays in flight while the roadmap runs on.
+  const held = new Map<string, Promise<void>>();
+  const hold = (checkpointId: string) => {
+    let release!: () => void;
+    held.set(
+      checkpointId,
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    return release;
+  };
   // A preparation run recommends the checkpoint its brief names.
   f.backend.replyForRequest = (request) => {
     const checkpointId = DECISIONS.find((id) =>
       request.prompt.includes(`decision brief for ${id}`),
     );
     if (!checkpointId) return { resultText: 'Nothing to prepare.' };
+    const release = held.get(checkpointId);
     return {
+      ...(release ? { release } : {}),
       resultText:
         `## Open questions\nApprove ${checkpointId}?\n\`\`\`craftingtable-design\n` +
         JSON.stringify({
@@ -98,7 +115,7 @@ async function decisionFixture() {
   };
   await adoptSupervisedMap(f);
   const saved = f.service.save(f.auth, f.state.workspaceId, f.input).roadmap;
-  return { f, saved, ws: f.state.workspaceId, tx: f.state.context.storage };
+  return { f, saved, ws: f.state.workspaceId, tx: f.state.context.storage, hold };
 }
 
 type Fixture = Awaited<ReturnType<typeof decisionFixture>>;
@@ -310,4 +327,85 @@ it('an applied planning amendment revokes the standing preparation grant (R-C3b)
   });
   expect(applied.statusCode, applied.body).toBe(200);
   expect(storedRoadmap(f.state).decisionPreparationGrant?.enabled).toBe(false);
+});
+
+const prepared = (fixture: Fixture) =>
+  (storedRoadmap(fixture.f.state).decisionPreparations ?? []).map((p) => p.checkpointId);
+
+it('under the grant, the running roadmap prepares what its slices need, most-waited first (R-C3b)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture();
+  const { f, ws, tx } = fixture;
+  const before = tx.runtimeEvidence.submissions(ws, f.parentScope.definitionId);
+  // Without a grant, a running roadmap prepares nothing.
+  await roadmapControl(f.state, 'start');
+  await f.state.context.services.roadmapService.tick();
+  expect(prepared(fixture)).toEqual([]);
+  await roadmapControl(f.state, 'pause');
+  expect((await grant(fixture, { enabled: true, minutes: 10, maxConcurrent: 1 })).statusCode).toBe(
+    200,
+  );
+  const release = fixture.hold('LOCAL-ADR-01');
+  await roadmapControl(f.state, 'resume');
+  // LOCAL-ADR-01 unblocks both slices, LOCAL-ADR-02 one: the first goes first, alone.
+  await waitFor(() => prepared(fixture).length === 1, 'the first standing preparation');
+  expect(prepared(fixture)).toEqual(['LOCAL-ADR-01']);
+  const first = preparation(fixture, 'LOCAL-ADR-01')!;
+  expect(first.createdByUserId).toBe(f.state.userId);
+  await waitFor(
+    () => tx.execution.runs.find(ws, first.runId)?.status === 'running',
+    'the first preparation at work',
+  );
+  // While it works, the grant's bound of one keeps the next waiting.
+  await f.state.context.services.roadmapService.tick();
+  expect(prepared(fixture)).toEqual(['LOCAL-ADR-01']);
+  release();
+  await waitFor(
+    () => tx.execution.runs.find(ws, first.runId)?.status === 'finished',
+    'the first preparation finishes',
+  );
+  // Then the next; a decision already prepared on this binding is not prepared again.
+  await waitFor(() => prepared(fixture).length === 2, 'the second standing preparation');
+  expect(prepared(fixture)).toEqual(['LOCAL-ADR-01', 'LOCAL-ADR-02']);
+  const second = preparation(fixture, 'LOCAL-ADR-02')!;
+  await waitFor(
+    () => tx.execution.runs.find(ws, second.runId)?.status === 'finished',
+    'the second preparation finishes',
+  );
+  await f.state.context.services.roadmapService.tick();
+  expect(prepared(fixture)).toEqual(['LOCAL-ADR-01', 'LOCAL-ADR-02']);
+  // Preparation proposes nothing by itself and approves nothing.
+  expect(tx.runtimeEvidence.submissions(ws, f.parentScope.definitionId)).toEqual(before);
+  expect(storedRoadmap(f.state).status).toBe('running');
+});
+
+it('the grant skips accepted decisions and stops preparing once revoked (R-C3b)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture();
+  const { f, ws, tx } = fixture;
+  // LOCAL-ADR-01 was prepared and accepted by hand.
+  expect((await prepare(fixture, 'LOCAL-ADR-01')).statusCode).toBe(200);
+  const manual = preparation(fixture, 'LOCAL-ADR-01')!;
+  await waitFor(
+    () => tx.execution.runs.find(ws, manual.runId)?.status === 'finished',
+    'the manual preparation finishes',
+  );
+  await proposeAndAccept(fixture, 'LOCAL-ADR-01');
+  // A revoked grant prepares nothing.
+  expect((await grant(fixture, { enabled: false, minutes: 10, maxConcurrent: 2 })).statusCode).toBe(
+    200,
+  );
+  await roadmapControl(f.state, 'start');
+  await f.state.context.services.roadmapService.tick();
+  expect(prepared(fixture)).toEqual(['LOCAL-ADR-01']);
+  await roadmapControl(f.state, 'pause');
+  expect((await grant(fixture, { enabled: true, minutes: 10, maxConcurrent: 2 })).statusCode).toBe(
+    200,
+  );
+  await roadmapControl(f.state, 'resume');
+  await waitFor(() => prepared(fixture).length === 2, 'the standing preparation');
+  // Only the decision still needed: LOCAL-ADR-01 is accepted.
+  expect(prepared(fixture)).toEqual(['LOCAL-ADR-01', 'LOCAL-ADR-02']);
 });

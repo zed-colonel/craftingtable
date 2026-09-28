@@ -56,6 +56,7 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { cycleAgentSelection, entryAgentSelections } from './agent-profile-policy.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
+import { neededDecisions } from './decision-demand.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
 import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-project-service.js';
 import { ConcurrentModificationError, ExecutionRequestError, NotFoundError } from './errors.js';
@@ -119,6 +120,19 @@ class EntryHoldError extends ExecutionRequestError {
   ) {
     super('conflict', message);
   }
+}
+/** A decision a preparation may prepare: the exact map binding and its bound owner (R-C3b). */
+interface PreparationTarget {
+  readonly d: import('@craftingtable/domain').ConcurrencyDefinition;
+  readonly binding: NonNullable<ReturnType<StorageRepositories['imports']['bindings']>[number]>;
+  readonly checkpoint: import('@craftingtable/domain').ConcurrencyDefinition['source']['checkpoints'][number];
+  readonly entry: RoadmapEntry;
+  readonly owner: {
+    readonly repositoryId: import('@craftingtable/domain').SourceRepositoryId;
+    readonly projectId: import('@craftingtable/domain').ProjectId;
+    readonly planVersionId: import('@craftingtable/domain').PlanVersionId;
+    readonly integrationBranch: string;
+  };
 }
 /**
  * The holds left once the operator answered a stopped review with a repair round: its
@@ -440,15 +454,39 @@ export class RoadmapService {
       conflict('Decisions are prepared for a draft, running or paused cross-project roadmap.');
     if (this.storage.amendments.pending(ws, id))
       conflict('Resolve the pending planning amendment first.');
-    const d = this.storage.imports.definition(ws, cp.definitionId);
-    const binding = this.storage.imports.bindings(ws, cp.definitionId)[0];
+    const target = this.preparationTarget(old, input.checkpointId);
+    if ('refused' in target) conflict(target.refused);
+    this.cycles.validateAgentSelections({
+      ...entryAgentSelections(old, target.entry).selections,
+      investigation: input.profile,
+    });
+    this.controlling.add(id);
+    try {
+      await this.launchPreparation(old, target, input, context, () =>
+        this.workspaces.requireRole(context, ws, ['owner', 'editor']),
+      );
+    } finally {
+      this.controlling.delete(id);
+    }
+    return this.view(this.find(ws, id));
+  }
+  /** The exact map checkpoint a preparation would prepare, and its bound owner, or why not. */
+  private preparationTarget(
+    roadmap: Roadmap,
+    checkpointId: string,
+  ): PreparationTarget | { readonly refused: string } {
+    const ws = roadmap.workspaceId,
+      cp = roadmap.definition.crossProject;
+    const d = cp && this.storage.imports.definition(ws, cp.definitionId);
+    const binding = cp && this.storage.imports.bindings(ws, cp.definitionId)[0];
     if (
+      !cp ||
       !d ||
       binding?.revision !== cp.bindingRevision ||
-      !supportsArchitectureDecision(d, input.checkpointId)
+      !supportsArchitectureDecision(d, checkpointId)
     )
-      conflict('Choose an architecture decision from the exact current map binding.');
-    const checkpoint = d.source.checkpoints.find((c) => c.id === input.checkpointId)!;
+      return { refused: 'Choose an architecture decision from the exact current map binding.' };
+    const checkpoint = d.source.checkpoints.find((c) => c.id === checkpointId)!;
     const owner = binding.bindings.find((b) => b.alias === checkpoint.owner);
     if (
       !owner?.repositoryId ||
@@ -456,40 +494,67 @@ export class RoadmapService {
       !owner.planVersionId ||
       !owner.integrationBranch
     )
-      conflict('Bind this decision owner to an exact plan and integration branch first.');
-    if (
-      old.decisionPreparations?.some(
-        (p) =>
-          p.checkpointId === checkpoint.id &&
-          !p.failure &&
-          (!this.storage.execution.runs.find(ws, p.runId) ||
-            ['starting', 'running', 'waiting'].includes(
-              this.storage.execution.runs.find(ws, p.runId)!.status,
-            )),
-      )
-    )
-      conflict(
-        'This decision already has a preparation in flight. Open its run or wait for completion.',
-      );
-    const entry = old.definition.entries.find((e) => e.planVersionId === owner.planVersionId);
-    if (!entry) conflict('This decision owner is outside the selected roadmap.');
-    this.cycles.validateAgentSelections({
-      ...entryAgentSelections(old, entry).selections,
-      investigation: input.profile,
-    });
+      return {
+        refused: 'Bind this decision owner to an exact plan and integration branch first.',
+      };
+    const entry = roadmap.definition.entries.find((e) => e.planVersionId === owner.planVersionId);
+    if (!entry) return { refused: 'This decision owner is outside the selected roadmap.' };
+    return {
+      d,
+      binding,
+      checkpoint,
+      entry,
+      owner: {
+        repositoryId: owner.repositoryId,
+        projectId: owner.projectId,
+        planVersionId: owner.planVersionId,
+        integrationBranch: owner.integrationBranch,
+      },
+    };
+  }
+  /** A preparation whose run has not ended: it holds its checkpoint and a place in the bound. */
+  private preparationInFlight(p: import('@craftingtable/domain').DecisionPreparation): boolean {
+    const run = this.storage.execution.runs.find(p.workspaceId, p.runId);
+    return !p.failure && (!run || ['starting', 'running', 'waiting'].includes(run.status));
+  }
+  /**
+   * Reserves, prepares the worktree for, and launches one read-only preparation. Its record binds
+   * the exact map binding and digest; `authorize` re-checks who may still prepare it. A failure
+   * after the reservation is recorded on the preparation.
+   */
+  private async launchPreparation(
+    roadmap: Roadmap,
+    target: PreparationTarget,
+    input: {
+      readonly profile: import('@craftingtable/domain').AgentSelection;
+      readonly minutes: number;
+      readonly instructions: string;
+    },
+    context: CommandContext,
+    authorize: () => void,
+  ): Promise<void> {
+    const ws = roadmap.workspaceId,
+      { d, binding, checkpoint, owner } = target;
     const repo = this.storage.execution.sourceRepositories.find(ws, owner.repositoryId);
     if (!repo) throw new NotFoundError();
-    this.controlling.add(id);
     let reserved: import('@craftingtable/domain').DecisionPreparation | undefined;
     try {
-      const result = await this.git.resolveBranch(repo.rootPath, owner.integrationBranch);
+      const result = await this.git!.resolveBranch(repo.rootPath, owner.integrationBranch);
       if (!result.ok) conflict(result.failure.message);
-      const latest = this.find(ws, id);
+      const latest = this.find(ws, roadmap.id);
       if (
-        latest.definition.revision !== old.definition.revision ||
-        this.storage.imports.bindings(ws, cp.definitionId)[0]?.revision !== binding.revision
+        latest.definition.revision !== roadmap.definition.revision ||
+        this.storage.imports.bindings(ws, d.id)[0]?.revision !== binding.revision
       )
         conflict('Roadmap changed during preparation. Refresh and try again.');
+      if (
+        latest.decisionPreparations?.some(
+          (p) => p.checkpointId === checkpoint.id && this.preparationInFlight(p),
+        )
+      )
+        conflict(
+          'This decision already has a preparation in flight. Open its run or wait for completion.',
+        );
       const at = this.now();
       const p: import('@craftingtable/domain').DecisionPreparation = {
         id: randomUUID(),
@@ -498,10 +563,7 @@ export class RoadmapService {
         bindingDigest: decisionBindingDigest(this.storage, d, binding.revision),
         checkpointId: checkpoint.id,
         workspaceId: ws,
-        repositoryId: owner.repositoryId,
-        projectId: owner.projectId,
-        planVersionId: owner.planVersionId,
-        integrationBranch: owner.integrationBranch,
+        ...owner,
         integrationSha: result.value,
         worktreeId: asWorktreeId(randomUUID()),
         runId: asAgentRunId(randomUUID()),
@@ -515,12 +577,12 @@ export class RoadmapService {
         latest,
         { decisionPreparations: [...(latest.decisionPreparations ?? []), p] },
         'prepare-decision',
-        context,
+        context.session ? (context as AuthContext) : undefined,
       );
       reserved = p;
       const check = () => {
-        this.workspaces.requireRole(context, ws, ['owner', 'editor']);
-        const recorded = this.find(ws, id).decisionPreparations?.find((q) => q.id === p.id);
+        authorize();
+        const recorded = this.find(ws, roadmap.id).decisionPreparations?.find((q) => q.id === p.id);
         if (
           !recorded ||
           recorded.failure ||
@@ -532,10 +594,10 @@ export class RoadmapService {
       check();
       await this.execution.createDecisionWorktree(context, p, check);
       check();
-      await this.agents.startDecisionPreparation(context, p, check);
+      await this.agents!.startDecisionPreparation(context, p, check);
     } catch (e) {
       if (reserved) {
-        const current = this.find(ws, id);
+        const current = this.find(ws, roadmap.id);
         this.change(
           current,
           {
@@ -546,14 +608,78 @@ export class RoadmapService {
             ),
           },
           'decision-preparation-failed',
-          context,
+          context.session ? (context as AuthContext) : undefined,
         );
       }
       throw e;
-    } finally {
-      this.controlling.delete(id);
     }
-    return this.view(this.find(ws, id));
+  }
+  /**
+   * Under the roadmap's standing grant (R-C3b, ADR-065), prepares the shared decisions its
+   * selected slices still need, those that unblock the most slices first, keeping at most the
+   * granted number in flight. A decision is prepared once per binding; a failed preparation
+   * waits for the operator's explicit retry. Preparation proposes only.
+   */
+  private async prepareNeededDecisions(roadmap: Roadmap): Promise<void> {
+    const grant = roadmap.decisionPreparationGrant,
+      cp = roadmap.definition.crossProject,
+      ws = roadmap.workspaceId;
+    if (!grant?.enabled || !cp || !this.agents || !this.git) return;
+    const grantor = this.grantor(roadmap);
+    if (!grantor) return;
+    const d = this.storage.imports.definition(ws, cp.definitionId);
+    const binding = this.storage.imports.bindings(ws, cp.definitionId)[0];
+    if (!d || binding?.revision !== cp.bindingRevision) return;
+    const digest = decisionBindingDigest(this.storage, d, binding.revision);
+    const preparations = roadmap.decisionPreparations ?? [];
+    let room = grant.maxConcurrent - preparations.filter((p) => this.preparationInFlight(p)).length;
+    const done = new Set(
+      preparations
+        .filter((p) => p.bindingRevision === binding.revision && p.bindingDigest === digest)
+        .map((p) => p.checkpointId),
+    );
+    for (const { checkpointId } of neededDecisions(
+      d,
+      crossProjectState(this.storage, ws, cp).nodes,
+    )) {
+      if (room <= 0) return;
+      if (done.has(checkpointId)) continue;
+      const current = this.find(ws, roadmap.id);
+      if (current.status !== 'running' || !current.decisionPreparationGrant?.enabled) return;
+      const target = this.preparationTarget(current, checkpointId);
+      if ('refused' in target) continue;
+      room -= 1;
+      try {
+        await this.launchPreparation(
+          current,
+          target,
+          {
+            profile: selectionsForPurpose(
+              entryAgentSelections(current, target.entry).selections,
+              'investigation',
+            ),
+            minutes: grant.minutes,
+            instructions: 'Prepared under the standing decision preparation grant of this roadmap.',
+          },
+          { user: grantor },
+          () => {
+            const latest = this.find(ws, roadmap.id);
+            if (!latest.decisionPreparationGrant?.enabled || !this.grantor(latest))
+              conflict('The standing decision preparation grant was revoked.');
+          },
+        );
+      } catch {
+        // Recorded on the preparation when it was reserved; otherwise the next pass retries.
+      }
+    }
+  }
+  /** Whoever granted standing preparation, while they may still prepare decisions. */
+  private grantor(roadmap: Roadmap) {
+    const id = roadmap.decisionPreparationGrant?.grantedByUserId;
+    const user = id && this.storage.users.findById(id);
+    if (!user || user.status !== 'active') return undefined;
+    const access = this.storage.workspaces.findAuthorized(user.id, roadmap.workspaceId);
+    return access && ['owner', 'editor'].includes(access.membership.role) ? user : undefined;
   }
   applyDelegation(
     context: AuthContext,
@@ -1633,6 +1759,9 @@ export class RoadmapService {
   private async advance(roadmap: Roadmap): Promise<void> {
     this.authority(roadmap);
     if (this.storage.amendments.pending(roadmap.workspaceId, roadmap.id)) return;
+    // Shared decisions are prepared beside the slices that will need them (R-C3b).
+    await this.prepareNeededDecisions(roadmap).catch(() => undefined);
+    roadmap = this.find(roadmap.workspaceId, roadmap.id);
     if (roadmap.definition.crossProject) {
       const c = roadmap.definition.crossProject,
         issues = bindingIssues(

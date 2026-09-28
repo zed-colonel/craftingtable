@@ -614,6 +614,11 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The decision preparation panel shows the grant's state and saves it while paused.
   - Nothing acts on the grant yet; step 3 does.
   - **Tests:** `server-execution-decision-preparation.test.ts` (refused to a non-editor, while running and out of range; saved, audited and revoked by the operator; revoked by an applied amendment) and `DecisionPreparationPanel.test.tsx` (saved while paused, shown and locked while running). Each fails without the change.
+- **R-C3b step 3, done 2026-09-28: the scheduler prepares under the grant** (ADR-065 amended).
+  - Each pass of a running roadmap with an enabled grant starts, as the grantor, preparations for the decisions `neededDecisions` lists (`services/decision-demand.ts`): supported architecture decisions that are selected, not yet accepted, and waited on by at least one unfinished selected slice, those that unblock the most slices first.
+  - At most the granted number are in flight. A decision is prepared once per binding revision and digest, and a failed one waits for the operator's retry. Launches stop once the grant is revoked or the grantor loses an editor role.
+  - `prepareDecision` and the scheduler share one launch path. Its reservation re-checks, after the branch lookup, that no preparation of the checkpoint is already in flight, which closes a window where two requests could both start one.
+  - **Tests:** `server-execution-decision-preparation.test.ts`. With no grant, nothing is prepared. Under a grant with a bound of one, LOCAL-ADR-01 (both slices wait on it) is prepared first and alone while its run works, then LOCAL-ADR-02, and neither again. Nothing is proposed or approved by itself. A decision accepted by hand is skipped, and a revoked grant prepares nothing. Removing the bound, reversing the order or preparing again each fails the test.
 
 ### R-C4
 

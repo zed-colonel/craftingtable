@@ -52,7 +52,7 @@ import { cycleAgentSelection } from './agent-profile-policy.js';
 import { cycleOwnership } from './cycle-ownership.js';
 import { WORKTREE_CACHES_DIRECTORY } from './storage-files.js';
 import { offloadToolResult, readToolResult } from './tool-result-store.js';
-import type { AuthContext } from './auth-service.js';
+import type { AuthContext, CommandContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
 import { composeBrief } from './brief.js';
@@ -315,8 +315,9 @@ export class AgentRunService {
     );
   }
 
+  /** Launched by an operator's command, or by the controller under the grantor (R-C3b). */
   async startDecisionPreparation(
-    context: AuthContext,
+    context: CommandContext,
     preparation: import('@craftingtable/domain').DecisionPreparation,
     check: () => void,
   ): Promise<AgentRun> {
@@ -332,7 +333,7 @@ export class AgentRunService {
         worktreeId: preparation.worktreeId,
         instructions: `Prepare an operator decision brief for ${preparation.checkpointId}. This is read-only decision preparation, not work-item implementation or finalization. Read the exact imported sources and decision-preparation/context.json. Do not change source, commit, merge, run builds, provision environments, approve decisions or claim tests passed. Work-item start/merge gates do not prevent preparing this recommendation. Cite facts and distinguish them from proposed choices; identify information genuinely unavailable. Recommend full architecture coverage only when the choice can be settled without future implementation evidence; otherwise name narrow clauses and preserve the full checkpoint. Include one consolidated craftingtable-design block with an operator-decision item and a decision recommendation for exactly ${preparation.checkpointId}; include decisionText, why, at least one alternative with tradeoff, consequences, coverage, consumers and retainedObligations. A full recommendation has consumers: []; implementation and tests retain their gates. Your final message is the artifact; do not write report files.\n\nOperator guidance:\n${preparation.instructions}`,
       },
-      { userId: context.user.id, sessionId: context.session.id },
+      { userId: context.user.id, ...(context.session ? { sessionId: context.session.id } : {}) },
       undefined,
       undefined,
       { purpose: 'investigation', preparationId: preparation.id },

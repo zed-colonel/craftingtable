@@ -51,3 +51,10 @@ started cross-project slices stopped at design; WI-ADR-016 alone was asked for i
   (ADR-057), it is changed only while scheduling is paused, it is audited, revoking it stops future
   preparations without cancelling started ones, and applying a planning amendment revokes it. It
   grants preparation only: never approval, merge, implementation or a start of work.
+- Under an enabled grant, each pass of a running roadmap prepares the supported architecture
+  decisions its selection still needs: selected, not yet accepted, with at least one unfinished
+  selected slice waiting on it. Those that unblock the most slices go first, and no more than the
+  granted number are in flight. A decision is prepared once per binding revision and digest; a
+  failed preparation waits for the operator's explicit retry, as before. Each run uses its owning
+  entry's investigation profile and acts as the grantor, and stops being launched once the grant
+  is revoked or the grantor loses an editor role.

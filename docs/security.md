@@ -463,7 +463,8 @@ too: the daemon starts the approved native unit (ADR-054's limits, unchanged) wi
 owns. Pinned Cargo's build commands are requests too: the daemon checks the resolved graph and runs the
 build in a confined unit, without network (fetch first), under the check time limit. Other Cargo commands
 still run in the agent's tree and record nothing. A daemon-recorded run's build record therefore reads
-no file the agent can write. Claude runs have no OS sandbox, so for them the database itself stays
+no file the agent can write, and the daemon runs every check from the manifest text it verified at
+launch, never the published copy. Claude runs have no OS sandbox, so for them the database itself stays
 writable by the agent until R-G5's sandbox increment.
 `ct-act` restricts its input to one ordinary repository workflow and optional job; host configuration
 selects the local socket, image digest and storage. Rootless Docker retains ordinary user authority.

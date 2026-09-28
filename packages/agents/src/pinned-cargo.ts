@@ -205,7 +205,7 @@ export function prepareCargoLauncher(
     { mode: 0o500 },
   );
   chmodSync(join(binDirectory, 'cargo'), 0o500);
-  return { binDirectory, manifestPath: path, manifestDigest };
+  return { binDirectory, manifestPath: path, manifestDigest, manifest: content };
 }
 export async function runPinnedCargo(
   path: string,

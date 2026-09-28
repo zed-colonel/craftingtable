@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   appendFileSync,
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -271,5 +272,25 @@ itNeedsCargo(
       else process.env.CRAFTINGTABLE_ACT_CONFIG = previous;
       rmSync(root, { recursive: true, force: true });
     }
+  },
+);
+
+itNeedsCargo(
+  'the daemon uses the manifest it verified at launch; a rewritten copy changes nothing (R-G4)',
+  async () => {
+    const f = await scopedRuntimeFixture();
+    const storage = f.state.context.storage;
+    f.backend.replyForRequest = async (request) => {
+      const manifest = join(request.buildEnvironment!.binDirectory, '../manifest.json');
+      chmodSync(manifest, 0o600);
+      writeFileSync(manifest, '{"workspacePath":"/","cargoExecutable":"/bin/false"}');
+      await runLauncher(request, 'ct-check', ['--', HOST_GIT, 'diff', '--check', 'HEAD']);
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    const build = storage.runtimeEvidence.build(f.state.workspaceId, run)!;
+    expect(build.error).toBeUndefined();
+    expect(JSON.parse(build.receipts)).toMatchObject({ success: true, recordedBy: 'daemon' });
+    expect(() => f.svc.assertRun(f.tree, run)).not.toThrow();
   },
 );

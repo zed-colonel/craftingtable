@@ -2579,7 +2579,10 @@ export class RuntimeEvidenceService {
   }
   async cleanupRun(ws: WorkspaceId, runId: string) {
     const env = this.storage.runtimeEvidence.run(ws, runId);
-    if (env) await cleanupLocalCiManifest(env.manifestPath, env.manifestDigest);
+    // The daemon stopped a daemon-recorded run's checks itself (R-G4); only earlier runs have
+    // launcher leases to clean up.
+    if (env && env.receiptAuthority !== 'daemon')
+      await cleanupLocalCiManifest(env.manifestPath, env.manifestDigest);
   }
   /**
    * `unfinished` names the daemon-run checks still running for this run (R-G4): CI or native
@@ -2596,20 +2599,21 @@ export class RuntimeEvidenceService {
     let receipts = '',
       error: string | undefined;
     try {
-      const raw = readFileSync(env.manifestPath, 'utf8');
-      if (hash(raw) !== env.manifestDigest) throw new Error('Pinned manifest changed.');
-      const m = JSON.parse(raw) as PinnedCargoManifest;
-      if (
-        ['act-active', 'native-active'].some((name) =>
-          existsSync(join(dirname(env.manifestPath), 'checks', name)),
-        ) ||
-        unfinished.some((tool) => tool === 'ct-act' || tool === 'ct-native')
-      )
-        throw new Error('Local CI did not finish collection; a fresh review is required.');
-      if (env.receiptAuthority === 'daemon')
-        // Every receipt of a daemon-recorded run is the daemon's own (R-G4); no file is read.
+      if (env.receiptAuthority === 'daemon') {
+        // Its receipts are the daemon's own, and no published file is read back (R-G4).
+        if (unfinished.some((tool) => tool === 'ct-act' || tool === 'ct-native'))
+          throw new Error('Local CI did not finish collection; a fresh review is required.');
         receipts = daemonBuildReceipts(tx.runtimeEvidence.checkReceipts(ws, runId));
-      else {
+      } else {
+        const raw = readFileSync(env.manifestPath, 'utf8');
+        if (hash(raw) !== env.manifestDigest) throw new Error('Pinned manifest changed.');
+        const m = JSON.parse(raw) as PinnedCargoManifest;
+        if (
+          ['act-active', 'native-active'].some((name) =>
+            existsSync(join(dirname(env.manifestPath), 'checks', name)),
+          )
+        )
+          throw new Error('Local CI did not finish collection; a fresh review is required.');
         if (statSync(m.receiptPath).size > 4 * 1024 * 1024)
           throw new Error('Build receipts exceed 4 MiB.');
         receipts = readFileSync(m.receiptPath, 'utf8');

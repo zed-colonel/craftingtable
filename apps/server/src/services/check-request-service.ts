@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { type FSWatcher, lstatSync, readFileSync, realpathSync, watch } from 'node:fs';
+import { type FSWatcher, lstatSync, realpathSync, watch } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import {
   allowlistedEnvironment,
@@ -84,6 +84,8 @@ export interface CheckRunContext {
   readonly runDirectory: string;
   readonly manifestPath: string;
   readonly manifestDigest: string;
+  /** The manifest as the daemon wrote it; the published copy is never read back. */
+  readonly manifest: string;
 }
 
 interface InFlight {
@@ -258,13 +260,7 @@ export class CheckRequestService {
     signal: AbortSignal,
   ): Promise<void> {
     const { context } = served;
-    let manifest: PinnedCargoManifest;
-    try {
-      manifest = JSON.parse(readFileSync(context.manifestPath, 'utf8')) as PinnedCargoManifest;
-    } catch {
-      reply.finish(2, 'The run’s verification manifest is unavailable.');
-      return;
-    }
+    const manifest = JSON.parse(context.manifest) as PinnedCargoManifest;
     const cargoHome = process.env.CARGO_HOME ?? join(process.env.HOME ?? '', '.cargo');
     const writable = [
       manifest.workspacePath,
@@ -293,6 +289,7 @@ export class CheckRequestService {
           this.workflows.hold(key, context.runId, deadline, abort, onWait),
         manifestPath: context.manifestPath,
         manifestDigest: context.manifestDigest,
+        manifest: context.manifest,
         args: request.args,
         logPath: join(this.config.checkLogRoot, context.runId, `${id}.log`),
         logReference: `check-logs/${context.runId}/${id}.log`,

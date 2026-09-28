@@ -1319,6 +1319,7 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           runDirectory,
           manifestPath: pinned.manifestPath,
           manifestDigest: pinned.manifestDigest,
+          manifest: pinned.manifest,
         });
       const previousRunDirectory = resume && join(this.config.runsRoot, resume.run.id);
       const prompt =

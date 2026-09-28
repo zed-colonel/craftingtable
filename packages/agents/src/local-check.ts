@@ -717,9 +717,15 @@ export type WorkflowHold = (
 ) => Promise<() => void>;
 export interface CheckExecution {
   readonly tool: 'ct-check' | 'ct-act' | 'ct-native' | 'cargo';
+  /** Where the run's manifest was published; its directory locates the run's launchers. */
   readonly manifestPath: string;
-  /** The digest the daemon recorded for this run's manifest; the file must still match it. */
+  /** The digest the daemon recorded for this run's manifest. */
   readonly manifestDigest: string;
+  /**
+   * The manifest as the daemon verified it at launch. The published file is the agent's to
+   * read (and, being in its writable roots, to rewrite); the daemon never reads it back.
+   */
+  readonly manifest: string;
   readonly args: readonly string[];
   /** A daemon-owned file outside every writable root of the run. */
   readonly logPath: string;
@@ -923,9 +929,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let ownsNativeUnit = false;
   const started = Date.now();
   try {
-    const raw = readFileSync(e.manifestPath, 'utf8');
-    if (hash(raw) !== e.manifestDigest) throw new Error('Verification manifest changed.');
-    m = JSON.parse(raw) as PinnedCargoManifest;
+    if (hash(e.manifest) !== e.manifestDigest) throw new Error('Verification manifest changed.');
+    m = JSON.parse(e.manifest) as PinnedCargoManifest;
     verifySources(m);
     const timeoutMs = m.checkTimeoutMs ?? 30 * 60000;
     const deadline = started + timeoutMs;
@@ -1092,8 +1097,6 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     });
     code = supervised.code;
     log = supervised.log;
-    if (hash(readFileSync(e.manifestPath)) !== e.manifestDigest)
-      throw new Error('Verification manifest changed during the check.');
     verifySources(m);
     success = code === 0;
     if (!success)

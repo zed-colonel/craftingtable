@@ -1587,6 +1587,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - `local-check.test.ts`: a build through the daemon with the supplied configuration and the receipt; a sleeping build stopped at a 500 ms limit; `cargo fmt` refused.
     - `server-execution-receipt-gates.test.ts`: a forged pinned-build line is dropped (keeping kindless lines fails it).
     - `server-execution-scope-evidence.test.ts`: the real integration build is recorded by the daemon and satisfies the gate.
+- **Increment 5 (2026-09-28): the daemon holds the manifest it verified.**
+  - The daemon keeps the manifest text it wrote at launch, checked against the digest it recorded, and runs every check from that text. The published `manifest.json` is only for the agent and CI jobs to read.
+  - A daemon-recorded run no longer reads the published manifest, or any lease, at freeze or cleanup. A rewritten or deleted copy can neither steer a check nor invalidate the run's own record.
+  - **Test.** `server-execution-receipt-gates.test.ts`: the agent rewrites the manifest (a different workspace and Cargo), then its `ct-check` still runs on the verified manifest, is recorded and satisfies the gate. It failed before the change: the launch aborted on "Verification manifest changed".
 
 ### R-G5
 

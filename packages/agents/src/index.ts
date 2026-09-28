@@ -4,6 +4,7 @@ export {
   loadLocalCiConfig,
   cleanupLocalCi,
   cleanupLocalCiManifest,
+  cleanupDaemonRunChecks,
   executeCheck,
   resolveGitDirectories,
   stopCheckUnits,

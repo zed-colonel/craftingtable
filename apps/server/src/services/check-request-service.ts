@@ -97,12 +97,34 @@ interface InFlight {
   readonly done: Promise<void>;
 }
 
+interface Waiting {
+  readonly id: string;
+  readonly request: CheckRequest;
+  readonly reply: CheckReply;
+}
+
 interface ServedRun {
   readonly context: CheckRunContext;
   readonly watcher: FSWatcher | undefined;
   readonly timer: ReturnType<typeof setInterval>;
   readonly inFlight: Map<string, InFlight>;
+  /** Claimed requests waiting for a slot, oldest first. */
+  readonly waiting: Waiting[];
+  /** Bytes of check log this run may still keep. */
+  logBudget: number;
 }
+
+/**
+ * Bounds on the checks the daemon runs for agents (R-G4 review): running at once per run and
+ * in the daemon, waiting per run, and retained log per run and per check.
+ */
+export const CHECK_LIMITS = {
+  runningPerRun: 4,
+  runningInDaemon: 8,
+  waitingPerRun: 32,
+  logBytesPerRun: 256 * 1024 * 1024,
+  logBytesPerCheck: 2 * 1024 * 1024,
+} as const;
 
 /**
  * Runs the checks agents ask for and records their receipts (R-G4, SEC-01, ADR-053).
@@ -130,6 +152,7 @@ export class CheckRequestService {
       warn(message: string, fields?: Record<string, unknown>): void;
     },
     private readonly pollMs = 500,
+    private readonly limits: typeof CHECK_LIMITS = CHECK_LIMITS,
   ) {
     const instance = createHash('sha256').update(config.checkLogRoot).digest('hex').slice(0, 12);
     this.unitPrefix = `craftingtable-check-${instance}-`;
@@ -155,7 +178,14 @@ export class CheckRequestService {
     }
     const timer = setInterval(() => this.serve(context.runId), this.pollMs);
     timer.unref();
-    this.runs.set(context.runId, { context, watcher, timer, inFlight: new Map() });
+    this.runs.set(context.runId, {
+      context,
+      watcher,
+      timer,
+      inFlight: new Map(),
+      waiting: [],
+      logBudget: this.limits.logBytesPerRun,
+    });
     this.serve(context.runId);
   }
 
@@ -176,6 +206,8 @@ export class CheckRequestService {
     run.watcher?.close();
     for (const check of run.inFlight.values()) check.controller.abort();
     // Requests left after the run ended get an answer, so their launchers do not wait.
+    for (const waiting of run.waiting.splice(0))
+      waiting.reply.finish(1, 'This run has ended; the check did not run.');
     const spool = run.context.spoolDirectory;
     try {
       if (lstatSync(spool).isDirectory() && realpathSync(spool) === resolve(spool))
@@ -189,6 +221,7 @@ export class CheckRequestService {
       /* the run directory is gone */
     }
     await Promise.allSettled([...run.inFlight.values()].map((c) => c.done));
+    this.pump();
   }
 
   async closeAll(): Promise<void> {
@@ -202,6 +235,11 @@ export class CheckRequestService {
     const spool = run.context.spoolDirectory;
     for (const check of run.inFlight.values())
       if (check.reply.cancelRequested()) check.controller.abort();
+    for (const waiting of [...run.waiting])
+      if (waiting.reply.cancelRequested()) {
+        run.waiting.splice(run.waiting.indexOf(waiting), 1);
+        waiting.reply.finish(1, 'The check was cancelled before it started.');
+      }
     // The agent owns the directory above the spool; refuse a spool it replaced with a link.
     try {
       if (!lstatSync(spool).isDirectory() || realpathSync(spool) !== resolve(spool)) return;
@@ -217,31 +255,48 @@ export class CheckRequestService {
         reply.finish(2, claimed.refused);
         continue;
       }
-      const refusal = this.refusal(run.context, claimed.request, run.inFlight);
+      const refusal = this.refusal(run, claimed.request);
       if (refusal) {
         reply.finish(2, refusal);
         continue;
       }
-      const controller = new AbortController();
-      const done = this.run(run, id, claimed.request, reply, controller.signal).finally(() =>
-        run.inFlight.delete(id),
-      );
-      run.inFlight.set(id, { tool: claimed.request.tool, controller, reply, done });
+      run.waiting.push({ id, request: claimed.request, reply });
+      // Start what may run now, so only checks that truly wait count against the bound.
+      this.pump();
     }
   }
 
+  /** Starts waiting checks, oldest first, within the per-run and daemon bounds. */
+  private pump(): void {
+    let running = [...this.runs.values()].reduce((n, r) => n + r.inFlight.size, 0);
+    for (const run of this.runs.values())
+      while (
+        run.waiting.length &&
+        run.inFlight.size < this.limits.runningPerRun &&
+        running < this.limits.runningInDaemon
+      ) {
+        const { id, request, reply } = run.waiting.shift()!;
+        const controller = new AbortController();
+        const done = this.run(run, id, request, reply, controller.signal).finally(() => {
+          run.inFlight.delete(id);
+          this.pump();
+        });
+        run.inFlight.set(id, { tool: request.tool, controller, reply, done });
+        running += 1;
+      }
+  }
+
   /** Why a request cannot run now, or undefined when it can. */
-  private refusal(
-    context: CheckRunContext,
-    request: CheckRequest,
-    inFlight: ReadonlyMap<string, InFlight>,
-  ): string | undefined {
+  private refusal(run: ServedRun, request: CheckRequest): string | undefined {
+    const { context } = run;
+    const tools = [...run.inFlight.values(), ...run.waiting].map((c) =>
+      'tool' in c ? c.tool : c.request.tool,
+    );
     // One act and one native unit per run, as the per-run leases allowed before.
-    if (
-      (request.tool === 'ct-act' || request.tool === 'ct-native') &&
-      [...inFlight.values()].some((c) => c.tool === request.tool)
-    )
+    if ((request.tool === 'ct-act' || request.tool === 'ct-native') && tools.includes(request.tool))
       return `Another ${request.tool} is already running for this run; run one at a time.`;
+    if (run.waiting.length >= this.limits.waitingPerRun)
+      return 'Too many checks are waiting for this run; wait for some to finish.';
     const agentRun = this.storage.execution.runs.find(
       context.workspaceId,
       context.runId as import('@craftingtable/domain').AgentRunId,
@@ -304,7 +359,9 @@ export class CheckRequestService {
         environment,
         onOutput: (text) => reply.write(text),
         signal,
+        logLimitBytes: Math.min(this.limits.logBytesPerCheck, served.logBudget),
       });
+      served.logBudget = Math.max(0, served.logBudget - outcome.logBytes);
       const recorded = this.record(context, outcome.receipt);
       reply.finish(
         recorded ? outcome.exitCode : 1,

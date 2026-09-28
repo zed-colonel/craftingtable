@@ -804,12 +804,16 @@ export interface CheckExecution {
   readonly holdWorkflow?: WorkflowHold;
   readonly onOutput: (text: string) => void;
   readonly signal: AbortSignal;
+  /** The most of the check's output the daemon keeps (R-G4 review); 2 MiB by default. */
+  readonly logLimitBytes?: number;
 }
 export interface CheckOutcome {
   /** One receipt line, in the format frozen into the run's build record. */
   readonly receipt: Record<string, unknown>;
   readonly exitCode: number;
   readonly diagnostic: string;
+  /** Bytes of log the daemon kept for this check. */
+  readonly logBytes: number;
 }
 
 /**
@@ -955,6 +959,31 @@ async function removeRunContainers(ci: LocalCiConfig, runId: string): Promise<vo
   if (ids.some((id) => !/^[a-f0-9]{12,64}$/.test(id)))
     throw new Error('Invalid Docker container identity.');
   if (ids.length) await docker(['rm', '-f', '-v', ...ids]);
+}
+
+/**
+ * Stops what a daemon-run check of `runId` may have left (R-G4 review): its native unit, and
+ * its labelled CI containers, which belong to the Docker engine rather than any unit. The
+ * daemon calls it when the run ends, including when a restart ends it. `localCi` is the
+ * daemon's own configuration, never the run's published manifest.
+ */
+export async function cleanupDaemonRunChecks(
+  runId: string,
+  localCi: LocalCiConfig | undefined,
+): Promise<void> {
+  const failures: string[] = [];
+  try {
+    await stopNativeUnit(runId);
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : 'Native cleanup failed.');
+  }
+  if (localCi)
+    try {
+      await removeRunContainers(localCi, runId);
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : 'CI cleanup failed.');
+    }
+  if (failures.length) throw new Error(failures.join(' '));
 }
 
 /** The name act gives a workflow's containers, which is what two runs must not share. */
@@ -1190,11 +1219,20 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   }
   const after = m ? await observeGitState(m) : { headSha: '', clean: false };
   mkdirSync(dirname(e.logPath), { recursive: true, mode: 0o700 });
-  writeFileSync(e.logPath, `${log}\n${diagnostic}\n`, { mode: 0o600 });
+  const limit = e.logLimitBytes ?? 2 * 1024 * 1024;
+  const kept =
+    Buffer.byteLength(log) > limit ? Buffer.from(log).subarray(0, limit).toString() : log;
+  writeFileSync(
+    e.logPath,
+    `${kept}\n${kept === log ? '' : '[log truncated: this run reached its retained log limit]\n'}${diagnostic}\n`,
+    { mode: 0o600 },
+  );
+  const logBytes = statSync(e.logPath).size;
   if (cargo)
     return {
       exitCode: success ? 0 : 1,
       diagnostic,
+      logBytes,
       // The pinned build receipt (ADR-047), as the launcher wrote it, now from the daemon.
       receipt: {
         ...(cargoReceipt ? pinnedReceiptKind(m!, cargoReceipt.packages as unknown[]) : {}),
@@ -1226,6 +1264,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   return {
     exitCode: success ? 0 : 1,
     diagnostic,
+    logBytes,
     receipt: {
       kind: act ? 'local-ci' : native ? 'native-check' : 'scoped-check',
       ...(native && m?.nativeVerification ? { nativeVerification: m.nativeVerification } : {}),

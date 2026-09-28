@@ -3,8 +3,10 @@ import { createHash } from 'node:crypto';
 import {
   appendFileSync,
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -292,5 +294,94 @@ itNeedsCargo(
     expect(build.error).toBeUndefined();
     expect(JSON.parse(build.receipts)).toMatchObject({ success: true, recordedBy: 'daemon' });
     expect(() => f.svc.assertRun(f.tree, run)).not.toThrow();
+  },
+);
+
+itNeedsCargo(
+  'the daemon runs at most four checks of a run at once and refuses more than 32 waiting (R-G4 review)',
+  async () => {
+    const f = await scopedRuntimeFixture();
+    const checks = f.state.context.services.checkRequestService;
+    let peak = 0;
+    let replies = '';
+    f.backend.replyForRequest = (request) => {
+      const runId = request.buildEnvironment!.namespace!;
+      const spool = join(request.buildEnvironment!.binDirectory, '../requests');
+      replies = join(f.state.context.config.execution.checkLogRoot, runId, 'replies');
+      // Forty requests at once, written as a launcher would.
+      for (let i = 0; i < 40; i++) {
+        const id = `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
+        writeFileSync(
+          join(spool, `${id}.request`),
+          JSON.stringify({
+            version: 1,
+            tool: 'ct-check',
+            args: ['--', process.execPath, '-e', 'setTimeout(() => {}, 200)'],
+          }),
+        );
+      }
+      const release = (async () => {
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+          peak = Math.max(peak, checks.inFlight(runId).length);
+          const exits = readdirSync(replies).filter((n) => n.endsWith('.exit')).length;
+          if (exits === 40) return;
+          await new Promise((r) => setTimeout(r, 10));
+        }
+      })();
+      return { resultText: scopeReport(f.state, f.tree.executionScope!), release };
+    };
+    const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    const exits = readdirSync(replies)
+      .filter((n) => n.endsWith('.exit'))
+      .map((n) => JSON.parse(readFileSync(join(replies, n), 'utf8')));
+    expect(peak).toBe(4);
+    expect(exits.filter((e) => e.diagnostic?.includes('Too many checks'))).toHaveLength(4);
+    expect(exits.filter((e) => e.exitCode === 0)).toHaveLength(36);
+    expect(
+      f.state.context.storage.runtimeEvidence.checkReceipts(f.state.workspaceId, run),
+    ).toHaveLength(36);
+  },
+);
+
+itNeedsCargo(
+  'a daemon-recorded run that ends has its labelled CI containers removed, even with no CI check running (R-G4 review)',
+  async () => {
+    const f = await scopedRuntimeFixture();
+    const root = mkdtempSync(join(tmpdir(), 'ct-receipt-gates-cleanup-'));
+    const calls = join(root, 'docker.log');
+    const config = join(root, 'act.json');
+    const tool = (name: string, body: string) => {
+      writeFileSync(join(root, name), `#!/bin/sh\n${body}\n`, { mode: 0o700 });
+      return join(root, name);
+    };
+    writeFileSync(
+      config,
+      JSON.stringify({
+        actExecutable: tool('act', 'exit 0'),
+        dockerExecutable: tool('docker', `echo "$@" >> ${calls}; exit 0`),
+        dockerHost: 'unix:///run/user/1000/docker.sock',
+        image: `image@sha256:${'a'.repeat(64)}`,
+        cacheRoot: join(root, 'cache'),
+      }),
+    );
+    const previous = process.env.CRAFTINGTABLE_ACT_CONFIG;
+    process.env.CRAFTINGTABLE_ACT_CONFIG = config;
+    try {
+      f.backend.replyForRequest = () => ({
+        resultText: scopeReport(f.state, f.tree.executionScope!),
+      });
+      const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
+      const deadline = Date.now() + 10_000;
+      while (!existsSync(calls) && Date.now() < deadline)
+        await new Promise((r) => setTimeout(r, 20));
+      expect(readFileSync(calls, 'utf8')).toContain(
+        `ps -aq --filter label=craftingtable.run=${run}`,
+      );
+    } finally {
+      if (previous === undefined) delete process.env.CRAFTINGTABLE_ACT_CONFIG;
+      else process.env.CRAFTINGTABLE_ACT_CONFIG = previous;
+      rmSync(root, { recursive: true, force: true });
+    }
   },
 );

@@ -720,3 +720,28 @@ esac
   });
   expect(refused.diagnostic).toContain('records nothing');
 });
+
+it('keeps no more of a check log than the daemon allows (R-G4 review)', async () => {
+  const f = fixture();
+  const logPath = join(f.root, 'daemon-logs', 'budget.log');
+  const outcome = await executeCheck({
+    tool: 'ct-check',
+    manifestPath: f.launcher.manifestPath,
+    manifestDigest: f.launcher.manifestDigest,
+    manifest: f.launcher.manifest,
+    args: ['--', process.execPath, '-e', 'console.log("x".repeat(100000))'],
+    logPath,
+    logReference: 'check-logs/run/budget.log',
+    privateDirectory: join(f.root, 'daemon-private'),
+    confinement: 'none',
+    unitName: 'unused',
+    writablePaths: [],
+    environment: { PATH: process.env.PATH ?? '/usr/bin' },
+    onOutput: () => undefined,
+    signal: new AbortController().signal,
+    logLimitBytes: 64,
+  });
+  expect(outcome.exitCode).toBe(0);
+  expect(outcome.logBytes).toBeLessThan(200);
+  expect(readFileSync(logPath, 'utf8')).toContain('log truncated');
+});

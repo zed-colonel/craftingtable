@@ -1503,7 +1503,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G4
 
-**Daemon-owned verification receipts** · Phase P2 · Effort M-L · Status: code complete (2026-09-28), awaiting review
+**Daemon-owned verification receipts** · Phase P2 · Effort M-L · Status: code complete and reviewed (2026-09-28); one operator decision open
 
 - **Resolves:** [SEC-01](findings/AGT-GIT-SEC-agents-git-security.md#sec-01-agents-can-forge-the-buildcheckcinative-receipts-that-gate-integration), [AGT-08](findings/AGT-GIT-SEC-agents-git-security.md#agt-08-verification-exists-only-for-cargo-non-rust-repositories-get-no-controller-supplied-verification), [AGT-04](findings/AGT-GIT-SEC-agents-git-security.md#agt-04-the-adapters-hard-code-cargo-and-controller-build-concepts)
 - **Change:** Check launchers become thin clients of a daemon-owned socket; the daemon runs the command in its own supervised process group outside the agent's writable roots and writes the receipt to SQLite. Generalize verification beyond Cargo (a declared check command per repository). Until then, label receipts as agent-reported in the UI.
@@ -1599,7 +1599,16 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - The unit keeps `<worktree>/.git` read-only.
     - Tests (`check-review-2026-09-28.test.ts`): on the user manager, a check cannot rewrite the pointer; unconfined, a rewritten pointer and a repository-configured fsmonitor are not followed. Removing the read-only path, the `-c` options or `GIT_DIR` each fails a test.
   - *MEDIUM, fixed:* reply files followed a spool directory the agent replaced with a link after the claim, so the daemon could create `<id>.out` and `<id>.exit` in any directory the user can write. Replies now go to a daemon-owned directory, `<data>/check-logs/<run>/replies`. The agent can read it, but the daemon never writes into a path the agent controls. Test: the swapped spool gets nothing.
-- **Status (2026-09-28): code complete (increments 0 to 6), awaiting independent review.** The done-when holds for runs prepared after the cutover: no gating receipt is read from an agent-writable path. Records frozen earlier are labelled agent-reported. Two gaps remain: `ct-check -- true` counts as a scoped check (the follow-up for declared checks, AGT-08), and Claude runs, which have no OS sandbox until R-G5.
+  - *MEDIUM, fixed:* nothing bounded how many checks a run could start, and each one hashed sources on the event loop and kept up to 2 MiB of log. Now at most 4 of a run's checks run at once, and 8 in the daemon; a run may have 32 waiting, oldest first, and the rest are refused. A waiting check can be cancelled. Test: 40 requests at once peak at 4 running, 4 are refused and 36 are recorded. Raising the per-run bound fails it.
+  - *LOW, fixed:* check logs were never pruned. Like run directories they are retained, but now within a budget: 2 MiB per check and 256 MiB per run, with truncation marked in the log. Test: a 64-byte limit truncates the log.
+  - *MEDIUM, fixed:* after a restart, nothing stopped a daemon-run native unit or removed a run's act containers, because `cleanupRun` skipped daemon-recorded runs and act's containers belong to the Docker engine rather than the unit. When such a run ends, including when restart recovery ends it, the daemon now stops `craftingtable-native-<run>` and removes containers labelled with the run, using its own CI configuration rather than the run's manifest (`cleanupDaemonRunChecks`). Test: a run that never ran CI still has its labelled containers looked up and removed. Skipping the cleanup fails it.
+  - *Needs an operator decision (finding 6):* `ct-act` now runs a repository workflow against the Docker host without the escalation a Codex run needed before, and a workflow's own `container:`/`services:` options could bind host paths into a job. None of the live repositories' workflows (EXO, WI, AQ) uses `container`, `services`, `volumes` or `options`. The proposed fix is to refuse such workflows; it changes the security posture, so it is put to the operator.
+  - *Not covered by the reviewer, and checked since:*
+    - The increment 0 kind rule against frozen receipts: the reviewer's replays report 0 changed, including the scheduler's checkpoint readiness.
+    - Receipt sequence numbers: each is assigned inside a synchronous transaction in the one daemon process, so concurrent checks cannot collide.
+    - Toolchains with HOME read-only: in a unit confined as the checks are, with the live daemon's PATH, `cargo`, `rustc`, `node`, `pnpm` and `git` all run.
+    - Mutation checks were run for every fix above.
+- **Status (2026-09-28): code complete (increments 0 to 6) and reviewed; one operator decision open (review finding 6).** The done-when holds for runs prepared after the cutover: no gating receipt is read from an agent-writable path. Records frozen earlier are labelled agent-reported. Two gaps remain: `ct-check -- true` counts as a scoped check (the follow-up for declared checks, AGT-08), and Claude runs, which have no OS sandbox until R-G5.
 
 ### R-G5
 

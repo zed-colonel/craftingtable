@@ -42,6 +42,7 @@ import {
   prepareCargoLauncher,
   loadLocalCiConfig,
   cleanupLocalCiManifest,
+  cleanupDaemonRunChecks,
   prepareLocalCheckLaunchers,
   resolveGitDirectories,
   observeRustToolchain,
@@ -2591,10 +2592,12 @@ export class RuntimeEvidenceService {
   }
   async cleanupRun(ws: WorkspaceId, runId: string) {
     const env = this.storage.runtimeEvidence.run(ws, runId);
-    // The daemon stopped a daemon-recorded run's checks itself (R-G4); only earlier runs have
-    // launcher leases to clean up.
-    if (env && env.receiptAuthority !== 'daemon')
-      await cleanupLocalCiManifest(env.manifestPath, env.manifestDigest);
+    if (!env) return;
+    // A daemon-recorded run's native unit and CI containers are found by its run ID, with the
+    // daemon's own CI configuration: after a restart nothing else remembers them (R-G4 review).
+    if (env.receiptAuthority === 'daemon')
+      await cleanupDaemonRunChecks(runId, loadLocalCiConfig(process.env.CRAFTINGTABLE_ACT_CONFIG));
+    else await cleanupLocalCiManifest(env.manifestPath, env.manifestDigest);
   }
   /**
    * `unfinished` names the daemon-run checks still running for this run (R-G4): CI or native

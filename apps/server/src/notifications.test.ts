@@ -1353,7 +1353,8 @@ describe('durable attention items (R-A4)', () => {
     ]);
     expect(f.send).toHaveBeenCalledTimes(1);
   });
-  it('names a roadmap decision preparation and links it to the roadmap', async () => {
+  /** A roadmap decision preparation for AQ-ADR-003 whose design run left open questions. */
+  async function preparationWithQuestions() {
     const f = await fixture();
     f.setCycle('stopped');
     const treeId = asWorktreeId('decision-tree');
@@ -1435,6 +1436,61 @@ describe('durable attention items (R-A4)', () => {
         durationMs: 1,
       },
     });
+    const preparation = f.context.storage.roadmaps.find(f.workspaceId, roadmap.id)!
+      .decisionPreparations![0]!;
+    return { f, roadmap, runId, preparation };
+  }
+  /**
+   * Records an evidence decision on a checkpoint submission for the preparation's definition (or
+   * `definitionId`) and projects it. The projector reads through the transaction's repositories,
+   * so the repository type is stubbed.
+   */
+  function decide(
+    f: Awaited<ReturnType<typeof fixture>>,
+    preparation: { readonly definitionId: string },
+    shape: {
+      readonly sourceId?: string;
+      readonly bindingRevision?: number;
+      readonly coverage?: string;
+      readonly outcome?: string;
+      readonly definitionId?: string;
+    } = {},
+  ) {
+    const submission = {
+      id: randomUUID(),
+      subject: { kind: 'checkpoint', sourceId: shape.sourceId ?? 'AQ-ADR-003' },
+      bindingRevision: shape.bindingRevision ?? 1,
+      architectureDecision: { coverage: shape.coverage ?? 'full' },
+    };
+    const decision = {
+      id: randomUUID(),
+      workspaceId: f.workspaceId,
+      submissionId: submission.id,
+      outcome: shape.outcome ?? 'accepted',
+    };
+    const evidence = Object.getPrototypeOf(f.context.storage.runtimeEvidence) as Pick<
+      typeof f.context.storage.runtimeEvidence,
+      'submissions' | 'decisions'
+    >;
+    const owner = shape.definitionId ?? preparation.definitionId;
+    const submissions = vi
+      .spyOn(evidence, 'submissions')
+      .mockImplementation(
+        (_ws, definitionId) => (definitionId === owner ? [submission] : []) as never,
+      );
+    const decisions = vi.spyOn(evidence, 'decisions').mockReturnValue([decision] as never);
+    try {
+      f.context.storage.transaction(() =>
+        f.context.services.attention.written('evidence-decision', decision as never),
+      );
+    } finally {
+      // The stubs are on the shared repository prototype.
+      submissions.mockRestore();
+      decisions.mockRestore();
+    }
+  }
+  it('names a roadmap decision preparation and links it to the roadmap', async () => {
+    const { f, roadmap, runId, preparation } = await preparationWithQuestions();
     expect(openItems(f)).toMatchObject([
       {
         subjectKey: `run:${runId}`,
@@ -1446,35 +1502,22 @@ describe('durable attention items (R-A4)', () => {
     ]);
     // Once the decision is accepted in full, its preparation's questions need nobody
     // (LIVE-09). Accepting it is an evidence decision, which re-derives the preparation.
-    const preparation = f.context.storage.roadmaps.find(f.workspaceId, roadmap.id)!
-      .decisionPreparations![0]!;
-    const submission = {
-      id: randomUUID(),
-      subject: { kind: 'checkpoint', sourceId: 'AQ-ADR-003' },
-      bindingRevision: 1,
-      architectureDecision: { coverage: 'full' },
-    };
-    const decision = {
-      id: randomUUID(),
-      workspaceId: f.workspaceId,
-      submissionId: submission.id,
-      outcome: 'accepted',
-    };
-    // The projector reads through the transaction's repositories: stub the repository type.
-    const evidence = Object.getPrototypeOf(f.context.storage.runtimeEvidence) as Pick<
-      typeof f.context.storage.runtimeEvidence,
-      'submissions' | 'decisions'
-    >;
-    vi.spyOn(evidence, 'submissions').mockImplementation(
-      (_ws, definitionId) =>
-        (definitionId === preparation.definitionId ? [submission] : []) as never,
-    );
-    vi.spyOn(evidence, 'decisions').mockReturnValue([decision] as never);
-    f.context.storage.transaction(() =>
-      f.context.services.attention.written('evidence-decision', decision as never),
-    );
+    decide(f, preparation);
     expect(openItems(f)).toEqual([]);
     expect(f.items().find((item) => item.subjectKey === `run:${runId}`)?.state).toBe('resolved');
+  });
+  // Only an accepted, full-coverage decision for the preparation's own checkpoint, definition and
+  // binding answers its questions (LIVE-09; R-C14 review gap).
+  it.each([
+    ['a partial decision', { coverage: 'partial' }],
+    ['a decision on another binding revision', { bindingRevision: 2 }],
+    ['a rejected decision', { outcome: 'rejected' }],
+    ["another checkpoint's decision", { sourceId: 'AQ-ADR-004' }],
+    ["another definition's decision", { definitionId: randomUUID() }],
+  ])("keeps a preparation's questions open after %s", async (_name, shape) => {
+    const { f, runId, preparation } = await preparationWithQuestions();
+    decide(f, preparation, shape);
+    expect(openItems(f).map((item) => item.subjectKey)).toEqual([`run:${runId}`]);
   });
   it('lists an interrupted merge, a failed merge cleanup and a blocked finalization cleanup', async () => {
     const f = await fixture();

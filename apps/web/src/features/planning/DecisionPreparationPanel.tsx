@@ -45,8 +45,12 @@ export function DecisionPreparationPanel({
   const inFlight =
     !!current?.latest &&
     ['preparing', 'starting', 'running', 'waiting'].includes(current.latest.status);
+  // Preparation proposes only, so it may run beside the roadmap (R-C3b, ADR-065).
   const locked =
-    disabled || busy || !data || !['draft', 'paused', 'needs-attention'].includes(roadmap.status);
+    disabled ||
+    busy ||
+    !data ||
+    !['draft', 'paused', 'needs-attention', 'running'].includes(roadmap.status);
   const prepare = async () => {
     if (!data || !profile) return;
     setBusy(true);
@@ -82,7 +86,8 @@ export function DecisionPreparationPanel({
     >
       <summary>Prepare architecture decision briefs</summary>
       <p>
-        A read-only run: no implementation, merge or approval authority. Scheduling stays paused.
+        A read-only run: no implementation, merge or approval authority. It may run while the
+        roadmap runs.
       </p>
       <About label="About decision briefs">
         <p>

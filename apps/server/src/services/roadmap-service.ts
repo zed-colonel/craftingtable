@@ -428,10 +428,15 @@ export class RoadmapService {
       cp = old.definition.crossProject;
     if (!this.agents || !this.git)
       conflict('Decision preparation is unavailable on this controller.');
-    if (old.version !== input.expectedVersion || this.controlling.has(id))
+    // A running roadmap writes itself on every pass, so only a stopped form is stale there; the
+    // preparation itself binds to the exact map binding (R-C3b, ADR-065).
+    if (
+      (old.version !== input.expectedVersion && old.status !== 'running') ||
+      this.controlling.has(id)
+    )
       conflict('Roadmap changed. Refresh before preparing a decision.');
-    if (!cp || !['paused', 'draft', 'needs-attention'].includes(old.status))
-      conflict('Pause this cross-project roadmap before preparing a decision.');
+    if (!cp || !['paused', 'draft', 'needs-attention', 'running'].includes(old.status))
+      conflict('Decisions are prepared for a draft, running or paused cross-project roadmap.');
     if (this.storage.amendments.pending(ws, id))
       conflict('Resolve the pending planning amendment first.');
     const d = this.storage.imports.definition(ws, cp.definitionId);
@@ -478,7 +483,11 @@ export class RoadmapService {
     try {
       const result = await this.git.resolveBranch(repo.rootPath, owner.integrationBranch);
       if (!result.ok) conflict(result.failure.message);
-      if (this.find(ws, id).version !== old.version)
+      const latest = this.find(ws, id);
+      if (
+        latest.definition.revision !== old.definition.revision ||
+        this.storage.imports.bindings(ws, cp.definitionId)[0]?.revision !== binding.revision
+      )
         conflict('Roadmap changed during preparation. Refresh and try again.');
       const at = this.now();
       const p: import('@craftingtable/domain').DecisionPreparation = {
@@ -501,17 +510,19 @@ export class RoadmapService {
         createdAt: at.toISOString(),
         createdByUserId: context.user.id,
       };
-      const saved = this.change(
-        old,
-        { decisionPreparations: [...(old.decisionPreparations ?? []), p] },
+      this.change(
+        latest,
+        { decisionPreparations: [...(latest.decisionPreparations ?? []), p] },
         'prepare-decision',
         context,
       );
       reserved = p;
       const check = () => {
         this.workspaces.requireRole(context, ws, ['owner', 'editor']);
+        const recorded = this.find(ws, id).decisionPreparations?.find((q) => q.id === p.id);
         if (
-          this.find(ws, id).version !== saved.version ||
+          !recorded ||
+          recorded.failure ||
           !currentDecisionPreparation(this.storage, p) ||
           this.now().getTime() >= Date.parse(p.deadlineAt)
         )

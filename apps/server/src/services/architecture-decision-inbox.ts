@@ -38,14 +38,13 @@ export function architectureDecisionInbox(
   )
     blockers.push('Pause roadmap scheduling before approving decisions.');
   if (
-    tx.execution.runs
-      .listLive()
-      .some(
-        (r) =>
-          r.workspaceId === ws &&
-          (tx.execution.worktrees.find(ws, r.worktreeId)?.executionScope?.definitionId === d.id ||
-            decisionPreparationForRun(tx, ws, r.id)?.definitionId === d.id),
-      )
+    tx.execution.runs.listLive().some(
+      (r) =>
+        r.workspaceId === ws &&
+        // A preparation run only proposes, and a proposal is checked against the decisions
+        // current when it is saved, so it does not hold approval (R-C3b, ADR-065).
+        tx.execution.worktrees.find(ws, r.worktreeId)?.executionScope?.definitionId === d.id,
+    )
   )
     blockers.push('Wait for live runs on this map to finish before approving decisions.');
 

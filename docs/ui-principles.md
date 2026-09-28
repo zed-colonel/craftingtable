@@ -383,7 +383,8 @@ responsibilities, then confirms a reasoned grant. Current reports retain their o
 this operational change neither resumes scheduling nor requires new plan-acceptance evidence.
 Supported technical checkpoint responsibilities must be discoverable in the main role checklist.
 
-**Prepare architecture decision** is available before the owning development slice can start.
+**Prepare architecture decision** is available before the owning development slice can start,
+and while the roadmap runs (R-C3b).
 Its form collects a checkpoint, model, time limit and optional guidance; source references are
 controller-collected. Show the preparation's state and run link, with a refresh action leading
 to the existing shared decision inbox. Preparation must never be described as approval or as

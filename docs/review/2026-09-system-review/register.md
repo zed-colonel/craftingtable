@@ -30,7 +30,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
-| [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b open | Design stage: continue automatically and batch real decisions ahead of time |
+| [R-C3](#r-c3) | P2 | M (split: a S, b M-L) | R-C3a done; R-C3b in progress | Design stage: continue automatically and batch real decisions ahead of time |
 | [R-C4](#r-c4) | P2 | M | done (see Progress) | Refresh and re-review automatically when only upstream integration advanced |
 | [R-C5](#r-c5) | P2 | M | done (2026-09-28, see entry) | Converge the parent/slice repair loop |
 | [R-C6](#r-c6) | P3 | M | open | Reduce the evidence-acceptance ceremony |
@@ -596,7 +596,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - Regression tests (the source-decision rule, a service retry inside the investigation, and the unavailable-backend fallback) each fail without the fix. Replays: 278 and 51, 0 changed.
   - Gate: `pnpm check` stages all pass: 187 test files and 1,494 unit tests, 20 e2e tests, the walkthrough rehearsal and the scope check. One scope-recovery test timed out in waitFor under load; its file and the other scope suites passed rerun serially.
 - **Second independent review of R-C3a (2026-09-27):** no defects. The automatic continue cannot fire twice: it needs `designRecovery.mode === 'investigate'` for the finished run, `continueDesign` persists `mode: 'continue'` through the version-checked write, and a restart after it resumes rather than continues again. *LOW, accepted:* the test named "continues the design once" does not assert the absence of a second continue. All three R-C3a cycle tests fail with the condition disabled.
-- **R-C3b (open):** prepare the roadmap's shared architecture decisions before the slices that need them start, so they are answered once, in a batch; count "unblocks N slices" as slices, not graph nodes; and add batch approval (still operator-only and paused). It needs an ADR-065 amendment for the grant. The done-when metric belongs to R-C3b.
+- **R-C3b (in progress):** prepare the roadmap's shared architecture decisions before the slices that need them start, so they are answered once, in a batch; count "unblocks N slices" as slices, not graph nodes; and add batch approval (still operator-only and paused). It needs an ADR-065 amendment for the grant. The done-when metric belongs to R-C3b.
+- **R-C3b design, decided by the operator 2026-09-28 (option A, a standing grant).** Options put to the operator: (A) a standing, revocable per-roadmap grant under which the controller prepares needed decisions while the roadmap runs; (B) one batch command, no grant; (C) no grant change, only slice counts and batch approval. Every option keeps approval operator-only and paused, and preparation runs read-only. The operator chose A, in five steps:
+  1. the preparation check binds to the map, binding revision and digest, not the roadmap version; preparation may run while the roadmap runs; a live preparation no longer blocks approval;
+  2. the grant: a persisted roadmap field, a route and an audit record, revoked when an amendment applies;
+  3. the scheduler prepares, under the grant, each unaccepted supported decision an unfinished selected slice needs, most slices unblocked first, within a concurrency bound;
+  4. "unblocks N" on decision items counts slices;
+  5. batch approval.
+  - **Limit found in the design:** an accepted decision reaches a slice's design only if the slice's map requirements reference it, directly or as a prerequisite of a checkpoint it needs. So "up to 11 of 15 stops" is an upper bound: WI-ADR-016 was asked about by slices that do not reference it.
+- **R-C3b step 1, done 2026-09-28** (ADR-065 amended):
+  - `prepareDecision` accepts a running roadmap. It checks the preparation's own record, its exact map binding and digest, and its deadline instead of the roadmap version, which every pass changes. The manual form no longer locks while the roadmap runs.
+  - Approval still needs a paused roadmap with no live work on the map, but a live preparation run no longer counts (it only proposes; a proposal is checked when saved). The shared decision inbox shows the same rule.
+  - **Tests:** `server-execution-decision-preparation.test.ts`: a preparation started on a running roadmap survives a roadmap write during its launch; one decision is approved while another is being prepared. `DecisionPreparationPanel.test.tsx`: the form is usable on a running or paused roadmap and locked on a stopped one. Each fails without its change.
 
 ### R-C4
 

@@ -30,3 +30,19 @@ inbox and existing proposal/approval path. Binding changes invalidate that sourc
 Preparation worktrees cannot merge or start implementation cycles. Work-item admission,
 checkpoint test evidence, architecture approval and protected final promotion remain separate.
 Using fabricated slice/finalization records or weakening work-item start gates was rejected.
+
+## Amendment 2026-09-28: preparation beside a running roadmap (R-C3b)
+
+Operator decision (2026-09-28): shared architecture decisions are prepared ahead of the slices
+that need them, while the roadmap runs, so they are answered once, in a batch (HIST-03: 10 of 11
+started cross-project slices stopped at design; WI-ADR-016 alone was asked for in 4 stops).
+
+- A preparation binds to the exact map, binding revision and binding digest, the preparation's own
+  record and its deadline. It no longer binds to the roadmap's version, which every scheduler pass
+  changes. A draft, paused, needs-attention or running roadmap may prepare a decision; the
+  scheduler's own work is unaffected, since a preparation holds no development capacity, worktree
+  of a work item or merge authority.
+- Approval keeps its rule: the roadmap is paused and no work on the map is live. A live
+  preparation run no longer counts as work on the map. It only proposes, and a proposal is checked
+  against the decisions current when it is saved; a preparation whose context predates an approval
+  is at worst a stale recommendation, which the operator reads before saving.

@@ -548,6 +548,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - Review fixes: 1710c0a, ad81fa0, 8959655.
   - **Walkthroughs:** `2026-09-28-recovery-escalation-before` (537abf9), `-recovery-escalation-after` (04939b2), `-decision-preparation-after` (573a709).
   - **Replays, on copies:** `golden.json`, `--every-run` and the scheduler replay report 0 changed on all four snapshots after every item: 2026-09-23 (51/278/346), 09-27 (58/352/341), 09-28 (59/356/344) and 09-28b (59/358/341). No snapshot holds a grant or an automatic round that would escalate.
+  - **Gate at 4c7caf4:** format, lint, typecheck, build and the scope check pass. 200 test files and 1,599 unit tests: in the full run at a load average of 22, 19 tests in 8 files timed out in `waitFor`, and all 8 files (106 tests) passed rerun serially. e2e: 20 tests and the walkthrough rehearsal pass, with no Chrome crash. One e2e daemon left a partial data directory (on R-I5, for R-I9).
   - **Before the deploy:**
     - Schema stays 32, but two persisted values are new: the hold code `recovery-not-converging` and the roadmap field `decisionPreparationGrant`. A release before this batch cannot read a roadmap carrying either.
     - To roll back, answer such holds first and remove the grant field from the stored roadmap.

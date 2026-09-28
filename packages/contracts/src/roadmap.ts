@@ -91,6 +91,14 @@ export const scopeRecoveryPolicyRequestSchema = z.strictObject({
   maxRoundsPerParent: z.number().int().min(1).max(20),
 });
 export type ScopeRecoveryPolicyRequest = z.infer<typeof scopeRecoveryPolicyRequestSchema>;
+/** The standing decision preparation grant (R-C3b, ADR-065). */
+export const decisionPreparationGrantRequestSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  enabled: z.boolean(),
+  minutes: z.number().int().min(5).max(60),
+  maxConcurrent: z.number().int().min(1).max(3),
+});
+export type DecisionPreparationGrantRequest = z.infer<typeof decisionPreparationGrantRequestSchema>;
 const entrySchema = roadmapEntryInputSchema.extend({
   projectId: projectIdSchema,
   planVersionId: planVersionIdSchema,
@@ -204,6 +212,10 @@ export const roadmapSchema = z.strictObject({
         appliedByUserId: userIdSchema,
       }),
     )
+    .optional(),
+  decisionPreparationGrant: decisionPreparationGrantRequestSchema
+    .omit({ expectedVersion: true })
+    .extend({ grantedByUserId: userIdSchema, grantedAt: z.iso.datetime() })
     .optional(),
   scopeRecovery: z
     .strictObject({

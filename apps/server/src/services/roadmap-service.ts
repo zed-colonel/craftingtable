@@ -19,6 +19,7 @@ import type {
   RoadmapCapacities,
   SaveRoadmapCapacity,
   SaveRoadmapRequest,
+  DecisionPreparationGrantRequest,
   ScopeRecoveryPolicyRequest,
   ScopeRepairRequest,
 } from '@craftingtable/contracts';
@@ -892,6 +893,41 @@ export class RoadmapService {
       ),
     );
   }
+  /** The standing grant to prepare shared decisions while the roadmap runs (R-C3b, ADR-065). */
+  configureDecisionPreparation(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: string,
+    input: DecisionPreparationGrantRequest,
+  ): RoadmapView {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    const roadmap = this.find(workspaceId, id);
+    if (this.controlling.has(id) || roadmap.version !== input.expectedVersion)
+      conflict('Roadmap changed; refresh before changing decision preparation.');
+    if (
+      !roadmap.definition.crossProject ||
+      !['draft', 'paused', 'needs-attention'].includes(roadmap.status)
+    )
+      conflict('Pause this cross-project roadmap before changing decision preparation.');
+    if (this.storage.amendments.pending(workspaceId, id))
+      conflict('Decide the pending amendment first.');
+    return this.view(
+      this.change(
+        roadmap,
+        {
+          decisionPreparationGrant: {
+            enabled: input.enabled,
+            minutes: input.minutes,
+            maxConcurrent: input.maxConcurrent,
+            grantedByUserId: context.user.id,
+            grantedAt: this.now().toISOString(),
+          },
+        },
+        'configure-decision-preparation',
+        context,
+      ),
+    );
+  }
   save(
     context: AuthContext,
     workspaceId: WorkspaceId,
@@ -1031,6 +1067,14 @@ export class RoadmapService {
             ? {
                 ...(old.scopeRecovery
                   ? { scopeRecovery: { ...old.scopeRecovery, enabled: false } }
+                  : {}),
+                ...(old.decisionPreparationGrant
+                  ? {
+                      decisionPreparationGrant: {
+                        ...old.decisionPreparationGrant,
+                        enabled: false,
+                      },
+                    }
                   : {}),
                 attempts: old.attempts.filter((a) => amendment.retainAttemptIds.includes(a.id)),
                 entryHolds: {},
@@ -3530,6 +3574,13 @@ export class RoadmapService {
           ? {
               assignmentId: roadmap.agentAssignments?.at(-1)?.id,
               entryCount: roadmap.agentAssignments?.at(-1)?.entryIds.length,
+            }
+          : {}),
+        ...(action === 'configure-decision-preparation' && roadmap.decisionPreparationGrant
+          ? {
+              preparationEnabled: roadmap.decisionPreparationGrant.enabled,
+              preparationMinutes: roadmap.decisionPreparationGrant.minutes,
+              preparationConcurrency: roadmap.decisionPreparationGrant.maxConcurrent,
             }
           : {}),
         ...(action === 'configure-scope-recovery' && roadmap.scopeRecovery

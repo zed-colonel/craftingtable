@@ -608,6 +608,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - `prepareDecision` accepts a running roadmap. It checks the preparation's own record, its exact map binding and digest, and its deadline instead of the roadmap version, which every pass changes. The manual form no longer locks while the roadmap runs.
   - Approval still needs a paused roadmap with no live work on the map, but a live preparation run no longer counts (it only proposes; a proposal is checked when saved). The shared decision inbox shows the same rule.
   - **Tests:** `server-execution-decision-preparation.test.ts`: a preparation started on a running roadmap survives a roadmap write during its launch; one decision is approved while another is being prepared. `DecisionPreparationPanel.test.tsx`: the form is usable on a running or paused roadmap and locked on a stopped one. Each fails without its change.
+- **R-C3b step 2, done 2026-09-28: the standing grant** (ADR-065 amended; operator decision 2026-09-28: a new persisted roadmap field).
+  - `Roadmap.decisionPreparationGrant`: enabled, minutes per preparation (5 to 60) and preparations at once (1 to 3), with who granted it and when. Each run uses its owning entry's investigation profile, as the manual form's default does.
+  - `POST …/roadmaps/:id/decision-preparation-grant` (editor). Like recovery delegation, it is refused unless the roadmap is draft, paused or needs attention, or while an amendment is pending. It is audited as `configure-decision-preparation`, and an applied amendment revokes it.
+  - The decision preparation panel shows the grant's state and saves it while paused.
+  - Nothing acts on the grant yet; step 3 does.
+  - **Tests:** `server-execution-decision-preparation.test.ts` (refused to a non-editor, while running and out of range; saved, audited and revoked by the operator; revoked by an applied amendment) and `DecisionPreparationPanel.test.tsx` (saved while paused, shown and locked while running). Each fails without the change.
 
 ### R-C4
 

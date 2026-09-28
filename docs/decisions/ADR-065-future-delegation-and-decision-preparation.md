@@ -46,3 +46,8 @@ started cross-project slices stopped at design; WI-ADR-016 alone was asked for i
   preparation run no longer counts as work on the map. It only proposes, and a proposal is checked
   against the decisions current when it is saved; a preparation whose context predates an approval
   is at worst a stale recommendation, which the operator reads before saving.
+- A roadmap may carry a standing preparation grant: enabled, a time limit per preparation and the
+  number kept in flight at once (1 to 3), with who granted it and when. Like recovery delegation
+  (ADR-057), it is changed only while scheduling is paused, it is audited, revoking it stops future
+  preparations without cancelling started ones, and applying a planning amendment revokes it. It
+  grants preparation only: never approval, merge, implementation or a start of work.

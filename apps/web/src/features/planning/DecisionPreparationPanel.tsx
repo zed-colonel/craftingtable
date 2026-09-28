@@ -8,6 +8,7 @@ import {
 } from '@craftingtable/contracts';
 import { AGENT_BACKEND_LABELS, type AgentSelection, type Roadmap } from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
+import { configureDecisionPreparation } from '../../lib/roadmap-api.js';
 import { ModelField } from '../execution/ModelField.js';
 import { ReasoningEffortField } from '../execution/ReasoningEffortField.js';
 import { About } from '../../components/About.js';
@@ -17,12 +18,21 @@ export function DecisionPreparationPanel({
   backends,
   csrfToken,
   disabled,
+  onChanged,
 }: {
   roadmap: Roadmap;
   backends: ExecutionStatusResponse['backends'];
   csrfToken: string;
   disabled: boolean;
+  /** The roadmap changed (the standing grant was saved). */
+  onChanged?: () => void;
 }) {
+  const standing = roadmap.decisionPreparationGrant;
+  const [grantEnabled, setGrantEnabled] = useState(standing?.enabled ?? false),
+    [grantMinutes, setGrantMinutes] = useState(standing?.minutes ?? 30),
+    [grantConcurrent, setGrantConcurrent] = useState(standing?.maxConcurrent ?? 1);
+  // Like recovery delegation, the grant changes only while scheduling is paused.
+  const grantLocked = disabled || !['draft', 'paused', 'needs-attention'].includes(roadmap.status);
   const [open, setOpen] = useState(false),
     [data, setData] = useState<DecisionPreparationSettings>(),
     [checkpoint, setCheckpoint] = useState('');
@@ -78,6 +88,27 @@ export function DecisionPreparationPanel({
       setBusy(false);
     }
   };
+  const saveGrant = async () => {
+    setBusy(true);
+    setMessage('');
+    try {
+      await configureDecisionPreparation(
+        roadmap,
+        {
+          expectedVersion: roadmap.version,
+          enabled: grantEnabled,
+          minutes: grantMinutes,
+          maxConcurrent: grantConcurrent,
+        },
+        csrfToken,
+      );
+      onChanged?.();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Could not save standing preparation.');
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <details
       id={`decision-preparation-${roadmap.id}`}
@@ -95,7 +126,61 @@ export function DecisionPreparationPanel({
           supplies the exact imported plan documents, existing shared decisions and a separate
           integration snapshot.
         </p>
+        <p>
+          With standing preparation on, CraftingTable prepares every decision a selected slice still
+          needs while the roadmap runs, those that unblock the most slices first. You still approve
+          each decision, with scheduling paused. Change it while the roadmap is paused.
+        </p>
       </About>
+      <fieldset className="field">
+        <p role="status">
+          {standing?.enabled
+            ? `Standing preparation: up to ${standing.maxConcurrent} at a time, ${standing.minutes} min each`
+            : 'Standing preparation: off'}
+        </p>
+        <label>
+          <input
+            type="checkbox"
+            disabled={grantLocked || busy}
+            checked={grantEnabled}
+            onChange={(e) => setGrantEnabled(e.target.checked)}
+          />{' '}
+          Prepare needed decisions while the roadmap runs
+        </label>
+        <label>
+          Minutes per preparation
+          <input
+            type="number"
+            disabled={grantLocked || busy}
+            min={5}
+            max={60}
+            value={grantMinutes}
+            onChange={(e) => setGrantMinutes(Number(e.target.value))}
+          />
+        </label>
+        <label>
+          Preparations at once
+          <select
+            disabled={grantLocked || busy}
+            value={grantConcurrent}
+            onChange={(e) => setGrantConcurrent(Number(e.target.value))}
+          >
+            {[1, 2, 3].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={grantLocked || busy}
+          onClick={() => void saveGrant()}
+        >
+          Save standing preparation
+        </button>
+      </fieldset>
       <label className="field">
         Decision to prepare
         <select

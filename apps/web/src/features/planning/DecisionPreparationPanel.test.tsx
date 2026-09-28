@@ -36,3 +36,53 @@ it.each([
   await waitFor(() => expect(screen.getByRole('option', { name: /LOCAL-ADR-01/ })).toBeTruthy());
   expect((select as HTMLSelectElement).disabled).toBe(locked);
 });
+
+it('saves the standing grant while paused, and shows it while running (R-C3b)', async () => {
+  vi.mocked(request).mockResolvedValue({ version: 3, status: 'paused', decisions: [] });
+  const onChanged = vi.fn();
+  const paused = roadmap('paused');
+  const { unmount } = render(
+    <DecisionPreparationPanel
+      roadmap={paused}
+      backends={[]}
+      csrfToken="t"
+      disabled={false}
+      onChanged={onChanged}
+    />,
+  );
+  fireEvent.click(screen.getByText('Prepare architecture decision briefs'));
+  expect(screen.getByText('Standing preparation: off')).toBeTruthy();
+  fireEvent.click(await screen.findByLabelText('Prepare needed decisions while the roadmap runs'));
+  fireEvent.change(screen.getByLabelText('Preparations at once'), { target: { value: '2' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save standing preparation' }));
+  await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  const call = vi
+    .mocked(request)
+    .mock.calls.find(([url]) => String(url).endsWith('/decision-preparation-grant'));
+  expect(JSON.parse(String((call?.[2] as RequestInit).body))).toEqual({
+    expectedVersion: 3,
+    enabled: true,
+    minutes: 30,
+    maxConcurrent: 2,
+  });
+  unmount();
+  const running = {
+    ...roadmap('running'),
+    decisionPreparationGrant: {
+      enabled: true,
+      minutes: 20,
+      maxConcurrent: 2,
+      grantedByUserId: 'u',
+      grantedAt: '2026-09-28T00:00:00Z',
+    },
+  } as unknown as Roadmap;
+  render(
+    <DecisionPreparationPanel roadmap={running} backends={[]} csrfToken="t" disabled={false} />,
+  );
+  fireEvent.click(screen.getByText('Prepare architecture decision briefs'));
+  expect(screen.getByText('Standing preparation: up to 2 at a time, 20 min each')).toBeTruthy();
+  expect(
+    (screen.getByLabelText('Prepare needed decisions while the roadmap runs') as HTMLInputElement)
+      .disabled,
+  ).toBe(true);
+});

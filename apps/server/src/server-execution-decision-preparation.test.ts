@@ -228,3 +228,86 @@ it('approves one decision while another is still being prepared (R-C3b)', {
       ),
   ).toEqual(['LOCAL-ADR-01']);
 });
+
+function grant(
+  { f, saved, ws }: Pick<Fixture, 'f' | 'saved' | 'ws'>,
+  payload: Record<string, unknown>,
+  headers: Record<string, string> = mutationHeaders(f.state),
+) {
+  return f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/roadmaps/${saved.id}/decision-preparation-grant`,
+    headers,
+    payload: { expectedVersion: storedRoadmap(f.state).version, ...payload },
+  });
+}
+
+it('grants standing decision preparation while paused, and audits it (R-C3b)', {
+  timeout: 30000,
+}, async () => {
+  const fixture = await decisionFixture();
+  const { f, ws, tx } = fixture;
+  const standing = { enabled: true, minutes: 10, maxConcurrent: 2 };
+  expect((await grant(fixture, standing, { cookie: f.state.cookie })).statusCode).toBe(403);
+  await roadmapControl(f.state, 'start');
+  // Like recovery delegation, the grant is changed only while scheduling is paused.
+  expect((await grant(fixture, standing)).statusCode).toBe(409);
+  await roadmapControl(f.state, 'pause');
+  expect((await grant(fixture, { ...standing, maxConcurrent: 9 })).statusCode).toBe(400);
+  const granted = await grant(fixture, standing);
+  expect(granted.statusCode, granted.body).toBe(200);
+  expect(storedRoadmap(f.state).decisionPreparationGrant).toEqual({
+    ...standing,
+    grantedByUserId: f.state.userId,
+    grantedAt: expect.any(String),
+  });
+  expect(
+    tx.audit
+      .listWorkspace({ workspaceId: ws, limit: 20 })
+      .find((e) => e.metadata?.action === 'configure-decision-preparation')?.metadata,
+  ).toMatchObject({ preparationEnabled: true, preparationMinutes: 10, preparationConcurrency: 2 });
+  // Revoked by the operator: future preparations stop; nothing started is cancelled.
+  expect((await grant(fixture, { ...standing, enabled: false })).statusCode).toBe(200);
+  expect(storedRoadmap(f.state).decisionPreparationGrant?.enabled).toBe(false);
+});
+
+it('an applied planning amendment revokes the standing preparation grant (R-C3b)', {
+  timeout: 30000,
+}, async () => {
+  const f = await supervisedMapFixture(true);
+  const ws = f.state.workspaceId;
+  await adoptSupervisedMap(f);
+  const saved = f.service.save(f.auth, ws, f.input).roadmap;
+  expect(
+    (await grant({ f, saved, ws }, { enabled: true, minutes: 10, maxConcurrent: 1 })).statusCode,
+  ).toBe(200);
+  const amend = (action: string, payload: Record<string, unknown>) =>
+    f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/roadmaps/${saved.id}/amendments${action ? `/${action}` : ''}`,
+      headers: mutationHeaders(f.state),
+      payload,
+    });
+  const candidate = {
+    definitionId: f.input.configuration.definitionId,
+    bindingRevision: 1,
+    targetId: f.input.configuration.targetId,
+    selection: 'prioritize-full',
+  };
+  const proposed = await amend('', {
+    expectedVersion: storedRoadmap(f.state).version,
+    candidate,
+    summary: 'Include retained work.',
+  });
+  expect(proposed.statusCode, proposed.body).toBe(200);
+  const view = proposed.json();
+  const applied = await amend('decision', {
+    amendmentId: view.history[0].id,
+    outcome: 'apply',
+    impactDigest: view.pendingImpact.digest,
+    rationale: 'Reviewed.',
+    reuseIntegrationIds: [],
+  });
+  expect(applied.statusCode, applied.body).toBe(200);
+  expect(storedRoadmap(f.state).decisionPreparationGrant?.enabled).toBe(false);
+});

@@ -1,4 +1,5 @@
 import {
+  type DecisionPreparationGrantRequest,
   type SaveRoadmapRequest,
   type ScopeRecoveryPolicyRequest,
   roadmapsResponseSchema,
@@ -22,6 +23,16 @@ export const configureScopeRecovery = (
 ) =>
   request(
     `${base(roadmap.workspaceId)}/${roadmap.id}/scope-recovery`,
+    roadmapViewSchema,
+    mutation(csrfToken, input),
+  );
+export const configureDecisionPreparation = (
+  roadmap: Roadmap,
+  input: DecisionPreparationGrantRequest,
+  csrfToken: string,
+) =>
+  request(
+    `${base(roadmap.workspaceId)}/${roadmap.id}/decision-preparation-grant`,
     roadmapViewSchema,
     mutation(csrfToken, input),
   );

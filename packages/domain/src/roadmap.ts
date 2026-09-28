@@ -177,6 +177,20 @@ export interface Roadmap {
     readonly appliedAt: string;
     readonly appliedByUserId: UserId;
   }[];
+  /**
+   * Standing, revocable authority to prepare the roadmap's shared architecture decisions while it
+   * runs (R-C3b, ADR-065). Preparation proposes only; approval stays the operator's. Each run
+   * uses its owning entry's investigation profile.
+   */
+  readonly decisionPreparationGrant?: {
+    readonly enabled: boolean;
+    /** Each preparation's time limit. */
+    readonly minutes: number;
+    /** Preparations the controller keeps in flight at once. */
+    readonly maxConcurrent: number;
+    readonly grantedByUserId: UserId;
+    readonly grantedAt: string;
+  };
   /** Separate, explicit execution delegation. Changing it never changes the accepted plan. */
   readonly scopeRecovery?: {
     readonly enabled: boolean;

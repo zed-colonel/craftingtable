@@ -435,6 +435,7 @@ export function CrossProjectPanel({
           backends={backends}
           csrfToken={csrfToken}
           disabled={!canMutate || busy || dirty || staleSettings}
+          onChanged={refresh}
         />
       )}
       <div className="cycle-settings-grid">

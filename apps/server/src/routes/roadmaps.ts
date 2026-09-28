@@ -13,6 +13,7 @@ import {
   roadmapViewSchema,
   saveRoadmapCapacitySchema,
   saveRoadmapRequestSchema,
+  decisionPreparationGrantRequestSchema,
   scopeRecoveryPolicyRequestSchema,
   workspaceIdSchema,
 } from '@craftingtable/contracts';
@@ -199,6 +200,28 @@ export function registerRoadmapRoutes(
         roadmapHistoryResponseSchema.parse({
           definitions: roadmaps.history(context, workspace.data, request.params.roadmapId),
         }),
+      );
+    },
+  );
+  app.post<{ Params: { workspaceId: string; roadmapId: string } }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/decision-preparation-grant',
+    { config: { access: 'editor' } },
+    async (request, reply) => {
+      const context = authorizeMutation(request, auth, config);
+      const workspace = workspaceIdSchema.safeParse(request.params.workspaceId);
+      const body = decisionPreparationGrantRequestSchema.safeParse(request.body);
+      if (!workspace.success) return sendApiError(reply, 404, 'not-found', 'Workspace not found');
+      if (!body.success)
+        return sendApiError(reply, 400, 'invalid-request', 'Invalid decision preparation grant');
+      return noStore(reply).send(
+        roadmapViewSchema.parse(
+          roadmaps.configureDecisionPreparation(
+            context,
+            workspace.data,
+            request.params.roadmapId,
+            body.data,
+          ),
+        ),
       );
     },
   );

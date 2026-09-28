@@ -967,13 +967,40 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - On the 2026-09-28 snapshot, the scheduler replay projects no `checkpoint-evidence` item, no decision item that no entry waits on, and neither WI-ADR-008 nor WI-ADR-010's preparation item.
   - It shows one item for EXO-02's owning-slice question.
   - A test covers each rule, and fails without it.
+- **Independent review of d39b47a..69d788d and b0eda31 (2026-09-28).** An adversarial reviewer re-ran the replay, built fixtures for the shapes the rule could miss, and mutation-tested each change. Every finding was verified again before it was acted on. Fixed in one follow-up commit, test first:
+  - *HIGH, fixed:* the frontier rule treated every non-decision checkpoint as the controller's, because its blocker is the controller-owned `checkpoint-evidence`. The controller produces a checkpoint's evidence only through the delegated review of a slice that requires it at merge. So two shapes went silent:
+    - evidence only the operator supplies, required at start, verify or acceptance (on the live map: EXO-ENV-G2 to G4, WI-DEPLOYMENT-PARITY, EXO-EMBEDDED-VIABILITY-1, AQ-PUBLISHED, WI-AQ-G5);
+    - a decision behind a slice's delegated merge checkpoint (the live shapes: WI-WORKER-G1 behind its ADRs, EXO-ENV-G1 behind EXO-ADR-037/038).
+    
+    b0eda31 had then made the status list agree, so nothing said the operator was needed.
+    
+    The rule (`operatorNeeds`) is now:
+    - The operator settles a decision, a plan acceptance, and evidence no slice requires at merge.
+    - An entry is on the frontier when every blocker is the operator's or a checkpoint.
+    - From its checkpoints the walk follows unmet checkpoint prerequisites. It keeps those the operator settles and can answer now.
+    - An entry's state is `needs-attention` exactly when that walk finds one, or every blocker is the operator's own setup.
+    
+    The inbox, `view()`'s state label and the status list all use this one rule (`operatorActsNext`), which also removes the reviewer's LOW-MEDIUM contradiction: 47 live rows labelled `needs-attention` under "Waiting on automation or other work". They are now `dependency-blocked`, as the inbox says.
+    
+    Tests in `roadmap-attention-relevance.test.ts`, each failing before the fix:
+    - "asks for evidence no review produces once work waits on it" (a `release` checkpoint slice b needs to start);
+    - "asks for the decision a slice's own checkpoint review waits on" (a semantic review at slice a's merge that requires a decision).
+    
+    On the 2026-09-28 snapshot no entry is on the frontier: every blocked entry still waits on an unmerged slice or an unaccepted predecessor, so the pass still projects no checkpoint item.
+  - *MEDIUM-LOW, fixed:* LIVE-13's deferral matched any live round for the work item, so a hold on another entry of the same item (another slice's verification, the parent acceptance) was hidden while that round ran. It now defers only to the round started from the held entry. Untested: that case needs two entries of one item held at once; fixed by reading.
+  - *LOW, fixed:* the ledger's checkpoint decisions repeated decisions the scope's own `architectureDecisions` already carry. They are no longer repeated.
+  - *LOW-MEDIUM, disposition:* LIVE-09's `decisionAccepted` checks for an accepted full decision on the preparation's binding, not its currency. A preparation started after an accepted decision went stale on the same binding would have its questions suppressed. The decision's own checkpoint item is raised again when work needs it, through the rule above. The notifications fixture has no map, so it cannot exercise `acceptedEvidence`.
+  - *LOW, disposition:* LIVE-11's plan-acceptance focus exists only for the plan checkpoint the saved-plan evidence supports, which is the only one that generates plan evidence today. Checkpoint evidence opens the evidence form without preselecting its subject.
+  - *LOW, disposition:* the checkpoint decisions add tens of KB per decision to each scoped run's ledger (WI-WORKER-G1: about 130 KB after de-duplication), beside 800 KB of accepted evidence. Plan-approval prerequisites are still given by submission ID. Ledger size is R-H4's.
+  - *LOW, open:* LIVE-13's running-repair assertion depends on timing, and `decisionAccepted`'s coverage and binding conditions are not isolated by a test.
+  - *Checked and sound:* every replay difference of the batch; no prose branching or new panel; the "every entry complete" rule and held entries; a cycle stopped at a decision still surfaces through its own item; R-C15's replay difference and test.
 - **Done-when met (2026-09-28).** Against the batch's baseline golden (`scheduler-golden-d39b47a.json`), the 2026-09-28 scheduler replay projects:
   - none of the 50 checkpoint items (35 decisions, 15 checkpoint-evidence);
   - neither preparation item;
   - one item for EXO-02's owning-slice question.
 
   No other record changes except R-C15's packet. Each rule has a test that fails without it.
-- **The status list agrees with the inbox (2026-09-28).** R-E3a's list took "who acts next" from the entry's state: any operator-owned blocker made it the operator's. After the frontier rule that put 47 live entries under *Needs you* with no inbox item. Both now use one predicate, `waitsOnlyOnOperator`: the operator acts next when every blocker is theirs, and a blocker-free stop or pause is the operator's by its state. The state label is unchanged. Test: `roadmap-attention-relevance.test.ts` also checks slice b's row, controller before slice a merges and the decision's item after; it fails without the change. On the 2026-09-23 and 2026-09-27 snapshots, 61 rows no longer link a checkpoint item. 14 of them move from the operator to the controller, and the rest stay the operator's by their blockers.
+- **The status list agrees with the inbox (2026-09-28).** R-E3a's list took "who acts next" from the entry's state: any operator-owned blocker made it the operator's. After the frontier rule that put 47 live entries under *Needs you* with no inbox item. The list now uses the inbox's rule (b0eda31, then `operatorActsNext` in the review fix above). Test: `roadmap-attention-relevance.test.ts` checks slice b's row: the controller before slice a merges, and the decision's item after. It fails without the change. On the 2026-09-27 snapshot all 61 rows that linked a checkpoint item move from the operator to the controller (review correction).
 - **LIVE-10 fixed (2026-09-28), and LIVE-11's controller-produced items with it.** The roadmap pass raises a checkpoint item only for a checkpoint the operator is needed for now (`neededCheckpoints`):
   - one an open entry waits on while every one of that entry's blockers is operator-owned (`PHASE_BLOCKERS`);
   - once every entry is complete, one the selected scope still needs;

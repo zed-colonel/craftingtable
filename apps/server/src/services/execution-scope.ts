@@ -788,6 +788,9 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
     // the evaluation that decides the checkpoint is ready, so a checkpoint reviewer sees
     // every input the controller counted (R-C13, LIVE-07).
     checkpoints: scopeCheckpointIds(r).map((id) => {
+      const ownDecisions = new Set(
+        architectureDecisionPacket(tx, r.item.workspaceId, r.scope).map((d) => d.submissionId),
+      );
       const checkpoint = r.definition.source.checkpoints.find((c) => c.id === id);
       const evaluation = prerequisiteEvaluation(tx, r.definition, r.scope.bindingRevision, {
         kind: 'checkpoint',
@@ -800,12 +803,13 @@ export function scopeEvidenceLedger(tx: StorageRepositories, r: ResolvedScope) {
           input.kind === 'accepted-evidence' ? [input.submissionId] : [],
         ),
       );
+      // Decisions the scope's own `architectureDecisions` already carry are not repeated.
       const decisions = decisionPacketEntries(
         tx,
         r.item.workspaceId,
         tx.runtimeEvidence
           .submissions(r.item.workspaceId, r.definition.id)
-          .filter((s) => accepted.has(s.id) && s.architectureDecision),
+          .filter((s) => accepted.has(s.id) && s.architectureDecision && !ownDecisions.has(s.id)),
       );
       return {
         id,

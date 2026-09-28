@@ -172,58 +172,96 @@ type RoadmapChanges = Omit<Partial<Roadmap>, 'status' | 'attention'> &
       }
   );
 
+type CheckpointNode = {
+  readonly key: string;
+  readonly kind: string;
+  readonly sourceId: string;
+  readonly included: boolean;
+  readonly satisfied: boolean;
+  readonly blockers: readonly string[];
+  readonly requirements: readonly string[];
+};
+
 /**
- * Whether only the operator can move this entry now: it is blocked, and every blocker is
- * operator-owned. The inbox (`neededCheckpoints`) and the status list use this one rule.
+ * What the operator is needed for now (R-C14, LIVE-10): per entry, the checkpoint IDs only the
+ * operator settles that stand between the entry and progress; and all of them together.
+ *
+ * - The operator settles a decision, a plan acceptance, and evidence no slice review produces
+ *   (a checkpoint no slice requires at merge). A slice's merge checkpoint is produced by that
+ *   slice's own delegated review, or its cycle stops for the operator itself.
+ * - An entry is on the frontier when every blocker is the operator's or a checkpoint. From
+ *   its checkpoints, the walk follows unmet checkpoint prerequisites (a decision behind a
+ *   delegated review), and keeps those the operator settles and can answer now.
+ * - Once every entry is complete, every checkpoint the selected scope still needs.
  */
-function waitsOnlyOnOperator(progress: RoadmapView['progress'][number]): boolean {
-  return (
-    !!progress.blockers?.length &&
-    progress.blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator')
-  );
-}
-/**
- * The checkpoints the operator is needed for now (R-C14, LIVE-10): those an open entry waits
- * on while every one of its blockers is the operator's, and once every entry is complete, the
- * ones the selected scope still needs; then, for each, its own unmet checkpoint prerequisites.
- * A checkpoint that work will need only after other work is done asks nobody yet.
- */
-function neededCheckpoints(
-  nodes: readonly {
-    readonly key: string;
-    readonly kind: string;
-    readonly sourceId: string;
-    readonly included: boolean;
-    readonly satisfied: boolean;
-    readonly requirements: readonly string[];
-  }[],
+function operatorNeeds(
+  nodes: readonly CheckpointNode[],
+  mergeRequired: ReadonlySet<string>,
+  decisionKinds: ReadonlyMap<string, string>,
   progress: RoadmapView['progress'],
-): ReadonlySet<string> {
-  const checkpoints = new Map(
+): { readonly all: ReadonlySet<string>; readonly byEntry: ReadonlyMap<string, readonly string[]> } {
+  const bySource = new Map(
     nodes.filter((n) => n.kind === 'checkpoint').map((n) => [n.sourceId, n]),
   );
-  const needed = new Set<string>();
-  for (const p of progress)
-    if (p.status !== 'completed' && waitsOnlyOnOperator(p))
-      for (const b of p.blockers ?? []) {
-        const node = b.refs?.checkpointId && checkpoints.get(b.refs.checkpointId);
-        if (node) needed.add(node.key);
-      }
-  if (progress.every((p) => p.status === 'completed'))
-    for (const node of checkpoints.values())
-      if (node.included && !node.satisfied) needed.add(node.key);
   const byKey = new Map(nodes.map((n) => [n.key, n]));
-  const queue = [...needed];
-  while (queue.length) {
-    for (const key of byKey.get(queue.pop()!)?.requirements ?? []) {
-      const prerequisite = byKey.get(key);
-      if (prerequisite?.kind === 'checkpoint' && !prerequisite.satisfied && !needed.has(key)) {
-        needed.add(key);
-        queue.push(key);
-      }
+  const settledByOperator = (node: CheckpointNode) =>
+    ['architecture_decision', 'plan_approval'].includes(decisionKinds.get(node.sourceId) ?? '') ||
+    !mergeRequired.has(node.sourceId);
+  const all = new Set<string>();
+  const byEntry = new Map<string, readonly string[]>();
+  for (const p of progress) {
+    if (
+      p.status === 'completed' ||
+      !p.blockers?.length ||
+      !p.blockers.every(
+        (b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator' || !!b.refs?.checkpointId,
+      )
+    )
+      continue;
+    const seen = new Set<string>();
+    const queue = p.blockers.flatMap((b) => {
+      const node = b.refs?.checkpointId ? bySource.get(b.refs.checkpointId) : undefined;
+      return node && !node.satisfied ? [node.key] : [];
+    });
+    const needed: CheckpointNode[] = [];
+    while (queue.length) {
+      const key = queue.pop()!;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const node = byKey.get(key);
+      if (!node || node.kind !== 'checkpoint' || node.satisfied) continue;
+      if (settledByOperator(node) && node.included && !node.blockers.length) needed.push(node);
+      queue.push(...node.requirements);
     }
+    if (needed.length)
+      byEntry.set(
+        p.entryId,
+        needed.map((n) => n.sourceId),
+      );
+    for (const node of needed) all.add(node.key);
   }
-  return needed;
+  if (progress.every((p) => p.status === 'completed'))
+    for (const node of bySource.values())
+      if (node.included && !node.satisfied && !node.blockers.length) all.add(node.key);
+  return { all, byEntry };
+}
+
+/**
+ * Whether only the operator can move this entry now: the checkpoints it waits on need the
+ * operator, or every blocker is the operator's own setup. The inbox, the entries' state and
+ * the status list use this one rule (R-C14).
+ */
+function operatorActsNext(
+  progress: Pick<RoadmapView['progress'][number], 'entryId' | 'blockers'>,
+  needs: { readonly byEntry: ReadonlyMap<string, readonly string[]> } | undefined,
+): boolean {
+  if (needs?.byEntry.has(progress.entryId)) return true;
+  return (
+    !!progress.blockers?.length &&
+    progress.blockers.every(
+      (b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator' && !b.refs?.checkpointId,
+    )
+  );
 }
 
 export class RoadmapService {
@@ -662,6 +700,7 @@ export class RoadmapService {
     const ws = roadmap.workspaceId;
     const snapshot = mapReadSnapshot(this.storage);
     const progress = this.view(roadmap, snapshot).progress;
+    const needs = this.withOperatorNeeds(snapshot, roadmap).needs(progress);
     const items = this.storage.attention.open(ws);
     const attention = effectiveRoadmapAttention(roadmap);
     const entries: RoadmapStatusEntry[] = [];
@@ -704,10 +743,10 @@ export class RoadmapService {
       const blockers = state.blockers?.length
         ? { blockers: [...new Set(state.blockers.map((b) => phaseBlockerCode(b)))] }
         : {};
-      // A checkpoint the operator is asked to accept, among the entry's blockers.
-      const checkpointItem = state.blockers
-        ?.flatMap((b) => (b.refs?.checkpointId ? [b.refs.checkpointId] : []))
-        .map((id) => items.find((i) => i.subjectKey === `roadmap:${roadmap.id}:checkpoint:${id}`))
+      // A checkpoint the operator is asked to settle for this entry (R-C14).
+      const checkpointItem = needs?.byEntry
+        .get(entry.id)
+        ?.map((id) => items.find((i) => i.subjectKey === `roadmap:${roadmap.id}:checkpoint:${id}`))
         .find((i) => i !== undefined);
       const found = item ?? (hold?.status !== 'paused' ? checkpointItem : undefined);
       if (found) {
@@ -779,7 +818,7 @@ export class RoadmapService {
           ...base,
           actor: (
             state.blockers?.length
-              ? waitsOnlyOnOperator(state)
+              ? operatorActsNext(state, needs)
               : ['needs-attention', 'paused'].includes(state.status)
           )
             ? 'operator'
@@ -2998,135 +3037,168 @@ export class RoadmapService {
         development: capacity('local-development'),
         verification: capacity('local-verification'),
       },
-      progress: roadmap.definition.entries
-        .map((entry): import('@craftingtable/domain').RoadmapEntryProgress => {
-          if (this.complete(roadmap, entry, snapshot))
-            return { entryId: entry.id, status: 'completed', reason: 'Completed.' };
-          const hold = roadmap.entryHolds?.[entry.id];
-          const currentAttempt = roadmap.attempts.find(
-            (a) => a.entryId === entry.id && !a.recovery,
-          );
-          const currentCycle =
-            currentAttempt &&
-            snapshot.execution.cycles.find(roadmap.workspaceId, currentAttempt.cycleId);
-          if (currentCycle && this.cycles.isTransitioning(currentCycle.id))
-            return {
-              entryId: entry.id,
-              status: 'running',
-              reason: 'Preparing the requested recovery.',
-            };
-          if (hold && currentCycle?.status !== 'running')
-            return { entryId: entry.id, status: hold.status, reason: hold.reason };
-          const recovery = this.roundFor(roadmap, entry);
-          if (recovery && entry.executionScope?.kind !== 'slice') {
-            const repair = snapshot.execution.cycles.find(roadmap.workspaceId, recovery.cycleId);
-            const repairNeedsYou =
-              recovery.recovery!.phase === 'repair' &&
-              repair &&
-              ['paused', 'needs-attention', 'stopped'].includes(repair.status);
-            return {
-              entryId: entry.id,
-              status: repairNeedsYou
-                ? 'needs-attention'
-                : roadmap.status === 'running'
-                  ? 'running'
-                  : 'paused',
-              reason: repairNeedsYou
-                ? `Owning-slice recovery: ${repair.reason}`
-                : `Roadmap recovery: ${recovery.recovery!.phase === 'repair' ? 'repair and integration' : recovery.recovery!.phase === 'verification' ? 'fresh independent verification' : 'parent acceptance'}.`,
-            };
-          }
-          const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
-          const cycle =
-            attempt && snapshot.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
-          if (attempt?.reverification)
-            return {
-              entryId: entry.id,
-              status: roadmap.status === 'running' ? 'queued' : 'paused',
-              reason:
-                'Fresh independent review queued by Re-verify. Existing code and reviewer assignment are retained; it runs when the roadmap is running.',
-            };
-          if (attempt?.dependencyRefresh)
-            return {
-              entryId: entry.id,
-              status: roadmap.status === 'running' ? 'queued' : 'paused',
-              reason: `Fresh independent review queued for dependency generation ${attempt.dependencyRefresh.generation}. Existing code and reviewer assignment are retained; plan acceptance and Resume are required.`,
-            };
-          if (
-            entry.executionScope &&
-            (!cycle || ['running', 'awaiting-merge'].includes(cycle.status))
-          ) {
-            const phase =
-              entry.executionScope.kind === 'parent-acceptance'
-                ? 'accept'
-                : entry.executionScope.kind === 'slice-verification'
-                  ? 'verify'
-                  : cycle?.status === 'awaiting-merge'
-                    ? 'merge'
-                    : 'start';
-            const blockers = scopePhaseBlockers(
-              snapshot,
-              roadmap.workspaceId,
-              entry.workItemId,
-              entry.executionScope,
-              phase,
-              { ownerId: cycle?.currentRunId },
+      progress: this.withOperatorNeeds(snapshot, roadmap).progress(
+        roadmap.definition.entries
+          .map((entry): import('@craftingtable/domain').RoadmapEntryProgress => {
+            if (this.complete(roadmap, entry, snapshot))
+              return { entryId: entry.id, status: 'completed', reason: 'Completed.' };
+            const hold = roadmap.entryHolds?.[entry.id];
+            const currentAttempt = roadmap.attempts.find(
+              (a) => a.entryId === entry.id && !a.recovery,
             );
-            if (blockers.length)
+            const currentCycle =
+              currentAttempt &&
+              snapshot.execution.cycles.find(roadmap.workspaceId, currentAttempt.cycleId);
+            if (currentCycle && this.cycles.isTransitioning(currentCycle.id))
               return {
                 entryId: entry.id,
-                // Classified by who resolves each blocker (R-A3, UI-09): operator-owned
-                // evidence such as plan acceptance is the operator's, not other work.
-                status: blockers.some(
-                  (b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator',
-                )
+                status: 'running',
+                reason: 'Preparing the requested recovery.',
+              };
+            if (hold && currentCycle?.status !== 'running')
+              return { entryId: entry.id, status: hold.status, reason: hold.reason };
+            const recovery = this.roundFor(roadmap, entry);
+            if (recovery && entry.executionScope?.kind !== 'slice') {
+              const repair = snapshot.execution.cycles.find(roadmap.workspaceId, recovery.cycleId);
+              const repairNeedsYou =
+                recovery.recovery!.phase === 'repair' &&
+                repair &&
+                ['paused', 'needs-attention', 'stopped'].includes(repair.status);
+              return {
+                entryId: entry.id,
+                status: repairNeedsYou
                   ? 'needs-attention'
-                  : blockers.some((b) => phaseBlockerCode(b) === 'resource-busy')
+                  : roadmap.status === 'running'
+                    ? 'running'
+                    : 'paused',
+                reason: repairNeedsYou
+                  ? `Owning-slice recovery: ${repair.reason}`
+                  : `Roadmap recovery: ${recovery.recovery!.phase === 'repair' ? 'repair and integration' : recovery.recovery!.phase === 'verification' ? 'fresh independent verification' : 'parent acceptance'}.`,
+              };
+            }
+            const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
+            const cycle =
+              attempt && snapshot.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+            if (attempt?.reverification)
+              return {
+                entryId: entry.id,
+                status: roadmap.status === 'running' ? 'queued' : 'paused',
+                reason:
+                  'Fresh independent review queued by Re-verify. Existing code and reviewer assignment are retained; it runs when the roadmap is running.',
+              };
+            if (attempt?.dependencyRefresh)
+              return {
+                entryId: entry.id,
+                status: roadmap.status === 'running' ? 'queued' : 'paused',
+                reason: `Fresh independent review queued for dependency generation ${attempt.dependencyRefresh.generation}. Existing code and reviewer assignment are retained; plan acceptance and Resume are required.`,
+              };
+            if (
+              entry.executionScope &&
+              (!cycle || ['running', 'awaiting-merge'].includes(cycle.status))
+            ) {
+              const phase =
+                entry.executionScope.kind === 'parent-acceptance'
+                  ? 'accept'
+                  : entry.executionScope.kind === 'slice-verification'
+                    ? 'verify'
+                    : cycle?.status === 'awaiting-merge'
+                      ? 'merge'
+                      : 'start';
+              const blockers = scopePhaseBlockers(
+                snapshot,
+                roadmap.workspaceId,
+                entry.workItemId,
+                entry.executionScope,
+                phase,
+                { ownerId: cycle?.currentRunId },
+              );
+              if (blockers.length)
+                return {
+                  entryId: entry.id,
+                  // Whether the operator is the one to move it is decided once every entry's
+                  // blockers are known (`withOperatorNeeds`, R-C14).
+                  status: blockers.some((b) => phaseBlockerCode(b) === 'resource-busy')
                     ? 'capacity-blocked'
                     : 'dependency-blocked',
-                reason: blockers.map((b) => `${phase} · ${b.kind}: ${b.message}`).join(' '),
-                phase,
-                blockers,
+                  reason: blockers.map((b) => `${phase} · ${b.kind}: ${b.message}`).join(' '),
+                  phase,
+                  blockers,
+                };
+            }
+            if (cycle)
+              return {
+                entryId: entry.id,
+                status:
+                  cycle.status === 'running'
+                    ? 'running'
+                    : cycle.status === 'awaiting-merge'
+                      ? 'awaiting-merge'
+                      : 'needs-attention',
+                reason: cycle.reason,
               };
-          }
-          if (cycle)
+            const reason = this.blocker(roadmap, entry, attempt, snapshot);
             return {
               entryId: entry.id,
-              status:
-                cycle.status === 'running'
-                  ? 'running'
-                  : cycle.status === 'awaiting-merge'
-                    ? 'awaiting-merge'
-                    : 'needs-attention',
-              reason: cycle.reason,
+              status: reason?.needsAttention ? 'needs-attention' : reason ? reason.kind : 'queued',
+              reason: reason?.reason ?? 'Waiting for its turn in the sequence.',
             };
-          const reason = this.blocker(roadmap, entry, attempt, snapshot);
-          return {
-            entryId: entry.id,
-            status: reason?.needsAttention ? 'needs-attention' : reason ? reason.kind : 'queued',
-            reason: reason?.reason ?? 'Waiting for its turn in the sequence.',
-          };
-        })
-        .map((progress) => {
-          const attempt = roadmap.attempts.find((a) => a.entryId === progress.entryId);
-          const definition = attempt
-            ? attemptDefinition(snapshot, roadmap, attempt)
-            : roadmap.definition;
-          const entry = roadmap.definition.entries.find((e) => e.id === progress.entryId)!;
-          return {
-            ...progress,
-            ...(progress.status !== 'completed' &&
-            !('refused' in this.reverification(roadmap, entry, snapshot))
-              ? { reverifiable: true as const }
-              : {}),
-            effectiveAutomation: effectiveDelegation(
-              roadmap,
-              definition?.entries.find((e) => e.id === progress.entryId) ??
-                roadmap.definition.entries.find((e) => e.id === progress.entryId)!,
-              definition ?? roadmap.definition,
-            ).automation,
-          };
-        }),
+          })
+          .map((progress) => {
+            const attempt = roadmap.attempts.find((a) => a.entryId === progress.entryId);
+            const definition = attempt
+              ? attemptDefinition(snapshot, roadmap, attempt)
+              : roadmap.definition;
+            const entry = roadmap.definition.entries.find((e) => e.id === progress.entryId)!;
+            return {
+              ...progress,
+              ...(progress.status !== 'completed' &&
+              !('refused' in this.reverification(roadmap, entry, snapshot))
+                ? { reverifiable: true as const }
+                : {}),
+              effectiveAutomation: effectiveDelegation(
+                roadmap,
+                definition?.entries.find((e) => e.id === progress.entryId) ??
+                  roadmap.definition.entries.find((e) => e.id === progress.entryId)!,
+                definition ?? roadmap.definition,
+              ).automation,
+            };
+          }),
+      ),
+    };
+  }
+  /**
+   * What the operator is needed for on this roadmap (R-C14), and a pass over computed progress
+   * that marks an entry `needs-attention` exactly when only the operator can move it.
+   */
+  private withOperatorNeeds(tx: StorageRepositories, roadmap: Roadmap) {
+    let needs: ReturnType<typeof operatorNeeds> | undefined;
+    const needsOf = (progress: RoadmapView['progress']) => {
+      const selection = roadmap.definition.crossProject;
+      const source =
+        selection && tx.imports.definition(roadmap.workspaceId, selection.definitionId)?.source;
+      if (!selection || !source) return undefined;
+      needs ??= operatorNeeds(
+        crossProjectState(tx, roadmap.workspaceId, selection).nodes,
+        new Set(
+          source.slices.flatMap((slice) =>
+            slice.merge_requires.flatMap((r) => (r.kind === 'checkpoint' ? [r.id] : [])),
+          ),
+        ),
+        new Map(source.checkpoints.map((c) => [c.id, c.kind])),
+        progress,
+      );
+      return needs;
+    };
+    return {
+      needs: (progress: RoadmapView['progress']) => needsOf(progress),
+      progress: (progress: RoadmapView['progress']): RoadmapView['progress'] => {
+        const found = needsOf(progress);
+        return progress.map((p) =>
+          p.phase && p.blockers?.length && operatorActsNext(p, found)
+            ? { ...p, status: 'needs-attention' as const }
+            : p,
+        );
+      },
     };
   }
   private find(workspaceId: WorkspaceId, id: string): Roadmap {
@@ -3251,7 +3323,7 @@ export class RoadmapService {
         }
         return nodes.filter((n) => seen.has(n.key) && n.included && !n.satisfied).length;
       };
-      const needed = neededCheckpoints(nodes, entryProgress);
+      const needed = this.withOperatorNeeds(tx, roadmap).needs(entryProgress)?.all ?? new Set();
       for (const node of nodes) {
         if (
           !node.included ||
@@ -3293,10 +3365,13 @@ export class RoadmapService {
       if (!entry) continue;
       const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
       const cycle = attempt && tx.execution.cycles.find(workspaceId, attempt.cycleId);
-      // The recovery round that carries this entry's review, whose repair is where its work
-      // happens (LIVE-13).
+      // The recovery round started from this entry's review, whose repair is where its work
+      // happens (LIVE-13). A round for another entry of the work item carries other stops.
       const round = this.roundFor(roadmap, entry);
-      const repair = round && tx.execution.cycles.find(workspaceId, round.cycleId);
+      const repair =
+        round?.recovery?.sourceEntryId === entry.id
+          ? tx.execution.cycles.find(workspaceId, round.cycleId)
+          : undefined;
       // A manual recovery, or the round's repair, has taken over this checkpoint. The saved
       // hold remains historical until reconciliation; it is not a second task.
       if (cycle?.status === 'running' || repair?.status === 'running') continue;

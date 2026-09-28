@@ -1444,6 +1444,37 @@ describe('durable attention items (R-A4)', () => {
         refs: { roadmapId: roadmap.id, runId },
       },
     ]);
+    // Once the decision is accepted in full, its preparation's questions need nobody
+    // (LIVE-09). Accepting it is an evidence decision, which re-derives the preparation.
+    const preparation = f.context.storage.roadmaps.find(f.workspaceId, roadmap.id)!
+      .decisionPreparations![0]!;
+    const submission = {
+      id: randomUUID(),
+      subject: { kind: 'checkpoint', sourceId: 'AQ-ADR-003' },
+      bindingRevision: 1,
+      architectureDecision: { coverage: 'full' },
+    };
+    const decision = {
+      id: randomUUID(),
+      workspaceId: f.workspaceId,
+      submissionId: submission.id,
+      outcome: 'accepted',
+    };
+    // The projector reads through the transaction's repositories: stub the repository type.
+    const evidence = Object.getPrototypeOf(f.context.storage.runtimeEvidence) as Pick<
+      typeof f.context.storage.runtimeEvidence,
+      'submissions' | 'decisions'
+    >;
+    vi.spyOn(evidence, 'submissions').mockImplementation(
+      (_ws, definitionId) =>
+        (definitionId === preparation.definitionId ? [submission] : []) as never,
+    );
+    vi.spyOn(evidence, 'decisions').mockReturnValue([decision] as never);
+    f.context.storage.transaction(() =>
+      f.context.services.attention.written('evidence-decision', decision as never),
+    );
+    expect(openItems(f)).toEqual([]);
+    expect(f.items().find((item) => item.subjectKey === `run:${runId}`)?.state).toBe('resolved');
   });
   it('lists an interrupted merge, a failed merge cleanup and a blocked finalization cleanup', async () => {
     const f = await fixture();

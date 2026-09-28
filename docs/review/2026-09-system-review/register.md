@@ -41,7 +41,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C11](#r-c11) | P2 | S-M | done (see Progress) | Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry (added 2026-09-25) |
 | [R-C12](#r-c12) | P2 | S-M | done (2026-09-27) | Automatic recovery records why it did not start a round (added 2026-09-27) |
 | [R-C13](#r-c13) | P2 | S-M | done (2026-09-27) | Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation (added 2026-09-27) |
-| [R-C14](#r-c14) | P2 | S-M | open | Attention says only what needs the operator now, and what the operator can act on (added 2026-09-28) |
+| [R-C14](#r-c14) | P2 | S-M | in progress | Attention says only what needs the operator now, and what the operator can act on (added 2026-09-28) |
 | [R-C15](#r-c15) | P2 | S | open | A checkpoint review is given the decisions its checkpoint requires (added 2026-09-28) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
@@ -951,7 +951,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C14
 
-**Attention says only what needs the operator now, and what the operator can act on** · Phase P2 · Effort S-M · Status: open
+**Attention says only what needs the operator now, and what the operator can act on** · Phase P2 · Effort S-M · Status: in progress
 
 - **Added 2026-09-28** from the first day on the deployed P2 line ([LIVE-09 to LIVE-11 and LIVE-13](findings/LIVE-live-run-2026-09-25.md#after-the-p2-deploy-2026-09-28)). With the roadmap running, the inbox held 55 items, and most were not the operator's to act on now:
   - 35 decisions no entry needs yet;
@@ -967,6 +967,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - On the 2026-09-28 snapshot, the scheduler replay projects no `checkpoint-evidence` item, no decision item that no entry waits on, and neither WI-ADR-008 nor WI-ADR-010's preparation item.
   - It shows one item for EXO-02's owning-slice question.
   - A test covers each rule, and fails without it.
+- **LIVE-09 fixed (2026-09-28).** A decision preparation's design-questions item is not raised once an accepted, full-coverage decision exists for its checkpoint on the preparation's binding. Every evidence decision re-derives the workspace's preparation worktrees, so accepting the decision resolves the item in the same write. Test: `notifications.test.ts`, "names a roadmap decision preparation…", which fails without the fix.
 
 ### R-C15
 

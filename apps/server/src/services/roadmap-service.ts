@@ -3112,6 +3112,10 @@ export class RoadmapService {
     }
   }
   private attentionSynced = { generation: -1, at: 0 };
+  /** Replay seam (R-I10): the items this roadmap's pass would project if it were running. */
+  passAttention(roadmap: Roadmap): readonly ProjectedItem[] {
+    return this.attentionItems(mapReadSnapshot(this.storage), roadmap);
+  }
 
   private attentionItems(tx: StorageRepositories, roadmap: Roadmap): ProjectedItem[] {
     const workspaceId = roadmap.workspaceId;

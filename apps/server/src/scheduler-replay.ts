@@ -98,6 +98,15 @@ export interface SchedulerReplay {
   readonly cycles: readonly CheckpointReadiness[];
   /** Each roadmap's status list (R-E3a) as the pass leaves it. Absent in older goldens. */
   readonly status?: readonly RoadmapStatusList[];
+  /**
+   * The inbox after the pass: the items each roadmap's pass projects, as if it were running
+   * (LIVE-10, LIVE-11), and every other open item (LIVE-09). Absent in older goldens.
+   */
+  readonly attention?: readonly {
+    readonly subjectKey: string;
+    readonly code: string;
+    readonly blocks?: number;
+  }[];
 }
 
 /**
@@ -270,7 +279,22 @@ export async function replaySchedulerDecisions(
         ),
       };
     });
-    return { roadmaps, entries, cycles, status };
+    const attention = [
+      ...before.flatMap((prior) =>
+        services.roadmapService
+          .passAttention(storage.roadmaps.find(prior.workspaceId, prior.id) ?? prior)
+          .map((item) => ({
+            subjectKey: item.subjectKey,
+            code: item.code,
+            ...(item.blocks === undefined ? {} : { blocks: item.blocks }),
+          })),
+      ),
+      ...storage.attention
+        .open()
+        .filter((item) => !item.scopeKey.startsWith('roadmap-pass:'))
+        .map((item) => ({ subjectKey: item.subjectKey, code: item.code })),
+    ].sort((a, b) => `${a.subjectKey}/${a.code}`.localeCompare(`${b.subjectKey}/${b.code}`));
+    return { roadmaps, entries, cycles, status, attention };
   } finally {
     storage.close();
   }
@@ -456,6 +480,22 @@ function checkpointReadiness(storage: ReturnType<typeof openDaemonStorage>): Che
                     ),
                 )
                 .map((r) => `receipt:${r.id}`),
+              // A prerequisite accepted as an architecture decision needs its decision text.
+              ...(section?.prerequisites ?? []).flatMap((p) => {
+                if (p.kind !== 'accepted-evidence') return [];
+                const decided = storage.runtimeEvidence
+                  .submissions(cycle.workspaceId, scope.definition.id)
+                  .find((s) => s.id === p.submissionId);
+                const decisions = (
+                  section as { decisions?: readonly { submissionId: string }[] } | undefined
+                )?.decisions;
+                const carried =
+                  ledger.architectureDecisions.some((d) => d.submissionId === p.submissionId) ||
+                  !!decisions?.some((d) => d.submissionId === p.submissionId);
+                return decided?.architectureDecision && !carried
+                  ? [`decision:${p.requirement.id}`]
+                  : [];
+              }),
               ...checkpoint.caseIds
                 .filter(
                   (id) =>

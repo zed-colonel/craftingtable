@@ -41,6 +41,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C11](#r-c11) | P2 | S-M | done (see Progress) | Classify a provider-side credential rejection as its own stop, with a bounded scheduled retry (added 2026-09-25) |
 | [R-C12](#r-c12) | P2 | S-M | done (2026-09-27) | Automatic recovery records why it did not start a round (added 2026-09-27) |
 | [R-C13](#r-c13) | P2 | S-M | done (2026-09-27) | Checkpoint readiness agrees with what the attestation needs; no resume that repeats a failed attestation (added 2026-09-27) |
+| [R-C14](#r-c14) | P2 | S-M | open | Attention says only what needs the operator now, and what the operator can act on (added 2026-09-28) |
+| [R-C15](#r-c15) | P2 | S | open | A checkpoint review is given the decisions its checkpoint requires (added 2026-09-28) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -947,6 +949,36 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *LOW, open gaps:* no test for the coverage bindings in the ledger (verified on the snapshot), for guidance being accepted at this stop (verified by reading), or for a real input change (the test replaces the stored digest).
   - *Checked and sound:* `prerequisiteEvaluation` keeps the old gaps exactly on every branch; `CheckpointAttestationError` is thrown only for the reviewer's attestation, after the delegation and readiness checks and before the candidate, build and Git checks; the check uses the same spec as the candidate path; the digest refresh is skipped only for continued sessions; contracts, labels and the operator-wait kinds take the new code; no prose branching.
 
+### R-C14
+
+**Attention says only what needs the operator now, and what the operator can act on** · Phase P2 · Effort S-M · Status: open
+
+- **Added 2026-09-28** from the first day on the deployed P2 line ([LIVE-09 to LIVE-11 and LIVE-13](findings/LIVE-live-run-2026-09-25.md#after-the-p2-deploy-2026-09-28)). With the roadmap running, the inbox held 55 items, and most were not the operator's to act on now:
+  - 35 decisions no entry needs yet;
+  - 15 checkpoint-evidence items for evidence the controller produces;
+  - 2 stale decision preparations;
+  - 1 duplicate.
+- **Change:**
+  - A decision preparation's questions need nobody once its decision is accepted.
+  - The roadmap pass raises a checkpoint item only for an operator-owned checkpoint (a decision or plan acceptance, per `PHASE_BLOCKERS`). It raises one only when some open entry waits on that checkpoint and on nothing that is not the operator's.
+  - An entry hold does not repeat a stop that its carrying round's cycle already shows.
+  - Nothing is branched on prose (program rule 4).
+- **Done when:**
+  - On the 2026-09-28 snapshot, the scheduler replay projects no `checkpoint-evidence` item, no decision item that no entry waits on, and neither WI-ADR-008 nor WI-ADR-010's preparation item.
+  - It shows one item for EXO-02's owning-slice question.
+  - A test covers each rule, and fails without it.
+
+### R-C15
+
+**A checkpoint review is given the decisions its checkpoint requires** · Phase P2 · Effort S · Status: open
+
+- **Added 2026-09-28** from [LIVE-12](findings/LIVE-live-run-2026-09-25.md#live-12-wi-04s-checkpoint-review-is-still-missing-inputs-the-bodies-of-the-decisions-its-checkpoint-requires). R-C13's checkpoint section named the accepted decisions WI-WORKER-G1 requires only by submission ID. WI-04's reviewer therefore failed the attestation for lack of their clauses.
+- **Change:** for each prerequisite met by an accepted architecture decision, the ledger's checkpoint section carries the decision record itself, in the same form as the scope's own `architectureDecisions`, and from the same evaluation (R-C13's one evaluator).
+- **Done when:**
+  - On the 2026-09-28 snapshot, WI-WORKER-G1's packet lacks no decision (the replay's `packetMissing`).
+  - A fixture test shows a checkpoint review given the decision a checkpoint requires.
+  - It fails without the change.
+
 ## Workstream D — Read side and browser performance (pain point 3)
 
 ### R-D1
@@ -1847,6 +1879,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *LOW, disposition:* opening an older schema writes a pre-migration copy beside the database, so a replay needs twice the snapshot's size in its temporary directory. Documented.
   - *Later, 2026-09-27:* with R-E3a's status lists in the output, a re-check of a fresh recording found attention item ids differing between copies (schema 32 rebuilds the items with new ids). The replay now names an item by its subject key, and both snapshots' scheduler goldens re-check with 0 changed.
   - *Checked and sound:* the replay is deterministic and matches the golden (188 records, 0 changed before R-C12). No process is spawned or killed, and no repository, worktree or `/mnt/workhorse` path is touched (traced). The copy's only writes are the migration, attention items and two events. Every mutating collaborator is intercepted, except `items.admit` and `adoptRoadmapRound`, which write only to the database. The live environment sets no model lists, so the default lists are faithful. The fixed `now` changes no decision. The observer seam does not change production behaviour. LIVE-06's and LIVE-07's reproductions were confirmed independently, and the cited LIVE tests exist.
+
+- **2026-09-28: second snapshot and two replay records.**
+  - A read-only `.backup` of the live database after the P2 deploy, taken with the roadmap paused, is at `replay/2026-09-28/`. SHA-256 `645b7c3e…`, schema 32. Goldens at ac08291: `golden.json` 59, `every-run-golden-ac08291.json` 356, `scheduler-golden-ac08291.json`.
+  - The scheduler replay now also records `attention`: the items each roadmap's pass would project, as if it were running (`RoadmapService.passAttention`), and every other open item.
+  - Its packet check also names a prerequisite accepted as an architecture decision whose record the packet lacks (`decision:<id>`).
+  - These are LIVE-09 to LIVE-13's replay cases.
 
 ### R-I11
 

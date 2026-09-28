@@ -66,6 +66,10 @@ function schedulerRecords(replay: SchedulerReplay) {
     ...replay.roadmaps.map((r) => ({ key: `roadmap:${r.roadmapId}`, value: r })),
     ...replay.entries.map((e) => ({ key: `entry:${e.roadmapId}/${e.entryId}`, value: e })),
     ...replay.cycles.map((c) => ({ key: `cycle:${c.cycleId}`, value: c })),
+    ...(replay.attention ?? []).map((item) => ({
+      key: `attention:${item.subjectKey}/${item.code}`,
+      value: item,
+    })),
     ...(replay.status ?? []).flatMap((list) =>
       list.entries.map((e) => ({ key: `status:${list.roadmapId}/${e.entryId}`, value: e })),
     ),

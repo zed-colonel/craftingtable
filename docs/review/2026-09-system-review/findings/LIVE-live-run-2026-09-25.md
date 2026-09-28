@@ -194,3 +194,56 @@ live stops are recorded here and in the replay corpus instead of being patched (
 - Impact: every stop needed an agent session to diagnose, and the operator could not judge
   what autonomy was already handling. It is the reason the operator paused delivery work
   until P2 is done.
+
+## After the P2 deploy (2026-09-28)
+
+The operator fast-forwarded `main` to the P2 line (ac08291) and deployed it. With the roadmap
+paused the inbox held 7 items, matching the 7 blocked entries in the agenda. Once scheduling
+resumed, the deploy restarted stalled EXO and WI work, and the inbox grew to 55 items. The
+operator paused the roadmap again; the evidence below is a read-only `.backup` taken at
+17:25 UTC (`replay/2026-09-28/`), replayed with [R-I10](../register.md#r-i10)'s scheduler replay.
+The pattern is the same as before: the attention model now makes every stop visible, but
+it did not decide whether a stop needs the operator *now*, or whether the operator can act on it.
+
+### LIVE-09: Decision preparations kept asking after their decisions were accepted
+- Severity: medium
+- Category: stale attention (R-A4 projection)
+- Status: CONFIRMED ([R-C14](../register.md#r-c14))
+- Replay case: the 2026-09-28 scheduler replay's `attention` lists `decision-preparation-questions` for runs 81b39a78 (WI-ADR-008) and ad8db1c6 (WI-ADR-010).
+- Evidence: both decisions were accepted on 2026-09-24 (full coverage, submissions 8560d4ab and 751fa25b). Their preparation runs had ended with open questions. The projector raises the item from the preparation's worktree while it is active and its design run left questions (`attention-projector.ts`, `worktreeItems`), and never asks whether the decision was accepted since.
+- Impact: two "Needs attention" items for decisions that are settled, which also read as if the decisions were not accepted.
+
+### LIVE-10: Every open shared decision in the map is an inbox item, whether or not work needs it now
+- Severity: high
+- Category: attention relevance; notification noise
+- Status: CONFIRMED ([R-C14](../register.md#r-c14))
+- Replay case: the 2026-09-28 scheduler replay projects 35 `architecture-decision` items for the paused roadmap.
+- Evidence: the roadmap pass (`RoadmapService.attentionItems`) raises an item for every included, unsatisfied checkpoint whose own prerequisites are met, with "blocks" counting every map milestone downstream (15 to 185). None asks whether any roadmap entry is waiting on it now. On the snapshot, every one of the 50 checkpoint items blocks only entries that also wait on other, unfinished work: an unmerged slice, an unaccepted predecessor or parent, or an unqualified resource. No entry has an operator decision as its only blocker.
+- Impact: 35 of the 55 items were decisions that can be answered, but need not be answered yet. They would also page once notifications are on, and they bury the few items that do hold work up.
+
+### LIVE-11: Checkpoint-evidence items offer the operator nothing to do
+- Severity: high
+- Category: attention ownership (two evaluators disagree)
+- Status: CONFIRMED ([R-C14](../register.md#r-c14))
+- Replay case: the 2026-09-28 scheduler replay projects 15 `checkpoint-evidence` items.
+- Evidence: the pass raises operator items for non-decision checkpoints: contract, profile, semantic review, release. The phase blocker table owns the same checkpoints' evidence as the controller's (`checkpoint-evidence: { owner: 'controller' }` in `PHASE_BLOCKERS`). Their evidence comes from delegated checkpoint reviews that a slice cycle runs itself, or from verification the operator sets up separately (`verification-setup` items). An item opened from the inbox leads to the roadmap page with no form for it.
+- Impact: 15 items the operator cannot act on, which teach that the inbox is not to be trusted.
+
+### LIVE-12: WI-04's checkpoint review is still missing inputs: the bodies of the decisions its checkpoint requires
+- Severity: high
+- Category: controller-readiness/reviewer disagreement ([R-C13](../register.md#r-c13) one level deeper)
+- Status: CONFIRMED ([R-C15](../register.md#r-c15))
+- Replay case: the 2026-09-28 scheduler replay's checkpoint readiness for WI-04/domain reports WI-WORKER-G1 ready with `decision:WI-ADR-016`, `decision:WI-ADR-008` and `decision:WI-ADR-010` missing from its packet.
+- Evidence:
+  - After the deploy, the operator's resume at 16:37 UTC ran the WI-WORKER-G1 review (run 328ce485). R-C13's fix worked: "This export supplies the previously missing coverage and producer receipts".
+  - It failed the attestation again, now because "approved ADR-008/010 clauses are absent". It also left a minor finding about the ADR documentation, so the step went to remediation (run 11d7c0e9). That cleared the active checkpoint review, and a plain review followed (e09e5f75). The checkpoint review would then be scheduled again with the same packet.
+  - All three decisions are accepted with full decision records. The packet's `architectureDecisions` (`scopeArchitectureDecisions`) holds only decisions named by the slice's own requirements. WI-WORKER-G1's own requirements (WI-ADR-016, 008 and 010) reach the ledger only as submission IDs in R-C13's checkpoint section.
+- Impact: the reviewer cannot attest the checkpoint's "WI-ADR-016 and referenced authorization/evidence ADR clauses reviewed" criterion, so every round repeats the failure, and the checkpoints downstream of WI-WORKER-G1 wait.
+
+### LIVE-13: One owning-slice question appears twice in the inbox
+- Severity: low
+- Category: duplicate attention
+- Status: CONFIRMED ([R-C14](../register.md#r-c14))
+- Replay case: the 2026-09-28 scheduler replay's `attention` lists both `work-item-questions` on cycle de49d2f6 and `entry-preparation-failed` on the EXO-02/domain verification entry.
+- Evidence: EXO-02/domain's recovery round started after the deploy (R-C12). Its repair (de49d2f6) asked a genuine work-item question. The scheduler holds the source verification entry with "Owning-slice recovery needs your input", and the entry's hold item is deduplicated only against the entry's own cycle, not the round's repair cycle.
+- Impact: two items for one question; answering the question clears one, and the other follows on the next pass.

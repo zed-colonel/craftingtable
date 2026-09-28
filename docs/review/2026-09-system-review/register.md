@@ -619,6 +619,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - At most the granted number are in flight. A decision is prepared once per binding revision and digest, and a failed one waits for the operator's retry. Launches stop once the grant is revoked or the grantor loses an editor role.
   - `prepareDecision` and the scheduler share one launch path. Its reservation re-checks, after the branch lookup, that no preparation of the checkpoint is already in flight, which closes a window where two requests could both start one.
   - **Tests:** `server-execution-decision-preparation.test.ts`. With no grant, nothing is prepared. Under a grant with a bound of one, LOCAL-ADR-01 (both slices wait on it) is prepared first and alone while its run works, then LOCAL-ADR-02, and neither again. Nothing is proposed or approved by itself. A decision accepted by hand is skipped, and a revoked grant prepares nothing. Removing the bound, reversing the order or preparing again each fails the test.
+- **R-C3b step 4, done 2026-09-28: "unblocks N" counts slices.** A checkpoint item's `blocks` was the number of unfinished map milestones waiting on it (three per slice, plus work items and checkpoints). It is now the number of distinct unfinished, selected slices that wait on it, directly or through other milestones (`slicesWaitingOn`, shared with step 3's ordering). The inbox's "unblocks N" and its ordering read it.
+  - **Tests:** `decision-demand.test.ts` (distinct slices, not milestones; finished and unselected slices excluded) and `server-execution-decision-preparation.test.ts` (LOCAL-ADR-01 unblocks 2 slices, LOCAL-ADR-02 one; it counted 8 milestones before).
+  - **Test fix:** two step 1 tests waited for a held launch with the stepping `waitFor`, whose step waits for launches to settle; under load that could fail as "Agent runs did not become quiet". They now poll without stepping.
+  - **Replays:** 0 changed on all four snapshots (none projects a checkpoint item).
 
 ### R-C4
 

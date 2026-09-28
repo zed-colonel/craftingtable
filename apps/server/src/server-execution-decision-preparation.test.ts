@@ -135,6 +135,18 @@ function prepare({ f, saved, ws }: Fixture, checkpointId: string) {
   });
 }
 
+/**
+ * Waits without stepping the daemons: a step waits for launches to settle, which a held launch
+ * never does.
+ */
+async function until(predicate: () => boolean, label: string, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 /** Holds every agent launch until released, so a test can act while one is in flight. */
 function holdLaunches({ f }: Fixture) {
   const launch = f.backend.launch.bind(f.backend);
@@ -198,7 +210,7 @@ it('prepares a decision while the roadmap runs, through the roadmap’s own writ
   expect(storedRoadmap(f.state).status).toBe('running');
   const release = holdLaunches(fixture);
   const pending = prepare(fixture, 'LOCAL-ADR-01');
-  await waitFor(() => tx.execution.runs.listLive().length === 1, 'reserved preparation launch');
+  await until(() => tx.execution.runs.listLive().length === 1, 'reserved preparation launch');
   // The scheduler writes the roadmap while the preparation launches: its check binds to the
   // map, binding revision and digest, not to the roadmap's version.
   const running = storedRoadmap(f.state);
@@ -229,7 +241,7 @@ it('approves one decision while another is still being prepared (R-C3b)', {
   // The second preparation is in flight: a read-only run that only proposes.
   const release = holdLaunches(fixture);
   const pending = prepare(fixture, 'LOCAL-ADR-02');
-  await waitFor(() => tx.execution.runs.listLive().length === 1, 'second preparation in flight');
+  await until(() => tx.execution.runs.listLive().length === 1, 'second preparation in flight');
   await proposeAndAccept(fixture, 'LOCAL-ADR-01');
   release();
   expect((await pending).statusCode).toBe(200);
@@ -408,4 +420,21 @@ it('the grant skips accepted decisions and stops preparing once revoked (R-C3b)'
   await waitFor(() => prepared(fixture).length === 2, 'the standing preparation');
   // Only the decision still needed: LOCAL-ADR-01 is accepted.
   expect(prepared(fixture)).toEqual(['LOCAL-ADR-01', 'LOCAL-ADR-02']);
+});
+
+it('a decision item unblocks the slices that wait on it, counted as slices (R-C3b)', {
+  timeout: 30000,
+}, async () => {
+  const fixture = await decisionFixture();
+  const { f, ws, tx, saved } = fixture;
+  await roadmapControl(f.state, 'start');
+  await f.state.context.services.roadmapService.tick();
+  f.state.context.services.roadmapService.syncAttention(true);
+  const blocks = (checkpointId: string) =>
+    tx.attention
+      .open(ws)
+      .find((i) => i.subjectKey === `roadmap:${saved.id}:checkpoint:${checkpointId}`)?.blocks;
+  // Both slices wait on LOCAL-ADR-01 at start; only the first on LOCAL-ADR-02.
+  expect(blocks('LOCAL-ADR-01')).toBe(2);
+  expect(blocks('LOCAL-ADR-02')).toBe(1);
 });

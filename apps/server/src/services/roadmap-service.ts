@@ -56,7 +56,7 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { cycleAgentSelection, entryAgentSelections } from './agent-profile-policy.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
-import { neededDecisions } from './decision-demand.js';
+import { neededDecisions, slicesWaitingOn } from './decision-demand.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
 import { bindingIssues, crossProjectState, milestoneSatisfied } from './cross-project-service.js';
 import { ConcurrentModificationError, ExecutionRequestError, NotFoundError } from './errors.js';
@@ -3511,25 +3511,10 @@ export class RoadmapService {
       });
     if (roadmap.definition.crossProject) {
       // Each checkpoint ready for the operator's acceptance is its own item, named by its kind
-      // and counting the map milestones that wait on it (R-A5).
+      // and counting the unfinished selected slices that wait on it (R-A5, R-C3b).
       const selection = roadmap.definition.crossProject;
       const nodes = crossProjectState(tx, workspaceId, selection).nodes;
       const source = tx.imports.definition(workspaceId, selection.definitionId)?.source;
-      const dependents = new Map<string, string[]>();
-      for (const node of nodes)
-        for (const key of node.requirements)
-          dependents.set(key, [...(dependents.get(key) ?? []), node.key]);
-      const waiting = (key: string) => {
-        const seen = new Set<string>();
-        const queue = [...(dependents.get(key) ?? [])];
-        while (queue.length) {
-          const next = queue.pop()!;
-          if (seen.has(next)) continue;
-          seen.add(next);
-          queue.push(...(dependents.get(next) ?? []));
-        }
-        return nodes.filter((n) => seen.has(n.key) && n.included && !n.satisfied).length;
-      };
       const needed = this.withOperatorNeeds(tx, roadmap).needs(entryProgress)?.all ?? new Set();
       for (const node of nodes) {
         if (
@@ -3561,7 +3546,7 @@ export class RoadmapService {
           message: `${node.title}\nReady for independent evidence review and your acceptance.`,
           path,
           refs: { roadmapId: roadmap.id },
-          blocks: waiting(node.key),
+          blocks: slicesWaitingOn(nodes, node.key),
         });
       }
     }

@@ -123,7 +123,10 @@ export interface AttentionItem {
   /** Members of a set-valued item; a new member is new work and pages again. */
   readonly members?: readonly string[];
   readonly actions?: readonly AttentionItemAction[];
-  /** Map milestones waiting on this item, for items the scheduler derives from the map. */
+  /**
+   * What waits on this item. For a map checkpoint, the unfinished selected slices that wait on
+   * it, directly or through other milestones (R-C3b).
+   */
   readonly blocks?: number;
   readonly state: 'open' | 'resolved';
   readonly openedAt: string;

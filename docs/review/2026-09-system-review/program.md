@@ -470,6 +470,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
      1. **R-G4** (daemon-owned receipts): agents can still forge the receipts that gate integration (SEC-01), R-C6 depends on it, and it should take over CI execution and its lock from a2bb20a (LIVE-03). **Done 2026-09-28** (not merged or deployed).
      2. **R-G5** (agent environment isolation): supervised runs inherit the operator's environment, hooks, skills and MCP servers (SEC-02, SEC-03). Together with R-G4 it closes the open security findings before more delegation is automated. **Done 2026-09-28** (not merged or deployed).
      3. **R-E1, then R-E2** (routes; split the Roadmaps page): two P2 exit criteria depend on them (no reloads; the inbox deep-links). The Roadmaps page is now over 7,000 px tall on the desktop capture, and R-E3b's board needs its own route. **R-E1 done 2026-09-28; R-E2 next** (not started in the 2026-09-28 batch).
+     3a. **R-G13** (declared per-repository checks): added by the operator 2026-09-28 after the batch report, to close R-G4's last gap. A check the agent chooses (`ct-check -- true`) still meets a scoped-check gate, and non-Rust repositories get no controller verification (AGT-08). It needs a short design first: where declarations live and who may change them.
      4. **R-D4, then R-D5** (query store; server view models): the remaining P2 exit criteria (an idle tab makes no requests; the work-item page's request count).
      5. **R-G9, R-I9, then R-H4, R-I4, R-G6.** Auth hardening beyond the landed guard, e2e specs in their own workspaces so the gate can use more workers, then storage weight, structural test boundaries and brief redesign.
 - **Gate at the head:** `pnpm check` passes in one run. 187 test files and 1,494 unit tests, 20 e2e tests,
@@ -589,7 +590,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - Schema 33 and 34 are new. A release before this cannot read them, or run environments carrying `receiptAuthority`.
     - The daemon needs its systemd user manager for check units (`CRAFTINGTABLE_CHECK_CONFINEMENT=none` otherwise), and bubblewrap and socat for Claude's sandbox; both are present on this workstation.
     - Checks, CI and native units now run in the daemon's units. Runs in flight at the deploy keep their old launchers.
-  - **Next:** R-E2 (split the Roadmaps page), then R-D4 and R-D5, then R-G9, R-I9, R-H4, R-I4, R-G6.
+  - **Next:** R-E2 (split the Roadmaps page), R-G13 (declared checks, scheduled by the operator 2026-09-28), then R-D4 and R-D5, then R-G9, R-I9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

@@ -78,6 +78,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
+| [R-G13](#r-g13) | P2 | M | open | Declared per-repository checks |
 | [R-G14](#r-g14) | P3 | S-M | open | Operator-configured outside sources for agent sandboxes |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
@@ -1638,7 +1639,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Receipt sequence numbers: each is assigned inside a synchronous transaction in the one daemon process, so concurrent checks cannot collide.
     - Toolchains with HOME read-only: in a unit confined as the checks are, with the live daemon's PATH, `cargo`, `rustc`, `node`, `pnpm` and `git` all run.
     - Mutation checks were run for every fix above.
-- **Status (2026-09-28): done.** Increments 0 to 6 and the review fixes. For runs prepared after the cutover, no gating receipt is read from an agent-writable path. Records frozen earlier stay valid and are labelled agent-reported. Two gaps are left open: `ct-check -- true` still counts as a scoped check (the declared-checks follow-up, AGT-08), and Claude runs have no OS sandbox (R-G5).
+- **Status (2026-09-28): done.** Increments 0 to 6 and the review fixes. For runs prepared after the cutover, no gating receipt is read from an agent-writable path. Records frozen earlier stay valid and are labelled agent-reported. Two gaps are left open: `ct-check -- true` still counts as a scoped check (the declared-checks follow-up, [R-G13](#r-g13), AGT-08), and Claude runs have no OS sandbox (R-G5).
 
 ### R-G5
 
@@ -1853,6 +1854,21 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [AGT-02](findings/AGT-GIT-SEC-agents-git-security.md#agt-02-restart-recovery-relies-entirely-on-systemd-no-process-identity-is-persisted), [AGT-11](findings/AGT-GIT-SEC-agents-git-security.md#agt-11-the-seam-cannot-host-persistent-hermesopenclaw-style-agents-without-redesign)
 - **Change:** Recorded 2026-09-23 as a future item, to be designed together with persistent (Hermes/OpenClaw-style) agents (R-G8). Give each run a small supervisor in its own transient systemd user unit that owns the agent process and its stdio, persists process identity, and appends normalized events to a durable per-run file or socket; the daemon becomes a client that re-attaches to live supervisors on start and replays their events from its last journal cursor. This removes restart as a source of interruption entirely (R-B9 only shortens and repairs it) and is the same decoupling a persistent agent needs. Preserve today's authority boundaries: process spawning stays in the listed adapter modules, cancellation and deadlines stay daemon-owned.
 - **Done when:** A daemon restart during a live run loses no events and needs no resume; the design ADR covers persistent agents as well.
+
+### R-G13
+
+**Declared per-repository checks** · Phase P2 · Effort M · Status: open
+
+- **Added 2026-09-28** (operator decision, after the R-G4 batch), for what R-G4 left open.
+- **Resolves:** the rest of [AGT-08](findings/AGT-GIT-SEC-agents-git-security.md#agt-08-verification-exists-only-for-cargo-non-rust-repositories-get-no-controller-supplied-verification), and R-G4's residual gap on [SEC-01](findings/AGT-GIT-SEC-agents-git-security.md#sec-01-agents-can-forge-the-buildcheckcinative-receipts-that-gate-integration).
+- **Why:** since R-G4 the daemon runs every check and records its receipt, but the agent still chooses the command, so `ct-check -- true` counts as a scoped check. Verification exists only for Cargo; other repositories get none from the controller.
+- **Change:**
+  - A repository, or the plan's verification policy, declares its check commands.
+  - The daemon runs the declared commands itself, in the check units R-G4 built, at the gates that need them. It may also run them on the agent's request.
+  - A scoped-check gate is met only by a receipt of a declared check, run on the gated commit. Commands the agent chooses stay available and stay supplemental.
+  - Cargo becomes one declared check among others, not a special case.
+- **Needs a design first:** where declarations live (repository file, binding or plan); who may change them, given an agent can edit repository files; migration for repositories that declare nothing.
+- **Done when:** A scoped-check gate cannot be met by a command the agent chose, and a non-Rust repository can declare a check the daemon runs.
 
 ### R-G14
 

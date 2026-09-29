@@ -158,7 +158,7 @@ export function buildServer(
   registerStorageRoutes(app, deps.authService, deps.storageService, config);
   registerHostSchedulingRoutes(app, deps.authService, deps.hostSchedulingService, config);
   registerOperatorWaitRoutes(app, deps.authService, deps.operatorWaitService);
-  registerAttentionRoutes(app, deps.authService, deps.attentionService);
+  registerAttentionRoutes(app, deps.authService, deps.attentionService, config);
   registerFinalizationRoutes(app, deps.authService, deps.finalizationService, config);
   registerRoadmapRoutes(app, deps.authService, deps.roadmapService, config);
   registerNotificationRoutes(app, deps.authService, deps.notificationService, config);

@@ -218,10 +218,11 @@ export class AgentRunService {
         message: `Protected branches moved during this run, not by CraftingTable: ${described}.`,
       },
     });
-    this.storage.transaction((tx) =>
+    const detectedAt = this.now().toISOString();
+    this.storage.transaction((tx) => {
       tx.audit.append({
         id: asAuditEventId(randomUUID()),
-        occurredAt: this.now().toISOString(),
+        occurredAt: detectedAt,
         actorKind: 'system',
         workspaceId,
         action: 'agent-run.protected-ref-moved',
@@ -232,8 +233,19 @@ export class AgentRunService {
           repositoryId: tree?.repositoryId ?? null,
           moves: moves.map((m) => ({ branch: m.branch, before: m.before, after: m.after })),
         },
-      }),
-    );
+      });
+      // Kept until the operator acknowledges it; the inbox shows it until then.
+      if (tree)
+        tx.protectedRefs.add({
+          id: randomUUID(),
+          workspaceId,
+          repositoryId: tree.repositoryId,
+          runId,
+          worktreeId: tree.id,
+          detectedAt,
+          moves: moves.map((m) => ({ branch: m.branch, before: m.before, after: m.after })),
+        });
+    });
   }
 
   constructor(

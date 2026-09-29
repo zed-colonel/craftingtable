@@ -329,7 +329,7 @@ export async function createServices(
     storageService,
     hostSchedulingService: new HostSchedulingService(storage, workspaceService, notifier, now),
     operatorWaitService: new OperatorWaitService(storage, workspaceService, now),
-    attentionService: new AttentionService(storage, workspaceService, attention),
+    attentionService: new AttentionService(storage, workspaceService, attention, now),
     finalizationService: new FinalizationService(
       storage,
       workspaceService,

@@ -9,6 +9,7 @@ import { createTestContext, routeTable } from './test-support.js';
 
 const EXPECTED_ROUTES = [
   'GET /api/workspaces/:workspaceId/roadmaps/agent-profiles',
+  'POST /api/workspaces/:workspaceId/protected-ref-moves/acknowledge',
   'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/agent-profiles',
   'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/delegation',
   'POST /api/workspaces/:workspaceId/roadmaps/:roadmapId/prepare-decision',

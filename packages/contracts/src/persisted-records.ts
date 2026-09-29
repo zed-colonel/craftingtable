@@ -12,6 +12,7 @@ import {
   PLAN_SOURCE_PROFILES,
   type PlanArchiveLink,
   type PlanVersion,
+  type ProtectedRefMove,
   type RunBuildRecord,
   type RunCheckReceipt,
   type RunEnvironment,
@@ -65,6 +66,35 @@ const count = z.number().int().nonnegative().safe();
 const positive = z.number().int().positive().safe();
 const text = z.string();
 const name = z.string().min(1);
+
+/** A protected ref move the daemon flagged, and its acknowledgement once given (R-G5). */
+export const protectedRefMoveSchema = equivalentSchema<ProtectedRefMove>()(
+  z
+    .strictObject({
+      id: z.uuid(),
+      workspaceId: workspaceIdSchema,
+      repositoryId: name,
+      runId: agentRunIdSchema,
+      worktreeId: worktreeIdSchema,
+      detectedAt: z.iso.datetime(),
+      moves: z
+        .array(
+          z.strictObject({
+            branch: z.string().min(1).max(1024),
+            before: gitShaSchema.nullable(),
+            after: gitShaSchema.nullable(),
+          }),
+        )
+        .min(1)
+        .max(1000),
+      acknowledgedAt: z.iso.datetime().optional(),
+      acknowledgedByUserId: userIdSchema.optional(),
+    })
+    .refine(
+      (m) => (m.acknowledgedAt === undefined) === (m.acknowledgedByUserId === undefined),
+      'An acknowledgement names both when and who.',
+    ),
+);
 
 export const mergeOperationSchema = equivalentSchema<MergeOperation>()(
   z.strictObject({

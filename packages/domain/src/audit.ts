@@ -75,6 +75,7 @@ export const AUDIT_ACTIONS = [
   'evidence.decided',
   'plan.version-activated',
   'agent-run.protected-ref-moved',
+  'protected-refs.acknowledged',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -124,6 +125,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'storage.backup': 15,
   'storage.journal-compacted': 28,
   'agent-run.protected-ref-moved': 34,
+  'protected-refs.acknowledged': 35,
   'package.import': 16,
   'concurrency.bindings': 16,
   'scope.evidence-recorded': 18,
@@ -159,6 +161,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
     | 25
     | 28
     | 34
+    | 35
   >
 >;
 

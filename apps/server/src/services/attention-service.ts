@@ -1,12 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import type { AttentionFeed, AttentionItemView } from '@craftingtable/contracts';
 import {
   type AttentionItem,
+  asAuditEventId,
   INSTALLATION_ATTENTION_CODES,
   type WorkItemId,
   type WorkspaceId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
-import type { AuthContext } from './auth-service.js';
+import type { AuthContext, CommandContext } from './auth-service.js';
+import { ExecutionRequestError } from './errors.js';
 import type { WorkspaceService } from './workspace-service.js';
 
 /** The inbox path of one item; notification links open it (R-A5). */
@@ -25,7 +28,51 @@ export class AttentionService {
     private readonly storage: CraftingTableStorage,
     private readonly workspaces: WorkspaceService,
     private readonly projection: { flush(): void },
+    private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /**
+   * Acknowledges the protected ref moves the operator saw (R-G5 follow-up), all or none: a move
+   * that is unknown or already acknowledged refuses the whole request, so one the operator has
+   * not seen is never acknowledged with the others. The inbox item resolves in the same commit.
+   */
+  acknowledgeProtectedRefMoves(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    moveIds: readonly string[],
+  ): { readonly acknowledged: number } {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    const ids = [...new Set(moveIds)];
+    const at = this.now().toISOString();
+    this.storage.transaction((tx) => {
+      const moves = ids.map((id) => tx.protectedRefs.find(workspaceId, id));
+      if (moves.some((move) => move === undefined || move.acknowledgedAt !== undefined))
+        throw new ExecutionRequestError(
+          'conflict',
+          'These moves changed since they were shown. Reload the item and acknowledge again.',
+        );
+      for (const id of ids)
+        if (!tx.protectedRefs.acknowledge(workspaceId, id, at, context.user.id))
+          throw new ExecutionRequestError('conflict', 'A move was acknowledged meanwhile.');
+      tx.audit.append({
+        id: asAuditEventId(randomUUID()),
+        occurredAt: at,
+        actorKind: 'user',
+        actorUserId: context.user.id,
+        ...(context.session ? { sessionId: context.session.id } : {}),
+        workspaceId,
+        action: 'protected-refs.acknowledged',
+        targetType: 'workspace',
+        targetId: workspaceId,
+        outcome: 'succeeded',
+        metadata: {
+          moveIds: ids,
+          repositoryIds: [...new Set(moves.map((move) => move!.repositoryId))],
+        },
+      });
+    });
+    return { acknowledged: ids.length };
+  }
 
   feed(context: AuthContext, workspaceId: WorkspaceId): AttentionFeed {
     this.workspaces.requireAuthorized(context, workspaceId);

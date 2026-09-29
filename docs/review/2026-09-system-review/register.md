@@ -1780,6 +1780,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - `agent-profiles.test.ts`: `selectAgent` keeps a Claude effort. Mutation: restoring the Codex-only condition fails it.
       - `settings-page.test.tsx`: the field shows for a Claude profile, with its default label.
     - **Rollback:** a release before this rejects stored selections that carry a Claude effort.
+  - **Protected-ref moves in the inbox, with Acknowledge: done** (the operator chose a move record and Acknowledge).
+    - The daemon keeps each flagged move in `protected_ref_moves` (migration 0035, schema 35), in the transaction that audits it.
+    - Triggers allow no change but the acknowledgement, added once, and no delete.
+    - The inbox shows one `protected-ref-moved` item per repository: each move is a member, so a new move pages again. The item lists the moves, opens the latest run, blocks nothing, and offers Acknowledge.
+    - `POST …/protected-ref-moves/acknowledge` (editor) acknowledges exactly the moves the item listed, all or none, audited as `protected-refs.acknowledged`. The item resolves as the operator's in the same commit.
+    - Tests:
+      - `server-execution-runs.test.ts`: two runs each move main. Acknowledging the first leaves the second open, and acknowledging the rest resolves the item as the operator's. A repeat acknowledgement is refused; the database refuses an edit and a delete.
+      - `AcknowledgeMoves.test.tsx`: the control sends exactly the listed ids, reports a refusal, and is disabled for viewers.
+    - **Rollback:** a release before this cannot open a schema-35 database.
 
 ### R-G6
 

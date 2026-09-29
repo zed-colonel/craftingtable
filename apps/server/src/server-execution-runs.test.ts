@@ -822,6 +822,109 @@ describe('agent runs', () => {
     ).toBe(true);
   });
 
+  it('keeps a protected-ref move in the inbox until the operator acknowledges it (R-G5, SEC-02)', async () => {
+    const state = await ready();
+    const ws = state.workspaceId;
+    const root = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, root);
+    // A run during which something other than CraftingTable moves main.
+    const moveMainDuringRun = async (message: string) => {
+      let release!: () => void;
+      state.backend.repliesForNextRun = [
+        { resultText: 'done', release: new Promise<void>((resolve) => (release = resolve)) },
+      ];
+      const started = await state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/work-items/${state.workItemId}/runs`,
+        headers: mutationHeaders(state),
+        payload: { worktreeId: worktree.id, instructions: 'Work.' },
+      });
+      expect(started.statusCode, started.body).toBe(200);
+      const { run } = startAgentRunResponseSchema.parse(started.json());
+      const before = git(['rev-parse', 'main'], root).trim();
+      const tree = git(['rev-parse', 'main^{tree}'], root).trim();
+      const moved = git(['commit-tree', tree, '-p', 'main', '-m', message], root).trim();
+      git(['update-ref', 'refs/heads/main', moved], root);
+      release();
+      await waitFor(
+        () => state.context.storage.execution.runs.find(ws, run.id)?.status === 'waiting',
+        'turn',
+      );
+      await state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/runs/${run.id}/end`,
+        headers: mutationHeaders(state),
+        payload: {},
+      });
+      return { runId: run.id, before, moved };
+    };
+    const item = () =>
+      state.context.storage.attention.open(ws).find((i) => i.code === 'protected-ref-moved');
+    const acknowledge = (moveIds: readonly string[]) =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/protected-ref-moves/acknowledge`,
+        headers: mutationHeaders(state),
+        payload: { moveIds },
+      });
+
+    const first = await moveMainDuringRun('outside');
+    await waitFor(() => item() !== undefined, 'protected-ref item');
+    const opened = item()!;
+    expect(opened).toMatchObject({
+      kind: 'attention',
+      subjectKey: expect.stringMatching(/^protected-refs:/),
+      path: `/workspaces/${ws}/runs/${first.runId}`,
+      refs: { runId: first.runId, worktreeId: worktree.id },
+    });
+    expect(opened.message).toContain(
+      `main ${first.before.slice(0, 12)} → ${first.moved.slice(0, 12)}`,
+    );
+    expect(opened.members).toHaveLength(1);
+    const [firstMove] = opened.members!;
+
+    // A second move joins the item. Acknowledging only what was seen leaves the new one open.
+    const second = await moveMainDuringRun('outside again');
+    await waitFor(() => item()?.members?.length === 2, 'second move');
+    expect(item()!.message).toContain(
+      `main ${second.before.slice(0, 12)} → ${second.moved.slice(0, 12)}`,
+    );
+    const partial = await acknowledge([firstMove!]);
+    expect(partial.statusCode, partial.body).toBe(200);
+    expect(item()?.members).toEqual([expect.not.stringMatching(firstMove!)]);
+    const rest = await acknowledge(item()!.members!);
+    expect(rest.statusCode, rest.body).toBe(200);
+    expect(item()).toBeUndefined();
+    expect(
+      state.context.storage.attention.latest(ws, opened.subjectKey, 'protected-ref-moved')
+        ?.resolvedBy,
+    ).toBe('operator');
+    expect(
+      state.context.storage.audit
+        .listWorkspace({ workspaceId: ws, limit: 20 })
+        .filter((e) => e.action === 'protected-refs.acknowledged'),
+    ).toHaveLength(2);
+
+    // An acknowledged move stays recorded as it was: not acknowledged twice, not changed, not
+    // deleted.
+    expect((await acknowledge([firstMove!])).statusCode).toBe(409);
+    const db = openDatabase(state.context.storage.databasePath);
+    try {
+      expect(() =>
+        db
+          .prepare(
+            "UPDATE protected_ref_moves SET record_json = json_set(record_json, '$.moves', json('[]')) WHERE id = ?",
+          )
+          .run(firstMove),
+      ).toThrow('acknowledged');
+      expect(() =>
+        db.prepare('DELETE FROM protected_ref_moves WHERE id = ?').run(firstMove),
+      ).toThrow('cannot be deleted');
+    } finally {
+      db.close();
+    }
+  });
+
   it('gives every run in a worktree the same build cache, outside each run directory (R-G7)', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());

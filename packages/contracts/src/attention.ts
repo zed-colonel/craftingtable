@@ -130,3 +130,11 @@ export const attentionItemViewSchema = z.strictObject({
 export type AttentionItemView = z.infer<typeof attentionItemViewSchema>;
 export const attentionFeedSchema = z.strictObject({ items: z.array(attentionItemViewSchema) });
 export type AttentionFeed = z.infer<typeof attentionFeedSchema>;
+
+/** Acknowledges the protected ref moves the operator saw, by id (R-G5 follow-up). */
+export const acknowledgeProtectedRefMovesRequestSchema = z.strictObject({
+  moveIds: z.array(z.uuid()).min(1).max(1000),
+});
+export const acknowledgeProtectedRefMovesResponseSchema = z.strictObject({
+  acknowledged: z.number().int().positive(),
+});

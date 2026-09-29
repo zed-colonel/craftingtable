@@ -19,6 +19,7 @@ import { SqliteNotificationRepository } from './repositories/notifications.js';
 import { SqlitePhaseSchedulingRepository } from './repositories/phase-reservations.js';
 import { planningRepositories } from './repositories/planning/index.js';
 import { DefinitionCache, SqliteRoadmapRepository } from './repositories/roadmaps.js';
+import { SqliteProtectedRefRepository } from './repositories/protected-refs.js';
 import { SqliteRuntimeEvidenceRepository } from './repositories/runtime-evidence.js';
 import { SqliteScopeReceiptRepository } from './repositories/scope-receipts.js';
 import { SqliteSessionRepository } from './repositories/sessions.js';
@@ -40,6 +41,7 @@ function repositories(
   return {
     amendments: new SqliteMapAmendmentRepository(database, guard),
     runtimeEvidence: new SqliteRuntimeEvidenceRepository(database, guard),
+    protectedRefs: new SqliteProtectedRefRepository(database, guard),
     phaseScheduling: new SqlitePhaseSchedulingRepository(database),
     scopeReceipts: new SqliteScopeReceiptRepository(database, guard),
     imports: new SqliteImportRepository(database, guard),
@@ -60,6 +62,7 @@ function repositories(
 class SqliteCraftingTableStorage implements CraftingTableStorage {
   readonly amendments;
   readonly runtimeEvidence;
+  readonly protectedRefs;
   readonly phaseScheduling;
   readonly scopeReceipts;
   readonly imports;
@@ -96,6 +99,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     const repos = repositories(database, this.guard, this.definitions);
     this.amendments = repos.amendments;
     this.runtimeEvidence = repos.runtimeEvidence;
+    this.protectedRefs = repos.protectedRefs;
     this.phaseScheduling = repos.phaseScheduling;
     this.scopeReceipts = repos.scopeReceipts;
     this.imports = repos.imports;

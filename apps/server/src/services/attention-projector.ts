@@ -146,6 +146,11 @@ export class AttentionProjector implements WriteObserver {
         this.mark(finalization.workspaceId, `finalization:${finalization.id}`);
         return;
       }
+      case 'protected-ref-move': {
+        const move = record as PersistedRecords['protected-ref-move'];
+        this.mark(move.workspaceId, `protected-refs:${move.repositoryId}`);
+        return;
+      }
       case 'evidence-decision': {
         // Accepting a decision settles its preparation's questions (LIVE-09).
         const decision = record as PersistedRecords['evidence-decision'];
@@ -429,7 +434,51 @@ export class AttentionProjector implements WriteObserver {
     }
     if (family === 'finalization')
       return this.sync(tx, workspaceId, unit, this.finalizationItems(tx, workspaceId, id));
+    if (family === 'protected-refs')
+      return this.sync(tx, workspaceId, unit, this.protectedRefItems(tx, workspaceId, id));
     return [];
+  }
+
+  /**
+   * Protected branches and tags that moved during runs, not by the daemon, and that nobody has
+   * acknowledged (R-G5 follow-up): one item per repository, each move a member, so a new move
+   * pages again. It blocks nothing; Acknowledge in the inbox resolves it.
+   */
+  private protectedRefItems(
+    tx: StorageRepositories,
+    workspaceId: WorkspaceId,
+    repositoryId: string,
+  ): ProjectedItem[] {
+    const moves = tx.protectedRefs.unacknowledged(workspaceId, repositoryId);
+    const latest = moves.at(-1);
+    if (!latest) return [];
+    const ws = encodeURIComponent(workspaceId);
+    const name =
+      tx.execution.sourceRepositories.find(
+        workspaceId,
+        repositoryId as Parameters<typeof tx.execution.sourceRepositories.find>[1],
+      )?.displayName ?? 'Repository';
+    const short = (sha: string | null, absent: string) => sha?.slice(0, 12) ?? absent;
+    const lines = moves.map(
+      (move) =>
+        `Run ${move.runId.slice(0, 8)}: ${move.moves
+          .map((m) => `${m.branch} ${short(m.before, '(absent)')} → ${short(m.after, '(deleted)')}`)
+          .join(', ')}`,
+    );
+    return [
+      {
+        subjectKey: `protected-refs:${repositoryId}`,
+        code: 'protected-ref-moved',
+        kind: 'attention',
+        title: `${name} · Protected branches moved outside CraftingTable`,
+        message: `Something other than CraftingTable moved these refs while runs worked. Check each move, then acknowledge it.\n${lines.join('\n')}`,
+        path: `/workspaces/${ws}/runs/${encodeURIComponent(latest.runId)}`,
+        refs: { runId: latest.runId, worktreeId: latest.worktreeId },
+        members: moves.map((move) => move.id),
+        actions: ['acknowledge'],
+        blocks: 0,
+      },
+    ];
   }
 
   /** A new occurrence, continuing a flapping predecessor's reminder schedule. */

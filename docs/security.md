@@ -118,7 +118,10 @@ directory it resolved before the agent started, never the worktree's `.git` poin
 The daemon also records a run's repository's branch heads when it starts and compares them when it
 ends (R-G5, SEC-02d): a branch no managed worktree owns that moved, and that none of the daemon's
 own Git operations left there, is noted in the run's journal and audited as
-`agent-run.protected-ref-moved`. It detects; it does not prevent.
+`agent-run.protected-ref-moved`. The move is also kept in `protected_ref_moves` (schema 35) and
+shows in the inbox, one item per repository, until an owner or editor acknowledges exactly the
+moves the item listed (`protected-refs.acknowledged`). A move is never changed or deleted; the
+acknowledgement is added once. It detects; it does not prevent.
 
 ## Untrusted input
 

@@ -400,6 +400,7 @@ describe('migration 0002 journal preservation', () => {
       'attention-items',
       'run-check-receipts',
       'protected-ref-moves',
+      'protected-ref-flags',
     ]);
     // The recorded checksum of 0001 is what every already-migrated installation
     // validates against; changing that file would lock operators out.

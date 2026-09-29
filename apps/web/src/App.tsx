@@ -44,6 +44,7 @@ import {
 import { ActivityPanel } from './components/ActivityPanel.js';
 import { NeedsYou } from './components/NeedsYou.js';
 import { InboxPage } from './features/inbox/InboxPage.js';
+import { AcknowledgeMoves } from './features/inbox/AcknowledgeMoves.js';
 import { loadAttention } from './lib/attention-api.js';
 import { inboxHost } from './lib/inbox-host.js';
 import { AuditPanel } from './components/AuditPanel.js';
@@ -1531,6 +1532,17 @@ export function App() {
               csrfToken={authenticated.csrfToken}
               canMutate={canMutate}
               onOpenRun={(id) => go({ name: 'run', workspaceId, runId: id })}
+            />
+          )}
+        {item.actions?.includes('acknowledge') &&
+          workspaceId !== undefined &&
+          authenticated !== undefined && (
+            <AcknowledgeMoves
+              workspaceId={workspaceId}
+              moveIds={item.members ?? []}
+              csrfToken={authenticated.csrfToken}
+              canMutate={canMutate}
+              onDone={() => setRefreshToken((value) => value + 1)}
             />
           )}
         {host.storage && activeWorkspace?.role === 'owner' && authenticated !== undefined && (

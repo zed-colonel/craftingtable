@@ -17,6 +17,7 @@ import {
   type PlanArchiveLink,
   type PlanBranchSettings,
   type PlanVersion,
+  type ProtectedRefMove,
   type RepositoryPolicy,
   type Roadmap,
   type RoadmapDefinition,
@@ -73,6 +74,7 @@ export interface PersistedRecords {
   readonly 'run-environment': RunEnvironment;
   readonly 'run-build-record': RunBuildRecord;
   readonly 'run-check-receipt': RunCheckReceipt;
+  readonly 'protected-ref-move': ProtectedRefMove;
   readonly 'native-approval': NativeVerificationApproval;
   readonly 'upstream-transition-record': UpstreamTransitionRecord;
   readonly 'scope-receipt': ScopeReceipt;
@@ -187,6 +189,7 @@ export const RECORD_UPCASTERS: { readonly [K in PersistedRecordKind]: readonly R
     'run-environment': [],
     'run-build-record': [],
     'run-check-receipt': [],
+    'protected-ref-move': [],
     'native-approval': [],
     'upstream-transition-record': [],
     'scope-receipt': [],

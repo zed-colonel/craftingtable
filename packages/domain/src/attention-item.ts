@@ -43,6 +43,8 @@ export const ITEM_ATTENTION = {
   'plan-acceptance': 'operator',
   'storage-pressure': 'operator',
   'storage-maintenance-failed': 'operator',
+  // A protected branch or tag moved during a run, not by the daemon; open until acknowledged.
+  'protected-ref-moved': 'operator',
 } as const satisfies Record<string, AttentionOwner>;
 export type ItemAttentionCode = keyof typeof ITEM_ATTENTION;
 
@@ -85,7 +87,7 @@ export interface AttentionItemRefs {
 }
 
 /** Controls an item offers besides its subject's own form. */
-export const ATTENTION_ITEM_ACTIONS = ['reverify'] as const;
+export const ATTENTION_ITEM_ACTIONS = ['reverify', 'acknowledge'] as const;
 export type AttentionItemAction = (typeof ATTENTION_ITEM_ACTIONS)[number];
 
 /** Push scheduling for one occurrence. The delivery log keeps the history. */

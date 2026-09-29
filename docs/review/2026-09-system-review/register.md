@@ -688,7 +688,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **LIVE-15 fixed (2026-09-28, operator decision after the R-G4/R-G5 batch: a typed stop with the refresh as its action).**
   - `RuntimeEvidenceService.assertFreshTree` throws `UpstreamPinMovedError` when a pin among its issues moved past the saved generation. The error carries the definition and each moved pin (alias, pinned commit, current commit). Any other staleness stays a plain conflict.
   - The controller stops the cycle as `upstream-pin-moved` (operator-owned), with those as structured refs, instead of `controller-error`.
-  - The inbox item opens the dependency environment on the Roadmaps page: the owning roadmap's panel, or the definition's.
+  - The inbox item opens the dependency environment on the Roadmaps page: the owning roadmap's panel, or the definition's. In the inbox, the item hosts the cycle's controls and the roadmap's controls, open at that panel (`inbox-host.test.ts`).
   - A Resume, plain or guided, is refused while a recorded pin still differs from the current generation's pin. It names the pin and the refresh. Once a saved refresh pins the new commit, Resume goes ahead.
   - ADR-058 is amended.
   - **Test:** `server-execution-upstream-transitions.test.ts` (LIVE-15), on a real pinned Cargo provider that advances after its pin was saved. It covers:

@@ -128,3 +128,13 @@ it('offers a split through the amendment form when automatic recovery stopped co
     ),
   ).toEqual({ ...none, cycle: false, roadmap: { open: true, focus: 'map-amendments-r' } });
 });
+
+it('opens a moved upstream pin at the dependency environment, beside the cycle (LIVE-15)', () => {
+  // The refresh preview lives in the roadmap's dependency environment; the cycle's resume,
+  // refused until the refresh is saved, stays beside it.
+  expect(inboxHost(item({ code: 'upstream-pin-moved' }))).toEqual({
+    ...none,
+    cycle: true,
+    roadmap: { open: true, focus: 'runtime-evidence-roadmap-r' },
+  });
+});

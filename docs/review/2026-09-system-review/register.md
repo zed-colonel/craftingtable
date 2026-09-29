@@ -642,6 +642,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *LOW, disposition:* a standing preparation stays live up to its time limit (5 to 60 minutes), and changing delegation waits for live runs, so a pause to change delegation can wait for it. Revoke the grant or choose a short limit; the wait is bounded.
   - *NIT, disposition:* two roadmaps on one map, both granted, could each prepare the same checkpoint. Both only propose; one grant per map is the expected use.
 - **R-C3b status (2026-09-28):** code complete (steps 1 to 5 and the review fixes). The done-when is a live measurement: on the cross-project roadmap, design stops per started slice well below the 10-of-11 baseline, with standing preparation granted. Measure it a few days after the deploy. Decision items already show "unblocks N" as slices.
+- **Live measurement, first attempt (2026-09-28c snapshot, three hours after the c547ede deploy):** nothing to measure yet. No slice started after the deploy; the running cycles were reviews already under way. No standing preparation grant is set on roadmap b81d5f92. Measure again once slices start with the grant enabled.
 
 ### R-C4
 
@@ -769,6 +770,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *NIT, disposition:* the classifier's `sourceRunId !== run.id` filter and its creation-order sort have no isolating test. The filter matters for rounds pinned to the review being judged, which the allowance test constructs.
   - *NIT, disposition:* source reports are read as each source run's last turn, not by the pinned sequence. The source runs are finished, so the two agree.
   - *NIT, fixed:* the fixture's time field held each run's start, so it is renamed `startedAt`.
+- **Live behaviour after the c547ede deploy (2026-09-28c snapshot, three hours in):** no automatic recovery round started and no `recovery-not-converging` hold was raised, so the escalation has not fired live yet. Cycle 2c9ead5d reached its review remediation limit, one major finding from the source-required security review with an allowance of 3, and the operator authorized 4 more attempts. That is the review allowance, which stays with the operator, not a recovery round.
 
 ### R-C6
 

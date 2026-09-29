@@ -247,3 +247,26 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
 - Replay case: the 2026-09-28 scheduler replay's `attention` lists both `work-item-questions` on cycle de49d2f6 and `entry-preparation-failed` on the EXO-02/domain verification entry.
 - Evidence: EXO-02/domain's recovery round started after the deploy (R-C12). Its repair (de49d2f6) asked a genuine work-item question. The scheduler holds the source verification entry with "Owning-slice recovery needs your input", and the entry's hold item is deduplicated only against the entry's own cycle, not the round's repair cycle.
 - Impact: two items for one question; answering the question clears one, and the other follows on the next pass.
+
+### LIVE-14: A stray `.codex` file in the primary checkout failed a Codex review in one second
+- Severity: medium
+- Category: agent configuration isolation ([R-G5](../register.md#r-g5))
+- Status: CONFIRMED 2026-09-28 (after the c547ede deploy); not fixed. The stop had a working exit: the operator resumed 16 minutes later and the review ran.
+- Replay case: none. The cause was a file outside the database. The 2026-09-28c snapshot (`$XDG_DATA_HOME/craftingtable-review/replay/2026-09-28c/`) holds the cycle (556d0bca) and the run's journal.
+- Evidence:
+  - Cycle 556d0bca (EXO-02/domain) resumed its review at 21:51:55 UTC. Codex run 1d389c9c exited at 21:52:08 with "failed to load configuration: Failed to read project hooks config file /home/keith/src/exoskeleton/.codex/config.toml: Not a directory".
+  - The cycle stopped as `step-incomplete`.
+  - The run's working directory was its managed worktree, but Codex resolved the project configuration in the primary checkout. There, an untracked `.codex` (gitignored since April) was a file at the time; it is gone now.
+- Impact: an operator stop caused by the operator's own working checkout. It shows that Codex reads project configuration, including project hooks, from the repository's primary checkout rather than the worktree the run owns.
+- Note: since R-G5 increment 3, runs start Codex with `--disable hooks`; whether that also skips this file read is not verified. The wider point stays: project configuration comes from a checkout the run does not own.
+
+### LIVE-15: A checkpoint review whose upstream pin moved stopped as `controller-error`
+- Severity: medium
+- Category: typed stops (rule 4); dependency refresh ([ADR-058](../../../decisions/ADR-058-reviewed-dependency-refresh.md), [R-C4](../register.md#r-c4))
+- Status: CONFIRMED 2026-09-28 (after the c547ede deploy); not fixed. It had a working exit: the operator resumed at 00:18 UTC and the review ran again.
+- Replay case: none captured, because the cycle was resumed before the 2026-09-28c snapshot. The path is in the code: `WorkCycleService.pass` (`work-cycle-service.ts`, the `controller-error` fallback) turns any `ExecutionRequestError` raised while advancing a cycle into `controller-error`, with its message as the reason. Here the message was the pin freshness issue from `RuntimeEvidenceService.pinStatus`.
+- Evidence: cycle b0de849a (EXO-04 checkpoint review EXO-WI-TIME-REVIEW, run 47fb8caf) went to `needs-attention` at 00:11:13 UTC. The code was `controller-error`, owner operator, with the reason "wi integration changed. Preview dependency refresh to review the new pin and affected evidence."
+- Impact:
+  - A dependency refresh, which ADR-058 already models, reaches the operator as a generic controller error.
+  - The status list and inbox cannot tell it from a real fault.
+  - The prose asks for a dependency-refresh preview, but resuming only reruns the review.

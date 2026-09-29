@@ -426,7 +426,7 @@ done-when by an independent agent, and the confirmed findings were fixed.
 | R-I10, R-I11 (added 2026-09-27) | The live roadmap as the test corpus: a 2026-09-27 snapshot, scheduler-decision replay, and record-don't-patch. Independent review of the five live-run fixes made on `main`. |
 | R-C12, R-C13 (added 2026-09-27) | The open live stops: automatic recovery that silently did not start (LIVE-06), and a checkpoint review that repeats a failed attestation on resume (LIVE-07). |
 | R-E3a (split 2026-09-27) | A read-only roadmap status list: every entry's state, what it waits on and who acts next. It was pulled forward from P3 because the operator cannot run the roadmap without it (LIVE-08). R-E3b, the board and graph, stays in P3. |
-| R-F7 (added 2026-09-25; code done 2026-09-25, 2713a6a..9c1904c, awaiting deploy and the live wi→aq record) | Map-declared upstream pin transitions for each consumer link. It blocks the live roadmap now (WI-02/domain cannot build on the migrated `wi-fabric-2` head), so it comes ahead of R-F5's wider format additions and adds only its own optional field. |
+| R-F7 (added 2026-09-25; code done 2026-09-25, 2713a6a..9c1904c; done 2026-09-29, the live wi→aq record and WI-02/domain's verification) | Map-declared upstream pin transitions for each consumer link. It blocks the live roadmap now (WI-02/domain cannot build on the migrated `wi-fabric-2` head), so it comes ahead of R-F5's wider format additions and adds only its own optional field. |
 
 Exit criteria:
 - The push log, rail count, inbox and roadmap page always agree.
@@ -625,6 +625,22 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - Local CI collisions persisted after the LIVE-03 fix (LIVE-17): three remediation rounds that only re-ran CI.
     - A drain discarded a finished review (LIVE-19).
     - LIVE-17 to LIVE-19 are recorded and open. Check LIVE-17 on the first day after the deploy, since R-G4 changes how CI runs.
+- **Post-deploy batch (2026-09-29, `remediation/p2` from fccce06; not merged or deployed).** The operator deployed fccce06 at 06:48 UTC. At 17:18 a read-only snapshot of the live database was taken, at `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-29/` (SHA-256 `80a94173…`, schema 35). Its goldens were recorded at fccce06 before any change: `golden.json` 65, `every-run-golden-fccce06.json` 416, `scheduler-golden-fccce06.json` 365 (181 entries and 4 cycles). All 18 replays of the six snapshots report 0 changed at fccce06.
+  - **First-boot checks** (details on R-G4 and R-G5):
+    - Schema 35 migrated at 06:48:52.
+    - `<data>/cargo-home` was seeded (490 MB, no credentials), and `git-identity.gitconfig` holds name and email only.
+    - 463 check units ran, with 790 daemon receipts, and the daemon logged no warnings or errors.
+    - The Codex probe passed for all 57 runs.
+    - The Claude sandbox launch is unverified: no live profile uses Claude, and this session's permission policy refused a live probe. It needs one operator-run Claude step.
+  - **LIVE-16: verified.** Both stale worktrees were removed on the first pass, and WI-03/integration and WI-04/integration started a second later.
+  - **R-C3b: done-when met on the first day.** The grant prepared 36 decisions in 80 minutes, and the operator approved nine in one batch. 1 of 3 started slices had a design stop, against 10 of 11 before, and that stop was for a decision whose brief was ready. The sample is small, so measure it again.
+  - **R-F7: done.** WI-02/domain's verification passed every check as `current-upstream-build` under the wi→aq record, and WI-02 was accepted.
+  - **LIVE-17: not seen.** 99 local CI runs, with overlapping runs of one workflow taking turns, and no Docker collision. Closed by R-G4, to be reopened if one appears.
+  - **R-C5: not fired.** WI-03's parent review needed recovery, and automatic recovery held it for an ambiguous owner, as designed.
+  - **New stops recorded, not fixed (rule 7):**
+    - LIVE-20: the ambiguous-owner hold's reason reaches neither the inbox nor the status list.
+    - LIVE-21: LIVE-15's typed stop missed the delegated checkpoint's acceptance, so EXO-04's mergeable review ran three times into the same `controller-error`.
+    - LIVE-18 recurred: EXO-18 was resumed at 06:50 and stopped at the same gate at 07:13.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

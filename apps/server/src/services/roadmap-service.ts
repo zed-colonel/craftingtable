@@ -3169,11 +3169,14 @@ export class RoadmapService {
         if (!merge.has(d.checkpointId) || !brief || d.blockers.length) return false;
         if (brief.coverage !== 'full' && !brief.consumers.some((c) => c.sliceId === slice.id))
           return false;
-        // Released once the operator rejected the proposal made from this very brief.
+        // Released once the operator rejected a proposal made from this very brief that would
+        // have settled this slice; a clause proposal for another slice does not release it.
         return !d.records.some(
           (r) =>
             r.decision?.outcome === 'rejected' &&
-            sources.get(r.id) === d.recommendation!.sourceRunId,
+            sources.get(r.id) === d.recommendation!.sourceRunId &&
+            (r.proposal.coverage === 'full' ||
+              r.proposal.consumers.some((c) => c.sliceId === slice.id)),
         );
       });
       if (!ready.length) return [];

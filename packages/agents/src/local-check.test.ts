@@ -813,7 +813,7 @@ it("a declared check unit sees none of the run's writable roots or the shared Ca
   symlinkSync(join(run, 'bin'), join(root, 'linked-bin'));
   const unit = declaredUnitSettings({
     environment: {
-      PATH: `${join(run, 'bin')}:${join(worktree, 'bin')}:${join(root, 'linked-bin')}:${join(cargo, 'bin')}:relative/bin:/usr/bin`,
+      PATH: `${join(run, 'bin')}:${join(worktree, 'bin')}:${join(root, 'linked-bin')}:${join(cargo, 'bin')}:${join(root, 'data', 'bin')}:relative/bin:/usr/bin`,
       // The check's own Cargo home; the shared one is out of sight.
       CARGO_HOME: join(scratch, 'cargo-home'),
     },
@@ -1407,5 +1407,38 @@ itConfines(
     expect(output).toContain('git-hidden');
     expect(output).not.toContain('PLANTED');
     expect(output).toContain('wrote');
+  },
+);
+
+itConfines(
+  "a check cannot reach the user's service manager to start a unit outside its confinement (R-G13 review)",
+  async () => {
+    const f = fixture();
+    const uid = process.getuid?.() ?? 1000;
+    let output = '';
+    const outcome = await executeCheck({
+      tool: 'ct-check',
+      privateDirectory: join(f.root, 'daemon-private'),
+      manifestPath: f.launcher.manifestPath,
+      manifestDigest: f.launcher.manifestDigest,
+      manifest: f.launcher.manifest,
+      args: [
+        '--',
+        'sh',
+        '-c',
+        `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus XDG_RUNTIME_DIR=/run/user/${uid} systemd-run --user --wait --quiet --pipe --collect true 2>/dev/null && echo escaped || echo contained`,
+      ],
+      logPath: join(f.root, 'daemon-logs', 'escape.log'),
+      logReference: 'check-logs/run/escape.log',
+      confinement: 'systemd',
+      unitName: `craftingtable-check-test-${process.pid}-${Date.now()}`,
+      writablePaths: [f.m.workspacePath],
+      environment: { PATH: process.env.PATH ?? '/usr/bin', HOME: homedir() },
+      onOutput: (text) => (output += text),
+      signal: new AbortController().signal,
+    });
+    expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+    expect(output).toContain('contained');
+    expect(output).not.toContain('escaped');
   },
 );

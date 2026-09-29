@@ -898,3 +898,39 @@ it('keeps holding when the operator rejected another proposal, not the one made 
   await f.state.context.services.roadmapService.tick();
   expect(startedSlices(fixture)).toEqual([]);
 });
+
+it('keeps holding when the rejected proposal from this brief was limited to another slice (R-C3b review)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const { f, ws, tx } = fixture;
+  const p = await prepared1(fixture);
+  const card = architectureDecisionInbox(
+    tx,
+    tx.imports.definition(ws, p.definitionId)!,
+  ).decisions.find((c) => c.checkpointId === 'LOCAL-ADR-01')!;
+  const evidence = f.state.context.services.runtimeEvidenceService;
+  const proposed = await evidence.proposeArchitectureDecision(f.auth, ws, p.definitionId, {
+    bindingRevision: 1,
+    checkpointId: 'LOCAL-ADR-01',
+    sourceRunId: p.runId,
+    sourceReportDigest: card.recommendation!.sourceReportDigest,
+    coverage: 'clauses',
+    proposal: brief('LOCAL-ADR-01').decisionText,
+    sourceReferences: card.sourceReferences,
+    consumers: [{ sliceId: f.scopes[1]!.sourceId, phase: 'merge', replacesFullCheckpoint: false }],
+    retainedObligations: brief('LOCAL-ADR-01').retainedObligations,
+  });
+  const submission = proposed.submissions.find(
+    (x) => x.submission.subject.sourceId === 'LOCAL-ADR-01',
+  )!.submission;
+  await evidence.decide(f.auth, ws, p.definitionId, {
+    submissionId: submission.id,
+    outcome: 'rejected',
+    rationale: 'Not for that slice.',
+  });
+  await roadmapControl(f.state, 'start');
+  await f.state.context.services.roadmapService.tick();
+  await f.state.context.services.roadmapService.tick();
+  expect(startedSlices(fixture)).toEqual([]);
+});

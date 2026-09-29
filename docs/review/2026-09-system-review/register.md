@@ -2142,6 +2142,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *R-C3b hold, LOW, fixed:* the per-pass inbox could go stale while the pass awaited launches; it is rebuilt whenever workflow state changed since (the notifier's workflow generation). No test of its own.
   - *R-C3b hold, LOW, fixed (W8):* no test covered a clause-limited brief that names the held slice. Test: it holds.
   - *Probes that found nothing:* nested file systems and binds in a production-like layout; the clone needs no shared objects; sandboxed agents cannot write `~/.cargo` or `~/.rustup`; a FIFO lock; concurrent saves; the hold replays at 0 changed against `scheduler-golden-eda3b86.json`, about 1.9 s faster per pass than 8eeda76.
+- **Independent review of 38ac0cb (2026-09-29, isolated worktree).** It ran a real declared `cargo test --offline --locked` under systemd with the home hidden: it works. One HIGH finding (older than this batch) and three LOW, fixed or recorded; each fix is shown by mutation (X1 to X3, killed).
+  - *HIGH, fixed (X1):* every check unit could reach the user's runtime directory, whose user bus starts units outside every confinement: `systemd-run --user` from inside a check listed the whole home (confirmed here too). This is the escape R-G5 closed for sandboxed Bash. No check unit sees `/run/user/<uid>` now, nor the system's Docker and D-Bus sockets; local CI keeps only its Docker socket there (the bus and systemd directories are hidden from it). Test (under systemd): `systemd-run --user` from inside a check is contained.
+  - *LOW, fixed (X2):* a PATH directory under a hidden root (a checkout's `node_modules/.bin`, say) would have been bound back over it. PATH entries under any hidden root are dropped.
+  - *LOW, fixed (X3, R-C3b):* a rejected clause proposal made from the brief for another slice released the hold; only a rejected proposal that would have settled this slice does.
+  - *LOW, recorded:* the toolchain directories bound back (`~/.cargo/bin`, `~/.local/bin`) are safe only because agents cannot write them; Claude's Write and Edit tools are not sandboxed in `auto` posture, as R-G5 recorded.
+  - *NIT, recorded:* the workflow generation rises on every run event, so the hold's cache is rebuilt more often than it needs to be; correct, not measured.
+  - *Probes that found nothing:* `/proc` of processes outside the unit (a user namespace, so no access); `/tmp` and `/var/tmp`; abstract sockets; `RUSTUP_HOME`; a private `/dev/shm` breaks nothing; `sourceRunId` is stored and matched; the generation rises when a run finishes or a decision is made.
 
 ### R-G14
 

@@ -250,7 +250,7 @@ The daemon runs the checks agents ask for with `ct-check` itself, each in a tran
 paths and no network (R-G4). The unit therefore needs the user manager: the daemon's environment must
 carry `XDG_RUNTIME_DIR` (and the user bus), as the systemd unit provides. Their logs are kept under
 `<data>/check-logs/<run>/`. On a host without a user manager, `CRAFTINGTABLE_CHECK_CONFINEMENT=none` runs
-them as plain process groups. The daemon stops its own leftover check units when it starts.
+them as plain process groups. The daemon stops its own leftover check units when it starts. No check unit sees the user's runtime directory (`/run/user/<uid>`: its user bus would start units outside the confinement) or the system's Docker and D-Bus sockets; local CI keeps only its Docker socket.
 
 Agents use the daemon's own Cargo home, `<data>/cargo-home`, never the operator's `~/.cargo` (R-G5
 review): an agent may write its download caches, and nothing written there reaches the operator's

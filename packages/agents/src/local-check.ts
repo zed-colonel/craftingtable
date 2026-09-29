@@ -937,6 +937,9 @@ export function confinedCheckArguments(
     // The host's shared memory is writable from every unit, so no unit sees it (R-G13 review).
     '-p',
     'TemporaryFileSystem=/dev/shm',
+    // Nor the user's runtime directory, whose user bus would start a unit outside every
+    // confinement (R-G13 review). Local CI keeps only its Docker socket there.
+    ...runtimeDirectoryConfinement(network),
     ...hidden.roots.flatMap((p) => ['-p', `TemporaryFileSystem=${p}:ro`]),
     ...hidden.binds.flatMap((p) => ['-p', `BindPaths=${p}`]),
     ...(hidden.readOnlyBinds ?? []).flatMap((p) => ['-p', `BindReadOnlyPaths=-${p}`]),
@@ -945,6 +948,23 @@ export function confinedCheckArguments(
     '-i',
     ...Object.entries(environment).map(([key, value]) => `${key}=${value}`),
     ...command,
+  ];
+}
+
+/** What of the user's runtime directory and the system's service sockets a unit may reach. */
+function runtimeDirectoryConfinement(localCi: boolean): string[] {
+  const uid = process.getuid?.();
+  const runtime = uid === undefined ? undefined : `/run/user/${uid}`;
+  const hide = (paths: readonly string[]) =>
+    paths.flatMap((p) => ['-p', `InaccessiblePaths=-${p}`]);
+  if (localCi)
+    return hide([
+      ...(runtime ? [`${runtime}/bus`, `${runtime}/systemd`] : []),
+      '/run/dbus/system_bus_socket',
+    ]);
+  return [
+    ...(runtime ? ['-p', `TemporaryFileSystem=${runtime}:ro`] : []),
+    ...hide(['/run/docker.sock', '/var/run/docker.sock', '/run/dbus/system_bus_socket']),
   ];
 }
 
@@ -1506,11 +1526,13 @@ export function declaredUnitSettings(input: {
   const cargoHome = input.environment.CARGO_HOME;
   const own = cargoHome && cargoHome !== input.sharedCargoHome ? [cargoHome] : [];
   const home = input.homeDirectory;
+  // No PATH entry under a hidden root: binding it back would reopen that root (R-G13 review).
   const path = trustedPath(input.environment.PATH, [
     input.launcherDirectory,
     input.workspacePath,
     ...input.runWritablePaths,
     ...(input.sharedCargoHome ? [input.sharedCargoHome] : []),
+    ...(input.hiddenRoots ?? []),
   ]);
   const underHome = (p: string) => {
     if (!home) return false;

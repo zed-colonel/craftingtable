@@ -146,6 +146,7 @@ itNeedsCargo.each([
       const roadmap = storedRoadmap(state);
       const owner = roadmap.definition.entries.find((e) => e.id === ownerEntryId)!;
       const blocker = (recovery: boolean) =>
+        // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
         state.context.services.roadmapService['blocker'](roadmap, owner, undefined, tx, recovery);
       expect(blocker(false)?.kind).toBe('capacity-blocked');
       expect(blocker(true)).toBeUndefined();

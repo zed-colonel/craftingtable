@@ -307,6 +307,7 @@ it('invalidates generated plan evidence when saved settings change and rejects s
   // The idle scan only uses a shared snapshot to defer work. A later scan sees new settings.
   const service = context.services.roadmapService;
   const spy = vi.spyOn(context.storage.imports, 'definition');
+  // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
   service['deferredEntries'](changed);
   expect(spy.mock.calls.length).toBeLessThanOrEqual(3);
   spy.mockRestore();
@@ -317,6 +318,7 @@ it('invalidates generated plan evidence when saved settings change and rejects s
   });
   expect(acceptedEvidence(context.storage, ws, id, 1, second.subject)).toBeUndefined();
   expect(
+    // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
     service['deferredEntries'](context.storage.roadmaps.find(ws, saved.id)!).size,
   ).toBeGreaterThan(0);
   const pending = (await svc.view(f.auth, ws, id)).planAcceptance!.roadmaps[0]!;

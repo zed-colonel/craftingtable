@@ -393,6 +393,7 @@ itNeedsCargo.each(['requested', 'adopted', 'adopted while running'] as const)(
       (a) => a.cycleId === parent.id,
     )!.entryId;
     // The live shape: the stopped review holds its entry for the operator.
+    // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
     state.context.services.roadmapService['change'](storedRoadmap(state), {
       entryHolds: {
         [sourceEntryId]: {

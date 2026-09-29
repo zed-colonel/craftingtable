@@ -204,6 +204,7 @@ itNeedsCargo(
   { timeout: 45000 },
   async () => {
     const { state, ws, parent, sourceEntry, input } = await stoppedParentReview();
+    // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
     state.context.services.roadmapService['change'](storedRoadmap(state), {
       entryHolds: { [sourceEntry.id]: { status: 'paused', reason: 'Operator paused this item.' } },
     });
@@ -228,6 +229,7 @@ itNeedsCargo(
       reason: 'Recovery needs your input.',
       attention: roadmapAttention('entry-preparation-failed', { entryId: sourceEntry.id }),
     };
+    // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
     state.context.services.roadmapService['change'](storedRoadmap(state), {
       entryHolds: { [sourceEntry.id]: hold },
     });
@@ -251,6 +253,7 @@ itNeedsCargo(
   { timeout: 45000 },
   async () => {
     const { f, state, ws, parent, sourceEntry, input } = await stoppedParentReview();
+    // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
     state.context.services.roadmapService['change'](storedRoadmap(state), {
       entryHolds: {
         [sourceEntry.id]: {
@@ -392,6 +395,7 @@ itNeedsCargo(
         requestedByUserId: state.userId,
       },
     };
+    // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
     state.context.services.roadmapService['change'](roadmap, {
       attempts: [...roadmap.attempts, reserved],
     });

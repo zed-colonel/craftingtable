@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { PageHeader } from '../../components/PageHeader.js';
+import { PageTabs } from '../../components/PageTabs.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
@@ -735,8 +736,7 @@ export function RoadmapsPage({
       )}
       {finished.length > 0 && (
         <Section
-          title="History"
-          label="Finished roadmaps"
+          title="Finished roadmaps"
           count={finished.length}
           summary="Completed and stopped roadmaps."
           collapsible
@@ -1421,18 +1421,14 @@ export function RoadmapPage({
         title={roadmap.definition.name}
         subtitle={`${completed}/${progress.length} completed · revision ${roadmap.definition.revision}`}
       />
-      <nav aria-label="Roadmap pages" className="page-tabs">
-        {(['board', 'setup', 'history'] as const).map((part) => (
-          <Link
-            key={part}
-            className="page-tab"
-            route={tabRoute(part)}
-            {...(part === tab ? { 'aria-current': 'page' as const } : {})}
-          >
-            {TAB_LABELS[part]}
-          </Link>
-        ))}
-      </nav>
+      <PageTabs
+        label="Roadmap pages"
+        tabs={(['board', 'setup', 'history'] as const).map((part) => ({
+          route: tabRoute(part),
+          label: TAB_LABELS[part],
+          current: part === tab,
+        }))}
+      />
       {alert}
       {body}
     </section>

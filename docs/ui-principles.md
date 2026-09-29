@@ -77,11 +77,13 @@ structural UI work.
 - A 220px navigation rail on the left holds the workspace picker, the workspace's
   pages (Dashboard, Needs you, Runs, Work items, Roadmaps, Projects, Repositories,
   Import plan, Settings), the cross-workspace pages (Workspaces, Account), the live-connection badge,
-  the theme toggle, and Log out. Navigation appears nowhere else.
+  the theme toggle, and Log out. Navigation between pages appears nowhere else; within a page,
+  `SectionNav` reaches its sections and `PageTabs` its sibling pages (a roadmap's board, setup
+  and history).
 - A page's `h1` is its rail label. The Dashboard is the one exception: its `h1` is the
   workspace's name, because the dashboard is the workspace's home.
-- **Roadmaps** (`/roadmaps`) lists the roadmaps, active first and finished ones under a
-  closed History, and imports concurrency maps. Each roadmap has three pages under its header,
+- **Roadmaps** (`/roadmaps`) lists the roadmaps, active first and finished ones in a closed
+  Finished roadmaps section, and imports concurrency maps. Each roadmap has three pages under its header,
   reached from a `Roadmap pages` tab row (R-E2): its board (`/roadmaps/:id`: status, controls,
   entries), its setup (`/setup`: an ordered checklist, then the supervision and dependency
   panels) and its history (`/history`: amendments and saved revisions). An imported map has its

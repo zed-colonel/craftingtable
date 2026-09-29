@@ -50,7 +50,8 @@ export async function openRoadmap(
   const finished = page.getByRole('region', { name: 'Finished roadmaps', exact: true });
   await expect(active.or(finished).first()).toBeVisible();
   const link = page.getByRole('link', { name, exact: true });
-  if (!(await link.isVisible())) await finished.getByText('History', { exact: true }).click();
+  if (!(await link.isVisible()))
+    await finished.getByText('Finished roadmaps', { exact: true }).click();
   await link.click();
   await expect(page.getByRole('heading', { level: 1, name, exact: true })).toBeVisible();
   if (tab !== 'Board')

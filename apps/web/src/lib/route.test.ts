@@ -227,6 +227,9 @@ describe('roadmap pages (R-E2)', () => {
       'map-reviewers-roadmap-r-2',
       'runtime-evidence-roadmap-r-2-decisions',
       'scope-recovery-r-2',
+      'future-delegation-r-2',
+      'decision-preparation-r-2',
+      'roadmap-setup-r-2-bindings',
     ])
       expect(legacy(focus), focus).toEqual({
         name: 'roadmap',
@@ -241,6 +244,15 @@ describe('roadmap pages (R-E2)', () => {
       roadmapId: 'r-2',
       tab: 'history',
       focus: 'map-amendments-r-2',
+    });
+    expect(legacy('roadmap-revisions-r-2')).toMatchObject({ tab: 'history' });
+    // The decision cards' old id names the map; they are the roadmap's now (R-E2 review).
+    expect(legacy('architecture-decisions-d-1')).toEqual({
+      name: 'roadmap',
+      workspaceId: WORKSPACE,
+      roadmapId: 'r-2',
+      tab: 'setup',
+      focus: 'runtime-evidence-roadmap-r-2-decisions',
     });
     expect(legacy('roadmap-entry-r-2-e-1')).toEqual({
       name: 'roadmap',

@@ -2238,6 +2238,13 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.roadmap-row > a,
+.roadmap-list > li > a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
 .roadmap-row .hint {
   margin: 0;
 }

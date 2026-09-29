@@ -183,7 +183,14 @@ export function ExecutionScopesPanel({
                   </h4>
                   <Reasons
                     reasons={p.blockers.map((b) => {
-                      const destination = blockerDestination(phaseBlockerCode(b), workspaceId);
+                      const destination = blockerDestination(phaseBlockerCode(b), workspaceId, {
+                        definitionId: choice.scope.definitionId,
+                        roadmapId: cycles.find(
+                          (c) =>
+                            c.executionScope?.definitionId === choice.scope.definitionId &&
+                            c.owner?.roadmapId !== undefined,
+                        )?.owner?.roadmapId,
+                      });
                       return {
                         kind: b.kind,
                         text: b.message,

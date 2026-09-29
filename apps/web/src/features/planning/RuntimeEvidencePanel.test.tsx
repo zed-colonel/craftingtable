@@ -458,3 +458,67 @@ it('labels build records the agent reported, from before the daemon recorded rec
   expect(before.textContent).toContain('agent-reported');
   expect(after.textContent).not.toContain('agent-reported');
 });
+
+it('leaves shared decisions open while roadmap settings are unsaved (UI-17, R-E2 review)', async () => {
+  // Setup shows the settings form and the decisions together; an unsaved settings field must
+  // not disable an unrelated approval. Plan evidence still waits for the save.
+  vi.mocked(request).mockResolvedValue({
+    ...view(),
+    planAcceptance: {
+      checkpoint: 'STACK-PLAN-ACCEPTED',
+      roadmaps: [
+        {
+          roadmapId: runtimeId,
+          name: 'Saved',
+          definitionRevision: 2,
+          snapshotDigest: 'a'.repeat(64),
+          state: 'ready-to-generate',
+          issues: [],
+        },
+      ],
+    },
+    decisionInbox: {
+      workspaceId: 'workspace',
+      definitionId: runtimeId,
+      bindingRevision: 1,
+      blockers: [],
+      decisions: [
+        {
+          checkpointId: 'LOCAL-ADR-012',
+          title: 'Provider identity policy',
+          requirements: ['Approve identity policy'],
+          blockers: [],
+          sourceReferences: 'Exact bound plan §4.',
+          consumers: [{ sliceId: 'local/WI-03/domain', phase: 'merge' }],
+          records: [],
+          recommendation: {
+            sourceRunId: '00000000-0000-4000-8000-000000000002',
+            sourceReportDigest: 'a'.repeat(64),
+            question: 'Approve provider identity policy?',
+            answer: 'Recommend stable identity.',
+            sources: ['plan.md §4'],
+          },
+        },
+      ],
+    },
+  });
+  render(
+    <RuntimeEvidencePanel
+      workspaceId={asWorkspaceId('workspace')}
+      definitionId={runtimeId}
+      bindingRevision={1}
+      csrfToken="csrf"
+      canMutate
+      roadmapSettingsDirty
+    />,
+  );
+  const card = await screen.findByRole('region', { name: 'LOCAL-ADR-012' });
+  const buttons = [...card.querySelectorAll('button')].filter((b) => b.closest('details') === null);
+  expect(buttons.length).toBeGreaterThan(0);
+  expect(buttons.every((b) => !b.hasAttribute('disabled'))).toBe(true);
+  expect(
+    screen
+      .getByRole('button', { name: 'Generate plan-acceptance evidence' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+});

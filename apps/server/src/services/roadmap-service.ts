@@ -2,6 +2,7 @@ import {
   decisionBindingDigest,
   supportsArchitectureDecision,
 } from './architecture-decision-policy.js';
+import { roadmapPath } from './roadmap-paths.js';
 import { cycleOwnership, ownerOf } from './cycle-ownership.js';
 import { predecessorGate } from './transition-gate.js';
 import {
@@ -3534,8 +3535,11 @@ export class RoadmapService {
 
   private attentionItems(tx: StorageRepositories, roadmap: Roadmap): ProjectedItem[] {
     const workspaceId = roadmap.workspaceId;
-    // The roadmap's board (R-E2).
-    const path = `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps/${encodeURIComponent(roadmap.id)}`;
+    // The roadmap's board (R-E2); setup items open its setup at their section.
+    const ws = encodeURIComponent(workspaceId);
+    const path = roadmapPath(ws, roadmap.id);
+    const setupPath = (section: string) =>
+      roadmapPath(ws, roadmap.id, 'setup', `runtime-evidence-roadmap-${roadmap.id}${section}`);
     const name = roadmap.definition.name;
     const items: ProjectedItem[] = [];
     // Entries whose only blockers are setup the operator does outside the work item:
@@ -3581,7 +3585,7 @@ export class RoadmapService {
         kind: 'attention',
         title: `${name} · Setup needed: reviewers or verification environments`,
         message: environmentLines.sort().join('\n'),
-        path,
+        path: setupPath('-native'),
         refs: { roadmapId: roadmap.id },
         members: environmentEntries,
       });
@@ -3620,7 +3624,13 @@ export class RoadmapService {
                 : 'Evidence to review'
           }`,
           message: `${node.title}\nReady for independent evidence review and your acceptance.`,
-          path,
+          path: setupPath(
+            code === 'architecture-decision'
+              ? '-decisions'
+              : code === 'plan-acceptance'
+                ? '-plan-acceptance'
+                : '-evidence',
+          ),
           refs: { roadmapId: roadmap.id },
           blocks: slicesWaitingOn(nodes, node.key),
         });

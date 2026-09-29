@@ -162,9 +162,10 @@ export function CheckpointRecoveryPanel({
                     name: 'roadmap-map',
                     workspaceId: workspaceId as WorkspaceId,
                     definitionId,
+                    focus: `runtime-evidence-${definitionId}-evidence`,
                   }}
                 >
-                  Review prerequisite evidence on the roadmap
+                  Review prerequisite evidence on the map
                 </Link>{' '}
                 under Dependency environments and evidence, then Submitted evidence. Accept it
                 first, then refresh here.

@@ -131,17 +131,21 @@ export function parseRoute(pathname: string, search = '', hash = ''): Route {
   // URLSearchParams has already decoded the value; decoding again would lose a `%`.
   const roadmapId = new URLSearchParams(search).get('roadmap') || undefined;
   switch (route.name) {
-    case 'roadmaps':
-      // A link to the single page this one replaced opens the page that holds its focus.
-      return roadmapId === undefined
-        ? { ...route, ...(focus === undefined ? {} : { focus }) }
-        : {
-            name: 'roadmap',
-            workspaceId: route.workspaceId,
-            roadmapId,
-            tab: roadmapTabForFocus(focus),
-            ...(focus === undefined ? {} : { focus }),
-          };
+    case 'roadmaps': {
+      if (roadmapId === undefined) return { ...route, ...(focus === undefined ? {} : { focus }) };
+      // A link to the single page this one replaced opens the page that holds its focus. The
+      // decision cards' old id named the map; they are now the roadmap's own.
+      const moved = focus?.startsWith('architecture-decisions-')
+        ? `runtime-evidence-roadmap-${roadmapId}-decisions`
+        : focus;
+      return {
+        name: 'roadmap',
+        workspaceId: route.workspaceId,
+        roadmapId,
+        tab: roadmapTabForFocus(moved),
+        ...(moved === undefined ? {} : { focus: moved }),
+      };
+    }
     case 'roadmap':
     case 'roadmap-map':
       return { ...route, ...(focus === undefined ? {} : { focus }) };

@@ -173,44 +173,30 @@ export function ConcurrencyImports({
       selections[r.alias] &&
       !r.options.find((o) => o.planVersionId === selections[r.alias])?.exactSources,
   );
-  const current = detail
-    ? roadmaps?.filter((r) => r.roadmap.definition.crossProject?.definitionId === detail.summary.id)
-    : undefined;
-  const supervisor = current?.find(
-    (r) => r.roadmap.definition.crossProject?.bindingRevision === detail?.summary.bindingRevision,
-  );
-  // The supervisor and dependency panels render once per map revision: on this page until a
-  // roadmap supervises the current binding revision, then on that roadmap's setup (R-E2).
-  const supervision = !detail ? null : supervisor ? (
-    <p role="status">
-      Supervised by{' '}
-      <Link
-        route={{
-          name: 'roadmap',
-          workspaceId,
-          roadmapId: supervisor.roadmap.id,
-          tab: 'setup',
-        }}
-      >
-        {supervisor.roadmap.definition.name}
-      </Link>
-      . Its setup holds the supervisor, dependency environments and shared decisions.
-    </p>
-  ) : roadmaps === undefined ? (
-    <p className="empty-state">Loading roadmaps…</p>
-  ) : (
+  const onMap = detail
+    ? (roadmaps ?? []).filter(
+        (r) => r.roadmap.definition.crossProject?.definitionId === detail.summary.id,
+      )
+    : [];
+  // One supervisor and one dependency panel per page (R-E2): here the map's own, which creates
+  // roadmaps for any target; each roadmap's setup holds that roadmap's. The page lists every
+  // roadmap on the map, ended or not, so none is hidden behind the creator (R-E2 review).
+  const supervision = detail && (
     <>
-      {(current?.length ?? 0) > 0 && (
-        <p className="hint">
-          Earlier binding revisions:{' '}
-          {current?.map((r, i) => (
+      {onMap.length > 0 && (
+        <p role="status">
+          Roadmaps on this map:{' '}
+          {onMap.map((r, i) => (
             <span key={r.roadmap.id}>
               {i > 0 && ', '}
               <Link route={{ name: 'roadmap', workspaceId, roadmapId: r.roadmap.id, tab: 'setup' }}>
                 {r.roadmap.definition.name}
-              </Link>
+              </Link>{' '}
+              (binding revision {r.roadmap.definition.crossProject?.bindingRevision},{' '}
+              {r.roadmap.status})
             </span>
           ))}
+          .
         </p>
       )}
       <CrossProjectPanel

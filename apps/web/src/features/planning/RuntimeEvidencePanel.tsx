@@ -164,6 +164,9 @@ export function RuntimeEvidencePanel({
   );
   const configDirty = JSON.stringify(config) !== savedConfig;
   const unsavedSetup = roadmapSettingsDirty || configDirty || changedRefs;
+  // Decisions bind to the map and its binding, not to queued roadmap settings: an unsaved
+  // settings field beside them does not hold an approval (UI-17). Unsaved dependency edits do.
+  const unsavedDependencies = configDirty || changedRefs;
   const selected = view.subjects.find((s) => `${s.subject.kind}:${s.subject.sourceId}` === subject);
   return (
     <Section
@@ -321,7 +324,7 @@ export function RuntimeEvidencePanel({
             data={view.decisionInbox}
             csrfToken={csrfToken}
             {...(roadmapId ? { preparation: { workspaceId, roadmapId } } : {})}
-            disabled={busy || !canMutate || unsavedSetup}
+            disabled={busy || !canMutate || unsavedDependencies}
             onChanged={(next) => {
               adopt(next);
               setNotice('Shared decision updated. Design continuation remains a separate action.');
@@ -333,7 +336,7 @@ export function RuntimeEvidencePanel({
           <ArchitectureDecisionPanel
             view={view}
             busy={busy}
-            disabled={!canMutate || unsavedSetup}
+            disabled={!canMutate || unsavedDependencies}
             onReview={(id) => revealElement(`${panelId}-submission-${id}`)}
             onSave={(input) =>
               void act(async () => {

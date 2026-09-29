@@ -137,6 +137,14 @@ itNeedsCargo(
     await m.state.context.services.roadmapService.tick();
     expect(m.openCheckpoints()).toEqual([['LOCAL-RELEASE', 'checkpoint-evidence']]);
     expect(m.row('local/AQ-01/b')?.actor).toBe('operator');
+    // It opens the roadmap's setup at the evidence form (R-E2 review).
+    const [item] = m.tx.attention
+      .open(m.state.workspaceId)
+      .filter((i) => i.subjectKey.includes(':checkpoint:'));
+    const roadmapId = item!.refs.roadmapId!;
+    expect(item!.path).toBe(
+      `/workspaces/${m.state.workspaceId}/roadmaps/${roadmapId}/setup#runtime-evidence-roadmap-${roadmapId}-evidence`,
+    );
   },
 );
 

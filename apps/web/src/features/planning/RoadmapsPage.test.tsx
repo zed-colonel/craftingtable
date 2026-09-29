@@ -131,7 +131,7 @@ afterEach(() => {
 
 const common = { workspaceId: ws, csrfToken: 'csrf', canMutate: true, onOpenWorkItem: vi.fn() };
 
-it('lists roadmaps, active first and finished under History, and renders no roadmap body (R-E2)', async () => {
+it('lists roadmaps, active first and finished ones apart, and renders no roadmap body (R-E2)', async () => {
   render(<RoadmapsPage workspaceId={ws} csrfToken="csrf" canMutate />);
   const activeList = await screen.findByRole('region', { name: 'Active roadmaps' });
   expect(
@@ -255,25 +255,27 @@ const detail = (bindingRevision: number) =>
     limitations: [],
   }) as unknown as ConcurrencyDetail;
 
-it('renders a map revision the roadmap supervises only on that roadmap, and links there', async () => {
+it("offers a map's supervisor once on its page, and links every roadmap on the map, ended ones too (R-E2 review)", async () => {
+  const stopped = roadmap('r-stopped', 'Stopped roadmap', 'stopped', {
+    definitionId: 'def-1',
+    bindingRevision: 4,
+  });
+  vi.mocked(loadRoadmaps).mockResolvedValue({ roadmaps: [active, stopped, finished] } as never);
   vi.mocked(loadConcurrencyDefinition).mockResolvedValue(detail(4));
   render(<ConcurrencyImports workspaceId={ws} csrfToken="csrf" canMutate definitionId="def-1" />);
-  expect(
-    (await screen.findByRole('link', { name: 'Cross-project roadmap' })).getAttribute('href'),
-  ).toBe('/workspaces/workspace/roadmaps/r-active/setup');
-  expect(CrossProjectPanel).not.toHaveBeenCalled();
-  expect(RuntimeEvidencePanel).not.toHaveBeenCalled();
-});
-
-it('offers the supervisor on a map page until a roadmap supervises its binding revision', async () => {
-  vi.mocked(loadConcurrencyDefinition).mockResolvedValue(detail(5));
-  render(<ConcurrencyImports workspaceId={ws} csrfToken="csrf" canMutate definitionId="def-1" />);
-  expect(await screen.findByRole('region', { name: 'Cross-project supervision' })).toBeTruthy();
+  // A roadmap on this binding revision does not hide the creator: another target, or a retry
+  // after a stop, starts here.
+  expect(await screen.findAllByRole('region', { name: 'Cross-project supervision' })).toHaveLength(
+    1,
+  );
   expect(
     screen.getAllByRole('region', { name: 'Dependency environments and evidence' }),
   ).toHaveLength(1);
-  // The roadmap on the older binding revision is still reachable.
-  expect(screen.getByRole('link', { name: 'Cross-project roadmap' }).getAttribute('href')).toBe(
-    '/workspaces/workspace/roadmaps/r-active/setup',
+  expect(
+    (await screen.findByRole('link', { name: 'Cross-project roadmap' })).getAttribute('href'),
+  ).toBe('/workspaces/workspace/roadmaps/r-active/setup');
+  expect(screen.getByRole('link', { name: 'Stopped roadmap' }).getAttribute('href')).toBe(
+    '/workspaces/workspace/roadmaps/r-stopped/setup',
   );
+  expect(screen.queryByRole('link', { name: 'Old roadmap' })).toBeNull();
 });

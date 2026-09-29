@@ -116,3 +116,11 @@ it('reveals a route focus even when its panel mounts after the page (R-E1, UI-08
   await vi.waitFor(() => expect(document.activeElement).toBe(target));
   expect((target.closest('details') as HTMLDetailsElement).open).toBe(true);
 });
+
+it('leaves a stored link whose fragment cannot be read as a plain anchor (R-E2 review)', () => {
+  const navigate = inApp(
+    <PathLink path="/workspaces/workspace-1/roadmaps?roadmap=r#%E0%A4%A">Old</PathLink>,
+  );
+  fireEvent.click(screen.getByRole('link', { name: 'Old' }));
+  expect(navigate).not.toHaveBeenCalled();
+});

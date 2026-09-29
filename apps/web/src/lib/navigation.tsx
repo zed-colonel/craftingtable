@@ -166,6 +166,8 @@ function inAppRoute(path: string): Route | undefined {
     const legacyRoadmap =
       route.name === 'roadmap' &&
       [...url.searchParams.keys()].join() === 'roadmap' &&
+      // A fragment the route could not read would be dropped silently.
+      (url.hash === '' || route.focus !== undefined) &&
       buildPath({ name: 'roadmaps', workspaceId: route.workspaceId }) === url.pathname;
     return legacyRoadmap ? route : undefined;
   } catch {

@@ -64,7 +64,12 @@ it('holds a roadmap for reviewed amendments, checks stale previews and preserves
       .recent(ws, 100)
       .filter((item) => item.code === 'amendment-decision');
   expect(amendmentItems()).toMatchObject([
-    { state: 'open', subjectKey: `roadmap:${roadmapId}:amendment` },
+    {
+      state: 'open',
+      subjectKey: `roadmap:${roadmapId}:amendment`,
+      // The roadmap's history page, at its amendments (R-E2 review).
+      path: `/workspaces/${ws}/roadmaps/${roadmapId}/history#map-amendments-${roadmapId}`,
+    },
   ]);
   await expect(
     f.state.context.services.roadmapService.control(

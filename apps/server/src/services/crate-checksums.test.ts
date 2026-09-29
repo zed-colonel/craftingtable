@@ -59,9 +59,8 @@ it("learns a crate's published checksums from crates.io's own index once, and ke
   });
   expect(await restarted.checksum(CRATES_IO, 'itoa', '1.0.18')).toBe('b'.repeat(64));
   expect(await restarted.indexFile(CRATES_IO, 'itoa')).toContain('1.0.18');
-  expect(JSON.parse(readFileSync(join(file, 'checksums.json'), 'utf8'))).toMatchObject({
-    'itoa@1.0.18': 'b'.repeat(64),
-  });
+  // One file per crate, holding its validated lines only.
+  expect(readFileSync(join(file, 'index/it/oa/itoa'), 'utf8')).not.toContain('not a checksum');
 });
 
 it('trusts no other registry, and leaves a crate unverified when the index cannot answer (R-G13 review)', async () => {

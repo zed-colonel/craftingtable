@@ -18,6 +18,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import {
   mkdir as fsMkdir,
   open as fsOpen,
+  stat as fsStat,
   readdir as fsReaddir,
   rm as fsRm,
   writeFile as fsWriteFile,
@@ -859,6 +860,11 @@ export interface CheckExecution {
   readonly crateRegistry?: CrateRegistry;
   /** Where this check's fresh Cargo home is made: stable per concurrent check of a run. */
   readonly cargoHomeDirectory?: string;
+  /**
+   * Roots agents can write, of every run (the data directory, run and worktree roots): a
+   * declared check's unit sees none of them but its own paths (R-G13 review).
+   */
+  readonly hiddenRoots?: readonly string[];
 }
 /** What the daemon knows of published crates: checksums, and each crate's index file. */
 export interface CrateRegistry {
@@ -892,6 +898,11 @@ export function confinedCheckArguments(
   readOnly: readonly string[] = [],
   /** Paths the unit cannot see at all, such as the run's agent-writable roots. */
   inaccessible: readonly string[] = [],
+  /** Roots replaced by empty read-only file systems, and paths bound back over them. */
+  hidden: { readonly roots: readonly string[]; readonly binds: readonly string[] } = {
+    roots: [],
+    binds: [],
+  },
 ): string[] {
   if (!/^[A-Za-z0-9_.-]+$/.test(unitName)) throw new Error('Invalid check unit name.');
   return [
@@ -919,6 +930,8 @@ export function confinedCheckArguments(
     ...writable.flatMap((p) => ['-p', `ReadWritePaths=-${p}`]),
     ...readOnly.flatMap((p) => ['-p', `ReadOnlyPaths=-${p}`]),
     ...inaccessible.flatMap((p) => ['-p', `InaccessiblePaths=-${p}`]),
+    ...hidden.roots.flatMap((p) => ['-p', `TemporaryFileSystem=${p}:ro`]),
+    ...hidden.binds.flatMap((p) => ['-p', `BindPaths=${p}`]),
     '--',
     '/usr/bin/env',
     '-i',
@@ -1270,9 +1283,29 @@ async function preparePrivateCargoHome(
     // Nothing downloaded yet.
   }
   const indexed = new Set<string>();
+  let asked = 0;
   for (const p of wanted.values()) {
     within();
     const file = `${p.name}-${p.version}.crate`;
+    // Only crates that were downloaded are looked up, and at most 5,000 per check, so a lock
+    // cannot make the daemon crawl the registry (R-G13 review).
+    const downloaded = [];
+    for (const directory of registries)
+      if (
+        await fsStat(join(cache, directory, file)).then(
+          () => true,
+          () => false,
+        )
+      )
+        downloaded.push(directory);
+    if (!downloaded.length) {
+      leftOut.push(`${file} (not downloaded)`);
+      continue;
+    }
+    if (++asked > 5000) {
+      leftOut.push(`${file} (more crates than one check verifies)`);
+      continue;
+    }
     const published = await registry?.checksum(p.source, p.name, p.version);
     const index = published && (await registry?.indexFile(p.source, p.name));
     if (!published || !index) {
@@ -1281,7 +1314,7 @@ async function preparePrivateCargoHome(
     }
     let found = false,
       matched = false;
-    for (const directory of registries) {
+    for (const directory of downloaded) {
       const content = await readRegular(join(cache, directory, file), 256 * 1024 * 1024);
       if (!content) continue;
       found = true;
@@ -1358,7 +1391,11 @@ function lockIndexPath(name: string): string {
   return `${name.slice(0, 2)}/${name.slice(2, 4)}/${name}`;
 }
 
-/** The `Cargo.lock` files of a tree: tracked, or untracked and not ignored, and the root's. */
+/**
+ * The `Cargo.lock` files of a tree: tracked, or untracked and not ignored, and the root's. At most
+ * 64 locks and 64 MiB in all, each read without following links or blocking (R-G13 review); a
+ * lock beyond that is left out, so its crates are too, and the build fails closed.
+ */
 async function cargoLocks(m: PinnedCargoManifest, root: string): Promise<string[]> {
   let listed: string[] = [];
   try {
@@ -1377,14 +1414,13 @@ async function cargoLocks(m: PinnedCargoManifest, root: string): Promise<string[
     // Not a Git tree: the root's lock only.
   }
   const locks: string[] = [];
-  for (const path of new Set(['Cargo.lock', ...listed])) {
-    try {
-      const target = join(root, path);
-      if (lstatSync(target).isFile() && statSync(target).size <= 16 * 1024 * 1024)
-        locks.push(readFileSync(target, 'utf8'));
-    } catch {
-      // Absent.
-    }
+  let total = 0;
+  for (const path of [...new Set(['Cargo.lock', ...listed])].slice(0, 64)) {
+    const content = await readRegular(join(root, path), 16 * 1024 * 1024);
+    if (!content) continue;
+    total += content.byteLength;
+    if (total > 64 * 1024 * 1024) break;
+    locks.push(content.toString('utf8'));
   }
   return locks;
 }
@@ -1427,10 +1463,19 @@ export function declaredUnitSettings(input: {
   readonly target: string;
   /** The daemon's shared Cargo home, which agents write; the environment names the check's own. */
   readonly sharedCargoHome?: string;
+  /**
+   * Every root agents can write, of any run: the data directory, the run and worktree roots,
+   * the shared Cargo home, the CI cache. The unit sees none of them, except its own paths.
+   */
+  readonly hiddenRoots?: readonly string[];
 }): {
   readonly environment: Record<string, string>;
   readonly writable: readonly string[];
   readonly inaccessible: readonly string[];
+  /** Mounted as empty read-only file systems in the unit. */
+  readonly hidden: readonly string[];
+  /** The check's own paths, bound back into the unit over the hidden roots. */
+  readonly binds: readonly string[];
 } {
   const tmp = join(input.privateDirectory, 'tmp');
   for (const p of [tmp, input.target]) mkdirSync(p, { recursive: true, mode: 0o700 });
@@ -1450,6 +1495,11 @@ export function declaredUnitSettings(input: {
     },
     // The check's own Cargo home, never the shared one (operator decision 2026-09-29).
     writable: [input.snapshot, tmp, input.target, ...own],
+    // A committed configuration or link could otherwise name any path agents write, of this run
+    // or another, and the check would build from it (R-G13 review): only the reviewed clone,
+    // its scratch, its build outputs and its own Cargo home remain visible.
+    hidden: [...new Set(input.hiddenRoots ?? [])],
+    binds: [input.snapshot, tmp, input.target, ...own],
     inaccessible: [
       input.workspacePath,
       input.launcherDirectory,
@@ -1477,6 +1527,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let declared: NonNullable<PinnedCargoManifest['declaredChecks']>['checks'][number] | undefined;
   let snapshot: string | undefined;
   let inaccessible: readonly string[] = [];
+  let hidden: { roots: readonly string[]; binds: readonly string[] } = { roots: [], binds: [] };
   let privateCargoHome: string | undefined;
   let declaredDigests: Record<string, string> = {};
   let ownsNativeUnit = false;
@@ -1663,6 +1714,11 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         snapshot,
         privateDirectory: e.privateDirectory,
         ...(sharedCargoHome ? { sharedCargoHome } : {}),
+        hiddenRoots: [
+          ...(e.hiddenRoots ?? []),
+          ...(sharedCargoHome ? [sharedCargoHome] : []),
+          ...(m.localCi ? [m.localCi.cacheRoot] : []),
+        ],
         // One per commit: a build script of another commit cannot leave outputs it reuses.
         target: join(
           e.declaredTargetDirectory ?? join(e.privateDirectory, 'target'),
@@ -1672,6 +1728,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       environment = unit.environment;
       writable = [...unit.writable];
       inaccessible = unit.inaccessible;
+      hidden = { roots: unit.hidden, binds: unit.binds };
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('The check time limit passed before it could start.');
@@ -1722,6 +1779,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           // The worktree's `.git` pointer stays as the daemon made it (R-G4 review).
           declared ? [] : [join(m.workspacePath, '.git')],
           inaccessible,
+          hidden,
         ),
         env: busEnvironment,
       };

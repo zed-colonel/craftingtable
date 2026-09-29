@@ -151,6 +151,8 @@ export class CheckRequestService {
       readonly checkConfinement: CheckConfinement;
       readonly checkLogRoot: string;
       readonly cargoHome: string;
+      readonly runsRoot?: string;
+      readonly worktreeRoot?: string;
     },
     private readonly log: {
       warn(message: string, fields?: Record<string, unknown>): void;
@@ -401,6 +403,13 @@ export class CheckRequestService {
         declaredTargetDirectory: join(this.config.checkLogRoot, context.runId, 'declared-target'),
         ...(this.checksums ? { crateRegistry: this.checksums } : {}),
         cargoHomeDirectory: join(this.config.checkLogRoot, context.runId, `cargo-home-${slot}`),
+        // Every root agents write, of any run; the check's own paths are bound back.
+        hiddenRoots: [
+          dirname(this.config.checkLogRoot),
+          ...(this.config.runsRoot ? [this.config.runsRoot] : []),
+          ...(this.config.worktreeRoot ? [this.config.worktreeRoot] : []),
+          cargoHome,
+        ],
       });
       served.logBudget = Math.max(0, served.logBudget - outcome.logBytes);
       const recorded = this.record(context, outcome.receipt);

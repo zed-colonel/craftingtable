@@ -53,39 +53,57 @@ export class CratesIoChecksums implements CrateChecksumAuthority {
     private readonly timeoutMs = 15_000,
     private readonly retryAfterMs = 10 * 60_000,
     private readonly now: () => number = Date.now,
-  ) {
-    try {
-      const saved = JSON.parse(readFileSync(join(directory, 'checksums.json'), 'utf8')) as Record<
-        string,
-        unknown
-      >;
-      for (const [key, value] of Object.entries(saved))
-        if (typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)) this.known.set(key, value);
-    } catch {
-      // Nothing learned yet.
-    }
-  }
+  ) {}
 
   async checksum(source: string, name: string, version: string): Promise<string | undefined> {
     if (!CRATES_IO.has(source) || !NAME.test(name)) return undefined;
     const key = `${name.toLowerCase()}@${version}`;
+    // What was learned before is on disk, one file per crate.
+    if (!this.known.has(key)) this.remember(name, this.readIndex(name));
     if (!this.known.has(key)) await this.learn(name);
     return this.known.get(key);
   }
 
   async indexFile(source: string, name: string): Promise<string | undefined> {
     if (!CRATES_IO.has(source) || !NAME.test(name)) return undefined;
-    const read = () => {
-      try {
-        return readFileSync(this.indexPath(name), 'utf8');
-      } catch {
-        return undefined;
-      }
-    };
-    const saved = read();
+    const saved = this.readIndex(name);
     if (saved !== undefined) return saved;
     await this.learn(name);
-    return read();
+    return this.readIndex(name);
+  }
+
+  private readIndex(name: string): string | undefined {
+    try {
+      return readFileSync(this.indexPath(name), 'utf8');
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** The checksums of a crate's validated index lines. */
+  private remember(name: string, index: string | undefined): string[] {
+    const n = name.toLowerCase();
+    const lines: string[] = [];
+    for (const line of (index ?? '').split('\n')) {
+      if (!line.trim()) continue;
+      let entry: { name?: unknown; vers?: unknown; cksum?: unknown };
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (
+        typeof entry.name === 'string' &&
+        entry.name.toLowerCase() === n &&
+        typeof entry.vers === 'string' &&
+        typeof entry.cksum === 'string' &&
+        /^[a-f0-9]{64}$/.test(entry.cksum)
+      ) {
+        this.known.set(`${n}@${entry.vers}`, entry.cksum);
+        lines.push(line);
+      }
+    }
+    return lines;
   }
 
   private indexPath(name: string): string {
@@ -124,27 +142,7 @@ export class CratesIoChecksums implements CrateChecksumAuthority {
           }
           chunks.push(value);
         }
-        const text = Buffer.concat(chunks).toString('utf8');
-        const lines: string[] = [];
-        for (const line of text.split('\n')) {
-          if (!line.trim()) continue;
-          let entry: { name?: unknown; vers?: unknown; cksum?: unknown };
-          try {
-            entry = JSON.parse(line);
-          } catch {
-            continue;
-          }
-          if (
-            typeof entry.name === 'string' &&
-            entry.name.toLowerCase() === n &&
-            typeof entry.vers === 'string' &&
-            typeof entry.cksum === 'string' &&
-            /^[a-f0-9]{64}$/.test(entry.cksum)
-          ) {
-            this.known.set(`${n}@${entry.vers}`, entry.cksum);
-            lines.push(line);
-          }
-        }
+        const lines = this.remember(n, Buffer.concat(chunks).toString('utf8'));
         if (!lines.length) return;
         learned = true;
         this.save(n, `${lines.join('\n')}\n`);
@@ -154,23 +152,25 @@ export class CratesIoChecksums implements CrateChecksumAuthority {
         clearTimeout(timer);
         this.pending.delete(n);
         if (learned) this.failed.delete(n);
-        else this.failed.set(n, this.now());
+        else {
+          // Bounded: the oldest failures are forgotten first.
+          if (this.failed.size >= 10_000) this.failed.delete(this.failed.keys().next().value!);
+          this.failed.set(n, this.now());
+        }
       }
     })();
     this.pending.set(n, learning);
     return learning;
   }
 
+  /** One file per crate, written once per lookup: never a rewrite of everything learned. */
   private save(name: string, index: string): void {
-    const write = (path: string, content: string) => {
+    try {
+      const path = this.indexPath(name);
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       const next = `${path}.${process.pid}.tmp`;
-      writeFileSync(next, content, { mode: 0o600 });
+      writeFileSync(next, index, { mode: 0o600 });
       renameSync(next, path);
-    };
-    try {
-      write(this.indexPath(name), index);
-      write(join(this.directory, 'checksums.json'), JSON.stringify(Object.fromEntries(this.known)));
     } catch {
       // Kept in memory; learned again after a restart.
     }

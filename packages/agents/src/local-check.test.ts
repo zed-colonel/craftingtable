@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { afterEach, expect, it } from 'vitest';
 import { hostCargo, hostGit } from './host-tools-test-support.js';
@@ -818,6 +818,7 @@ it("a declared check unit sees none of the run's writable roots or the shared Ca
       CARGO_HOME: join(scratch, 'cargo-home'),
     },
     sharedCargoHome: cargo,
+    hiddenRoots: [join(root, 'data'), cargo],
     runWritablePaths: [worktree, run, join(cargo, 'registry'), join(cargo, 'git')],
     launcherDirectory: join(run, 'dependencies'),
     workspacePath: worktree,
@@ -857,6 +858,23 @@ it("a declared check unit sees none of the run's writable roots or the shared Ca
   expect(args).toContain(`InaccessiblePaths=-${run}`);
   expect(args).toContain(`InaccessiblePaths=-${worktree}`);
   expect(args).toContain(`InaccessiblePaths=-${cargo}`);
+  // Every root agents write is hidden, and only the check's own paths are bound back.
+  expect(unit.hidden).toEqual([join(root, 'data'), cargo]);
+  expect(unit.binds).toEqual(unit.writable);
+  const confined = confinedCheckArguments(
+    'unit',
+    clone,
+    60,
+    unit.writable,
+    unit.environment,
+    ['true'],
+    false,
+    [],
+    unit.inaccessible,
+    { roots: unit.hidden, binds: unit.binds },
+  );
+  expect(confined).toContain(`TemporaryFileSystem=${join(root, 'data')}:ro`);
+  expect(confined).toContain(`BindPaths=${clone}`);
 });
 
 const sha256 = (content: string | Buffer) => createHash('sha256').update(content).digest('hex');
@@ -878,9 +896,11 @@ const lockOf = (
     )
     .join('\n')}`;
 /** A registry authority that knows only the given crates, as `name@version` → checksum. */
-const authority = (known: Record<string, string>) => ({
-  checksum: async (source: string, name: string, version: string) =>
-    source === REGISTRY_SOURCE ? known[`${name}@${version}`] : undefined,
+const authority = (known: Record<string, string>, asked: string[] = []) => ({
+  checksum: async (source: string, name: string, version: string) => {
+    asked.push(name);
+    return source === REGISTRY_SOURCE ? known[`${name}@${version}`] : undefined;
+  },
   indexFile: async (source: string, name: string) => {
     const lines = Object.entries(known)
       .filter(([key]) => source === REGISTRY_SOURCE && key.startsWith(`${name}@`))
@@ -966,6 +986,8 @@ it('a check gets a fresh Cargo home: a local registry of published index entries
   put(`registry/cache/${registry}/sub-1.0.0.crate`, 'PLANTED SUB');
   put(`registry/cache/${registry}/unpinned-1.0.0.crate`, 'NOT IN ANY LOCK');
   put(`registry/cache/${registry}/mystery-1.0.0.crate`, 'UNKNOWN TO THE AUTHORITY');
+  // A crate published with capitals: its file keeps them, its index path does not.
+  put(`registry/cache/${registry}/Mixed-1.0.0.crate`, 'GENUINE MIXED');
   // Extracted sources, configuration and credentials never come along.
   put(`registry/src/${registry}/good-1.0.0/src/lib.rs`, 'PLANTED SOURCE');
   put('config.toml', '[build]\nrustflags = ["--cfg", "planted"]\n');
@@ -1008,6 +1030,9 @@ it('a check gets a fresh Cargo home: a local registry of published index entries
       { name: 'good', version: '1.0.0', checksum: sha256('GENUINE GOOD') },
       { name: 'bad', version: '1.0.0', checksum: sha256('GENUINE BAD') },
       { name: 'mystery', version: '1.0.0', checksum: sha256('UNKNOWN TO THE AUTHORITY') },
+      { name: 'Mixed', version: '1.0.0', checksum: sha256('GENUINE MIXED') },
+      // Never downloaded: the registry is not asked about it.
+      { name: 'absent', version: '1.0.0', checksum: sha256('NOWHERE') },
       {
         name: 'dep-good',
         version: '0.1.0',
@@ -1026,15 +1051,24 @@ it('a check gets a fresh Cargo home: a local registry of published index entries
     lockOf([{ name: 'sub', version: '1.0.0', checksum: sha256('PLANTED SUB') }]),
   );
   commitAll(f.m.workspacePath);
+  const asked: string[] = [];
   const { outcome, output, home } = await listCargoHome(
     f,
     shared,
-    authority({
-      'good@1.0.0': sha256('GENUINE GOOD'),
-      'bad@1.0.0': sha256('GENUINE BAD'),
-      'sub@1.0.0': sha256('GENUINE SUB'),
-    }),
+    authority(
+      {
+        'good@1.0.0': sha256('GENUINE GOOD'),
+        'bad@1.0.0': sha256('GENUINE BAD'),
+        'sub@1.0.0': sha256('GENUINE SUB'),
+        'Mixed@1.0.0': sha256('GENUINE MIXED'),
+      },
+      asked,
+    ),
   );
+  expect(asked).not.toContain('absent');
+  expect(output).toContain('absent-1.0.0.crate (not downloaded)');
+  expect(output).toContain('./ct-verified/Mixed-1.0.0.crate');
+  expect(output).toContain('./ct-verified/index/mi/xe/mixed');
   expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
   expect(output).toContain(`home=${home} offline=true`);
   // A local registry of published index entries and matching downloads, and nothing else.
@@ -1045,6 +1079,8 @@ it('a check gets a fresh Cargo home: a local registry of published index entries
   expect(output).toContain('offline = true');
   for (const absent of [
     './registry',
+    './ct-verified/index/3/b/bad',
+    './ct-verified/index/3/s/sub',
     'bad-1.0.0.crate\n',
     'sub-1.0.0.crate\n',
     'mystery-1.0.0.crate\n',
@@ -1092,6 +1128,19 @@ it('reads only a regular file within its limit, never waiting on a FIFO or follo
   expect(await readRegular(join(root, 'link'), 1024)).toBeUndefined();
   expect(await readRegular(join(root, 'absent'), 1024)).toBeUndefined();
 }, 10_000);
+
+it('a lock that is a FIFO, or too many locks, never block or exhaust the daemon (R-G13 review)', async () => {
+  const f = fixture();
+  const shared = join(f.root, 'shared-cargo');
+  mkdirSync(join(shared, 'registry', 'index'), { recursive: true });
+  // Untracked and not ignored, so it is listed; opening it must not wait for a writer.
+  expect(spawnSync('mkfifo', [join(f.m.workspacePath, 'Cargo.lock')]).status).toBe(0);
+  const started = Date.now();
+  const { outcome, output } = await listCargoHome(f, shared, authority({}));
+  expect(outcome.exitCode, output).toBe(0);
+  expect(Date.now() - started).toBeLessThan(10_000);
+  expect(output).toContain('No Cargo.lock in the checked tree');
+}, 20_000);
 
 it('says so when the checked tree has no lock, since no registry crate can then be verified (R-G13 review)', async () => {
   const f = fixture();
@@ -1276,5 +1325,59 @@ itConfines(
     expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
     expect(output).toContain('shared-hidden');
     expect(output).toContain(`home ${join(f.root, 'daemon-private', 'cargo-home')}`);
+  },
+);
+
+itConfines(
+  "a declared check's unit sees no root agents write, of any run, only its own paths (R-G13 review)",
+  async () => {
+    const f = fixture();
+    const data = join(f.root, 'data');
+    const secret = join(data, 'runs', 'other-run', 'planted.rs');
+    mkdirSync(join(secret, '..'), { recursive: true });
+    writeFileSync(secret, 'PLANTED');
+    const manifest: PinnedCargoManifest = {
+      ...f.m,
+      declaredChecks: {
+        declarationId: randomUUID(),
+        version: 1,
+        checks: [
+          {
+            id: 'peek',
+            argv: [
+              'sh',
+              '-c',
+              `cat ${secret} 2>/dev/null || echo hidden; echo own > own.txt && echo wrote`,
+            ],
+            definitionPaths: [],
+            definitionDigests: {},
+          },
+        ],
+      },
+    };
+    const launcher = f.launch(manifest);
+    let output = '';
+    const outcome = await executeCheck({
+      tool: 'ct-check',
+      privateDirectory: join(data, 'check-logs', 'run', 'x.private'),
+      manifestPath: launcher.manifestPath,
+      manifestDigest: launcher.manifestDigest,
+      manifest: launcher.manifest,
+      args: ['--declared', 'peek'],
+      logPath: join(data, 'check-logs', 'run', 'peek.log'),
+      logReference: 'check-logs/run/peek.log',
+      confinement: 'systemd',
+      unitName: `craftingtable-check-test-${process.pid}-${Date.now()}`,
+      writablePaths: [f.m.workspacePath],
+      environment: { PATH: process.env.PATH ?? '/usr/bin', HOME: homedir() },
+      onOutput: (text) => (output += text),
+      signal: new AbortController().signal,
+      declaredTargetDirectory: join(data, 'check-logs', 'run', 'declared-target'),
+      hiddenRoots: [data],
+    });
+    expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+    expect(output).toContain('hidden');
+    expect(output).not.toContain('PLANTED');
+    expect(output).toContain('wrote');
   },
 );

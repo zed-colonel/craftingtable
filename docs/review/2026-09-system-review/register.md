@@ -2225,6 +2225,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *Seen again (2026-09-28, the follow-up batch at 527d151):*
       - The gate's `e2e-daemon-shutdown` test failed once at load average 14 with a data directory left behind. It passed rerun serially and three more times.
       - The following e2e run (all passed) left a 43 MB partial directory: `backups` and `runs`, with `state` and the new `cargo-home` both removed. So the daemon's Cargo home does not cause the leak; the removal stopped partway, as before. It was deleted.
+    - *Seen again (2026-09-28, gate at ff0bbe9):*
+      - The same three files failed in the full run at load average 14, as at 527d151: `e2e-daemon-shutdown`, one timeout in `server-execution-cycles`, and one in `server-execution-receipt-gates`. All three passed serially (49 tests).
+      - The e2e run (21 passed) again left a partial 44 MB directory (`backups`, `runs`), which was deleted.
+      - The three recur together under full-run load. That is a signal for R-I9, whose e2e workspaces and worker count decide that load.
 
 ### R-I6
 

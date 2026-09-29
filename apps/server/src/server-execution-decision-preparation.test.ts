@@ -75,8 +75,8 @@ const brief = (checkpointId: string) => ({
   retainedObligations: 'Implementation tests remain mandatory.',
 });
 
-async function decisionFixture() {
-  const f = await supervisedMapFixture(false, 'automatic', false, false, false, withDecisions);
+async function decisionFixture(transform = withDecisions) {
+  const f = await supervisedMapFixture(false, 'automatic', false, false, false, transform);
   // A preparation's answer can be held, so its run stays in flight while the roadmap runs on.
   const held = new Map<string, Promise<void>>();
   const hold = (checkpointId: string) => {
@@ -632,4 +632,124 @@ it('a decision preparation takes no slice capacity, and goes once its decision i
   );
   expect(tx.execution.runs.find(ws, accepted.runId)?.outcomeSummary).toContain('LOCAL-ADR-01');
   expect(tx.execution.worktrees.find(ws, open.worktreeId)?.status).toBe('active');
+});
+
+/**
+ * The live case (WI-05/domain and WI-ADR-009, 2026-09-29): the first slice's merge, not its
+ * start, needs LOCAL-ADR-01, so nothing stops it starting; the second waits for the first.
+ */
+function withMergeDecision(source: ConcurrencySource): ConcurrencySource {
+  const decided = withDecisions(source);
+  const [first, ...rest] = source.slices;
+  return {
+    ...decided,
+    slices: [
+      {
+        ...first!,
+        merge_requires: [
+          ...first!.merge_requires,
+          { kind: 'checkpoint' as const, id: 'LOCAL-ADR-01', state: 'passed' as const },
+        ],
+      },
+      ...rest.map((s) => ({
+        ...s,
+        start_requires: [
+          ...s.start_requires,
+          { kind: 'slice' as const, id: first!.id, state: 'merged' as const },
+        ],
+      })),
+    ],
+  };
+}
+const startedSlices = ({ ws, tx }: Fixture) =>
+  tx.execution.worktrees
+    .listActive()
+    .filter((w) => w.workspaceId === ws && w.executionScope?.kind === 'slice')
+    .map((w) => w.executionScope!.sourceId);
+
+it('a slice whose merge needs a decision with no brief yet starts as before (R-C3b hold)', {
+  timeout: 30000,
+}, async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const { f, ws, tx } = fixture;
+  // A preparation that asked about LOCAL-ADR-01 but wrote no brief: the decision has a card,
+  // but nothing ready for the operator to approve.
+  f.backend.replyForRequest = () => ({
+    resultText:
+      '## Open questions\nApprove LOCAL-ADR-01?\n```craftingtable-design\n' +
+      JSON.stringify({
+        version: 1,
+        items: [
+          {
+            kind: 'operator-decision',
+            question: 'Approve LOCAL-ADR-01?',
+            answer: '',
+            sources: ['Exact imported plan LOCAL-ADR-01'],
+          },
+        ],
+      }) +
+      '\n```',
+  });
+  expect((await prepare(fixture, 'LOCAL-ADR-01')).statusCode).toBe(200);
+  const p = preparation(fixture, 'LOCAL-ADR-01')!;
+  await waitFor(
+    () => tx.execution.runs.find(ws, p.runId)?.status === 'finished',
+    'LOCAL-ADR-01 asked about',
+  );
+  const card = architectureDecisionInbox(
+    tx,
+    tx.imports.definition(ws, p.definitionId)!,
+  ).decisions.find((c) => c.checkpointId === 'LOCAL-ADR-01');
+  expect(card?.recommendation).toBeDefined();
+  expect(card?.recommendation?.brief).toBeUndefined();
+  await roadmapControl(f.state, 'start');
+  await f.state.context.services.roadmapService.tick();
+  await waitFor(() => startedSlices(fixture).length === 1, 'the first slice starts');
+});
+
+it('holds a slice whose merge needs a prepared decision the operator has not approved, and starts it once approved (R-C3b, operator decision 2026-09-29)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const { f, ws, tx, saved } = fixture;
+  expect((await prepare(fixture, 'LOCAL-ADR-01')).statusCode).toBe(200);
+  const p = preparation(fixture, 'LOCAL-ADR-01')!;
+  await waitFor(
+    () => tx.execution.runs.find(ws, p.runId)?.status === 'finished',
+    'LOCAL-ADR-01 prepared',
+  );
+  await roadmapControl(f.state, 'start');
+  const roadmaps = f.state.context.services.roadmapService;
+  await roadmaps.tick();
+  await roadmaps.tick();
+  // It waits for the operator instead of starting a design that would stop to ask.
+  expect(startedSlices(fixture)).toEqual([]);
+  const first = storedRoadmap(f.state).definition.entries.find(
+    (e) => e.executionScope?.kind === 'slice',
+  )!;
+  expect(storedRoadmap(f.state).entryWaits?.[first.id]).toMatchObject({
+    code: 'phase-blocked',
+    refs: { blockers: ['decision-checkpoint-evidence'] },
+  });
+  expect(storedRoadmap(f.state).entryWaits?.[first.id]?.reason).toContain(
+    'LOCAL-ADR-01 has a prepared brief awaiting your approval',
+  );
+  roadmaps.syncAttention(true);
+  const status = roadmaps
+    .statusList(f.auth, ws, saved.id)
+    .entries.find((e) => e.entryId === first.id);
+  // The status list names the operator, at the decision's own inbox item.
+  expect(status).toMatchObject({
+    actor: 'operator',
+    waitsOn: { source: 'attention-item', blockers: ['decision-checkpoint-evidence'] },
+  });
+  expect(
+    tx.attention.open(ws).find((i) => i.id === status?.waitsOn?.attentionItemId)?.subjectKey,
+  ).toBe(`roadmap:${saved.id}:checkpoint:LOCAL-ADR-01`);
+  // Approved, the slice starts on the next pass.
+  await roadmapControl(f.state, 'pause');
+  await proposeAndAccept(fixture, 'LOCAL-ADR-01');
+  await roadmapControl(f.state, 'resume');
+  await roadmaps.tick();
+  await waitFor(() => startedSlices(fixture).length === 1, 'the approved slice starts');
 });

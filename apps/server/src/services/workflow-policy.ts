@@ -135,27 +135,56 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
  * decision naming this slice (the workflow's rule, which the merge gate shares for decisions).
  * A decision whose prerequisite is a checkpoint this slice's own workflow review produces is
  * left out: it cannot be approved until that review runs, so holding the resume for it would
- * leave only Stop (LIVE-18 review).
+ * leave only Stop (LIVE-18 review). The same for a slice not yet started, which the roadmap
+ * holds on these decisions once each has a brief (R-C3b).
  */
-export function unsettledMergeDecisions(tx: StorageRepositories, cycle: WorkCycle): string[] {
-  const context = workflowContext(tx, cycle);
-  if (!context) return [];
-  const produced = new Set(
-    context.checkpoints.filter((c) => !c.sharedDecision && !c.accepted).map((c) => c.id),
+export function unsettledSliceDecisions(
+  source: StorageRepositories,
+  workspaceId: import('@craftingtable/domain').WorkspaceId,
+  workItemId: import('@craftingtable/domain').WorkItemId,
+  executionScope: import('@craftingtable/domain').ExecutionScope,
+): string[] {
+  if (executionScope.kind !== 'slice') return [];
+  const tx = mapReadSnapshot(source);
+  const scope = resolveScope(tx, workspaceId, workItemId, executionScope);
+  const definition = scope.definition;
+  const ids = new Set(
+    scope.slice?.merge_requires.filter((r) => r.kind === 'checkpoint').map((r) => r.id),
   );
-  const definition = tx.imports.definition(cycle.workspaceId, context.definitionId);
-  return context.checkpoints
+  const checkpoints = definition.source.checkpoints
+    .filter((c) => ids.has(c.id))
+    .map((c) => {
+      const subject = { kind: 'checkpoint' as const, sourceId: c.id };
+      return {
+        id: c.id,
+        sharedDecision: supportsArchitectureDecision(definition, c.id),
+        accepted:
+          !!acceptedEvidence(
+            tx,
+            workspaceId,
+            definition.id,
+            executionScope.bindingRevision,
+            subject,
+            new Set(),
+            executionScope,
+          ) || !!stagedDecision(tx, workspaceId, executionScope, c.id),
+        gaps: prerequisiteEvaluation(tx, definition, executionScope.bindingRevision, subject).gaps,
+      };
+    });
+  const produced = new Set(
+    checkpoints.filter((c) => !c.sharedDecision && !c.accepted).map((c) => c.id),
+  );
+  return checkpoints
     .filter((c) => c.sharedDecision && !c.accepted)
     .filter(
       (c) =>
-        !c.pending.length ||
-        !definition ||
-        !prerequisiteEvaluation(tx, definition, context.bindingRevision, {
-          kind: 'checkpoint',
-          sourceId: c.id,
-        }).gaps.some((gap) => gap.checkpointId !== undefined && produced.has(gap.checkpointId)),
+        !c.gaps.some((gap) => gap.checkpointId !== undefined && produced.has(gap.checkpointId)),
     )
     .map((c) => c.id);
+}
+export function unsettledMergeDecisions(tx: StorageRepositories, cycle: WorkCycle): string[] {
+  if (!cycle.workItemId || cycle.executionScope?.kind !== 'slice') return [];
+  return unsettledSliceDecisions(tx, cycle.workspaceId, cycle.workItemId, cycle.executionScope);
 }
 /**
  * The decisions a cycle stopped at `shared-decision-required` still waits on; none for any other

@@ -101,7 +101,13 @@ import {
 import { collectScopeRepair } from './scope-repair.js';
 import type { WorkCycleService } from './work-cycle-service.js';
 import type { WorkItemService } from './work-item-service.js';
-import { securityReviewCurrent, unsettledDecisionsAt, workflowContext } from './workflow-policy.js';
+import {
+  securityReviewCurrent,
+  unsettledDecisionsAt,
+  unsettledSliceDecisions,
+  workflowContext,
+} from './workflow-policy.js';
+import { architectureDecisionInbox } from './architecture-decision-inbox.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
@@ -2341,6 +2347,16 @@ export class RoadmapService {
       else this.reason(roadmap, blocker.reason);
       return blockerWait(blocker);
     }
+    // A slice waits for the decisions its merge needs once each has a brief, rather than
+    // starting a design that would stop to ask for them (R-C3b, operator decision 2026-09-29).
+    if (!attempt) {
+      const held = this.decisionHold(this.storage, roadmap, entry);
+      if (held.length) {
+        const wait = phaseWait(new PhaseGateError(held));
+        if (!parallel) this.reason(roadmap, `${entry.sourceId}: ${wait.reason}`);
+        return { wait };
+      }
+    }
     this.cycles.validateSettings(entry);
     if (!attempt) {
       attempt = {
@@ -3088,6 +3104,40 @@ export class RoadmapService {
             .some((t) => sameExecutionScope(t.executionScope, entry.executionScope) && !!t.mergedAt)
         : tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status === 'completed';
   }
+  /**
+   * The decisions a slice not yet started waits on (R-C3b, operator decision 2026-09-29): each
+   * shared decision its merge needs that is not settled for it and already has a brief. The
+   * scheduler holds the slice on them instead of starting a design that would stop to ask; a
+   * decision with no brief yet does not hold it. Only the roadmap waits: the operator may still
+   * start the slice by hand.
+   */
+  private decisionHold(
+    tx: StorageRepositories,
+    roadmap: Roadmap,
+    entry: RoadmapEntry,
+  ): import('@craftingtable/domain').PhaseBlocker[] {
+    const scope = entry.executionScope;
+    if (scope?.kind !== 'slice') return [];
+    let unsettled: string[];
+    try {
+      unsettled = unsettledSliceDecisions(tx, roadmap.workspaceId, entry.workItemId, scope);
+    } catch {
+      return [];
+    }
+    if (!unsettled.length) return [];
+    const definition = tx.imports.definition(roadmap.workspaceId, scope.definitionId);
+    if (!definition) return [];
+    const briefed = architectureDecisionInbox(tx, definition).decisions.filter(
+      (d) => unsettled.includes(d.checkpointId) && d.recommendation?.brief,
+    );
+    return briefed.map((d) => ({
+      kind: 'evidence',
+      code: 'decision-checkpoint-evidence',
+      message: `${d.checkpointId} has a prepared brief awaiting your approval; ${entry.sourceId} starts once it is approved, so its design does not stop to ask. Approve it in Shared architecture decisions.`,
+      refs: { checkpointId: d.checkpointId },
+    }));
+  }
+
   private blocker(
     roadmap: Roadmap,
     entry: RoadmapEntry,
@@ -3392,14 +3442,19 @@ export class RoadmapService {
                     : cycle?.status === 'awaiting-merge'
                       ? 'merge'
                       : 'start';
-              const blockers = scopePhaseBlockers(
-                snapshot,
-                roadmap.workspaceId,
-                entry.workItemId,
-                entry.executionScope,
-                phase,
-                { ownerId: cycle?.currentRunId },
-              );
+              const blockers = [
+                ...scopePhaseBlockers(
+                  snapshot,
+                  roadmap.workspaceId,
+                  entry.workItemId,
+                  entry.executionScope,
+                  phase,
+                  { ownerId: cycle?.currentRunId },
+                ),
+                ...(phase === 'start' && !attempt
+                  ? this.decisionHold(snapshot, roadmap, entry)
+                  : []),
+              ];
               if (blockers.length)
                 return {
                   entryId: entry.id,

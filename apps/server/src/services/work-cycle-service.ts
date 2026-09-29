@@ -62,6 +62,7 @@ import {
   DaemonDrainingError,
   ExecutionRequestError,
   NotFoundError,
+  UpstreamPinMovedError,
   UpstreamTransitionUndeclaredError,
   CheckpointAttestationError,
 } from './errors.js';
@@ -1443,6 +1444,7 @@ export class WorkCycleService {
       );
     if (!['paused', 'needs-attention'].includes(cycle.status))
       throw new ExecutionRequestError('conflict', 'Only a paused cycle can resume');
+    await this.assertPinsRefreshed(cycle);
     // A plain resume that would only reproduce this stop is refused with the control that
     // can resolve it (R-A7, CTRL-04); guided resumes carry the missing input.
     const redirect =
@@ -1816,15 +1818,19 @@ export class WorkCycleService {
             current,
             error instanceof UpstreamTransitionUndeclaredError
               ? 'upstream-transition-undeclared'
-              : error instanceof CheckpointAttestationError
-                ? 'checkpoint-attestation-failed'
-                : 'controller-error',
+              : error instanceof UpstreamPinMovedError
+                ? 'upstream-pin-moved'
+                : error instanceof CheckpointAttestationError
+                  ? 'checkpoint-attestation-failed'
+                  : 'controller-error',
             error instanceof ExecutionRequestError
               ? error.message
               : 'Controller could not advance this step. Inspect the run before resuming.',
             error instanceof CheckpointAttestationError
               ? { checkpointId: error.checkpointId }
-              : undefined,
+              : error instanceof UpstreamPinMovedError
+                ? { definitionId: error.definitionId, pins: error.pins }
+                : undefined,
           );
         }
       }
@@ -4177,6 +4183,27 @@ export class WorkCycleService {
       (!run || ['failed', 'cancelled', 'interrupted'].includes(run.status))
     )
       await this.branches.validateLaunch(tree);
+  }
+
+  /**
+   * An `upstream-pin-moved` stop resumes only once the dependency refresh has pinned what moved
+   * (LIVE-15): until then a resume would meet the same pin, with or without guidance. A pause
+   * taken at the stop keeps its code, so it is held to the same rule.
+   */
+  private async assertPinsRefreshed(cycle: WorkCycle): Promise<void> {
+    const stop = cycle.status === 'paused' ? cycle.attention : effectiveCycleAttention(cycle);
+    if (stop?.code !== 'upstream-pin-moved' || !this.runtimeEvidence) return;
+    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    if (!tree) return;
+    const recorded = new Set((stop.refs?.pins ?? []).map((p) => p.alias));
+    const stale = (await this.runtimeEvidence.movedPins(tree)).filter(
+      (p) => recorded.size === 0 || recorded.has(p.alias),
+    );
+    if (stale.length)
+      throw new ExecutionRequestError(
+        'conflict',
+        `${stale.map((p) => p.alias).join(', ')} still differs from its saved pin. Preview and save the dependency refresh in the dependency environment, then resume.`,
+      );
   }
 
   /**

@@ -24,6 +24,23 @@ import type {
 } from '@craftingtable/storage';
 import type { ControllerPasses } from './attention-gates.js';
 
+/**
+ * Where a moved upstream pin is refreshed (LIVE-15): the dependency environment on the Roadmaps
+ * page, the owning roadmap's panel when a roadmap owns the cycle, else the definition's own.
+ * `ws` is already encoded. The focus names the panel's element id (`RuntimeEvidencePanel`).
+ */
+function dependencyRefreshPath(
+  ws: string,
+  roadmapId: string | undefined,
+  definitionId: string | undefined,
+): string | undefined {
+  if (roadmapId !== undefined)
+    return `/workspaces/${ws}/roadmaps?roadmap=${encodeURIComponent(roadmapId)}#${encodeURIComponent(`runtime-evidence-roadmap-${roadmapId}`)}`;
+  if (definitionId !== undefined)
+    return `/workspaces/${ws}/roadmaps#${encodeURIComponent(`runtime-evidence-${definitionId}`)}`;
+  return undefined;
+}
+
 /** What a projection unit wants open; the projector gives it identity and history. */
 export type ProjectedItem = Pick<
   AttentionItem,
@@ -626,7 +643,11 @@ export class AttentionProjector implements WriteObserver {
               ? attention.detail
               : `${cycle.step}: ${cycle.reason}`,
         ),
-        path,
+        path:
+          !escalated && attention.code === 'upstream-pin-moved'
+            ? (dependencyRefreshPath(ws, cycle.owner?.roadmapId, attention.refs?.definitionId) ??
+              path)
+            : path,
         refs: { ...refs, cycleId: cycle.id, ...(cycle.owner ? ownerRefs(cycle.owner) : {}) },
       });
       return items;

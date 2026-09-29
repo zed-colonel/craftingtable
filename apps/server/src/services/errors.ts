@@ -66,6 +66,29 @@ export class UpstreamTransitionUndeclaredError extends ExecutionRequestError {
   }
 }
 
+/** An upstream pin whose provider moved past the commit the saved generation pins. */
+export interface MovedPin {
+  readonly alias: string;
+  readonly pinnedCommitSha: string;
+  readonly currentCommitSha: string;
+}
+
+/**
+ * A pinned upstream's integration advanced past the saved dependency generation (LIVE-15,
+ * ADR-058). The cycle stops as `upstream-pin-moved`, carrying what moved, not as a controller
+ * error: the dependency refresh, not a plain resume, is what makes progress.
+ */
+export class UpstreamPinMovedError extends ExecutionRequestError {
+  constructor(
+    readonly definitionId: string,
+    readonly pins: readonly MovedPin[],
+    message: string,
+  ) {
+    super('conflict', message);
+    this.name = 'UpstreamPinMovedError';
+  }
+}
+
 /**
  * A delegated checkpoint review ended without a complete, passing attestation (R-C13). The
  * cycle stops as `checkpoint-attestation-failed`, not as a controller error, so a plain

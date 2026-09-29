@@ -37,3 +37,15 @@ refresh. Resume retries it with its original worktree and reviewer assignment th
 phase gates. With no prior run, it has no findings or evidence to carry forward; a partially
 prepared environment is not evidence. The operator can also retry that unstarted review directly.
 The queue survives restart and never grants protected-promotion authority.
+
+## Amendment 2026-09-28: a moved pin is its own stop (LIVE-15)
+
+Operator decision. When a cycle's freshness check finds that a pinned upstream moved past the
+saved generation, the cycle stops as `upstream-pin-moved`, not as `controller-error`. The stop's
+refs name the concurrency definition and each moved pin (alias, pinned commit, current
+commit). This lets the status list and inbox tell it from a fault, and lets later automation
+start the refresh preview without parsing text. The inbox item opens the dependency environment
+where the refresh is previewed. A plain Resume, with or without guidance, is refused while a
+recorded pin still differs from the current generation's pin. Once a saved refresh pins the new
+commit, Resume goes ahead. The refresh itself is still previewed and saved by the operator.
+Records carrying this code or these refs cannot be read by a release before this amendment.

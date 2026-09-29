@@ -685,6 +685,21 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Second independent review (2026-09-27), with the live fixes:**
     - *HIGH, fixed in 49686f6:* `refreshOwner` still required automatic recovery for a recovery round, so an operator-requested round (18f0bb8) never refreshed before its review or at merge, and "Integration branch advanced" came back. Its test advances integration during an operator round's repair.
     - *Checked and sound:* no refresh can race the roadmap merge (the launch refresh needs a running cycle, the merge an awaiting-merge one under a running roadmap, and both are serialized and version-checked); 18f0bb8 releases only `needs-attention` holds, so R-C4's refusal of system holds is unchanged; each R-C4 test fails without its change.
+- **LIVE-15 fixed (2026-09-28, operator decision after the R-G4/R-G5 batch: a typed stop with the refresh as its action).**
+  - `RuntimeEvidenceService.assertFreshTree` throws `UpstreamPinMovedError` when a pin among its issues moved past the saved generation. The error carries the definition and each moved pin (alias, pinned commit, current commit). Any other staleness stays a plain conflict.
+  - The controller stops the cycle as `upstream-pin-moved` (operator-owned), with those as structured refs, instead of `controller-error`.
+  - The inbox item opens the dependency environment on the Roadmaps page: the owning roadmap's panel, or the definition's.
+  - A Resume, plain or guided, is refused while a recorded pin still differs from the current generation's pin. It names the pin and the refresh. Once a saved refresh pins the new commit, Resume goes ahead.
+  - ADR-058 is amended.
+  - **Test:** `server-execution-upstream-transitions.test.ts` (LIVE-15), on a real pinned Cargo provider that advances after its pin was saved. It covers:
+    - the typed error;
+    - the cycle's code and refs, with no launch;
+    - the item's path;
+    - the refused resume;
+    - the resume after the refresh saves.
+  - **Mutations:** without the resume guard, the resume is accepted (200); without the typed throw, the error is a plain conflict. Both fail the test.
+  - **Follow-up, for automation (open):** start the refresh preview automatically on this stop, leaving only the decision to the operator. The refs carry what that needs.
+  - **Rollback:** a release before this cannot read cycles carrying the new code or refs.
 
 ### R-C5
 

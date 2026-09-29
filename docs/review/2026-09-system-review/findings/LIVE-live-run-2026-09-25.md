@@ -263,7 +263,7 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
 ### LIVE-15: A checkpoint review whose upstream pin moved stopped as `controller-error`
 - Severity: medium
 - Category: typed stops (rule 4); dependency refresh ([ADR-058](../../../decisions/ADR-058-reviewed-dependency-refresh.md), [R-C4](../register.md#r-c4))
-- Status: CONFIRMED 2026-09-28 (after the c547ede deploy); not fixed. It had a working exit: the operator resumed at 00:18 UTC and the review ran again.
+- Status: CONFIRMED 2026-09-28 (after the c547ede deploy). FIXED 2026-09-28 by operator decision (typed stop, refresh action), on `remediation/p2`, not deployed: see [R-C4](../register.md#r-c4). It had a working exit: the operator resumed at 00:18 UTC and the review ran again.
 - Replay case: none captured, because the cycle was resumed before the 2026-09-28c snapshot. The path is in the code: `WorkCycleService.pass` (`work-cycle-service.ts`, the `controller-error` fallback) turns any `ExecutionRequestError` raised while advancing a cycle into `controller-error`, with its message as the reason. Here the message was the pin freshness issue from `RuntimeEvidenceService.pinStatus`.
 - Evidence: cycle b0de849a (EXO-04 checkpoint review EXO-WI-TIME-REVIEW, run 47fb8caf) went to `needs-attention` at 00:11:13 UTC. The code was `controller-error`, owner operator, with the reason "wi integration changed. Preview dependency refresh to review the new pin and affected evidence."
 - Impact:

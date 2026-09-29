@@ -28,7 +28,7 @@ import {
   startCycle,
   waitFor,
 } from './execution-test-support.js';
-import { UpstreamTransitionUndeclaredError } from './services/errors.js';
+import { UpstreamPinMovedError, UpstreamTransitionUndeclaredError } from './services/errors.js';
 
 afterEach(cleanupExecutionFixtures);
 
@@ -393,5 +393,97 @@ itNeedsCargo(
     };
     const scopedOnly = await runToFinish(f.state, verification.id, { role: 'review' });
     expect(() => svc.assertRun(tree(), scopedOnly)).toThrow('successful pinned Cargo build/test');
+  },
+);
+
+itNeedsCargo(
+  'stops as upstream-pin-moved when a pinned upstream advanced, and resumes only after the refresh (LIVE-15)',
+  async () => {
+    const { f, ws, storage, scope, declare, prepared, providerSha } = await transitionFixture();
+    const treeA = await scopeTree(f, scope('slice', A));
+    const declared = await declare({
+      expectedRecordIds: [],
+      transitions: [{ consumer: 'local', upstream: 'provider', slice: A }],
+      rationale: 'Slice a migrates local to the provider pin.',
+    });
+    expect(declared.statusCode, declared.body).toBe(200);
+    // The provider's integration advances after its pin was saved, as wi's did live.
+    const provider = storage.execution.sourceRepositories
+      .list(ws)
+      .find((r) => r.displayName === 'Pinned provider')!.rootPath;
+    git(['commit', '--allow-empty', '-m', 'provider advanced'], provider);
+    const advancedSha = git(['rev-parse', 'HEAD'], provider).trim();
+    const moved = [
+      { alias: 'provider', pinnedCommitSha: providerSha, currentCommitSha: advancedSha },
+    ];
+
+    // A typed error carrying what moved, not a generic conflict.
+    await expect(prepared(treeA)).rejects.toThrow(UpstreamPinMovedError);
+    await expect(prepared(treeA)).rejects.toMatchObject({
+      definitionId: scope('slice', A).definitionId,
+      pins: moved,
+    });
+
+    // The cycle stops with its own code and the pins as structured refs, not controller-error.
+    const cycle = await startCycle(f.state, treeA.id);
+    await waitFor(() => currentCycle(f.state, cycle).status === 'needs-attention', 'pin stop');
+    expect(currentCycle(f.state, cycle).attention).toMatchObject({
+      code: 'upstream-pin-moved',
+      owner: 'operator',
+      refs: { definitionId: scope('slice', A).definitionId, pins: moved },
+    });
+    expect(currentCycle(f.state, cycle).reason).toContain('Preview dependency refresh');
+    expect(f.backend.launches).toHaveLength(0);
+
+    // Its inbox item opens the dependency environment where the refresh is previewed.
+    const item = storage.attention.open(ws).find((i) => i.subjectKey === `cycle:${cycle.id}`);
+    expect(item).toMatchObject({
+      code: 'upstream-pin-moved',
+      path: `/workspaces/${ws}/roadmaps#runtime-evidence-${scope('slice', A).definitionId}`,
+    });
+
+    // A plain Resume would meet the same pin, so it is refused while the pin is stale.
+    const resume = () =>
+      f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${ws}/cycles/${cycle.id}/control`,
+        headers: mutationHeaders(f.state),
+        payload: { action: 'resume', expectedVersion: currentCycle(f.state, cycle).version },
+      });
+    const refused = await resume();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain('dependency refresh');
+    expect(currentCycle(f.state, cycle).status).toBe('needs-attention');
+
+    // Once the refresh saves a generation pinning the advanced commit, Resume goes ahead.
+    const generation = storage.runtimeEvidence.generations(
+      ws,
+      scope('slice', A).definitionId,
+      2,
+    )[0]!;
+    await f.state.context.services.runtimeEvidenceService.configure(
+      f.auth,
+      ws,
+      scope('slice', A).definitionId,
+      {
+        bindingRevision: 2,
+        expectedGeneration: generation.generation,
+        pins: generation.pins.map((p) => ({
+          alias: p.alias,
+          ref: p.ref,
+          expectedCommitSha: advancedSha,
+          conformanceRevision: p.conformanceRevision,
+          packages: [...p.packages],
+        })),
+        consumers: generation.consumers.map((c) => ({
+          alias: c.alias,
+          upstreams: [...c.upstreams],
+        })),
+        environments: [...generation.environments],
+      },
+    );
+    const resumed = await resume();
+    expect(resumed.statusCode, resumed.body).toBe(200);
+    await controlCycle(f.state, currentCycle(f.state, cycle), 'stop');
   },
 );

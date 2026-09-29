@@ -79,7 +79,13 @@ import {
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext, CommandContext } from './auth-service.js';
-import { CheckpointAttestationError, ExecutionRequestError, NotFoundError } from './errors.js';
+import {
+  CheckpointAttestationError,
+  ExecutionRequestError,
+  type MovedPin,
+  NotFoundError,
+  UpstreamPinMovedError,
+} from './errors.js';
 import {
   chooseUpstreamSources,
   transitionMerges,
@@ -2683,7 +2689,7 @@ export class RuntimeEvidenceService {
         ? []
         : await this.freshness(tree.workspaceId, runtime, alias);
     if ('finalization' in scope) {
-      if (issues.length) conflict(issues.join('\n'));
+      if (issues.length) await this.freshnessConflict(tree.workspaceId, runtime, issues, '\n');
       this.treeContext(tree);
       return;
     }
@@ -2748,7 +2754,63 @@ export class RuntimeEvidenceService {
       true,
     );
     this.treeContext(tree);
-    if (issues.length) conflict([...new Set(issues)].join('\n'));
+    if (issues.length)
+      await this.freshnessConflict(tree.workspaceId, runtime, [...new Set(issues)], '\n');
+  }
+  /**
+   * Refuses stale work. When a pinned upstream moved past the saved generation, the refusal is
+   * typed and names what moved (LIVE-15), so the cycle stops as `upstream-pin-moved` and its
+   * refresh can be automated later; any other staleness stays a plain conflict.
+   */
+  private async freshnessConflict(
+    ws: WorkspaceId,
+    runtime: RuntimeGeneration,
+    issues: readonly string[],
+    separator: string,
+  ): Promise<never> {
+    const moved = (await this.pinStatus(ws, runtime)).flatMap((p) =>
+      p.issue &&
+      issues.includes(p.issue) &&
+      p.currentCommitSha &&
+      p.currentCommitSha !== p.savedCommitSha
+        ? [
+            {
+              alias: p.alias,
+              pinnedCommitSha: p.savedCommitSha,
+              currentCommitSha: p.currentCommitSha,
+            },
+          ]
+        : [],
+    );
+    if (moved.length)
+      throw new UpstreamPinMovedError(runtime.definitionId, moved, issues.join(separator));
+    conflict(issues.join(separator));
+  }
+  /**
+   * The pins of a tree's scope whose provider still differs from the current generation's pin:
+   * what keeps an `upstream-pin-moved` stop from resuming (LIVE-15).
+   */
+  async movedPins(tree: Worktree): Promise<readonly MovedPin[]> {
+    const scope = this.treeContext(tree);
+    if (!scope) return [];
+    const runtime = activeRuntime(
+      this.storage,
+      tree.workspaceId,
+      scope.definitionId,
+      scope.bindingRevision,
+    );
+    if (!runtime) return [];
+    return (await this.pinStatus(tree.workspaceId, runtime)).flatMap((p) =>
+      p.currentCommitSha && p.currentCommitSha !== p.savedCommitSha
+        ? [
+            {
+              alias: p.alias,
+              pinnedCommitSha: p.savedCommitSha,
+              currentCommitSha: p.currentCommitSha,
+            },
+          ]
+        : [],
+    );
   }
   private changed(
     tx: StorageRepositories,

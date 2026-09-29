@@ -21,6 +21,18 @@ const attentionRefsSchema = z
     checkpointId: z.string().min(1).max(200).optional(),
     cycleId: z.string().min(1).max(200).optional(),
     entryId: z.string().min(1).max(200).optional(),
+    definitionId: z.string().min(1).max(200).optional(),
+    pins: z
+      .array(
+        z.strictObject({
+          alias: z.string().min(1).max(200),
+          pinnedCommitSha: z.string().regex(/^[0-9a-f]{40,64}$/),
+          currentCommitSha: z.string().regex(/^[0-9a-f]{40,64}$/),
+        }),
+      )
+      .min(1)
+      .max(50)
+      .optional(),
   })
   .optional();
 const ownerSchema = z.enum(['operator', 'controller']);

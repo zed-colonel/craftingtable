@@ -51,6 +51,9 @@ export const CYCLE_ATTENTION = {
   'controller-error': 'operator',
   // A run needs a current pin for a consumer→upstream link nobody declared (ADR-069).
   'upstream-transition-undeclared': 'operator',
+  // A pinned upstream's integration moved past the saved dependency generation; the refresh
+  // preview is the way on (LIVE-15, ADR-058). Refs name the definition and what moved.
+  'upstream-pin-moved': 'operator',
   'reassessment-failed': 'operator',
   'worktree-inactive': 'operator',
   'authority-lost': 'operator',
@@ -152,6 +155,14 @@ export interface AttentionRefs {
   readonly checkpointId?: string;
   readonly cycleId?: string;
   readonly entryId?: string;
+  /** The concurrency definition whose dependency environment an `upstream-pin-moved` names. */
+  readonly definitionId?: string;
+  /** The pins that moved, for the operator and for automation that may refresh them later. */
+  readonly pins?: readonly {
+    readonly alias: string;
+    readonly pinnedCommitSha: string;
+    readonly currentCommitSha: string;
+  }[];
 }
 
 /**

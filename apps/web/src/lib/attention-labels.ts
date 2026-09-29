@@ -38,6 +38,7 @@ export const ATTENTION_CODE_LABELS: Readonly<Record<AttentionItemCode, string>> 
   'restart-resume': 'Resume after restart',
   'controller-error': 'Controller error',
   'upstream-transition-undeclared': 'Upstream transition undeclared',
+  'upstream-pin-moved': 'Upstream pin moved',
   'reassessment-failed': 'Reassessment failed',
   'worktree-inactive': 'Worktree inactive',
   'authority-lost': 'Authority lost',

@@ -877,10 +877,26 @@ const lockOf = (
         `[[package]]\nname = "${p.name}"\nversion = "${p.version}"\nsource = "${p.source ?? REGISTRY_SOURCE}"\n${p.checksum ? `checksum = "${p.checksum}"\n` : ''}`,
     )
     .join('\n')}`;
-/** A checksum authority that knows only the given crates. */
-const authority =
-  (known: Record<string, string>) => async (source: string, name: string, version: string) =>
-    source === REGISTRY_SOURCE ? known[`${name}@${version}`] : undefined;
+/** A registry authority that knows only the given crates, as `name@version` → checksum. */
+const authority = (known: Record<string, string>) => ({
+  checksum: async (source: string, name: string, version: string) =>
+    source === REGISTRY_SOURCE ? known[`${name}@${version}`] : undefined,
+  indexFile: async (source: string, name: string) => {
+    const lines = Object.entries(known)
+      .filter(([key]) => source === REGISTRY_SOURCE && key.startsWith(`${name}@`))
+      .map(([key, cksum]) =>
+        JSON.stringify({
+          name,
+          vers: key.slice(name.length + 1),
+          deps: [],
+          cksum,
+          features: {},
+          yanked: false,
+        }),
+      );
+    return lines.length ? `${lines.join('\n')}\n` : undefined;
+  },
+});
 
 it('reads the registry packages and Git commits a lock pins', () => {
   const lock = `${lockOf([{ name: 'itoa', version: '1.0.18', checksum: 'a'.repeat(64) }])}
@@ -905,7 +921,7 @@ source = "git+https://example.invalid/x#${'b'.repeat(40)}"
 async function listCargoHome(
   f: ReturnType<typeof fixture>,
   shared: string,
-  crateChecksum?: ReturnType<typeof authority>,
+  crateRegistry?: ReturnType<typeof authority>,
 ) {
   let output = '';
   const outcome = await executeCheck({
@@ -914,7 +930,12 @@ async function listCargoHome(
     manifestPath: f.launcher.manifestPath,
     manifestDigest: f.launcher.manifestDigest,
     manifest: f.launcher.manifest,
-    args: ['--', 'sh', '-c', 'echo "home=$CARGO_HOME"; cd "$CARGO_HOME" && find . -print | sort'],
+    args: [
+      '--',
+      'sh',
+      '-c',
+      'echo "home=$CARGO_HOME offline=$CARGO_NET_OFFLINE"; cd "$CARGO_HOME" && find . -print | sort && cat config.toml',
+    ],
     logPath: join(f.root, 'daemon-logs', 'cargo.log'),
     logReference: 'check-logs/run/cargo.log',
     confinement: 'none',
@@ -923,13 +944,13 @@ async function listCargoHome(
     environment: { PATH: process.env.PATH ?? '/usr/bin', CARGO_HOME: shared },
     onOutput: (text) => (output += text),
     signal: new AbortController().signal,
-    ...(crateChecksum ? { crateChecksum } : {}),
+    ...(crateRegistry ? { crateRegistry } : {}),
     cargoHomeDirectory: join(f.root, 'check-logs', 'cargo-home-0'),
   });
   return { outcome, output, home: join(f.root, 'check-logs', 'cargo-home-0') };
 }
 
-it('a check gets a fresh Cargo home: the index and only the downloads whose published checksum they match, whichever lock names them, and nothing else of the shared home (R-G13 review, operator decisions 2026-09-29)', async () => {
+it('a check gets a fresh Cargo home: a local registry of published index entries and the downloads that match them, whichever lock names them, and nothing of the shared home (R-G13 review, operator decisions 2026-09-29)', async () => {
   const f = fixture();
   const shared = join(f.root, 'shared-cargo');
   const registry = 'index.crates.io-1949cf8c6b5b557f';
@@ -1015,17 +1036,20 @@ it('a check gets a fresh Cargo home: the index and only the downloads whose publ
     }),
   );
   expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
-  expect(output).toContain(`home=${home}`);
-  expect(output).toContain(`./registry/index/${registry}/config.json`);
-  expect(output).toContain(`./registry/cache/${registry}/good-1.0.0.crate`);
+  expect(output).toContain(`home=${home} offline=true`);
+  // A local registry of published index entries and matching downloads, and nothing else.
+  expect(output).toContain('./ct-verified/good-1.0.0.crate');
+  expect(output).toContain('./ct-verified/index/go/od/good');
   expect(output).toContain('./git/db/dep-good/HEAD');
+  expect(output).toContain('replace-with = "ct-verified"');
+  expect(output).toContain('offline = true');
   for (const absent of [
-    `./registry/cache/${registry}/bad`,
-    `./registry/cache/${registry}/sub`,
-    `./registry/cache/${registry}/mystery`,
+    './registry',
+    'bad-1.0.0.crate\n',
+    'sub-1.0.0.crate\n',
+    'mystery-1.0.0.crate\n',
     'unpinned',
-    'registry/src',
-    'config.toml',
+    'rustflags',
     'credentials',
     'git/checkouts',
     'linked',
@@ -1035,8 +1059,8 @@ it('a check gets a fresh Cargo home: the index and only the downloads whose publ
   ])
     expect(output).not.toContain(absent);
   for (const reason of [
-    `${registry}/bad-1.0.0.crate (does not match its published checksum)`,
-    `${registry}/sub-1.0.0.crate (does not match its published checksum)`,
+    'bad-1.0.0.crate (does not match its published checksum)',
+    'sub-1.0.0.crate (does not match its published checksum)',
     'mystery-1.0.0.crate (its published checksum could not be learned)',
     'git/db/dep-forged (its objects do not match their names)',
   ])
@@ -1048,7 +1072,7 @@ it('a check gets a fresh Cargo home: the index and only the downloads whose publ
   );
   // Without an authority, no registry crate reaches the check.
   const none = await listCargoHome(f, shared);
-  expect(none.output).not.toContain('good-1.0.0.crate\n');
+  expect(none.output).not.toContain('./ct-verified/good-1.0.0.crate');
   expect(none.output).toContain('good-1.0.0.crate (its published checksum could not be learned)');
 });
 
@@ -1098,7 +1122,7 @@ it.skipIf(!hostCargo || !existsSync(cachedItoa))(
     ]);
     spawnSync('cp', [cachedItoa, join(shared, 'registry/cache', registry)]);
     const published = sha256(readFileSync(cachedItoa));
-    const crateChecksum = authority({ 'itoa@1.0.18': published });
+    const crateRegistry = authority({ 'itoa@1.0.18': published });
     writeFileSync(
       join(f.m.workspacePath, 'Cargo.toml'),
       '[package]\nname = "consumer"\nversion = "0.1.0"\nedition = "2021"\n[dependencies]\nitoa = "=1.0.18"\n',
@@ -1131,7 +1155,7 @@ it.skipIf(!hostCargo || !existsSync(cachedItoa))(
       encoding: 'utf8',
     });
     expect(plantedBuild.stderr).toContain('PLANTED');
-    const build = async () => {
+    const build = async (args = ['build', '--offline', '--locked']) => {
       let output = '';
       const outcome = await executeCheck({
         tool: 'ct-check',
@@ -1139,7 +1163,7 @@ it.skipIf(!hostCargo || !existsSync(cachedItoa))(
         manifestPath: f.launcher.manifestPath,
         manifestDigest: f.launcher.manifestDigest,
         manifest: f.launcher.manifest,
-        args: ['--', hostCargo!, 'build', '--offline', '--locked'],
+        args: ['--', hostCargo!, ...args],
         logPath: join(f.root, 'daemon-logs', `${Date.now()}.log`),
         logReference: 'check-logs/run/build.log',
         confinement: 'none',
@@ -1153,7 +1177,7 @@ it.skipIf(!hostCargo || !existsSync(cachedItoa))(
         },
         onOutput: (text) => (output += text),
         signal: new AbortController().signal,
-        crateChecksum,
+        crateRegistry,
         cargoHomeDirectory: join(f.root, 'check-logs', 'cargo-home-0'),
       });
       return { outcome, output };
@@ -1188,10 +1212,34 @@ it.skipIf(!hostCargo || !existsSync(cachedItoa))(
         ),
       );
     commitAll(f.m.workspacePath);
-    const vouched = await build();
+    // Asked to build online, it still fetches nothing.
+    const vouched = await build(['build', '--locked']);
     expect(vouched.outcome.exitCode).not.toBe(0);
     expect(vouched.output).not.toContain('PLANTED CRATE');
     expect(vouched.output).toContain('itoa-1.0.18.crate (does not match its published checksum)');
+    // A committed Cargo configuration that points crates.io at planted sources in the shared
+    // index finds nothing there: the check's home copies none of it (R-G13 review).
+    const vendor = join(shared, 'registry/index/x/vendor/itoa-1.0.18');
+    mkdirSync(join(vendor, 'src'), { recursive: true });
+    writeFileSync(join(vendor, 'src/lib.rs'), 'compile_error!("PLANTED VIA INDEX");\n');
+    writeFileSync(
+      join(vendor, 'Cargo.toml'),
+      '[package]\nname = "itoa"\nversion = "1.0.18"\nedition = "2018"\n[lib]\npath = "src/lib.rs"\n',
+    );
+    writeFileSync(
+      join(vendor, '.cargo-checksum.json'),
+      JSON.stringify({ files: {}, package: published }),
+    );
+    writeFileSync(lock, readFileSync(lock, 'utf8').replace(planted256, published));
+    mkdirSync(join(f.m.workspacePath, '.cargo'));
+    writeFileSync(
+      join(f.m.workspacePath, '.cargo/config.toml'),
+      `[source.crates-io]\nreplace-with = "planted"\n[source.planted]\ndirectory = ${JSON.stringify(join(f.root, 'check-logs', 'cargo-home-0', 'registry/index/x/vendor'))}\n`,
+    );
+    commitAll(f.m.workspacePath);
+    const redirected = await build();
+    expect(redirected.output).not.toContain('PLANTED VIA INDEX');
+    expect(redirected.outcome.exitCode).not.toBe(0);
   },
 );
 

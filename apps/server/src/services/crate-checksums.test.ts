@@ -11,7 +11,7 @@ afterEach(() => {
 const cacheFile = () => {
   const root = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'ct-crate-checksums-'));
   roots.push(root);
-  return join(root, 'crate-checksums.json');
+  return join(root, 'crates-io');
 };
 const CRATES_IO = 'registry+https://github.com/rust-lang/crates.io-index';
 const line = (name: string, vers: string, cksum: string) =>
@@ -49,12 +49,19 @@ it("learns a crate's published checksums from crates.io's own index once, and ke
   );
   expect(await index.checksum(CRATES_IO, 'itoa', '1.0.19')).toBeUndefined();
   expect(requests[0]).toBe('https://index.crates.io/it/oa/itoa');
+  // The index file a check's local registry gets: the crate's published lines only.
+  expect(await index.indexFile(CRATES_IO, 'itoa')).toBe(
+    `${line('itoa', '1.0.17', 'a'.repeat(64))}\n${line('itoa', '1.0.18', 'b'.repeat(64))}\n`,
+  );
   // A published version never changes, so a restarted daemon asks no one.
   const restarted = new CratesIoChecksums(file, async () => {
     throw new Error('no network');
   });
   expect(await restarted.checksum(CRATES_IO, 'itoa', '1.0.18')).toBe('b'.repeat(64));
-  expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ 'itoa@1.0.18': 'b'.repeat(64) });
+  expect(await restarted.indexFile(CRATES_IO, 'itoa')).toContain('1.0.18');
+  expect(JSON.parse(readFileSync(join(file, 'checksums.json'), 'utf8'))).toMatchObject({
+    'itoa@1.0.18': 'b'.repeat(64),
+  });
 });
 
 it('trusts no other registry, and leaves a crate unverified when the index cannot answer (R-G13 review)', async () => {
@@ -75,4 +82,48 @@ it('trusts no other registry, and leaves a crate unverified when the index canno
   ).toBeUndefined();
   expect(await other.checksum(CRATES_IO, '../../etc', '1.0.0')).toBeUndefined();
   expect(asked).toBe(1);
+});
+
+it('asks again about a crate it could not learn only after a while, and reads at most 64 MiB (R-G13 review)', async () => {
+  let asked = 0;
+  let now = 0;
+  const index = new CratesIoChecksums(
+    cacheFile(),
+    async () => {
+      asked++;
+      throw new Error('offline');
+    },
+    'https://index.crates.io/',
+    1000,
+    60_000,
+    () => now,
+  );
+  for (const version of ['1.0.0', '1.0.1', '1.0.2'])
+    expect(await index.checksum(CRATES_IO, 'unknown', version)).toBeUndefined();
+  expect(asked).toBe(1);
+  now = 60_001;
+  await index.checksum(CRATES_IO, 'unknown', '1.0.0');
+  expect(asked).toBe(2);
+  // A finite body past the cap: a valid line after 70 MB of padding is never read.
+  let sent = 0;
+  const huge = new CratesIoChecksums(
+    cacheFile(),
+    async () =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            if (sent >= 70) {
+              controller.enqueue(
+                new TextEncoder().encode(`\n${line('itoa', '1.0.18', 'b'.repeat(64))}\n`),
+              );
+              controller.close();
+              return;
+            }
+            sent++;
+            controller.enqueue(new Uint8Array(1024 * 1024).fill(32));
+          },
+        }),
+      ),
+  );
+  expect(await huge.checksum(CRATES_IO, 'itoa', '1.0.18')).toBeUndefined();
 });

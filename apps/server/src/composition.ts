@@ -253,7 +253,7 @@ export async function createServices(
     overrides.runLog ?? { warn: () => undefined },
     undefined,
     undefined,
-    overrides.crateChecksums ?? new CratesIoChecksums(join(config.dataDir, 'crate-checksums.json')),
+    overrides.crateChecksums ?? new CratesIoChecksums(join(config.dataDir, 'crates-io')),
   );
   checkRequests.stopLeftoverUnits();
   agentRunService.attachChecks(checkRequests);

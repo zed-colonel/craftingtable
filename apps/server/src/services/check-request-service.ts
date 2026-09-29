@@ -399,12 +399,7 @@ export class CheckRequestService {
         signal,
         logLimitBytes: Math.min(this.limits.logBytesPerCheck, served.logBudget),
         declaredTargetDirectory: join(this.config.checkLogRoot, context.runId, 'declared-target'),
-        ...(this.checksums
-          ? {
-              crateChecksum: (source: string, name: string, version: string) =>
-                this.checksums!.checksum(source, name, version),
-            }
-          : {}),
+        ...(this.checksums ? { crateRegistry: this.checksums } : {}),
         cargoHomeDirectory: join(this.config.checkLogRoot, context.runId, `cargo-home-${slot}`),
       });
       served.logBudget = Math.max(0, served.logBudget - outcome.logBytes);

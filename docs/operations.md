@@ -256,17 +256,20 @@ Agents use the daemon's own Cargo home, `<data>/cargo-home`, never the operator'
 review): an agent may write its download caches, and nothing written there reaches the operator's
 own builds. Check units never build from it (operator decisions 2026-09-29): Cargo trusts whatever
 it finds in a Cargo home, so each check gets a fresh one under `<data>/check-logs/<run>/`
-(`cargo-home-<n>`, one stable path per concurrent check, so build outputs stay reusable). It holds
-a copy of the registry index, only the downloaded crates the checked tree's `Cargo.lock` files pin
-whose SHA-256 matches the checksum crates.io publishes for that version, and the Git dependencies
-whose locked commit a database holds, cloned through a pack. Cargo extracts their sources afresh.
+(`cargo-home-<n>`, one stable path per concurrent check, so build outputs stay reusable). Nothing
+of the shared home's registry comes along, not even its index: the check's home is a local
+registry the daemon builds, holding the published index entries of the crates the checked tree's
+`Cargo.lock` files pin and only the downloaded crates whose SHA-256 matches the checksum crates.io
+publishes, plus the Git dependencies whose locked commit a database holds, cloned through a pack.
+Its configuration replaces crates.io with that registry, and the check runs with
+`CARGO_NET_OFFLINE=true`, whatever the tree's own configuration says. Cargo extracts sources afresh.
 A crate that is missing, rewritten or unverifiable is left out and named in the check's output,
-and the offline build fails. The check cannot see the shared home, and its own is emptied when it
-ends.
+and the build fails. The check cannot see the shared home, and its own is emptied when it ends.
 
-The daemon learns published checksums from crates.io's own index over HTTPS
-(`https://index.crates.io/`), once per crate, and keeps them in `<data>/crate-checksums.json`,
-since a published version never changes. This is the daemon's only outbound request of its own.
+The daemon learns published crates from crates.io's own index over HTTPS
+(`https://index.crates.io/`), once per crate, and keeps each crate's index file and every
+version's checksum under `<data>/crates-io/`, since a published version never changes; a crate it
+could not learn is asked about again after ten minutes. This is the daemon's only outbound request of its own.
 Without it (offline, or the index unreachable) a crate it has not seen before stays unverified, so
 checks that need it fail until the index can be reached. Crates from other registries are never
 verified. A tree without a committed `Cargo.lock` (or with a format-1 lock) gets no registry

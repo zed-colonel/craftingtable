@@ -590,7 +590,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - Schema 33 and 34 are new. A release before this cannot read them, or run environments carrying `receiptAuthority`.
     - The daemon needs its systemd user manager for check units (`CRAFTINGTABLE_CHECK_CONFINEMENT=none` otherwise), and bubblewrap and socat for Claude's sandbox; both are present on this workstation.
     - Checks, CI and native units now run in the daemon's units. Runs in flight at the deploy keep their old launchers.
-  - **Next:** R-E2 (split the Roadmaps page), LIVE-18 (proposed: name every missing decision; refuse Resume until they are settled), R-G13 (declared checks, scheduled by the operator 2026-09-28), then R-D4 and R-D5, then R-G9, R-I9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
+  - **Next:** R-E2 (split the Roadmaps page), LIVE-18 (proposed: name every missing decision; give each one a card in Shared architecture decisions with a Prepare brief action; refuse Resume until they are settled), R-G13 (declared checks, scheduled by the operator 2026-09-28), then R-D4 and R-D5, then R-G9, R-I9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
 - **Operator follow-ups to the R-G4/R-G5/R-E1 report (2026-09-28, same branch; not merged or deployed).** The operator answered the report's five decisions, and each was built test-first and reviewed.
   - **crates.io for Claude's sandbox (R-G5): 214a844, after review 2806815 and 8a71388.**
     - The sandbox reaches `index.crates.io` and `static.crates.io` only. The review dropped the `crates.io` apex, which is the publish API.

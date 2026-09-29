@@ -314,6 +314,11 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
   - Nothing was ever submitted for 022, 030 or 038, and 037 is accepted only for EXO-03/domain's clauses.
   - The operator resumed at 2026-09-28 20:59 with 022 still unapproved. The resume was accepted (`resumeRedirect` does not refuse this code) and ran an integration update, two reviews and two security reviews toward the same gate.
   - The stop's push was never delivered, because notifications were turned off on 2026-09-24. Its inbox item appeared only when schema 32 backfilled it on 2026-09-28.
+- The operator's report (2026-09-28): opening EXO-ADR-022 showed no prepared recommendation and no way to start an investigation. Checked on the 2026-09-28c snapshot, in-process on a copy:
+  - "Shared architecture decisions" builds a card only for a decision that has a submission, or a recommendation from a finished agent report naming it. 022, 030 and 038 have neither, so they have no card. 037 has one.
+  - Earlier decisions got recommendations because they gated a slice's start, and its design turn raised them. These gate only EXO-18's merge, so no agent report ever names them.
+  - All four can be prepared (`supportsArchitectureDecision`). The dispatch control is the roadmap's collapsed "Prepare architecture decision briefs" section, but neither the stop nor the decisions area links to it. No EXO preparation has ever run, and the standing grant is off.
+  - Approving also needs the roadmap paused and no live run on the map.
 - Impact:
   - 60 of the slice's 74 hours so far were spent at this gate.
   - After 022, the cycle would stop again for each next decision, one at a time.

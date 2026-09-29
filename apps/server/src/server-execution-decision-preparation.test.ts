@@ -169,7 +169,11 @@ function preparation({ f }: Fixture, checkpointId: string) {
   );
 }
 
-async function proposeAndAccept(fixture: Fixture, checkpointId: string) {
+async function proposeAndAccept(
+  fixture: Fixture,
+  checkpointId: string,
+  outcome: 'accepted' | 'rejected' = 'accepted',
+) {
   const { f, ws, tx } = fixture;
   const p = preparation(fixture, checkpointId)!;
   const definition = tx.imports.definition(ws, p.definitionId)!;
@@ -198,8 +202,8 @@ async function proposeAndAccept(fixture: Fixture, checkpointId: string) {
   )!.submission;
   return f.state.context.services.runtimeEvidenceService.decide(f.auth, ws, p.definitionId, {
     submissionId: submission.id,
-    outcome: 'accepted',
-    rationale: 'Approved.',
+    outcome,
+    rationale: outcome === 'accepted' ? 'Approved.' : 'Not this boundary.',
   });
 }
 
@@ -752,4 +756,97 @@ it('holds a slice whose merge needs a prepared decision the operator has not app
   await roadmapControl(f.state, 'resume');
   await roadmaps.tick();
   await waitFor(() => startedSlices(fixture).length === 1, 'the approved slice starts');
+});
+
+/** A preparation answer whose brief is the given one. */
+function answerWith(
+  fixture: Fixture,
+  custom: Omit<ReturnType<typeof brief>, 'consumers'> & { consumers: readonly object[] },
+) {
+  fixture.f.backend.replyForRequest = () => ({
+    resultText:
+      `## Open questions\nApprove ${custom.checkpointId}?\n\`\`\`craftingtable-design\n` +
+      JSON.stringify({
+        version: 1,
+        items: [
+          {
+            kind: 'operator-decision',
+            question: `Approve ${custom.checkpointId}?`,
+            answer: 'Use the documented boundary.',
+            sources: [`Exact imported plan ${custom.checkpointId}`],
+            decision: custom,
+          },
+        ],
+      }) +
+      '\n```',
+  });
+}
+async function prepared1(fixture: Fixture) {
+  const { ws, tx } = fixture;
+  expect((await prepare(fixture, 'LOCAL-ADR-01')).statusCode).toBe(200);
+  const p = preparation(fixture, 'LOCAL-ADR-01')!;
+  await waitFor(
+    () => tx.execution.runs.find(ws, p.runId)?.status === 'finished',
+    'LOCAL-ADR-01 prepared',
+  );
+  return p;
+}
+async function startsFirstSlice(fixture: Fixture) {
+  await roadmapControl(fixture.f.state, 'start');
+  await fixture.f.state.context.services.roadmapService.tick();
+  await waitFor(() => startedSlices(fixture).length === 1, 'the first slice starts');
+}
+
+it('does not hold a slice on a brief limited to clauses of another slice, which approving would not settle (R-C3b review)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  const other = fixture.f.scopes[1]!.sourceId;
+  answerWith(fixture, {
+    ...brief('LOCAL-ADR-01'),
+    coverage: 'clauses',
+    consumers: [{ sliceId: other, phase: 'merge', replacesFullCheckpoint: false }],
+  });
+  await prepared1(fixture);
+  await startsFirstSlice(fixture);
+});
+
+it('does not hold a slice on a brief the operator rejected (R-C3b review)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture(withMergeDecision);
+  await prepared1(fixture);
+  await proposeAndAccept(fixture, 'LOCAL-ADR-01', 'rejected');
+  await startsFirstSlice(fixture);
+});
+
+it('does not hold a slice on a decision that cannot be approved until later work is done (R-C3b review)', {
+  timeout: 45000,
+}, async () => {
+  // LOCAL-ADR-01 needs LOCAL-ADR-02 accepted first, so its card cannot be approved: holding the
+  // slice on it would ask the operator for something they cannot do yet.
+  const fixture = await decisionFixture((source) => {
+    const decided = withMergeDecision(source);
+    return {
+      ...decided,
+      checkpoints: decided.checkpoints.map((c) =>
+        c.id === 'LOCAL-ADR-01'
+          ? {
+              ...c,
+              requires: [
+                { kind: 'checkpoint' as const, id: 'LOCAL-ADR-02', state: 'passed' as const },
+              ],
+            }
+          : c,
+      ),
+    };
+  });
+  const p = await prepared1(fixture);
+  const card = architectureDecisionInbox(
+    fixture.tx,
+    fixture.tx.imports.definition(fixture.ws, p.definitionId)!,
+  ).decisions.find((c) => c.checkpointId === 'LOCAL-ADR-01')!;
+  expect(card.recommendation?.brief).toBeDefined();
+  expect(card.blockers.length).toBeGreaterThan(0);
+  await startsFirstSlice(fixture);
 });

@@ -1780,6 +1780,7 @@ export class RoadmapService {
     if (this.ticking || this.abort.signal.aborted || this.admissionsHeld) return;
     this.ticking = true;
     const pass = this.passes?.started();
+    this.passInboxes = new Map();
     try {
       for (const roadmap of this.storage.roadmaps.list()) {
         if (this.abort.signal.aborted) break;
@@ -1819,6 +1820,7 @@ export class RoadmapService {
       }
     } finally {
       this.ticking = false;
+      this.passInboxes = undefined;
       if (pass !== undefined) this.passes?.completed('roadmaps', pass);
     }
   }
@@ -3104,12 +3106,24 @@ export class RoadmapService {
             .some((t) => sameExecutionScope(t.executionScope, entry.executionScope) && !!t.mergedAt)
         : tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status === 'completed';
   }
+  /** Shared-decision inboxes built once per scheduler pass (R-C3b review). */
+  private passInboxes:
+    | Map<string, import('@craftingtable/contracts').ArchitectureDecisionInbox>
+    | undefined;
+  /** And once per read snapshot, for views. */
+  private readonly viewInboxes = new WeakMap<
+    object,
+    Map<string, import('@craftingtable/contracts').ArchitectureDecisionInbox>
+  >();
+
   /**
    * The decisions a slice not yet started waits on (R-C3b, operator decision 2026-09-29): each
-   * shared decision its merge needs that is not settled for it and already has a brief. The
-   * scheduler holds the slice on them instead of starting a design that would stop to ask; a
-   * decision with no brief yet does not hold it. Only the roadmap waits: the operator may still
-   * start the slice by hand.
+   * shared decision its merge needs that is not settled for it and has a brief that would settle
+   * it once approved. The scheduler holds the slice on them instead of starting a design that
+   * would stop to ask. A decision with no brief does not hold it, nor does a brief that could not
+   * release it (R-C3b review): one limited to clauses of other slices, one on a card that cannot
+   * be approved yet, or one the operator has rejected since it was written. Only the roadmap
+   * waits: the operator may still start the slice by hand.
    */
   private decisionHold(
     tx: StorageRepositories,
@@ -3118,24 +3132,51 @@ export class RoadmapService {
   ): import('@craftingtable/domain').PhaseBlocker[] {
     const scope = entry.executionScope;
     if (scope?.kind !== 'slice') return [];
-    let unsettled: string[];
     try {
-      unsettled = unsettledSliceDecisions(tx, roadmap.workspaceId, entry.workItemId, scope);
+      const definition = tx.imports.definition(roadmap.workspaceId, scope.definitionId);
+      const slice = definition?.source.slices.find((s) => s.id === scope.sourceId);
+      if (!definition || !slice) return [];
+      const merge = new Set(
+        slice.merge_requires.filter((r) => r.kind === 'checkpoint').map((r) => r.id),
+      );
+      if (!merge.size) return [];
+      let inboxes = tx === this.storage ? this.passInboxes : this.viewInboxes.get(tx as object);
+      if (!inboxes) {
+        inboxes = new Map();
+        if (tx !== this.storage) this.viewInboxes.set(tx as object, inboxes);
+      }
+      let inbox = inboxes.get(definition.id);
+      if (!inbox) {
+        inbox = architectureDecisionInbox(tx, definition);
+        inboxes.set(definition.id, inbox);
+      }
+      const ready = inbox.decisions.filter((d) => {
+        const brief = d.recommendation?.brief;
+        if (!merge.has(d.checkpointId) || !brief || d.blockers.length) return false;
+        if (brief.coverage !== 'full' && !brief.consumers.some((c) => c.sliceId === slice.id))
+          return false;
+        const written = tx.execution.runs.find(
+          roadmap.workspaceId,
+          d.recommendation!.sourceRunId as never,
+        )?.finishedAt;
+        return !d.records.some(
+          (r) =>
+            r.decision?.outcome === 'rejected' && (!written || r.decision.decidedAt >= written),
+        );
+      });
+      if (!ready.length) return [];
+      const unsettled = unsettledSliceDecisions(tx, roadmap.workspaceId, entry.workItemId, scope);
+      return ready
+        .filter((d) => unsettled.includes(d.checkpointId))
+        .map((d) => ({
+          kind: 'evidence' as const,
+          code: 'decision-checkpoint-evidence' as const,
+          message: `${d.checkpointId} has a prepared brief awaiting your approval; ${entry.sourceId} starts once it is approved, so its design does not stop to ask. Pause the roadmap and approve it in Shared architecture decisions.`,
+          refs: { checkpointId: d.checkpointId },
+        }));
     } catch {
       return [];
     }
-    if (!unsettled.length) return [];
-    const definition = tx.imports.definition(roadmap.workspaceId, scope.definitionId);
-    if (!definition) return [];
-    const briefed = architectureDecisionInbox(tx, definition).decisions.filter(
-      (d) => unsettled.includes(d.checkpointId) && d.recommendation?.brief,
-    );
-    return briefed.map((d) => ({
-      kind: 'evidence',
-      code: 'decision-checkpoint-evidence',
-      message: `${d.checkpointId} has a prepared brief awaiting your approval; ${entry.sourceId} starts once it is approved, so its design does not stop to ask. Approve it in Shared architecture decisions.`,
-      refs: { checkpointId: d.checkpointId },
-    }));
   }
 
   private blocker(

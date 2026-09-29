@@ -590,7 +590,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - Schema 33 and 34 are new. A release before this cannot read them, or run environments carrying `receiptAuthority`.
     - The daemon needs its systemd user manager for check units (`CRAFTINGTABLE_CHECK_CONFINEMENT=none` otherwise), and bubblewrap and socat for Claude's sandbox; both are present on this workstation.
     - Checks, CI and native units now run in the daemon's units. Runs in flight at the deploy keep their old launchers.
-  - **Next:** R-E2 (split the Roadmaps page), R-G13 (declared checks, scheduled by the operator 2026-09-28), then R-D4 and R-D5, then R-G9, R-I9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
+  - **Next:** R-E2 (split the Roadmaps page), LIVE-18 (proposed: name every missing decision; refuse Resume until they are settled), R-G13 (declared checks, scheduled by the operator 2026-09-28), then R-D4 and R-D5, then R-G9, R-I9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
 - **Operator follow-ups to the R-G4/R-G5/R-E1 report (2026-09-28, same branch; not merged or deployed).** The operator answered the report's five decisions, and each was built test-first and reviewed.
   - **crates.io for Claude's sandbox (R-G5): 214a844, after review 2806815 and 8a71388.**
     - The sandbox reaches `index.crates.io` and `static.crates.io` only. The review dropped the `crates.io` apex, which is the publish API.
@@ -614,6 +614,17 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - **Before the deploy:**
     - Schemas 33 to 35 are new. A release before this cannot open the database, read Claude-effort selections, or read cycles with the new stop.
     - The first start copies the operator's Cargo registry cache into `<data>/cargo-home`: about 480 MB, and a full copy, because `/mnt/workhorse` is not on the home file system.
+- **Why no new slices started (2026-09-28, operator question; same branch, not merged or deployed).**
+  - From the 2026-09-28c snapshot:
+    - The last new slices started on 2026-09-21 (WorldInterface) and 2026-09-25 (Exoskeleton).
+    - Seven slices had every dependency met and waited only on repository capacity (2 per repository).
+  - **WorldInterface, LIVE-16 (fixed in cb86fba, R-C3b).** Two decision preparations that had finished on 2026-09-24 kept worktrees that nothing removed, and a worktree with no scope counted as a slice. Preparations now take no capacity, and a preparation's worktree is removed once its decision is accepted.
+  - **Replays.** The scheduler replays of 2026-09-27 (10 records) and 2026-09-28c (13 records) changed as intended: WI-03/integration and WI-04/integration start, and the rest wait on the roadmap's in-flight limit of 4. New goldens were recorded at cb86fba (`scheduler-golden-cb86fba.json`), and all 15 replays then report 0 changed.
+  - **Exoskeleton: EXO-18/instance-design, 74 h so far, agents running for 6.8 h.**
+    - 60 h at the `shared-decision-required` gate. Four decisions (EXO-ADR-022, 030, 037, 038) are unapproved, and the stop names one (LIVE-18).
+    - Local CI collisions persisted after the LIVE-03 fix (LIVE-17): three remediation rounds that only re-ran CI.
+    - A drain discarded a finished review (LIVE-19).
+    - LIVE-17 to LIVE-19 are recorded and open. Check LIVE-17 on the first day after the deploy, since R-G4 changes how CI runs.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

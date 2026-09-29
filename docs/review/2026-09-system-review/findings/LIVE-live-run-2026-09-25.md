@@ -288,3 +288,42 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
   - No new WorldInterface slice could start while the roadmap ran, for four and a half days.
   - R-C3b's standing preparation grant would have made it permanent, since every automatic preparation would take a place.
   - R-C3b's measurement (design stops per started slice) had nothing to measure.
+
+### LIVE-17: Local CI still collides on the shared Docker host after the LIVE-03 fix
+- Severity: high
+- Category: local CI isolation ([LIVE-03](#live-03-concurrent-ct-act-runs-of-one-workflow-destroyed-each-others-containers), [R-G4](../register.md#r-g4))
+- Status: CONFIRMED 2026-09-28 from the 2026-09-28c snapshot, after the c547ede deploy (which carries a2bb20a and ccd618c). Not fixed. Mechanism unproven. Each failure had an exit (a remediation round re-ran CI), but three rounds of EXO-18/instance-design and its remediation limit went on nothing else.
+- Replay case: none. The failures are Docker's, outside the database. The snapshot holds the runs' tool output.
+- Evidence (UTC):
+  - After the deploy (21:42), contract CI jobs of the EXO-V3 development workflow died with `exitcode '137'` and "RWLayer of container … is unexpectedly nil", or "volume is in use".
+  - Runs: EXO-04/domain 4333f842 (21:49, 22:11), 95967bd3 (22:58 to 23:12), a3c6a7f1 (23:14) and dd679429 (23:26); EXO-18/instance-design ee08681f (22:37) and 7c280429 (23:10 to 23:29; at 23:15:44 the job was killed after 4 min 50 s); EXO-02/domain 9e486dae (22:32).
+  - The EXO-04 and EXO-18 runs overlap in time on the same workflow. The lock itself was visibly taken: runs waited with "Waiting for run … to finish this workflow's local CI".
+  - Review 7c280429 reports "replacement containers labeled for other controller runs".
+- Impact:
+  - Infrastructure failures surface as major review findings. EXO-18 spent three remediation rounds (2e0dc092, a3585f30, 1fc71781) that only re-ran CI, and stopped at its remediation limit.
+  - Inference, unproven: act names containers per workflow and job, so a run that reaches the Docker host while another's containers still exist (a launcher killed while its containers live on, AGT-09, or a path that runs act without the lock) replaces them.
+- Note: R-G4 (not deployed) moves the lock into the daemon and runs act there, in its own unit, keyed by Docker host and workflow name, and removes a run's labelled containers when it ends. Whether that closes this must be checked on the first live day after the deploy.
+
+### LIVE-18: A shared-decision stop names one missing decision, and a plain Resume runs the review chain back into it
+- Severity: medium
+- Category: typed stops and resume ([R-A7](../register.md#r-a7))
+- Status: CONFIRMED 2026-09-28 from the 2026-09-28c snapshot. Not fixed. Its exit is to approve the decisions.
+- Replay case: the 2026-09-28c snapshot, cycle 2c9ead5d (EXO-18/instance-design).
+- Evidence:
+  - The slice merge-requires four architecture decisions: EXO-ADR-022, 030, 037 and 038. After its security review passed at 2026-09-26 08:39, the cycle stopped as `shared-decision-required` with "Operator approval required for EXO-ADR-022", naming only the first.
+  - Nothing was ever submitted for 022, 030 or 038, and 037 is accepted only for EXO-03/domain's clauses.
+  - The operator resumed at 2026-09-28 20:59 with 022 still unapproved. The resume was accepted (`resumeRedirect` does not refuse this code) and ran an integration update, two reviews and two security reviews toward the same gate.
+  - The stop's push was never delivered, because notifications were turned off on 2026-09-24. Its inbox item appeared only when schema 32 backfilled it on 2026-09-28.
+- Impact:
+  - 60 of the slice's 74 hours so far were spent at this gate.
+  - After 022, the cycle would stop again for each next decision, one at a time.
+  - Resuming spends agent time on reviews that end at the same stop.
+
+### LIVE-19: Resuming after a drain discards a review that finished while the cycle was paused
+- Severity: low
+- Category: restart and drain ([R-B9](../register.md#r-b9))
+- Status: CONFIRMED 2026-09-28 from the 2026-09-28c snapshot. Not fixed.
+- Evidence:
+  - EXO-18/instance-design's review efd58796 finished mergeable at 21:43:00 UTC. The operator had paused the roadmap and cycle for the deploy drain at 21:38:40.
+  - The resume at 21:46:29 started a new review, 32097783, which reached the same result 21.3 minutes later. A new security review followed.
+- Impact: repeated agent time after each drain that catches a finishing review.

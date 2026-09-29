@@ -15,8 +15,8 @@ import { SourceRunReport } from './SourceRunReport.js';
 import { ModelField } from './ModelField.js';
 import { ReasoningEffortField } from './ReasoningEffortField.js';
 import { distinct } from '../../lib/distinct.js';
+import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import { Link } from '../../lib/navigation.js';
-import type { WorkspaceId } from '@craftingtable/domain';
 import { useRouteFocus } from '../../lib/navigation.js';
 
 export function DesignRecoveryPanel({
@@ -166,13 +166,7 @@ export function DesignRecoveryPanel({
               />
               {cycle.executionScope && (
                 <p>
-                  <Link
-                    route={{
-                      name: 'roadmaps',
-                      workspaceId: cycle.workspaceId as WorkspaceId,
-                      focus: `architecture-decisions-${cycle.executionScope.definitionId}`,
-                    }}
-                  >
+                  <Link route={sharedDecisionsRoute(cycle)}>
                     View all shared decisions on the roadmap
                   </Link>{' '}
                   . Decisions approved here are shared with the same applicable downstream work.

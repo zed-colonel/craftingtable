@@ -160,7 +160,14 @@ function inAppRoute(path: string): Route | undefined {
   try {
     const url = new URL(path, 'http://craftingtable.invalid');
     const route = parseRoute(url.pathname, url.search, url.hash);
-    return buildPath(route) === `${url.pathname}${url.search}${url.hash}` ? route : undefined;
+    if (buildPath(route) === `${url.pathname}${url.search}${url.hash}`) return route;
+    // A link stored before the Roadmaps page was split names a roadmap in the query; the route
+    // carries all of it, only in the path (R-E2).
+    const legacyRoadmap =
+      route.name === 'roadmap' &&
+      [...url.searchParams.keys()].join() === 'roadmap' &&
+      buildPath({ name: 'roadmaps', workspaceId: route.workspaceId }) === url.pathname;
+    return legacyRoadmap ? route : undefined;
   } catch {
     return undefined;
   }

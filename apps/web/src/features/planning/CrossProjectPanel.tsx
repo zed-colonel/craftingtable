@@ -46,6 +46,8 @@ export function CrossProjectPanel({
   runtimeView,
   dependencySettingsDirty = false,
   onDraftChange,
+  onCreated,
+  onOpenAmendments,
 }: {
   workspaceId: WorkspaceId;
   definitionId: string;
@@ -57,6 +59,10 @@ export function CrossProjectPanel({
   runtimeView?: RuntimeEvidenceView;
   dependencySettingsDirty?: boolean;
   onDraftChange?: (roadmapId: string, dirty: boolean) => void;
+  /** A new roadmap was created from this map; its page takes over (R-E2). */
+  onCreated?: (roadmapId: string) => void;
+  /** Opens the roadmap's amendments when they are on another of its pages (R-E2). */
+  onOpenAmendments?: () => void;
 }) {
   const saved = roadmap?.definition.crossProject;
   const panelKey = roadmap ? `roadmap-${roadmap.id}` : definitionId;
@@ -267,7 +273,7 @@ export function CrossProjectPanel({
       if (roadmap) {
         setEditingRevision(result.roadmap.definition.revision);
         setSavedSnapshot(snapshot);
-      }
+      } else onCreated?.(result.roadmap.id);
       setNotice(
         `Saved ${result.roadmap.definition.name}. Generate and review plan-acceptance evidence, then use the separate Start or Resume control when startup checks are clear.`,
       );
@@ -686,9 +692,13 @@ export function CrossProjectPanel({
                           type="button"
                           className="secondary-button"
                           onClick={() =>
-                            revealElement(
-                              roadmap ? `map-amendments-${roadmap.id}` : 'cross-project-imports',
-                            )
+                            roadmap && onOpenAmendments
+                              ? onOpenAmendments()
+                              : revealElement(
+                                  roadmap
+                                    ? `map-amendments-${roadmap.id}`
+                                    : `map-bindings-${definitionId}`,
+                                )
                           }
                         >
                           {roadmap ? 'Review binding reconciliation' : 'Review exact plan bindings'}

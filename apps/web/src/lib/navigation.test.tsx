@@ -59,16 +59,33 @@ it('leaves a new-tab click, or a click a handler takes over, to the browser or t
 
 it('reads a path held as text as a route', () => {
   const navigate = inApp(
-    <PathLink path="/workspaces/workspace-1/roadmaps?roadmap=r#architecture-decisions-d">
+    <PathLink path="/workspaces/workspace-1/roadmaps/r/setup#runtime-evidence-roadmap-r-decisions">
       Decisions
     </PathLink>,
   );
   fireEvent.click(screen.getByRole('link', { name: 'Decisions' }));
   expect(navigate).toHaveBeenCalledWith({
-    name: 'roadmaps',
+    name: 'roadmap',
     workspaceId,
     roadmapId: 'r',
-    focus: 'architecture-decisions-d',
+    tab: 'setup',
+    focus: 'runtime-evidence-roadmap-r-decisions',
+  });
+});
+
+it('opens a link stored before the Roadmaps page was split in place, on the page it names (R-E2)', () => {
+  const navigate = inApp(
+    <PathLink path="/workspaces/workspace-1/roadmaps?roadmap=r#runtime-evidence-roadmap-r">
+      Dependency refresh
+    </PathLink>,
+  );
+  fireEvent.click(screen.getByRole('link', { name: 'Dependency refresh' }));
+  expect(navigate).toHaveBeenCalledWith({
+    name: 'roadmap',
+    workspaceId,
+    roadmapId: 'r',
+    tab: 'setup',
+    focus: 'runtime-evidence-roadmap-r',
   });
 });
 

@@ -52,10 +52,16 @@ interface Shot {
   readonly viewports: 'both' | 'phone';
 }
 
-/** Rail links carry a live count in their name ("Runs 1"), so match the label prefix. */
+/**
+ * Rail links carry a live count in their name ("Runs 1"), so match the label prefix. Pages
+ * repeat some names in their crumbs ("Roadmaps"), so only the rail is searched.
+ */
 async function navigate(page: Page, name: string): Promise<void> {
   const label = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  await page.getByRole('link', { name: new RegExp(`^${label}( \\d+)?$`) }).click();
+  await page
+    .getByRole('navigation', { name: 'Primary', exact: true })
+    .getByRole('link', { name: new RegExp(`^${label}( \\d+)?$`) })
+    .click();
 }
 
 /**
@@ -625,24 +631,26 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
         ),
       );
     await maps.getByRole('button', { name: 'Import map ZIP', exact: true }).click();
+    // The imported map opens on its own page (R-E2).
+    const map = page.getByRole('region', { name: 'Imported map', exact: true });
     await expect(
-      maps.getByText('Imported definition · explicit delegation required', { exact: true }),
+      map.getByText('Imported definition · explicit delegation required', { exact: true }),
     ).toBeVisible();
-    const aq = maps
+    const aq = map
       .locator('article.import-binding')
       .filter({ has: page.getByLabel('aq upstream repository') });
     await aq.getByLabel('aq upstream repository').selectOption({ label: 'ActionQueue upstream' });
     for (const alias of ['wi', 'exo']) {
-      const select = maps.getByLabel(`${alias} plan version`, { exact: true });
+      const select = map.getByLabel(`${alias} plan version`, { exact: true });
       const value = await select
         .locator('option')
         .filter({ hasText: 'exact source match' })
         .getAttribute('value');
       await select.selectOption(value as string);
     }
-    await maps.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
-    await expect(maps.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
-    const runtime = maps.getByRole('region', { name: 'Dependency environments and evidence' });
+    await map.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
+    await expect(map.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
+    const runtime = map.getByRole('region', { name: 'Dependency environments and evidence' });
     await runtime
       .getByText('Configure pinned dependencies and environments', { exact: true })
       .click();
@@ -680,15 +688,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     git(['add', 'POLICY.md'], upstream);
     git(['commit', '--no-gpg-sign', '-m', 'Update provider fixture'], upstream);
     const selectTarget = async (p: Page) => {
-      // A fresh page lists imported maps without opening one.
-      const drafts = p.getByLabel('Imported roadmap draft');
-      if (await drafts.isVisible()) {
-        await drafts.selectOption({ index: 1 });
-        await p
-          .getByRole('region', { name: 'Cross-project roadmap imports' })
-          .getByText('Recorded binding revision: 1.', { exact: false })
-          .waitFor();
-      }
+      // The imported map has its own page (R-E2), so a fresh page opens on it.
       const region = p.getByRole('region', { name: 'Create cross-project roadmap', exact: true });
       const target = region.getByRole('combobox', { name: 'Planning target', exact: true });
       if ((await target.inputValue()) === '')
@@ -807,6 +807,7 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
     await expect(
       page.getByRole('region', { name: 'Independent review recovery', exact: true }),
     ).toBeVisible();
+    // The new roadmap opens on its setup page (R-E2).
     await page.reload();
     await expect(
       page.getByRole('button', { name: 'Change future delegation', exact: true }),
@@ -860,6 +861,18 @@ test('captures every page of the app on desktop and phone viewports', async ({ p
         await recovery.scrollIntoViewIfNeeded();
       },
     );
+
+    // A roadmap's other pages, and the list that links them (R-E2).
+    const roadmapPages = page.getByRole('navigation', { name: 'Roadmap pages', exact: true });
+    await roadmapPages.getByRole('link', { name: 'Board', exact: true }).click();
+    await expect(page.getByRole('group', { name: 'Roadmap controls' })).toBeVisible();
+    await walk.capture('roadmap-board', 'Roadmap · board and controls');
+    await roadmapPages.getByRole('link', { name: 'History', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Saved revisions', exact: true })).toBeVisible();
+    await walk.capture('roadmap-history', 'Roadmap · revisions and amendments');
+    await navigate(page, 'Roadmaps');
+    await expect(page.getByRole('region', { name: 'Active roadmaps', exact: true })).toBeVisible();
+    await walk.capture('roadmaps-list', 'Roadmaps · every roadmap and imported map');
 
     await navigate(page, 'Projects');
     await page.getByRole('button', { name: 'WorldInterface', exact: true }).click();

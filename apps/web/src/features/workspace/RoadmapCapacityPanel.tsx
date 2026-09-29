@@ -267,7 +267,20 @@ export function RoadmapCapacityPanel({
             </ul>
           </details>
           <p>
-            <Link route={{ name: 'roadmaps', workspaceId: workspaceId as WorkspaceId }}>
+            <Link
+              route={{
+                name: 'roadmap',
+                workspaceId: workspaceId as WorkspaceId,
+                roadmapId: roadmap.id,
+                // A cross-project roadmap's saved-plan acceptance is on its setup (R-E2).
+                ...(roadmap.crossProject
+                  ? {
+                      tab: 'setup' as const,
+                      focus: `runtime-evidence-roadmap-${roadmap.id}-plan-acceptance`,
+                    }
+                  : { tab: 'board' as const }),
+              }}
+            >
               Open roadmap supervision and saved-plan acceptance
             </Link>
           </p>

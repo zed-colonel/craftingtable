@@ -326,7 +326,14 @@ export function HostSchedulingPanel({
               <ul>
                 {status.roadmaps.map((r) => (
                   <li key={r.id}>
-                    <Link route={{ name: 'roadmaps', workspaceId: r.workspaceId as WorkspaceId }}>
+                    <Link
+                      route={{
+                        name: 'roadmap',
+                        workspaceId: r.workspaceId as WorkspaceId,
+                        roadmapId: r.id,
+                        tab: r.crossProject ? 'setup' : 'board',
+                      }}
+                    >
                       {r.name}
                     </Link>{' '}
                     · {r.status} ·{' '}

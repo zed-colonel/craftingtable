@@ -315,7 +315,7 @@ export function RuntimeEvidencePanel({
             ))}
         </section>
       )}
-      <div id={`architecture-decisions-${definitionId}`}>
+      <div id={`${panelId}-decisions`}>
         {view.decisionInbox && (
           <SharedDecisionInbox
             data={view.decisionInbox}

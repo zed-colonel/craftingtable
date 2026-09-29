@@ -1500,7 +1500,8 @@ describe('durable attention items (R-A4)', () => {
         subjectKey: `run:${runId}`,
         code: 'decision-preparation-questions',
         title: 'ActionQueue · AQ-ADR-003 · Needs attention',
-        path: `/workspaces/${f.workspaceId}/roadmaps`,
+        // The roadmap's setup page, at its preparation section (R-E2).
+        path: `/workspaces/${f.workspaceId}/roadmaps/${roadmap.id}/setup#decision-preparation-${roadmap.id}`,
         refs: { roadmapId: roadmap.id, runId },
       },
     ]);

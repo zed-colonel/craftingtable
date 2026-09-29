@@ -2194,6 +2194,61 @@ button:disabled {
   color: var(--color-text-muted);
 }
 
+/* A roadmap's pages (R-E2): board, setup, history */
+.page-tabs {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-3);
+}
+
+.page-tab {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.page-tab:hover {
+  color: var(--color-text);
+}
+
+.page-tab[aria-current="page"] {
+  color: var(--color-text);
+  border-bottom-color: var(--color-active);
+  font-weight: 600;
+}
+
+.roadmap-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.roadmap-row {
+  display: grid;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.roadmap-row .hint {
+  margin: 0;
+}
+
+.setup-checklist ol {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+  display: grid;
+  gap: var(--space-1);
+}
+
 /* Action bars */
 .action-bar {
   border: 0;

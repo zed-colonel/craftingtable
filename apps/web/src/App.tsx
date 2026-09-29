@@ -78,7 +78,8 @@ import { ImportPlanPage } from './features/planning/ImportPlanPage.js';
 import { PlanVersionPage } from './features/planning/PlanVersionPage.js';
 import { ProjectCards } from './features/planning/ProjectCards.js';
 import { ProjectPage } from './features/planning/ProjectPage.js';
-import { RoadmapsPage } from './features/planning/RoadmapsPage.js';
+import { ConcurrencyImports } from './features/planning/ConcurrencyImports.js';
+import { RoadmapPage, RoadmapsPage } from './features/planning/RoadmapsPage.js';
 import { SourceText } from './features/planning/SourceText.js';
 import { WorkItemPage } from './features/planning/WorkItemPage.js';
 import { HostSchedulingPanel } from './features/workspace/HostSchedulingPanel.js';
@@ -1565,15 +1566,16 @@ export function App() {
           authenticated !== undefined && (
             <details open={host.roadmap.open}>
               <summary>Roadmap controls</summary>
-              <RoadmapsPage
+              <RoadmapPage
                 key={`inbox-${item.id}`}
                 workspaceId={workspaceId}
+                roadmapId={roadmapId}
+                tab="all"
                 csrfToken={authenticated.csrfToken}
                 canMutate={['owner', 'editor'].includes(activeWorkspace.role)}
                 onOpenWorkItem={(id) => go({ name: 'work-item', workspaceId, workItemId: id })}
                 attention={attentionItems}
                 onOpenAttention={(id) => go({ name: 'inbox', workspaceId, itemId: id })}
-                only={roadmapId}
                 {...(host.roadmap.focus === undefined ? {} : { focus: host.roadmap.focus })}
               />
             </details>
@@ -1742,9 +1744,31 @@ export function App() {
             workspaceId={workspaceId}
             csrfToken={authenticated.csrfToken}
             canMutate={['owner', 'editor'].includes(activeWorkspace.role)}
+            attention={attentionItems}
+          />
+        )}
+
+        {route.name === 'roadmap' && activeWorkspace && (
+          <RoadmapPage
+            key={`${workspaceId}:${route.roadmapId}:${route.tab}`}
+            workspaceId={workspaceId}
+            roadmapId={route.roadmapId}
+            tab={route.tab}
+            csrfToken={authenticated.csrfToken}
+            canMutate={['owner', 'editor'].includes(activeWorkspace.role)}
             onOpenWorkItem={(workItemId) => go({ name: 'work-item', workspaceId, workItemId })}
             attention={attentionItems}
             onOpenAttention={(itemId) => go({ name: 'inbox', workspaceId, itemId })}
+          />
+        )}
+
+        {route.name === 'roadmap-map' && activeWorkspace && (
+          <ConcurrencyImports
+            key={`${workspaceId}:${route.definitionId}`}
+            workspaceId={workspaceId}
+            csrfToken={authenticated.csrfToken}
+            canMutate={['owner', 'editor'].includes(activeWorkspace.role)}
+            definitionId={route.definitionId}
           />
         )}
 

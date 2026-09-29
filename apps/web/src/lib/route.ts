@@ -24,6 +24,32 @@ export const AGENDA_FILTERS = [
 ] as const;
 export type AgendaFilter = (typeof AGENDA_FILTERS)[number];
 
+/** One roadmap's pages (R-E2): its board and controls, its setup checklist, its history. */
+export const ROADMAP_TABS = ['board', 'setup', 'history'] as const;
+export type RoadmapTab = (typeof ROADMAP_TABS)[number];
+
+/**
+ * Which of a roadmap's pages holds an element. Links stored before the Roadmaps page was split
+ * (attention items, notification records: `/roadmaps?roadmap=<id>#<focus>`) name only the
+ * element, so the page follows from its id's prefix; anything else is on the board.
+ */
+export function roadmapTabForFocus(focus: string | undefined): RoadmapTab {
+  if (focus === undefined) return 'board';
+  if (['map-amendments-', 'roadmap-revisions-'].some((prefix) => focus.startsWith(prefix)))
+    return 'history';
+  return [
+    'runtime-evidence-',
+    'architecture-decisions-',
+    'map-',
+    'scope-recovery-',
+    'future-delegation-',
+    'decision-preparation-',
+    'roadmap-setup-',
+  ].some((prefix) => focus.startsWith(prefix))
+    ? 'setup'
+    : 'board';
+}
+
 export type Route =
   /** `/`: resolved by the app to the last used workspace, else the workspace list. */
   | { readonly name: 'root' }
@@ -31,13 +57,23 @@ export type Route =
   | { readonly name: 'home' }
   | { readonly name: 'account' }
   /**
-   * `?roadmap=` names a roadmap and `#focus` an element to reveal once the page mounts (R-E1):
-   * a deep link does not depend on a particular panel reading the address itself.
+   * `/roadmaps`: every roadmap and the imported maps. `#focus` names an element to reveal once
+   * the page mounts (R-E1): a deep link does not depend on a panel reading the address itself.
    */
+  | { readonly name: 'roadmaps'; readonly workspaceId: WorkspaceId; readonly focus?: string }
+  /** `/roadmaps/:id[/setup|/history]`: one roadmap's board, setup or history (R-E2). */
   | {
-      readonly name: 'roadmaps';
+      readonly name: 'roadmap';
       readonly workspaceId: WorkspaceId;
-      readonly roadmapId?: string;
+      readonly roadmapId: string;
+      readonly tab: RoadmapTab;
+      readonly focus?: string;
+    }
+  /** `/roadmaps/maps/:definitionId`: one imported concurrency map, before a roadmap uses it. */
+  | {
+      readonly name: 'roadmap-map';
+      readonly workspaceId: WorkspaceId;
+      readonly definitionId: string;
       readonly focus?: string;
     }
   | { readonly name: 'projects'; readonly workspaceId: WorkspaceId }
@@ -96,6 +132,19 @@ export function parseRoute(pathname: string, search = '', hash = ''): Route {
   const roadmapId = new URLSearchParams(search).get('roadmap') || undefined;
   switch (route.name) {
     case 'roadmaps':
+      // A link to the single page this one replaced opens the page that holds its focus.
+      return roadmapId === undefined
+        ? { ...route, ...(focus === undefined ? {} : { focus }) }
+        : {
+            name: 'roadmap',
+            workspaceId: route.workspaceId,
+            roadmapId,
+            tab: roadmapTabForFocus(focus),
+            ...(focus === undefined ? {} : { focus }),
+          };
+    case 'roadmap':
+    case 'roadmap-map':
+      return { ...route, ...(focus === undefined ? {} : { focus }) };
     case 'settings':
       return {
         ...route,
@@ -160,6 +209,23 @@ function parsePath(pathname: string): Route {
       ? { name: 'agenda', workspaceId, filter }
       : { name: 'agenda', workspaceId, filter: 'all' };
   }
+  if (section === 'roadmaps') {
+    if (segments[3] === 'maps') {
+      const definitionId = decode(segments[4]);
+      return definitionId === undefined || segments.length > 5
+        ? { name: 'roadmaps', workspaceId }
+        : { name: 'roadmap-map', workspaceId, definitionId };
+    }
+    const roadmapId = decode(segments[3]);
+    if (roadmapId === undefined) return { name: 'roadmaps', workspaceId };
+    const tab = segments[4];
+    return {
+      name: 'roadmap',
+      workspaceId,
+      roadmapId,
+      tab: segments.length === 5 && (tab === 'setup' || tab === 'history') ? tab : 'board',
+    };
+  }
   if (section === 'inbox' && segments.length === 4) {
     const itemId = decode(segments[3]);
     return itemId === undefined
@@ -195,8 +261,9 @@ function parsePath(pathname: string): Route {
 
 export function buildPath(route: Route): string {
   const path = buildPathname(route);
+  // Only Settings takes a roadmap in the query; a roadmap's own pages carry it in the path.
   const roadmap =
-    'roadmapId' in route && route.roadmapId !== undefined
+    route.name === 'settings' && route.roadmapId !== undefined
       ? `?roadmap=${encodeURIComponent(route.roadmapId)}`
       : '';
   const focus =
@@ -217,6 +284,12 @@ function buildPathname(route: Route): string {
       return workspace(route.workspaceId);
     case 'roadmaps':
       return `${workspace(route.workspaceId)}/roadmaps`;
+    case 'roadmap':
+      return `${workspace(route.workspaceId)}/roadmaps/${encodeURIComponent(route.roadmapId)}${
+        route.tab === 'board' ? '' : `/${route.tab}`
+      }`;
+    case 'roadmap-map':
+      return `${workspace(route.workspaceId)}/roadmaps/maps/${encodeURIComponent(route.definitionId)}`;
     case 'inbox':
       return route.itemId === undefined
         ? `${workspace(route.workspaceId)}/inbox`

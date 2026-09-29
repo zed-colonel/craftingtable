@@ -36,3 +36,26 @@ const GIT_ENV = {
 export function git(args: readonly string[], cwd: string): string {
   return execFileSync('git', [...args], { cwd, encoding: 'utf8', env: GIT_ENV }).trim();
 }
+
+/**
+ * From the Roadmaps list, opens a roadmap by name on one of its pages (R-E2). A finished
+ * roadmap is listed under History, which starts closed.
+ */
+export async function openRoadmap(
+  page: Page,
+  name: string,
+  tab: 'Board' | 'Setup' | 'History' = 'Board',
+): Promise<void> {
+  const active = page.getByRole('region', { name: 'Active roadmaps', exact: true });
+  const finished = page.getByRole('region', { name: 'Finished roadmaps', exact: true });
+  await expect(active.or(finished).first()).toBeVisible();
+  const link = page.getByRole('link', { name, exact: true });
+  if (!(await link.isVisible())) await finished.getByText('History', { exact: true }).click();
+  await link.click();
+  await expect(page.getByRole('heading', { level: 1, name, exact: true })).toBeVisible();
+  if (tab !== 'Board')
+    await page
+      .getByRole('navigation', { name: 'Roadmap pages', exact: true })
+      .getByRole('link', { name: tab, exact: true })
+      .click();
+}

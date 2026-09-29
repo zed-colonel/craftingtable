@@ -33,7 +33,15 @@ import { preparedDecisionAccepted } from './decision-preparation-policy.js';
  */
 function dependencyRefreshPath(ws: string, roadmapId: string | undefined): string | undefined {
   if (roadmapId === undefined) return undefined;
-  return `/workspaces/${ws}/roadmaps?roadmap=${encodeURIComponent(roadmapId)}#${encodeURIComponent(`runtime-evidence-roadmap-${roadmapId}`)}`;
+  return `${roadmapPath(ws, roadmapId, 'setup')}#${encodeURIComponent(`runtime-evidence-roadmap-${roadmapId}`)}`;
+}
+
+/**
+ * A roadmap's own page (R-E2): its board, or its setup. `ws` is already encoded. Links stored
+ * before the split (`/roadmaps?roadmap=<id>#<focus>`) still open the right page in the browser.
+ */
+function roadmapPath(ws: string, roadmapId: string, tab?: 'setup'): string {
+  return `/workspaces/${ws}/roadmaps/${encodeURIComponent(roadmapId)}${tab ? `/${tab}` : ''}`;
 }
 
 /** What a projection unit wants open; the projector gives it identity and history. */
@@ -613,7 +621,7 @@ export class AttentionProjector implements WriteObserver {
       ...(preparing ? { roadmapId: preparing.roadmap.id } : {}),
     };
     const path = preparing
-      ? `/workspaces/${ws}/roadmaps`
+      ? `${roadmapPath(ws, preparing.roadmap.id, 'setup')}#${encodeURIComponent(`decision-preparation-${preparing.roadmap.id}`)}`
       : tree.planVersionId
         ? `/workspaces/${ws}/projects/${encodeURIComponent(tree.projectId)}/plans/${encodeURIComponent(tree.planVersionId)}`
         : `/workspaces/${ws}/work-items/${encodeURIComponent(tree.workItemId ?? '')}`;
@@ -771,7 +779,7 @@ export class AttentionProjector implements WriteObserver {
       return;
     }
     const name = roadmap.definition.name;
-    const path = `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`;
+    const path = roadmapPath(encodeURIComponent(workspaceId), roadmapId);
     const refs = { roadmapId };
     const items: ProjectedItem[] = [];
     const superseded = new Set<string>();

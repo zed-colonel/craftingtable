@@ -51,6 +51,7 @@ export function ScopeRecoveryPanel({
   };
   return (
     <Section
+      id={`scope-recovery-${roadmap.id}`}
       title="Independent review recovery"
       summary={
         roadmap.scopeRecovery?.enabled

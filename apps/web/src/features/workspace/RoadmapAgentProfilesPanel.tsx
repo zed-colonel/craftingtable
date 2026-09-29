@@ -169,7 +169,14 @@ export function RoadmapAgentProfilesPanel({
           {roadmap.editBlocker && (
             <p className="attention-state">
               {roadmap.editBlocker}{' '}
-              <Link route={{ name: 'roadmaps', workspaceId: workspaceId as WorkspaceId }}>
+              <Link
+                route={{
+                  name: 'roadmap',
+                  workspaceId: workspaceId as WorkspaceId,
+                  roadmapId: roadmap.id,
+                  tab: 'board',
+                }}
+              >
                 Open roadmap
               </Link>
             </p>

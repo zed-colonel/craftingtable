@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { git, submitSignIn } from './support';
+import { git, openRoadmap, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 for (const mode of ['sequential', 'parallel'] as const) {
@@ -154,6 +154,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
           .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
         await expect(agents).toBeVisible();
         await navigate('Roadmaps');
+        await openRoadmap(page, `AQ ${mode}`);
       }
       await expect(roadmap.getByText('Draft', { exact: true })).toBeVisible();
       await roadmap.getByRole('button', { name: 'Start roadmap', exact: true }).click();
@@ -172,6 +173,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
           timeout: 15000,
         });
         await navigate('Roadmaps');
+        await openRoadmap(page, `AQ ${mode}`);
         if (mode === 'parallel' && sourceId === 'AQ-02') {
           // The entry's own state label; the status list repeats the state beside its reason.
           await expect(
@@ -206,6 +208,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
           await expect(conflicts.getByText('completed', { exact: true })).toBeVisible();
           expect(git(['rev-parse', 'revision-roadmap'], repository)).toBe(targetBefore);
           await navigate('Roadmaps');
+          await openRoadmap(page, `AQ ${mode}`);
         }
         if (sourceId !== sourceIds.at(-1))
           await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toHaveCount(
@@ -221,7 +224,10 @@ for (const mode of ['sequential', 'parallel'] as const) {
       await expect
         .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
         .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-      await roadmap.getByRole('button', { name: 'View revisions' }).click();
+      await roadmap
+        .getByRole('navigation', { name: 'Roadmap pages', exact: true })
+        .getByRole('link', { name: 'History', exact: true })
+        .click();
       await expect(roadmap.getByText(new RegExp(`Revision 1 · AQ ${mode}`))).toBeVisible();
     } finally {
       rmSync(repository, { recursive: true, force: true });

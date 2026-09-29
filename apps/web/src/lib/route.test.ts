@@ -28,8 +28,26 @@ const ROUTES: readonly Route[] = [
   { name: 'inbox', workspaceId: WORKSPACE },
   { name: 'inbox', workspaceId: WORKSPACE, itemId: 'item-9' },
   // Typed focus (R-E1): a roadmap, a settings section, an element to reveal.
-  { name: 'roadmaps', workspaceId: WORKSPACE, roadmapId: 'roadmap-1' },
-  { name: 'roadmaps', workspaceId: WORKSPACE, roadmapId: 'roadmap-1', focus: 'map-reviewers' },
+  { name: 'roadmaps', workspaceId: WORKSPACE },
+  { name: 'roadmaps', workspaceId: WORKSPACE, focus: 'cross-project-imports' },
+  // One roadmap's pages (R-E2).
+  { name: 'roadmap', workspaceId: WORKSPACE, roadmapId: 'roadmap-1', tab: 'board' },
+  { name: 'roadmap', workspaceId: WORKSPACE, roadmapId: 'roadmap-1', tab: 'setup' },
+  { name: 'roadmap', workspaceId: WORKSPACE, roadmapId: 'roadmap-1', tab: 'history' },
+  {
+    name: 'roadmap',
+    workspaceId: WORKSPACE,
+    roadmapId: 'roadmap-1',
+    tab: 'setup',
+    focus: 'map-reviewers-roadmap-roadmap-1',
+  },
+  { name: 'roadmap-map', workspaceId: WORKSPACE, definitionId: 'definition-1' },
+  {
+    name: 'roadmap-map',
+    workspaceId: WORKSPACE,
+    definitionId: 'definition-1',
+    focus: 'runtime-evidence-definition-1-decisions',
+  },
   { name: 'settings', workspaceId: WORKSPACE, roadmapId: 'roadmap-1', focus: 'execution-capacity' },
   { name: 'settings', workspaceId: WORKSPACE, focus: 'roadmap-agent-profiles' },
   { name: 'work-item', workspaceId: WORKSPACE, workItemId: ITEM, focus: 'slices' },
@@ -139,14 +157,6 @@ describe('typed focus (R-E1)', () => {
         focus: 'execution-capacity',
       }),
     ).toBe('/workspaces/workspace-1/settings?roadmap=roadmap%201#execution-capacity');
-    expect(
-      parseRoute('/workspaces/workspace-1/roadmaps', '?roadmap=r-2', '#architecture-decisions-d'),
-    ).toEqual({
-      name: 'roadmaps',
-      workspaceId: WORKSPACE,
-      roadmapId: 'r-2',
-      focus: 'architecture-decisions-d',
-    });
   });
 
   it('ignores focus a route does not take, and malformed values', () => {
@@ -157,6 +167,87 @@ describe('typed focus (R-E1)', () => {
     expect(parseRoute('/workspaces/workspace-1/settings', '', '#%E0%A4%A')).toEqual({
       name: 'settings',
       workspaceId: WORKSPACE,
+    });
+  });
+});
+
+describe('roadmap pages (R-E2)', () => {
+  it('gives each roadmap a board, a setup and a history page, and each imported map its own page', () => {
+    expect(
+      buildPath({ name: 'roadmap', workspaceId: WORKSPACE, roadmapId: 'r 1', tab: 'board' }),
+    ).toBe('/workspaces/workspace-1/roadmaps/r%201');
+    expect(
+      buildPath({ name: 'roadmap', workspaceId: WORKSPACE, roadmapId: 'r-1', tab: 'setup' }),
+    ).toBe('/workspaces/workspace-1/roadmaps/r-1/setup');
+    expect(
+      buildPath({
+        name: 'roadmap',
+        workspaceId: WORKSPACE,
+        roadmapId: 'r-1',
+        tab: 'history',
+        focus: 'map-amendments-r-1',
+      }),
+    ).toBe('/workspaces/workspace-1/roadmaps/r-1/history#map-amendments-r-1');
+    expect(buildPath({ name: 'roadmap-map', workspaceId: WORKSPACE, definitionId: 'd-1' })).toBe(
+      '/workspaces/workspace-1/roadmaps/maps/d-1',
+    );
+  });
+
+  it('degrades an unknown roadmap tab to the board and a bare maps path to the list', () => {
+    expect(parseRoute('/workspaces/workspace-1/roadmaps/r-1/nonsense')).toEqual({
+      name: 'roadmap',
+      workspaceId: WORKSPACE,
+      roadmapId: 'r-1',
+      tab: 'board',
+    });
+    expect(parseRoute('/workspaces/workspace-1/roadmaps/maps')).toEqual({
+      name: 'roadmaps',
+      workspaceId: WORKSPACE,
+    });
+  });
+
+  it('opens a stored link to the old single page on the page that now holds its focus', () => {
+    // Attention items and notification records keep `/roadmaps?roadmap=<id>#<focus>` paths.
+    const legacy = (focus?: string) =>
+      parseRoute(
+        '/workspaces/workspace-1/roadmaps',
+        '?roadmap=r-2',
+        focus === undefined ? '' : `#${focus}`,
+      );
+    expect(legacy()).toEqual({
+      name: 'roadmap',
+      workspaceId: WORKSPACE,
+      roadmapId: 'r-2',
+      tab: 'board',
+    });
+    for (const focus of [
+      'runtime-evidence-roadmap-r-2',
+      'runtime-evidence-roadmap-r-2-native',
+      'runtime-evidence-roadmap-r-2-plan-acceptance',
+      'map-reviewers-roadmap-r-2',
+      'runtime-evidence-roadmap-r-2-decisions',
+      'scope-recovery-r-2',
+    ])
+      expect(legacy(focus), focus).toEqual({
+        name: 'roadmap',
+        workspaceId: WORKSPACE,
+        roadmapId: 'r-2',
+        tab: 'setup',
+        focus,
+      });
+    expect(legacy('map-amendments-r-2')).toEqual({
+      name: 'roadmap',
+      workspaceId: WORKSPACE,
+      roadmapId: 'r-2',
+      tab: 'history',
+      focus: 'map-amendments-r-2',
+    });
+    expect(legacy('roadmap-entry-r-2-e-1')).toEqual({
+      name: 'roadmap',
+      workspaceId: WORKSPACE,
+      roadmapId: 'r-2',
+      tab: 'board',
+      focus: 'roadmap-entry-r-2-e-1',
     });
   });
 });

@@ -1,10 +1,19 @@
 import { effectiveCycleAttention, type WorkCycle } from '@craftingtable/domain';
 import { Link } from '../../lib/navigation.js';
+import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import type { Route } from '../../lib/route.js';
 export function WorkflowStatus({ cycle }: { cycle: WorkCycle }) {
   const workflow = cycle.workflow;
   if (!workflow) return null;
-  const roadmap: Route = { name: 'roadmaps', workspaceId: cycle.workspaceId };
+  const roadmap: Route =
+    cycle.owner?.roadmapId === undefined
+      ? { name: 'roadmaps', workspaceId: cycle.workspaceId }
+      : {
+          name: 'roadmap',
+          workspaceId: cycle.workspaceId,
+          roadmapId: cycle.owner.roadmapId,
+          tab: 'board',
+        };
   return (
     <section aria-label="Controller work and operator questions">
       {workflow.activeReview && (
@@ -40,12 +49,7 @@ export function WorkflowStatus({ cycle }: { cycle: WorkCycle }) {
               <p style={{ whiteSpace: 'pre-wrap' }}>{q.question}</p>
               {q.destination === 'shared-decision' && cycle.executionScope ? (
                 <p>
-                  <Link
-                    route={{
-                      ...roadmap,
-                      focus: `architecture-decisions-${cycle.executionScope.definitionId}`,
-                    }}
-                  >
+                  <Link route={sharedDecisionsRoute(cycle)}>
                     Resolve {q.checkpointId} in Shared architecture decisions
                   </Link>
                   . Save and approve it there so other work items inherit it, then refresh this

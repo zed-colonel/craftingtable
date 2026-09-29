@@ -3531,7 +3531,8 @@ export class RoadmapService {
 
   private attentionItems(tx: StorageRepositories, roadmap: Roadmap): ProjectedItem[] {
     const workspaceId = roadmap.workspaceId;
-    const path = `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps`;
+    // The roadmap's board (R-E2).
+    const path = `/workspaces/${encodeURIComponent(workspaceId)}/roadmaps/${encodeURIComponent(roadmap.id)}`;
     const name = roadmap.definition.name;
     const items: ProjectedItem[] = [];
     // Entries whose only blockers are setup the operator does outside the work item:

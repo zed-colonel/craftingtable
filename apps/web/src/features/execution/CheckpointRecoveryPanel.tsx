@@ -157,7 +157,13 @@ export function CheckpointRecoveryPanel({
             )}
             {(c.prerequisiteCheckpoints?.length ?? 0) > 0 && (
               <p>
-                <Link route={{ name: 'roadmaps', workspaceId: workspaceId as WorkspaceId }}>
+                <Link
+                  route={{
+                    name: 'roadmap-map',
+                    workspaceId: workspaceId as WorkspaceId,
+                    definitionId,
+                  }}
+                >
                   Review prerequisite evidence on the roadmap
                 </Link>{' '}
                 under Dependency environments and evidence, then Submitted evidence. Accept it

@@ -52,7 +52,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-D6](#r-d6) | P4 | L | open | Shared projections keyed by write generation (only if still needed) |
 | **E** | | | | **Progress view and navigation (pain points 2 and 1)** |
 | [R-E1](#r-e1) | P2 | M | done (a07dbfe, 4102517) | Real routes and one Link component |
-| [R-E2](#r-e2) | P2 | M | open | Split the Roadmaps mega-page |
+| [R-E2](#r-e2) | P2 | M | done (2026-09-29, see entry) | Split the Roadmaps mega-page |
 | [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | R-E3a done (2026-09-27); R-E3b open | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
 | [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
 | [R-E5](#r-e5) | P3 | M | open | Consolidate settings and agent selection |
@@ -1243,11 +1243,23 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E2
 
-**Split the Roadmaps mega-page** · Phase P2 · Effort M · Status: open
+**Split the Roadmaps mega-page** · Phase P2 · Effort M · Status: done (2026-09-29)
 
 - **Resolves:** [UI-05](findings/UI-information-architecture.md#ui-05-the-roadmaps-page-is-an-ever-growing-single-document-with-duplicated-panels-and-no-per-roadmap-route), [UI-17](findings/UI-information-architecture.md#ui-17-roadmap-supervision-panels-share-mutable-page-level-dirty-gates-that-disable-unrelated-decisions)
 - **Change:** /roadmaps lists roadmaps (active first, completed under History); /roadmaps/:id is the board and controls; /roadmaps/:id/setup is an ordered checklist (bindings, dependency environment, verification environments, reviewer responsibilities and delegation, automation and agents, plan acceptance); /roadmaps/:id/history holds revisions, amendments and decisions. Remove the duplicate CrossProjectPanel/RuntimeEvidencePanel mounts under ConcurrencyImports; namespace DOM ids.
 - **Done when:** No roadmap page exceeds ~3 desktop screens; each concurrency definition is rendered once.
+- **Done 2026-09-29** (walkthroughs `2026-09-29-roadmaps-split-before`, `-roadmaps-split-after`).
+  - **Routes.** `/roadmaps` lists the roadmaps: active first, finished ones under a closed History, then the map import with one link per imported map. `/roadmaps/:id` is the board (status, controls, status list, entries), `/roadmaps/:id/setup` the setup and `/roadmaps/:id/history` the history, reached from a `Roadmap pages` tab row under the roadmap's header. `/roadmaps/maps/:id` is one imported map.
+  - **Setup** opens with an ordered checklist: bindings, dependency environment, verification environments, reviewer responsibilities and delegation, automation and agents, plan acceptance, then shared architecture decisions. Each step reveals its section. The supervisor, dependency and recovery panels follow.
+  - **History** loads the saved revisions itself (no "View revisions" button) and holds the amendments. Decided architecture decisions stay on their cards in setup, beside the pending ones, rather than on history.
+  - **Each map revision is rendered once.** A map's page offers the supervisor and dependency panels only until a roadmap supervises its current binding revision; then it links to that roadmap's setup, which holds them. The old page mounted them twice, once under the roadmap and once under the imports.
+  - **Ids are namespaced.** The decision cards take the panel's id (`runtime-evidence-roadmap-<id>-decisions`, or `runtime-evidence-<definition>-decisions` on a map page) instead of the definition's, and the recovery panel has `scope-recovery-<id>`.
+  - **Old links still land.** Attention items and notification records keep `/roadmaps?roadmap=<id>#<focus>` paths. The browser opens them on the page that holds the focus (setup for runtime, map, decision, recovery and delegation ids; history for amendments and revisions; the board otherwise), in place, without a document load. The daemon now writes the new paths: a moved pin and a decision preparation open the roadmap's setup at their section, and roadmap-level items its board.
+  - **Links follow the roadmap.** A cycle's "Open roadmap requirements" opens its owning roadmap's board, and its shared-decision questions that roadmap's setup at the decision cards (the map's page when no roadmap owns it). Settings and scheduling links open the roadmap they name.
+  - **The inbox still hosts the whole roadmap**, board, setup and amendments, in its item (`tab="all"`), so the inbox focuses keep working.
+  - **UI-17.** Start and Resume are on the board, and setup drafts live on setup, so a draft no longer disables the board's controls. Leaving setup discards an unsaved draft, as on every other page; inside an inbox item, where both are shown, the draft still holds Start and Resume.
+  - **Tests (each fails without its part):** `RoadmapsPage.test.tsx` (the list renders no roadmap body and links each roadmap and map; the board, setup and history each render only their panels, setup's checklist in order; a setup element on the board is a link to setup; a map page renders the supervisor only while no roadmap supervises its binding revision), `route.test.ts` (the new routes; stored links open the right page), `navigation.test.tsx` (a stored link navigates in place), `WorkflowStatus.test.tsx` (links follow the owning roadmap), and the notification path test. Mutations: a board that also renders setup, a cross-page reveal left as an in-page button, a map page that always mounts the supervisor, and old links all sent to the board each fail their tests.
+  - **e2e and walkthrough.** `openRoadmap` in `e2e/support.ts` opens a roadmap from the list; specs that used the old page, the map selector or "View revisions" follow the new pages. The walkthrough adds three scenes: a roadmap's board, its history, and the list.
 
 ### R-E3
 

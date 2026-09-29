@@ -149,16 +149,18 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .getByLabel('Concurrency map ZIP (up to 8 MiB)')
     .setInputFiles(fixture('cross-stack-concurrency-draft-v0.3.0-aq-baseline-alignment.zip'));
   await maps.getByRole('button', { name: 'Import map ZIP', exact: true }).click();
+  // The imported map opens on its own page (R-E2).
+  const map = page.getByRole('region', { name: 'Imported map', exact: true });
   await expect(
-    maps.getByText('Imported definition · explicit delegation required', { exact: true }),
+    map.getByText('Imported definition · explicit delegation required', { exact: true }),
   ).toBeVisible();
-  const aq = maps
+  const aq = map
     .locator('article.import-binding')
     .filter({ has: page.getByLabel('aq upstream repository') });
   await aq.getByLabel('aq upstream repository').selectOption({ label: 'ActionQueue upstream' });
   await expect(aq.getByText('Unsaved selection — use Save exact bindings below.')).toBeVisible();
   for (const alias of ['wi', 'exo']) {
-    const select = maps.getByLabel(`${alias} plan version`, { exact: true });
+    const select = map.getByLabel(`${alias} plan version`, { exact: true });
     const value = await select
       .locator('option')
       .filter({ hasText: 'exact source match' })
@@ -166,9 +168,9 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     expect(value).toBeTruthy();
     await select.selectOption(value as string);
   }
-  await maps.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
-  await expect(maps.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
-  const runtime = maps.getByRole('region', { name: 'Dependency environments and evidence' });
+  await map.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
+  await expect(map.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
+  const runtime = map.getByRole('region', { name: 'Dependency environments and evidence' });
   await runtime
     .getByText('Configure pinned dependencies and environments', { exact: true })
     .click();
@@ -235,7 +237,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
   await expect(runtime).toBeVisible();
 
-  await expect(maps.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
+  await expect(map.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
   await expect(aq.getByText('Repository selection saved.', { exact: true })).toBeVisible();
   await expect(aq.getByText('Needs resolution', { exact: false })).toHaveCount(0);
   await expect(
@@ -243,11 +245,11 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
       exact: false,
     }),
   ).toBeVisible();
-  await expect(maps.getByRole('button', { name: /start|adopt/i })).toHaveCount(0);
+  await expect(map.getByRole('button', { name: /start|adopt/i })).toHaveCount(0);
   await expect(
-    maps.getByRole('button', { name: 'Approve native verification', exact: true }),
+    map.getByRole('button', { name: 'Approve native verification', exact: true }),
   ).toBeDisabled();
-  const supervisor = maps.getByRole('region', {
+  const supervisor = map.getByRole('region', {
     name: 'Create cross-project roadmap',
     exact: true,
   });
@@ -325,13 +327,10 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
-  await expect(maps).toBeVisible();
+  await expect(map).toBeVisible();
+  // A reload stays on the map's page.
   await page.reload();
-  const select = page.getByLabel('Imported roadmap draft');
-  await select.selectOption({
-    label: 'EXO-STACK-CONCURRENCY-DRAFT-1 · 0.3.0 · 33 parents / 69 slices',
-  });
-  await expect(maps.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
+  await expect(map.getByText('Recorded binding revision: 1.', { exact: false })).toBeVisible();
   await expect(aq.getByText('Repository selection saved.', { exact: true })).toBeVisible();
   await expect(aq.getByText('Needs resolution', { exact: false })).toHaveCount(0);
   await expect(
@@ -339,11 +338,9 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
       exact: false,
     }),
   ).toBeVisible();
-  await maps.getByText('Work items, slices and checkpoint requirements', { exact: true }).click();
-  await maps.getByLabel('Filter map nodes').fill('WI-02/domain');
-  await expect(
-    maps.locator('summary').filter({ hasText: 'wi/WI-02/domain · slice' }),
-  ).toBeVisible();
+  await map.getByText('Work items, slices and checkpoint requirements', { exact: true }).click();
+  await map.getByLabel('Filter map nodes').fill('WI-02/domain');
+  await expect(map.locator('summary').filter({ hasText: 'wi/WI-02/domain · slice' })).toBeVisible();
   await navigate('Projects');
   await page.getByRole('button', { name: 'WorldInterface', exact: true }).click();
   await page.getByRole('button', { name: 'WI-01', exact: true }).first().click();
@@ -410,10 +407,13 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   }
   await navigate('Roadmaps');
   await page
-    .getByLabel('Imported roadmap draft')
-    .selectOption({ label: 'EXO-STACK-CONCURRENCY-DRAFT-1 · 0.3.0 · 33 parents / 69 slices' });
-  await maps.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
-  await expect(maps.getByText('Recorded binding revision: 2.', { exact: false })).toBeVisible();
+    .getByRole('link', {
+      name: 'EXO-STACK-CONCURRENCY-DRAFT-1 · 0.3.0 · 33 parents / 69 slices',
+      exact: true,
+    })
+    .click();
+  await map.getByRole('button', { name: 'Save exact bindings', exact: true }).click();
+  await expect(map.getByText('Recorded binding revision: 2.', { exact: false })).toBeVisible();
   await supervisor
     .getByRole('combobox', { name: 'Planning target', exact: true })
     .selectOption('WI-EMBEDDED-WORKER-PROOF-1');
@@ -449,7 +449,8 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
       exact: true,
     })
     .check();
-  await expect(saved.getByRole('button', { name: 'Start roadmap', exact: true })).toBeDisabled();
+  // A new roadmap opens on its setup; Start is on its board (R-E2).
+  await expect(saved.getByRole('button', { name: 'Start roadmap', exact: true })).toHaveCount(0);
   await expect(
     saved.getByText('Unsaved changes. Save these settings before reviewing the plan or resuming.', {
       exact: false,
@@ -493,6 +494,11 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   await saved.getByRole('button', { name: 'Preview launch readiness', exact: true }).click();
   await expect(saved.getByText(/Eligibility is a snapshot, not a launch promise/)).toBeVisible();
 
+  // Amendments are on the roadmap's history page (R-E2).
+  await saved
+    .getByRole('navigation', { name: 'Roadmap pages', exact: true })
+    .getByRole('link', { name: 'History', exact: true })
+    .click();
   const amendments = saved.getByRole('region', {
     name: 'Planning amendments and finalization',
     exact: true,

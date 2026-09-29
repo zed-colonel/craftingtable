@@ -1,4 +1,5 @@
 import { decisionPreparationDocuments } from './decision-preparation-policy.js';
+import { moveRecords, unrecordedMoves } from './ref-watch.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -218,7 +219,8 @@ export class AgentRunService {
       },
     });
     const detectedAt = this.now().toISOString();
-    this.storage.transaction((tx) => {
+    // The audit stands on its own, so nothing about the records below can lose it.
+    this.storage.transaction((tx) =>
       tx.audit.append({
         id: asAuditEventId(randomUUID()),
         occurredAt: detectedAt,
@@ -232,19 +234,27 @@ export class AgentRunService {
           repositoryId: tree?.repositoryId ?? null,
           moves: moves.map((m) => ({ branch: m.branch, before: m.before, after: m.after })),
         },
+      }),
+    );
+    // Kept until the operator acknowledges it; the inbox shows it until then. A move another
+    // run already recorded is not recorded again, and a large set takes several records.
+    if (tree)
+      this.storage.transaction((tx) => {
+        const fresh = unrecordedMoves(
+          tx.protectedRefs.unacknowledged(workspaceId, tree.repositoryId),
+          moves.map((m) => ({ branch: m.branch, before: m.before, after: m.after })),
+        );
+        for (const chunk of moveRecords(fresh))
+          tx.protectedRefs.add({
+            id: randomUUID(),
+            workspaceId,
+            repositoryId: tree.repositoryId,
+            runId,
+            worktreeId: tree.id,
+            detectedAt,
+            moves: chunk,
+          });
       });
-      // Kept until the operator acknowledges it; the inbox shows it until then.
-      if (tree)
-        tx.protectedRefs.add({
-          id: randomUUID(),
-          workspaceId,
-          repositoryId: tree.repositoryId,
-          runId,
-          worktreeId: tree.id,
-          detectedAt,
-          moves: moves.map((m) => ({ branch: m.branch, before: m.before, after: m.after })),
-        });
-    });
   }
 
   constructor(

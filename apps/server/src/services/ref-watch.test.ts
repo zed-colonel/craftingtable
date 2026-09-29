@@ -1,6 +1,6 @@
 import type { GitOperations, GitResult } from '@craftingtable/git';
 import { expect, it } from 'vitest';
-import { RefWatch } from './ref-watch.js';
+import { moveRecords, RefWatch, unrecordedMoves } from './ref-watch.js';
 
 /** A repository whose refs the test moves, as the daemon or as something else. */
 function fakeRepository() {
@@ -60,4 +60,30 @@ it('does not credit a move to a daemon operation that did not make it (R-G5 revi
   expect(await watch.unexplainedMoves('run-3', daemonGit, ['ct/run'])).toEqual([
     { branch: 'main', before: 'a', after: 'moved-by-agent' },
   ]);
+});
+
+it('records a move once, in records the storage bounds allow (R-G5 review)', () => {
+  const recorded = [
+    {
+      moves: [
+        { branch: 'main', before: 'a', after: 'b' },
+        { branch: 'refs/tags/v1', before: null, after: 't' },
+      ],
+    },
+  ];
+  // Concurrent runs on one repository each see the same outside move; it is recorded once.
+  expect(
+    unrecordedMoves(recorded, [
+      { branch: 'main', before: 'a', after: 'b' },
+      { branch: 'main', before: 'b', after: 'c' },
+    ]),
+  ).toEqual([{ branch: 'main', before: 'b', after: 'c' }]);
+  // A fetch that adds thousands of tags splits into records of at most 1000 moves.
+  const tags = Array.from({ length: 2500 }, (_, i) => ({
+    branch: `refs/tags/t${i}`,
+    before: null,
+    after: 'x',
+  }));
+  expect(moveRecords(tags).map((chunk) => chunk.length)).toEqual([1000, 1000, 500]);
+  expect(moveRecords([])).toEqual([]);
 });

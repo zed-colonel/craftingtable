@@ -167,3 +167,28 @@ export class RefWatch {
     return this.sequence;
   }
 }
+
+type Move = Pick<UnexplainedMove, 'branch' | 'before' | 'after'>;
+
+/**
+ * The moves not already waiting in an unacknowledged record (R-G5 review): runs that overlap on
+ * one repository each see the same outside move, which the operator needs to see once.
+ */
+export function unrecordedMoves(
+  recorded: readonly { readonly moves: readonly Move[] }[],
+  moves: readonly Move[],
+): Move[] {
+  const key = (m: Move) => `${m.branch}\u0000${m.before ?? ''}\u0000${m.after ?? ''}`;
+  const seen = new Set(recorded.flatMap((r) => r.moves.map(key)));
+  return moves.filter((m) => !seen.has(key(m)));
+}
+
+/** Most moves one record holds; a larger set (a fetch of many tags) takes several. */
+const MOVES_PER_RECORD = 1000;
+
+export function moveRecords(moves: readonly Move[]): Move[][] {
+  const records: Move[][] = [];
+  for (let at = 0; at < moves.length; at += MOVES_PER_RECORD)
+    records.push(moves.slice(at, at + MOVES_PER_RECORD));
+  return records;
+}

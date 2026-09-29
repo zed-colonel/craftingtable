@@ -26,15 +26,17 @@ export function AcknowledgeMoves({
     setBusy(true);
     setError('');
     try {
-      await request(
-        `/api/workspaces/${encodeURIComponent(workspaceId)}/protected-ref-moves/acknowledge`,
-        acknowledgeProtectedRefMovesResponseSchema,
-        {
-          method: 'POST',
-          headers: { 'x-craftingtable-csrf': csrfToken },
-          body: JSON.stringify({ moveIds }),
-        },
-      );
+      // The daemon takes at most 1000 ids a request; a larger item goes in turns.
+      for (let at = 0; at < moveIds.length; at += 1000)
+        await request(
+          `/api/workspaces/${encodeURIComponent(workspaceId)}/protected-ref-moves/acknowledge`,
+          acknowledgeProtectedRefMovesResponseSchema,
+          {
+            method: 'POST',
+            headers: { 'x-craftingtable-csrf': csrfToken },
+            body: JSON.stringify({ moveIds: moveIds.slice(at, at + 1000) }),
+          },
+        );
       onDone();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'The moves could not be acknowledged.');

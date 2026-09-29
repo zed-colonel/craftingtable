@@ -41,6 +41,31 @@ it('acknowledges exactly the moves the item showed, and reports a refusal (R-G5)
   expect(done).toHaveBeenCalledTimes(1);
 });
 
+it('acknowledges a large item in requests the daemon accepts (R-G5 review)', async () => {
+  const fetch = vi.fn(
+    async () => new Response(JSON.stringify({ acknowledged: 1 }), { status: 200 }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const done = vi.fn();
+  const ids = Array.from({ length: 2300 }, (_, i) => `m-${i}`);
+  render(
+    <AcknowledgeMoves
+      workspaceId={asWorkspaceId('ws')}
+      moveIds={ids}
+      csrfToken="token"
+      canMutate
+      onDone={done}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Acknowledge 2300 moves' }));
+  await waitFor(() => expect(done).toHaveBeenCalledTimes(1));
+  const sent = fetch.mock.calls.map(
+    (call) => JSON.parse((call as unknown as [string, { body: string }])[1].body).moveIds,
+  );
+  expect(sent.map((batch: string[]) => batch.length)).toEqual([1000, 1000, 300]);
+  expect(sent.flat()).toEqual(ids);
+});
+
 it('offers nothing to a viewer', () => {
   render(
     <AcknowledgeMoves

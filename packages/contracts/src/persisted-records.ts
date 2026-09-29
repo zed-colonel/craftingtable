@@ -80,7 +80,7 @@ export const protectedRefMoveSchema = equivalentSchema<ProtectedRefMove>()(
       moves: z
         .array(
           z.strictObject({
-            branch: z.string().min(1).max(1024),
+            branch: z.string().min(1).max(4096),
             before: gitShaSchema.nullable(),
             after: gitShaSchema.nullable(),
           }),

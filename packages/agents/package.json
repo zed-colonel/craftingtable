@@ -12,6 +12,7 @@
     }
   },
   "dependencies": {
-    "@craftingtable/domain": "workspace:*"
+    "@craftingtable/domain": "workspace:*",
+    "yaml": "2.9.0"
   }
 }

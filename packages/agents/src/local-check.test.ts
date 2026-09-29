@@ -745,3 +745,48 @@ it('keeps no more of a check log than the daemon allows (R-G4 review)', async ()
   expect(outcome.logBytes).toBeLessThan(200);
   expect(readFileSync(logPath, 'utf8')).toContain('log truncated');
 });
+
+it('refuses a workflow whose jobs declare containers, services, reusable workflows or docker:// steps (R-G4 review)', () => {
+  const f = fixture();
+  const workflows = join(f.m.workspacePath, '.github/workflows');
+  mkdirSync(workflows, { recursive: true });
+  const localCi = {
+    actExecutable: '/usr/bin/act',
+    dockerExecutable: '/usr/bin/docker',
+    dockerHost: 'unix:///run/user/1000/docker.sock',
+    image: `image@sha256:${'a'.repeat(64)}`,
+    cacheRoot: join(f.root, 'cache'),
+  };
+  const args = (text: string) => {
+    writeFileSync(join(workflows, 'ci.yml'), text);
+    return () =>
+      localActArguments(
+        { ...f.m, localCi },
+        f.launcher.manifestPath,
+        ['-W', '.github/workflows/ci.yml'],
+        f.directory,
+      );
+  };
+  const plain =
+    'name: CI\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: cargo test\n';
+  expect(args(plain)).not.toThrow();
+  for (const [key, text] of [
+    [
+      'container',
+      `${plain.replace('    steps:', '    container:\n      image: x\n      options: -v /home:/h\n    steps:')}`,
+    ],
+    [
+      'services',
+      `${plain.replace('    steps:', '    services:\n      db:\n        image: x\n    steps:')}`,
+    ],
+    ['uses', 'name: CI\non: push\njobs:\n  call:\n    uses: ./.github/workflows/other.yml\n'],
+    ['docker://', `${plain}      - uses: docker://alpine\n`],
+    // An alias cannot hide one.
+    [
+      'container',
+      'name: CI\non: push\nx: &c\n  image: x\njobs:\n  test:\n    runs-on: ubuntu-latest\n    container: *c\n    steps:\n      - run: true\n',
+    ],
+  ])
+    expect(args(text), key).toThrow(key);
+  expect(args('jobs: [unclosed')).toThrow('could not be read');
+});

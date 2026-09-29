@@ -457,7 +457,9 @@ there and creates each reply file exclusively. `CRAFTINGTABLE_CHECK_CONFINEMENT=
 plain process group instead (tests, or a host without a user manager). `ct-act` goes the same way: act
 runs in a daemon unit with the same file-system limits plus the CI cache, network allowed (act fetches
 actions itself; job containers reach Docker's network regardless), and a HOME and working directory the
-daemon owns, so an agent cannot plant an `.actrc`. One act per workflow and Docker host runs at a time
+daemon owns, so an agent cannot plant an `.actrc`. It refuses a workflow whose jobs declare `container`,
+`services` or a reusable workflow, or use a `docker://` step, because those can bind host paths through
+Docker. One act per workflow and Docker host runs at a time
 through an in-daemon queue; the wait counts against the check's time limit. `ct-native` is a request
 too: the daemon starts the approved native unit (ADR-054's limits, unchanged) with a HOME and TMPDIR it
 owns. Pinned Cargo's build commands are requests too: the daemon checks the resolved graph and runs the

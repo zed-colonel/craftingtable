@@ -25,7 +25,10 @@ invalidates prior review evidence.
 The agent receives `ct-check` for repository-owned checks and `ct-act` for one repository workflow
 and optional job. (2026-09-28, R-G4: `ct-check` is a request to the daemon, which runs the command in
 a confined user unit and records the receipt in its database; receipts an agent can write no longer
-satisfy a scoped gate. See `docs/security.md`.) These are process adapters inside an already authorized agent run, not browser
+satisfy a scoped gate. See `docs/security.md`.) ct-act runs in the daemon too, and it refuses a
+workflow whose jobs declare `container`, `services` or a reusable workflow, or use a `docker://`
+step (operator decision, 2026-09-28): such jobs could bind host paths through Docker without the
+escalation a sandboxed agent needed. These are process adapters inside an already authorized agent run, not browser
 command endpoints. A separate named adapter owns this authority. Local CI uses operator-configured
 executables, a Unix Docker socket, image digest and cache location. Rootless Docker is preferred.
 The runner receives exact dependency configuration and sources; scripts must consume that config.

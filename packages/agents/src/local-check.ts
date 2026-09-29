@@ -15,6 +15,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { parse as parseYaml } from 'yaml';
 import type { PinnedCargoManifest } from './pinned-cargo.js';
 
 // Generated launchers also run directly from TypeScript in adapter tests.
@@ -193,6 +194,36 @@ function verifySources(m: PinnedCargoManifest) {
     )
       throw new Error(`Supplied dependency source changed: ${f.path}`);
 }
+/**
+ * Refuses a workflow whose jobs could reach the host through Docker (R-G4 review, operator
+ * decision 2026-09-28): a job `container` or `services` can bind host paths into a job, a
+ * reusable workflow (`uses` on a job) brings jobs this check cannot see, and a `docker://` step
+ * runs an arbitrary image. The daemon runs act without the escalation a sandboxed agent needed.
+ */
+function refuseHostReachingJobs(text: string): void {
+  let workflow: unknown;
+  try {
+    workflow = parseYaml(text, { maxAliasCount: 100 });
+  } catch {
+    throw new Error('The workflow could not be read as YAML.');
+  }
+  // A workflow without a jobs mapping runs nothing; act reports it.
+  const jobs = (workflow as { jobs?: unknown } | null)?.jobs;
+  if (!jobs || typeof jobs !== 'object' || Array.isArray(jobs)) return;
+  for (const [name, job] of Object.entries(jobs as Record<string, unknown>)) {
+    const j = (job ?? {}) as Record<string, unknown>;
+    for (const key of ['container', 'services', 'uses'])
+      if (key in j)
+        throw new Error(
+          `Job ${name} declares \`${key}\`; local CI does not run jobs that reach the host through Docker.`,
+        );
+    const steps = Array.isArray(j.steps) ? (j.steps as Record<string, unknown>[]) : [];
+    if (steps.some((step) => String(step?.uses ?? '').startsWith('docker://')))
+      throw new Error(
+        `Job ${name} uses a docker:// step; local CI does not run jobs that reach the host through Docker.`,
+      );
+  }
+}
 export function localActArguments(
   m: PinnedCargoManifest,
   manifestPath: string,
@@ -216,6 +247,7 @@ export function localActArguments(
   const file = join(m.workspacePath, workflow);
   if (!lstatSync(file).isFile() || realpathSync(file) !== resolve(file))
     throw new Error('Workflow must be an ordinary repository file.');
+  refuseHostReachingJobs(readFileSync(file, 'utf8'));
   const runDirectory = dirname(dirname(manifestPath));
   if ([runDirectory, m.workspacePath].some((p) => /[\s,:]/.test(p) || p.includes('\0')))
     throw new Error('Local CI mount paths cannot contain whitespace, colons or commas.');

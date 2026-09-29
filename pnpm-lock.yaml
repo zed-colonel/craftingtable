@@ -103,6 +103,9 @@ importers:
       '@craftingtable/domain':
         specifier: workspace:*
         version: link:../domain
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
 
   packages/contracts:
     dependencies:

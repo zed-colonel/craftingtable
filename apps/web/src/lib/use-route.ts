@@ -23,7 +23,11 @@ export function useRoute(): {
 
   useEffect(() => {
     // A fragment followed in place (an in-page anchor) is a new focus, not a new page.
-    const onChange = (): void => setRoute(current());
+    // A fragment click fires both events; the route changes once.
+    const onChange = (): void => {
+      const next = current();
+      setRoute((previous) => (buildPath(previous) === buildPath(next) ? previous : next));
+    };
     window.addEventListener('popstate', onChange);
     window.addEventListener('hashchange', onChange);
     return () => {

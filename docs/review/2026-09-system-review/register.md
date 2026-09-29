@@ -1164,7 +1164,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E1
 
-**Real routes and one Link component** · Phase P2 · Effort M · Status: code complete (2026-09-28), awaiting review
+**Real routes and one Link component** · Phase P2 · Effort M · Status: done (2026-09-28)
 
 - **Resolves:** [UI-07](findings/UI-information-architecture.md#ui-07-navigation-bypasses-the-router-35-of-49-in-app-links-force-full-reloads-and-deep-link-state-lives-in-ad-hoc-hashquery-parsing), [UI-08](findings/UI-information-architecture.md#ui-08-dead-ends-blockers-that-tell-the-operator-to-go-elsewhere-without-a-link-generic-landing-pages-and-deep-links-that-silently-do-nothing)
 - **Change:** Extend Route with sub-routes and typed focus parameters (inbox item, roadmap id/tab/focus, settings section); add <Link route=...> and replace the 35 raw in-app hrefs (which reload the page and drop drafts); remove per-component hash/query parsing and cross-page revealElement; a test that bans raw in-app hrefs.
@@ -1178,6 +1178,22 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - `links.test.ts` parses every component's JSX and fails on an `<a>` whose `href` is an in-app path, a `buildPath` call, or a path it cannot see (a variable, a property, a template starting with a value). It found 38 before the change.
     - `route.test.ts`: round trips with roadmap and focus; malformed values are ignored.
     - `navigation.test.tsx`: an ordinary click prevents the document load and navigates, and removing that fails it; a modifier click and a handler that takes over are left alone; a path is read as a route; a focus is revealed in a panel that mounts later, inside a closed disclosure.
+- **Independent review of R-E1 (2026-09-28).** An adversarial reviewer in an isolated worktree reviewed a07dbfe, with jsdom tests and live Chromium against the e2e daemon. No in-app navigation loaded the document (0 page loads across a content link and Back). Its reproductions are now the regression tests `navigation-review.test.tsx`, `DesignRecoveryPanel.clarify.test.tsx` and `e2e/deep-links.spec.ts`; each failed at af86f70.
+  - *HIGH, fixed:* a focus was revealed as soon as its target mounted, and panels above it that loaded later pushed it down. `/settings#execution-capacity` landed 602 px down a 900 px view (about 16 px before R-E1). `revealElement` now keeps the target at the top while the page settles (3 s, or until the operator scrolls, types or clicks), and returns a cancel. The e2e spec requires both settings deep links to land within 200 px, and no document load.
+  - *MEDIUM, fixed:*
+    - The clarification draft ran again whenever the focus returned (an in-page anchor, then Back) and replaced an edited draft. It is now consumed once per cycle and link.
+    - It compared the decoded focus with an encoded checkpoint id, so an id with a space never got its draft. It now compares the id itself.
+  - *LOW, fixed:*
+    - A pending reveal outlived its route. It is cancelled on navigation, so a later page's `#slices` is not stolen.
+    - `PathLink` rewrote external URLs and parts a route does not carry. Anything that is not exactly an in-app route stays a plain anchor, and a malformed path no longer throws.
+    - The ban test missed calls, ternaries, concatenations and spreads. Any `href` it cannot read is now in-app unless it is a named download helper, and spreads on `<a>` are flagged. All four of the reviewer's shapes are caught.
+    - A fragment click fired both `popstate` and `hashchange`, and each replaced the route. An unchanged address now keeps the same route.
+  - *NIT, fixed:*
+    - `?roadmap=` was decoded twice.
+    - Handlers now see only plain clicks, so a new-tab click on an inbox link opens a new tab.
+    - The settings panels follow an in-place change of `?roadmap=`.
+    - The reveal is keyed on the whole address, so a new arrival at the same focus reveals again.
+  - *NIT, disposition:* the `host-scheduling` alias reveals twice (an empty span, then the section). It is harmless. The register's claim that every change has a test is corrected: the alias has none.
 
 ### R-E2
 

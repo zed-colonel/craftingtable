@@ -96,8 +96,10 @@ export function Link({
       className={className}
       href={buildPath(route)}
       onClick={(event) => {
+        // A new-tab or modified click is the browser's; handlers see only plain clicks.
+        if (browserHandles(event)) return;
         onClick?.(event);
-        if (!navigation || browserHandles(event)) return;
+        if (!navigation || event.defaultPrevented) return;
         event.preventDefault();
         navigation.navigate(route);
       }}
@@ -120,12 +122,17 @@ export function PathLink({
   readonly children: ReactNode;
   readonly className?: string;
 }) {
-  const url = new URL(path, 'http://craftingtable.invalid');
+  const route = inAppRoute(path);
+  // Anything that is not exactly an in-app route (another site, a part the route does not
+  // carry, a malformed address) stays a plain anchor (R-E1 review).
+  if (!route)
+    return (
+      <a href={path} {...(className ? { className } : {})}>
+        {children}
+      </a>
+    );
   return (
-    <Link
-      route={parseRoute(url.pathname, url.search, url.hash)}
-      {...(className ? { className } : {})}
-    >
+    <Link route={route} {...(className ? { className } : {})}>
       {children}
     </Link>
   );
@@ -138,7 +145,23 @@ export function PathLink({
  */
 export function useRevealRouteFocus(route: Route): void {
   const focus = 'focus' in route ? route.focus : undefined;
+  // Each arrival at a route with a focus reveals it, and moving on cancels a pending reveal.
+  const address = focus === undefined ? undefined : buildPath(route);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the address names the focus too.
   useEffect(() => {
-    if (focus !== undefined) revealElement(focus);
-  }, [focus]);
+    if (focus === undefined) return;
+    return revealElement(focus);
+  }, [address]);
+}
+
+/** The route a path names, when building that route gives back the same path. */
+function inAppRoute(path: string): Route | undefined {
+  if (!path.startsWith('/') || path.startsWith('//')) return undefined;
+  try {
+    const url = new URL(path, 'http://craftingtable.invalid');
+    const route = parseRoute(url.pathname, url.search, url.hash);
+    return buildPath(route) === `${url.pathname}${url.search}${url.hash}` ? route : undefined;
+  } catch {
+    return undefined;
+  }
 }

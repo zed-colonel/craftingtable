@@ -38,6 +38,7 @@ export function InboxPage({
       className={className}
       route={route}
       onClick={(event) => {
+        // Isolated tests render without the app's navigation; in the app this is `go`.
         event.preventDefault();
         onNavigate(route);
       }}

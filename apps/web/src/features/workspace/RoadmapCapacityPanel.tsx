@@ -20,6 +20,10 @@ export function RoadmapCapacityPanel({
   const [data, setData] = useState<RoadmapCapacities>();
   const routeRoadmap = useRouteRoadmap();
   const [selected, setSelected] = useState(() => routeRoadmap ?? '');
+  // A link to another roadmap's settings, followed in place, selects it (R-E1 review).
+  useEffect(() => {
+    if (routeRoadmap) setSelected(routeRoadmap);
+  }, [routeRoadmap]);
   const [draft, setDraft] = useState<{
     roadmapId: string;
     maxInFlight: string;

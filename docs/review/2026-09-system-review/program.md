@@ -466,10 +466,10 @@ independent review; every finding is fixed or its disposition is recorded in reg
   5. **Deploy the P2 line.** Schema 32 rebuilds the attention items, then do the notification checks below. The live roadmap stays paused while R-E3a is checked against it. **Deployed by the operator 2026-09-28**; the first day found LIVE-09 to LIVE-13.
   5a. **R-C14 and R-C15.** Fix LIVE-09 to LIVE-13 as one batch. **Done 2026-09-28, not merged or deployed.**
   6. **R-C5 increments 3 to 5, then R-C3b.** These remove the largest operator-stop causes (HIST-03, HIST-04) once the stops are visible. **Done 2026-09-28, not merged or deployed** (R-C3b's done-when is measured after deploy).
-  7. **The rest of P2, proposed order (2026-09-28, for the operator to confirm):**
-     1. **R-G4** (daemon-owned receipts): agents can still forge the receipts that gate integration (SEC-01), R-C6 depends on it, and it should take over CI execution and its lock from a2bb20a (LIVE-03).
-     2. **R-G5** (agent environment isolation): supervised runs inherit the operator's environment, hooks, skills and MCP servers (SEC-02, SEC-03). Together with R-G4 it closes the open security findings before more delegation is automated.
-     3. **R-E1, then R-E2** (routes; split the Roadmaps page): two P2 exit criteria depend on them (no reloads; the inbox deep-links). The Roadmaps page is now over 7,000 px tall on the desktop capture, and R-E3b's board needs its own route.
+  7. **The rest of P2, in order (proposed 2026-09-28, approved by the operator the same day):**
+     1. **R-G4** (daemon-owned receipts): agents can still forge the receipts that gate integration (SEC-01), R-C6 depends on it, and it should take over CI execution and its lock from a2bb20a (LIVE-03). **Done 2026-09-28** (not merged or deployed).
+     2. **R-G5** (agent environment isolation): supervised runs inherit the operator's environment, hooks, skills and MCP servers (SEC-02, SEC-03). Together with R-G4 it closes the open security findings before more delegation is automated. **Done 2026-09-28** (not merged or deployed).
+     3. **R-E1, then R-E2** (routes; split the Roadmaps page): two P2 exit criteria depend on them (no reloads; the inbox deep-links). The Roadmaps page is now over 7,000 px tall on the desktop capture, and R-E3b's board needs its own route. **R-E1 done 2026-09-28; R-E2 next.**
      4. **R-D4, then R-D5** (query store; server view models): the remaining P2 exit criteria (an idle tab makes no requests; the work-item page's request count).
      5. **R-G9, R-I9, then R-H4, R-I4, R-G6.** Auth hardening beyond the landed guard, e2e specs in their own workspaces so the gate can use more workers, then storage weight, structural test boundaries and brief redesign.
 - **Gate at the head:** `pnpm check` passes in one run. 187 test files and 1,494 unit tests, 20 e2e tests,

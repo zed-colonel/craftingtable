@@ -5,7 +5,7 @@ import type {
   RecoverDesignRequest,
 } from '@craftingtable/contracts';
 import type { AgentBackendKind, WorkCycle } from '@craftingtable/domain';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { previewDesignRecovery, recoverDesign } from '../../lib/work-cycle-api.js';
@@ -59,12 +59,10 @@ export function DesignRecoveryPanel({
       setPreview(next);
       if (
         clarifyCheckpoint &&
-        next.decisionInbox?.decisions.some(
-          (c) => encodeURIComponent(c.checkpointId) === clarifyCheckpoint,
-        )
+        next.decisionInbox?.decisions.some((c) => c.checkpointId === clarifyCheckpoint)
       ) {
         const card = next.decisionInbox.decisions.find(
-          (c) => encodeURIComponent(c.checkpointId) === clarifyCheckpoint,
+          (c) => c.checkpointId === clarifyCheckpoint,
         )!;
         setMode('investigate');
         setInstructions(
@@ -78,11 +76,18 @@ export function DesignRecoveryPanel({
     }
   };
   // Navigation prepares a clarification draft only; starting an agent remains explicit.
+  // The route's focus is already decoded. Each clarification link is consumed once per cycle:
+  // following an in-page anchor and coming Back must not replace an edited draft (R-E1 review).
   const focus = useRouteFocus();
+  const consumed = useRef(new Set<string>());
   // biome-ignore lint/correctness/useExhaustiveDependencies: consume this navigation once for the selected cycle.
   useEffect(() => {
     const prefix = 'clarify-architecture-';
-    if (focus?.startsWith(prefix)) void discover(focus.slice(prefix.length));
+    if (!focus?.startsWith(prefix)) return;
+    const key = `${cycle.id}:${focus}`;
+    if (consumed.current.has(key)) return;
+    consumed.current.add(key);
+    void discover(focus.slice(prefix.length));
   }, [cycle.id, focus]);
   return (
     <section id="design-recovery" aria-label="Resolve design questions" className="stack">

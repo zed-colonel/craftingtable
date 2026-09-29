@@ -38,27 +38,38 @@ function components(directory: string): string[] {
   });
 }
 
-/** Whether an `href` value leads somewhere inside the app. */
+/** Helpers that build API downloads, not pages; any other call is treated as an in-app path. */
+const DOWNLOAD_HELPERS = new Set(['archiveDownloadPath', 'buildRecordDownload']);
+
+/** Whether a string's start makes it a page inside the app. */
+const appPath = (text: string) => text.startsWith('/') && !text.startsWith('/api/');
+
+/**
+ * Whether an `href` value may lead somewhere inside the app. Anything the check cannot read
+ * counts as in-app (R-E1 review): a value it cannot see is exactly where a reload hides.
+ */
 function inApp(value: Node): boolean {
   const expression =
     value.type === 'JSXExpressionContainer' ? (value.expression as Node) : (value as Node);
-  if (expression.type === 'Literal' && typeof expression.value === 'string')
-    return expression.value.startsWith('/') && !expression.value.startsWith('/api/');
-  if (expression.type === 'TemplateLiteral') {
-    const first = ((expression.quasis as Node[])[0]?.value as { raw: string } | undefined)?.raw;
-    // A template that starts with a value (`${base}/…`) hides where it leads: use `Link`,
-    // `PathLink`, or a named download helper.
-    if (first === '') return true;
-    return (first ?? '').startsWith('/') && !(first ?? '').startsWith('/api/');
+  switch (expression.type) {
+    case 'Literal':
+      return typeof expression.value === 'string' && appPath(expression.value);
+    case 'TemplateLiteral': {
+      const first = ((expression.quasis as Node[])[0]?.value as { raw: string } | undefined)?.raw;
+      // A template that starts with a value (`${base}/…`) hides where it leads.
+      return first === '' || appPath(first ?? '');
+    }
+    case 'CallExpression': {
+      const callee = expression.callee as Node;
+      return !(callee.type === 'Identifier' && DOWNLOAD_HELPERS.has(callee.name as string));
+    }
+    case 'ConditionalExpression':
+      return inApp(expression.consequent as Node) || inApp(expression.alternate as Node);
+    case 'BinaryExpression':
+      return inApp(expression.left as Node);
+    default:
+      return true;
   }
-  // A path held in a variable or property: `PathLink` reads it as a route.
-  if (expression.type === 'Identifier' || expression.type === 'MemberExpression') return true;
-  if (expression.type === 'CallExpression')
-    return (
-      (expression.callee as Node).type === 'Identifier' &&
-      (expression.callee as Node).name === 'buildPath'
-    );
-  return false;
 }
 
 function rawInAppLinks(file: string): string[] {
@@ -70,6 +81,13 @@ function rawInAppLinks(file: string): string[] {
       const opening = node.openingElement as Node;
       if ((opening.name as Node).type === 'JSXIdentifier' && (opening.name as Node).name === 'a')
         for (const attribute of (opening.attributes as Node[]) ?? []) {
+          // Spread props can carry an href the check cannot see.
+          if (attribute.type === 'JSXSpreadAttribute') {
+            found.push(
+              `${relative(root, file)}:${source.slice(0, node.start as number).split('\n').length}`,
+            );
+            continue;
+          }
           if ((attribute.name as Node | undefined)?.name !== 'href' || !attribute.value) continue;
           if (inApp(attribute.value as Node)) {
             const line = source.slice(0, node.start as number).split('\n').length;

@@ -35,6 +35,10 @@ export function RoadmapAgentProfilesPanel({
   const [data, setData] = useState<RoadmapAgents>();
   const routeRoadmap = useRouteRoadmap();
   const [selected, setSelected] = useState(() => routeRoadmap ?? '');
+  // A link to another roadmap's settings, followed in place, selects it (R-E1 review).
+  useEffect(() => {
+    if (routeRoadmap) setSelected(routeRoadmap);
+  }, [routeRoadmap]);
   const [target, setTarget] = useState('all');
   const [draft, setDraft] = useState<{
     version: number;

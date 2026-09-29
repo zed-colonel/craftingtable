@@ -92,7 +92,8 @@ function isAgendaFilter(value: string | undefined): value is AgendaFilter {
 export function parseRoute(pathname: string, search = '', hash = ''): Route {
   const route = parsePath(pathname);
   const focus = decode(hash.startsWith('#') ? hash.slice(1) : hash);
-  const roadmapId = decode(new URLSearchParams(search).get('roadmap') ?? undefined);
+  // URLSearchParams has already decoded the value; decoding again would lose a `%`.
+  const roadmapId = new URLSearchParams(search).get('roadmap') || undefined;
   switch (route.name) {
     case 'roadmaps':
     case 'settings':

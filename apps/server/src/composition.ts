@@ -154,6 +154,7 @@ export async function createServices(
         'claude-code',
         new ClaudeCodeBackend({
           executable: claude,
+          allowEnvironment: config.execution.agentEnvironmentAllow,
           models: parseModelList(config.execution.claudeModels, CLAUDE_CODE_MODELS),
         }),
       );
@@ -166,6 +167,7 @@ export async function createServices(
         'codex',
         new CodexBackend({
           executable: codex,
+          allowEnvironment: config.execution.agentEnvironmentAllow,
           models: parseModelList(config.execution.codexModels, CODEX_MODELS),
         }),
       );

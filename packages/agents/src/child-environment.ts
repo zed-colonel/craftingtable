@@ -32,3 +32,34 @@ export function allowlistedEnvironment(
   }
   return environment;
 }
+
+/** What an agent needs to reach its vendor through a proxy or a private CA. */
+const NETWORK_VARIABLES = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'no_proxy',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'NODE_EXTRA_CA_CERTS',
+] as const;
+
+/**
+ * An agent's environment (R-G5, SEC-02, AGT-04): the named variables of `source`, the vendor's
+ * own login variables (`vendor`), any names the operator allowed (`extra`), then the run's
+ * overlay the daemon computed, with the run's directories ahead of PATH. Nothing else of the
+ * daemon's environment reaches the agent.
+ */
+export function agentEnvironment(
+  source: NodeJS.ProcessEnv,
+  vendor: readonly string[],
+  extra: readonly string[],
+  overlay: Readonly<Record<string, string>> = {},
+  pathPrefix: readonly string[] = [],
+): Record<string, string> {
+  const base = allowlistedEnvironment(source, [...NETWORK_VARIABLES, ...vendor, ...extra]);
+  const path = [...pathPrefix, overlay.PATH ?? base.PATH ?? ''].filter(Boolean).join(':');
+  return { ...base, ...overlay, ...(path ? { PATH: path } : {}) };
+}

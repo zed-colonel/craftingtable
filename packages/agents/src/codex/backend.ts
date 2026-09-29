@@ -12,7 +12,10 @@ import { CodexSession } from './session.js';
 
 export interface CodexBackendOptions {
   readonly executable: string;
+  /** Where the child's named variables come from; only allowlisted names pass (R-G5). */
   readonly env?: NodeJS.ProcessEnv;
+  /** Further variable names the operator lets through (`CRAFTINGTABLE_AGENT_ENV_ALLOW`). */
+  readonly allowEnvironment?: readonly string[];
   readonly terminationGraceMs?: number;
   readonly requestTimeoutMs?: number;
   readonly models?: readonly AgentModelOption[];

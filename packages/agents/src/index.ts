@@ -13,7 +13,7 @@ export {
   type CheckOutcome,
   type LocalCiConfig,
 } from './local-check.js';
-export { allowlistedEnvironment } from './child-environment.js';
+export { agentEnvironment, allowlistedEnvironment } from './child-environment.js';
 export {
   CheckReply,
   claimCheckRequest,
@@ -48,7 +48,15 @@ import type {
 export interface AgentLaunchRequest {
   /** Controller-only preparation: disable write and escalation tools. */
   readonly readOnly?: boolean;
+  /** Where the run's launchers are; the daemon puts them on `pathPrefix`. */
   readonly buildEnvironment?: { readonly binDirectory: string; readonly namespace?: string };
+  /**
+   * The run's own variables (scratch space, build cache, run namespace), computed by the daemon
+   * (R-G5, AGT-04). Adapters start the agent from named variables only, add these, and put
+   * `pathPrefix` ahead of PATH; they decide nothing else about the environment.
+   */
+  readonly environment?: Readonly<Record<string, string>>;
+  readonly pathPrefix?: readonly string[];
   /** Absolute worktree path used as the agent's working directory. */
   readonly cwd: string;
   /** Controller-owned scratch directory, outside the Git worktree. */

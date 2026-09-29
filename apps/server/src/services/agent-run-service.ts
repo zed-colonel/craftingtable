@@ -1353,6 +1353,17 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         cwd: prepared.worktree.path,
         temporaryDirectory,
         ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
+        // The run's own variables (R-G5, AGT-04): its scratch space, the worktree's build cache
+        // (R-G7) and, with a pinned environment, its launchers ahead of PATH. The adapter adds
+        // them to named variables only.
+        environment: {
+          TMPDIR: temporaryDirectory,
+          TMP: temporaryDirectory,
+          TEMP: temporaryDirectory,
+          CARGO_TARGET_DIR: buildCacheDirectory ?? join(temporaryDirectory, 'target'),
+          ...(pinned ? { CRAFTINGTABLE_RUN_NAMESPACE: runId } : {}),
+        },
+        ...(pinned ? { pathPrefix: [pinned.binDirectory] } : {}),
         ...(cycle
           ? { deadlineAt: cycle.runDeadlineAt }
           : preparation

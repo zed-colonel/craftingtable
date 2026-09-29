@@ -1614,11 +1614,39 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G5
 
-**Agent environment and configuration isolation** · Phase P2 · Effort M · Status: open
+**Agent environment and configuration isolation** · Phase P2 · Effort M · Status: in progress (design approved 2026-09-28)
 
 - **Resolves:** [SEC-02](findings/AGT-GIT-SEC-agents-git-security.md#sec-02-agent-confinement-is-cooperative-in-practice-inherited-desktop-environment-routine-sandbox-escalation-docker-socket), [SEC-03](findings/AGT-GIT-SEC-agents-git-security.md#sec-03-daemon-git-calls-execute-repository-controlled-hooks-and-config-the-existing-hardening-is-unused), [AGT-14](findings/AGT-GIT-SEC-agents-git-security.md#agt-14-supervised-agents-inherit-the-operators-personal-claudecodex-configuration-hooks-plugins-skills-memory-mcp), [GIT-08](findings/AGT-GIT-SEC-agents-git-security.md#git-08-daemon-authored-commits-and-merges-run-repository-hooks-outside-agent-supervision)
 - **Change:** Build the child environment from an allowlist in one place; run agents with isolated Claude/Codex configuration (no operator hooks, plugins, skills, memory or MCP unless declared); lay out the sandbox so ordinary commits and loopback tests need no escalation; disable repository hooks/fsmonitor for daemon Git operations; snapshot protected refs before/after each run and flag unexpected moves.
 - **Done when:** A run's environment contains only allowlisted variables; supervised Claude runs do not load the operator's skills.
+- **Design, decided by the operator 2026-09-28.**
+  - **What the survey and probes found.**
+    - Agents inherit the daemon's whole environment: D-Bus, Wayland/X11, Hyprland, `XDG_RUNTIME_DIR` with the Docker socket, `GUM_*`, the mise activation variables.
+    - A headless Claude run with the operator's settings loads 47 skills, the superpowers plugin and its SessionStart hook, the claude.ai Docs and Drive MCP connectors, and auto-memory. With `--setting-sources project,local --strict-mcp-config --disable-slash-commands --settings '{"autoMemoryEnabled":false}'` it loads none of them (checked on the CLI's init event). `--bare` is out, because it refuses OAuth.
+    - Codex loads `node_repl` from `~/.codex/config.toml`, `cua_repl` and `codex_app` from plugins, and two user skills. `--disable plugins`, `--disable apps`, `--disable hooks`, `--disable memories`, `-c mcp_servers.<name>.enabled=false` and `-c skills.config=[{name,enabled=false}]` remove them all (checked with the app-server's `skills/list` and `mcpServerStatus/list`). Only Codex's own system skills remain.
+    - Both agents sign in through OAuth files under HOME, and Codex refreshes its `auth.json` in place. A separate config directory would break token refresh and the resume of live sessions, so the operator's HOME stays and loading is switched off by flags.
+    - The Claude adapter ignores the profile's reasoning effort, so every Claude run inherits the operator's `effortLevel`.
+    - Daemon Git reads the operator's global configuration, including `rerere` and `diff.mnemonicprefix`, and runs hooks. The hardening SEC-03 cites was deleted with the inspector in c0ccf3b.
+  - **Approved, in increments:**
+    1. an allowlisted child environment;
+    2. Claude isolation flags on every posture, plus `--effort` from the profile;
+    3. Codex feature and MCP/skill switches;
+    4. daemon Git hardening;
+    5. the Claude OS sandbox (SEC-02c);
+    6. protected-ref snapshots (SEC-02d).
+    
+    Each run's loaded skills, plugins and MCP servers are recorded at session start as the done-when's evidence.
+- **Increment 1 (2026-09-28): an allowlisted agent environment** (SEC-02, AGT-04).
+  - Both adapters start the agent from `agentEnvironment`, which passes:
+    - named variables only: HOME, USER, LOGNAME, SHELL, PATH, LANG, LANGUAGE, `LC_*`, TERM, TZ, the four `XDG_*_HOME` directories, proxy and CA variables;
+    - the agent's own login variables;
+    - names the operator allows with `CRAFTINGTABLE_AGENT_ENV_ALLOW`;
+    - then the run's overlay, which the daemon now computes (scratch `TMPDIR`/`TMP`/`TEMP`, `CARGO_TARGET_DIR` from R-G7's cache, the run namespace), with its launchers ahead of PATH.
+  - The adapters no longer contain Cargo policy (AGT-04). `docs/operations.md` is updated.
+  - **Tests.**
+    - `claude-code/backend.test.ts`: an environment carrying DISPLAY, Wayland, D-Bus, `XDG_RUNTIME_DIR`, an SSH agent, Hyprland and an undeclared name reaches the agent as exactly the allowed names, the declared one and the overlay. It fails without the change.
+    - The Codex adapter test passes the overlay.
+    - `server-execution-runs.test.ts`: the daemon puts the worktree cache in `CARGO_TARGET_DIR`.
 
 ### R-G6
 

@@ -8,7 +8,11 @@ import type {
 } from '../index.js';
 import { AsyncQueue, type SupervisedProcess, spawnSupervisedProcess } from '../process.js';
 import { codexThreadParams, codexTurnParams } from './arguments.js';
+import { agentEnvironment } from '../child-environment.js';
 import type { CodexBackendOptions } from './backend.js';
+
+/** How Codex signs in when not through its own `auth.json`. */
+const CODEX_LOGIN_VARIABLES = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_HOME'];
 import { CodexStreamNormalizer } from './normalize.js';
 import { CodexRpc, CodexRpcError } from './rpc.js';
 
@@ -51,24 +55,13 @@ export class CodexSession implements AgentSession {
       executable: options.executable,
       args: ['app-server', '--stdio'],
       cwd: request.cwd,
-      env: {
-        ...(options.env ?? process.env),
-        ...(request.buildEnvironment
-          ? {
-              CRAFTINGTABLE_RUN_NAMESPACE: request.buildEnvironment.namespace,
-              PATH: `${request.buildEnvironment.binDirectory}:${(options.env ?? process.env).PATH ?? process.env.PATH ?? ''}`,
-            }
-          : {}),
-        ...(request.temporaryDirectory
-          ? {
-              CARGO_TARGET_DIR:
-                request.buildCacheDirectory ?? `${request.temporaryDirectory}/target`,
-              TMPDIR: request.temporaryDirectory,
-              TMP: request.temporaryDirectory,
-              TEMP: request.temporaryDirectory,
-            }
-          : {}),
-      },
+      env: agentEnvironment(
+        options.env ?? process.env,
+        CODEX_LOGIN_VARIABLES,
+        options.allowEnvironment ?? [],
+        request.environment,
+        request.pathPrefix,
+      ),
       ...(request.deadlineAt
         ? { backgroundWorkDeadlineMs: Date.parse(request.deadlineAt) }
         : { backgroundWorkTimeoutMs: 30 * 60_000 }),

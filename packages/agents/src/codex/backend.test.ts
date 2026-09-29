@@ -120,6 +120,8 @@ async function launch(
   const session = await new CodexBackend({
     executable,
     env: { FAKE_MODE: mode, ...env },
+    // The fake reads its mode from the environment, which the adapter allowlists (R-G5).
+    allowEnvironment: ['FAKE_MODE', ...Object.keys(env)],
     terminationGraceMs: 50,
     requestTimeoutMs: 300,
   }).launch({ cwd, prompt: 'first\nmultiline', permissionMode: 'auto', ...overrides });
@@ -345,11 +347,16 @@ it('preserves a backend error during graceful shutdown instead of authorizing su
   expect(items.at(-1)).toMatchObject({ type: 'exited', exitCode: 2 });
 });
 
-it('passes managed scratch space into the app-server child environment', async () => {
+it('passes the run overlay the daemon computed into the app-server child environment', async () => {
   const scratch = mkdtempSync(join(tmpdir(), 'craftingtable-scratch-'));
   directories.push(scratch);
   const { session, items, done, messages } = await launch('scratch', {
-    temporaryDirectory: scratch,
+    environment: {
+      TMPDIR: scratch,
+      TMP: scratch,
+      TEMP: scratch,
+      CARGO_TARGET_DIR: `${scratch}/target`,
+    },
     additionalDirectories: [scratch],
   });
   await waitFor(() => turns(items).length === 1);
@@ -357,22 +364,6 @@ it('passes managed scratch space into the app-server child environment', async (
   await done;
   expect(messages()).toContainEqual({
     temporaryPaths: [scratch, scratch, scratch, `${scratch}/target`],
-  });
-});
-
-it('points Cargo at the worktree build cache the daemon names (R-G7)', async () => {
-  const scratch = mkdtempSync(join(tmpdir(), 'craftingtable-scratch-'));
-  directories.push(scratch);
-  const { session, items, done, messages } = await launch('scratch', {
-    temporaryDirectory: scratch,
-    buildCacheDirectory: '/shared/worktree-target',
-    additionalDirectories: [scratch],
-  });
-  await waitFor(() => turns(items).length === 1);
-  session.end();
-  await done;
-  expect(messages()).toContainEqual({
-    temporaryPaths: [scratch, scratch, scratch, '/shared/worktree-target'],
   });
 });
 

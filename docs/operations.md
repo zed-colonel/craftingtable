@@ -232,9 +232,14 @@ route you chose below. Run the first `pnpm deploy:daemon <ref> --no-restart` to 
 `loginctl enable-linger $USER` so it survives logout. `pnpm deploy:daemon --status` reports
 when the unit does not run from `current`.
 
-The daemon's environment is the environment agents inherit: PATH must reach `git` and
-`claude` and/or `codex` (or set the explicit executable variables), and HOME must be
-the account signed in to the selected agent. Run `codex login` as that account before
+Agents start from named variables of the daemon's environment only (R-G5): HOME, USER,
+LOGNAME, SHELL, PATH, LANG, LANGUAGE, `LC_*`, TERM, TZ, the four `XDG_*_HOME` directories,
+proxy and CA variables, and the agent's own login variables (`ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`; `OPENAI_API_KEY`, `CODEX_API_KEY`,
+`CODEX_HOME`). Desktop session variables, `XDG_RUNTIME_DIR` and SSH agents are not
+passed. `CRAFTINGTABLE_AGENT_ENV_ALLOW=NAME,OTHER` lets further names through. PATH must
+reach `git` and `claude` and/or `codex` (or set the explicit executable variables), and
+HOME must be the account signed in to the selected agent. Run `codex login` as that account before
 using Codex. Tool status reports executable availability, not authentication health.
 `CRAFTINGTABLE_CODEX_EXECUTABLE` overrides discovery and `CRAFTINGTABLE_CODEX_MODELS`
 replaces its model picker list. Codex app-server behavior was verified with CLI 0.153.4. The adapter communicates

@@ -23,7 +23,8 @@ const rl = readline.createInterface({ input: process.stdin });
 let turns = 0;
 rl.on('line', (line) => {
   const message = JSON.parse(line);
-  const text = message.message.content[0].text === 'ENV' ? JSON.stringify([process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CARGO_TARGET_DIR]) : message.message.content[0].text;
+  const asked = message.message.content[0].text;
+  const text = asked === 'ENV' ? JSON.stringify([process.env.TMPDIR, process.env.TMP, process.env.TEMP, process.env.CARGO_TARGET_DIR]) : asked === 'ENV-NAMES' ? Object.keys(process.env).sort().join(',') + ' PATH=' + process.env.PATH : asked;
   turns += 1;
   process.stdout.write(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'echo: ' + text }] } }) + '\\n');
   process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'echo: ' + text, num_turns: turns, duration_ms: 5, total_cost_usd: 0.01, session_id: 'fake-session' }) + '\\n');
@@ -155,6 +156,7 @@ setInterval(() => out(limited), 50);
     const backend = new ClaudeCodeBackend({
       executable: fake.executable,
       env: { ...process.env, FAKE_IGNORE_TERM: '1' },
+      allowEnvironment: ['FAKE_IGNORE_TERM'],
       terminationGraceMs: 200,
     });
     const session = await backend.launch({
@@ -172,7 +174,7 @@ setInterval(() => out(limited), 50);
     expect(exited?.type === 'exited' && exited.signal).toBe('SIGKILL');
   });
 
-  it('passes controller scratch space to the child instead of inherited temporary paths', async () => {
+  it('passes the run overlay to the child instead of inherited temporary paths', async () => {
     const fake = fakeClaude();
     const backend = new ClaudeCodeBackend({
       executable: fake.executable,
@@ -182,7 +184,12 @@ setInterval(() => out(limited), 50);
       cwd: fake.cwd,
       prompt: 'ENV',
       permissionMode: 'auto',
-      temporaryDirectory: fake.cwd,
+      environment: {
+        TMPDIR: fake.cwd,
+        TMP: fake.cwd,
+        TEMP: fake.cwd,
+        CARGO_TARGET_DIR: `${fake.cwd}/target`,
+      },
     });
     const items: AgentSessionItem[] = [];
     for await (const item of session.items) {
@@ -200,14 +207,32 @@ setInterval(() => out(limited), 50);
     ).toBe(true);
   });
 
-  it('points Cargo at the worktree build cache the daemon names (R-G7)', async () => {
+  it('starts the agent from named variables only, plus the run overlay the daemon supplies (R-G5, SEC-02)', async () => {
     const fake = fakeClaude();
-    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+    const session = await new ClaudeCodeBackend({
+      executable: fake.executable,
+      env: {
+        HOME: '/home/operator',
+        PATH: '/usr/bin',
+        LANG: 'C.UTF-8',
+        LC_TIME: 'C',
+        ANTHROPIC_API_KEY: 'key',
+        DISPLAY: ':0',
+        WAYLAND_DISPLAY: 'wayland-1',
+        DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus',
+        XDG_RUNTIME_DIR: '/run/user/1000',
+        SSH_AUTH_SOCK: '/run/user/1000/ssh',
+        HYPRLAND_INSTANCE_SIGNATURE: 'x',
+        OPERATOR_DECLARED: 'yes',
+        OPERATOR_SECRET: 'no',
+      },
+      allowEnvironment: ['OPERATOR_DECLARED'],
+    }).launch({
       cwd: fake.cwd,
-      prompt: 'ENV',
+      prompt: 'ENV-NAMES',
       permissionMode: 'auto',
-      temporaryDirectory: fake.cwd,
-      buildCacheDirectory: '/shared/worktree-target',
+      environment: { CRAFTINGTABLE_RUN_NAMESPACE: 'run', TMPDIR: '/scratch' },
+      pathPrefix: ['/run/bin'],
     });
     const results: string[] = [];
     for await (const item of session.items)
@@ -215,9 +240,9 @@ setInterval(() => out(limited), 50);
         results.push(item.event.payload.resultText);
         session.end();
       }
-    expect(results).toContain(
-      `echo: ${JSON.stringify([fake.cwd, fake.cwd, fake.cwd, '/shared/worktree-target'])}`,
-    );
+    expect(results).toEqual([
+      'echo: ANTHROPIC_API_KEY,CRAFTINGTABLE_RUN_NAMESPACE,HOME,LANG,LC_TIME,OPERATOR_DECLARED,PATH,TMPDIR PATH=/run/bin:/usr/bin',
+    ]);
   });
 
   it('rejects an invalid launch request without spawning', async () => {

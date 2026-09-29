@@ -10,6 +10,7 @@ import {
   type AgentSession,
   type AgentSessionItem,
 } from '../index.js';
+import { agentEnvironment } from '../child-environment.js';
 import { spawnSupervisedProcess } from '../process.js';
 import { claudeCodeArguments, claudeUserMessageLine } from './arguments.js';
 import { CLAUDE_CODE_MODELS } from './models.js';
@@ -19,11 +20,23 @@ export interface ClaudeCodeBackendOptions {
   /** Absolute path to the `claude` executable. */
   readonly executable: string;
   readonly terminationGraceMs?: number;
-  /** Environment for the child; defaults to the daemon's own environment. */
+  /**
+   * Where the child's named variables come from; defaults to the daemon's own environment.
+   * Only allowlisted names are passed on (R-G5).
+   */
   readonly env?: NodeJS.ProcessEnv;
+  /** Further variable names the operator lets through (`CRAFTINGTABLE_AGENT_ENV_ALLOW`). */
+  readonly allowEnvironment?: readonly string[];
   /** Models offered to the operator; defaults to the built-in list. */
   readonly models?: readonly AgentModelOption[];
 }
+
+/** How Claude Code signs in without the operator's keychain. */
+const CLAUDE_LOGIN_VARIABLES = [
+  'ANTHROPIC_API_KEY',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CONFIG_DIR',
+];
 
 const MAX_LINE_BYTES = 4 * 1024 * 1024;
 const STDERR_EVENT_LIMIT_BYTES = 8 * 1024;
@@ -91,24 +104,13 @@ export class ClaudeCodeBackend implements AgentBackend {
         executable: this.options.executable,
         args: claudeCodeArguments(request),
         cwd: request.cwd,
-        env: {
-          ...(this.options.env ?? process.env),
-          ...(request.buildEnvironment
-            ? {
-                CRAFTINGTABLE_RUN_NAMESPACE: request.buildEnvironment.namespace,
-                PATH: `${request.buildEnvironment.binDirectory}:${(this.options.env ?? process.env).PATH ?? process.env.PATH ?? ''}`,
-              }
-            : {}),
-          ...(request.temporaryDirectory
-            ? {
-                CARGO_TARGET_DIR:
-                  request.buildCacheDirectory ?? `${request.temporaryDirectory}/target`,
-                TMPDIR: request.temporaryDirectory,
-                TMP: request.temporaryDirectory,
-                TEMP: request.temporaryDirectory,
-              }
-            : {}),
-        },
+        env: agentEnvironment(
+          this.options.env ?? process.env,
+          CLAUDE_LOGIN_VARIABLES,
+          this.options.allowEnvironment ?? [],
+          request.environment,
+          request.pathPrefix,
+        ),
         terminationGraceMs: this.options.terminationGraceMs ?? 5000,
         maxLineBytes: MAX_LINE_BYTES,
         ...(request.deadlineAt

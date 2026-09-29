@@ -765,6 +765,11 @@ describe('agent runs', () => {
     const registered = state.context.storage.maintenance.worktreeCache(worktree.id);
     expect(registered?.path).toBeDefined();
     expect(caches).toEqual([registered?.path, registered?.path]);
+    // The daemon points Cargo at it in the run's overlay; the adapter adds nothing (R-G5).
+    expect(state.backend.launches.map((launch) => launch.environment?.CARGO_TARGET_DIR)).toEqual([
+      registered?.path,
+      registered?.path,
+    ]);
     // A sandboxed agent (Codex workspace-write) may write only to the listed directories.
     for (const launch of state.backend.launches)
       expect(launch.additionalDirectories).toContain(registered?.path);

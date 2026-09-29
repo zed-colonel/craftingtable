@@ -31,6 +31,11 @@ export interface ExecutionConfig {
   readonly checkConfinement: 'systemd' | 'none';
   /** Daemon-owned check logs, outside every agent's writable roots. */
   readonly checkLogRoot: string;
+  /**
+   * Variable names, beyond the built-in allowlist, that reach agent processes
+   * (`CRAFTINGTABLE_AGENT_ENV_ALLOW`, comma-separated; R-G5).
+   */
+  readonly agentEnvironmentAllow: readonly string[];
 }
 
 export interface TlsConfig {
@@ -171,6 +176,12 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
   if (pathsOverlap(checkLogRoot, runsRoot) || pathsOverlap(checkLogRoot, worktreeRoot)) {
     throw new Error('Check logs must lie outside the worktree and runs roots');
   }
+  const agentEnvironmentAllow = (env.CRAFTINGTABLE_AGENT_ENV_ALLOW ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name !== '');
+  if (agentEnvironmentAllow.some((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)))
+    throw new Error('CRAFTINGTABLE_AGENT_ENV_ALLOW must list variable names, separated by commas');
   const checkConfinement = env.CRAFTINGTABLE_CHECK_CONFINEMENT ?? 'systemd';
   if (checkConfinement !== 'systemd' && checkConfinement !== 'none') {
     throw new Error('CRAFTINGTABLE_CHECK_CONFINEMENT must be systemd or none');
@@ -186,6 +197,7 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
     runsRoot,
     checkConfinement,
     checkLogRoot,
+    agentEnvironmentAllow,
     ...(env.CRAFTINGTABLE_CLAUDE_MODELS === undefined
       ? {}
       : { claudeModels: env.CRAFTINGTABLE_CLAUDE_MODELS }),

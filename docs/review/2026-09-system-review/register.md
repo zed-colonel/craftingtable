@@ -1800,6 +1800,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
         - `server-execution-runs.test.ts`: agents get the daemon's home.
         - `server-execution-receipt-gates.test.ts`: a check unit reports it. Mutation: the operator's home fails it.
       - **Left:** runs can affect one another through the shared daemon cache, as check units already could. Approved native units (ADR-054) are not file-confined and keep the operator's Cargo home.
+    - *LOW, fixed:* the trigger's central clause (only the acknowledgement may change) was untested; the test edited a row already acknowledged. And `INSERT OR REPLACE` removed a row without firing any trigger. A new trigger refuses a replace (migration 0035 is not deployed yet, so it is amended in place). Test: `protected-refs.test.ts` (an acknowledgement that also rewrites the moves, an edit without one, a replace). Mutation: removing the clause fails it.
     - *LOW, fixed:* creating the caches could fail every sandboxed launch (an unwritable Cargo home), created `~/.cargo` on hosts without Rust, and an empty `CARGO_HOME` became a relative path. Now the caches are made only inside an existing Cargo home, failures never stop the launch, and an empty value counts as unset (test: `backend.test.ts`, a missing and a read-only home).
 
 ### R-G6

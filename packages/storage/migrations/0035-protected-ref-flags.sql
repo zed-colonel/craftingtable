@@ -20,5 +20,9 @@ CREATE TRIGGER protected_ref_moves_acknowledge_once BEFORE UPDATE ON protected_r
  BEGIN SELECT RAISE(ABORT, 'A protected ref move changes only when it is acknowledged, once'); END;
 CREATE TRIGGER protected_ref_moves_no_delete BEFORE DELETE ON protected_ref_moves
  BEGIN SELECT RAISE(ABORT, 'Protected ref moves cannot be deleted'); END;
+-- INSERT OR REPLACE removes the old row without firing the triggers above.
+CREATE TRIGGER protected_ref_moves_no_replace BEFORE INSERT ON protected_ref_moves
+ WHEN EXISTS (SELECT 1 FROM protected_ref_moves WHERE id = NEW.id)
+ BEGIN SELECT RAISE(ABORT, 'Protected ref moves cannot be replaced'); END;
 INSERT INTO audit_action_kinds (action, introduced_in_schema) VALUES
   ('protected-refs.acknowledged', 35);

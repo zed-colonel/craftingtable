@@ -25,20 +25,14 @@ import type {
 import type { ControllerPasses } from './attention-gates.js';
 
 /**
- * Where a moved upstream pin is refreshed (LIVE-15): the dependency environment on the Roadmaps
- * page, the owning roadmap's panel when a roadmap owns the cycle, else the definition's own.
- * `ws` is already encoded. The focus names the panel's element id (`RuntimeEvidencePanel`).
+ * Where a moved upstream pin is refreshed (LIVE-15): the owning roadmap's dependency
+ * environment on the Roadmaps page. `ws` is already encoded; the focus names the panel's element
+ * id (`RuntimeEvidencePanel`). A cycle no roadmap owns keeps its own page: the definition's
+ * panel renders only once its map revision is picked, so a link to it would land nowhere.
  */
-function dependencyRefreshPath(
-  ws: string,
-  roadmapId: string | undefined,
-  definitionId: string | undefined,
-): string | undefined {
-  if (roadmapId !== undefined)
-    return `/workspaces/${ws}/roadmaps?roadmap=${encodeURIComponent(roadmapId)}#${encodeURIComponent(`runtime-evidence-roadmap-${roadmapId}`)}`;
-  if (definitionId !== undefined)
-    return `/workspaces/${ws}/roadmaps#${encodeURIComponent(`runtime-evidence-${definitionId}`)}`;
-  return undefined;
+function dependencyRefreshPath(ws: string, roadmapId: string | undefined): string | undefined {
+  if (roadmapId === undefined) return undefined;
+  return `/workspaces/${ws}/roadmaps?roadmap=${encodeURIComponent(roadmapId)}#${encodeURIComponent(`runtime-evidence-roadmap-${roadmapId}`)}`;
 }
 
 /** What a projection unit wants open; the projector gives it identity and history. */
@@ -694,8 +688,7 @@ export class AttentionProjector implements WriteObserver {
         ),
         path:
           !escalated && attention.code === 'upstream-pin-moved'
-            ? (dependencyRefreshPath(ws, cycle.owner?.roadmapId, attention.refs?.definitionId) ??
-              path)
+            ? (dependencyRefreshPath(ws, cycle.owner?.roadmapId) ?? path)
             : path,
         refs: { ...refs, cycleId: cycle.id, ...(cycle.owner ? ownerRefs(cycle.owner) : {}) },
       });

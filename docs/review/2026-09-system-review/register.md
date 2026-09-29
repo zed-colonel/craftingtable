@@ -688,7 +688,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **LIVE-15 fixed (2026-09-28, operator decision after the R-G4/R-G5 batch: a typed stop with the refresh as its action).**
   - `RuntimeEvidenceService.assertFreshTree` throws `UpstreamPinMovedError` when a pin among its issues moved past the saved generation. The error carries the definition and each moved pin (alias, pinned commit, current commit). Any other staleness stays a plain conflict.
   - The controller stops the cycle as `upstream-pin-moved` (operator-owned), with those as structured refs, instead of `controller-error`.
-  - The inbox item opens the dependency environment on the Roadmaps page: the owning roadmap's panel, or the definition's. In the inbox, the item hosts the cycle's controls and the roadmap's controls, open at that panel (`inbox-host.test.ts`).
+  - The inbox item of a roadmap-owned cycle opens the roadmap's dependency environment on the Roadmaps page. An unowned cycle's item opens its own page (after the review). In the inbox, the item hosts the cycle's controls and the roadmap's controls, open at that panel (`inbox-host.test.ts`).
   - A Resume, plain or guided, is refused while a recorded pin still differs from the current generation's pin. It names the pin and the refresh. Once a saved refresh pins the new commit, Resume goes ahead.
   - ADR-058 is amended.
   - **Test:** `server-execution-upstream-transitions.test.ts` (LIVE-15), on a real pinned Cargo provider that advances after its pin was saved. It covers:
@@ -1807,6 +1807,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - **Duplicates.** Overlapping runs recorded the same outside move once each.
       - **The fix.** The audit is now written in its own transaction. Moves are split into records of at most 1000, and a move already waiting unacknowledged is not recorded again. The control acknowledges in batches of 1000. Branch names may be up to 4096 characters.
       - **Tests:** `ref-watch.test.ts` (the dedupe and the split) and `AcknowledgeMoves.test.tsx` (2300 ids in three requests).
+    - *LOW, fixed:* for a cycle no roadmap owns, the `upstream-pin-moved` item linked to `/roadmaps#runtime-evidence-<definition>`. That panel renders only after a map revision is picked, so the link landed nowhere. Such an item now opens the cycle's own page, and a roadmap-owned one still opens its roadmap's dependency environment. The LIVE-15 test asserts the unowned path; `inbox-host.test.ts` covers the owned host.
     - *LOW, fixed:* creating the caches could fail every sandboxed launch (an unwritable Cargo home), created `~/.cargo` on hosts without Rust, and an empty `CARGO_HOME` became a relative path. Now the caches are made only inside an existing Cargo home, failures never stop the launch, and an empty value counts as unset (test: `backend.test.ts`, a missing and a read-only home).
 
 ### R-G6

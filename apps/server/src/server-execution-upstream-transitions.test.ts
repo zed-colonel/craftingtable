@@ -435,11 +435,17 @@ itNeedsCargo(
     expect(currentCycle(f.state, cycle).reason).toContain('Preview dependency refresh');
     expect(f.backend.launches).toHaveLength(0);
 
-    // Its inbox item opens the dependency environment where the refresh is previewed.
+    // No roadmap owns this cycle, so its item opens where the cycle lives: the definition's
+    // own dependency environment renders only once its map revision is picked, so a link to it
+    // would land nowhere (R-G5 follow-up review). A roadmap-owned cycle's item opens the
+    // roadmap's panel (inbox-host.test.ts).
     const item = storage.attention.open(ws).find((i) => i.subjectKey === `cycle:${cycle.id}`);
+    const tree = storage.execution.worktrees.find(ws, treeA.id as never)!;
     expect(item).toMatchObject({
       code: 'upstream-pin-moved',
-      path: `/workspaces/${ws}/roadmaps#runtime-evidence-${scope('slice', A).definitionId}`,
+      path: tree.planVersionId
+        ? `/workspaces/${ws}/projects/${tree.projectId}/plans/${tree.planVersionId}`
+        : `/workspaces/${ws}/work-items/${tree.workItemId}`,
     });
 
     // A plain Resume would meet the same pin, so it is refused while the pin is stale.

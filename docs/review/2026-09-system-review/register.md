@@ -78,7 +78,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
-| [R-G13](#r-g13) | P2 | M | partial (increment 1, 2026-09-29; increments 2 to 5 open) | Declared per-repository checks |
+| [R-G13](#r-g13) | P2 | M | partial (increment 1: 8d0482c; increments 2 to 5 open) | Declared per-repository checks |
 | [R-G14](#r-g14) | P3 | S-M | open | Operator-configured outside sources for agent sandboxes |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
@@ -2012,7 +2012,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G13
 
-**Declared per-repository checks** · Phase P2 · Effort M · Status: partial (increment 1, 2026-09-29)
+**Declared per-repository checks** · Phase P2 · Effort M · Status: partial (increment 1: 8d0482c, 2026-09-29)
 
 - **Added 2026-09-28** (operator decision, after the R-G4 batch), for what R-G4 left open.
 - **Resolves:** the rest of [AGT-08](findings/AGT-GIT-SEC-agents-git-security.md#agt-08-verification-exists-only-for-cargo-non-rust-repositories-get-no-controller-supplied-verification), and R-G4's residual gap on [SEC-01](findings/AGT-GIT-SEC-agents-git-security.md#sec-01-agents-can-forge-the-buildcheckcinative-receipts-that-gate-integration).
@@ -2040,6 +2040,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Typed stops.** A scoped run in a repository with no adoption does not start: its cycle stops as `repository-checks-undeclared`, owned by the operator, with the repository as a ref. A gate whose declared check ran only with other definition files (edited, or replaced by a link) stops as `check-definition-changed` with the repository and check. Both inbox items open the repository's checks (`/repositories#repository-checks-<id>`), where adopting is the exit.
   - **Tests.** `repository-checks.test.ts` (reads the named commit, not the working tree or another branch; versions; audit; moved ref and each kind of issue refused; triggers; member reads, editor writes, CSRF, and the service's own role check). `server-execution-receipt-gates.test.ts` (a chosen command, even the adopted one, does not meet the gate; extra arguments and unknown checks refused; the declared check meets it and its receipt names the adoption; an edited or linked definition stops as `check-definition-changed`; an undeclared repository stops as `repository-checks-undeclared` before any launch, and its item opens the repository's checks). Existing scoped tests now adopt fixture checks and run `ct-check --declared`. Web: `RepositoryChecksPanel.test.tsx`, and the repositories route with a focus.
   - **Guards shown by mutation**, each killed by the tests above: extra arguments accepted; any scoped receipt counted; definition digests not compared; an undeclared repository not failing closed; a linked definition followed; the undeclared stop untyped; adoption reading the working tree; a moved ref adopted; a file with issues adopted; the service's editor check replaced by membership; the repository program not resolved in the worktree.
+  - **Walkthrough.** `2026-09-29-repository-checks-before` (0cf4fa5) and `-after` (8d0482c). The Repositories page gains the Checks section, one block per active repository; desktop grows from one screen (900 px) to 1,244 px, phone from 1,661 px to 2,257 px with two repositories.
   - **Operator action after deploy.** Scoped slices in WI and EXO stop as `repository-checks-undeclared` until each repository's checks are adopted. Each needs a `.craftingtable/checks.json` committed on a branch the operator reviews, then adoption on the Repositories page.
   - **Open:** increments 2 to 5. Plan-bundle runs and repositories without a pinned environment get no manifest yet, so they are not gated by declared checks until increment 4.
 

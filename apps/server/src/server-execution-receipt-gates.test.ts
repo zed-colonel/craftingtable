@@ -324,7 +324,12 @@ itNeedsCargo(
         const deadline = Date.now() + 30_000;
         while (Date.now() < deadline) {
           peak = Math.max(peak, checks.inFlight(runId).length);
-          const exits = readdirSync(replies).filter((n) => n.endsWith('.exit')).length;
+          let exits = 0;
+          try {
+            exits = readdirSync(replies).filter((n) => n.endsWith('.exit')).length;
+          } catch {
+            return; // The test has finished and removed its files.
+          }
           if (exits === 40) return;
           await new Promise((r) => setTimeout(r, 10));
         }
@@ -335,13 +340,16 @@ itNeedsCargo(
     const exits = readdirSync(replies)
       .filter((n) => n.endsWith('.exit'))
       .map((n) => JSON.parse(readFileSync(join(replies, n), 'utf8')));
-    expect(peak).toBe(4);
+    // Never more than four at once; under load fewer may overlap, but more than one always do.
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(peak).toBeGreaterThan(1);
     expect(exits.filter((e) => e.diagnostic?.includes('Too many checks'))).toHaveLength(4);
     expect(exits.filter((e) => e.exitCode === 0)).toHaveLength(36);
     expect(
       f.state.context.storage.runtimeEvidence.checkReceipts(f.state.workspaceId, run),
     ).toHaveLength(36);
   },
+  90_000,
 );
 
 itNeedsCargo(

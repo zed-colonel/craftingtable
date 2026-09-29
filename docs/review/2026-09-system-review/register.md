@@ -52,7 +52,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-D6](#r-d6) | P4 | L | open | Shared projections keyed by write generation (only if still needed) |
 | **E** | | | | **Progress view and navigation (pain points 2 and 1)** |
 | [R-E1](#r-e1) | P2 | M | done (a07dbfe, 4102517) | Real routes and one Link component |
-| [R-E2](#r-e2) | P2 | M | done (2026-09-29, see entry) | Split the Roadmaps mega-page |
+| [R-E2](#r-e2) | P2 | M | partial (3feb310; setup and map pages still long, see entry) | Split the Roadmaps mega-page |
 | [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | R-E3a done (2026-09-27); R-E3b open | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
 | [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
 | [R-E5](#r-e5) | P3 | M | open | Consolidate settings and agent selection |
@@ -1243,12 +1243,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E2
 
-**Split the Roadmaps mega-page** · Phase P2 · Effort M · Status: done (2026-09-29)
+**Split the Roadmaps mega-page** · Phase P2 · Effort M · Status: partial (3feb310, 2026-09-29)
 
 - **Resolves:** [UI-05](findings/UI-information-architecture.md#ui-05-the-roadmaps-page-is-an-ever-growing-single-document-with-duplicated-panels-and-no-per-roadmap-route), [UI-17](findings/UI-information-architecture.md#ui-17-roadmap-supervision-panels-share-mutable-page-level-dirty-gates-that-disable-unrelated-decisions)
 - **Change:** /roadmaps lists roadmaps (active first, completed under History); /roadmaps/:id is the board and controls; /roadmaps/:id/setup is an ordered checklist (bindings, dependency environment, verification environments, reviewer responsibilities and delegation, automation and agents, plan acceptance); /roadmaps/:id/history holds revisions, amendments and decisions. Remove the duplicate CrossProjectPanel/RuntimeEvidencePanel mounts under ConcurrencyImports; namespace DOM ids.
 - **Done when:** No roadmap page exceeds ~3 desktop screens; each concurrency definition is rendered once.
-- **Done 2026-09-29** (walkthroughs `2026-09-29-roadmaps-split-before`, `-roadmaps-split-after`).
+- **Split 2026-09-29 in 3feb310; the done-when is half met** (walkthroughs `2026-09-29-roadmaps-split-before` at 69ce1e1, `-roadmaps-split-after` at 3feb310).
+  - **Met: each map revision is rendered once** (below).
+  - **Page heights, desktop captures before → after, in 900 px screens:** the list 1.0 (new scene); a roadmap's board 1.0 (was part of a 12-to-20-screen page); its history 1.0; a running sequential roadmap 1.5 → 1.2. **Not met:** setup with a form open is 6.0 to 7.0 (was 7.5 to 8.4), and a map's page while a roadmap is being created is 11.2 to 18.3 (was 12.5 to 19.7).
+  - **Why, and what is left.** Setup renders the supervisor and every dependency subsection expanded (verification environments, upstream transitions, pin refresh, plan acceptance, decisions), and the map page's creation flow opens the whole selected-work list and dependency graph. Getting them under three screens means showing one checklist step at a time, which means breaking `CrossProjectPanel` and `RuntimeEvidencePanel` up by step. That is R-A6's consolidation of those components, so it is left for R-E2's second increment, done with R-A6 or before it.
   - **Routes.** `/roadmaps` lists the roadmaps: active first, finished ones under a closed History, then the map import with one link per imported map. `/roadmaps/:id` is the board (status, controls, status list, entries), `/roadmaps/:id/setup` the setup and `/roadmaps/:id/history` the history, reached from a `Roadmap pages` tab row under the roadmap's header. `/roadmaps/maps/:id` is one imported map.
   - **Setup** opens with an ordered checklist: bindings, dependency environment, verification environments, reviewer responsibilities and delegation, automation and agents, plan acceptance, then shared architecture decisions. Each step reveals its section. The supervisor, dependency and recovery panels follow.
   - **History** loads the saved revisions itself (no "View revisions" button) and holds the amendments. Decided architecture decisions stay on their cards in setup, beside the pending ones, rather than on history.

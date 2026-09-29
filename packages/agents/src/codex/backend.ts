@@ -45,14 +45,16 @@ export class CodexBackend implements AgentBackend {
       env: codexEnvironment(this.options, request),
       cwd: request.cwd,
       timeoutMs: this.options.requestTimeoutMs ?? 30000,
-    }).then(
-      (inventory) => new CodexSession(this.options, request, codexIsolationArguments(inventory)),
-      (error: unknown) => {
+    })
+      .then(
+        (inventory) => new CodexSession(this.options, request, codexIsolationArguments(inventory)),
+      )
+      .catch((error: unknown) => {
+        // Covers a configuration name the switches cannot address too (R-G5 review).
         throw new AgentLaunchError(
           'spawn-failed',
           `Codex could not report its configuration, so the run was not started isolated: ${error instanceof Error ? error.message : String(error)}`,
         );
-      },
-    );
+      });
   }
 }

@@ -74,6 +74,7 @@ lines.on('line', line => {
     ]}]}); return;
   }
   if (msg.method === 'mcpServerStatus/list') {
+    if (mode === 'odd-name') { reply({data: [{name: 'odd.name', runtimeStatus: null, tools: {}}]}); return; }
     const off = args.includes('mcp_servers.operator_mcp.enabled=false');
     reply({data: [{name: 'operator_mcp', runtimeStatus: null, tools: off ? {} : {run: {}}}]}); return;
   }
@@ -473,5 +474,12 @@ it('does not start a run whose Codex configuration cannot be read (R-G5)', async
   await expect(launch('no-inventory')).rejects.toMatchObject({
     name: 'AgentLaunchError',
     message: expect.stringContaining('could not report its configuration'),
+  });
+});
+
+it('refuses a configuration name the switches cannot address as a launch error (R-G5 review)', async () => {
+  await expect(launch('odd-name')).rejects.toMatchObject({
+    name: 'AgentLaunchError',
+    message: expect.stringContaining('cannot be switched off'),
   });
 });

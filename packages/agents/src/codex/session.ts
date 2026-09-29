@@ -180,10 +180,14 @@ export class CodexSession implements AgentSession {
         billing,
         cwd: this.request.cwd,
         permissionMode: this.request.permissionMode,
+        // Bounded as the event contract requires (R-G5 review).
         loaded: {
-          skills: loaded.skills.map((skill) => skill.name),
+          skills: loaded.skills.map((skill) => skill.name).slice(0, 500),
           plugins: [],
-          mcpServers: loaded.mcpServers.filter((server) => server.live).map((s) => s.name),
+          mcpServers: loaded.mcpServers
+            .filter((server) => server.live)
+            .map((s) => s.name)
+            .slice(0, 500),
         },
       },
     });

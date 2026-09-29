@@ -1660,7 +1660,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - `server-execution-runs.test.ts`: the daemon puts the worktree cache in `CARGO_TARGET_DIR`.
 - **Increment 2 (2026-09-28): Claude runs never load the operator's configuration** (AGT-14).
   - Every posture passes `--setting-sources project,local --strict-mcp-config --disable-slash-commands --settings '{"autoMemoryEnabled":false}'`. The repository's own `.claude` settings and CLAUDE.md still apply, because the repository declares them.
-  - The profile's reasoning effort is passed as `--effort`, instead of the operator's `effortLevel` being inherited.
+  - The profile's reasoning effort would be passed as `--effort`, but Claude profiles cannot carry one yet (see the review below); the operator's `effortLevel` is no longer inherited.
   - `session-started` records what the session loaded (`loaded`: skills, plugins, MCP servers), a new optional field on the run event, from the CLI's init message.
   - **Live check** (the real CLI through the adapter, a Haiku run at low effort): skills `[]`, MCP servers `[]`, plugins `agents-md` and `telemetry` (Claude Code built-ins). With the operator's settings, the same probe loaded 47 skills, superpowers and two claude.ai connectors.
   - **Tests.** `arguments.test.ts` (every posture, including read-only, carries the flags once; effort only when the profile sets it) and `normalize.test.ts` (the loaded names). Each fails without its change.
@@ -1720,6 +1720,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - A snapshot never checked (a run that ended with a crash) is dropped after 48 hours.
   - *LOW, disposition:* two daemon operations that overlap an agent's own move of the same ref could still credit it to the daemon. The window is the length of one Git operation.
   - **Tests.** `ref-watch.test.ts`: the reviewer's case (an agent's move of main followed by an unrelated daemon operation is flagged), and a moved tag. The first passed against the old code, which confirmed the gap.
+  - *LOW, fixed:* daemon Git still read the operator's ignore and attributes files under HOME. It now passes `core.excludesFile=/dev/null` and `core.attributesFile=/dev/null`. Test (`packages/git`): with a global `status.showUntrackedFiles = no` and a global ignore file naming it, the daemon still lists an untracked file. Without the change the file is hidden, and restoring the operator's global configuration fails the test too, so the environment change is now covered (the reviewer's mutation had passed).
+  - *LOW, corrected:* the increment 2 entry said the profile's reasoning effort is passed as `--effort`. The adapter passes it, but Claude profiles cannot carry an effort today, because contracts and services refuse it for non-Codex profiles. Claude runs therefore get the CLI's default effort now that the operator's `effortLevel` is no longer inherited. Allowing effort on Claude profiles is a contract change, left as an operator decision.
+  - *NIT, fixed:* a configuration name the switches cannot address surfaced as a plain `Error`; it is now an `AgentLaunchError` (test: `codex/backend.test.ts`). The recorded Codex `loaded` lists are capped at 500, as the event contract requires.
+  - *NIT, dispositions:*
+    - The probe ignores pagination; the reviewer found 120 servers returned in one page.
+    - The probe starts the operator's MCP server processes once per run.
+    - `skills.config` disables by name, so a repository skill with a user skill's name is disabled too.
+    - `--disable-slash-commands` disables repository skills for Claude, while Codex keeps them.
 - **Status (2026-09-28): code complete (increments 1 to 6), awaiting independent review.** Done-when evidence:
   - a run's environment holds only allowlisted variables (increment 1's test);
   - supervised Claude runs load no operator skills, plugins, MCP servers or memory (increment 2's live check); Codex runs load none of the operator's (increment 3's live check).

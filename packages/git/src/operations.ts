@@ -322,9 +322,20 @@ function childEnvironment(identityConfigPath?: string): NodeJS.ProcessEnv {
 
 /**
  * Options before every daemon Git command (R-G5, SEC-03, GIT-08): repository hooks and an
- * fsmonitor command never run in the daemon's context.
+ * fsmonitor command never run in the daemon's context, and the operator's own ignore and
+ * attributes files do not apply.
  */
-const DAEMON_GIT_OPTIONS = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
+const DAEMON_GIT_OPTIONS = [
+  '-c',
+  'core.fsmonitor=false',
+  '-c',
+  'core.hooksPath=/dev/null',
+  // Nor the operator's ignore and attributes files under HOME (R-G5 review).
+  '-c',
+  'core.excludesFile=/dev/null',
+  '-c',
+  'core.attributesFile=/dev/null',
+];
 
 /**
  * Writes the daemon's identity file from the operator's global `user.name` and `user.email`,

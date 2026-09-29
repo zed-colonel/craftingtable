@@ -1016,3 +1016,25 @@ describe('daemon Git runs no repository hooks, fsmonitor or operator configurati
     }
   });
 });
+
+it('daemon Git reads neither the global configuration nor the global ignore and attributes files (R-G5 review)', async () => {
+  const repo = fixture();
+  const home = join(repo.root, 'home');
+  mkdirSync(join(home, '.config', 'git'), { recursive: true });
+  // Both would hide the untracked file from the daemon's inspection if it read them.
+  writeFileSync(join(home, '.config', 'git', 'ignore'), 'hidden.txt\n');
+  const global = join(repo.root, 'global.gitconfig');
+  writeFileSync(global, '[status]\n\tshowUntrackedFiles = no\n');
+  writeFileSync(join(repo.repository, 'hidden.txt'), 'untracked');
+  const previous = { home: process.env.HOME, global: process.env.GIT_CONFIG_GLOBAL };
+  process.env.HOME = home;
+  process.env.GIT_CONFIG_GLOBAL = global;
+  try {
+    const changes = await operations.inspectWorktreeChanges(repo.repository);
+    expect(changes.ok && changes.value.untracked).toEqual(['hidden.txt']);
+  } finally {
+    process.env.HOME = previous.home;
+    if (previous.global === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previous.global;
+  }
+});

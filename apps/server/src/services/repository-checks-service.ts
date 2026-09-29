@@ -152,13 +152,14 @@ export class RepositoryChecksService {
   ): Promise<CheckDeclarationProposal> {
     const repository = this.repository(ws, repositoryId);
     if (!this.git) throw new ExecutionRequestError('unavailable', 'Git is unavailable.');
-    // A branch or an exact commit, never a tag: anyone who can write refs in the repository,
-    // agents included, could shadow a branch name with a tag (R-G13 review).
+    // A branch or an exact commit, never a tag or another ref a name falls back to: anyone who
+    // can write refs in the repository, agents included, could shadow a branch (R-G13 review).
     const exact = /^[a-f0-9]{40}([a-f0-9]{24})?$/.test(ref);
-    const commit = await this.git.resolveCommit(
-      repository.rootPath,
-      exact ? ref : `refs/heads/${ref}`,
-    );
+    const named = exact ? undefined : await this.git.exactBranchCommit(repository.rootPath, ref);
+    const commit =
+      named?.ok === false
+        ? named
+        : await this.git.resolveCommit(repository.rootPath, named?.value ?? ref);
     if (!commit.ok)
       throw new ExecutionRequestError(
         'invalid-request',

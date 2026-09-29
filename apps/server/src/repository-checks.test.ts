@@ -373,4 +373,13 @@ it('reads a branch, never a tag of the same name, or an exact commit (R-G13 revi
   const tagOnly = await f.post('preview', { ref: 'refs/tags/main' });
   expect(tagOnly.statusCode).toBe(400);
   expect(tagOnly.body).toContain('is not a branch or a complete commit ID');
+  // With no such branch, Git's lookup would fall back to a tag named like the branch's ref.
+  git(['tag', 'refs/heads/ct/checks', 'weaker'], f.root);
+  const fallback = await f.post('preview', { ref: 'ct/checks' });
+  expect(fallback.statusCode).toBe(400);
+  // A replace ref changes what an object reads as; the daemon's Git ignores it.
+  const script = git(['rev-parse', 'main:scripts/check.sh'], f.root).trim();
+  const other = git(['rev-parse', 'weaker:.craftingtable/checks.json'], f.root).trim();
+  git(['replace', script, other], f.root);
+  expect((await read('main')).definitionDigests['scripts/check.sh']).toBe(sha(SCRIPT));
 });

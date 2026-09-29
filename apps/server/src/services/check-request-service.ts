@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { type FSWatcher, lstatSync, readdirSync, realpathSync, rmSync, watch } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import {
@@ -165,6 +165,24 @@ export class CheckRequestService {
    */
   stopLeftoverUnits(): void {
     if (this.config.checkConfinement === 'systemd') stopCheckUnits(this.unitPrefix);
+    // Their clones and build outputs too, which only a clean close removes.
+    try {
+      for (const runId of readdirSync(this.config.checkLogRoot)) this.removeScratch(runId);
+    } catch {
+      /* no checks have run */
+    }
+  }
+
+  /** Removes a run's declared-check clones and build outputs; its logs stay. */
+  private removeScratch(runId: string): void {
+    const logs = join(this.config.checkLogRoot, runId);
+    try {
+      for (const name of readdirSync(logs))
+        if (name === 'declared-target' || name.endsWith('.private'))
+          rmSync(join(logs, name), { recursive: true, force: true });
+    } catch {
+      /* not a directory, or no checks ran */
+    }
   }
 
   /** Starts serving a run's spool. Call before the agent can run its launchers. */
@@ -223,14 +241,7 @@ export class CheckRequestService {
     }
     await Promise.allSettled([...run.inFlight.values()].map((c) => c.done));
     // Declared checks' clones and build outputs are the daemon's scratch; only logs are kept.
-    const logs = join(this.config.checkLogRoot, runId);
-    try {
-      for (const name of readdirSync(logs))
-        if (name === 'declared-target' || name.endsWith('.private'))
-          rmSync(join(logs, name), { recursive: true, force: true });
-    } catch {
-      /* no checks ran */
-    }
+    this.removeScratch(runId);
     this.pump();
   }
 
@@ -357,7 +368,8 @@ export class CheckRequestService {
     try {
       const outcome = await executeCheck({
         tool: request.tool,
-        privateDirectory: join(this.config.checkLogRoot, context.runId, `${id}.private`),
+        // Named by the daemon, not by the request: two requests with one id never share it.
+        privateDirectory: join(this.config.checkLogRoot, context.runId, `${randomUUID()}.private`),
         holdWorkflow: (key, deadline, abort, onWait) =>
           this.workflows.hold(key, context.runId, deadline, abort, onWait),
         manifestPath: context.manifestPath,

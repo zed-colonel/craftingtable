@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -15,6 +16,8 @@ import { hostGit } from './host-tools-test-support.js';
 import { nativeHostDigest } from './native-environment.js';
 import {
   acquireLocalCiLock,
+  confinedCheckArguments,
+  declaredUnitSettings,
   executeCheck,
   resolveGitDirectories,
   loadLocalCiConfig,
@@ -789,4 +792,58 @@ it('refuses a workflow whose jobs declare containers, services, reusable workflo
   ] as const)
     expect(args(text), key).toThrow(key);
   expect(args('jobs: [unclosed')).toThrow('could not be read');
+});
+
+it("a declared check unit sees none of the run's writable roots and finds no program there (R-G13 review)", () => {
+  const root = mkdtempSync(join(tmpdir(), 'ct-declared-unit-'));
+  roots.push(root);
+  const at = (name: string) => join(root, name);
+  const worktree = at('worktree'),
+    run = at('run'),
+    cargo = at('cargo'),
+    clone = at('clone'),
+    scratch = at('private');
+  for (const p of [worktree, run, cargo, join(run, 'bin'), join(worktree, 'bin')])
+    mkdirSync(p, { recursive: true });
+  // A PATH entry that reaches the run directory through a link is refused too.
+  symlinkSync(join(run, 'bin'), join(root, 'linked-bin'));
+  const unit = declaredUnitSettings({
+    environment: {
+      PATH: `${join(run, 'bin')}:${join(worktree, 'bin')}:${join(root, 'linked-bin')}:relative/bin:/usr/bin`,
+      CARGO_HOME: cargo,
+    },
+    runWritablePaths: [worktree, run, join(cargo, 'registry'), join(cargo, 'git')],
+    launcherDirectory: join(run, 'dependencies'),
+    workspacePath: worktree,
+    snapshot: clone,
+    privateDirectory: scratch,
+    target: join(scratch, 'target', 'a'.repeat(40)),
+  });
+  expect(unit.environment.PATH).toBe('/usr/bin');
+  expect(unit.environment.TMPDIR).toBe(join(scratch, 'tmp'));
+  expect(unit.environment.CARGO_TARGET_DIR).toBe(join(scratch, 'target', 'a'.repeat(40)));
+  expect(unit.writable).toEqual([
+    clone,
+    join(scratch, 'tmp'),
+    join(scratch, 'target', 'a'.repeat(40)),
+    join(cargo, 'registry'),
+    join(cargo, 'git'),
+  ]);
+  expect(unit.inaccessible).toEqual([worktree, join(run, 'dependencies'), worktree, run]);
+  const args = confinedCheckArguments(
+    'unit',
+    clone,
+    60,
+    unit.writable,
+    unit.environment,
+    ['true'],
+    false,
+    [],
+    unit.inaccessible,
+  );
+  expect(args).toContain(`InaccessiblePaths=-${run}`);
+  expect(args).toContain(`InaccessiblePaths=-${worktree}`);
+  expect(
+    args.filter((a) => a.startsWith('InaccessiblePaths=')).some((a) => a.includes(cargo)),
+  ).toBe(false);
 });

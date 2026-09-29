@@ -1,5 +1,8 @@
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { WorkflowQueue } from './check-request-service.js';
+import { CheckRequestService, WorkflowQueue } from './check-request-service.js';
 
 const never = new AbortController().signal;
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
@@ -54,4 +57,25 @@ it('a waiter that gives up keeps the order: no one behind it starts before the h
   releaseA();
   (await d)();
   expect(dStarted).toBe(true);
+});
+
+it("at start, removes declared checks' clones and build outputs a stopped daemon left, and keeps the logs (R-G13 review)", () => {
+  const root = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'ct-check-scratch-'));
+  try {
+    const run = join(root, 'run-1');
+    for (const dir of ['declared-target/abc', 'a1.private/tree', 'replies'])
+      mkdirSync(join(run, dir), { recursive: true });
+    writeFileSync(join(run, 'a1.log'), 'log');
+    new CheckRequestService(
+      undefined as never,
+      { checkConfinement: 'none', checkLogRoot: root, cargoHome: join(root, 'cargo') },
+      { warn: () => undefined },
+    ).stopLeftoverUnits();
+    expect(existsSync(join(run, 'declared-target'))).toBe(false);
+    expect(existsSync(join(run, 'a1.private'))).toBe(false);
+    expect(existsSync(join(run, 'a1.log'))).toBe(true);
+    expect(existsSync(join(run, 'replies'))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

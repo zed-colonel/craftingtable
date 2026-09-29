@@ -124,6 +124,7 @@ function daemonGitEnvironment(gitDirectory?: string, workTree?: string): NodeJS.
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_OPTIONAL_LOCKS: '0',
     GIT_TERMINAL_PROMPT: '0',
+    GIT_NO_REPLACE_OBJECTS: '1',
     ...(gitDirectory ? { GIT_DIR: gitDirectory } : {}),
     ...(workTree ? { GIT_WORK_TREE: workTree } : {}),
   };
@@ -869,6 +870,8 @@ export function confinedCheckArguments(
   network = false,
   /** Paths inside `writable` that stay read-only, such as a worktree's `.git` pointer. */
   readOnly: readonly string[] = [],
+  /** Paths the unit cannot see at all, such as the run's agent-writable roots. */
+  inaccessible: readonly string[] = [],
 ): string[] {
   if (!/^[A-Za-z0-9_.-]+$/.test(unitName)) throw new Error('Invalid check unit name.');
   return [
@@ -895,6 +898,7 @@ export function confinedCheckArguments(
     `RuntimeMaxSec=${Math.max(1, Math.ceil(timeoutSeconds))}`,
     ...writable.flatMap((p) => ['-p', `ReadWritePaths=-${p}`]),
     ...readOnly.flatMap((p) => ['-p', `ReadOnlyPaths=-${p}`]),
+    ...inaccessible.flatMap((p) => ['-p', `InaccessiblePaths=-${p}`]),
     '--',
     '/usr/bin/env',
     '-i',
@@ -1058,7 +1062,7 @@ function daemonGit(
 /**
  * A daemon-private clone of the commit under review, where a declared check runs (R-G13
  * review): the agent keeps running while its checks do, and could change its own worktree
- * mid-check. The clone borrows the repository's objects, so it costs a checkout.
+ * mid-check. The commit must be on a branch; a detached commit fails closed.
  */
 async function cloneReviewedCommit(m: PinnedCargoManifest, sha: string, into: string) {
   if (!m.gitCommonDirectory) throw new Error('The run has no daemon-resolved git directory.');
@@ -1069,7 +1073,10 @@ async function cloneReviewedCommit(m: PinnedCargoManifest, sha: string, into: st
   try {
     await daemonGit(
       m,
-      ['clone', '--quiet', '--no-checkout', '--shared', '--no-tags', m.gitCommonDirectory, into],
+      // `--no-local` copies through a pack, whose objects Git hashes on receipt: an object the
+      // agent rewrote in the shared store no longer matches its name, and the clone fails. A
+      // clone that borrows the store would read the rewritten bytes (R-G13 review).
+      ['clone', '--quiet', '--no-checkout', '--no-local', '--no-tags', m.gitCommonDirectory, into],
       dirname(into),
     );
     await daemonGit(
@@ -1111,16 +1118,74 @@ async function committedDigests(
 }
 
 /** PATH without any directory the run can write: an agent could plant a program there. */
-function trustedPath(path: string | undefined, writable: readonly string[]): string {
+export function trustedPath(path: string | undefined, writable: readonly string[]): string {
+  const real = (p: string) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return resolve(p);
+    }
+  };
+  const roots = writable.flatMap((root) => [resolve(root), real(root)]);
   const inside = (entry: string) =>
-    writable.some((root) => {
-      const r = relative(root, entry);
-      return r === '' || (!r.startsWith('..') && !isAbsolute(r));
-    });
+    [resolve(entry), real(entry)].some((candidate) =>
+      roots.some((root) => {
+        const r = relative(root, candidate);
+        return r === '' || (!r.startsWith('..') && !isAbsolute(r));
+      }),
+    );
   return (path ?? '/usr/bin')
     .split(':')
     .filter((entry) => entry !== '' && isAbsolute(entry) && !inside(entry))
     .join(':');
+}
+
+/**
+ * What a declared check's unit gets (R-G13): a PATH without any directory the run can write,
+ * its own scratch and Cargo target, write access to nothing else but the daemon's Cargo caches,
+ * and no sight of the run's agent-writable roots, which a committed link could otherwise reach.
+ */
+export function declaredUnitSettings(input: {
+  readonly environment: Readonly<Record<string, string>>;
+  /** Where the run itself may write: the worktree, the run directory, the Cargo caches. */
+  readonly runWritablePaths: readonly string[];
+  readonly launcherDirectory: string;
+  readonly workspacePath: string;
+  readonly snapshot: string;
+  readonly privateDirectory: string;
+  readonly target: string;
+}): {
+  readonly environment: Record<string, string>;
+  readonly writable: readonly string[];
+  readonly inaccessible: readonly string[];
+} {
+  const tmp = join(input.privateDirectory, 'tmp');
+  for (const p of [tmp, input.target]) mkdirSync(p, { recursive: true, mode: 0o700 });
+  const cargoHome = input.environment.CARGO_HOME;
+  const caches = cargoHome ? [join(cargoHome, 'registry'), join(cargoHome, 'git')] : [];
+  const underCargo = (p: string) => {
+    const r = cargoHome ? relative(cargoHome, p) : '..';
+    return r === '' || (!r.startsWith('..') && !isAbsolute(r));
+  };
+  return {
+    environment: {
+      ...input.environment,
+      PATH: trustedPath(input.environment.PATH, [
+        input.launcherDirectory,
+        input.workspacePath,
+        ...input.runWritablePaths,
+      ]),
+      TMPDIR: tmp,
+      CARGO_TARGET_DIR: input.target,
+    },
+    // The daemon's Cargo caches stay shared with agents by operator decision (R-G5).
+    writable: [input.snapshot, tmp, input.target, ...caches],
+    inaccessible: [
+      input.workspacePath,
+      input.launcherDirectory,
+      ...input.runWritablePaths.filter((p) => !underCargo(p)),
+    ],
+  };
 }
 
 export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
@@ -1140,6 +1205,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let cargoReceipt: Record<string, unknown> | undefined;
   let declared: NonNullable<PinnedCargoManifest['declaredChecks']>['checks'][number] | undefined;
   let snapshot: string | undefined;
+  let inaccessible: readonly string[] = [];
   let declaredDigests: Record<string, string> = {};
   let ownsNativeUnit = false;
   const started = Date.now();
@@ -1272,30 +1338,25 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         before.headSha,
         declared.definitionPaths,
       );
-      const tmp = join(e.privateDirectory, 'tmp');
-      const target = e.declaredTargetDirectory ?? join(e.privateDirectory, 'target');
-      for (const p of [tmp, target]) mkdirSync(p, { recursive: true, mode: 0o700 });
       // A program with a path is the repository's own, from the reviewed commit.
       if (command.includes('/')) command = join(snapshot, command);
       cwd = snapshot;
-      const cargoHome = environment.CARGO_HOME;
-      environment = {
-        ...environment,
-        PATH: trustedPath(environment.PATH, [
-          dirname(e.manifestPath),
-          m.workspacePath,
-          ...e.writablePaths,
-        ]),
-        TMPDIR: tmp,
-        CARGO_TARGET_DIR: target,
-      };
-      // Nothing the agent can write: the clone, its scratch, and the daemon's Cargo caches.
-      writable = [
+      const unit = declaredUnitSettings({
+        environment,
+        runWritablePaths: e.writablePaths,
+        launcherDirectory: dirname(e.manifestPath),
+        workspacePath: m.workspacePath,
         snapshot,
-        tmp,
-        target,
-        ...(cargoHome ? [join(cargoHome, 'registry'), join(cargoHome, 'git')] : []),
-      ];
+        privateDirectory: e.privateDirectory,
+        // One per commit: a build script of another commit cannot leave outputs it reuses.
+        target: join(
+          e.declaredTargetDirectory ?? join(e.privateDirectory, 'target'),
+          before.headSha,
+        ),
+      });
+      environment = unit.environment;
+      writable = [...unit.writable];
+      inaccessible = unit.inaccessible;
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('The check time limit passed before it could start.');
@@ -1344,7 +1405,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           // act fetches actions itself; its job containers reach Docker's network anyway.
           act,
           // The worktree's `.git` pointer stays as the daemon made it (R-G4 review).
-          [join(m.workspacePath, '.git')],
+          declared ? [] : [join(m.workspacePath, '.git')],
+          inaccessible,
         ),
         env: busEnvironment,
       };

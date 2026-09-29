@@ -148,6 +148,11 @@ export interface GitOperations {
     commitSha: string,
   ): Promise<GitResult<readonly { path: string; content: Uint8Array; executable: boolean }[]>>;
   /**
+   * The commit a local branch names, by its exact ref `refs/heads/<name>`: never a tag or any
+   * other ref Git's name lookup would fall back to.
+   */
+  exactBranchCommit(repositoryPath: string, name: string): Promise<GitResult<string>>;
+  /**
    * The named files of a commit, as stored (no filters or line-ending conversion): a regular
    * file's contents, `link` for a symbolic link, or absent. At most 32 files of 16 MiB each.
    */
@@ -330,6 +335,8 @@ function childEnvironment(identityConfigPath?: string): NodeJS.ProcessEnv {
     GIT_CONFIG_SYSTEM: '/dev/null',
     GIT_CONFIG_GLOBAL: identityConfigPath ?? '/dev/null',
     GIT_ATTR_NOSYSTEM: '1',
+    // Replace refs would let anyone who writes refs change what an object reads as (R-G13).
+    GIT_NO_REPLACE_OBJECTS: '1',
   };
 }
 
@@ -1914,6 +1921,23 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     return { ok: true, value: files };
   }
 
+  async function exactBranchCommit(
+    repositoryPath: string,
+    name: string,
+  ): Promise<GitResult<string>> {
+    if (!isSafeBranchName(name)) return fail('invalid-path', 'Branch name must be well formed');
+    const repo = await canonicalDirectory(repositoryPath);
+    if (!repo.ok) return repo;
+    const ref = await runOk(['show-ref', '--verify', '--hash', `refs/heads/${name}`], repo.value);
+    if (!ref.ok) return fail('git-failed', `Local branch ${name} is unavailable`);
+    const commit = await runOk(
+      ['rev-parse', '--verify', `${ref.value.stdout.toString('utf8').trim()}^{commit}`],
+      repo.value,
+    );
+    if (!commit.ok) return commit;
+    return { ok: true, value: commit.value.stdout.toString('utf8').trim() };
+  }
+
   async function readCommitFiles(
     repositoryPath: string,
     commitSha: string,
@@ -2017,6 +2041,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     ensureBaselineTag,
     resolveCommit,
     exportCommit,
+    exactBranchCommit,
     readCommitFiles,
     previewIntegration,
     prepareIntegrationResolution,

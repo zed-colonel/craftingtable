@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { deflateSync } from 'node:zlib';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, PinnedCargoManifest } from '@craftingtable/agents';
 import type { DeclaredCheck } from '@craftingtable/domain';
@@ -144,7 +145,7 @@ itNeedsCargo(
         argv: [
           'node',
           '-e',
-          'console.log("checked in", process.cwd(), "agent", process.env.CT_AGENT_ONLY ?? "absent", "cargo", process.env.CARGO_HOME)',
+          'console.log("checked in", process.cwd(), "agent", process.env.CT_AGENT_ONLY ?? "absent", "cargo", process.env.CARGO_HOME, "target", process.env.CARGO_TARGET_DIR)',
         ],
         definitionPaths: [],
       },
@@ -177,12 +178,22 @@ itNeedsCargo(
     }
     // It builds from the daemon's Cargo home, never the operator's (R-G5 review), in a private
     // clone of the reviewed commit, never the agent's worktree (R-G13 review).
+    // Its build outputs are the daemon's, one directory per reviewed commit.
     const { checkLogRoot, cargoHome } = f.state.context.config.execution;
-    expect(output).toMatch(
-      new RegExp(
-        `checked in ${checkLogRoot}/${checked}/[^/ ]+\\.private/tree agent absent cargo ${cargoHome}`,
-      ),
+    const head = git(['rev-parse', 'HEAD'], f.tree.path).trim();
+    const location = new RegExp(
+      `checked in ${checkLogRoot}/${checked}/([^/ ]+)\\.private/tree agent absent cargo ${cargoHome} target ${checkLogRoot}/${checked}/declared-target/${head}`,
+    ).exec(output);
+    expect(location, output).not.toBeNull();
+    // The daemon names the clone's directory, never the request.
+    const replies = readdirSync(join(checkLogRoot, checked, 'replies'));
+    expect(replies.some((name) => name.startsWith(location![1]!))).toBe(false);
+    // Once the run's checks close, the clones and build outputs are gone; the logs stay.
+    const kept = readdirSync(join(checkLogRoot, checked));
+    expect(kept.filter((name) => name === 'declared-target' || name.endsWith('.private'))).toEqual(
+      [],
     );
+    expect(kept.some((name) => name.endsWith('.log'))).toBe(true);
     const [recorded] = storage.runtimeEvidence.checkReceipts(f.state.workspaceId, checked);
     expect(JSON.parse(recorded!.receipt)).toMatchObject({
       kind: 'scoped-check',
@@ -724,5 +735,42 @@ itNeedsCargo(
       'fresh review passes',
       20000,
     );
+  },
+);
+
+itNeedsCargo(
+  'a declared check refuses an object the agent rewrote in the shared store, which Git never re-hashes on read (R-G13 review)',
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'result', argv: ['grep', '-q', 'ok', 'result.txt'], definitionPaths: [] },
+    ]);
+    commitFile(f.tree.path, 'result.txt', 'fail');
+    const common = git(
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      f.tree.path,
+    ).trim();
+    const blob = git(['rev-parse', 'HEAD:result.txt'], f.tree.path).trim();
+    const object = join(common, 'objects', blob.slice(0, 2), blob.slice(2));
+    const original = readFileSync(object);
+    let exit: number | undefined;
+    let said = '';
+    f.backend.replyForRequest = async (request) => {
+      // The loose object of the failing file now holds a passing one, under the same name.
+      chmodSync(object, 0o644);
+      writeFileSync(object, deflateSync(Buffer.from('blob 2\0ok')));
+      exit = await runLauncher(request, 'ct-check', ['--declared', 'result']).then(
+        () => 0,
+        (error: { code?: number; stdout: string; stderr: string }) => {
+          said = error.stdout + error.stderr;
+          return error.code;
+        },
+      );
+      writeFileSync(object, original);
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    expect(exit).not.toBe(0);
+    expect(said).toContain('could not be checked out');
+    expect(() => f.svc.assertRun(f.tree, run)).toThrow('ct-check --declared result');
   },
 );

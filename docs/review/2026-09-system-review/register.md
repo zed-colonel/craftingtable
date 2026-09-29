@@ -51,7 +51,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-D5](#r-d5) | P2 | M-L | open | Server view models, compression and git-fact caching |
 | [R-D6](#r-d6) | P4 | L | open | Shared projections keyed by write generation (only if still needed) |
 | **E** | | | | **Progress view and navigation (pain points 2 and 1)** |
-| [R-E1](#r-e1) | P2 | M | open | Real routes and one Link component |
+| [R-E1](#r-e1) | P2 | M | done (a07dbfe, 4102517) | Real routes and one Link component |
 | [R-E2](#r-e2) | P2 | M | open | Split the Roadmaps mega-page |
 | [R-E3](#r-e3) | P2 (a) / P3 (b) | split: a S-M, b L | R-E3a done (2026-09-27); R-E3b open | Roadmap status list now (a); the board and graph later (b) (split 2026-09-27) |
 | [R-E4](#r-e4) | P3 | M | open | Work-item and run pages become drill-downs |
@@ -69,8 +69,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G1](#r-g1) | P0 | S-M | done (3e34531, c57c51a) | Execution safety fixes that can lose or corrupt work |
 | [R-G2](#r-g2) | P0 | S | done (d0f66ef) | Make automatic provider retry actually fire |
 | [R-G3](#r-g3) | P0 | S-M | done (8c92c57) | Scope operator guidance to the step it was given for |
-| [R-G4](#r-g4) | P2 | M-L | open | Daemon-owned verification receipts |
-| [R-G5](#r-g5) | P2 | M | open | Agent environment and configuration isolation |
+| [R-G4](#r-g4) | P2 | M-L | done (95c4a17 to 6bb668a, see review) | Daemon-owned verification receipts |
+| [R-G5](#r-g5) | P2 | M | done (7b5751a to 29d3524, see review) | Agent environment and configuration isolation |
 | [R-G6](#r-g6) | P2 | M | open | Redesign briefs around the task |
 | [R-G7](#r-g7) | P1 | M | partial (0fc17d2; live measurement after deploy) | Stop cold-building Rust on every step |
 | [R-G8](#r-g8) | P5 | M-L | open | Backend capability model and persistent-agent seam |
@@ -1637,7 +1637,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - Receipt sequence numbers: each is assigned inside a synchronous transaction in the one daemon process, so concurrent checks cannot collide.
     - Toolchains with HOME read-only: in a unit confined as the checks are, with the live daemon's PATH, `cargo`, `rustc`, `node`, `pnpm` and `git` all run.
     - Mutation checks were run for every fix above.
-- **Status (2026-09-28): done.** Increments 0 to 6 and the review fixes. For runs prepared after the cutover, no gating receipt is read from an agent-writable path. Records frozen earlier stay valid and are labelled agent-reported. Two gaps are left open: `ct-check -- true` still counts as a scoped check (the declared-checks follow-up, AGT-08), and Claude runs have no OS sandbox (R-G5). The done-when holds for runs prepared after the cutover: no gating receipt is read from an agent-writable path. Records frozen earlier are labelled agent-reported. Two gaps remain: `ct-check -- true` counts as a scoped check (the follow-up for declared checks, AGT-08), and Claude runs, which have no OS sandbox until R-G5.
+- **Status (2026-09-28): done.** Increments 0 to 6 and the review fixes. For runs prepared after the cutover, no gating receipt is read from an agent-writable path. Records frozen earlier stay valid and are labelled agent-reported. Two gaps are left open: `ct-check -- true` still counts as a scoped check (the declared-checks follow-up, AGT-08), and Claude runs have no OS sandbox (R-G5).
 
 ### R-G5
 

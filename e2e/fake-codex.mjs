@@ -121,6 +121,13 @@ lines.on('line', (line) => {
     case 'account/usage/read':
       reply({});
       break;
+    // The adapter asks what the configuration loaded, to switch the operator's own off (R-G5).
+    case 'skills/list':
+      reply({ data: [] });
+      break;
+    case 'mcpServerStatus/list':
+      reply({ data: [] });
+      break;
     case 'thread/start':
     case 'thread/resume':
       threadId = message.params.threadId ?? threadId;

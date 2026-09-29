@@ -651,6 +651,46 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - *LOW, fixed:* LIVE-17 no longer claims receipts show no collision; two job failures are unclassified.
     - *LOW, fixed:* LIVE-18's review list and its preparation IDs (worktree IDs had been given).
     - *NIT, fixed:* R-F7's CI rerun count and the date of its evidence; the operator's pause, grant and resume sequence at 06:49 to 06:50.
+  - **R-E2: partial** (3feb310; walkthroughs `2026-09-29-roadmaps-split-before`, `-after`; review fixes 211949c).
+    - `/roadmaps` lists roadmaps and imported maps. Each roadmap has a board, a setup page (a checklist in order) and a history page; each imported map has its own page. Stored links open the page that holds their focus.
+    - The list, a board and a history page each fit in one desktop screen. **Not met:** setup with a form open is 6 to 7 screens and a map's page while creating a roadmap 11 to 18, because `CrossProjectPanel` and `RuntimeEvidencePanel` render every step at once. The second increment goes with R-A6.
+    - **Review:** one HIGH (the map page hid the roadmap creator once any roadmap used the revision) and four MEDIUMs (UI-17's shared dirty gate, blocker links, map links, item paths), all fixed.
+  - **LIVE-18: done on the branch** (option B, operator decision; f4a238c, e687e6a, d08b7c7; review fixes 1e422d5).
+    - A shared-decision stop names every unsettled merge decision. Each has a card with "Needed now by" and Prepare decision brief, even before a brief exists. The stop's item and cycle panel link to the cards. The cycle offers "Open shared decisions (N)" instead of Resume until each is settled, and plain, guided and roadmap resumes are refused or skipped meanwhile. Nothing persisted changes.
+    - **Review:** one HIGH (a deadlock on a decision whose prerequisite only this slice's own review produces) and four MEDIUMs (a clause approval read as accepted, a stale roadmap version on Prepare, single-project roadmaps without cards, a sequential resume refused for open questions), all fixed.
+  - **R-I9: done** (3836b99, 6fb5a4a; review fixes 0cf4fa5, b702dfe). Each gate spec works in its own workspace, the gate runs four workers with installation-wide specs serial at the end, and the e2e daemon gets enough capacity. The review found the capacity never reached the daemon and the data-directory leak's real cause (pnpm let Playwright kill the daemon mid-removal); both fixed. **Done:** ten consecutive `pnpm test:e2e` passes at 661282f (21 tests and the walkthrough rehearsal, 219 to 250 s each, no retries, nothing left behind).
+  - **R-G13: increment 1 done on the branch, one HIGH open for the operator** (8d0482c; walkthroughs `2026-09-29-repository-checks-before`, `-after`; review fixes 242bc20 and 661282f).
+    - Schema 36 adds immutable, versioned check declarations and the `repository-checks.adopted` audit action. The operator adopts `.craftingtable/checks.json` on the Repositories page from a branch or exact commit the daemon reads; the preview shows each definition file.
+    - A scoped review prepared after the change is met only by daemon runs of every adopted check (`ct-check --declared <id>`) on the reviewed commit. The daemon runs each in a private, verified clone of that commit, with a PATH and file view that exclude everything the run can write, and compares the definition files' stored blobs with the adoption. Commands the agent chooses are supplemental.
+    - A repository with no adoption stops as `repository-checks-undeclared` before any run; a changed definition stops at review approval as `check-definition-changed`; adopting clears either.
+    - **Two reviews.** The first found three HIGHs (a program planted on the run's PATH ran instead of the declared one; the check ran in the agent's live worktree; adoption refused any tree with a link or a large file) and four MEDIUMs; the second found that the clone read objects the agent could rewrite, and that the unit could still see the run's files. All fixed, each shown by mutation (29 guards).
+    - **Open, operator decision:** the check units build from the daemon's Cargo home, which agents can write (the R-G5 follow-up decision). A planted source in `registry/src` is compiled by any later Cargo build, declared or pinned; this predates R-G13. Recommendation on R-G13.
+  - **Tooling:** lint failed at fccce06 already (biome's warnings on tests that drive private roadmap members); fixed in 34bd8ab.
+  - **R-D4: not started** (time).
+  - **Gate at e081eb5** (code as at 661282f):
+    - format, lint, typecheck and build pass;
+    - 219 test files, 1,710 unit tests: in the full run at load average up to 13, 46 tests in 15 files timed out waiting on the controller; all 15 files (262 tests) passed rerun serially;
+    - e2e: 21 tests and the walkthrough rehearsal pass (and ten consecutive runs for R-I9);
+    - the scope check passes.
+  - **Replays at 661282f, on copies:** `golden.json`, `--every-run` and the scheduler replay report 0 changed and 0 missing on all six snapshots, including 2026-09-29 against the goldens recorded at fccce06 (65/416/365). No new goldens. The replays classify recorded outcomes and prepare no runs, so R-G13's fail-closed start and its approval-time check are not exercised there; they have their own tests.
+  - **Before the deploy:**
+    - Schema 36 is new (`repository_check_declarations`, the `repository-checks.adopted` action). A release before this cannot open the database. Run environments may carry `checkDeclarationId`; cycle attention may carry `repositoryId` and `checkId` refs and the codes `repository-checks-undeclared` and `check-definition-changed`. Cycle reads carry a derived `unsettledDecisions` (never stored).
+    - **Fail closed at once:** every scoped slice prepared after the deploy in a repository with no adopted checks stops as `repository-checks-undeclared`. WI and EXO each need a `.craftingtable/checks.json` committed on a branch the operator reviews, and adoption on the Repositories page. Runs already prepared keep the old rule.
+    - Declared checks clone the reviewed commit through a pack (`--no-local`) into `<data>/check-logs/<run>/`, with a Cargo target per commit there; both are removed when the run's checks close, and at start.
+    - Every daemon Git command now sets `GIT_NO_REPLACE_OBJECTS`.
+  - **First-boot checks after this deploy:**
+    - schema 36 migrated, and the daemon logs no warnings;
+    - the Repositories page shows a Checks section per repository, "No adopted checks" until adoption;
+    - after adoption, a scoped review's receipt names `declaredCheck` and runs in `check-logs/<run>/<id>.private/tree`; nothing is left there once the run ends;
+    - an EXO-18-like shared-decision stop shows "Open shared decisions (N)" and its item opens the roadmap's setup at the decision cards;
+    - `/roadmaps` lists roadmaps, and stored links (`/roadmaps?roadmap=…#…`) open the right page;
+    - still open from the last deploy: one Claude step, to verify the Claude sandbox launch.
+  - **Decisions needed:**
+    1. **R-G13, the shared Cargo home (HIGH, open).** Agents can write `<data>/cargo-home`, and every Cargo build in a check unit, declared or pinned, compiles what is there. Recommended: a private `CARGO_HOME` per check, extracted fresh from the shared download cache (read-only to the unit). It changes the R-G5 follow-up decision, so it waits for you.
+    2. **R-C3b.** Hold a slice whose decision is prepared but unapproved, or keep approving decisions before their slices start.
+    3. **R-G13 adoptions for WI and EXO,** right after the deploy (above).
+    4. **LIVE-21** (a checkpoint candidate conflict reaches the operator as `controller-error`): fix next, or leave while it has an exit.
+  - **Next:** the Cargo-home decision (R-G13), then LIVE-21 and LIVE-20, R-G13 increments 2 to 5, R-E2's second increment with R-A6, R-D4 and R-D5, then R-G9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

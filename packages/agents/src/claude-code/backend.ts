@@ -1,4 +1,4 @@
-import { accessSync, constants, realpathSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
 import {
@@ -12,7 +12,12 @@ import {
 } from '../index.js';
 import { agentEnvironment } from '../child-environment.js';
 import { spawnSupervisedProcess } from '../process.js';
-import { claudeCodeArguments, claudeUserMessageLine } from './arguments.js';
+import {
+  claudeCodeArguments,
+  claudeSandboxed,
+  claudeUserMessageLine,
+  sandboxAllowedWrites,
+} from './arguments.js';
 import { CLAUDE_CODE_MODELS } from './models.js';
 import { ClaudeStreamNormalizer, RAW_LINE_LIMIT_BYTES } from './normalize.js';
 
@@ -100,6 +105,9 @@ export class ClaudeCodeBackend implements AgentBackend {
     });
     let child: ReturnType<typeof spawnSupervisedProcess>;
     try {
+      if (claudeSandboxed(request))
+        for (const directory of sandboxAllowedWrites(request))
+          mkdirSync(directory, { recursive: true });
       child = spawnSupervisedProcess({
         executable: this.options.executable,
         args: claudeCodeArguments(request),

@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { claudeCodeArguments, claudeUserMessageLine } from './arguments.js';
@@ -59,8 +61,13 @@ describe('claudeCodeArguments', () => {
               '~/.codex',
               '~/.claude/.credentials.json',
             ],
+            allowWrite: [join(homedir(), '.cargo', 'registry'), join(homedir(), '.cargo', 'git')],
           },
-          network: { allowLocalBinding: true, strictAllowlist: true, allowedDomains: [] },
+          network: {
+            allowLocalBinding: true,
+            strictAllowlist: true,
+            allowedDomains: ['crates.io', 'index.crates.io', 'static.crates.io'],
+          },
         },
       }),
       '--permission-mode',

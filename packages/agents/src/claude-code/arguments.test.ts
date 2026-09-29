@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { claudeCodeArguments } from './arguments.js';
 it('limits decision preparation to file-reading tools without ambient MCP or write permissions', () => {
@@ -56,11 +58,29 @@ it("keeps the sandbox off the network, the Docker socket and the operator's cred
     return JSON.parse(args[args.indexOf('--settings') + 1]!).sandbox;
   };
   const sandbox = settings('auto');
+  // The crates.io registry is the one outside host, so `cargo fetch` can download
+  // dependencies (operator decision 2026-09-28); a strict allowlist keeps commands from adding
+  // more.
   expect(sandbox.network).toEqual({
     allowLocalBinding: true,
     strictAllowlist: true,
-    allowedDomains: [],
+    allowedDomains: ['crates.io', 'index.crates.io', 'static.crates.io'],
   });
+  // What a fetch writes: Cargo's registry and Git caches, nothing else of the home directory.
+  // The daemon names the run's Cargo home; without one it is Cargo's default.
+  expect(sandbox.filesystem.allowWrite).toEqual([
+    join(homedir(), '.cargo', 'registry'),
+    join(homedir(), '.cargo', 'git'),
+  ]);
+  const named = claudeCodeArguments({
+    cwd: '/work/x',
+    prompt: 'Go',
+    permissionMode: 'auto',
+    environment: { CARGO_HOME: '/opt/cargo' },
+  });
+  expect(JSON.parse(named[named.indexOf('--settings') + 1]!).sandbox.filesystem.allowWrite).toEqual(
+    ['/opt/cargo/registry', '/opt/cargo/git'],
+  );
   expect(sandbox.filesystem.denyRead).toEqual(
     expect.arrayContaining([
       `/run/user/${process.getuid?.()}`,

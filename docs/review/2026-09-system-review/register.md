@@ -78,6 +78,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G10](#r-g10) | P3 | M | open | Git adapter robustness and structure |
 | [R-G11](#r-g11) | P3 | S-M | open | Supervisor loose ends |
 | [R-G12](#r-g12) | P5 | L | open | (Future) agent runs that outlive the daemon |
+| [R-G14](#r-g14) | P3 | S-M | open | Operator-configured outside sources for agent sandboxes |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
@@ -1747,6 +1748,13 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Status (2026-09-28): done.** Increments 1 to 6 and the review fixes. Done-when evidence:
   - a run's environment holds only allowlisted variables (increment 1's test);
   - supervised Claude runs load no operator skills, plugins, MCP servers or memory (increment 2's live check); Codex runs load none of the operator's (increment 3's live check).
+- **Follow-ups the operator decided after the batch report (2026-09-28).**
+  - **crates.io in Claude's sandbox: done.**
+    - The sandbox allows `crates.io`, `index.crates.io` and `static.crates.io`, still under a strict allowlist, so the brief's `cargo fetch` can download dependencies.
+    - It may write Cargo's `registry` and `git` caches: the same two directories the check units write, and nothing else of the home directory.
+    - The daemon names the run's `CARGO_HOME`, as the check units have it, so the agent and its sandbox agree on the location. The adapter creates the two caches before launch, because the sandbox can make only an existing directory writable.
+    - Live check: a sandboxed Claude run downloaded a crate into a fresh Cargo home. Its write to the home's root and a request to another host were refused.
+    - **Codex:** its sandbox has only all-or-nothing network, so Codex runs still reach nothing. A place to configure sources like this one, and a way to give Codex the same access, is [R-G14](#r-g14).
 
 ### R-G6
 
@@ -1836,6 +1844,17 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [AGT-02](findings/AGT-GIT-SEC-agents-git-security.md#agt-02-restart-recovery-relies-entirely-on-systemd-no-process-identity-is-persisted), [AGT-11](findings/AGT-GIT-SEC-agents-git-security.md#agt-11-the-seam-cannot-host-persistent-hermesopenclaw-style-agents-without-redesign)
 - **Change:** Recorded 2026-09-23 as a future item, to be designed together with persistent (Hermes/OpenClaw-style) agents (R-G8). Give each run a small supervisor in its own transient systemd user unit that owns the agent process and its stdio, persists process identity, and appends normalized events to a durable per-run file or socket; the daemon becomes a client that re-attaches to live supervisors on start and replays their events from its last journal cursor. This removes restart as a source of interruption entirely (R-B9 only shortens and repairs it) and is the same decoupling a persistent agent needs. Preserve today's authority boundaries: process spawning stays in the listed adapter modules, cancellation and deadlines stay daemon-owned.
 - **Done when:** A daemon restart during a live run loses no events and needs no resume; the design ADR covers persistent agents as well.
+
+### R-G14
+
+**Operator-configured outside sources for agent sandboxes** · Phase P3 · Effort S-M · Status: open
+
+- **Added 2026-09-28** (operator decision, after the R-G5 batch). Claude's sandbox reaches crates.io and nothing else, and that list is fixed in the adapter (`SANDBOX_ALLOWED_DOMAINS`).
+- **Change:**
+  - One place where the operator names the outside sources agents may reach (hosts, and the caches they write), per installation and possibly per repository.
+  - Both adapters read it.
+  - Codex's sandbox cannot allow a single host, so it needs its own route: for example, a daemon-run fetch, or a proxy the daemon owns.
+- **Done when:** A source added in that one place reaches both agents' sandboxes, and nothing else does.
 
 ## Workstream H — Data lifecycle and integrity
 

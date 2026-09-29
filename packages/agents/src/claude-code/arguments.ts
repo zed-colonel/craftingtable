@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { AgentPermissionMode } from '@craftingtable/domain';
 import type { AgentLaunchRequest } from '../index.js';
 
@@ -83,18 +85,40 @@ function sandboxDeniedReads(): string[] {
 }
 
 /**
+ * The one outside source sandboxed commands may reach: the crates.io registry, so that
+ * `cargo fetch` can download dependencies before the daemon's offline builds (operator
+ * decision 2026-09-28). A place to configure such sources is a follow-up (R-G14).
+ */
+const SANDBOX_ALLOWED_DOMAINS = ['crates.io', 'index.crates.io', 'static.crates.io'];
+
+/**
+ * Where a fetch writes outside the worktree: Cargo's registry and Git caches, the same two
+ * directories the daemon's check units may write, and nothing else of the home directory. The
+ * sandbox can make only an existing directory writable, so the adapter creates them first.
+ */
+export function sandboxAllowedWrites(request: AgentLaunchRequest): string[] {
+  const cargoHome = request.environment?.CARGO_HOME ?? join(homedir(), '.cargo');
+  return [join(cargoHome, 'registry'), join(cargoHome, 'git')];
+}
+
+/**
  * Settings every supervised Claude run gets. Except with the unrestricted posture, Bash runs in
  * Claude Code's OS sandbox (R-G5, SEC-02c): it may write only the worktree, the run's
- * directories and its scratch space; it reaches no network but loopback, and no command may
- * name more hosts (a strict allowlist that is empty); it cannot read the Docker socket or the
- * operator's credentials. The run does not start without the sandbox, and a command may not
- * ask to leave it. Sandboxed commands run without asking only in the auto posture; edit-only
- * keeps its approval rule for commands.
+ * directories, its scratch space and Cargo's download caches; it reaches no network but loopback
+ * and crates.io, and no command may name more hosts (a strict allowlist); it cannot read the
+ * Docker socket or the operator's credentials. The run does not start without the sandbox, and
+ * a command may not ask to leave it. Sandboxed commands run without asking only in the auto
+ * posture; edit-only keeps its approval rule for commands.
  */
+/** Whether the run's Bash is sandboxed: every posture but unrestricted. */
+export function claudeSandboxed(request: AgentLaunchRequest): boolean {
+  return request.readOnly === true || request.permissionMode !== 'unrestricted';
+}
+
 function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown> {
   return {
     autoMemoryEnabled: false,
-    ...(request.permissionMode === 'unrestricted' && !request.readOnly
+    ...(!claudeSandboxed(request)
       ? {}
       : {
           sandbox: {
@@ -102,8 +126,15 @@ function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown>
             failIfUnavailable: true,
             allowUnsandboxedCommands: false,
             autoAllowBashIfSandboxed: request.permissionMode === 'auto' && !request.readOnly,
-            filesystem: { denyRead: sandboxDeniedReads() },
-            network: { allowLocalBinding: true, strictAllowlist: true, allowedDomains: [] },
+            filesystem: {
+              denyRead: sandboxDeniedReads(),
+              allowWrite: sandboxAllowedWrites(request),
+            },
+            network: {
+              allowLocalBinding: true,
+              strictAllowlist: true,
+              allowedDomains: SANDBOX_ALLOWED_DOMAINS,
+            },
           },
         }),
   };

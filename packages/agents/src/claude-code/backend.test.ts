@@ -1,4 +1,12 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -243,6 +251,25 @@ setInterval(() => out(limited), 50);
     expect(results).toEqual([
       'echo: ANTHROPIC_API_KEY,CRAFTINGTABLE_RUN_NAMESPACE,HOME,LANG,LC_TIME,OPERATOR_DECLARED,PATH,TMPDIR PATH=/run/bin:/usr/bin',
     ]);
+  });
+
+  it("creates the sandbox's Cargo caches before launch, so a fetch can write them (R-G5)", async () => {
+    const fake = fakeClaude();
+    const cargoHome = join(fake.cwd, 'cargo-home');
+    const session = await new ClaudeCodeBackend({ executable: fake.executable }).launch({
+      cwd: fake.cwd,
+      prompt: 'ENV-NAMES',
+      permissionMode: 'auto',
+      environment: { CARGO_HOME: cargoHome },
+    });
+    // The sandbox can only make an existing directory writable; Cargo creates them itself
+    // on its first download, which the sandbox would refuse.
+    expect(existsSync(join(cargoHome, 'registry'))).toBe(true);
+    expect(existsSync(join(cargoHome, 'git'))).toBe(true);
+    // Nothing else of the Cargo home is created or made writable.
+    expect(readdirSync(cargoHome).sort()).toEqual(['git', 'registry']);
+    session.end();
+    for await (const _ of session.items);
   });
 
   it('rejects an invalid launch request without spawning', async () => {

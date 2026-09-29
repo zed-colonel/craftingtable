@@ -228,6 +228,26 @@ itNeedsCargo(
       DECISIONS.map((id) => [id, [cycle.executionScope!.sourceId], false]),
     );
 
+    // The cycle as read carries what it waits on, so the panel offers the decisions instead.
+    const listed = async () =>
+      (
+        await f.state.context.app.inject({
+          method: 'GET',
+          url: `/api/workspaces/${ws}/cycles`,
+          headers: { cookie: f.state.cookie },
+        })
+      )
+        .json()
+        .cycles.find((c: WorkCycle) => c.id === cycle.id) as WorkCycle;
+    expect((await listed()).unsettledDecisions).toEqual([...DECISIONS]);
+    // The stop's inbox item opens the roadmap's decision cards.
+    const item = tx.attention
+      .open(ws)
+      .find((i) => i.subjectKey === `cycle:${cycle.id}` && i.code === 'shared-decision-required');
+    const roadmapId = cycle.owner!.roadmapId;
+    expect(item?.path).toBe(
+      `/workspaces/${ws}/roadmaps/${roadmapId}/setup#runtime-evidence-roadmap-${roadmapId}-decisions`,
+    );
     // Plain and guided resumes would only review again into the same gate.
     for (const guidance of [undefined, 'Continue.']) {
       const refused = await resume(fx, cycle, guidance);
@@ -252,6 +272,7 @@ itNeedsCargo(
     // Once both are settled, one resume carries the cycle on.
     await prepareAndAccept(fx, 'LOCAL-ADR-02');
     cycle = tx.execution.cycles.find(ws, cycle.id)!;
+    expect((await listed()).unsettledDecisions).toBeUndefined();
     const accepted = await resume(fx, cycle);
     expect(accepted.statusCode, accepted.body).toBe(200);
   },

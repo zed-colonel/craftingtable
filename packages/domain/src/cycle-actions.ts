@@ -21,6 +21,8 @@ export const CYCLE_ACTIONS = [
   'merge',
   'record-scope-evidence',
   'approve-promotion',
+  /** Go to the shared decisions a stop still waits on (LIVE-18); nothing is posted. */
+  'open-shared-decisions',
 ] as const;
 export type CycleAction = (typeof CYCLE_ACTIONS)[number];
 
@@ -95,9 +97,15 @@ export function resumeRedirect(
 }
 
 export function cycleActions(
-  cycle: Parameters<typeof effectiveCycleAttention>[0] & Pick<WorkCycle, 'status' | 'currentRunId'>,
+  cycle: Parameters<typeof effectiveCycleAttention>[0] &
+    Pick<WorkCycle, 'status' | 'currentRunId'> &
+    Partial<Pick<WorkCycle, 'unsettledDecisions'>>,
   latestRunId?: string,
 ): readonly CycleAction[] {
+  // A stop that waits on unsettled shared decisions offers them instead of a resume the daemon
+  // would refuse (LIVE-18); the list is the daemon's, read with the cycle.
+  if (['paused', 'needs-attention'].includes(cycle.status) && cycle.unsettledDecisions?.length)
+    return ['open-shared-decisions', 'stop'];
   switch (cycle.status) {
     case 'running':
       return ['pause', 'stop'];

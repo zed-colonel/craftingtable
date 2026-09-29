@@ -259,6 +259,7 @@ export class WorkCycleService {
         ? PREPARING_RECOVERY
         : (automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c));
       const mergeWait = scopeMergeWait(tx, c);
+      const unsettled = unsettledDecisionsAt(tx, c);
       const currentRun = tx.execution.runs.find(workspaceId, c.currentRunId);
       const turn =
         currentRun &&
@@ -278,6 +279,7 @@ export class WorkCycleService {
           : {}),
         ...(wait ? { scopeReviewWait: wait } : {}),
         ...(mergeWait ? { mergeRequirementsWait: mergeWait } : {}),
+        ...(unsettled.length ? { unsettledDecisions: unsettled } : {}),
       };
     });
   }

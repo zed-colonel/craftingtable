@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { roadmapPath } from './roadmap-paths.js';
 import {
   ATTENTION_FLAP_WINDOW_MS,
   type AttentionItem,
@@ -33,15 +34,7 @@ import { preparedDecisionAccepted } from './decision-preparation-policy.js';
  */
 function dependencyRefreshPath(ws: string, roadmapId: string | undefined): string | undefined {
   if (roadmapId === undefined) return undefined;
-  return `${roadmapPath(ws, roadmapId, 'setup')}#${encodeURIComponent(`runtime-evidence-roadmap-${roadmapId}`)}`;
-}
-
-/**
- * A roadmap's own page (R-E2): its board, or its setup. `ws` is already encoded. Links stored
- * before the split (`/roadmaps?roadmap=<id>#<focus>`) still open the right page in the browser.
- */
-function roadmapPath(ws: string, roadmapId: string, tab?: 'setup'): string {
-  return `/workspaces/${ws}/roadmaps/${encodeURIComponent(roadmapId)}${tab ? `/${tab}` : ''}`;
+  return roadmapPath(ws, roadmapId, 'setup', `runtime-evidence-roadmap-${roadmapId}`);
 }
 
 /** What a projection unit wants open; the projector gives it identity and history. */
@@ -621,7 +614,12 @@ export class AttentionProjector implements WriteObserver {
       ...(preparing ? { roadmapId: preparing.roadmap.id } : {}),
     };
     const path = preparing
-      ? `${roadmapPath(ws, preparing.roadmap.id, 'setup')}#${encodeURIComponent(`decision-preparation-${preparing.roadmap.id}`)}`
+      ? roadmapPath(
+          ws,
+          preparing.roadmap.id,
+          'setup',
+          `decision-preparation-${preparing.roadmap.id}`,
+        )
       : tree.planVersionId
         ? `/workspaces/${ws}/projects/${encodeURIComponent(tree.projectId)}/plans/${encodeURIComponent(tree.planVersionId)}`
         : `/workspaces/${ws}/work-items/${encodeURIComponent(tree.workItemId ?? '')}`;
@@ -698,7 +696,15 @@ export class AttentionProjector implements WriteObserver {
         path:
           !escalated && attention.code === 'upstream-pin-moved'
             ? (dependencyRefreshPath(ws, cycle.owner?.roadmapId) ?? path)
-            : path,
+            : // A shared-decision stop opens the owning roadmap's decision cards (LIVE-18).
+              !escalated && attention.code === 'shared-decision-required' && cycle.owner
+              ? roadmapPath(
+                  ws,
+                  cycle.owner.roadmapId,
+                  'setup',
+                  `runtime-evidence-roadmap-${cycle.owner.roadmapId}-decisions`,
+                )
+              : path,
         refs: { ...refs, cycleId: cycle.id, ...(cycle.owner ? ownerRefs(cycle.owner) : {}) },
       });
       return items;
@@ -812,7 +818,13 @@ export class AttentionProjector implements WriteObserver {
         title: `${name} · Planning amendment to decide`,
         message:
           'A planning amendment awaits review. The roadmap is held until it is applied or rejected.',
-        path,
+        // Amendments are decided on the roadmap's history page (R-E2 review).
+        path: roadmapPath(
+          encodeURIComponent(workspaceId),
+          roadmapId,
+          'history',
+          `map-amendments-${roadmapId}`,
+        ),
         refs,
       });
     else if (

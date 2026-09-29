@@ -25,6 +25,21 @@ describe('cycle actions (R-A7)', () => {
     expect(cycleActions(cycle('running'))).toEqual(['pause', 'stop']);
   });
 
+  it('offers the shared decisions, not a resume, while a stop still waits on them (LIVE-18)', () => {
+    const waiting = (status: WorkCycle['status']) =>
+      ({
+        ...cycle(status, 'shared-decision-required'),
+        unsettledDecisions: ['EXO-ADR-022', 'EXO-ADR-030'],
+      }) as WorkCycle;
+    expect(cycleActions(waiting('needs-attention'))).toEqual(['open-shared-decisions', 'stop']);
+    expect(cycleActions(waiting('paused'))).toEqual(['open-shared-decisions', 'stop']);
+    // Once every decision is settled the stop resumes as before.
+    expect(cycleActions(cycle('needs-attention', 'shared-decision-required'))).toEqual([
+      'resume',
+      'stop',
+    ]);
+  });
+
   it.each([
     ['design-report-invalid', 'resolve-design'],
     ['design-open-questions', 'resolve-design'],

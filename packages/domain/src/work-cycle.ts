@@ -124,6 +124,11 @@ export interface WorkCycle {
   readonly owner?: CycleOwner | null;
   /** Read projection: future model selections, never persisted as original settings. */
   readonly nextAgentSelections?: import('./agent-profiles.js').AgentSelections;
+  /**
+   * Read projection (LIVE-18): the shared decisions a `shared-decision-required` stop still
+   * waits on. Computed when cycles are read, never persisted.
+   */
+  readonly unsettledDecisions?: readonly string[];
   readonly workflow?: import('./workflow.js').CycleWorkflow;
   readonly designDependencyContinuations?: number;
   readonly designWait?: {

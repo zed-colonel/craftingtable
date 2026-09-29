@@ -1063,6 +1063,80 @@ describe('automated cycle controls', () => {
     expect(screen.getByText('Second slice has questions.')).toBeTruthy();
     expect(screen.queryByText('First slice needs guidance.')).toBeNull();
   });
+  it('offers the shared decisions a stop waits on instead of Resume or guidance (LIVE-18)', () => {
+    const cycle = {
+      id: 'a0000000-0000-4000-8000-000000000009',
+      workspaceId: worktree.workspaceId,
+      projectId: worktree.projectId,
+      workItemId: worktree.workItemId,
+      workItemSourceId: 'EXO-18',
+      workItemTitle: 'Instance design',
+      worktreeId: worktree.id,
+      createdByUserId: worktree.createdByUserId,
+      createdAt: worktree.createdAt,
+      updatedAt: worktree.createdAt,
+      version: 3,
+      status: 'needs-attention',
+      step: 'review',
+      policy: DEFAULT_COMPLETION_POLICY,
+      profiles: Object.fromEntries(
+        CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
+      ) as unknown as CycleProfiles,
+      instructions: '',
+      currentRunId: run().id,
+      runDeadlineAt: worktree.createdAt,
+      remediationRounds: 0,
+      stalledReviews: 0,
+      reason: 'Operator approval required for EXO-ADR-022, EXO-ADR-030.',
+      attention: { code: 'shared-decision-required', owner: 'operator' },
+      executionScope: {
+        kind: 'slice',
+        definitionId: 'd0000000-0000-4000-8000-000000000001',
+        bindingRevision: 4,
+        sourceId: 'exo/EXO-18/instance-design',
+      },
+      owner: {
+        roadmapId: 'r0000000-0000-4000-8000-000000000001',
+        attemptId: 'b0000000-0000-4000-8000-000000000001',
+        entryId: 'entry',
+        definitionRevision: 1,
+      },
+      workflow: {
+        reassessments: 0,
+        questions: ['EXO-ADR-022', 'EXO-ADR-030'].map((id) => ({
+          question: `Approve the required architecture decision ${id}.`,
+          destination: 'shared-decision' as const,
+          checkpointId: id,
+        })),
+      },
+      unsettledDecisions: ['EXO-ADR-022', 'EXO-ADR-030'],
+    } as unknown as WorkCycle;
+    render(
+      <CyclePanel
+        cycles={[cycle]}
+        worktrees={[worktree]}
+        runs={[]}
+        backends={backends}
+        profiles={profiles}
+        canMutate
+        busy={false}
+        admitted
+        onStart={vi.fn()}
+        onControl={vi.fn()}
+        onOpenRun={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole('link', { name: 'Open shared decisions (2)' }).getAttribute('href'),
+    ).toBe(
+      '/workspaces/ws/roadmaps/r0000000-0000-4000-8000-000000000001/setup#runtime-evidence-roadmap-r0000000-0000-4000-8000-000000000001-decisions'.replace(
+        '/workspaces/ws/',
+        `/workspaces/${worktree.workspaceId}/`,
+      ),
+    );
+    expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Continue with guidance/ })).toBeNull();
+  });
   it('submits the configurable nit allowance and a frozen choice for every step', () => {
     const onStart = vi.fn();
     render(

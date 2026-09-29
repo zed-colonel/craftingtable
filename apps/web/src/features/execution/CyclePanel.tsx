@@ -5,6 +5,7 @@ import type {
   StartWorkCycleRequest,
   WorktreeSummary,
 } from '@craftingtable/contracts';
+import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import {
   AGENT_BACKEND_LABELS,
   agentSelections,
@@ -160,9 +161,14 @@ export function CyclePanel({
     (!active.integrationResolution ||
       ['completed', 'abandoned'].includes(active.integrationResolution.status));
   const previous = cycles.filter((cycle) => ['stopped', 'completed'].includes(cycle.status));
+  // A stop that waits on shared decisions is answered there, not with guidance (LIVE-18).
+  const openDecisions =
+    active !== undefined &&
+    cycleActions(active, latestTreeRun?.id).includes('open-shared-decisions');
   const guidedRecovery =
     active &&
     !readOnly &&
+    !openDecisions &&
     active.step !== 'design' &&
     !exhaustedReview &&
     ['paused', 'needs-attention'].includes(active.status) &&
@@ -259,6 +265,11 @@ export function CyclePanel({
               >
                 Open current run
               </button>
+            )}
+            {openDecisions && (
+              <Link className="primary-button" route={sharedDecisionsRoute(active)}>
+                Open shared decisions ({active.unsettledDecisions?.length})
+              </Link>
             )}
             {cycleActions(active, latestTreeRun?.id).includes('pause') && (
               <button

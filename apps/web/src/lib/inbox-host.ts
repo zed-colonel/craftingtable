@@ -80,14 +80,17 @@ export function inboxHost(item: AttentionItemView): InboxHost {
                 ? { focus: `roadmap-entry-${roadmapId}-${entryId}` }
                 : item.code === 'upstream-pin-moved'
                   ? { focus: `runtime-evidence-roadmap-${roadmapId}` }
-                  : item.code === 'verification-setup'
-                    ? { focus: `runtime-evidence-roadmap-${roadmapId}-native` }
-                    : // A checkpoint the operator settles opens at its form (LIVE-11).
-                      item.code === 'checkpoint-evidence'
-                      ? { focus: `runtime-evidence-roadmap-${roadmapId}-evidence` }
-                      : item.code === 'plan-acceptance'
-                        ? { focus: `runtime-evidence-roadmap-${roadmapId}-plan-acceptance` }
-                        : {}),
+                  : // The decisions a shared-decision stop waits on (LIVE-18).
+                    item.code === 'shared-decision-required'
+                    ? { focus: `runtime-evidence-roadmap-${roadmapId}-decisions` }
+                    : item.code === 'verification-setup'
+                      ? { focus: `runtime-evidence-roadmap-${roadmapId}-native` }
+                      : // A checkpoint the operator settles opens at its form (LIVE-11).
+                        item.code === 'checkpoint-evidence'
+                        ? { focus: `runtime-evidence-roadmap-${roadmapId}-evidence` }
+                        : item.code === 'plan-acceptance'
+                          ? { focus: `runtime-evidence-roadmap-${roadmapId}-plan-acceptance` }
+                          : {}),
           },
         }),
   };

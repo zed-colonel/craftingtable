@@ -214,6 +214,7 @@ export const workCycleSchema = z
       .nullable()
       .optional(),
     nextAgentSelections: agentSelectionsSchema.optional(),
+    unsettledDecisions: z.array(z.string().min(1).max(200)).max(200).optional(),
     scopeReviewWait: z.string().optional(),
     mergeRequirementsWait: z.string().optional(),
     scopeRepair: z

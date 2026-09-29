@@ -11,14 +11,17 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 import { afterEach, expect, it } from 'vitest';
-import { hostGit } from './host-tools-test-support.js';
+import { hostCargo, hostGit } from './host-tools-test-support.js';
 import { nativeHostDigest } from './native-environment.js';
 import {
   acquireLocalCiLock,
   confinedCheckArguments,
   declaredUnitSettings,
   executeCheck,
+  lockedRegistryPackages,
   resolveGitDirectories,
   loadLocalCiConfig,
   localActArguments,
@@ -794,7 +797,7 @@ it('refuses a workflow whose jobs declare containers, services, reusable workflo
   expect(args('jobs: [unclosed')).toThrow('could not be read');
 });
 
-it("a declared check unit sees none of the run's writable roots and finds no program there (R-G13 review)", () => {
+it("a declared check unit sees none of the run's writable roots or the shared Cargo home, and finds no program there (R-G13 review)", () => {
   const root = mkdtempSync(join(tmpdir(), 'ct-declared-unit-'));
   roots.push(root);
   const at = (name: string) => join(root, name);
@@ -809,9 +812,11 @@ it("a declared check unit sees none of the run's writable roots and finds no pro
   symlinkSync(join(run, 'bin'), join(root, 'linked-bin'));
   const unit = declaredUnitSettings({
     environment: {
-      PATH: `${join(run, 'bin')}:${join(worktree, 'bin')}:${join(root, 'linked-bin')}:relative/bin:/usr/bin`,
-      CARGO_HOME: cargo,
+      PATH: `${join(run, 'bin')}:${join(worktree, 'bin')}:${join(root, 'linked-bin')}:${join(cargo, 'bin')}:relative/bin:/usr/bin`,
+      // The check's own Cargo home; the shared one is out of sight.
+      CARGO_HOME: join(scratch, 'cargo-home'),
     },
+    sharedCargoHome: cargo,
     runWritablePaths: [worktree, run, join(cargo, 'registry'), join(cargo, 'git')],
     launcherDirectory: join(run, 'dependencies'),
     workspacePath: worktree,
@@ -826,10 +831,17 @@ it("a declared check unit sees none of the run's writable roots and finds no pro
     clone,
     join(scratch, 'tmp'),
     join(scratch, 'target', 'a'.repeat(40)),
+    join(scratch, 'cargo-home'),
+  ]);
+  expect(unit.inaccessible).toEqual([
+    worktree,
+    join(run, 'dependencies'),
+    worktree,
+    run,
     join(cargo, 'registry'),
     join(cargo, 'git'),
+    cargo,
   ]);
-  expect(unit.inaccessible).toEqual([worktree, join(run, 'dependencies'), worktree, run]);
   const args = confinedCheckArguments(
     'unit',
     clone,
@@ -843,7 +855,254 @@ it("a declared check unit sees none of the run's writable roots and finds no pro
   );
   expect(args).toContain(`InaccessiblePaths=-${run}`);
   expect(args).toContain(`InaccessiblePaths=-${worktree}`);
-  expect(
-    args.filter((a) => a.startsWith('InaccessiblePaths=')).some((a) => a.includes(cargo)),
-  ).toBe(false);
+  expect(args).toContain(`InaccessiblePaths=-${cargo}`);
 });
+
+const sha256 = (content: string | Buffer) => createHash('sha256').update(content).digest('hex');
+const commitAll = (cwd: string) => {
+  for (const args of [
+    ['add', '.'],
+    ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'lock'],
+  ])
+    expect(spawnSync(hostGit(), args, { cwd }).status).toBe(0);
+};
+const lockOf = (packages: readonly { name: string; version: string; checksum: string }[]) =>
+  `version = 4\n\n${packages
+    .map(
+      (p) =>
+        `[[package]]\nname = "${p.name}"\nversion = "${p.version}"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${p.checksum}"\n`,
+    )
+    .join('\n')}`;
+
+it('reads the registry packages a lock pins, with their checksums', () => {
+  const lock = `${lockOf([{ name: 'itoa', version: '1.0.18', checksum: 'a'.repeat(64) }])}
+[[package]]
+name = "local"
+version = "0.1.0"
+
+[[package]]
+name = "from-git"
+version = "0.2.0"
+source = "git+https://example.invalid/x#${'b'.repeat(40)}"
+`;
+  expect(lockedRegistryPackages(lock)).toEqual([
+    { name: 'itoa', version: '1.0.18', checksum: 'a'.repeat(64) },
+  ]);
+});
+
+it('a check gets a fresh Cargo home: the index and only the downloads its lock pins, verified, and nothing else of the shared home (R-G13 review, operator decision 2026-09-29)', async () => {
+  const f = fixture();
+  const shared = join(f.root, 'shared-cargo');
+  const registry = 'index.crates.io-1949cf8c6b5b557f';
+  const put = (path: string, content: string) => {
+    mkdirSync(join(shared, path, '..'), { recursive: true });
+    writeFileSync(join(shared, path), content);
+  };
+  put(`registry/index/${registry}/config.json`, '{"dl":"https://static.crates.io/crates"}');
+  put(`registry/cache/${registry}/good-1.0.0.crate`, 'GENUINE GOOD');
+  // Rewritten after download: its bytes no longer match the lock.
+  put(`registry/cache/${registry}/bad-1.0.0.crate`, 'PLANTED');
+  put(`registry/cache/${registry}/unpinned-1.0.0.crate`, 'NOT IN THE LOCK');
+  // Extracted sources, configuration and credentials never come along.
+  put(`registry/src/${registry}/good-1.0.0/src/lib.rs`, 'PLANTED SOURCE');
+  put('config.toml', '[build]\nrustflags = ["--cfg", "planted"]\n');
+  put('credentials.toml', '[registry]\ntoken = "secret"\n');
+  put('git/checkouts/dep-1/abc/src/lib.rs', 'PLANTED CHECKOUT');
+  symlinkSync(f.m.workspacePath, join(shared, `registry/index/${registry}/linked`));
+  // Git dependencies: one database as fetched, one with an object rewritten after the fetch.
+  const gitDb = (name: string) => {
+    const source = join(f.root, `${name}-source`);
+    mkdirSync(source);
+    writeFileSync(join(source, 'lib.rs'), 'pub fn dep() {}\n');
+    expect(spawnSync(hostGit(), ['init', '-q', '-b', 'main'], { cwd: source }).status).toBe(0);
+    commitAll(source);
+    const db = join(shared, 'git/db', name);
+    expect(spawnSync(hostGit(), ['clone', '-q', '--bare', source, db]).status).toBe(0);
+    return db;
+  };
+  gitDb('dep-good');
+  const forged = gitDb('dep-forged');
+  const blob = spawnSync(hostGit(), ['rev-parse', 'HEAD:lib.rs'], {
+    cwd: forged,
+    encoding: 'utf8',
+  }).stdout.trim();
+  const object = join(forged, 'objects', blob.slice(0, 2), blob.slice(2));
+  chmodSync(object, 0o644);
+  writeFileSync(object, deflateSync(Buffer.from('blob 7\0forged\n')));
+  writeFileSync(
+    join(f.m.workspacePath, 'Cargo.lock'),
+    lockOf([
+      { name: 'good', version: '1.0.0', checksum: sha256('GENUINE GOOD') },
+      { name: 'bad', version: '1.0.0', checksum: sha256('GENUINE BAD') },
+    ]),
+  );
+  commitAll(f.m.workspacePath);
+  let output = '';
+  const outcome = await executeCheck({
+    tool: 'ct-check',
+    privateDirectory: join(f.root, 'daemon-private'),
+    manifestPath: f.launcher.manifestPath,
+    manifestDigest: f.launcher.manifestDigest,
+    manifest: f.launcher.manifest,
+    args: ['--', 'sh', '-c', 'echo "home=$CARGO_HOME"; cd "$CARGO_HOME" && find . -print | sort'],
+    logPath: join(f.root, 'daemon-logs', 'cargo.log'),
+    logReference: 'check-logs/run/cargo.log',
+    confinement: 'none',
+    unitName: 'unused',
+    writablePaths: [f.m.workspacePath, join(shared, 'registry'), join(shared, 'git')],
+    environment: { PATH: process.env.PATH ?? '/usr/bin', CARGO_HOME: shared },
+    onOutput: (text) => (output += text),
+    signal: new AbortController().signal,
+  });
+  expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+  const home = join(f.root, 'daemon-private', 'cargo-home');
+  expect(output).toContain(`home=${home}`);
+  expect(output).toContain(`./registry/index/${registry}/config.json`);
+  expect(output).toContain(`./registry/cache/${registry}/good-1.0.0.crate`);
+  expect(output).toContain('./git/db/dep-good/HEAD');
+  expect(output).not.toContain('./git/db/dep-forged');
+  for (const absent of [
+    'bad-1.0.0',
+    'unpinned',
+    'registry/src',
+    'config.toml',
+    'credentials',
+    'git/checkouts',
+    'linked',
+  ])
+    expect(output).not.toContain(
+      absent === 'bad-1.0.0' ? `./registry/cache/${registry}/bad` : absent,
+    );
+  expect(output).toContain(
+    `Left out of this check's Cargo home because they do not match the lock: ${registry}/bad-1.0.0.crate, git/db/dep-forged.`,
+  );
+  // The check's home is gone once it ends; the shared home is untouched.
+  expect(existsSync(home)).toBe(false);
+  expect(readFileSync(join(shared, `registry/cache/${registry}/bad-1.0.0.crate`), 'utf8')).toBe(
+    'PLANTED',
+  );
+});
+
+const cachedItoa = join(
+  homedir(),
+  '.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/itoa-1.0.18.crate',
+);
+it.skipIf(!hostCargo || !existsSync(cachedItoa))(
+  'a planted dependency source in the shared Cargo home never builds, and a rewritten download is refused (R-G13 review)',
+  { timeout: 120_000 },
+  async () => {
+    const f = fixture();
+    const shared = join(f.root, 'shared-cargo');
+    const registry = 'index.crates.io-1949cf8c6b5b557f';
+    for (const part of ['index', `cache/${registry}`])
+      mkdirSync(join(shared, 'registry', part), { recursive: true });
+    spawnSync('cp', [
+      '-r',
+      join(homedir(), '.cargo/registry/index', registry),
+      join(shared, 'registry/index'),
+    ]);
+    spawnSync('cp', [cachedItoa, join(shared, 'registry/cache', registry)]);
+    writeFileSync(
+      join(f.m.workspacePath, 'Cargo.toml'),
+      '[package]\nname = "consumer"\nversion = "0.1.0"\nedition = "2021"\n[dependencies]\nitoa = "=1.0.18"\n',
+    );
+    mkdirSync(join(f.m.workspacePath, 'src'));
+    writeFileSync(
+      join(f.m.workspacePath, 'src/lib.rs'),
+      'pub fn f() -> String { itoa::Buffer::new().format(1).to_owned() }\n',
+    );
+    const env = {
+      ...process.env,
+      CARGO_HOME: shared,
+      CARGO_TARGET_DIR: join(f.root, 'lock-target'),
+    };
+    expect(
+      spawnSync(hostCargo!, ['generate-lockfile', '--offline'], { cwd: f.m.workspacePath, env })
+        .status,
+    ).toBe(0);
+    commitAll(f.m.workspacePath);
+    // Cargo extracts the dependency into the shared home, as an agent's build would, and an
+    // agent then plants a line in the extracted source, which Cargo never checks again.
+    expect(
+      spawnSync(hostCargo!, ['build', '--offline'], { cwd: f.m.workspacePath, env }).status,
+    ).toBe(0);
+    const extracted = join(shared, 'registry/src', registry, 'itoa-1.0.18', 'src/lib.rs');
+    writeFileSync(extracted, `${readFileSync(extracted, 'utf8')}\ncompile_error!("PLANTED");\n`);
+    const plantedBuild = spawnSync(hostCargo!, ['build', '--offline'], {
+      cwd: f.m.workspacePath,
+      env: { ...env, CARGO_TARGET_DIR: join(f.root, 'plant-target') },
+      encoding: 'utf8',
+    });
+    expect(plantedBuild.stderr).toContain('PLANTED');
+    const build = async () => {
+      let output = '';
+      const outcome = await executeCheck({
+        tool: 'ct-check',
+        privateDirectory: join(f.root, `daemon-private-${Date.now()}`),
+        manifestPath: f.launcher.manifestPath,
+        manifestDigest: f.launcher.manifestDigest,
+        manifest: f.launcher.manifest,
+        args: ['--', hostCargo!, 'build', '--offline', '--locked'],
+        logPath: join(f.root, 'daemon-logs', `${Date.now()}.log`),
+        logReference: 'check-logs/run/build.log',
+        confinement: 'none',
+        unitName: 'unused',
+        writablePaths: [f.m.workspacePath, join(shared, 'registry'), join(shared, 'git')],
+        environment: {
+          PATH: process.env.PATH ?? '/usr/bin',
+          HOME: homedir(),
+          CARGO_HOME: shared,
+          CARGO_TARGET_DIR: join(f.root, 'check-target'),
+        },
+        onOutput: (text) => (output += text),
+        signal: new AbortController().signal,
+      });
+      return { outcome, output };
+    };
+    const planted = await build();
+    expect(planted.outcome.exitCode, planted.output).toBe(0);
+    expect(planted.output).not.toContain('PLANTED');
+    // A download rewritten after it was fetched is left out, and the offline build fails.
+    const crate = join(shared, 'registry/cache', registry, 'itoa-1.0.18.crate');
+    writeFileSync(crate, Buffer.concat([readFileSync(crate), Buffer.from('tampered')]));
+    const rewritten = await build();
+    expect(rewritten.outcome.exitCode).not.toBe(0);
+    expect(rewritten.output).toContain('do not match the lock');
+  },
+);
+
+itConfines(
+  'a confined check cannot see the shared Cargo home, only its own (operator decision 2026-09-29)',
+  async () => {
+    const f = fixture();
+    const shared = join(f.root, 'shared-cargo');
+    mkdirSync(join(shared, 'registry', 'src'), { recursive: true });
+    writeFileSync(join(shared, 'registry', 'src', 'planted.rs'), 'PLANTED');
+    const script = `
+      const fs = require('node:fs');
+      try { fs.readFileSync(${JSON.stringify(join(shared, 'registry', 'src', 'planted.rs'))}); console.log('shared-read'); }
+      catch { console.log('shared-hidden'); }
+      console.log('home', process.env.CARGO_HOME);
+    `;
+    let output = '';
+    const outcome = await executeCheck({
+      tool: 'ct-check',
+      privateDirectory: join(f.root, 'daemon-private'),
+      manifestPath: f.launcher.manifestPath,
+      manifestDigest: f.launcher.manifestDigest,
+      manifest: f.launcher.manifest,
+      args: ['--', process.execPath, '-e', script],
+      logPath: join(f.root, 'daemon-logs', 'shared.log'),
+      logReference: 'check-logs/run/shared.log',
+      confinement: 'systemd',
+      unitName: `craftingtable-check-test-${process.pid}-${Date.now()}`,
+      writablePaths: [f.m.workspacePath, join(shared, 'registry'), join(shared, 'git')],
+      environment: { PATH: process.env.PATH ?? '/usr/bin', HOME: homedir(), CARGO_HOME: shared },
+      onOutput: (text) => (output += text),
+      signal: new AbortController().signal,
+    });
+    expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
+    expect(output).toContain('shared-hidden');
+    expect(output).toContain(`home ${join(f.root, 'daemon-private', 'cargo-home')}`);
+  },
+);

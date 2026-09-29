@@ -176,13 +176,15 @@ itNeedsCargo(
     } finally {
       delete process.env.CT_AGENT_ONLY;
     }
-    // It builds from the daemon's Cargo home, never the operator's (R-G5 review), in a private
-    // clone of the reviewed commit, never the agent's worktree (R-G13 review).
-    // Its build outputs are the daemon's, one directory per reviewed commit.
-    const { checkLogRoot, cargoHome } = f.state.context.config.execution;
+    // It runs in a private clone of the reviewed commit, never the agent's worktree, with a
+    // fresh Cargo home of its own made from the daemon's downloads, never the operator's or the
+    // shared one (R-G5 review; R-G13 review, operator decision 2026-09-29), and build outputs
+    // that are the daemon's, one directory per reviewed commit.
+
+    const { checkLogRoot } = f.state.context.config.execution;
     const head = git(['rev-parse', 'HEAD'], f.tree.path).trim();
     const location = new RegExp(
-      `checked in ${checkLogRoot}/${checked}/([^/ ]+)\\.private/tree agent absent cargo ${cargoHome} target ${checkLogRoot}/${checked}/declared-target/${head}`,
+      `checked in ${checkLogRoot}/${checked}/([^/ ]+)\\.private/tree agent absent cargo ${checkLogRoot}/${checked}/\\1\\.private/cargo-home target ${checkLogRoot}/${checked}/declared-target/${head}`,
     ).exec(output);
     expect(location, output).not.toBeNull();
     // The daemon names the clone's directory, never the request.

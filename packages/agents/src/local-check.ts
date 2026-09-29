@@ -5,11 +5,13 @@ import { createHash } from 'node:crypto';
 import {
   appendFileSync,
   chmodSync,
+  copyFileSync,
   lstatSync,
   mkdirSync,
   existsSync,
   rmSync,
   readFileSync,
+  readdirSync,
   statSync,
   realpathSync,
   writeFileSync,
@@ -1118,6 +1120,161 @@ async function committedDigests(
 }
 
 /** PATH without any directory the run can write: an agent could plant a program there. */
+/** The registry packages a `Cargo.lock` pins, with their checksums (lock format 2 and later). */
+export function lockedRegistryPackages(
+  lock: string,
+): readonly { name: string; version: string; checksum: string }[] {
+  const packages: { name: string; version: string; checksum: string }[] = [];
+  for (const block of lock.split(/^\[\[package\]\][ \t]*$/m).slice(1)) {
+    const field = (key: string) =>
+      new RegExp(`^${key} = "([^"\\n]*)"[ \\t]*$`, 'm').exec(block.split(/^\[/m)[0]!)?.[1];
+    const name = field('name'),
+      version = field('version'),
+      source = field('source'),
+      checksum = field('checksum');
+    if (
+      name &&
+      version &&
+      /^(registry|sparse)\+/.test(source ?? '') &&
+      /^[a-f0-9]{64}$/.test(checksum ?? '') &&
+      /^[A-Za-z0-9_-]+$/.test(name) &&
+      /^[A-Za-z0-9.+-]+$/.test(version)
+    )
+      packages.push({ name, version, checksum: checksum! });
+  }
+  return packages;
+}
+
+/**
+ * A fresh Cargo home for one check (operator decision 2026-09-29, R-G13 review): agents fetch
+ * into the daemon's shared Cargo home, which they can therefore write, and Cargo trusts what it
+ * finds there without checking it again. The check gets the registry index, and only the
+ * downloaded crates whose SHA-256 matches a checksum in the checked tree's `Cargo.lock`, each
+ * copied and then hashed; Cargo extracts their sources afresh. Git dependencies are cloned
+ * through a pack, which Git hashes on receipt. Nothing else of the shared home comes along: no
+ * extracted sources, checkouts, configuration or credentials. The unit cannot see the shared
+ * home. A crate that is missing or does not match is left out, and the offline build fails.
+ */
+async function preparePrivateCargoHome(
+  m: PinnedCargoManifest,
+  shared: string,
+  into: string,
+  locks: readonly string[],
+): Promise<{ readonly crates: number; readonly refused: readonly string[] }> {
+  rmSync(into, { recursive: true, force: true });
+  mkdirSync(into, { recursive: true, mode: 0o700 });
+  const regularTree = (from: string, to: string) => {
+    let entries: string[];
+    try {
+      if (!lstatSync(from).isDirectory()) return;
+      entries = readdirSync(from);
+    } catch {
+      return;
+    }
+    mkdirSync(to, { recursive: true, mode: 0o700 });
+    for (const name of entries) {
+      const source = join(from, name);
+      const stat = lstatSync(source);
+      if (stat.isDirectory()) regularTree(source, join(to, name));
+      else if (stat.isFile()) copyFileSync(source, join(to, name));
+    }
+  };
+  // The index says what exists; the lock's checksums say which bytes are those crates.
+  regularTree(join(shared, 'registry', 'index'), join(into, 'registry', 'index'));
+  const wanted = new Map<string, string>();
+  for (const lock of locks)
+    for (const p of lockedRegistryPackages(lock))
+      wanted.set(`${p.name}-${p.version}.crate`, p.checksum);
+  let crates = 0;
+  const refused: string[] = [];
+  const cache = join(shared, 'registry', 'cache');
+  let registries: string[] = [];
+  try {
+    registries = readdirSync(cache).filter((d) => lstatSync(join(cache, d)).isDirectory());
+  } catch {
+    // Nothing downloaded yet.
+  }
+  for (const [file, checksum] of wanted) {
+    for (const registry of registries) {
+      const source = join(cache, registry, file);
+      try {
+        if (!lstatSync(source).isFile()) continue;
+      } catch {
+        continue;
+      }
+      const target = join(into, 'registry', 'cache', registry, file);
+      mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+      copyFileSync(source, target);
+      // Hash the copy, never the shared file, which may change after it was read.
+      if (hash(readFileSync(target)) === checksum) {
+        crates++;
+        break;
+      }
+      rmSync(target, { force: true });
+      refused.push(`${registry}/${file}`);
+    }
+  }
+  const db = join(shared, 'git', 'db');
+  let repositories: string[] = [];
+  try {
+    repositories = readdirSync(db).filter((d) => lstatSync(join(db, d)).isDirectory());
+  } catch {
+    // No Git dependencies.
+  }
+  for (const repository of repositories) {
+    mkdirSync(join(into, 'git', 'db'), { recursive: true, mode: 0o700 });
+    try {
+      await daemonGit(
+        m,
+        [
+          'clone',
+          '--quiet',
+          '--mirror',
+          '--no-local',
+          join(db, repository),
+          join(into, 'git', 'db', repository),
+        ],
+        into,
+      );
+    } catch {
+      refused.push(`git/db/${repository}`);
+      rmSync(join(into, 'git', 'db', repository), { recursive: true, force: true });
+    }
+  }
+  return { crates, refused };
+}
+
+/** The `Cargo.lock` files of a tree: tracked, or untracked and not ignored, and the root's. */
+async function cargoLocks(m: PinnedCargoManifest, root: string): Promise<string[]> {
+  let listed: string[] = [];
+  try {
+    listed = (
+      await daemonGit(
+        m,
+        ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+        root,
+        64 * 1024 * 1024,
+      )
+    )
+      .toString('utf8')
+      .split('\0')
+      .filter((p) => p === 'Cargo.lock' || p.endsWith('/Cargo.lock'));
+  } catch {
+    // Not a Git tree: the root's lock only.
+  }
+  const locks: string[] = [];
+  for (const path of new Set(['Cargo.lock', ...listed])) {
+    try {
+      const target = join(root, path);
+      if (lstatSync(target).isFile() && statSync(target).size <= 16 * 1024 * 1024)
+        locks.push(readFileSync(target, 'utf8'));
+    } catch {
+      // Absent.
+    }
+  }
+  return locks;
+}
+
 export function trustedPath(path: string | undefined, writable: readonly string[]): string {
   const real = (p: string) => {
     try {
@@ -1154,6 +1311,8 @@ export function declaredUnitSettings(input: {
   readonly snapshot: string;
   readonly privateDirectory: string;
   readonly target: string;
+  /** The daemon's shared Cargo home, which agents write; the environment names the check's own. */
+  readonly sharedCargoHome?: string;
 }): {
   readonly environment: Record<string, string>;
   readonly writable: readonly string[];
@@ -1162,11 +1321,7 @@ export function declaredUnitSettings(input: {
   const tmp = join(input.privateDirectory, 'tmp');
   for (const p of [tmp, input.target]) mkdirSync(p, { recursive: true, mode: 0o700 });
   const cargoHome = input.environment.CARGO_HOME;
-  const caches = cargoHome ? [join(cargoHome, 'registry'), join(cargoHome, 'git')] : [];
-  const underCargo = (p: string) => {
-    const r = cargoHome ? relative(cargoHome, p) : '..';
-    return r === '' || (!r.startsWith('..') && !isAbsolute(r));
-  };
+  const own = cargoHome && cargoHome !== input.sharedCargoHome ? [cargoHome] : [];
   return {
     environment: {
       ...input.environment,
@@ -1174,16 +1329,18 @@ export function declaredUnitSettings(input: {
         input.launcherDirectory,
         input.workspacePath,
         ...input.runWritablePaths,
+        ...(input.sharedCargoHome ? [input.sharedCargoHome] : []),
       ]),
       TMPDIR: tmp,
       CARGO_TARGET_DIR: input.target,
     },
-    // The daemon's Cargo caches stay shared with agents by operator decision (R-G5).
-    writable: [input.snapshot, tmp, input.target, ...caches],
+    // The check's own Cargo home, never the shared one (operator decision 2026-09-29).
+    writable: [input.snapshot, tmp, input.target, ...own],
     inaccessible: [
       input.workspacePath,
       input.launcherDirectory,
-      ...input.runWritablePaths.filter((p) => !underCargo(p)),
+      ...input.runWritablePaths,
+      ...(input.sharedCargoHome ? [input.sharedCargoHome] : []),
     ],
   };
 }
@@ -1206,6 +1363,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let declared: NonNullable<PinnedCargoManifest['declaredChecks']>['checks'][number] | undefined;
   let snapshot: string | undefined;
   let inaccessible: readonly string[] = [];
+  let privateCargoHome: string | undefined;
   let declaredDigests: Record<string, string> = {};
   let ownsNativeUnit = false;
   const started = Date.now();
@@ -1218,6 +1376,31 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     let cwd = m.workspacePath;
     let environment: Record<string, string> = { ...e.environment };
     let writable = [...e.writablePaths];
+    // Every Cargo build in a check unit gets a fresh, private Cargo home, holding only verified
+    // downloads, and cannot see the shared one (operator decision 2026-09-29). The approved
+    // native environment keeps its own (ADR-054), and act runs in containers.
+    const sharedCargoHome = e.environment.CARGO_HOME;
+    const within = (root: string, p: string) => {
+      const r = relative(root, p);
+      return r === '' || (!r.startsWith('..') && !isAbsolute(r));
+    };
+    const usePrivateCargoHome = async (manifest: PinnedCargoManifest, root: string) => {
+      if (!sharedCargoHome || native || act) return;
+      privateCargoHome = join(e.privateDirectory, 'cargo-home');
+      const prepared = await preparePrivateCargoHome(
+        manifest,
+        sharedCargoHome,
+        privateCargoHome,
+        await cargoLocks(manifest, root),
+      );
+      if (prepared.refused.length)
+        e.onOutput(
+          `Left out of this check's Cargo home because they do not match the lock: ${prepared.refused.join(', ')}.\n`,
+        );
+      environment = { ...environment, CARGO_HOME: privateCargoHome };
+      writable = [...writable.filter((p) => !within(sharedCargoHome, p)), privateCargoHome];
+      inaccessible = [...inaccessible, sharedCargoHome];
+    };
     if (act) {
       const ci = m.localCi;
       if (!ci) throw new Error('Local act is not configured by the operator.');
@@ -1261,6 +1444,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       const subcommand = assertPinnedCargoArguments(e.args);
       if (!PINNED_BUILD_COMMANDS.has(subcommand))
         throw new Error(`cargo ${subcommand} records nothing; run it directly.`);
+      await usePrivateCargoHome(m, m.workspacePath);
       environment = { ...environment, CARGO_TARGET_DIR: m.targetDirectory };
       const toolchain = (
         await captureCheck(m.cargoExecutable, ['--version', '--verbose'], {
@@ -1282,6 +1466,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
               [m.cargoExecutable, ...pinnedMetadataArguments(m, e.args)],
               false,
               [join(m.workspacePath, '.git')],
+              inaccessible,
             )
           : pinnedMetadataArguments(m, e.args),
         {
@@ -1329,6 +1514,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         throw new Error('A current approved native environment is required.');
     }
     before = await observeGitState(m);
+    if (e.tool === 'ct-check' && !declared) await usePrivateCargoHome(m, m.workspacePath);
     if (declared) {
       snapshot = join(e.privateDirectory, 'tree');
       await cloneReviewedCommit(m, before.headSha, snapshot);
@@ -1341,6 +1527,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       // A program with a path is the repository's own, from the reviewed commit.
       if (command.includes('/')) command = join(snapshot, command);
       cwd = snapshot;
+      await usePrivateCargoHome(m, snapshot);
       const unit = declaredUnitSettings({
         environment,
         runWritablePaths: e.writablePaths,
@@ -1348,6 +1535,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         workspacePath: m.workspacePath,
         snapshot,
         privateDirectory: e.privateDirectory,
+        ...(sharedCargoHome ? { sharedCargoHome } : {}),
         // One per commit: a build script of another commit cannot leave outputs it reuses.
         target: join(
           e.declaredTargetDirectory ?? join(e.privateDirectory, 'target'),
@@ -1451,6 +1639,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     // Released after this run's containers are gone, so the next run starts clean.
     for (const release of releases.reverse()) release();
     if (snapshot) rmSync(snapshot, { recursive: true, force: true });
+    if (privateCargoHome) rmSync(privateCargoHome, { recursive: true, force: true });
   }
   const after = m ? await observeGitState(m) : { headSha: '', clean: false };
   mkdirSync(dirname(e.logPath), { recursive: true, mode: 0o700 });

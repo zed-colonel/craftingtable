@@ -189,9 +189,16 @@ export function RepositoryChecksPanel({
           <p>
             <code>{preview.sourcePath}</code> at {preview.ref} ({shortSha(preview.commitSha)})
           </p>
-          {preview.issues.map((issue) => (
-            <p key={issue} className="warning-state">
+          {preview.issues.map((issue, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: two issues may read the same.
+            <p key={index} className="warning-state">
               {issue}
+            </p>
+          ))}
+          {preview.warnings.map((warning, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: two warnings may read the same.
+            <p key={index} className="hint" role="note">
+              {warning}
             </p>
           ))}
           {preview.checks.length > 0 && (
@@ -200,6 +207,27 @@ export function RepositoryChecksPanel({
               checks={preview.checks}
             />
           )}
+          {preview.definitions.map((file) => (
+            <details key={file.path}>
+              <summary>
+                <code>{file.path}</code> ({file.bytes} bytes,{' '}
+                {current === undefined || !(file.path in current.definitionDigests)
+                  ? 'new'
+                  : current.definitionDigests[file.path] === file.digest
+                    ? `unchanged since version ${current.version}`
+                    : `changed since version ${current.version}`}
+                )
+              </summary>
+              {file.text === undefined ? (
+                <p className="hint">Not shown: it is not UTF-8 text.</p>
+              ) : (
+                <pre className="mono">
+                  {file.text}
+                  {file.truncated ? '\n[shortened to its first 64 KiB]' : ''}
+                </pre>
+              )}
+            </details>
+          ))}
           {preview.issues.length === 0 && (
             <>
               <label className="field">

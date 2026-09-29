@@ -2363,6 +2363,7 @@ export class WorkCycleService {
     );
     if (reviewedWorktree === undefined) throw new NotFoundError();
     await this.branches?.assertReview(reviewedWorktree, run);
+    this.runtimeEvidence?.assertDeclaredDefinitions(reviewedWorktree, run.id);
     if (await this.advanceWorkflow(cycle, run)) return;
     this.change(cycle, {
       status: 'awaiting-merge',

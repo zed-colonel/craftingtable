@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   appendFileSync,
   chmodSync,
@@ -19,10 +19,13 @@ import { afterEach, expect } from 'vitest';
 import {
   cleanupExecutionFixtures,
   commitFile,
+  controlCycle,
   currentCycle,
   declareFixtureChecks,
+  designDone,
   git,
   HOST_GIT,
+  implementationDone,
   itNeedsCargo,
   runLauncher,
   runToFinish,
@@ -172,9 +175,13 @@ itNeedsCargo(
     } finally {
       delete process.env.CT_AGENT_ONLY;
     }
-    // It builds from the daemon's Cargo home, never the operator's (R-G5 review).
-    expect(output).toContain(
-      `checked in ${f.tree.path} agent absent cargo ${f.state.context.config.execution.cargoHome}`,
+    // It builds from the daemon's Cargo home, never the operator's (R-G5 review), in a private
+    // clone of the reviewed commit, never the agent's worktree (R-G13 review).
+    const { checkLogRoot, cargoHome } = f.state.context.config.execution;
+    expect(output).toMatch(
+      new RegExp(
+        `checked in ${checkLogRoot}/${checked}/[^/ ]+\\.private/tree agent absent cargo ${cargoHome}`,
+      ),
     );
     const [recorded] = storage.runtimeEvidence.checkReceipts(f.state.workspaceId, checked);
     expect(JSON.parse(recorded!.receipt)).toMatchObject({
@@ -502,7 +509,11 @@ itNeedsCargo(
       f.state.workspaceId,
       same,
     );
-    expect(JSON.parse(receipt!.receipt).command).toBe(join(f.tree.path, 'scripts/check.sh'));
+    expect(JSON.parse(receipt!.receipt).command).toMatch(
+      new RegExp(
+        `^${f.state.context.config.execution.checkLogRoot}/${same}/[^/]+\\.private/tree/scripts/check\\.sh$`,
+      ),
+    );
     expect(() => f.svc.assertRun(f.tree, same)).not.toThrow();
 
     // The slice rewrites the check so it passes whatever it does.
@@ -518,6 +529,14 @@ itNeedsCargo(
     } catch (error) {
       expect(error).toMatchObject({ repositoryId: f.tree.repositoryId, checkId: 'script' });
     }
+
+    // Restoring the adopted file in the worktree, hidden from Git, does not hide the commit's.
+    writeFileSync(join(f.tree.path, 'scripts/check.sh'), adopted, { mode: 0o755 });
+    git(['update-index', '--skip-worktree', 'scripts/check.sh'], f.tree.path);
+    const hidden = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    expect(() => f.svc.assertRun(f.tree, hidden)).toThrow(CheckDefinitionChangedError);
+    git(['update-index', '--no-skip-worktree', 'scripts/check.sh'], f.tree.path);
+    git(['checkout', '--', 'scripts/check.sh'], f.tree.path);
 
     // A definition replaced by a link is not the adopted file either.
     rmSync(join(f.tree.path, 'scripts/check.sh'));
@@ -552,5 +571,158 @@ itNeedsCargo(
       code: 'repository-checks-undeclared',
       path: `/workspaces/${f.state.workspaceId}/repositories#repository-checks-${f.tree.repositoryId}`,
     });
+  },
+);
+
+itNeedsCargo(
+  'a declared check never runs a program the agent planted on the run PATH (R-G13 review)',
+  async () => {
+    const f = await scopedRuntimeFixture();
+    let output = '';
+    f.backend.replyForRequest = async (request) => {
+      // The launchers' directory is in the run directory, which the agent can write.
+      const bin = request.buildEnvironment!.binDirectory;
+      chmodSync(bin, 0o700);
+      writeFileSync(join(bin, 'git'), '#!/bin/sh\necho PLANTED "$@"\nexit 0\n', { mode: 0o755 });
+      output = (await runLauncher(request, 'ct-check', ['--declared', 'fixture'])).stdout;
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    expect(output).not.toContain('PLANTED');
+    const [receipt] = f.state.context.storage.runtimeEvidence.checkReceipts(
+      f.state.workspaceId,
+      run,
+    );
+    expect(JSON.parse(receipt!.receipt)).toMatchObject({ success: true, command: 'git' });
+    expect(() => f.svc.assertRun(f.tree, run)).not.toThrow();
+  },
+);
+
+itNeedsCargo(
+  'a declared check runs on the reviewed commit: what the agent writes in its worktree, even hidden from Git, does not reach it (R-G13 review)',
+  async () => {
+    const f = await scopedRuntimeFixture([
+      { id: 'result', argv: ['grep', '-q', 'ok', 'result.txt'], definitionPaths: [] },
+    ]);
+    commitFile(f.tree.path, 'result.txt', 'fail');
+    let exit: number | undefined;
+    f.backend.replyForRequest = async (request) => {
+      writeFileSync(join(request.cwd, 'result.txt'), 'ok');
+      git(['update-index', '--skip-worktree', 'result.txt'], request.cwd);
+      exit = await runLauncher(request, 'ct-check', ['--declared', 'result']).then(
+        () => 0,
+        (error: { code?: number }) => error.code,
+      );
+      return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+    };
+    const run = await runToFinish(f.state, f.tree.id, { role: 'review' });
+    expect(exit).not.toBe(0);
+    const [receipt] = f.state.context.storage.runtimeEvidence.checkReceipts(
+      f.state.workspaceId,
+      run,
+    );
+    expect(JSON.parse(receipt!.receipt)).toMatchObject({ success: false });
+    expect(() => f.svc.assertRun(f.tree, run)).toThrow('ct-check --declared result');
+  },
+);
+
+itNeedsCargo(
+  'a declared check counts only when the worktree was clean and still at the reviewed commit (R-G13 review)',
+  async () => {
+    const f = await scopedRuntimeFixture();
+    const review = (after: (cwd: string) => void, before?: (cwd: string) => void) => {
+      f.backend.replyForRequest = async (request) => {
+        before?.(request.cwd);
+        await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
+        after(request.cwd);
+        return { resultText: scopeReport(f.state, f.tree.executionScope!) };
+      };
+      return runToFinish(f.state, f.tree.id, { role: 'review' });
+    };
+    // An untracked file while the check ran.
+    const dirty = await review(
+      (cwd) => rmSync(join(cwd, 'notes.txt')),
+      (cwd) => writeFileSync(join(cwd, 'notes.txt'), 'scratch'),
+    );
+    expect(() => f.svc.assertRun(f.tree, dirty)).toThrow('ct-check --declared fixture');
+    // A commit before the check: it ran on a commit other than the one under review.
+    const moved = await review(
+      () => {},
+      (cwd) => commitFile(cwd, 'later.txt', 'not the reviewed commit'),
+    );
+    expect(() => f.svc.assertRun(f.tree, moved)).toThrow('ct-check --declared fixture');
+    const clean = await review(() => {});
+    expect(() => f.svc.assertRun(f.tree, clean)).not.toThrow();
+  },
+);
+
+itNeedsCargo(
+  'check-definition-changed stops the cycle, and adopting the new definition then resuming passes a fresh review (R-G13 review)',
+  { timeout: 30000 },
+  async () => {
+    const adopted = '#!/bin/sh\necho adopted check\n';
+    const weakened = '#!/bin/sh\necho weakened check\n';
+    const f = await scopedRuntimeFixture(
+      [{ id: 'script', argv: ['scripts/check.sh'], definitionPaths: ['scripts/check.sh'] }],
+      { 'scripts/check.sh': sha(adopted) },
+    );
+    const commitScript = (cwd: string, content: string) => {
+      mkdirSync(join(cwd, 'scripts'), { recursive: true });
+      writeFileSync(join(cwd, 'scripts/check.sh'), content, { mode: 0o755 });
+      git(['add', 'scripts/check.sh'], cwd);
+      git(['commit', '-m', 'check script'], cwd);
+    };
+    commitScript(f.tree.path, adopted);
+    f.backend.replyForRequest = async (request) => {
+      if (request.model === 'design-model') return designDone;
+      if (request.model !== 'review-model') {
+        commitScript(request.cwd, weakened);
+        return implementationDone;
+      }
+      await runLauncher(request, 'ct-check', ['--declared', 'script']);
+      return {
+        resultText: `## Open questions\nnone\n\n## Review report\n${scopeReport(f.state, f.tree.executionScope!)}`,
+      };
+    };
+    const cycle = await startCycle(f.state, f.tree.id);
+    await waitFor(
+      () => currentCycle(f.state, cycle).status === 'needs-attention',
+      'definition stop',
+      20000,
+    );
+    const stopped = currentCycle(f.state, cycle);
+    expect(stopped.attention).toMatchObject({
+      code: 'check-definition-changed',
+      owner: 'operator',
+      refs: { repositoryId: f.tree.repositoryId, checkId: 'script' },
+    });
+    expect(stopped.reason).toContain('then resume for a fresh review');
+    const item = f.state.context.storage.attention
+      .open(f.state.workspaceId)
+      .find((i) => i.subjectKey === `cycle:${cycle.id}`);
+    expect(item?.path).toBe(
+      `/workspaces/${f.state.workspaceId}/repositories#repository-checks-${f.tree.repositoryId}`,
+    );
+    // The operator adopts the edited definition, as the Repositories page would.
+    const storage = f.state.context.storage;
+    const current = storage.runtimeEvidence.checkDeclarations(
+      f.state.workspaceId,
+      f.tree.repositoryId,
+    )[0]!;
+    storage.runtimeEvidence.addCheckDeclaration({
+      ...current,
+      id: randomUUID(),
+      version: 2,
+      definitionDigests: { 'scripts/check.sh': sha(weakened) },
+      rationale: 'The slice improved the check.',
+    });
+    // The stopped review ran exactly what is now adopted, so it would merge as it is.
+    expect(() => f.svc.assertRun(f.tree, stopped.currentRunId!)).not.toThrow();
+    await controlCycle(f.state, stopped, 'resume');
+    await waitFor(
+      () => currentCycle(f.state, cycle).status === 'awaiting-merge',
+      'fresh review passes',
+      20000,
+    );
   },
 );

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   checkDeclarationPreviewSchema,
@@ -91,12 +91,26 @@ it('adopts the checks file at the commit the operator reviewed, never the workin
     commitSha: main,
     sourcePath: CHECK_DECLARATION_PATH,
     checks: [
-      // A script defines its own check unless the file names other definitions.
+      // A script always defines its own check.
       { id: 'tests', argv: ['scripts/check.sh'], definitionPaths: ['scripts/check.sh'] },
       { id: 'format', argv: ['cargo', 'fmt', '--check'], definitionPaths: [] },
     ],
     definitionDigests: { 'scripts/check.sh': sha(SCRIPT) },
+    // The operator reads what the check runs, as committed.
+    definitions: [
+      {
+        path: 'scripts/check.sh',
+        digest: sha(SCRIPT),
+        bytes: SCRIPT.length,
+        text: SCRIPT,
+        truncated: false,
+      },
+    ],
     issues: [],
+    // A program from PATH with no definition files is adoptable, with a warning.
+    warnings: [
+      expect.stringContaining('Check format runs cargo from PATH and names no definition files'),
+    ],
   });
   // Preview records nothing.
   expect(
@@ -189,7 +203,7 @@ it('refuses to adopt a ref that moved since review, or a file with issues (R-G13
   };
   const one = (check: object) => JSON.stringify({ version: 1, checks: [check] });
   expect(await propose(undefined)).toEqual([
-    expect.stringContaining(`${CHECK_DECLARATION_PATH} is not in`),
+    expect.stringContaining(`${CHECK_DECLARATION_PATH} is not a file in`),
   ]);
   expect(await propose('{')).toEqual([`${CHECK_DECLARATION_PATH} is not JSON.`]);
   expect((await propose(one({ id: 'abs', argv: ['/usr/bin/true'] }))).join()).toContain(
@@ -215,7 +229,22 @@ it('refuses to adopt a ref that moved since review, or a file with issues (R-G13
     ).join(),
   ).toContain('Each check has its own id');
   expect(await propose(one({ id: 'gone', argv: ['scripts/missing.sh'] }))).toEqual([
-    expect.stringContaining('scripts/missing.sh, a definition file of a declared check, is not in'),
+    expect.stringContaining(
+      'scripts/missing.sh, a definition file of a declared check, is not a file in',
+    ),
+  ]);
+  // Naming other definition files adds to the program; it never replaces it.
+  expect(
+    await propose(one({ id: 'own', argv: ['scripts/missing.sh'], definitionPaths: ['Makefile'] }), {
+      Makefile: 'check:\n\ttrue\n',
+    }),
+  ).toEqual([expect.stringContaining('scripts/missing.sh, a definition file')]);
+  expect(
+    await propose(one({ id: 'plain', argv: ['scripts/plain.sh'] }), {
+      'scripts/plain.sh': '#!/bin/sh\n',
+    }),
+  ).toEqual([
+    expect.stringContaining('scripts/plain.sh, the program of check plain, is not executable'),
   ]);
   expect(
     await propose(one({ id: 'named', argv: ['make', 'check'], definitionPaths: ['Makefile'] }), {
@@ -301,4 +330,47 @@ it('lets members read adopted checks and only editors preview or adopt them, wit
   expect(
     f.state.context.storage.runtimeEvidence.checkDeclarations(f.state.workspaceId, f.repository.id),
   ).toEqual([]);
+});
+
+it('reads only the files it needs, so links and large files elsewhere do not block adoption (R-G13 review)', async () => {
+  const f = await checksFixture();
+  symlinkSync('README.md', join(f.root, 'link-to-readme'));
+  writeFileSync(join(f.root, 'large.bin'), Buffer.alloc(17 * 1024 * 1024, 1));
+  git(['add', '--all'], f.root);
+  git(['commit', '-m', 'a link and a large file'], f.root);
+  const previewed = await f.post('preview', { ref: 'main' });
+  expect(previewed.statusCode, previewed.body).toBe(200);
+  expect(checkDeclarationPreviewSchema.parse(previewed.json()).issues).toEqual([]);
+  // A definition that is a link is refused by name.
+  git(['rm', '-q', 'scripts/check.sh'], f.root);
+  mkdirSync(join(f.root, 'scripts'), { recursive: true });
+  symlinkSync('../README.md', join(f.root, 'scripts/check.sh'));
+  git(['add', '--all'], f.root);
+  git(['commit', '-m', 'linked script'], f.root);
+  expect(
+    checkDeclarationPreviewSchema.parse((await f.post('preview', { ref: 'main' })).json()).issues,
+  ).toEqual([
+    expect.stringContaining('scripts/check.sh, a definition file of a declared check, is a link'),
+  ]);
+});
+
+it('reads a branch, never a tag of the same name, or an exact commit (R-G13 review)', async () => {
+  const f = await checksFixture();
+  const main = git(['rev-parse', 'main'], f.root).trim();
+  // Anyone who can write refs, an agent included, tags a weaker file "main".
+  git(['checkout', '-q', '-b', 'weaker'], f.root);
+  writeFileSync(
+    join(f.root, CHECK_DECLARATION_PATH),
+    JSON.stringify({ version: 1, checks: [{ id: 'tests', argv: ['true'] }] }),
+  );
+  git(['commit', '-qam', 'weaker'], f.root);
+  git(['tag', 'main'], f.root);
+  git(['checkout', '-q', 'main'], f.root);
+  const read = async (ref: string) =>
+    checkDeclarationPreviewSchema.parse((await f.post('preview', { ref })).json());
+  expect((await read('main')).commitSha).toBe(main);
+  expect((await read(main)).commitSha).toBe(main);
+  const tagOnly = await f.post('preview', { ref: 'refs/tags/main' });
+  expect(tagOnly.statusCode).toBe(400);
+  expect(tagOnly.body).toContain('is not a branch or a complete commit ID');
 });

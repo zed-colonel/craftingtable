@@ -2501,6 +2501,19 @@ export class RuntimeEvidenceService {
         'Architecture decisions changed during run preparation. Retry with current evidence.',
       );
   }
+  /**
+   * A review held to declared checks stops as check-definition-changed when it is approved, not
+   * first at merge (R-G13 review). Every other gap is still the merge gate's to report.
+   */
+  assertDeclaredDefinitions(tree: Worktree, runId: string) {
+    if (!this.storage.runtimeEvidence.run(tree.workspaceId, runId)?.checkDeclarationId) return;
+    try {
+      this.assertRun(tree, runId);
+    } catch (error) {
+      if (error instanceof CheckDefinitionChangedError) throw error;
+    }
+  }
+
   assertRun(tree: Worktree, runId: string) {
     const scope = this.treeContext(tree);
     if (!scope) return;
@@ -2619,13 +2632,14 @@ export class RuntimeEvidenceService {
             r.runtimeId === env.runtimeId &&
             r.verificationMode === 'scoped-checks' &&
             r.policyDigest === hash(JSON.stringify(verification)),
+          this.storage.runtimeEvidence.checkDeclarations(tree.workspaceId, tree.repositoryId)[0],
         );
         const changed = gaps.changed[0];
         if (changed)
           throw new CheckDefinitionChangedError(
             declaration.repositoryId,
             changed.checkId,
-            `The declared check ${changed.checkId} ran with definitions that differ from the adopted ones (${changed.paths.join(', ')}). Adopt the new definition on the Repositories page, or revert the change.`,
+            `The declared check ${changed.checkId} ran with definitions that differ from the adopted ones (${changed.paths.join(', ')}). Adopt the new definition on the Repositories page, then resume for a fresh review; to keep the adopted definition, stop this cycle and revert the change in a new attempt.`,
           );
         if (gaps.missing.length)
           conflict(

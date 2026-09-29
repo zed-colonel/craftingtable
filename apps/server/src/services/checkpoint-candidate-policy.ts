@@ -110,6 +110,7 @@ export function candidateCheckpointIssues(
           r.runId === c.runId &&
           r.runtimeId === build?.runtimeId &&
           r.manifestDigest === build?.manifestDigest,
+        tx.runtimeEvidence.checkDeclarations(s.workspaceId, declaration.repositoryId)[0],
       );
       for (const changed of gaps.changed)
         issues.push(

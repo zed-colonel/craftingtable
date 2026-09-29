@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { type FSWatcher, lstatSync, realpathSync, watch } from 'node:fs';
+import { type FSWatcher, lstatSync, readdirSync, realpathSync, rmSync, watch } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import {
   allowlistedEnvironment,
@@ -222,6 +222,15 @@ export class CheckRequestService {
       /* the run directory is gone */
     }
     await Promise.allSettled([...run.inFlight.values()].map((c) => c.done));
+    // Declared checks' clones and build outputs are the daemon's scratch; only logs are kept.
+    const logs = join(this.config.checkLogRoot, runId);
+    try {
+      for (const name of readdirSync(logs))
+        if (name === 'declared-target' || name.endsWith('.private'))
+          rmSync(join(logs, name), { recursive: true, force: true });
+    } catch {
+      /* no checks ran */
+    }
     this.pump();
   }
 
@@ -364,6 +373,7 @@ export class CheckRequestService {
         onOutput: (text) => reply.write(text),
         signal,
         logLimitBytes: Math.min(this.limits.logBytesPerCheck, served.logBudget),
+        declaredTargetDirectory: join(this.config.checkLogRoot, context.runId, 'declared-target'),
       });
       served.logBudget = Math.max(0, served.logBudget - outcome.logBytes);
       const recorded = this.record(context, outcome.receipt);

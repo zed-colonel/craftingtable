@@ -838,6 +838,11 @@ export interface CheckExecution {
   readonly signal: AbortSignal;
   /** The most of the check's output the daemon keeps (R-G4 review); 2 MiB by default. */
   readonly logLimitBytes?: number;
+  /**
+   * A daemon-owned Cargo target directory for the run's declared checks, outside every writable
+   * root, so the agent cannot plant build outputs they reuse (R-G13 review).
+   */
+  readonly declaredTargetDirectory?: string;
 }
 export interface CheckOutcome {
   /** One receipt line, in the format frozen into the run's build record. */
@@ -1033,22 +1038,89 @@ function actWorkflowName(workspacePath: string, args: readonly string[]): string
  * returned for the daemon to record in its database. For act, the wait for the workflow's host
  * lock counts against the check's time limit.
  */
+/** Runs the daemon's Git, without hooks or the operator's configuration, and returns stdout. */
+function daemonGit(
+  m: PinnedCargoManifest,
+  args: readonly string[],
+  cwd: string,
+  limit = 1024 * 1024,
+): Promise<Buffer> {
+  return new Promise((resolveResult, reject) =>
+    execFile(
+      m.gitExecutable,
+      [...DAEMON_GIT_OPTIONS, ...args],
+      { cwd, encoding: 'buffer', timeout: 120_000, maxBuffer: limit, env: daemonGitEnvironment() },
+      (error, stdout) => (error ? reject(error) : resolveResult(stdout)),
+    ),
+  );
+}
+
 /**
- * SHA-256 of each declared check's definition file in the worktree (R-G13); a missing or
- * unreadable file is recorded as absent, which no adoption matches.
+ * A daemon-private clone of the commit under review, where a declared check runs (R-G13
+ * review): the agent keeps running while its checks do, and could change its own worktree
+ * mid-check. The clone borrows the repository's objects, so it costs a checkout.
  */
-function definitionDigestsAt(root: string, paths: readonly string[]): Record<string, string> {
+async function cloneReviewedCommit(m: PinnedCargoManifest, sha: string, into: string) {
+  if (!m.gitCommonDirectory) throw new Error('The run has no daemon-resolved git directory.');
+  if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(sha))
+    throw new Error('The reviewed commit could not be read.');
+  rmSync(into, { recursive: true, force: true });
+  mkdirSync(dirname(into), { recursive: true, mode: 0o700 });
+  try {
+    await daemonGit(
+      m,
+      ['clone', '--quiet', '--no-checkout', '--shared', '--no-tags', m.gitCommonDirectory, into],
+      dirname(into),
+    );
+    await daemonGit(
+      m,
+      ['-c', 'advice.detachedHead=false', 'checkout', '--quiet', '--detach', sha],
+      into,
+    );
+  } catch {
+    throw new Error('The reviewed commit could not be checked out for the declared check.');
+  }
+}
+
+/**
+ * SHA-256 of each definition file as the reviewed commit stores it (R-G13), read before the
+ * check runs. A link, a directory or a missing path is absent, which no adoption matches.
+ */
+async function committedDigests(
+  m: PinnedCargoManifest,
+  repository: string,
+  sha: string,
+  paths: readonly string[],
+): Promise<Record<string, string>> {
   const digests: Record<string, string> = {};
   for (const path of paths) {
-    try {
-      const target = resolve(root, path);
-      if (relative(root, target).startsWith('..') || !lstatSync(target).isFile()) continue;
-      digests[path] = hash(readFileSync(target));
-    } catch {
-      // Absent.
-    }
+    const listed = (
+      await daemonGit(
+        m,
+        ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', sha, '--', path],
+        repository,
+      )
+    ).toString('utf8');
+    const entry = /^(100644|100755) blob ([a-f0-9]{40,64})\t(.+)\0$/s.exec(listed);
+    if (!entry || entry[3] !== path) continue;
+    digests[path] = hash(
+      await daemonGit(m, ['cat-file', 'blob', entry[2]!], repository, 16 * 1024 * 1024),
+    );
   }
   return digests;
+}
+
+/** PATH without any directory the run can write: an agent could plant a program there. */
+function trustedPath(path: string | undefined, writable: readonly string[]): string {
+  const inside = (entry: string) =>
+    writable.some((root) => {
+      const r = relative(root, entry);
+      return r === '' || (!r.startsWith('..') && !isAbsolute(r));
+    });
+  return (path ?? '/usr/bin')
+    .split(':')
+    .filter((entry) => entry !== '' && isAbsolute(entry) && !inside(entry))
+    .join(':');
 }
 
 export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
@@ -1067,6 +1139,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   const cargo = e.tool === 'cargo';
   let cargoReceipt: Record<string, unknown> | undefined;
   let declared: NonNullable<PinnedCargoManifest['declaredChecks']>['checks'][number] | undefined;
+  let snapshot: string | undefined;
+  let declaredDigests: Record<string, string> = {};
   let ownsNativeUnit = false;
   const started = Date.now();
   try {
@@ -1174,10 +1248,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
             m.declaredChecks?.checks.map((c) => c.id).join(', ') || 'none'
           }.`,
         );
-      // A program with a path is the repository's own, run from the worktree under review.
-      command = declared.argv[0]!.includes('/')
-        ? join(m.workspacePath, declared.argv[0]!)
-        : declared.argv[0]!;
+      command = declared.argv[0]!;
       actual = declared.argv.slice(1);
     } else {
       const args = e.args[0] === '--' ? e.args.slice(1) : [...e.args];
@@ -1192,6 +1263,40 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
         throw new Error('A current approved native environment is required.');
     }
     before = await observeGitState(m);
+    if (declared) {
+      snapshot = join(e.privateDirectory, 'tree');
+      await cloneReviewedCommit(m, before.headSha, snapshot);
+      declaredDigests = await committedDigests(
+        m,
+        snapshot,
+        before.headSha,
+        declared.definitionPaths,
+      );
+      const tmp = join(e.privateDirectory, 'tmp');
+      const target = e.declaredTargetDirectory ?? join(e.privateDirectory, 'target');
+      for (const p of [tmp, target]) mkdirSync(p, { recursive: true, mode: 0o700 });
+      // A program with a path is the repository's own, from the reviewed commit.
+      if (command.includes('/')) command = join(snapshot, command);
+      cwd = snapshot;
+      const cargoHome = environment.CARGO_HOME;
+      environment = {
+        ...environment,
+        PATH: trustedPath(environment.PATH, [
+          dirname(e.manifestPath),
+          m.workspacePath,
+          ...e.writablePaths,
+        ]),
+        TMPDIR: tmp,
+        CARGO_TARGET_DIR: target,
+      };
+      // Nothing the agent can write: the clone, its scratch, and the daemon's Cargo caches.
+      writable = [
+        snapshot,
+        tmp,
+        target,
+        ...(cargoHome ? [join(cargoHome, 'registry'), join(cargoHome, 'git')] : []),
+      ];
+    }
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error('The check time limit passed before it could start.');
     const confined = e.confinement === 'systemd';
@@ -1283,6 +1388,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     }
     // Released after this run's containers are gone, so the next run starts clean.
     for (const release of releases.reverse()) release();
+    if (snapshot) rmSync(snapshot, { recursive: true, force: true });
   }
   const after = m ? await observeGitState(m) : { headSha: '', clean: false };
   mkdirSync(dirname(e.logPath), { recursive: true, mode: 0o700 });
@@ -1350,8 +1456,9 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
             declaredCheck: {
               id: declared.id,
               declarationId: m.declaredChecks.declarationId,
-              // What defined the check when it ran; the gate compares it with the adoption.
-              definitionDigests: definitionDigestsAt(m.workspacePath, declared.definitionPaths),
+              // What defined the check at the reviewed commit; the gate compares it with the
+              // adoption.
+              definitionDigests: declaredDigests,
             },
           }
         : {}),

@@ -5,6 +5,7 @@
  */
 export type {
   BranchListing,
+  CommitFile,
   DiffCommit,
   DiffFile,
   DiffFileStatus,

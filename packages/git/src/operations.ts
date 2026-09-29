@@ -128,6 +128,10 @@ export interface IntegrationMergeState {
   unstaged: boolean;
   treeSha?: string;
 }
+/** A file as a commit stores it (`readCommitFiles`). */
+export type CommitFile =
+  | { readonly kind: 'file'; readonly content: Uint8Array; readonly executable: boolean }
+  | { readonly kind: 'link' };
 export interface GitOperations {
   listBaselineTags(repositoryPath: string): Promise<GitResult<readonly string[]>>;
   ensureBaselineTag(
@@ -143,6 +147,15 @@ export interface GitOperations {
     repositoryPath: string,
     commitSha: string,
   ): Promise<GitResult<readonly { path: string; content: Uint8Array; executable: boolean }[]>>;
+  /**
+   * The named files of a commit, as stored (no filters or line-ending conversion): a regular
+   * file's contents, `link` for a symbolic link, or absent. At most 32 files of 16 MiB each.
+   */
+  readCommitFiles(
+    repositoryPath: string,
+    commitSha: string,
+    paths: readonly string[],
+  ): Promise<GitResult<ReadonlyMap<string, CommitFile>>>;
   previewIntegration(
     input: IntegrationMergeContext,
   ): Promise<GitResult<{ paths: readonly string[]; diagnostics: string }>>;
@@ -1901,6 +1914,63 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     return { ok: true, value: files };
   }
 
+  async function readCommitFiles(
+    repositoryPath: string,
+    commitSha: string,
+    paths: readonly string[],
+  ): Promise<GitResult<ReadonlyMap<string, CommitFile>>> {
+    if (!/^[a-f0-9]{40,64}$/.test(commitSha))
+      return fail('invalid-path', 'Reading files requires an exact commit.');
+    if (
+      paths.length > 32 ||
+      paths.some(
+        (p) =>
+          !p ||
+          p.startsWith('/') ||
+          p.includes('\0') ||
+          p.split('/').some((s) => !s || s === '.' || s === '..'),
+      )
+    )
+      return fail('invalid-path', 'Choose at most 32 repository paths.');
+    const repo = await canonicalDirectory(repositoryPath);
+    if (!repo.ok) return repo;
+    const files = new Map<string, CommitFile>();
+    if (!paths.length) return { ok: true, value: files };
+    // `--literal-pathspecs`: a path names exactly one file, never a pattern.
+    const listing = await runOk(
+      ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', commitSha, '--', ...paths],
+      repo.value,
+    );
+    if (!listing.ok) return listing;
+    const blobs: { path: string; sha: string; executable: boolean }[] = [];
+    for (const line of splitNul(listing.value.stdout).filter(Boolean)) {
+      const match =
+        /^(100644|100755|120000|040000|160000) (blob|tree|commit) ([a-f0-9]{40,64})\t(.+)$/s.exec(
+          line,
+        );
+      if (!match || !paths.includes(match[4]!)) continue;
+      if (match[1] === '120000') files.set(match[4]!, { kind: 'link' });
+      else if (match[2] === 'blob')
+        blobs.push({ path: match[4]!, sha: match[3]!, executable: match[1] === '100755' });
+    }
+    for (const blob of blobs) {
+      const content = await run(
+        ['cat-file', 'blob', blob.sha],
+        repo.value,
+        undefined,
+        16 * 1024 * 1024,
+      );
+      if (!content.ok) return content;
+      if (content.value.exitCode !== 0) return fail('git-failed', `Could not read ${blob.path}.`);
+      files.set(blob.path, {
+        kind: 'file',
+        content: content.value.stdout,
+        executable: blob.executable,
+      });
+    }
+    return { ok: true, value: files };
+  }
+
   async function listBaselineTags(repositoryPath: string): Promise<GitResult<readonly string[]>> {
     const result = await runOk(['tag', '--list', '*/pre-*'], repositoryPath);
     if (!result.ok) return result;
@@ -1947,6 +2017,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     ensureBaselineTag,
     resolveCommit,
     exportCommit,
+    readCommitFiles,
     previewIntegration,
     prepareIntegrationResolution,
     inspectIntegrationResolution,

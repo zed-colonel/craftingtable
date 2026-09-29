@@ -57,6 +57,7 @@ export function declaredCheckGaps(
   declaration: RepositoryCheckDeclaration,
   receipts: readonly BuildReceipt[],
   accepts: (receipt: BuildReceipt) => boolean,
+  adoptedSince?: RepositoryCheckDeclaration,
 ): {
   readonly missing: readonly string[];
   readonly changed: readonly { checkId: string; paths: readonly string[] }[];
@@ -70,10 +71,22 @@ export function declaredCheckGaps(
         r.declaredCheck?.id === check.id &&
         r.declaredCheck.declarationId === declaration.id,
     );
-    const differs = (r: BuildReceipt) =>
-      check.definitionPaths.filter(
-        (path) => r.declaredCheck?.definitionDigests[path] !== declaration.definitionDigests[path],
-      );
+    // Definitions the operator adopted after the run, for the same command, count too: the
+    // check ran with exactly what is now adopted (R-G13 review).
+    const later = adoptedSince?.checks.find(
+      (c) =>
+        c.id === check.id &&
+        JSON.stringify(c.argv) === JSON.stringify(check.argv) &&
+        JSON.stringify(c.definitionPaths) === JSON.stringify(check.definitionPaths),
+    );
+    const differs = (r: BuildReceipt) => {
+      const from = (adopted: Readonly<Record<string, string>>) =>
+        check.definitionPaths.filter(
+          (path) => r.declaredCheck?.definitionDigests[path] !== adopted[path],
+        );
+      const held = from(declaration.definitionDigests);
+      return held.length && later && !from(adoptedSince!.definitionDigests).length ? [] : held;
+    };
     if (!ran.length) missing.push(check.id);
     else if (ran.every((r) => differs(r).length))
       changed.push({ checkId: check.id, paths: differs(ran.at(-1)!) });

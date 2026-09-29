@@ -25,14 +25,28 @@ export interface RepositoryChecks {
   readonly declarations: readonly RepositoryCheckDeclaration[];
 }
 
-/** What adopting the file at a ref would record; `issues` says why it cannot be, if so. */
+/** A definition file shown for review: its digest, and its text when it is short UTF-8. */
+export interface CheckDefinitionFile {
+  readonly path: string;
+  readonly digest: string;
+  readonly bytes: number;
+  readonly text?: string;
+  readonly truncated?: boolean;
+}
+
+/**
+ * What adopting the file at a ref would record; `issues` says why it cannot be, and
+ * `warnings` what the operator should know before adopting it.
+ */
 export interface CheckDeclarationProposal {
   readonly ref: string;
   readonly commitSha: string;
   readonly sourcePath: string;
   readonly checks: readonly DeclaredCheck[];
   readonly definitionDigests: Readonly<Record<string, string>>;
+  readonly definitions: readonly CheckDefinitionFile[];
   readonly issues: readonly string[];
+  readonly warnings: readonly string[];
 }
 
 /**
@@ -138,25 +152,47 @@ export class RepositoryChecksService {
   ): Promise<CheckDeclarationProposal> {
     const repository = this.repository(ws, repositoryId);
     if (!this.git) throw new ExecutionRequestError('unavailable', 'Git is unavailable.');
-    const commit = await this.git.resolveCommit(repository.rootPath, ref);
-    if (!commit.ok) throw new ExecutionRequestError('invalid-request', `${ref} is not a commit.`);
-    const tree = await this.git.exportCommit(repository.rootPath, commit.value.commitSha);
-    if (!tree.ok) throw new ExecutionRequestError('unavailable', `${ref} could not be read.`);
-    const files = new Map(tree.value.map((f) => [f.path, f.content]));
+    // A branch or an exact commit, never a tag: anyone who can write refs in the repository,
+    // agents included, could shadow a branch name with a tag (R-G13 review).
+    const exact = /^[a-f0-9]{40}([a-f0-9]{24})?$/.test(ref);
+    const commit = await this.git.resolveCommit(
+      repository.rootPath,
+      exact ? ref : `refs/heads/${ref}`,
+    );
+    if (!commit.ok)
+      throw new ExecutionRequestError(
+        'invalid-request',
+        `${ref} is not a branch or a complete commit ID of ${repository.displayName}.`,
+      );
+    const at = commit.value.commitSha;
+    const read = (paths: readonly string[]) =>
+      this.git!.readCommitFiles(repository.rootPath, at, paths);
     const base = {
       ref,
-      commitSha: commit.value.commitSha,
+      commitSha: at,
       sourcePath: CHECK_DECLARATION_PATH,
       checks: [] as readonly DeclaredCheck[],
       definitionDigests: {} as Record<string, string>,
+      definitions: [] as CheckDefinitionFile[],
     };
-    const raw = files.get(CHECK_DECLARATION_PATH);
-    if (!raw) return { ...base, issues: [`${CHECK_DECLARATION_PATH} is not in ${ref}.`] };
+    const declared = await read([CHECK_DECLARATION_PATH]);
+    if (!declared.ok)
+      throw new ExecutionRequestError(
+        'unavailable',
+        `${ref} could not be read: ${declared.failure.message}`,
+      );
+    const raw = declared.value.get(CHECK_DECLARATION_PATH);
+    if (raw?.kind !== 'file')
+      return {
+        ...base,
+        issues: [`${CHECK_DECLARATION_PATH} is not a file in ${ref}.`],
+        warnings: [],
+      };
     let json: unknown;
     try {
-      json = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw));
+      json = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw.content));
     } catch {
-      return { ...base, issues: [`${CHECK_DECLARATION_PATH} is not JSON.`] };
+      return { ...base, issues: [`${CHECK_DECLARATION_PATH} is not JSON.`], warnings: [] };
     }
     const parsed = checkDeclarationFileSchema.safeParse(json);
     if (!parsed.success)
@@ -165,22 +201,69 @@ export class RepositoryChecksService {
         issues: parsed.error.issues.map(
           (i) => `${CHECK_DECLARATION_PATH}: ${i.path.join('.') || 'file'}: ${i.message}.`,
         ),
+        warnings: [],
       };
-    const checks: readonly DeclaredCheck[] = parsed.data.checks.map((c) => ({
-      id: c.id,
-      argv: c.argv,
-      // A script the check runs defines it unless the file names its definition files.
-      definitionPaths: c.definitionPaths ?? (c.argv[0]!.includes('/') ? [c.argv[0]!] : []),
-    }));
+    const checks: readonly DeclaredCheck[] = parsed.data.checks.map((c) => {
+      const program = c.argv[0]!;
+      // A repository program always defines its check, with any other files the file names.
+      const own = program.includes('/') ? [program] : [];
+      return {
+        id: c.id,
+        argv: c.argv,
+        definitionPaths: [...new Set([...own, ...(c.definitionPaths ?? [])])],
+      };
+    });
     const issues: string[] = [];
+    const warnings: string[] = [];
     const definitionDigests: Record<string, string> = {};
-    for (const path of new Set(checks.flatMap((c) => c.definitionPaths))) {
-      const content = files.get(path);
-      if (content) definitionDigests[path] = sha256(content);
-      else issues.push(`${path}, a definition file of a declared check, is not in ${ref}.`);
+    const definitions: CheckDefinitionFile[] = [];
+    const paths = [...new Set(checks.flatMap((c) => c.definitionPaths))];
+    const files = await read(paths);
+    if (!files.ok)
+      throw new ExecutionRequestError(
+        'unavailable',
+        `${ref} could not be read: ${files.failure.message}`,
+      );
+    for (const path of paths) {
+      const file = files.value.get(path);
+      if (file?.kind !== 'file') {
+        issues.push(
+          `${path}, a definition file of a declared check, is ${file ? 'a link' : 'not a file'} in ${ref}.`,
+        );
+        continue;
+      }
+      definitionDigests[path] = sha256(file.content);
+      definitions.push(definitionPreview(path, file.content));
     }
-    return { ...base, checks, definitionDigests, issues };
+    for (const check of checks) {
+      const program = check.argv[0]!;
+      const file = program.includes('/') ? files.value.get(program) : undefined;
+      if (file?.kind === 'file' && !file.executable)
+        issues.push(`${program}, the program of check ${check.id}, is not executable in ${ref}.`);
+      if (!check.definitionPaths.length)
+        warnings.push(
+          `Check ${check.id} runs ${program} from PATH and names no definition files, so edits to what it reads (a Makefile, package.json, Cargo.toml or build script) will not stop a review. Name them in definitionPaths to hold the check to them.`,
+        );
+    }
+    return { ...base, checks, definitionDigests, definitions, issues, warnings };
   }
+}
+
+/** A definition file as the preview shows it: its digest and, if text and short, its contents. */
+function definitionPreview(path: string, content: Uint8Array): CheckDefinitionFile {
+  const limit = 64 * 1024;
+  let text: string | undefined;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(content.subarray(0, limit));
+  } catch {
+    text = undefined;
+  }
+  return {
+    path,
+    digest: sha256(content),
+    bytes: content.byteLength,
+    ...(text === undefined ? {} : { text, truncated: content.byteLength > limit }),
+  };
 }
 
 /** SHA-256 of a definition file's contents, as the declaration and receipts record it. */

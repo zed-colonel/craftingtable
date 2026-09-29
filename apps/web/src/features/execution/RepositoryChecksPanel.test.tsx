@@ -61,7 +61,17 @@ it('says scoped reviews stop until checks are adopted, then reviews and adopts t
       sourcePath: '.craftingtable/checks.json',
       checks,
       definitionDigests: {},
+      definitions: [
+        {
+          path: 'scripts/check.sh',
+          digest: 'c'.repeat(64),
+          bytes: 26,
+          text: '#!/bin/sh\ncargo test --all\n',
+          truncated: false,
+        },
+      ],
       issues: [],
+      warnings: ['Check format runs cargo from PATH and names no definition files.'],
     })
     .mockResolvedValueOnce({ repositoryId, declarations: [declaration(1)] });
   renderPanel();
@@ -71,6 +81,11 @@ it('says scoped reviews stop until checks are adopted, then reviews and adopts t
   fireEvent.click(screen.getByRole('button', { name: 'Review checks file' }));
   const proposed = await screen.findByRole('table', { name: 'Proposed checks for wi' });
   expect(proposed.textContent).toContain('cargo fmt --check');
+  // What each definition file holds, and a warning that does not block adoption.
+  expect(screen.getByText(/cargo test --all/)).toBeTruthy();
+  expect(screen.getByText(/scripts\/check\.sh/, { selector: 'code' })).toBeTruthy();
+  expect(screen.getByText(/\(26 bytes, new\)/)).toBeTruthy();
+  expect(screen.getByRole('note').textContent).toContain('names no definition files');
   expect(vi.mocked(request).mock.calls[1]![0]).toBe(
     `/api/workspaces/ws-1/repositories/${repositoryId}/checks/preview`,
   );
@@ -102,7 +117,9 @@ it('shows why a proposal cannot be adopted and offers no adoption (R-G13)', asyn
       sourcePath: '.craftingtable/checks.json',
       checks: [],
       definitionDigests: {},
+      definitions: [],
       issues: ['.craftingtable/checks.json is not JSON.'],
+      warnings: [],
     });
   renderPanel();
   await screen.findByText(/Version 2, adopted from/);

@@ -101,8 +101,20 @@ export const checkDeclarationPreviewSchema = z.strictObject({
   sourcePath: repositoryPathSchema,
   checks: z.array(declaredCheckSchema),
   definitionDigests: z.record(repositoryPathSchema, digest),
+  /** Each definition file for review, with its text when it is short UTF-8. */
+  definitions: z.array(
+    z.strictObject({
+      path: repositoryPathSchema,
+      digest,
+      bytes: z.number().int().nonnegative(),
+      text: z.string().optional(),
+      truncated: z.boolean().optional(),
+    }),
+  ),
   /** Why the file cannot be adopted as it is; empty when it can. */
   issues: z.array(z.string()),
+  /** What the operator should weigh before adopting it. */
+  warnings: z.array(z.string()),
 });
 export type CheckDeclarationPreview = z.infer<typeof checkDeclarationPreviewSchema>;
 

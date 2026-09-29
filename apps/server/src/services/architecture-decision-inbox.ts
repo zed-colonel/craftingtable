@@ -17,6 +17,7 @@ import {
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { prerequisiteIssues } from './runtime-evidence-policy.js';
 import { worktreePlan } from './repository-policy.js';
+import { unsettledDecisionsAt } from './workflow-policy.js';
 
 /** A read-only decision inbox. Recommendations never become evidence by discovery. */
 export function architectureDecisionInbox(
@@ -191,6 +192,17 @@ export function architectureDecisionInbox(
       .filter((r) => r.kind === 'checkpoint')
       .map((r) => r.id),
   );
+  // Decisions a slice is stopped on now get a card even before any brief exists, so the stop
+  // can be answered from one place (LIVE-18).
+  const stopped = new Map<string, string[]>();
+  for (const cycle of tx.execution.cycles.listForWorkspace(ws))
+    if (
+      cycle.executionScope?.definitionId === d.id &&
+      cycle.executionScope.bindingRevision === revision &&
+      ['needs-attention', 'paused'].includes(cycle.status)
+    )
+      for (const id of unsettledDecisionsAt(tx, cycle))
+        stopped.set(id, [...(stopped.get(id) ?? []), cycle.executionScope.sourceId]);
   const cards = checkpoints.flatMap((c) => {
     const recommendation = recommendations.get(c.id);
     const records = submissions
@@ -218,7 +230,7 @@ export function architectureDecisionInbox(
       !slices.some((s) => s.id === recommendation?.sliceId)
     )
       return [];
-    if (!records.length && !recommendation) return [];
+    if (!records.length && !recommendation && !stopped.has(c.id)) return [];
     const refs = [
       `Imported map ${d.mapId} ${d.revision}; exact plan binding ${revision}; checkpoint ${c.id}.`,
       ...c.source_refs.map((ref) => JSON.stringify(ref)),
@@ -243,6 +255,7 @@ export function architectureDecisionInbox(
               : [],
           ),
         ),
+        ...(stopped.has(c.id) ? { stoppedSlices: [...new Set(stopped.get(c.id))] } : {}),
         ...(recommendation ? { recommendation } : {}),
         records,
       },

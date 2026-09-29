@@ -360,3 +360,62 @@ it('approves only the proposals ticked as reviewed, lists none with issues, and 
   ]);
   expect(onChanged).toHaveBeenCalledTimes(1);
 });
+
+it('gives a decision a stopped slice waits on a card and a one-step brief before any exists (LIVE-18)', async () => {
+  const card = {
+    ...decisionInbox.decisions[0]!,
+    checkpointId: 'EXO-ADR-022',
+    title: 'External persona',
+    stoppedSlices: ['exo/EXO-18/instance-design'],
+  };
+  delete (card as { recommendation?: unknown }).recommendation;
+  vi.mocked(request).mockImplementation(
+    async (path: string, _schema: unknown, init?: RequestInit) => {
+      if (path.endsWith('/decision-preparations'))
+        return {
+          version: 7,
+          status: 'paused',
+          decisions: [
+            {
+              id: 'EXO-ADR-022',
+              title: 'External persona',
+              profile: { backend: 'codex', model: 'gpt-6-sol' },
+            },
+          ],
+        };
+      if (path.endsWith('/prepare-decision')) return JSON.parse(String(init?.body));
+      throw new Error(`unexpected ${path}`);
+    },
+  );
+  render(
+    <SharedDecisionInbox
+      data={{ ...decisionInbox, decisions: [card] }}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={() => undefined}
+      preparation={{ workspaceId: asWorkspaceId('ws'), roadmapId: 'roadmap-1' }}
+    />,
+  );
+  const region = screen.getByRole('region', { name: 'EXO-ADR-022' });
+  expect(within(region).getByText('Needed now by exo/EXO-18/instance-design.')).toBeTruthy();
+  const prepare = within(region).getByRole('button', { name: 'Prepare decision brief' });
+  await waitFor(() => expect((prepare as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(prepare);
+  await waitFor(() =>
+    expect(vi.mocked(request)).toHaveBeenCalledWith(
+      '/api/workspaces/ws/roadmaps/roadmap-1/prepare-decision',
+      expect.anything(),
+      expect.objectContaining({ method: 'POST' }),
+    ),
+  );
+  const call = vi
+    .mocked(request)
+    .mock.calls.find(([path]) => String(path).endsWith('/prepare-decision'))!;
+  expect(JSON.parse(String(call[2]?.body))).toEqual({
+    expectedVersion: 7,
+    checkpointId: 'EXO-ADR-022',
+    profile: { backend: 'codex', model: 'gpt-6-sol' },
+    minutes: 30,
+    instructions: '',
+  });
+});

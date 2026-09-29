@@ -221,6 +221,12 @@ itNeedsCargo(
     expect(cycle.reason).toContain('LOCAL-ADR-02');
     expect(cycle.workflow?.questions.map((q) => q.checkpointId)).toEqual([...DECISIONS]);
     const reviewed = reviews(fx);
+    // Each decision the stop names has a card, brief or not, saying which slice waits on it.
+    const definition = tx.imports.definition(ws, cycle.executionScope!.definitionId)!;
+    const cards = architectureDecisionInbox(tx, definition).decisions;
+    expect(cards.map((c) => [c.checkpointId, c.stoppedSlices, !!c.recommendation])).toEqual(
+      DECISIONS.map((id) => [id, [cycle.executionScope!.sourceId], false]),
+    );
 
     // Plain and guided resumes would only review again into the same gate.
     for (const guidance of [undefined, 'Continue.']) {

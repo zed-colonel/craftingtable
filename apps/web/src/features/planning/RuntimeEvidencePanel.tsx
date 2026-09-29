@@ -320,6 +320,7 @@ export function RuntimeEvidencePanel({
           <SharedDecisionInbox
             data={view.decisionInbox}
             csrfToken={csrfToken}
+            {...(roadmapId ? { preparation: { workspaceId, roadmapId } } : {})}
             disabled={busy || !canMutate || unsavedSetup}
             onChanged={(next) => {
               adopt(next);

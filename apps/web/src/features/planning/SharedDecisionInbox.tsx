@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
+  decisionPreparationSettingsSchema,
+  roadmapViewSchema,
   runtimeEvidenceViewSchema,
   type ArchitectureDecisionInbox,
+  type DecisionPreparationSettings,
   type ProposeArchitectureDecision,
   type RuntimeEvidenceView,
 } from '@craftingtable/contracts';
@@ -16,18 +19,23 @@ import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain'
 
 type Card = ArchitectureDecisionInbox['decisions'][number];
 type Record = Card['records'][number];
+/** The roadmap that prepares briefs for these decisions, when there is one. */
+type Preparation = { readonly workspaceId: WorkspaceId; readonly roadmapId: string };
+
 export function SharedDecisionInbox({
   data,
   csrfToken,
   disabled,
   onChanged,
   onClarify,
+  preparation,
 }: {
   data: ArchitectureDecisionInbox;
   csrfToken: string;
   disabled: boolean;
   onChanged: (view: RuntimeEvidenceView) => void | Promise<void>;
   onClarify?: (guidance: string) => void;
+  preparation?: Preparation;
 }) {
   if (!data.decisions.length) return null;
   const accepted = (c: Card) =>
@@ -64,6 +72,7 @@ export function SharedDecisionInbox({
             disabled={disabled}
             onChanged={onChanged}
             onClarify={onClarify}
+            preparation={preparation}
           />
         ))}
     </Section>
@@ -179,6 +188,7 @@ function DecisionCard({
   disabled,
   onChanged,
   onClarify,
+  preparation,
 }: {
   card: Card;
   data: ArchitectureDecisionInbox;
@@ -186,6 +196,7 @@ function DecisionCard({
   disabled: boolean;
   onChanged: (view: RuntimeEvidenceView) => void | Promise<void>;
   onClarify?: (guidance: string) => void;
+  preparation?: Preparation | undefined;
 }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -303,6 +314,17 @@ function DecisionCard({
         <strong>{status}</strong>
         {accepted?.decision && <> · {new Date(accepted.decision.decidedAt).toLocaleString()}</>}
       </p>
+      {!accepted && card.stoppedSlices?.length ? (
+        <p role="status">Needed now by {card.stoppedSlices.join(', ')}.</p>
+      ) : null}
+      {!accepted && !pending && !recommendation && preparation && (
+        <PrepareDecisionBrief
+          preparation={preparation}
+          checkpointId={card.checkpointId}
+          csrfToken={csrfToken}
+          disabled={disabled}
+        />
+      )}
       {accepted && (
         <>
           <p>
@@ -687,5 +709,78 @@ function DecisionText({ record }: { record: Record }) {
         <pre className="run-event-body">{p.sourceReferences}</pre>
       </details>
     </>
+  );
+}
+
+/**
+ * Prepares a brief for a decision that has none yet (LIVE-18), with the roadmap's preparation
+ * profile for it. The roadmap's own preparation panel chooses other agents and limits.
+ */
+function PrepareDecisionBrief({
+  preparation,
+  checkpointId,
+  csrfToken,
+  disabled,
+}: {
+  preparation: Preparation;
+  checkpointId: string;
+  csrfToken: string;
+  disabled: boolean;
+}) {
+  const base = `/api/workspaces/${encodeURIComponent(preparation.workspaceId)}/roadmaps/${encodeURIComponent(preparation.roadmapId)}`;
+  const [settings, setSettings] = useState<DecisionPreparationSettings>();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const load = useCallback(
+    () =>
+      request(`${base}/decision-preparations`, decisionPreparationSettingsSchema)
+        .then(setSettings)
+        .catch((e) => setMessage(e instanceof Error ? e.message : 'Could not load preparation.')),
+    [base],
+  );
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const decision = settings?.decisions.find((d) => d.id === checkpointId);
+  const latest = decision?.latest;
+  const inFlight =
+    !!latest && ['preparing', 'starting', 'running', 'waiting'].includes(latest.status);
+  const prepare = async () => {
+    if (!settings || !decision) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      await request(`${base}/prepare-decision`, roadmapViewSchema, {
+        method: 'POST',
+        headers: { 'x-craftingtable-csrf': csrfToken },
+        body: JSON.stringify({
+          expectedVersion: settings.version,
+          checkpointId,
+          profile: decision.profile,
+          minutes: 30,
+          instructions: '',
+        }),
+      });
+      setMessage('Preparation started. Its recommendation appears here when it finishes.');
+      await load();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Could not prepare the brief.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="inline-actions">
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={disabled || busy || !decision || inFlight}
+        onClick={() => void prepare()}
+      >
+        Prepare decision brief
+      </button>
+      {inFlight && <span role="status">Preparing · {latest?.status}</span>}
+      {message && <span role="status">{message}</span>}
+    </div>
   );
 }

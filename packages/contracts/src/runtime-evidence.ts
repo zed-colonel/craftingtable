@@ -284,6 +284,8 @@ export const architectureDecisionInboxSchema = z.strictObject({
       consumers: z.array(
         z.strictObject({ sliceId: name, phase: z.enum(['start', 'merge', 'verify']) }),
       ),
+      /** Slices stopped now until this decision is settled (LIVE-18); computed, never stored. */
+      stoppedSlices: z.array(name).optional(),
       recommendation: z
         .strictObject({
           sourceRunId: z.string(),

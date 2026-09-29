@@ -681,7 +681,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
   - **First-boot checks after this deploy:**
     - schema 36 migrated, and the daemon logs no warnings;
     - the Repositories page shows a Checks section per repository, "No adopted checks" until adoption;
-    - after adoption, a scoped review's receipt names `declaredCheck` and runs in `check-logs/<run>/<id>.private/tree`; nothing is left there once the run ends;
+    - after adoption, a scoped review's receipt names `declaredCheck` and runs in a daemon-named `check-logs/<run>/<uuid>.private/tree`; nothing is left there once the run ends;
     - an EXO-18-like shared-decision stop shows "Open shared decisions (N)" and its item opens the roadmap's setup at the decision cards;
     - `/roadmaps` lists roadmaps, and stored links (`/roadmaps?roadmap=…#…`) open the right page;
     - still open from the last deploy: one Claude step, to verify the Claude sandbox launch.

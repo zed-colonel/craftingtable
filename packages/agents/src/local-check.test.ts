@@ -786,7 +786,7 @@ it('refuses a workflow whose jobs declare containers, services, reusable workflo
       'container',
       'name: CI\non: push\nx: &c\n  image: x\njobs:\n  test:\n    runs-on: ubuntu-latest\n    container: *c\n    steps:\n      - run: true\n',
     ],
-  ])
+  ] as const)
     expect(args(text), key).toThrow(key);
   expect(args('jobs: [unclosed')).toThrow('could not be read');
 });

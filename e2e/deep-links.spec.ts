@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { signIn } from './support';
+import { openOwnWorkspace } from './support';
 
 /**
  * R-E1: a deep link lands on its target once the page settles, and in-app links and Back
@@ -9,7 +9,7 @@ test('a settings deep link lands on its section, and links and Back never reload
   page,
 }) => {
   test.setTimeout(60_000);
-  await signIn(page);
+  await openOwnWorkspace(page, 'Deep links workspace');
   await page.waitForURL(/\/workspaces\/[^/]+$/);
   const workspace = new URL(page.url()).pathname.split('/')[2];
   let loads = 0;

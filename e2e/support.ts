@@ -15,11 +15,59 @@ export async function submitSignIn(page: Page, password = E2E_PASSWORD): Promise
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
 
-/** Opens the app, signs in as the e2e admin and waits for the default workspace. */
+/**
+ * After signing in, `/` opens the admin's last-used workspace, which another spec may have just
+ * created (R-I9), so wait for any workspace page rather than the default one.
+ */
+export async function expectSignedIn(page: Page): Promise<void> {
+  await page.waitForURL(/\/workspaces\/[^/]+$/);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+}
+
+/** Opens the app and signs in as the e2e admin. */
 export async function signIn(page: Page): Promise<void> {
   await page.goto('/');
   await submitSignIn(page);
-  await expect(page.getByRole('heading', { name: 'Default workspace', exact: true })).toBeVisible();
+  await expectSignedIn(page);
+}
+
+/** Opens an existing workspace by name, such as the bootstrap's Default workspace. */
+export async function openWorkspaceNamed(page: Page, name: string): Promise<void> {
+  const id = await page.evaluate(async (workspaceName) => {
+    const listing = await (await fetch('/api/workspaces')).json();
+    return (listing.workspaces as { id: string; name: string }[]).find(
+      (w) => w.name === workspaceName,
+    )?.id;
+  }, name);
+  if (!id) throw new Error(`No workspace named ${name}`);
+  await page.goto(`/workspaces/${id}`);
+  await expect(page.getByRole('heading', { level: 1, name, exact: true })).toBeVisible();
+}
+
+/**
+ * Signs in and opens a new workspace for the calling spec (R-I9), so specs do not see each
+ * other's plans, roadmaps, runs or notifications and can run in parallel. The request goes from
+ * the signed-in page, which carries the session, its CSRF token and the origin. `name` must be
+ * unique across the run: include the project name when a spec runs in more than one project.
+ */
+export async function openOwnWorkspace(page: Page, name: string): Promise<string> {
+  await signIn(page);
+  const id = await page.evaluate(async (workspaceName) => {
+    const session = await (await fetch('/api/auth/session')).json();
+    const response = await fetch('/api/workspaces', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-craftingtable-csrf': session.csrfToken,
+      },
+      body: JSON.stringify({ name: workspaceName }),
+    });
+    if (!response.ok) throw new Error(`Creating ${workspaceName}: ${await response.text()}`);
+    return (await response.json()).workspace.id as string;
+  }, name);
+  await page.goto(`/workspaces/${id}`);
+  await expect(page.getByRole('heading', { level: 1, name, exact: true })).toBeVisible();
+  return id;
 }
 
 const GIT_ENV = {

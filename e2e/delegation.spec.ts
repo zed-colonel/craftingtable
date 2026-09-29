@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { git, submitSignIn } from './support';
+import { git, openOwnWorkspace } from './support';
 
 /**
  * The first useful loop, driven from the browser: register a repository, open
@@ -25,8 +25,7 @@ test('registers a repository, delegates a work item, follows the run, and reads 
     git(['add', '--all'], repository);
     git(['commit', '--no-gpg-sign', '-m', 'initial'], repository);
 
-    await page.goto('/');
-    await submitSignIn(page);
+    await openOwnWorkspace(page, 'Delegation workspace');
     await expect(page.getByRole('status')).toHaveText('Live');
 
     // A plan so there is a work item to delegate.

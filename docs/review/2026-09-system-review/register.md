@@ -96,7 +96,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
 | [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
-| [R-I9](#r-i9) | P2 | S-M | open | Independent e2e specs: one workspace per spec (added 2026-09-24) |
+| [R-I9](#r-i9) | P2 | S-M | in progress (code 2026-09-29; 10-run check) | Independent e2e specs: one workspace per spec (added 2026-09-24) |
 | [R-I10](#r-i10) | P2 | M | done (2026-09-27) | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
 | [R-I11](#r-i11) | P2 | S | done (2026-09-27, see entry) | Independent review of the live-run fixes made on `main` (added 2026-09-27) |
 
@@ -2392,7 +2392,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I9
 
-**Independent e2e specs: one workspace per spec** · Phase P2 · Effort S-M · Status: open
+**Independent e2e specs: one workspace per spec** · Phase P2 · Effort S-M · Status: in progress (code done 2026-09-29)
 
 - **Added 2026-09-24** after R-I5 closed. It holds the part of QA-05 that R-I5 did not do; the operator agreed to proceed with it.
 - **Resolves:** [QA-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-05-e2e-gate-screenshots-are-unasserted-cause-the-known-flake-and-helpers-are-copied-into-8-specs) (the rest: "give each spec its own workspace so specs are independent").
@@ -2403,6 +2403,12 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - Storage and host scheduling are installation-wide, so the specs that change them stay serialized.
   - The walkthrough keeps its own daemon.
 - **Done when:** Every gate spec runs in its own workspace; the gate runs with more than 2 workers; `pnpm test:e2e` passes 10 consecutive runs.
+- **Code 2026-09-29.**
+  - **Own workspaces.** `openOwnWorkspace` (`e2e/support.ts`) signs in, creates a workspace from the signed-in page (session, CSRF and origin as the app sends them) and opens it. Planning, delegation and deep-links use it; roadmaps, finalization, notifications, mobile and package-imports already made their own. The dashboard spec is about the bootstrap's Default workspace, which no other spec now uses, and opens it by name.
+  - **Found by the first parallel run:** after sign-in `/` opens the admin's last-used workspace, which is kept for the user, not the browser. Once one spec had opened its workspace, every other spec's "landed on Default workspace" check failed (10 of 21). Specs now wait for any workspace page (`expectSignedIn`).
+  - **Parallel.** `fullyParallel` with 4 workers (`CRAFTINGTABLE_E2E_WORKERS` overrides). The e2e daemon gets 8 development and 4 verification slots, so parallel specs do not queue on each other's cycles; the walkthrough keeps the defaults it photographs.
+  - **Installation-wide specs stay serial.** Storage (and workstation capacity, which it edits) runs in its own two projects, after every other spec, one viewport after the other.
+  - **R-I5's partial directory.** The e2e daemon's data-directory removal retries (`maxRetries`), for the removal seen stopping partway under load.
 
 ### R-I10
 

@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { submitSignIn } from './support';
+import { expectSignedIn, openWorkspaceNamed, submitSignIn } from './support';
 
 const EVENT_ROUTE = '**/api/workspaces/*/events*';
 
+/** This spec is about the bootstrap's own workspace, which no other spec uses (R-I9). */
 async function signIn(page: import('@playwright/test').Page): Promise<void> {
   await submitSignIn(page);
-  await expect(page.getByRole('heading', { name: 'Default workspace' })).toBeVisible();
+  await expectSignedIn(page);
+  await openWorkspaceNamed(page, 'Default workspace');
 }
 
 test('authenticated snapshot, replay, outage recovery, and logout', async ({ page }) => {

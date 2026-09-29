@@ -14,12 +14,20 @@ const SERVER_ORIGIN = `http://127.0.0.1:${SERVER_PORT}`;
 const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
 const SERVER_HEALTH_URL = `${SERVER_ORIGIN}/api/health`;
 
+/**
+ * Installation-wide settings (storage, workstation capacity) are shared by every workspace, so
+ * the specs that change them run alone, after the rest (R-I9).
+ */
+const INSTALLATION_SPECS = ['**/storage.spec.ts'];
+const WALKTHROUGH = !!process.env.CRAFTINGTABLE_WALKTHROUGH;
+
 export default defineConfig({
   testDir: './e2e',
-  fullyParallel: false,
-  // Browser scenarios share one SQLite daemon and run real Git/agent workflows.
-  // Bound harness load so UI readiness checks measure behavior rather than contention.
-  workers: 2,
+  // Every spec works in its own workspace (R-I9, `openOwnWorkspace` in e2e/support.ts), so
+  // specs and their tests run in parallel. They still share one daemon, whose workstation
+  // capacity is raised below so parallel specs do not queue behind each other's cycles.
+  fullyParallel: true,
+  workers: Number(process.env.CRAFTINGTABLE_E2E_WORKERS ?? 4),
   reporter: [['list']],
   use: {
     baseURL: WEB_URL,
@@ -28,7 +36,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: ['**/mobile.spec.ts', '**/walkthrough.spec.ts'],
+      testIgnore: ['**/mobile.spec.ts', '**/walkthrough.spec.ts', ...INSTALLATION_SPECS],
       use: {
         ...devices['Desktop Chrome'],
         // Typical MacBook browser viewport (acceptance criterion 5).
@@ -45,11 +53,28 @@ export default defineConfig({
         '**/roadmaps.spec.ts',
         '**/finalization.spec.ts',
       ],
+      testIgnore: INSTALLATION_SPECS,
       use: {
         ...devices['iPhone 13'],
         browserName: 'chromium',
       },
     },
+    ...(WALKTHROUGH
+      ? []
+      : [
+          {
+            name: 'installation-chromium',
+            testMatch: INSTALLATION_SPECS,
+            dependencies: ['chromium', 'mobile-chromium'],
+            use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+          },
+          {
+            name: 'installation-mobile-chromium',
+            testMatch: INSTALLATION_SPECS,
+            dependencies: ['installation-chromium'],
+            use: { ...devices['iPhone 13'], browserName: 'chromium' as const },
+          },
+        ]),
     // The UI walkthrough photographs every page into a store outside the repository
     // (`pnpm ui:walkthrough`, CRAFTINGTABLE_WALKTHROUGH=1). The test gate rehearses it without
     // screenshots in a run of its own (CRAFTINGTABLE_WALKTHROUGH=rehearse) on a fresh daemon,
@@ -78,6 +103,10 @@ export default defineConfig({
         CRAFTINGTABLE_CODEX_EXECUTABLE: FAKE_CODEX,
         CRAFTINGTABLE_PORT: String(SERVER_PORT),
         CRAFTINGTABLE_PUBLIC_ORIGIN: WEB_URL,
+        // The walkthrough photographs the default slots; the gate's parallel specs need more.
+        ...(WALKTHROUGH
+          ? {}
+          : { CRAFTINGTABLE_DEVELOPMENT_CAPACITY: '8', CRAFTINGTABLE_VERIFICATION_CAPACITY: '4' }),
       },
     },
     {

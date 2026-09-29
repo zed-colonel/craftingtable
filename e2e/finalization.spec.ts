@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { git, submitSignIn } from './support';
+import { expectSignedIn, git, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 // New finalizations are staged (R-B10). 'remediate' exhausts the correctness stage's budget
@@ -25,9 +25,7 @@ for (const decision of ['remediate', 'staged'] as const) {
       const main = git(['rev-parse', 'main'], repository);
       await page.goto('/');
       await submitSignIn(page);
-      await expect(
-        page.getByRole('heading', { name: 'Default workspace', exact: true }),
-      ).toBeVisible();
+      await expectSignedIn(page);
       const navigate = async (name: string) => {
         if (info.project.name === 'mobile-chromium')
           await page.getByRole('button', { name: 'Menu', exact: true }).click();

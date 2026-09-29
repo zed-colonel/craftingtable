@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
-import { git, submitSignIn } from './support';
+import { expectSignedIn, git, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 test.use({ actionTimeout: 15_000 });
@@ -42,7 +42,7 @@ test('phone navigation, review findings, diff, and explicit merge approval', asy
     await page.goto('/');
     await expect(page.getByLabel('Username')).toHaveCSS('font-size', '16px');
     await signIn(page);
-    await expect(page.getByRole('heading', { name: 'Default workspace' })).toBeVisible();
+    await expectSignedIn(page);
     await fitsPhone(page);
     expect((await page.locator('main').boundingBox())?.y).toBeLessThan(100);
 

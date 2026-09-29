@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { git, openRoadmap, submitSignIn } from './support';
+import { expectSignedIn, git, openRoadmap, submitSignIn } from './support';
 
 const FIXTURES = new URL('../fixtures/plan-bundles/aq-cont-1/', import.meta.url);
 for (const mode of ['sequential', 'parallel'] as const) {
@@ -20,9 +20,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
       const initial = git(['rev-parse', 'revision-roadmap'], repository);
       await page.goto('/');
       await submitSignIn(page);
-      await expect(
-        page.getByRole('heading', { name: 'Default workspace', exact: true }),
-      ).toBeVisible();
+      await expectSignedIn(page);
       const navigate = async (name: string) => {
         if (info.project.name === 'mobile-chromium')
           await page.getByRole('button', { name: 'Menu', exact: true }).click();

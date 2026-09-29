@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { submitSignIn } from './support';
+import { expectSignedIn, submitSignIn } from './support';
 
 test('owners configure write-only Pushover credentials and test delivery on desktop and phone', async ({
   page,
@@ -7,7 +7,7 @@ test('owners configure write-only Pushover credentials and test delivery on desk
   await page.goto('/');
   await submitSignIn(page);
   // Wait for the initial redirect before opening the mobile navigation menu.
-  await expect(page.getByRole('heading', { name: 'Default workspace', exact: true })).toBeVisible();
+  await expectSignedIn(page);
   const navigate = async (name: string) => {
     const menu = page.getByRole('button', { name: 'Menu', exact: true });
     if (info.project.name === 'mobile-chromium') {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as base, expect } from '@playwright/test';
-import { submitSignIn } from './support';
+import { expectSignedIn, submitSignIn } from './support';
 
 const test = base.extend<{ upstreamRepository: string }>({
   upstreamRepository: async ({ browserName }, use) => {
@@ -56,7 +56,7 @@ test('imports WI/EXO planning ZIPs and binds an inactive cross-project roadmap o
   });
   await page.goto('/');
   await submitSignIn(page);
-  await expect(page.getByRole('heading', { name: 'Default workspace', exact: true })).toBeVisible();
+  await expectSignedIn(page);
   const navigate = async (name: string) => {
     if (info.project.name === 'mobile-chromium')
       await page.getByRole('button', { name: 'Menu', exact: true }).click();

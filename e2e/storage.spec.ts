@@ -7,7 +7,7 @@ test('storage settings, cleanup preview and private backups work on desktop and 
   await page.goto('/');
   await submitSignIn(page);
   await expect(page.getByRole('region', { name: 'Work summary', exact: true })).toBeVisible();
-  if (info.project.name === 'mobile-chromium')
+  if (info.project.name.endsWith('mobile-chromium'))
     await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   const host = page.getByRole('region', { name: 'Execution capacity', exact: true });

@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { expect, type Page, test } from '@playwright/test';
-import { signIn } from './support';
+import { openOwnWorkspace, signIn } from './support';
 
 /**
  * CT03-A61, A63, A64, A65, and the browser-refresh half of A50.
@@ -32,7 +32,7 @@ test('imports AQ-CONT-1, admits AQ-01, and survives a refresh', async ({ page })
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(String(error)));
 
-  await signIn(page);
+  await openOwnWorkspace(page, 'Planning import workspace');
   await importAqBundle(page);
 
   // The project page opens on a successful import (CT03-A61).
@@ -130,7 +130,7 @@ test('distinguishes duplicate and failed import outcomes', async ({ page }) => {
 });
 
 test('renders hostile source content as text without executing it', async ({ page }) => {
-  await signIn(page);
+  await openOwnWorkspace(page, 'Hostile source workspace');
   await page.getByRole('link', { name: 'Import plan' }).click();
   await page.getByLabel('Project name').fill('Injection probe');
   await page

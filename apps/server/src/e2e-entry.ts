@@ -39,7 +39,9 @@ async function close(): Promise<void> {
   }
   closing = true;
   await runtime.close();
-  rmSync(directory, { recursive: true, force: true });
+  // Run directories written while the daemon closed made one removal stop partway (R-I5,
+  // seen at load average 14 to 20); retrying lets it finish.
+  rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
 process.once('SIGINT', () => void close());

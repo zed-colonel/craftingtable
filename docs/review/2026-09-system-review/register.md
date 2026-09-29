@@ -1767,8 +1767,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Follow-ups the operator decided after the batch report (2026-09-28).**
   - **crates.io in Claude's sandbox: done.**
     - The sandbox allows `index.crates.io` and `static.crates.io` (the apex `crates.io` was dropped after the review), still under a strict allowlist, so the brief's `cargo fetch` can download dependencies.
-    - It may write Cargo's `registry` and `git` caches: the same two directories the check units write, and nothing else of the home directory.
-    - The daemon names the run's `CARGO_HOME`, as the check units have it, so the agent and its sandbox agree on the location. The adapter creates the two caches before launch, because the sandbox can make only an existing directory writable.
+    - It may write Cargo's `registry` and `git` caches, in the daemon's own Cargo home since the review (see below), and nothing else of the home directory.
+    - The daemon names the run's `CARGO_HOME` (the check units' one), so the agent and its sandbox agree on the location. The adapter creates the two caches before launch, because the sandbox can make only an existing directory writable.
     - Live check: a sandboxed Claude run downloaded a crate into a fresh Cargo home. Its write to the home's root and a request to another host were refused.
     - **Codex:** its sandbox has only all-or-nothing network, so Codex runs still reach nothing. A place to configure sources like this one, and a way to give Codex the same access, is [R-G14](#r-g14).
   - **Reasoning effort on Claude profiles: done.**
@@ -1791,6 +1791,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **Rollback:** a release before this cannot open a schema-35 database.
   - **Independent review of the follow-ups (2026-09-28, d6823bf..c9b3d78, isolated worktree).** No HIGH findings. The reviewer re-ran the LIVE-15 and effort mutations (all fail as claimed) and emulated the sandbox's write set with bwrap (the fetch succeeds).
     - *MEDIUM, fixed:* the `crates.io` apex is the write API (publish, yank), not needed for a sparse fetch, and so a way to carry data out. Cargo's credential files were readable. The sandbox now allows only `index.crates.io` and `static.crates.io`, and denies reading `credentials.toml` and `credentials` in the Cargo home (test: `arguments.test.ts`).
+    - *MEDIUM, fixed by operator decision (a daemon-owned Cargo home):*
+      - **The finding.** Writing the operator's `~/.cargo` caches let a sandboxed agent plant crate sources that Cargo trusts, which would run unsandboxed in the operator's own builds.
+      - **Why it was new for most runs.** The check units already wrote those caches, but only for runs with a daemon verification environment.
+      - **The fix.** Agents and check units now use `<data>/cargo-home`. At each start the daemon copies into it, one way, the registry and Git caches it lacks from the operator's Cargo home (`syncDaemonCargoHome`: copy-on-write where possible, never replacing a file, never copying tokens, configuration or binaries), so offline builds and Codex runs keep working.
+      - **Tests:**
+        - `daemon-cargo-home.test.ts`: what is and isn't copied; nothing flows back; later crates arrive; no Rust, or seeding off.
+        - `server-execution-runs.test.ts`: agents get the daemon's home.
+        - `server-execution-receipt-gates.test.ts`: a check unit reports it. Mutation: the operator's home fails it.
+      - **Left:** runs can affect one another through the shared daemon cache, as check units already could. Approved native units (ADR-054) are not file-confined and keep the operator's Cargo home.
     - *LOW, fixed:* creating the caches could fail every sandboxed launch (an unwritable Cargo home), created `~/.cargo` on hosts without Rust, and an empty `CARGO_HOME` became a relative path. Now the caches are made only inside an existing Cargo home, failures never stop the launch, and an empty value counts as unset (test: `backend.test.ts`, a missing and a read-only home).
 
 ### R-G6

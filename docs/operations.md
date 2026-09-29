@@ -252,6 +252,16 @@ carry `XDG_RUNTIME_DIR` (and the user bus), as the systemd unit provides. Their 
 `<data>/check-logs/<run>/`. On a host without a user manager, `CRAFTINGTABLE_CHECK_CONFINEMENT=none` runs
 them as plain process groups. The daemon stops its own leftover check units when it starts.
 
+Agents and check units use the daemon's own Cargo home, `<data>/cargo-home`, never the operator's
+`~/.cargo` (R-G5 review): an agent may write its download caches, and nothing written there reaches
+the operator's own builds. At each start the daemon copies into it, one way, the `registry` and
+`git` caches of the operator's Cargo home that it lacks (`CARGO_HOME`, else `~/.cargo`; override with
+`CRAFTINGTABLE_CARGO_SEED_FROM`, or set it empty to turn seeding off), so offline builds and Codex
+runs, which cannot fetch, find what the operator has downloaded. Existing files are never replaced,
+and no tokens, configuration or binaries are copied. The first start copies the whole cache (about
+500 MB on this workstation; copy-on-write only when the data directory shares a file system with
+it). A crate the operator fetches later reaches agents on the next daemon start.
+
 `pnpm check` needs no care around a running daemon: the end-to-end suite uses ports and
 data directories of its own.
 

@@ -1,7 +1,6 @@
 import { decisionPreparationDocuments } from './decision-preparation-policy.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type {
   AgentBackend,
@@ -1429,9 +1428,10 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
           TMP: temporaryDirectory,
           TEMP: temporaryDirectory,
           CARGO_TARGET_DIR: buildCacheDirectory ?? join(temporaryDirectory, 'target'),
-          // Cargo's home, as the check units have it: a sandboxed `cargo fetch` may write only
-          // its registry and Git caches, so the agent and its sandbox must agree on where.
-          CARGO_HOME: process.env.CARGO_HOME || join(homedir(), '.cargo'),
+          // The daemon's Cargo home, which the check units build from, never the operator's:
+          // a sandboxed `cargo fetch` may write its registry and Git caches, and what an agent
+          // plants there stays out of the operator's own builds (R-G5 review).
+          CARGO_HOME: this.config.cargoHome,
           ...(pinned ? { CRAFTINGTABLE_RUN_NAMESPACE: runId } : {}),
         },
         ...(pinned ? { pathPrefix: [pinned.binDirectory] } : {}),

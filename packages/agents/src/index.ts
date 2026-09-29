@@ -8,6 +8,7 @@ export {
   executeCheck,
   resolveGitDirectories,
   stopCheckUnits,
+  syncDaemonCargoHome,
   confinedCheckArguments,
   type CheckConfinement,
   type CheckOutcome,

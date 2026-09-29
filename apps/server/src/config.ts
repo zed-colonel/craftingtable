@@ -36,6 +36,16 @@ export interface ExecutionConfig {
    * (`CRAFTINGTABLE_AGENT_ENV_ALLOW`, comma-separated; R-G5).
    */
   readonly agentEnvironmentAllow: readonly string[];
+  /**
+   * The daemon's own Cargo home (R-G5 review): agents fetch into it and check units build from
+   * it, never the operator's, so a planted crate never reaches the operator's builds.
+   */
+  readonly cargoHome: string;
+  /**
+   * The Cargo home whose registry and Git caches seed `cargoHome` at start
+   * (`CRAFTINGTABLE_CARGO_SEED_FROM`; the operator's by default; empty turns seeding off).
+   */
+  readonly cargoSeedFrom?: string;
 }
 
 export interface TlsConfig {
@@ -176,6 +186,15 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
   if (pathsOverlap(checkLogRoot, runsRoot) || pathsOverlap(checkLogRoot, worktreeRoot)) {
     throw new Error('Check logs must lie outside the worktree and runs roots');
   }
+  const cargoHome = join(dataDir, 'cargo-home');
+  if (pathsOverlap(cargoHome, runsRoot) || pathsOverlap(cargoHome, worktreeRoot)) {
+    throw new Error("The daemon's Cargo home must lie outside the worktree and runs roots");
+  }
+  const cargoSeedFrom =
+    env.CRAFTINGTABLE_CARGO_SEED_FROM ??
+    (env.CARGO_HOME || (env.HOME ? join(env.HOME, '.cargo') : ''));
+  if (cargoSeedFrom !== '' && !isNormalizedAbsolutePath(cargoSeedFrom))
+    throw new Error('CRAFTINGTABLE_CARGO_SEED_FROM must be a normalized absolute path');
   const agentEnvironmentAllow = (env.CRAFTINGTABLE_AGENT_ENV_ALLOW ?? '')
     .split(',')
     .map((name) => name.trim())
@@ -198,6 +217,8 @@ function executionConfig(env: NodeJS.ProcessEnv, dataDir: string): ExecutionConf
     checkConfinement,
     checkLogRoot,
     agentEnvironmentAllow,
+    cargoHome,
+    ...(cargoSeedFrom === '' ? {} : { cargoSeedFrom }),
     ...(env.CRAFTINGTABLE_CLAUDE_MODELS === undefined
       ? {}
       : { claudeModels: env.CRAFTINGTABLE_CLAUDE_MODELS }),

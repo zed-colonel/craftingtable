@@ -147,6 +147,7 @@ export class CheckRequestService {
     private readonly config: {
       readonly checkConfinement: CheckConfinement;
       readonly checkLogRoot: string;
+      readonly cargoHome: string;
     },
     private readonly log: {
       warn(message: string, fields?: Record<string, unknown>): void;
@@ -321,7 +322,9 @@ export class CheckRequestService {
   ): Promise<void> {
     const { context } = served;
     const manifest = JSON.parse(context.manifest) as PinnedCargoManifest;
-    const cargoHome = process.env.CARGO_HOME ?? join(process.env.HOME ?? '', '.cargo');
+    // The daemon's Cargo home, never the operator's (R-G5 review): the unit may write its
+    // download caches, and whatever a check plants there stays out of the operator's builds.
+    const cargoHome = this.config.cargoHome;
     const writable = [
       manifest.workspacePath,
       context.runDirectory,
@@ -335,7 +338,8 @@ export class CheckRequestService {
       }
     });
     const environment = {
-      ...allowlistedEnvironment(process.env, ['CARGO_HOME', 'RUSTUP_HOME']),
+      ...allowlistedEnvironment(process.env, ['RUSTUP_HOME']),
+      CARGO_HOME: cargoHome,
       PATH: `${join(dirname(context.manifestPath), 'bin')}:${process.env.PATH ?? '/usr/bin'}`,
       TMPDIR: join(context.runDirectory, 'scratch'),
       CARGO_TARGET_DIR: manifest.targetDirectory,

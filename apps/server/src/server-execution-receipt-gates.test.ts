@@ -144,7 +144,7 @@ itNeedsCargo(
           '--',
           process.execPath,
           '-e',
-          'console.log("checked in", process.cwd(), "agent", process.env.CT_AGENT_ONLY ?? "absent")',
+          'console.log("checked in", process.cwd(), "agent", process.env.CT_AGENT_ONLY ?? "absent", "cargo", process.env.CARGO_HOME)',
         ])
       ).stdout;
       return { resultText: scopeReport(f.state, f.tree.executionScope!) };
@@ -156,7 +156,10 @@ itNeedsCargo(
     } finally {
       delete process.env.CT_AGENT_ONLY;
     }
-    expect(output).toContain(`checked in ${f.tree.path} agent absent`);
+    // It builds from the daemon's Cargo home, never the operator's (R-G5 review).
+    expect(output).toContain(
+      `checked in ${f.tree.path} agent absent cargo ${f.state.context.config.execution.cargoHome}`,
+    );
     const [recorded] = storage.runtimeEvidence.checkReceipts(f.state.workspaceId, checked);
     expect(JSON.parse(recorded!.receipt)).toMatchObject({
       kind: 'scoped-check',

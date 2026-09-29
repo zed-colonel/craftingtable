@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type {
@@ -941,9 +941,12 @@ describe('agent runs', () => {
     ]);
     // It names Cargo's home, the one the check units use, so a sandboxed fetch writes where
     // the sandbox allows (R-G5, operator decision 2026-09-28).
+    // It is the daemon's own, never the operator's (R-G5 review).
+    const cargoHome = state.context.config.execution.cargoHome;
+    expect(cargoHome.startsWith(state.context.directory)).toBe(true);
     expect(state.backend.launches.map((launch) => launch.environment?.CARGO_HOME)).toEqual([
-      process.env.CARGO_HOME || join(homedir(), '.cargo'),
-      process.env.CARGO_HOME || join(homedir(), '.cargo'),
+      cargoHome,
+      cargoHome,
     ]);
     // A sandboxed agent (Codex workspace-write) may write only to the listed directories.
     for (const launch of state.backend.launches)

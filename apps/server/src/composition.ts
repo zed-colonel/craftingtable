@@ -7,6 +7,7 @@ import {
   CODEX_MODELS,
   CodexBackend,
   parseModelList,
+  syncDaemonCargoHome,
 } from '@craftingtable/agents';
 import { AGENT_BACKEND_LABELS, AGENT_BACKENDS, type AgentBackendKind } from '@craftingtable/domain';
 import {
@@ -411,6 +412,14 @@ export async function createRuntime(
   config: ServerConfig,
   options: { readonly logger?: boolean; readonly overrides?: ServiceOverrides } = {},
 ): Promise<CraftingTableRuntime> {
+  // Agents and check units use the daemon's own Cargo home; bring in what the operator has
+  // downloaded since the last start (R-G5 review). A failed copy leaves fetches and offline
+  // builds to find out, so the daemon still starts.
+  try {
+    syncDaemonCargoHome(config.execution.cargoHome, config.execution.cargoSeedFrom);
+  } catch (error) {
+    console.warn(error instanceof Error ? error.message : error);
+  }
   const storage = openDaemonStorage(config.databasePath);
   try {
     const services = await createServices(storage, config, options.overrides);

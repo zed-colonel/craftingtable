@@ -1321,3 +1321,32 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     },
   };
 }
+
+/**
+ * The daemon's own Cargo home (R-G5 review, operator decision 2026-09-28): agents fetch into it
+ * and the daemon's check units build from it, so nothing an agent writes in a Cargo cache ever
+ * reaches the operator's own builds. Brings in, one way, the registry and Git caches of the
+ * operator's Cargo home (`source`) that it lacks, so offline builds and agents that cannot fetch
+ * find what the operator already downloaded; existing files are never replaced, and nothing
+ * else (tokens, configuration, binaries) is copied. Copy-on-write where the file system allows.
+ */
+export function syncDaemonCargoHome(target: string, source?: string): void {
+  for (const cache of ['registry', 'git']) {
+    const into = join(target, cache);
+    // Both caches always exist: a check unit cannot be given a missing writable path, nor can
+    // Claude's sandbox make one writable.
+    mkdirSync(into, { recursive: true, mode: 0o700 });
+    if (!source || !isAbsolute(source)) continue;
+    const from = join(source, cache);
+    if (!existsSync(from)) continue;
+    const copied = spawnSync(
+      'cp',
+      ['-R', '--no-dereference', '--reflink=auto', '--update=none', `${from}/.`, `${into}/`],
+      { encoding: 'utf8', timeout: 30 * 60 * 1000 },
+    );
+    if (copied.status !== 0)
+      throw new Error(
+        `Seeding the daemon's Cargo ${cache} cache failed: ${copied.error?.message ?? copied.stderr}`,
+      );
+  }
+}

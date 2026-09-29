@@ -39,6 +39,8 @@ import type { ProfileEntry } from './handoff.js';
 import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
 import { ProviderRecovery } from './ProviderRecovery.js';
 import { WorkflowStatus } from './WorkflowStatus.js';
+import { Link } from '../../lib/navigation.js';
+import type { WorkspaceId } from '@craftingtable/domain';
 
 export { CYCLE_STATUS_LABELS } from '../../lib/execution-labels.js';
 export function CyclePanel({
@@ -347,9 +349,15 @@ export function CyclePanel({
           <details>
             <summary>Cycle settings and future agents</summary>
             <p>
-              <a href={`/workspaces/${active.workspaceId}/settings#roadmap-agent-profiles`}>
+              <Link
+                route={{
+                  name: 'settings',
+                  workspaceId: active.workspaceId as WorkspaceId,
+                  focus: 'roadmap-agent-profiles',
+                }}
+              >
                 Manage roadmap agent profiles
-              </a>
+              </Link>
               . Running sessions retain the model shown on their run page.
             </p>
             <ul>

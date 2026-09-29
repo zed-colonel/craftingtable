@@ -1,7 +1,8 @@
 import type { AttentionItemView } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { ATTENTION_CODE_LABELS } from '../lib/attention-labels.js';
-import { buildPath, type Route } from '../lib/route.js';
+import { Link } from '../lib/navigation.js';
+import type { Route } from '../lib/route.js';
 import { Section } from './Section.js';
 
 /**
@@ -28,16 +29,16 @@ export function NeedsYou({
     const route: Route = { name: 'inbox', workspaceId, itemId: item.id };
     return (
       <li key={item.id} className="attention-row">
-        <a
+        <Link
           className="text-button"
-          href={buildPath(route)}
+          route={route}
           onClick={(event) => {
             event.preventDefault();
             open(item.id);
           }}
         >
           {ATTENTION_CODE_LABELS[item.code]}
-        </a>
+        </Link>
         <span className="attention-reason">
           <span className="attention-title">{item.title}</span>
           {item.blocks > 0 ? ` · unblocks ${item.blocks}` : ''}
@@ -54,16 +55,9 @@ export function NeedsYou({
         tone="attention"
         summary="Automation stopped for decisions only you can make."
         actions={
-          <a
-            className="text-button"
-            href={buildPath({ name: 'inbox', workspaceId })}
-            onClick={(event) => {
-              event.preventDefault();
-              onNavigate({ name: 'inbox', workspaceId });
-            }}
-          >
+          <Link className="text-button" route={{ name: 'inbox', workspaceId }}>
             Open inbox
-          </a>
+          </Link>
         }
       >
         <ul className="attention-list">{rows}</ul>

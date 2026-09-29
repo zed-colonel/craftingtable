@@ -30,12 +30,26 @@ export type Route =
   /** `/workspaces`: every workspace as a card. */
   | { readonly name: 'home' }
   | { readonly name: 'account' }
-  | { readonly name: 'roadmaps'; readonly workspaceId: WorkspaceId }
+  /**
+   * `?roadmap=` names a roadmap and `#focus` an element to reveal once the page mounts (R-E1):
+   * a deep link does not depend on a particular panel reading the address itself.
+   */
+  | {
+      readonly name: 'roadmaps';
+      readonly workspaceId: WorkspaceId;
+      readonly roadmapId?: string;
+      readonly focus?: string;
+    }
   | { readonly name: 'projects'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'dashboard'; readonly workspaceId: WorkspaceId }
   /** `/workspaces/:id/inbox[/:itemId]`: what needs the operator, and one item's decision. */
   | { readonly name: 'inbox'; readonly workspaceId: WorkspaceId; readonly itemId?: string }
-  | { readonly name: 'settings'; readonly workspaceId: WorkspaceId }
+  | {
+      readonly name: 'settings';
+      readonly workspaceId: WorkspaceId;
+      readonly roadmapId?: string;
+      readonly focus?: string;
+    }
   | { readonly name: 'import'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'repositories'; readonly workspaceId: WorkspaceId }
   | { readonly name: 'runs'; readonly workspaceId: WorkspaceId }
@@ -51,6 +65,7 @@ export type Route =
       readonly name: 'work-item';
       readonly workspaceId: WorkspaceId;
       readonly workItemId: WorkItemId;
+      readonly focus?: string;
     }
   | { readonly name: 'run'; readonly workspaceId: WorkspaceId; readonly runId: AgentRunId };
 
@@ -74,7 +89,26 @@ function isAgendaFilter(value: string | undefined): value is AgendaFilter {
 }
 
 /** Unrecognized paths fall back to the root rather than erroring. */
-export function parseRoute(pathname: string): Route {
+export function parseRoute(pathname: string, search = '', hash = ''): Route {
+  const route = parsePath(pathname);
+  const focus = decode(hash.startsWith('#') ? hash.slice(1) : hash);
+  const roadmapId = decode(new URLSearchParams(search).get('roadmap') ?? undefined);
+  switch (route.name) {
+    case 'roadmaps':
+    case 'settings':
+      return {
+        ...route,
+        ...(roadmapId === undefined ? {} : { roadmapId }),
+        ...(focus === undefined ? {} : { focus }),
+      };
+    case 'work-item':
+      return { ...route, ...(focus === undefined ? {} : { focus }) };
+    default:
+      return route;
+  }
+}
+
+function parsePath(pathname: string): Route {
   const segments = pathname.split('/').filter((segment) => segment !== '');
   if (segments.length === 0) {
     return ROOT_ROUTE;
@@ -159,6 +193,17 @@ export function parseRoute(pathname: string): Route {
 }
 
 export function buildPath(route: Route): string {
+  const path = buildPathname(route);
+  const roadmap =
+    'roadmapId' in route && route.roadmapId !== undefined
+      ? `?roadmap=${encodeURIComponent(route.roadmapId)}`
+      : '';
+  const focus =
+    'focus' in route && route.focus !== undefined ? `#${encodeURIComponent(route.focus)}` : '';
+  return `${path}${roadmap}${focus}`;
+}
+
+function buildPathname(route: Route): string {
   const workspace = (id: WorkspaceId): string => `/workspaces/${encodeURIComponent(id)}`;
   switch (route.name) {
     case 'root':

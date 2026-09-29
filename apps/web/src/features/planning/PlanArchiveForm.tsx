@@ -11,8 +11,8 @@ import {
   importPlanZip,
   previewPlanZip,
 } from '../../lib/package-import-api.js';
-import { buildPath } from '../../lib/route.js';
 import { ImportIssues } from './import-issues.js';
+import { Link } from '../../lib/navigation.js';
 
 export function PlanArchiveForm({
   workspaceId,
@@ -274,17 +274,17 @@ export function PlanArchiveForm({
           </a>
           {result.plan && result.plan.outcome !== 'failed-validation' && (
             <p>
-              <a
-                href={buildPath({
+              <Link
+                route={{
                   name: 'plan-version',
                   workspaceId,
                   projectId: result.plan.projectId,
                   planVersionId: result.plan.planVersionId,
-                })}
+                }}
               >
                 Open plan version {result.plan.versionNumber} and configure Repository &amp;
                 branches
-              </a>
+              </Link>
             </p>
           )}
         </div>

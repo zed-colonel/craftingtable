@@ -3,6 +3,8 @@ import type { AgentRunDetailResponse } from '@craftingtable/contracts';
 import { asAgentRunId, asWorkspaceId } from '@craftingtable/domain';
 import { loadRun } from '../../lib/execution-api.js';
 import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
+import { Link } from '../../lib/navigation.js';
+import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
 
 /** Fetch large reports only on demand, keeping roadmap refreshes small and disclosures stable. */
 export function SourceRunReport({
@@ -39,9 +41,11 @@ export function SourceRunReport({
       <p>
         Agent evidence and recommendations are not an approval or a passing verification receipt.
       </p>
-      <a href={`/workspaces/${encodeURIComponent(workspaceId)}/runs/${encodeURIComponent(runId)}`}>
+      <Link
+        route={{ name: 'run', workspaceId: workspaceId as WorkspaceId, runId: runId as AgentRunId }}
+      >
         Open source run
-      </a>
+      </Link>
       {busy && <p role="status">Loading recorded report…</p>}
       {error && (
         <div role="alert">

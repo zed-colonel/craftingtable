@@ -12,6 +12,8 @@ import { configureDecisionPreparation } from '../../lib/roadmap-api.js';
 import { ModelField } from '../execution/ModelField.js';
 import { ReasoningEffortField } from '../execution/ReasoningEffortField.js';
 import { About } from '../../components/About.js';
+import { Link } from '../../lib/navigation.js';
+import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
 
 export function DecisionPreparationPanel({
   roadmap,
@@ -304,9 +306,15 @@ export function DecisionPreparationPanel({
       {current?.latest && (
         <p>
           Latest preparation: {current.latest.status} ·{' '}
-          <a href={`/workspaces/${roadmap.workspaceId}/runs/${current.latest.runId}`}>
+          <Link
+            route={{
+              name: 'run',
+              workspaceId: roadmap.workspaceId as WorkspaceId,
+              runId: current.latest.runId as AgentRunId,
+            }}
+          >
             Open preparation run
-          </a>
+          </Link>
           {current.latest.summary && <span> · {current.latest.summary.slice(0, 600)}</span>}
         </p>
       )}

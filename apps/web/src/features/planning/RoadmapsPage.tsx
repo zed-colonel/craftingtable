@@ -39,7 +39,6 @@ import {
   loadRoadmaps,
   saveRoadmap,
 } from '../../lib/roadmap-api.js';
-import { buildPath } from '../../lib/route.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { ConcurrencyImports } from './ConcurrencyImports.js';
 import { CrossProjectPanel } from './CrossProjectPanel.js';
@@ -51,6 +50,7 @@ import { RoadmapStatusList } from './RoadmapStatusList.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { ScopeRecoveryPanel } from './ScopeRecoveryPanel.js';
 import { distinct } from '../../lib/distinct.js';
+import { Link } from '../../lib/navigation.js';
 
 const labels: Record<RoadmapStatus, string> = {
   draft: 'Draft',
@@ -322,17 +322,27 @@ export function RoadmapsPage({
               waiting for review or merge; they do not increase workstation capacity.
             </p>
             <p>
-              <a
-                href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#execution-capacity`}
+              <Link
+                route={{
+                  name: 'settings',
+                  workspaceId: workspaceId as WorkspaceId,
+                  roadmapId: roadmap.id,
+                  focus: 'execution-capacity',
+                }}
               >
                 Manage capacity
-              </a>{' '}
+              </Link>{' '}
               ·{' '}
-              <a
-                href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#roadmap-agent-profiles`}
+              <Link
+                route={{
+                  name: 'settings',
+                  workspaceId: workspaceId as WorkspaceId,
+                  roadmapId: roadmap.id,
+                  focus: 'roadmap-agent-profiles',
+                }}
               >
                 Manage agent profiles
-              </a>
+              </Link>
             </p>
             {roadmap.definition.scheduling?.mode === 'parallel' &&
               roadmap.definition.scheduling.maxInFlight > hostCapacity.development.limit && (
@@ -486,12 +496,12 @@ export function RoadmapsPage({
               const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
               return (
                 <li key={entry.id} id={`roadmap-entry-${roadmap.id}-${entry.id}`}>
-                  <a
-                    href={buildPath({
+                  <Link
+                    route={{
                       name: 'work-item',
                       workspaceId,
                       workItemId: entry.workItemId,
-                    })}
+                    }}
                     onClick={(event) => {
                       event.preventDefault();
                       onOpenWorkItem(entry.workItemId);
@@ -500,7 +510,7 @@ export function RoadmapsPage({
                     {[entry.sourceId, entry.executionScope?.kind, entry.title]
                       .filter((part) => part !== undefined && part !== '')
                       .join(' · ')}
-                  </a>
+                  </Link>
                   <p>
                     <strong>
                       {state?.status === 'awaiting-merge'
@@ -696,9 +706,9 @@ export function RoadmapsPage({
             <ul className="attention-list compact">
               {items.map((item) => (
                 <li key={item.id} className="attention-row">
-                  <a
+                  <Link
                     className="text-button"
-                    href={buildPath({ name: 'inbox', workspaceId, itemId: item.id })}
+                    route={{ name: 'inbox', workspaceId, itemId: item.id }}
                     onClick={(event) => {
                       if (!onOpenAttention) return;
                       event.preventDefault();
@@ -706,7 +716,7 @@ export function RoadmapsPage({
                     }}
                   >
                     {ATTENTION_CODE_LABELS[item.code]}
-                  </a>
+                  </Link>
                   <span className="attention-reason">{item.title}</span>
                 </li>
               ))}
@@ -763,9 +773,15 @@ export function RoadmapsPage({
         }
       />
       <p>
-        <a href={`/workspaces/${workspaceId}/settings#roadmap-agent-profiles`}>
+        <Link
+          route={{
+            name: 'settings',
+            workspaceId: workspaceId as WorkspaceId,
+            focus: 'roadmap-agent-profiles',
+          }}
+        >
           Manage agent profiles for future runs
-        </a>
+        </Link>
       </p>
       <About label="About roadmaps">
         <p>
@@ -840,11 +856,16 @@ export function RoadmapsPage({
                   In-flight limits: {draft.scheduling?.maxInFlight ?? 2} total ·{' '}
                   {draft.scheduling?.maxPerRepository ?? 2} per repository.{' '}
                   {current ? (
-                    <a
-                      href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${current.id}#execution-capacity`}
+                    <Link
+                      route={{
+                        name: 'settings',
+                        workspaceId: workspaceId as WorkspaceId,
+                        roadmapId: current.id,
+                        focus: 'execution-capacity',
+                      }}
                     >
                       Manage capacity in Settings
-                    </a>
+                    </Link>
                   ) : (
                     'Save this draft, then configure capacity in Workspace Settings before starting.'
                   )}

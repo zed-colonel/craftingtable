@@ -11,6 +11,8 @@ import { ActionBar } from '../../components/ActionBar.js';
 import { About } from '../../components/About.js';
 import { request } from '../../lib/api-client.js';
 import { distinct } from '../../lib/distinct.js';
+import { Link } from '../../lib/navigation.js';
+import type { AgentRunId, WorkItemId, WorkspaceId } from '@craftingtable/domain';
 
 type Card = ArchitectureDecisionInbox['decisions'][number];
 type Record = Card['records'][number];
@@ -405,9 +407,15 @@ function DecisionCard({
         </ul>
         <pre className="run-event-body">{card.sourceReferences}</pre>
         {recommendation && (
-          <a href={`/workspaces/${data.workspaceId}/runs/${recommendation.sourceRunId}`}>
+          <Link
+            route={{
+              name: 'run',
+              workspaceId: data.workspaceId as WorkspaceId,
+              runId: recommendation.sourceRunId as AgentRunId,
+            }}
+          >
             Read source run report
-          </a>
+          </Link>
         )}
       </details>
       {error && (
@@ -447,11 +455,16 @@ function DecisionCard({
             </button>
           ) : (
             recommendation?.workItemId && (
-              <a
-                href={`/workspaces/${data.workspaceId}/work-items/${recommendation.workItemId}#clarify-architecture-${encodeURIComponent(card.checkpointId)}`}
+              <Link
+                route={{
+                  name: 'work-item',
+                  workspaceId: data.workspaceId as WorkspaceId,
+                  workItemId: recommendation.workItemId as WorkItemId,
+                  focus: `clarify-architecture-${card.checkpointId}`,
+                }}
               >
                 Request clarification in design recovery
-              </a>
+              </Link>
             )
           )}
         </ActionBar>

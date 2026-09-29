@@ -8,18 +8,28 @@ import { buildPath, parseRoute, type Route } from './route.js';
  * pure `route` module. Vite's SPA fallback serves `index.html` for these paths,
  * so deep links work without a server change (ADR-015).
  */
+/** The route the address bar names, including its roadmap and focus (R-E1). */
+function current(): Route {
+  return parseRoute(window.location.pathname, window.location.search, window.location.hash);
+}
+
 export function useRoute(): {
   readonly route: Route;
   navigate: (next: Route, options?: { readonly replace?: boolean }) => void;
 } {
   const [route, setRoute] = useState<Route>(() =>
-    parseRoute(typeof window === 'undefined' ? '/' : window.location.pathname),
+    typeof window === 'undefined' ? parseRoute('/') : current(),
   );
 
   useEffect(() => {
-    const onPopState = (): void => setRoute(parseRoute(window.location.pathname));
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
+    // A fragment followed in place (an in-page anchor) is a new focus, not a new page.
+    const onChange = (): void => setRoute(current());
+    window.addEventListener('popstate', onChange);
+    window.addEventListener('hashchange', onChange);
+    return () => {
+      window.removeEventListener('popstate', onChange);
+      window.removeEventListener('hashchange', onChange);
+    };
   }, []);
 
   const navigate = useCallback((next: Route, options: { readonly replace?: boolean } = {}) => {

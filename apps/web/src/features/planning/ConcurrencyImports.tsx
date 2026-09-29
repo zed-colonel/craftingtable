@@ -12,10 +12,10 @@ import {
   loadConcurrencyImports,
   saveConcurrencyBindings,
 } from '../../lib/package-import-api.js';
-import { buildPath } from '../../lib/route.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
 import { ImportIssues } from './import-issues.js';
 import { distinct } from '../../lib/distinct.js';
+import { Link } from '../../lib/navigation.js';
 
 export function ConcurrencyImports({
   workspaceId,
@@ -328,16 +328,16 @@ export function ConcurrencyImports({
                     </p>
                     <ImportIssues issues={option.issues} />
                     <p>
-                      <a
-                        href={buildPath({
+                      <Link
+                        route={{
                           name: 'plan-version',
                           workspaceId,
                           projectId: option.projectId,
                           planVersionId: option.planVersionId,
-                        })}
+                        }}
                       >
                         Open version {option.versionNumber} / Repository &amp; branches
-                      </a>
+                      </Link>
                     </p>
                     <p>
                       Configured integration branch:{' '}
@@ -347,9 +347,9 @@ export function ConcurrencyImports({
                 )}
                 {repo.role === 'planned_application' && repo.options.length === 0 && (
                   <p>
-                    <a href={buildPath({ name: 'import', workspaceId })}>
+                    <Link route={{ name: 'import', workspaceId }}>
                       Import the revised planning ZIP
-                    </a>{' '}
+                    </Link>{' '}
                     before choosing a version.
                   </p>
                 )}
@@ -374,15 +374,15 @@ export function ConcurrencyImports({
                     <ul>
                       {repo.boundWorkItems.map((w) => (
                         <li key={w.sourceId}>
-                          <a
-                            href={buildPath({
+                          <Link
+                            route={{
                               name: 'work-item',
                               workspaceId,
                               workItemId: w.workItemId,
-                            })}
+                            }}
                           >
                             {w.sourceId}
-                          </a>
+                          </Link>
                         </li>
                       ))}
                     </ul>

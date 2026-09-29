@@ -27,12 +27,19 @@ const ROUTES: readonly Route[] = [
   { name: 'run', workspaceId: WORKSPACE, runId: RUN },
   { name: 'inbox', workspaceId: WORKSPACE },
   { name: 'inbox', workspaceId: WORKSPACE, itemId: 'item-9' },
+  // Typed focus (R-E1): a roadmap, a settings section, an element to reveal.
+  { name: 'roadmaps', workspaceId: WORKSPACE, roadmapId: 'roadmap-1' },
+  { name: 'roadmaps', workspaceId: WORKSPACE, roadmapId: 'roadmap-1', focus: 'map-reviewers' },
+  { name: 'settings', workspaceId: WORKSPACE, roadmapId: 'roadmap-1', focus: 'execution-capacity' },
+  { name: 'settings', workspaceId: WORKSPACE, focus: 'roadmap-agent-profiles' },
+  { name: 'work-item', workspaceId: WORKSPACE, workItemId: ITEM, focus: 'slices' },
 ];
 
 describe('route parsing', () => {
   it('round-trips every route shape', () => {
     for (const route of ROUTES) {
-      expect(parseRoute(buildPath(route)), buildPath(route)).toEqual(route);
+      const url = new URL(buildPath(route), 'http://ct.invalid');
+      expect(parseRoute(url.pathname, url.search, url.hash), buildPath(route)).toEqual(route);
     }
   });
 
@@ -119,5 +126,37 @@ describe('route parsing', () => {
   it('reports the workspace a route addresses', () => {
     expect(routeWorkspaceId({ name: 'home' })).toBeUndefined();
     expect(routeWorkspaceId({ name: 'runs', workspaceId: WORKSPACE })).toBe(WORKSPACE);
+  });
+});
+
+describe('typed focus (R-E1)', () => {
+  it('carries a roadmap in the query and the element to reveal in the fragment', () => {
+    expect(
+      buildPath({
+        name: 'settings',
+        workspaceId: WORKSPACE,
+        roadmapId: 'roadmap 1',
+        focus: 'execution-capacity',
+      }),
+    ).toBe('/workspaces/workspace-1/settings?roadmap=roadmap%201#execution-capacity');
+    expect(
+      parseRoute('/workspaces/workspace-1/roadmaps', '?roadmap=r-2', '#architecture-decisions-d'),
+    ).toEqual({
+      name: 'roadmaps',
+      workspaceId: WORKSPACE,
+      roadmapId: 'r-2',
+      focus: 'architecture-decisions-d',
+    });
+  });
+
+  it('ignores focus a route does not take, and malformed values', () => {
+    expect(parseRoute('/workspaces/workspace-1/runs', '?roadmap=x', '#y')).toEqual({
+      name: 'runs',
+      workspaceId: WORKSPACE,
+    });
+    expect(parseRoute('/workspaces/workspace-1/settings', '', '#%E0%A4%A')).toEqual({
+      name: 'settings',
+      workspaceId: WORKSPACE,
+    });
   });
 });

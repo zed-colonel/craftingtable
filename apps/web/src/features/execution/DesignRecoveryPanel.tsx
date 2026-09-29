@@ -15,6 +15,9 @@ import { SourceRunReport } from './SourceRunReport.js';
 import { ModelField } from './ModelField.js';
 import { ReasoningEffortField } from './ReasoningEffortField.js';
 import { distinct } from '../../lib/distinct.js';
+import { Link } from '../../lib/navigation.js';
+import type { WorkspaceId } from '@craftingtable/domain';
+import { useRouteFocus } from '../../lib/navigation.js';
 
 export function DesignRecoveryPanel({
   cycle,
@@ -75,12 +78,12 @@ export function DesignRecoveryPanel({
     }
   };
   // Navigation prepares a clarification draft only; starting an agent remains explicit.
+  const focus = useRouteFocus();
   // biome-ignore lint/correctness/useExhaustiveDependencies: consume this navigation once for the selected cycle.
   useEffect(() => {
-    const prefix = '#clarify-architecture-';
-    if (window.location.hash.startsWith(prefix))
-      void discover(window.location.hash.slice(prefix.length));
-  }, [cycle.id]);
+    const prefix = 'clarify-architecture-';
+    if (focus?.startsWith(prefix)) void discover(focus.slice(prefix.length));
+  }, [cycle.id, focus]);
   return (
     <section id="design-recovery" aria-label="Resolve design questions" className="stack">
       {cycle.designRecovery?.mode === 'investigate' &&
@@ -158,11 +161,15 @@ export function DesignRecoveryPanel({
               />
               {cycle.executionScope && (
                 <p>
-                  <a
-                    href={`/workspaces/${encodeURIComponent(cycle.workspaceId)}/roadmaps#architecture-decisions-${cycle.executionScope.definitionId}`}
+                  <Link
+                    route={{
+                      name: 'roadmaps',
+                      workspaceId: cycle.workspaceId as WorkspaceId,
+                      focus: `architecture-decisions-${cycle.executionScope.definitionId}`,
+                    }}
                   >
                     View all shared decisions on the roadmap
-                  </a>{' '}
+                  </Link>{' '}
                   . Decisions approved here are shared with the same applicable downstream work.
                 </p>
               )}

@@ -7,6 +7,7 @@
  * under one of three headings: things only the operator can resolve, things
  * automation will resolve on its own, and things waiting on other work.
  */
+import { PathLink } from '../lib/navigation.js';
 export type ReasonKind =
   | 'authorization'
   | 'attention'
@@ -99,9 +100,9 @@ export function Reasons({
                 <span className="reason-kind">{REASON_KIND_LABELS[reason.kind]}</span>
                 <span className="reason-text">{reason.text}</span>
                 {reason.destination && (
-                  <a className="text-button" href={reason.destination.href}>
+                  <PathLink className="text-button" path={reason.destination.href}>
                     {reason.destination.label}
-                  </a>
+                  </PathLink>
                 )}
               </li>
             ))}

@@ -4,6 +4,9 @@ import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { request } from '../../lib/api-client.js';
+import { Link } from '../../lib/navigation.js';
+import type { WorkItemId, WorkspaceId } from '@craftingtable/domain';
+import { useRouteRoadmap } from '../../lib/navigation.js';
 
 export function RoadmapCapacityPanel({
   workspaceId,
@@ -15,9 +18,8 @@ export function RoadmapCapacityPanel({
   developmentCapacity?: number;
 }) {
   const [data, setData] = useState<RoadmapCapacities>();
-  const [selected, setSelected] = useState(
-    () => new URLSearchParams(window.location.search).get('roadmap') ?? '',
-  );
+  const routeRoadmap = useRouteRoadmap();
+  const [selected, setSelected] = useState(() => routeRoadmap ?? '');
   const [draft, setDraft] = useState<{
     roadmapId: string;
     maxInFlight: string;
@@ -247,19 +249,23 @@ export function RoadmapCapacityPanel({
             <ul>
               {roadmap.inFlight.map((a) => (
                 <li key={a.attemptId}>
-                  <a
-                    href={`/workspaces/${encodeURIComponent(workspaceId)}/work-items/${encodeURIComponent(a.workItemId)}`}
+                  <Link
+                    route={{
+                      name: 'work-item',
+                      workspaceId: workspaceId as WorkspaceId,
+                      workItemId: a.workItemId as WorkItemId,
+                    }}
                   >
                     {a.label}
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>
           </details>
           <p>
-            <a href={base.replace('/api', '')}>
+            <Link route={{ name: 'roadmaps', workspaceId: workspaceId as WorkspaceId }}>
               Open roadmap supervision and saved-plan acceptance
-            </a>
+            </Link>
           </p>
         </>
       )}

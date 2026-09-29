@@ -16,8 +16,8 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { request } from '../../lib/api-client.js';
-import { buildPath } from '../../lib/route.js';
 import { distinct } from '../../lib/distinct.js';
+import { Link } from '../../lib/navigation.js';
 export function MapAmendmentPanel({
   workspaceId,
   roadmap,
@@ -154,15 +154,15 @@ export function MapAmendmentPanel({
             <>
               {' '}
               ·{' '}
-              <a
-                href={buildPath({
+              <Link
+                route={{
                   name: 'run',
                   workspaceId,
                   runId: asAgentRunId(pending.sourceRunId),
-                })}
+                }}
               >
                 Source run
-              </a>
+              </Link>
             </>
           )}
         </p>
@@ -352,11 +352,9 @@ export function MapAmendmentPanel({
                     <>
                       {' '}
                       ·{' '}
-                      <a
-                        href={buildPath({ name: 'run', workspaceId, runId: asAgentRunId(a.runId) })}
-                      >
+                      <Link route={{ name: 'run', workspaceId, runId: asAgentRunId(a.runId) }}>
                         Original run
-                      </a>
+                      </Link>
                     </>
                   )}
                 </li>
@@ -457,17 +455,17 @@ export function MapAmendmentPanel({
                   <ul>
                     {a.decision.previous.attempts.map((t) => (
                       <li key={t.id}>
-                        <a
-                          href={buildPath({
+                        <Link
+                          route={{
                             name: 'work-item',
                             workspaceId,
                             workItemId: a.decision!.previous.definition.entries.find(
                               (e) => e.id === t.entryId,
                             )!.workItemId,
-                          })}
+                          }}
                         >
                           Preserved attempt {t.id.slice(0, 8)}
-                        </a>{' '}
+                        </Link>{' '}
                         · {t.status}
                       </li>
                     ))}
@@ -503,16 +501,16 @@ export function MapAmendmentPanel({
               ))}
             </ul>
           )}
-          <a
-            href={buildPath({
+          <Link
+            route={{
               name: 'plan-version',
               workspaceId,
               projectId: p.projectId,
               planVersionId: p.planVersionId,
-            })}
+            }}
           >
             Open {p.alias} plan and staged finalization
-          </a>
+          </Link>
         </article>
       ))}
     </Section>

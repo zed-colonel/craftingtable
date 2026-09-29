@@ -6,7 +6,8 @@ import { PageHeader } from '../../components/PageHeader.js';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { ATTENTION_CODE_LABELS } from '../../lib/attention-labels.js';
-import { buildPath, type Route } from '../../lib/route.js';
+import { Link, PathLink } from '../../lib/navigation.js';
+import type { Route } from '../../lib/route.js';
 
 /**
  * The "Needs you" inbox (R-A5): every open attention item, most blocking first, and one
@@ -33,16 +34,16 @@ export function InboxPage({
 }) {
   const selected = items.find((item) => item.id === selectedId);
   const link = (route: Route, label: ReactNode, className = 'text-button') => (
-    <a
+    <Link
       className={className}
-      href={buildPath(route)}
+      route={route}
       onClick={(event) => {
         event.preventDefault();
         onNavigate(route);
       }}
     >
       {label}
-    </a>
+    </Link>
   );
   return (
     <div className="page">
@@ -86,9 +87,9 @@ export function InboxPage({
             ]}
           />
           <p>
-            <a className="text-button" href={selected.path}>
+            <PathLink className="text-button" path={selected.path}>
               Open where it happened
-            </a>
+            </PathLink>
           </p>
           <div className="inbox-host">{renderHost(selected)}</div>
         </Section>

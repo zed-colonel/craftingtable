@@ -8,6 +8,7 @@ import {
 } from '../../lib/notification-api.js';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
 import { About } from '../../components/About.js';
+import { PathLink } from '../../lib/navigation.js';
 
 export function NotificationPanel({
   workspaceId,
@@ -294,7 +295,7 @@ export function NotificationPanel({
             <ul className="notification-records">
               {status.records.map((record) => (
                 <li key={record.id}>
-                  <a href={record.path}>{record.title}</a>
+                  <PathLink path={record.path}>{record.title}</PathLink>
                   <p>
                     {record.kind === 'test'
                       ? record.lastSentAt !== null

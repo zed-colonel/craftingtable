@@ -6,6 +6,8 @@ import {
 } from '@craftingtable/contracts';
 import { request } from '../../lib/api-client.js';
 import { distinct } from '../../lib/distinct.js';
+import { Link } from '../../lib/navigation.js';
+import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
 
 export function CheckpointRecoveryPanel({
   workspaceId,
@@ -125,9 +127,15 @@ export function CheckpointRecoveryPanel({
             )}
             {c.runId && (
               <p>
-                <a href={`/workspaces/${workspaceId}/runs/${c.runId}`}>
+                <Link
+                  route={{
+                    name: 'run',
+                    workspaceId: workspaceId as WorkspaceId,
+                    runId: c.runId as AgentRunId,
+                  }}
+                >
                   Open the saved independent review
-                </a>
+                </Link>
               </p>
             )}
             <details>
@@ -149,9 +157,9 @@ export function CheckpointRecoveryPanel({
             )}
             {(c.prerequisiteCheckpoints?.length ?? 0) > 0 && (
               <p>
-                <a href={`/workspaces/${workspaceId}/roadmaps`}>
+                <Link route={{ name: 'roadmaps', workspaceId: workspaceId as WorkspaceId }}>
                   Review prerequisite evidence on the roadmap
-                </a>{' '}
+                </Link>{' '}
                 under Dependency environments and evidence, then Submitted evidence. Accept it
                 first, then refresh here.
               </p>

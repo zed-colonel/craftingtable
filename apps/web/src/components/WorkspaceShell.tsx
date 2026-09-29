@@ -1,6 +1,7 @@
 import type { WorkspaceOverview } from '@craftingtable/contracts';
 import type { WorkspaceId } from '@craftingtable/domain';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Link } from '../lib/navigation.js';
 import { buildPath, type Route } from '../lib/route.js';
 import type { Theme } from '../lib/theme.js';
 import type { ConnectionState } from '../lib/workspace-projection.js';
@@ -27,7 +28,6 @@ export function WorkspaceShell({
   connection,
   route,
   theme,
-  onNavigate,
   onSelectWorkspace,
   onToggleTheme,
   onLogout,
@@ -41,7 +41,6 @@ export function WorkspaceShell({
   connection: ConnectionState;
   route: Route;
   theme: Theme;
-  onNavigate: (route: Route) => void;
   onSelectWorkspace: (workspaceId: WorkspaceId) => void;
   onToggleTheme: () => void;
   onLogout: () => void;
@@ -91,11 +90,10 @@ export function WorkspaceShell({
           { route: { name: 'settings', workspaceId: selected.id }, label: 'Settings' },
         ];
 
-  const navigate = (destination: Route): void => {
+  const closeMenu = (): void => {
     // The current page can be selected too, so do not leave focus in a hidden menu.
     if (menuOpen) main.current?.focus({ preventScroll: true });
     setMenuOpen(false);
-    onNavigate(destination);
   };
 
   const link = (entry: RailLink) => {
@@ -105,19 +103,16 @@ export function WorkspaceShell({
         ? entry.route.workspaceId === route.workspaceId
         : true);
     return (
-      <a
+      <Link
         key={entry.label}
         className="rail-link"
-        href={buildPath(entry.route)}
-        aria-current={current ? 'page' : undefined}
-        onClick={(event) => {
-          event.preventDefault();
-          navigate(entry.route);
-        }}
+        route={entry.route}
+        onClick={closeMenu}
+        {...(current ? { 'aria-current': 'page' as const } : {})}
       >
         <span>{entry.label}</span>
         {entry.count !== undefined && <span className="rail-count">{entry.count}</span>}
-      </a>
+      </Link>
     );
   };
 
@@ -137,19 +132,12 @@ export function WorkspaceShell({
         }}
       >
         <div className="rail-header">
-          <a
-            className="rail-brand"
-            href={buildPath({ name: 'home' })}
-            onClick={(event) => {
-              event.preventDefault();
-              navigate({ name: 'home' });
-            }}
-          >
+          <Link className="rail-brand" route={{ name: 'home' }} onClick={closeMenu}>
             <span className="rail-mark" aria-hidden="true">
               ct
             </span>
             <span className="rail-title">CraftingTable</span>
-          </a>
+          </Link>
           <button
             ref={menuButton}
             type="button"

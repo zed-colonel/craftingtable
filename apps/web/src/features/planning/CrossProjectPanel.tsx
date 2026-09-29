@@ -28,12 +28,13 @@ import {
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
 import { revealElement } from '../../lib/reveal-element.js';
-import { buildPath } from '../../lib/route.js';
+import type { Route } from '../../lib/route.js';
 import { CycleSettingsFields } from '../execution/CycleSettingsFields.js';
 import { DependencyGraph, PhaseRequirements, phaseLabel } from './DependencyRequirements.js';
 import { ReviewerResponsibilities } from './ReviewerResponsibilities.js';
 import { RoadmapAutomationFields } from './RoadmapAutomationFields.js';
 import { distinct } from '../../lib/distinct.js';
+import { Link } from '../../lib/navigation.js';
 export function CrossProjectPanel({
   workspaceId,
   definitionId,
@@ -290,12 +291,11 @@ export function CrossProjectPanel({
       : overrideLevel === 'activity'
         ? ['development', 'verification', 'acceptance']
         : identities;
-  const scopeLink = (id: string) =>
-    buildPath({
-      name: 'work-item',
-      workspaceId,
-      workItemId: id as import('@craftingtable/domain').WorkItemId,
-    });
+  const scopeLink = (id: string): Route => ({
+    name: 'work-item',
+    workspaceId,
+    workItemId: id as import('@craftingtable/domain').WorkItemId,
+  });
   const nodeCard = (n: CrossProjectView['nodes'][number]) => (
     <article className="cross-map-node" key={n.key}>
       <p>
@@ -336,7 +336,9 @@ export function CrossProjectPanel({
         <button type="button" className="secondary-button" onClick={() => trace(n.key)}>
           Trace requirements
         </button>
-        {n.workItemId && <a href={scopeLink(n.workItemId)}>Open work item / advance scope</a>}
+        {n.workItemId && (
+          <Link route={scopeLink(n.workItemId)}>Open work item / advance scope</Link>
+        )}
         {n.action === 'evidence' && (
           <button
             type="button"
@@ -803,11 +805,16 @@ export function CrossProjectPanel({
                 {roadmap && (
                   <p>
                     Models for future runs are managed in{' '}
-                    <a
-                      href={`/workspaces/${workspaceId}/settings?roadmap=${roadmap.id}#roadmap-agent-profiles`}
+                    <Link
+                      route={{
+                        name: 'settings',
+                        workspaceId: workspaceId as WorkspaceId,
+                        roadmapId: roadmap.id,
+                        focus: 'roadmap-agent-profiles',
+                      }}
                     >
                       Roadmap agent profiles
-                    </a>
+                    </Link>
                     , which preserves plan acceptance.
                   </p>
                 )}
@@ -847,11 +854,16 @@ export function CrossProjectPanel({
                 <p>
                   In-flight limits: {limit} total · {repoLimit} per repository.{' '}
                   {roadmap ? (
-                    <a
-                      href={`/workspaces/${encodeURIComponent(workspaceId)}/settings?roadmap=${roadmap.id}#execution-capacity`}
+                    <Link
+                      route={{
+                        name: 'settings',
+                        workspaceId: workspaceId as WorkspaceId,
+                        roadmapId: roadmap.id,
+                        focus: 'execution-capacity',
+                      }}
                     >
                       Manage capacity in Settings
-                    </a>
+                    </Link>
                   ) : (
                     'Save this roadmap draft, then configure capacity in Workspace Settings before starting.'
                   )}

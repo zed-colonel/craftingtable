@@ -145,7 +145,7 @@ import {
   documentHidden,
   RefreshSignalsProvider,
 } from './lib/refresh-signals.js';
-import { buildPath, type Route, routeWorkspaceId } from './lib/route.js';
+import { type Route, routeWorkspaceId } from './lib/route.js';
 import {
   currentTheme,
   persistTheme,
@@ -153,6 +153,7 @@ import {
   rememberWorkspace,
   type Theme,
 } from './lib/theme.js';
+import { Link, NavigationProvider, useRevealRouteFocus } from './lib/navigation.js';
 import { useRoute } from './lib/use-route.js';
 import { useRunEventStream } from './lib/use-run-event-stream.js';
 import { useWorkspaceEventStream } from './lib/use-workspace-event-stream.js';
@@ -958,6 +959,8 @@ export function App() {
     navigate(next);
   };
 
+  useRevealRouteFocus(route);
+
   const toggleTheme = (): void => {
     const next: Theme = theme === 'dark' ? 'light' : 'dark';
     persistTheme(next);
@@ -1535,16 +1538,12 @@ export function App() {
         )}
         {host.run && runId !== undefined && workspaceId !== undefined && (
           <p>
-            <a
+            <Link
               className="text-button"
-              href={buildPath({ name: 'run', workspaceId, runId: runId as AgentRunId })}
-              onClick={(event) => {
-                event.preventDefault();
-                go({ name: 'run', workspaceId, runId: runId as AgentRunId });
-              }}
+              route={{ name: 'run', workspaceId, runId: runId as AgentRunId }}
             >
               Open the run
-            </a>
+            </Link>
           </p>
         )}
         {host.roadmap !== undefined &&
@@ -2068,49 +2067,50 @@ export function App() {
   };
 
   return (
-    <WorkspaceShell
-      username={authenticated.user.username}
-      workspaces={workspaces}
-      {...(activeWorkspaceId === undefined ? {} : { selectedWorkspaceId: activeWorkspaceId })}
-      attentionCount={attentionItems.length}
-      connection={projection.connection}
-      route={route}
-      theme={theme}
-      onNavigate={go}
-      onSelectWorkspace={(id) => {
-        selectWorkspace(id);
-        go({ name: 'dashboard', workspaceId: id });
-      }}
-      onToggleTheme={toggleTheme}
-      onLogout={() => void handleLogout()}
-    >
-      {route.name === 'home' && (
-        <WorkspacesPage
-          workspaces={workspaces}
-          busy={workspaceBusy}
-          {...(workspaceError === undefined ? {} : { error: workspaceError })}
-          onOpen={(id) => {
-            selectWorkspace(id);
-            go({ name: 'dashboard', workspaceId: id });
-          }}
-          onCreate={handleCreateWorkspace}
-        />
-      )}
-      {route.name === 'account' && (
-        <AccountPage
-          user={authenticated.user}
-          sessions={sessions}
-          busy={accountBusy}
-          {...(accountError === undefined ? {} : { error: accountError })}
-          {...(accountNotice === undefined ? {} : { notice: accountNotice })}
-          onRevoke={(id) => void handleRevoke(id)}
-          onChangePassword={handleChangePassword}
-        />
-      )}
-      {route.name === 'root' && <p className="empty-state">Opening your workspace…</p>}
-      <RefreshSignalsProvider value={signals}>
-        {workspaceRoute && workspaceContent()}
-      </RefreshSignalsProvider>
-    </WorkspaceShell>
+    <NavigationProvider value={{ route, navigate: go }}>
+      <WorkspaceShell
+        username={authenticated.user.username}
+        workspaces={workspaces}
+        {...(activeWorkspaceId === undefined ? {} : { selectedWorkspaceId: activeWorkspaceId })}
+        attentionCount={attentionItems.length}
+        connection={projection.connection}
+        route={route}
+        theme={theme}
+        onSelectWorkspace={(id) => {
+          selectWorkspace(id);
+          go({ name: 'dashboard', workspaceId: id });
+        }}
+        onToggleTheme={toggleTheme}
+        onLogout={() => void handleLogout()}
+      >
+        {route.name === 'home' && (
+          <WorkspacesPage
+            workspaces={workspaces}
+            busy={workspaceBusy}
+            {...(workspaceError === undefined ? {} : { error: workspaceError })}
+            onOpen={(id) => {
+              selectWorkspace(id);
+              go({ name: 'dashboard', workspaceId: id });
+            }}
+            onCreate={handleCreateWorkspace}
+          />
+        )}
+        {route.name === 'account' && (
+          <AccountPage
+            user={authenticated.user}
+            sessions={sessions}
+            busy={accountBusy}
+            {...(accountError === undefined ? {} : { error: accountError })}
+            {...(accountNotice === undefined ? {} : { notice: accountNotice })}
+            onRevoke={(id) => void handleRevoke(id)}
+            onChangePassword={handleChangePassword}
+          />
+        )}
+        {route.name === 'root' && <p className="empty-state">Opening your workspace…</p>}
+        <RefreshSignalsProvider value={signals}>
+          {workspaceRoute && workspaceContent()}
+        </RefreshSignalsProvider>
+      </WorkspaceShell>
+    </NavigationProvider>
   );
 }

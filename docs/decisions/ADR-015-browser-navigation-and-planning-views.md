@@ -152,3 +152,15 @@ two Vitest environments.
   component tests explicitly.
 - **Keeping `ready`/`blocked`** — avoids CT-02 churn but preserves exactly the
   semantic debt the contract asks CT-03 to remove.
+
+## Amendment (2026-09-28, R-E1): typed focus and one `Link`
+
+The pure `route` module grows rather than giving way to a router library. A route may carry
+a roadmap (`?roadmap=`) and a focus (`#…`): roadmaps and settings take both, work items take a
+focus. `parseRoute(pathname, search, hash)` and `buildPath` handle them, still without a DOM.
+Components below the shell navigate through `Link` (and `PathLink` for a path held as text,
+such as a notification's), which is a real anchor that navigates in place on an ordinary click.
+They read deep-link state from the current route (`useCurrentRoute`, `useRouteRoadmap`,
+`useRouteFocus`), never from the address bar, and the app reveals a route's focus once its page
+renders (`useRevealRouteFocus`), whichever panel holds it. A test bans raw in-app anchors.
+Sub-pages of the Roadmaps page belong to R-E2.

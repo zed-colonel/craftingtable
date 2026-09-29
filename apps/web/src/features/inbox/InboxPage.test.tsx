@@ -57,7 +57,6 @@ it('lists every item with its stop, and shows the same count on the rail and the
       connection="open"
       route={{ name: 'inbox', workspaceId }}
       theme="dark"
-      onNavigate={navigate}
       onSelectWorkspace={() => undefined}
       onToggleTheme={() => undefined}
       onLogout={() => undefined}

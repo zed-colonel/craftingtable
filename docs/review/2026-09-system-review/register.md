@@ -1164,11 +1164,20 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-E1
 
-**Real routes and one Link component** · Phase P2 · Effort M · Status: open
+**Real routes and one Link component** · Phase P2 · Effort M · Status: code complete (2026-09-28), awaiting review
 
 - **Resolves:** [UI-07](findings/UI-information-architecture.md#ui-07-navigation-bypasses-the-router-35-of-49-in-app-links-force-full-reloads-and-deep-link-state-lives-in-ad-hoc-hashquery-parsing), [UI-08](findings/UI-information-architecture.md#ui-08-dead-ends-blockers-that-tell-the-operator-to-go-elsewhere-without-a-link-generic-landing-pages-and-deep-links-that-silently-do-nothing)
 - **Change:** Extend Route with sub-routes and typed focus parameters (inbox item, roadmap id/tab/focus, settings section); add <Link route=...> and replace the 35 raw in-app hrefs (which reload the page and drop drafts); remove per-component hash/query parsing and cross-page revealElement; a test that bans raw in-app hrefs.
 - **Done when:** No in-app navigation causes a document reload; deep links survive without a specific panel being mounted.
+- **Done 2026-09-28** (ADR-015 amended; walkthroughs `2026-09-29-routes-before`, `-routes-after`).
+  - **Typed focus.** Roadmaps and settings routes may carry a roadmap (`?roadmap=`) and a focus (`#…`); work items take a focus. `parseRoute(pathname, search, hash)` and `buildPath` handle both, and `useRoute` follows the whole address, fragments included.
+  - **One `Link`.** `lib/navigation.tsx` provides the current route and `navigate` below the shell. `Link` is a real anchor that navigates in place on an ordinary click and leaves new-tab and modifier clicks to the browser. `PathLink` does the same for a path held as text (notification records, reason destinations, an inbox item's origin).
+  - **Every in-app anchor converted:** the 38 raw links the check found, plus seven whose paths were built from variables. API downloads stay plain anchors, through named helpers.
+  - **No panel reads the address.** The design-recovery clarification, the roadmap agent-profile and capacity selections, the host-scheduling alias and the runtime panel's decision focus all read the route. The app reveals a route's focus once its page renders (`useRevealRouteFocus`), waiting for a panel that loads later.
+  - **Tests (each fails without its part):**
+    - `links.test.ts` parses every component's JSX and fails on an `<a>` whose `href` is an in-app path, a `buildPath` call, or a path it cannot see (a variable, a property, a template starting with a value). It found 38 before the change.
+    - `route.test.ts`: round trips with roadmap and focus; malformed values are ignored.
+    - `navigation.test.tsx`: an ordinary click prevents the document load and navigates, and removing that fails it; a modifier click and a handler that takes over are left alone; a path is read as a route; a focus is revealed in a panel that mounts later, inside a closed disclosure.
 
 ### R-E2
 

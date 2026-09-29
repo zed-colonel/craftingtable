@@ -15,8 +15,10 @@ import { useEffect, useState } from 'react';
 import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import { request } from '../../lib/api-client.js';
-import { revealElement } from '../../lib/reveal-element.js';
 import { AgentSelectionsEditor } from '../execution/AgentSelectionsEditor.js';
+import { Link } from '../../lib/navigation.js';
+import type { WorkspaceId } from '@craftingtable/domain';
+import { useRouteRoadmap } from '../../lib/navigation.js';
 export function RoadmapAgentProfilesPanel({
   workspaceId,
   csrfToken,
@@ -31,9 +33,8 @@ export function RoadmapAgentProfilesPanel({
   canEdit: boolean;
 }) {
   const [data, setData] = useState<RoadmapAgents>();
-  const [selected, setSelected] = useState(
-    () => new URLSearchParams(window.location.search).get('roadmap') ?? '',
-  );
+  const routeRoadmap = useRouteRoadmap();
+  const [selected, setSelected] = useState(() => routeRoadmap ?? '');
   const [target, setTarget] = useState('all');
   const [draft, setDraft] = useState<{
     version: number;
@@ -48,11 +49,7 @@ export function RoadmapAgentProfilesPanel({
     let alive = true;
     void request(url, roadmapAgentsSchema)
       .then((v) => {
-        if (alive) {
-          setData(v);
-          if (window.location.hash === '#roadmap-agent-profiles')
-            requestAnimationFrame(() => revealElement('roadmap-agent-profiles'));
-        }
+        if (alive) setData(v);
       })
       .catch((e) => {
         if (alive) setError(e instanceof Error ? e.message : 'Could not load roadmap profiles.');
@@ -167,7 +164,10 @@ export function RoadmapAgentProfilesPanel({
           </p>
           {roadmap.editBlocker && (
             <p className="attention-state">
-              {roadmap.editBlocker} <a href={`/workspaces/${workspaceId}/roadmaps`}>Open roadmap</a>
+              {roadmap.editBlocker}{' '}
+              <Link route={{ name: 'roadmaps', workspaceId: workspaceId as WorkspaceId }}>
+                Open roadmap
+              </Link>
             </p>
           )}
           {distinct > 1 && (

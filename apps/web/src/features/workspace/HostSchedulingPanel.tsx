@@ -6,6 +6,10 @@ import { StatusStrip } from '../../components/StatusStrip.js';
 import { request } from '../../lib/api-client.js';
 import { revealElement } from '../../lib/reveal-element.js';
 import { RoadmapCapacityPanel } from './RoadmapCapacityPanel.js';
+import { Link } from '../../lib/navigation.js';
+import type { WorkspaceId } from '@craftingtable/domain';
+import type { AgentRunId, WorkItemId } from '@craftingtable/domain';
+import { useRouteFocus } from '../../lib/navigation.js';
 
 const pools = [
   {
@@ -55,17 +59,15 @@ export function HostSchedulingPanel({
       alive = false;
     };
   }, [url, canManageHost]);
+  // An older link names this section `host-scheduling`; the app reveals `execution-capacity`.
+  const focus = useRouteFocus();
   const revealed = useRef(false);
   useEffect(() => {
-    if (
-      !revealed.current &&
-      (status || error || !canManageHost) &&
-      ['#execution-capacity', '#host-scheduling'].includes(window.location.hash)
-    ) {
+    if (!revealed.current && (status || error || !canManageHost) && focus === 'host-scheduling') {
       revealed.current = true;
       revealElement('execution-capacity');
     }
-  }, [status, error, canManageHost]);
+  }, [status, error, canManageHost, focus]);
   const act = async (save: boolean) => {
     if (!status || (save && !draft)) return;
     setBusy(true);
@@ -324,9 +326,9 @@ export function HostSchedulingPanel({
               <ul>
                 {status.roadmaps.map((r) => (
                   <li key={r.id}>
-                    <a href={`/workspaces/${encodeURIComponent(r.workspaceId)}/roadmaps`}>
+                    <Link route={{ name: 'roadmaps', workspaceId: r.workspaceId as WorkspaceId }}>
                       {r.name}
-                    </a>{' '}
+                    </Link>{' '}
                     · {r.status} ·{' '}
                     {r.crossProject
                       ? 'Saved-plan review required after a capacity change'
@@ -351,19 +353,36 @@ function CapacityLinks({
 }: {
   item: HostSchedulingStatus['reservations'][number] | HostSchedulingStatus['waiting'][number];
 }) {
-  const path = `/workspaces/${encodeURIComponent(item.workspaceId)}`;
   return (
     <>
       {item.runId && (
         <>
           {' '}
-          · <a href={`${path}/runs/${encodeURIComponent(item.runId)}`}>Open run</a>
+          ·{' '}
+          <Link
+            route={{
+              name: 'run',
+              workspaceId: item.workspaceId as WorkspaceId,
+              runId: item.runId as AgentRunId,
+            }}
+          >
+            Open run
+          </Link>
         </>
       )}
       {item.workItemId && (
         <>
           {' '}
-          · <a href={`${path}/work-items/${encodeURIComponent(item.workItemId)}`}>Open work item</a>
+          ·{' '}
+          <Link
+            route={{
+              name: 'work-item',
+              workspaceId: item.workspaceId as WorkspaceId,
+              workItemId: item.workItemId as WorkItemId,
+            }}
+          >
+            Open work item
+          </Link>
         </>
       )}
     </>

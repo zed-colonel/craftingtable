@@ -9,7 +9,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
 import { loadRoadmapStatus } from '../../lib/roadmap-api.js';
-import { buildPath } from '../../lib/route.js';
+import { Link } from '../../lib/navigation.js';
 
 /**
  * A roadmap's status list (R-E3a): every open entry, its state, what it waits on and who
@@ -99,9 +99,9 @@ export function RoadmapStatusList({
     const waits = entry.waitsOn;
     if (waits?.attentionItemId)
       return (
-        <a
+        <Link
           className="text-button"
-          href={buildPath({ name: 'inbox', workspaceId, itemId: waits.attentionItemId })}
+          route={{ name: 'inbox', workspaceId, itemId: waits.attentionItemId }}
           onClick={(event) => {
             if (!onOpenAttention) return;
             event.preventDefault();
@@ -109,16 +109,16 @@ export function RoadmapStatusList({
           }}
         >
           Open in Needs you
-        </a>
+        </Link>
       );
     if (waits?.runId)
       return (
-        <a
+        <Link
           className="text-button"
-          href={buildPath({ name: 'run', workspaceId, runId: asAgentRunId(waits.runId) })}
+          route={{ name: 'run', workspaceId, runId: asAgentRunId(waits.runId) }}
         >
           Open run
-        </a>
+        </Link>
       );
     return null;
   };
@@ -147,12 +147,12 @@ export function RoadmapStatusList({
             <ul>
               {entries.map((entry) => (
                 <li key={entry.entryId} className="roadmap-status-row">
-                  <a
-                    href={buildPath({
+                  <Link
+                    route={{
                       name: 'work-item',
                       workspaceId,
                       workItemId: entry.workItemId,
-                    })}
+                    }}
                     onClick={(event) => {
                       event.preventDefault();
                       onOpenWorkItem(entry.workItemId);
@@ -160,7 +160,7 @@ export function RoadmapStatusList({
                   >
                     <code>{entry.sourceId}</code>
                     {entry.scope === 'item' ? '' : ` · ${entry.scope}`}
-                  </a>
+                  </Link>
                   <span className="reason-kind">{STATE_LABELS[entry.state]}</span>
                   {entry.waitsOn && <span className="reason-text">{entry.waitsOn.reason}</span>}
                   {entry.waitsOn?.since && (

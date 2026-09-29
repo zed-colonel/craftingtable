@@ -21,6 +21,8 @@ import { revealElement } from '../../lib/reveal-element.js';
 import { request } from '../../lib/api-client.js';
 import { useRefreshOn } from '../../lib/refresh-signals.js';
 import { distinct } from '../../lib/distinct.js';
+import { Link } from '../../lib/navigation.js';
+import type { AgentRunId } from '@craftingtable/domain';
 export function RuntimeEvidencePanel({
   workspaceId,
   definitionId,
@@ -47,6 +49,9 @@ export function RuntimeEvidencePanel({
   onDraftChange?: (roadmapId: string, dirty: boolean) => void;
 }) {
   const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/concurrency-definitions/${encodeURIComponent(definitionId)}/runtime`;
+  /** A download from the API, not a page: a plain anchor (R-E1). */
+  const buildRecordDownload = (runId: string) =>
+    `${base}/runs/${encodeURIComponent(runId)}/build-record`;
   const baseRef = useRef(base);
   baseRef.current = base;
   const [view, setView] = useState<RuntimeEvidenceView>(),
@@ -57,14 +62,6 @@ export function RuntimeEvidencePanel({
   const [savedConfig, setSavedConfig] = useState('');
   /** Whether the setup form holds unsaved edits; set on every render below. */
   const setupDirty = useRef(false);
-  const revealedDecisionLink = useRef(false);
-  useEffect(() => {
-    const id = `architecture-decisions-${definitionId}`;
-    if (view && !revealedDecisionLink.current && window.location.hash === `#${id}`) {
-      revealedDecisionLink.current = true;
-      revealElement(id);
-    }
-  }, [view, definitionId]);
   const [refs, setRefs] = useState<Record<string, string>>({}),
     [subject, setSubject] = useState(''),
     [evidence, setEvidence] = useState(''),
@@ -870,11 +867,15 @@ export function RuntimeEvidencePanel({
         {view.builds.map((b) => (
           <p key={b.runId}>
             Run{' '}
-            <a
-              href={`/workspaces/${encodeURIComponent(workspaceId)}/runs/${encodeURIComponent(b.runId)}`}
+            <Link
+              route={{
+                name: 'run',
+                workspaceId: workspaceId as WorkspaceId,
+                runId: b.runId as AgentRunId,
+              }}
             >
               {b.runId}
-            </a>{' '}
+            </Link>{' '}
             · {b.successfulBuilds} successful clean builds
             {b.receiptAuthority === 'agent' && (
               <span title="Recorded before CraftingTable ran checks itself: the agent wrote these receipts.">
@@ -884,9 +885,7 @@ export function RuntimeEvidencePanel({
             )}{' '}
             {b.error && `· ${b.error}`}
             <br />
-            <a href={`${base}/runs/${encodeURIComponent(b.runId)}/build-record`}>
-              Download frozen build record
-            </a>
+            <a href={buildRecordDownload(b.runId)}>Download frozen build record</a>
           </p>
         ))}
       </details>
@@ -916,11 +915,15 @@ export function RuntimeEvidencePanel({
                 <>
                   Independent agent checkpoint review recorded under saved roadmap responsibilities
                   ({s.candidateCheckpoint.delegatedReview.roles.join(', ')}).{' '}
-                  <a
-                    href={`/workspaces/${encodeURIComponent(workspaceId)}/runs/${encodeURIComponent(s.candidateCheckpoint.runId)}`}
+                  <Link
+                    route={{
+                      name: 'run',
+                      workspaceId: workspaceId as WorkspaceId,
+                      runId: s.candidateCheckpoint.runId as AgentRunId,
+                    }}
                   >
                     Read the checkpoint review
-                  </a>
+                  </Link>
                   . This is delegated evidence, not a claim of personal operator review.
                 </>
               ) : decision ? (

@@ -23,6 +23,7 @@ import type {
   WriteObserver,
 } from '@craftingtable/storage';
 import type { ControllerPasses } from './attention-gates.js';
+import { preparedDecisionAccepted } from './decision-preparation-policy.js';
 
 /**
  * Where a moved upstream pin is refreshed (LIVE-15): the owning roadmap's dependency
@@ -743,7 +744,7 @@ export class AttentionProjector implements WriteObserver {
       (payload.outcome !== 'success' ||
         !designHasNoOpenQuestions(payload.resultText, payload.truncated)) &&
       // A preparation whose decision was accepted in full asks nobody anything (LIVE-09).
-      !(preparing && decisionAccepted(tx, preparing.preparation))
+      !(preparing && preparedDecisionAccepted(tx, preparing.preparation))
     )
       items.push({
         subjectKey: `run:${run.id}`,
@@ -908,27 +909,4 @@ export function legacySubject(sourceKey: string): string | undefined {
   if (kind === 'needs-attention') return `roadmap:${id}`;
   if (kind === 'entry' && entry) return `roadmap:${id}:entry:${entry}`;
   return kind === 'environments' || kind === 'checkpoints' ? `roadmap:${id}:${kind}` : undefined;
-}
-
-/** The decision a preparation prepared has been accepted in full on its binding. */
-function decisionAccepted(
-  tx: StorageRepositories,
-  preparation: import('@craftingtable/domain').DecisionPreparation,
-): boolean {
-  const accepted = new Set(
-    tx.runtimeEvidence
-      .decisions(preparation.workspaceId)
-      .filter((decision) => decision.outcome === 'accepted')
-      .map((decision) => decision.submissionId),
-  );
-  return tx.runtimeEvidence
-    .submissions(preparation.workspaceId, preparation.definitionId)
-    .some(
-      (submission) =>
-        submission.subject.kind === 'checkpoint' &&
-        submission.subject.sourceId === preparation.checkpointId &&
-        submission.bindingRevision === preparation.bindingRevision &&
-        submission.architectureDecision?.coverage === 'full' &&
-        accepted.has(submission.id),
-    );
 }

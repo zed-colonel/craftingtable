@@ -583,3 +583,53 @@ it('prepares nothing for a grantor who may no longer prepare, and stops a launch
   expect(stopped.failure ?? run?.status).toMatch(/revoked|failed|cancelled/);
   expect(run?.status).not.toBe('finished');
 });
+
+it('a decision preparation takes no slice capacity, and goes once its decision is accepted (LIVE-16)', {
+  timeout: 45000,
+}, async () => {
+  const fixture = await decisionFixture();
+  const { f, ws, tx } = fixture;
+  // Both decisions are prepared; only LOCAL-ADR-01, which the second slice alone waits on, is
+  // accepted. LOCAL-ADR-02's preparation stays: its questions are still the operator's.
+  for (const id of DECISIONS) {
+    expect((await prepare(fixture, id)).statusCode).toBe(200);
+    const p = preparation(fixture, id)!;
+    await waitFor(
+      () => tx.execution.runs.find(ws, p.runId)?.status === 'finished',
+      `${id} prepared`,
+    );
+  }
+  await proposeAndAccept(fixture, 'LOCAL-ADR-01');
+  const accepted = preparation(fixture, 'LOCAL-ADR-01')!;
+  const open = preparation(fixture, 'LOCAL-ADR-02')!;
+  // As on 2026-09-24: both preparation worktrees are still active when the roadmap runs (their
+  // removal is held back here, so capacity is tested alone).
+  const release = vi
+    .spyOn(f.state.context.services.executionService, 'releaseDecisionWorktree')
+    .mockResolvedValue(false);
+  await roadmapControl(f.state, 'start');
+  await f.state.context.services.roadmapService.tick();
+  // The slice whose decision is settled starts: a preparation worktree is read-only and never
+  // merges, so it holds no place in the repository's capacity.
+  const slices = () =>
+    tx.execution.worktrees
+      .listActive()
+      .filter((w) => w.workspaceId === ws && w.executionScope?.kind === 'slice');
+  await waitFor(() => slices().length === 1, 'the unblocked slice starts');
+  expect(
+    f.state.context.services.roadmapService
+      .statusList(f.auth, ws, fixture.saved.id)
+      .entries.filter((e) => e.state === 'capacity-blocked'),
+  ).toEqual([]);
+  for (const p of [accepted, open])
+    expect(tx.execution.worktrees.find(ws, p.worktreeId)?.status).toBe('active');
+  // The accepted decision's preparation is done with: its worktree goes, its brief stays.
+  release.mockRestore();
+  await f.state.context.services.roadmapService.tick();
+  await waitFor(
+    () => tx.execution.worktrees.find(ws, accepted.worktreeId)?.status === 'removed',
+    'the accepted preparation worktree removed',
+  );
+  expect(tx.execution.runs.find(ws, accepted.runId)?.outcomeSummary).toContain('LOCAL-ADR-01');
+  expect(tx.execution.worktrees.find(ws, open.worktreeId)?.status).toBe('active');
+});

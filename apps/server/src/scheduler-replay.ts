@@ -437,6 +437,10 @@ function intercept(
         throw new ReplayIntercept(command);
       };
     }
+  // Removing a settled decision preparation's worktree (LIVE-16) is housekeeping before the
+  // pass evaluates any entry: it decides nothing the replay compares, and its Git call would be
+  // charged to whichever entry came first. The replay leaves those worktrees as they are.
+  services.executionService.releaseDecisionWorktree = async () => false;
 }
 
 /** Checkpoint readiness of each roadmap-owned slice cycle, and what its packet lacks. */

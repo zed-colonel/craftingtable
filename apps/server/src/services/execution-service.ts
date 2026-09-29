@@ -1194,6 +1194,84 @@ export class ExecutionService {
   }
 
   /**
+   * Removes a decision preparation's worktree once its decision is accepted (LIVE-16). The
+   * daemon's own act: the preparation is read-only, its brief lives on its run, and nothing of
+   * the worktree is needed any more. A worktree with a live run, or with changes, is left alone
+   * (it holds no slice capacity either way); `true` when it was removed.
+   */
+  async releaseDecisionWorktree(
+    workspaceId: WorkspaceId,
+    worktreeId: WorktreeId,
+    preparationId: string,
+  ): Promise<boolean> {
+    return this.mutations.during(worktreeId, async () => {
+      const worktree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
+      if (worktree?.status !== 'active') return false;
+      const repository = this.storage.execution.sourceRepositories.find(
+        workspaceId,
+        worktree.repositoryId,
+      );
+      if (
+        !repository ||
+        this.storage.execution.runs
+          .listForWorktree(workspaceId, worktreeId)
+          .some((run) => !isTerminalAgentRunStatus(run.status))
+      )
+        return false;
+      return this.branches.duringMerge(repository.rootPath, async () => {
+        const removed = await this.requireGit().removeWorktree({
+          repositoryPath: repository.rootPath,
+          worktreePath: worktree.path,
+          force: false,
+        });
+        if (!removed.ok) return false;
+        const occurredAt = this.now().toISOString();
+        const changed = this.storage.transaction((tx) => {
+          const marked = tx.execution.worktrees.markRemoved({
+            workspaceId,
+            worktreeId,
+            occurredAt,
+          });
+          if (!marked) return false;
+          tx.audit.append({
+            id: asAuditEventId(randomUUID()),
+            occurredAt,
+            actorKind: 'system',
+            workspaceId,
+            action: 'worktree.remove',
+            targetType: 'worktree',
+            targetId: worktreeId,
+            outcome: 'succeeded',
+            priorVersion: worktree.version,
+            resultingVersion: marked.version,
+            metadata: {
+              branchName: worktree.branchName,
+              reason: 'decision-accepted',
+              preparationId,
+            },
+          });
+          tx.workspaceEvents.appendEvent({
+            id: asEventId(randomUUID()),
+            occurredAt,
+            workspaceId,
+            projectId: worktree.projectId,
+            workItemId: worktree.workItemId,
+            kind: 'worktree-removed',
+            payload: {
+              worktreeId,
+              planVersionId: worktree.planVersionId,
+              branchName: worktree.branchName,
+            },
+          });
+          return true;
+        });
+        if (changed) this.notifier.notify();
+        return changed;
+      });
+    });
+  }
+
+  /**
    * Merges a reviewed worktree branch into the repository's default branch,
    * removes the worktree, and completes the work item, in that order.
    *

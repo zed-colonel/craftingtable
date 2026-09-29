@@ -645,6 +645,24 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *NIT, disposition:* two roadmaps on one map, both granted, could each prepare the same checkpoint. Both only propose; one grant per map is the expected use.
 - **R-C3b status (2026-09-28):** code complete (steps 1 to 5 and the review fixes). The done-when is a live measurement: on the cross-project roadmap, design stops per started slice well below the 10-of-11 baseline, with standing preparation granted. Measure it a few days after the deploy. Decision items already show "unblocks N" as slices.
 - **Live measurement, first attempt (2026-09-28c snapshot, three hours after the c547ede deploy):** nothing to measure yet. No slice started after the deploy; the running cycles were reviews already under way. No standing preparation grant is set on roadmap b81d5f92. Measure again once slices start with the grant enabled.
+- **LIVE-16 fixed (2026-09-28, operator request): a decision preparation takes no slice capacity, and its worktree goes once its decision is accepted.**
+  - **Capacity.** The roadmap's capacity check skips the worktrees of decision preparations. They are read-only and never merge.
+  - **Cleanup.** Each pass removes the worktree of a preparation whose run has ended and whose decision is accepted on its binding. It is audited as the system's `worktree.remove` with the reason `decision-accepted` (`ExecutionService.releaseDecisionWorktree`). A worktree with a live run or with changes is left alone.
+    - The brief stays on the run.
+    - A preparation still open for the operator keeps its worktree, and with it its questions item.
+    - After a deploy, the two stale WorldInterface worktrees are removed on the roadmap's first pass.
+  - **Shared check.** The projector and the scheduler share `preparedDecisionAccepted`.
+  - **Test:** `server-execution-decision-preparation.test.ts` (LIVE-16). Two preparations finish and one is accepted. With the cleanup held back, the unblocked slice starts and no entry is capacity-blocked; then the accepted preparation's worktree is removed and the open one kept.
+  - **Mutations:** without the capacity change, no slice starts. Without the cleanup, the worktree stays.
+  - **Replays**, against the current goldens:
+    - 2026-09-23 and 2026-09-28b: 0 changed. 2026-09-28: 0 changed, because the roadmap was paused at that snapshot.
+    - **2026-09-27: 10 changed, all intended.** Five WorldInterface slices, entry and status records, now wait on "All 4 in-flight slots are occupied" instead of repository capacity.
+    - **2026-09-28c: 13 changed, all intended.**
+      - WI-03/integration and WI-04/integration now start, and their status becomes `queued`.
+      - WI-05, WI-07, WI-11 and WI-12 wait on the roadmap's in-flight limit of 4.
+      - EXO-03/integration's status now names that limit too, as the first binding limit.
+    - The replay harness leaves the cleanup out (`scheduler-replay.ts`). Its Git call would otherwise be charged to the first entry of the pass, which showed as a false `replay-stopped-at-git` on EXO-01/domain in four snapshots.
+    - New scheduler goldens at the fix: `scheduler-golden-<fix>.json` for 2026-09-27 and 2026-09-28c.
 
 ### R-C4
 

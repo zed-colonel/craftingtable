@@ -4,7 +4,10 @@ import {
 } from './architecture-decision-policy.js';
 import { cycleOwnership, ownerOf } from './cycle-ownership.js';
 import { predecessorGate } from './transition-gate.js';
-import { currentDecisionPreparation } from './decision-preparation-policy.js';
+import {
+  currentDecisionPreparation,
+  preparedDecisionAccepted,
+} from './decision-preparation-policy.js';
 import {
   attemptDefinition,
   attemptDelegation,
@@ -518,6 +521,25 @@ export class RoadmapService {
         integrationBranch: owner.integrationBranch,
       },
     };
+  }
+  /**
+   * Removes the worktrees of preparations whose run ended and whose decision is accepted
+   * (LIVE-16): nothing of them is needed any more, and the brief stays on the run. A preparation
+   * still open for the operator keeps its worktree, which holds no slice capacity.
+   */
+  private async releaseSettledPreparations(roadmap: Roadmap): Promise<void> {
+    for (const p of roadmap.decisionPreparations ?? []) {
+      if (this.abort.signal.aborted) return;
+      if (
+        this.preparationInFlight(p) ||
+        this.storage.execution.worktrees.find(p.workspaceId, p.worktreeId)?.status !== 'active' ||
+        !preparedDecisionAccepted(this.storage, p)
+      )
+        continue;
+      await this.execution
+        .releaseDecisionWorktree(p.workspaceId, p.worktreeId, p.id)
+        .catch(() => undefined);
+    }
   }
   /** A preparation whose run has not ended: it holds its checkpoint and a place in the bound. */
   private preparationInFlight(p: import('@craftingtable/domain').DecisionPreparation): boolean {
@@ -1799,6 +1821,7 @@ export class RoadmapService {
     if (this.storage.amendments.pending(roadmap.workspaceId, roadmap.id)) return;
     // Shared decisions are prepared beside the slices that will need them (R-C3b).
     await this.prepareNeededDecisions(roadmap).catch(() => undefined);
+    await this.releaseSettledPreparations(roadmap);
     // The launch awaited: a pause, a command or an amendment may have come meanwhile.
     roadmap = this.find(roadmap.workspaceId, roadmap.id);
     if (
@@ -3173,11 +3196,18 @@ export class RoadmapService {
         !!deadlock,
       );
     }
+    // A decision preparation's worktree is read-only and never merges, so it holds no place in
+    // a repository's slice capacity (LIVE-16): two finished preparations held both of a
+    // repository's places for days.
+    const preparing = new Set(
+      tx.roadmaps.list().flatMap((r) => (r.decisionPreparations ?? []).map((p) => p.worktreeId)),
+    );
     const trees = tx.execution.worktrees
       .listActive()
       .filter(
         (t) =>
           !tx.amendments.retired(t.workspaceId, t.id) &&
+          !preparing.has(t.id) &&
           (!t.executionScope || t.executionScope.kind === 'slice'),
       );
     if (

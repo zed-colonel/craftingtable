@@ -21,6 +21,26 @@ export function currentDecisionPreparation(tx: StorageRepositories, p: DecisionP
   );
 }
 
+/** The decision a preparation prepared has been accepted in full on its binding. */
+export function preparedDecisionAccepted(tx: StorageRepositories, p: DecisionPreparation): boolean {
+  const accepted = new Set(
+    tx.runtimeEvidence
+      .decisions(p.workspaceId)
+      .filter((decision) => decision.outcome === 'accepted')
+      .map((decision) => decision.submissionId),
+  );
+  return tx.runtimeEvidence
+    .submissions(p.workspaceId, p.definitionId)
+    .some(
+      (submission) =>
+        submission.subject.kind === 'checkpoint' &&
+        submission.subject.sourceId === p.checkpointId &&
+        submission.bindingRevision === p.bindingRevision &&
+        submission.architectureDecision?.coverage === 'full' &&
+        accepted.has(submission.id),
+    );
+}
+
 /** Materialize text from exact bound plan archives only, with strict scan/output budgets. */
 export function decisionPreparationDocuments(tx: StorageRepositories, p: DecisionPreparation) {
   const d = tx.imports.definition(p.workspaceId, p.definitionId)!;

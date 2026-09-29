@@ -270,3 +270,21 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
   - A dependency refresh, which ADR-058 already models, reaches the operator as a generic controller error.
   - The status list and inbox cannot tell it from a real fault.
   - The prose asks for a dependency-refresh preview, but resuming only reruns the review.
+
+### LIVE-16: Two finished decision preparations held all of WorldInterface's slice capacity for days
+- Severity: high
+- Category: scheduling capacity ([R-C3b](../register.md#r-c3))
+- Status: CONFIRMED 2026-09-28 from the 2026-09-28c snapshot. FIXED the same day on `remediation/p2`, not deployed: see [R-C3b](../register.md#r-c3). Its exit was manual only: the worktrees can be removed through the API, but no page lists them.
+- Replay case:
+  - The 2026-09-28c scheduler replay records six WorldInterface slices whose dependencies are met, each waiting with "Repository has 2 unmerged worktree(s) or reservations; capacity is 2": WI-03/integration, WI-04/integration, WI-05, WI-07, WI-11 and WI-12.
+  - The 2026-09-27 replay records the same with a count of 3.
+- Evidence:
+  - Decision preparations for WI-ADR-008 and WI-ADR-010 ran on 2026-09-24 at 01:06 and 01:26 UTC, and finished in two minutes each.
+  - Both decisions were accepted at 01:31 and 01:32.
+  - Their worktrees (`ct/decision-c4ec5cd1…`, id 36c8cef4; `ct/decision-d0537fe0…`, id 5e15984c) stayed active. Nothing removes a preparation's worktree, and merging one is refused.
+  - A worktree with no execution scope counts toward a repository's slice capacity, so the two held both of WorldInterface's places.
+  - The last new WorldInterface slice started on 2026-09-21 (WI-09/domain).
+- Impact:
+  - No new WorldInterface slice could start while the roadmap ran, for four and a half days.
+  - R-C3b's standing preparation grant would have made it permanent, since every automatic preparation would take a place.
+  - R-C3b's measurement (design stops per started slice) had nothing to measure.

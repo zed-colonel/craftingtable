@@ -44,8 +44,10 @@ Operator decision. When a cycle's freshness check finds that a pinned upstream m
 saved generation, the cycle stops as `upstream-pin-moved`, not as `controller-error`. The stop's
 refs name the concurrency definition and each moved pin (alias, pinned commit, current
 commit). This lets the status list and inbox tell it from a fault, and lets later automation
-start the refresh preview without parsing text. The inbox item opens the dependency environment
-where the refresh is previewed. A plain Resume, with or without guidance, is refused while a
-recorded pin still differs from the current generation's pin. Once a saved refresh pins the new
-commit, Resume goes ahead. The refresh itself is still previewed and saved by the operator.
+start the refresh preview without parsing text. For a roadmap-owned cycle, the inbox item opens
+the roadmap's dependency environment, where the refresh is previewed; an unowned cycle's item
+opens its own page. A plain Resume, with or without guidance, is refused while a recorded pin
+still differs from the current generation's pin. Once a saved refresh pins the new commit,
+Resume goes ahead. A sequential roadmap's Start or Resume resumes its cycles in turn, so it is
+refused too while such a stop is stale; the refresh needs the roadmap paused anyway. The refresh itself is still previewed and saved by the operator.
 Records carrying this code or these refs cannot be read by a release before this amendment.

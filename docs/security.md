@@ -116,7 +116,9 @@ that `cargo fetch` can download dependencies; operator decision 2026-09-28; not 
 API, which publishes), unable to read Cargo's registry tokens, the user's runtime directory (the rootless Docker socket
 and session bus), system Docker sockets or the operator's credentials, and with no way to leave
 it. Claude loads no settings file from any scope, not even the repository's, so a worktree cannot
-widen its sandbox or add hooks. Claude's Edit and Write tools stay under the permission posture. Checks the daemon runs on a worktree use the git
+widen its sandbox or add hooks. Claude's Edit and Write tools stay under the permission posture,
+and the network allowlist gates sandboxed commands only: Claude Code's own in-process tools
+(WebFetch, WebSearch) are not gated by it. Checks the daemon runs on a worktree use the git
 directory it resolved before the agent started, never the worktree's `.git` pointer (R-G4).
 The daemon also records a run's repository's branch heads when it starts and compares them when it
 ends (R-G5, SEC-02d): a branch no managed worktree owns that moved, and that none of the daemon's

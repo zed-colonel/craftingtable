@@ -31,7 +31,7 @@ const attentionRefsSchema = z
         }),
       )
       .min(1)
-      .max(50)
+      .max(1000)
       .optional(),
   })
   .optional();

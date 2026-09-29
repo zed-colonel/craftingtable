@@ -1808,6 +1808,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - **The fix.** The audit is now written in its own transaction. Moves are split into records of at most 1000, and a move already waiting unacknowledged is not recorded again. The control acknowledges in batches of 1000. Branch names may be up to 4096 characters.
       - **Tests:** `ref-watch.test.ts` (the dedupe and the split) and `AcknowledgeMoves.test.tsx` (2300 ids in three requests).
     - *LOW, fixed:* for a cycle no roadmap owns, the `upstream-pin-moved` item linked to `/roadmaps#runtime-evidence-<definition>`. That panel renders only after a map revision is picked, so the link landed nowhere. Such an item now opens the cycle's own page, and a roadmap-owned one still opens its roadmap's dependency environment. The LIVE-15 test asserts the unowned path; `inbox-host.test.ts` covers the owned host.
+    - *NIT, documented:* a sequential roadmap's Start or Resume resumes its cycles in turn, so it is refused while an `upstream-pin-moved` stop is stale. That is coherent (the refresh needs the roadmap paused), and it is now stated in ADR-058. Cycles resumed earlier in the same loop staying resumed predates this change.
+    - *NIT, fixed:* `refs.pins` allowed at most 50 entries, and a larger set would have failed the stop's write. It now allows 1000.
+    - *Out of scope, documented:* Claude Code's network allowlist gates sandboxed commands only, not its in-process WebFetch and WebSearch tools. `docs/security.md` now says so.
+    - **Checked and sound, per the reviewer:**
+      - The pin error's classification and its HTTP status.
+      - The resume guard, which compares against the generation `assertFreshTree` uses. A new binding, a lost scope, an unavailable provider, or a refresh by any path lets the resume through, and there is no deadlock.
+      - The acknowledge route: editor access, CSRF, workspace-scoped ids, all or none.
+      - Projector text bounds and rebuild.
+      - The exact host allowlist, and that the daemon chooses the sandbox paths.
     - *LOW, fixed:* creating the caches could fail every sandboxed launch (an unwritable Cargo home), created `~/.cargo` on hosts without Rust, and an empty `CARGO_HOME` became a relative path. Now the caches are made only inside an existing Cargo home, failures never stop the launch, and an empty value counts as unset (test: `backend.test.ts`, a missing and a read-only home).
 
 ### R-G6

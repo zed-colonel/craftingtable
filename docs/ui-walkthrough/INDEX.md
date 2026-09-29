@@ -88,3 +88,4 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-09-28-decision-preparation-after | `9e7d22e` | 2026-09-28 | 61 (1 phone only) | 1× |
 | 2026-09-29-routes-before | `e67cd9e` | 2026-09-29 | 61 (1 phone only) | 1× |
 | 2026-09-29-routes-after | `1cf1984` | 2026-09-29 | 61 (1 phone only) | 1× |
+| 2026-09-29-roadmaps-split-before | `69ce1e1` | 2026-09-29 | 61 (1 phone only) | 1× |

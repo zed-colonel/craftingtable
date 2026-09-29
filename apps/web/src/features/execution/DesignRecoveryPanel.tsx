@@ -269,7 +269,7 @@ export function DesignRecoveryPanel({
                       profile: {
                         backend,
                         ...(model.trim() ? { model: model.trim() } : {}),
-                        ...(backend === 'codex' && reasoningEffort ? { reasoningEffort } : {}),
+                        ...(reasoningEffort ? { reasoningEffort } : {}),
                       },
                     },
                     csrfToken,
@@ -391,13 +391,12 @@ export function DesignRecoveryPanel({
                   onChange={setModel}
                   disabled={busy}
                 />
-                {backend === 'codex' && (
-                  <ReasoningEffortField
-                    value={reasoningEffort}
-                    onChange={setReasoningEffort}
-                    disabled={busy}
-                  />
-                )}
+                <ReasoningEffortField
+                  backend={backend}
+                  value={reasoningEffort}
+                  onChange={setReasoningEffort}
+                  disabled={busy}
+                />
                 <p className="hint">
                   One design attempt, up to {cycle.policy.maxRunMinutes} minutes. Permissions remain{' '}
                   {cycle.profiles.design.permissionMode}. No remediation allowance is consumed.

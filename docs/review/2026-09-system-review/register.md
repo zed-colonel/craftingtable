@@ -1755,6 +1755,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - The daemon names the run's `CARGO_HOME`, as the check units have it, so the agent and its sandbox agree on the location. The adapter creates the two caches before launch, because the sandbox can make only an existing directory writable.
     - Live check: a sandboxed Claude run downloaded a crate into a fresh Cargo home. Its write to the home's root and a request to another host were refused.
     - **Codex:** its sandbox has only all-or-nothing network, so Codex runs still reach nothing. A place to configure sources like this one, and a way to give Codex the same access, is [R-G14](#r-g14).
+  - **Reasoning effort on Claude profiles: done.**
+    - Contracts, the domain's `selectAgent`, and the run, profile and cycle services no longer refuse an effort for Claude. The adapter already passed it as `--effort`.
+    - Every form that picks an agent offers the effort for both backends. An unset effort reads as the local Codex configuration, or as Claude Code's default.
+    - ADR-064 is amended.
+    - Tests:
+      - `server-execution-runs.test.ts`: a Claude profile saves with an effort, and a Claude run launches with one. Before the change, both were refused with 409.
+      - `agent-profiles.test.ts`: `selectAgent` keeps a Claude effort. Mutation: restoring the Codex-only condition fails it.
+      - `settings-page.test.tsx`: the field shows for a Claude profile, with its default label.
+    - **Rollback:** a release before this rejects stored selections that carry a Claude effort.
 
 ### R-G6
 

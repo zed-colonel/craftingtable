@@ -1116,6 +1116,39 @@ describe('run profiles', () => {
     expect(audit.some((event) => event.action === 'run-profiles.updated')).toBe(true);
   });
 
+  it('gives Claude profiles and runs a reasoning effort, as Codex has (operator decision 2026-09-28)', async () => {
+    const state = await ready();
+    const saved = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/run-profiles`,
+      headers: mutationHeaders(state),
+      payload: {
+        profiles: [
+          {
+            role: 'review',
+            backend: 'claude-code',
+            reasoningEffort: 'high',
+            permissionMode: 'auto',
+          },
+        ],
+      },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(
+      runProfilesResponseSchema.parse(saved.json()).profiles.find((p) => p.role === 'review'),
+    ).toMatchObject({ backend: 'claude-code', reasoningEffort: 'high', stored: true });
+    const { worktree } = await registerAndWorktree(state, fixtureRepository());
+    const runId = await runToFinish(state, worktree.id, {
+      instructions: 'Think hard.',
+      backend: 'claude-code',
+      reasoningEffort: 'xhigh',
+    });
+    expect(state.backend.launches.at(-1)?.reasoningEffort).toBe('xhigh');
+    expect(
+      state.context.storage.execution.runs.find(state.workspaceId, runId)?.reasoningEffort,
+    ).toBe('xhigh');
+  });
+
   it('rejects a duplicate role and an unknown backend', async () => {
     const state = await ready();
     const url = `/api/workspaces/${state.workspaceId}/run-profiles`;

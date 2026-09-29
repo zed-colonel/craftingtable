@@ -235,16 +235,15 @@ export function DecisionPreparationPanel({
               setProfile(model ? { ...rest, model } : rest);
             }}
           />
-          {profile.backend === 'codex' && (
-            <ReasoningEffortField
-              value={profile.reasoningEffort}
-              disabled={locked}
-              onChange={(effort) => {
-                const { reasoningEffort: _old, ...rest } = profile;
-                setProfile(effort ? { ...rest, reasoningEffort: effort } : rest);
-              }}
-            />
-          )}
+          <ReasoningEffortField
+            backend={profile.backend}
+            value={profile.reasoningEffort}
+            disabled={locked}
+            onChange={(effort) => {
+              const { reasoningEffort: _old, ...rest } = profile;
+              setProfile(effort ? { ...rest, reasoningEffort: effort } : rest);
+            }}
+          />
         </>
       )}
       <label className="field">

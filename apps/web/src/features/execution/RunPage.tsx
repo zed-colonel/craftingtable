@@ -43,6 +43,7 @@ import {
   previousImplementerHint,
 } from './handoff.js';
 import { ReviewFindings } from './ReviewFindings.js';
+import { defaultEffortLabel } from './ReasoningEffortField.js';
 import { RunCompletionIssue, RunOutcome } from './RunOutcome.js';
 
 type EventGroup = 'messages' | 'tools' | 'notices' | 'system';
@@ -351,7 +352,10 @@ export function RunPage({
                 mono: worktree.integrationBranch !== undefined,
               },
               { label: 'Model', value: model ?? 'default', mono: true },
-              { label: 'Reasoning effort', value: run.reasoningEffort ?? 'Local configuration' },
+              {
+                label: 'Reasoning effort',
+                value: run.reasoningEffort ?? defaultEffortLabel(run.backend),
+              },
               ...(run.profileSelection
                 ? [{ label: 'Profile', value: PROFILE_LABELS[run.profileSelection.purpose] }]
                 : []),

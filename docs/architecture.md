@@ -151,7 +151,7 @@ reconstructed from pinned source events (ADR-035).
 **Agent profiles.** Which agent runs a step is a workspace setting, not a property of the
 previous run. `workspace_run_profiles` holds the four step defaults (design, implement, review,
 remediate) and optional specialist overrides (security, checkpoint, acceptance, conflict,
-investigation), each a backend, model and optional Codex effort; absent specialists inherit
+investigation), each a backend, model and optional reasoning effort (both backends); absent specialists inherit
 their base step (`packages/domain/src/agent-profiles.ts`). Cycles persist the profiles they
 started with. For existing roadmaps an operator appends a version-checked model assignment to
 roadmap operational state while the roadmap is a draft, paused or needs attention; it changes

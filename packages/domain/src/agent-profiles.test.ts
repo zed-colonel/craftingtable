@@ -4,6 +4,7 @@ import {
   cycleProfilesFromDefaults,
   profileForPurpose,
   cycleProfilePurpose,
+  selectAgent,
 } from './agent-profiles.js';
 import type { WorkCycle } from './work-cycle.js';
 const base = {
@@ -57,4 +58,12 @@ it('selects parent acceptance only for its review scope', () => {
       executionScope: { kind: 'slice-verification' },
     } as WorkCycle),
   ).toBe('review');
+});
+
+it("keeps a Claude profile's reasoning effort, as a Codex one's (operator decision 2026-09-28)", () => {
+  expect(selectAgent({ backend: 'claude-code', model: 'opus', reasoningEffort: 'high' })).toEqual({
+    backend: 'claude-code',
+    model: 'opus',
+    reasoningEffort: 'high',
+  });
 });

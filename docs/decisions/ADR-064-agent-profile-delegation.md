@@ -38,3 +38,12 @@ profiles. Additive migration preserves legacy rows and absent effort uses local 
 Rewriting cycle profiles loses launch history; rewriting the plan forces unnecessary acceptance
 work. Resolving every launch against mutable workspace defaults silently changes existing
 roadmap delegation. Neither is used.
+
+## Amendment 2026-09-28: reasoning effort for Claude profiles too (R-G5 follow-up)
+
+Operator decision. Claude profiles, specialist selections, roadmap assignments and launches may
+carry a reasoning effort, as Codex ones do. The Claude adapter passes it as `--effort`. It uses the
+same four levels; Claude's `max` is not offered. Since R-G5, Claude runs load no operator
+settings, so an unset effort on a Claude profile means Claude Code's own default, not the
+operator's `effortLevel`. An unset Codex effort still uses the local Codex configuration.
+Records written with a Claude effort cannot be read by a release before this amendment.

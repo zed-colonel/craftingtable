@@ -6,16 +6,12 @@ import {
 } from '@craftingtable/domain';
 import { z } from 'zod';
 export const reasoningEffortSchema = z.enum(AGENT_REASONING_EFFORTS);
-export const agentSelectionSchema = z
-  .strictObject({
-    backend: z.enum(AGENT_BACKENDS),
-    model: z.string().trim().min(1).max(100).optional(),
-    reasoningEffort: reasoningEffortSchema.optional(),
-  })
-  .refine(
-    (p) => p.backend === 'codex' || p.reasoningEffort === undefined,
-    'Reasoning effort is supported for Codex profiles only.',
-  );
+/** Both backends take a reasoning effort (Claude since the operator's decision 2026-09-28). */
+export const agentSelectionSchema = z.strictObject({
+  backend: z.enum(AGENT_BACKENDS),
+  model: z.string().trim().min(1).max(100).optional(),
+  reasoningEffort: reasoningEffortSchema.optional(),
+});
 export const specialistSelectionsShape = {
   security: agentSelectionSchema.optional(),
   checkpoint: agentSelectionSchema.optional(),

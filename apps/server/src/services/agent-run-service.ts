@@ -290,11 +290,6 @@ export class AgentRunService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
     });
-    if (profiles.some((p) => p.backend !== 'codex' && p.reasoningEffort))
-      throw new ExecutionRequestError(
-        'conflict',
-        'Reasoning effort is supported for Codex profiles only.',
-      );
     const occurredAt = this.now().toISOString();
     this.storage.transaction((tx) => {
       tx.execution.runProfiles.replace({
@@ -673,11 +668,6 @@ export class AgentRunService {
         'Recover the reserved integration merge before launching another run',
       );
     const kind = input.backend ?? this.defaultBackend();
-    if (kind !== 'codex' && input.reasoningEffort)
-      throw new ExecutionRequestError(
-        'conflict',
-        'Reasoning effort is supported for Codex profiles only.',
-      );
     const backend = kind === undefined ? undefined : this.backends.get(kind);
     if (backend === undefined) {
       throw new ExecutionRequestError(

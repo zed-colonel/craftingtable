@@ -14,6 +14,7 @@ import {
 import { useState } from 'react';
 import { Section } from '../../components/Section.js';
 import { AgentSelectionsEditor } from '../execution/AgentSelectionsEditor.js';
+import { defaultEffortLabel } from '../execution/ReasoningEffortField.js';
 import { AgentRecommendations } from './AgentRecommendations.js';
 export function WorkspaceProfilesSection({
   profiles,
@@ -58,11 +59,7 @@ export function WorkspaceProfilesSection({
                   {AGENT_BACKEND_LABELS[current[p].backend]} ·{' '}
                   {current[p].model ?? 'Backend default'}
                 </td>
-                <td>
-                  {current[p].backend === 'codex'
-                    ? (current[p].reasoningEffort ?? 'Local configuration')
-                    : '—'}
-                </td>
+                <td>{current[p].reasoningEffort ?? defaultEffortLabel(current[p].backend)}</td>
               </tr>
             ))}
           </tbody>

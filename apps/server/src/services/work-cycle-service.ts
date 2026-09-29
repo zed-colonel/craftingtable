@@ -177,11 +177,6 @@ export class WorkCycleService {
           'unavailable',
           `Agent backend ${profile.backend} is unavailable.`,
         );
-      if (profile.backend !== 'codex' && profile.reasoningEffort)
-        throw new ExecutionRequestError(
-          'conflict',
-          'Reasoning effort is supported for Codex profiles only.',
-        );
     }
   }
   private readonly abort = new AbortController();

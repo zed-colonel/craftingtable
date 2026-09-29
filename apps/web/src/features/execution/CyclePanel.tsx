@@ -38,6 +38,7 @@ import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 import type { ProfileEntry } from './handoff.js';
 import { IntegrationResolutionPanel } from './IntegrationResolutionPanel.js';
 import { ProviderRecovery } from './ProviderRecovery.js';
+import { defaultEffortLabel } from './ReasoningEffortField.js';
 import { WorkflowStatus } from './WorkflowStatus.js';
 import { Link } from '../../lib/navigation.js';
 import type { WorkspaceId } from '@craftingtable/domain';
@@ -373,7 +374,9 @@ export function CyclePanel({
                   {(active.nextAgentSelections ?? active.profiles)[step].model ?? 'Backend default'}{' '}
                   ·{' '}
                   {(active.nextAgentSelections ?? active.profiles)[step].reasoningEffort ??
-                    'Local effort'}{' '}
+                    defaultEffortLabel(
+                      (active.nextAgentSelections ?? active.profiles)[step].backend,
+                    )}{' '}
                   · {PERMISSION_MODE_LABELS[active.profiles[step].permissionMode]}
                 </li>
               ))}

@@ -369,8 +369,9 @@ be labelled as a human approval.
 ## Agent profile settings
 
 Workspace settings present four defaults (Design, Implementation, Review, Remediation), then
-optional specialist overrides with their effective inherited selection visible. Codex effort
-is explicit or labeled as using local configuration. Recommendations map to the actual field
+optional specialist overrides with their effective inherited selection visible. Reasoning
+effort is explicit or labeled with what an unset effort means: the local Codex configuration,
+or Claude Code's own default (Claude runs load no operator settings). Recommendations map to the actual field
 names in an About disclosure and never silently set preferences. Separate workspace-default
 saving from applying selections to existing roadmaps; the latter names the selected scopes,
 includes future steps of started cycles, and explains that plan evidence remains valid.

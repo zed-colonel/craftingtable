@@ -104,3 +104,28 @@ it('provides separate remediation and specialist inheritance with a map of recom
   });
   expect(saved.find((p: { role: string }) => p.role === 'remediate')).toBeDefined();
 });
+
+it("offers a reasoning effort for Claude profiles too, defaulting to Claude Code's own (operator decision 2026-09-28)", () => {
+  const save = vi.fn();
+  render(
+    <SettingsPage
+      workspace={workspace}
+      canEdit
+      busy={false}
+      onRename={vi.fn()}
+      backends={backends}
+      profiles={profiles}
+      onSaveProfiles={save}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Edit workspace defaults' }));
+  const review = screen.getByRole('group', { name: 'Review' });
+  const effort = within(review).getByLabelText<HTMLSelectElement>('Reasoning effort');
+  expect(effort.selectedOptions[0]?.textContent).toBe("Use Claude Code's default");
+  fireEvent.change(effort, { target: { value: 'xhigh' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save workspace defaults' }));
+  expect(save.mock.calls[0]![0].find((p: { role: string }) => p.role === 'review')).toMatchObject({
+    backend: 'claude-code',
+    reasoningEffort: 'xhigh',
+  });
+});

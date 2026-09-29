@@ -60,7 +60,7 @@ export function HandoffForm({
     onLaunch({
       backend,
       ...(trimmedModel.length === 0 ? {} : { model: trimmedModel }),
-      ...(backend === 'codex' && reasoningEffort ? { reasoningEffort } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       permissionMode,
       ...(trimmedInstructions.length === 0 ? {} : { instructions: trimmedInstructions }),
     });
@@ -97,13 +97,12 @@ export function HandoffForm({
         onChange={setModel}
         disabled={busy}
       />
-      {backend === 'codex' && (
-        <ReasoningEffortField
-          value={reasoningEffort}
-          onChange={setReasoningEffort}
-          disabled={busy}
-        />
-      )}
+      <ReasoningEffortField
+        backend={backend}
+        value={reasoningEffort}
+        onChange={setReasoningEffort}
+        disabled={busy}
+      />
       <label className="field">
         Permissions
         <select

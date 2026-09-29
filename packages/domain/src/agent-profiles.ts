@@ -48,9 +48,7 @@ export function selectAgent(profile: AgentSelection): AgentSelection {
   return {
     backend: profile.backend,
     ...(profile.model ? { model: profile.model } : {}),
-    ...(profile.backend === 'codex' && profile.reasoningEffort
-      ? { reasoningEffort: profile.reasoningEffort }
-      : {}),
+    ...(profile.reasoningEffort ? { reasoningEffort: profile.reasoningEffort } : {}),
   };
 }
 export function agentSelections(profiles: CycleProfiles): AgentSelections {

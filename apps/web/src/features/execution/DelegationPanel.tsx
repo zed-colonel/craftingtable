@@ -215,7 +215,7 @@ export function DelegationPanel({
       role: effectiveRole,
       permissionMode,
       ...(trimmedModel.length === 0 ? {} : { model: trimmedModel }),
-      ...(selectedBackend.kind === 'codex' && reasoningEffort ? { reasoningEffort } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(trimmedInstructions.length === 0 ? {} : { instructions: trimmedInstructions }),
       ...(effectiveRole === 'review' && latestFinished !== undefined
         ? { parentRunId: latestFinished.id }
@@ -581,8 +581,9 @@ export function DelegationPanel({
               onChange={setModel}
               disabled={busy}
             />
-            {selectedBackend?.kind === 'codex' && (
+            {selectedBackend && (
               <ReasoningEffortField
+                backend={selectedBackend.kind}
                 value={reasoningEffort}
                 onChange={setReasoningEffort}
                 disabled={busy}

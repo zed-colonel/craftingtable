@@ -96,7 +96,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-I6](#r-i6) | P1 | S-M | done (3ac6242, 1ff9785, a879d09, 1941a71) | Gate on lint |
 | [R-I7](#r-i7) | P1-P3 | M | partial (P1 start: e317636, 61e41cb) | Documentation reset to current state |
 | [R-I8](#r-i8) | P1 | S-M | partial (943fb8d) | Deploy from a separate checkout; one daemon per data directory |
-| [R-I9](#r-i9) | P2 | S-M | in progress (code 2026-09-29; 10-run check) | Independent e2e specs: one workspace per spec (added 2026-09-24) |
+| [R-I9](#r-i9) | P2 | S-M | done (3836b99, 6fb5a4a, 0cf4fa5; 10 runs at 661282f) | Independent e2e specs: one workspace per spec (added 2026-09-24) |
 | [R-I10](#r-i10) | P2 | M | done (2026-09-27) | Live plan data as the test corpus: record live stops, replay scheduler decisions (added 2026-09-27) |
 | [R-I11](#r-i11) | P2 | S | done (2026-09-27, see entry) | Independent review of the live-run fixes made on `main` (added 2026-09-27) |
 
@@ -2445,7 +2445,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-I9
 
-**Independent e2e specs: one workspace per spec** · Phase P2 · Effort S-M · Status: in progress (code done 2026-09-29)
+**Independent e2e specs: one workspace per spec** · Phase P2 · Effort S-M · Status: done (3836b99, 6fb5a4a, 0cf4fa5; 2026-09-29)
 
 - **Added 2026-09-24** after R-I5 closed. It holds the part of QA-05 that R-I5 did not do; the operator agreed to proceed with it.
 - **Resolves:** [QA-05](findings/QA-DOC-REPO-tests-docs-hygiene.md#qa-05-e2e-gate-screenshots-are-unasserted-cause-the-known-flake-and-helpers-are-copied-into-8-specs) (the rest: "give each spec its own workspace so specs are independent").
@@ -2473,6 +2473,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, disposition:* a failed spec elsewhere skips storage in that run (its projects depend on the others); a red gate has already failed. `CRAFTINGTABLE_WALKTHROUGH` with no project runs no storage spec; nothing does that.
     - *NIT, fixed:* the phone project's dead storage entry, and a worker count from the environment that is not a number (now falls back to 4).
     - *NIT, disposition:* `expectSignedIn` accepts any page heading; the steps after it wait for their own elements.
+- **Done-when met, 2026-09-29.** `pnpm test:e2e` passed ten consecutive runs at 661282f, from a clean worktree, with nothing else heavy running: 21 tests and the walkthrough rehearsal each time, 219 to 250 s per run (load average 2.4 to 6.9), no retries (none are configured), and no data directory left behind. Every gate spec runs in its own workspace, and the gate runs four workers.
 
 ### R-I10
 

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import {
   asAgentRunId,
+  effectiveCycleAttention,
   type AgentRun,
   type WorkCycle,
   type WorkflowQuestion,
@@ -127,6 +128,27 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
     ...value,
     contextDigest: createHash('sha256').update(JSON.stringify(value)).digest('hex'),
   };
+}
+/**
+ * The shared architecture decisions a slice's merge still needs (LIVE-18): each one neither
+ * accepted in full on the binding nor settled by an approved clause-level decision naming this
+ * slice. It is the rule the merge gate and the workflow already use, so the stop, the resume
+ * refusal and the gate cannot disagree.
+ */
+export function unsettledMergeDecisions(tx: StorageRepositories, cycle: WorkCycle): string[] {
+  return (
+    workflowContext(tx, cycle)
+      ?.checkpoints.filter((c) => c.sharedDecision && !c.accepted)
+      .map((c) => c.id) ?? []
+  );
+}
+/**
+ * The decisions a cycle stopped at `shared-decision-required` still waits on; none for any other
+ * stop. A pause taken at the stop keeps its code.
+ */
+export function unsettledDecisionsAt(tx: StorageRepositories, cycle: WorkCycle): string[] {
+  const stop = cycle.status === 'paused' ? cycle.attention : effectiveCycleAttention(cycle);
+  return stop?.code === 'shared-decision-required' ? unsettledMergeDecisions(tx, cycle) : [];
 }
 /** A specialist receipt follows the candidate, policy and consumed dependency inputs. */
 export function securityReviewCurrent(tx: StorageRepositories, cycle: WorkCycle, review: AgentRun) {

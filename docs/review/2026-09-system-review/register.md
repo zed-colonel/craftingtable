@@ -285,6 +285,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     Both belong in R-B4's decision core, behind the characterization harness. The duplicated remediation-grant validators stay with R-B7.
   - **Proposal:** mark R-A7 done and move these two to R-B4 (see the operator decisions in program.md). Until decided, the status stays partial.
 - **Amended 2026-09-24 (operator decision): done.** The restated done-when is met. The shared predecessor gate is in place, and replays show no change. The two remaining gate differences move to R-B4: scheduler-side Git ancestry and item-status alignment. The duplicated remediation-grant validators stay with R-B7.
+- **LIVE-18, 2026-09-29 (operator decision: option B).** A shared-decision stop names every decision the slice's merge still needs, has a card with Prepare decision brief for each, links to them, and offers only the action that can progress while any is unsettled. Nothing persisted changes. The operator chose B over A (the same without the typed action) and C (park at the merge gate, which changes persisted status and controller behaviour).
+  - **Increment 1 (server): done.**
+    - The workflow gate's stop now lists every unsettled merge decision in its reason and `workflow.questions`, rather than the first. Its refs still name the first.
+    - `unsettledMergeDecisions` (`workflow-policy.ts`) uses the merge gate's rule: settled means accepted in full on the binding, or by an approved clause-level decision naming this slice. `unsettledDecisionsAt` returns them only for a cycle at this stop, including a pause taken there.
+    - Plain and guided resume are refused with the remaining list while any is unsettled (`assertDecisionsSettled`). A roadmap resume skips the cycle (`resumable`), so a sequential roadmap's resume no longer fails on it.
+    - Tests (`server-execution-shared-decision-stop.test.ts`): a parallel cross-project roadmap stops once naming both of two decisions; plain and guided resumes get 409 naming both; a roadmap pause and resume launches nothing; one approval leaves the other named; after both, resume is accepted. A sequential slice roadmap, where the reviewer raised the stop, resumes past the paused stop without failing. Mutations: naming only the first, dropping the guard, and dropping the roadmap skip each fail a test.
+    - Replay case: on a copy of the 2026-09-29 snapshot, EXO-18/instance-design's cycle 2c9ead5d has EXO-ADR-022, 030, 037 and 038 unsettled, so a resume is refused naming all four.
+  - **Left:** increments 2 (a card with Prepare decision brief for every needed decision), 3 (the stop links to the cards) and 4 (the typed action in the cycle panel).
+
 
 ## Workstream B — Controller core (pain point 3)
 

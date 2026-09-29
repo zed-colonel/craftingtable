@@ -93,6 +93,7 @@ import {
   workflowDelegation,
   controllerReviewRunnable,
   reviewAuthorityMissing,
+  unsettledDecisionsAt,
 } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -1445,6 +1446,7 @@ export class WorkCycleService {
     if (!['paused', 'needs-attention'].includes(cycle.status))
       throw new ExecutionRequestError('conflict', 'Only a paused cycle can resume');
     await this.assertPinsRefreshed(cycle);
+    this.assertDecisionsSettled(cycle);
     // A plain resume that would only reproduce this stop is refused with the control that
     // can resolve it (R-A7, CTRL-04); guided resumes carry the missing input.
     const redirect =
@@ -2543,18 +2545,17 @@ export class WorkCycleService {
     }
     const exception = missing.find((c) => !c.pending.length && (!c.supported || !c.assigned));
     if (exception) {
+      // A shared decision stop names every decision the merge still needs, so they are answered
+      // together rather than one stop after another (LIVE-18).
+      const decisions = exception.sharedDecision ? missing.filter((c) => c.sharedDecision) : [];
       cycle = this.change(cycle, {
         workflow: {
           ...cycle.workflow!,
-          questions: exception.sharedDecision
-            ? [
-                {
-                  question: `Approve the required architecture decision ${exception.id} in Shared architecture decisions.`,
-                  destination: 'shared-decision',
-                  checkpointId: exception.id,
-                },
-              ]
-            : [],
+          questions: decisions.map((c) => ({
+            question: `Approve the required architecture decision ${c.id} in Shared architecture decisions.${c.pending.length ? ` Its prerequisites are still pending: ${c.pending.join(' ')}` : ''}`,
+            destination: 'shared-decision' as const,
+            checkpointId: c.id,
+          })),
           waiting: `${exception.id}: ${!exception.assigned ? 'Saved reviewer responsibilities do not authorize this checkpoint review.' : 'This checkpoint requires evidence outside the supported controller review adapter.'} Open roadmap requirements to resolve this obligation.`,
         },
       });
@@ -2562,7 +2563,7 @@ export class WorkCycleService {
         cycle,
         exception.sharedDecision ? 'shared-decision-required' : 'workflow-obligation',
         exception.sharedDecision
-          ? `Operator approval required for ${exception.id}. Open Shared architecture decisions in the roadmap.`
+          ? `Operator approval required for ${decisions.map((c) => c.id).join(', ')}. Open Shared architecture decisions in the roadmap.`
           : cycle.workflow!.waiting!,
         { checkpointId: exception.id },
       );
@@ -4203,6 +4204,20 @@ export class WorkCycleService {
       throw new ExecutionRequestError(
         'conflict',
         `${stale.map((p) => p.alias).join(', ')} still differs from its saved pin. Preview and save the dependency refresh in the dependency environment, then resume.`,
+      );
+  }
+
+  /**
+   * A `shared-decision-required` stop resumes, plain or guided, only once every shared decision
+   * the slice's merge needs is settled (LIVE-18): until then a resume only reviews again into
+   * the same gate. A pause taken at the stop keeps its code, so it is held to the same rule.
+   */
+  private assertDecisionsSettled(cycle: WorkCycle): void {
+    const unsettled = unsettledDecisionsAt(this.storage, cycle);
+    if (unsettled.length)
+      throw new ExecutionRequestError(
+        'conflict',
+        `${unsettled.join(', ')} ${unsettled.length === 1 ? 'is' : 'are'} not approved for this slice yet. Prepare and approve ${unsettled.length === 1 ? 'it' : 'them'} in Shared architecture decisions (approval needs the roadmap paused), then resume.`,
       );
   }
 

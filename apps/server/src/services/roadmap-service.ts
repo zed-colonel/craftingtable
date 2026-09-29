@@ -100,7 +100,7 @@ import {
 import { collectScopeRepair } from './scope-repair.js';
 import type { WorkCycleService } from './work-cycle-service.js';
 import type { WorkItemService } from './work-item-service.js';
-import { securityReviewCurrent, workflowContext } from './workflow-policy.js';
+import { securityReviewCurrent, unsettledDecisionsAt, workflowContext } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
@@ -1459,6 +1459,9 @@ export class RoadmapService {
    * or its item resumes; the operator resolves it with the control it names (R-A7).
    */
   private resumable(cycle: WorkCycle): boolean {
+    // Unsettled shared decisions hold the stop, paused or not; resuming would review into it
+    // again (LIVE-18).
+    if (unsettledDecisionsAt(this.storage, cycle).length) return false;
     return (
       cycle.status !== 'needs-attention' ||
       resumeRedirect(

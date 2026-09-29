@@ -309,7 +309,7 @@ it did not decide whether a stop needs the operator *now*, or whether the operat
 ### LIVE-18: A shared-decision stop names one missing decision, and a plain Resume runs the review chain back into it
 - Severity: medium
 - Category: typed stops and resume ([R-A7](../register.md#r-a7))
-- Status: CONFIRMED 2026-09-28 from the 2026-09-28c snapshot. Not fixed. Its exit is to approve the decisions.
+- Status: CONFIRMED 2026-09-28 from the 2026-09-28c snapshot. Being fixed on `remediation/p2` by operator decision (option B, 2026-09-29): see [R-A7](../register.md#r-a7). Its exit is to approve the decisions.
 - Replay case: the 2026-09-28c snapshot, cycle 2c9ead5d (EXO-18/instance-design).
 - Evidence:
   - The slice merge-requires four architecture decisions: EXO-ADR-022, 030, 037 and 038. After its security review passed at 2026-09-26 08:39, the cycle stopped as `shared-decision-required` with "Operator approval required for EXO-ADR-022", naming only the first.

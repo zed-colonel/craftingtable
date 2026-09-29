@@ -469,7 +469,7 @@ independent review; every finding is fixed or its disposition is recorded in reg
   7. **The rest of P2, in order (proposed 2026-09-28, approved by the operator the same day):**
      1. **R-G4** (daemon-owned receipts): agents can still forge the receipts that gate integration (SEC-01), R-C6 depends on it, and it should take over CI execution and its lock from a2bb20a (LIVE-03). **Done 2026-09-28** (not merged or deployed).
      2. **R-G5** (agent environment isolation): supervised runs inherit the operator's environment, hooks, skills and MCP servers (SEC-02, SEC-03). Together with R-G4 it closes the open security findings before more delegation is automated. **Done 2026-09-28** (not merged or deployed).
-     3. **R-E1, then R-E2** (routes; split the Roadmaps page): two P2 exit criteria depend on them (no reloads; the inbox deep-links). The Roadmaps page is now over 7,000 px tall on the desktop capture, and R-E3b's board needs its own route. **R-E1 done 2026-09-28; R-E2 next.**
+     3. **R-E1, then R-E2** (routes; split the Roadmaps page): two P2 exit criteria depend on them (no reloads; the inbox deep-links). The Roadmaps page is now over 7,000 px tall on the desktop capture, and R-E3b's board needs its own route. **R-E1 done 2026-09-28; R-E2 next** (not started in the 2026-09-28 batch).
      4. **R-D4, then R-D5** (query store; server view models): the remaining P2 exit criteria (an idle tab makes no requests; the work-item page's request count).
      5. **R-G9, R-I9, then R-H4, R-I4, R-G6.** Auth hardening beyond the landed guard, e2e specs in their own workspaces so the gate can use more workers, then storage weight, structural test boundaries and brief redesign.
 - **Gate at the head:** `pnpm check` passes in one run. 187 test files and 1,494 unit tests, 20 e2e tests,
@@ -553,6 +553,43 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - Schema stays 32, but two persisted values are new: the hold code `recovery-not-converging` and the roadmap field `decisionPreparationGrant`. A release before this batch cannot read a roadmap carrying either.
     - To roll back, answer such holds first and remove the grant field from the stored roadmap.
     - Grant standing preparation only when wanted, while the roadmap is paused.
+- **R-G4, R-G5 and R-E1 batch (2026-09-28, `remediation/p2` from c547ede; not merged or deployed).** The operator deployed c547ede at 14:45. Three hours later a read-only snapshot of the live database was taken, at `$XDG_DATA_HOME/craftingtable-review/replay/2026-09-28c/` (SHA-256 `f3b27347…`, schema 32), with goldens recorded at c547ede before any change: `golden.json` 60, `every-run-golden-c547ede.json` 392, `scheduler-golden-c547ede.json`. Each item had an independent adversarial review in an isolated worktree, and every finding is fixed or has a disposition on its item.
+  - **Carry-overs.**
+    - **R-C3b:** nothing to measure yet. No slice started after the deploy, and no standing grant is set.
+    - **R-C5:** no automatic round started and no escalation fired. One review remediation limit was raised by the operator.
+    - **Two new stops, with working exits,** so they are recorded rather than fixed (rule 7):
+      - LIVE-14: an untracked `.codex` file in EXO's primary checkout failed a Codex review; Codex reads project configuration from the primary checkout.
+      - LIVE-15: a checkpoint review whose upstream pin moved stopped as a generic `controller-error`.
+    - **R-I5:** the partial e2e directory was seen again but could not be reproduced on demand, so it stays for R-I9, with a second pattern recorded.
+  - **R-G4: done** (95c4a17, 96ddfe6, a2ef627, 9f7fd4a, 28bcdff, 512e47d, 6bb668a; review fixes e949ec6, 90427bf, cbdabd6, 99716b8, 49ad4e0).
+    - `ct-check`, `ct-act`, `ct-native` and pinned Cargo builds only leave a request in the run's spool. The daemon runs each in a confined user unit, from the manifest it verified at launch, observes HEAD itself and records the receipt in `run_check_receipts` (schema 33).
+    - A daemon-recorded run's build record reads no file the agent can write. Earlier records are labelled agent-reported.
+    - Receipt kinds now decide the gates, so local CI is supplemental.
+    - The CI lock is an in-daemon queue. The R-I11 cases are closed: the wait is charged to the time limit, an expired wait is labelled, and no act is orphaned.
+    - **Review:** one HIGH (the unit left `.git` writable; daemon Git followed the pointer); MEDIUMs for spool links, unbounded checks and restart cleanup; LOWs. The operator decided to refuse workflows whose jobs reach the host through Docker.
+    - **Left:** `ct-check -- true` still counts as a scoped check, pending declared checks (AGT-08).
+  - **R-G5: done** (7b5751a, b4cde90, f70d2dd, 4abafcd, ebc4c0c, 29d3524, e5071f6; review fixes d1ad0e7, c6ea435, 4d3b48e, 1cf1984).
+    - Agents get allowlisted variables only.
+    - Claude and Codex load none of the operator's settings, skills, plugins, MCP servers, hooks or memory (live checks).
+    - Daemon Git runs no hooks or fsmonitor and reads no system or global configuration beyond the operator's identity.
+    - Claude's Bash runs in the OS sandbox: no network, no Docker socket, no credentials, no settings files.
+    - Protected refs moved outside the daemon are flagged (schema 34 adds the audit action).
+    - **Review:** one HIGH (the Docker socket was reachable from the sandbox without the seccomp helper) and five MEDIUMs, all fixed.
+  - **R-E1: done** (a07dbfe; review fixes 4102517; walkthroughs `2026-09-29-routes-before`, `-routes-after`).
+    - In-app links navigate in place (`Link`, `PathLink`), and routes carry a typed roadmap and focus. No panel reads the address.
+    - A test bans raw in-app anchors, and an e2e spec requires deep links to land on their target without a document load.
+    - **Review:** one HIGH (a deep link landed off target while panels loaded) and one MEDIUM (a clarification draft was overwritten on Back), both fixed.
+  - **Gate at 4102517:**
+    - format, lint, typecheck and build pass;
+    - 209 test files and 1,648 unit tests pass; in the full run at load average 5 to 14, two tests in two files timed out, and both files (70 tests) passed rerun serially, one of them three more times;
+    - e2e: 21 tests and the walkthrough rehearsal pass;
+    - the scope check passes.
+  - **Replays, on copies:** `golden.json`, `--every-run` and the scheduler replay report 0 changed and 0 missing on all five snapshots: 2026-09-23 (51/278/346), 09-27 (58/352/341), 09-28 (59/356/344), 09-28b (59/358/341) and 09-28c (60/392/333).
+  - **Before the deploy:**
+    - Schema 33 and 34 are new. A release before this cannot read them, or run environments carrying `receiptAuthority`.
+    - The daemon needs its systemd user manager for check units (`CRAFTINGTABLE_CHECK_CONFINEMENT=none` otherwise), and bubblewrap and socat for Claude's sandbox; both are present on this workstation.
+    - Checks, CI and native units now run in the daemon's units. Runs in flight at the deploy keep their old launchers.
+  - **Next:** R-E2 (split the Roadmaps page), then R-D4 and R-D5, then R-G9, R-I9, R-H4, R-I4, R-G6.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

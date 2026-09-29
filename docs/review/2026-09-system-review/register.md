@@ -2103,6 +2103,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *LOW, done by the operator's leave (2026-09-28):* the 202 leaked directories, the 60 unit-test directories and finished agent sessions' scratch were deleted from `/tmp`; the quota fell from 23.7 to 0.7 GiB.
     - *NIT, disposition:* `freePort` can race another process for the port; a collision fails loudly.
     - *Observed at the batch gate (2026-09-28), open for R-I9:* one of the gate's two e2e daemons left 43 MB. Its database was removed (the SIGTERM cleanup ran), but run directories written before shutdown remained, so the recursive removal stopped partway. The load average was about 20; three walkthroughs and the earlier gate left nothing. This is not reproducible on demand. A removal that retries (`maxRetries`) or waits for the daemon's run cleanup would close it.
+    - *Seen again (2026-09-28, the R-G4/R-G5 batch), still open for R-I9:*
+      - A partial directory: 39 MB, `backups` and `runs` (81 run directories) left and `state` removed. It came from the e2e run at load average 14 in which three specs failed; the removal stopped partway again. It could not be reproduced on demand, so the cause is still unproven.
+      - A different pattern, twice: an entire data directory, `state` included, left from the walkthrough (17:45) and from the gate's walkthrough rehearsal (18:28), so cleanup never ran at all. A daemon SIGKILLed after the 10 s graceful stop, or a walkthrough web server stopped without SIGTERM, would explain it. Neither is proven.
+      - All three were deleted afterwards; they sat in the session's own temporary directory.
 
 ### R-I6
 

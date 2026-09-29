@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { type CrateChecksumAuthority, CratesIoChecksums } from './services/crate-checksums.js';
 import {
   type AgentBackend,
   CLAUDE_CODE_MODELS,
@@ -106,6 +107,8 @@ export interface ServiceOverrides {
   /** Test seam: an agent backend or `null` to simulate a missing executable. */
   readonly agentBackends?: ReadonlyMap<AgentBackendKind, AgentBackend>;
   readonly runLog?: RunLog;
+  /** Test seam: where published crate checksums come from (crates.io's index by default). */
+  readonly crateChecksums?: CrateChecksumAuthority;
   /**
    * Replay seam (R-I10): false takes the database as a live daemon's next pass would find it,
    * instead of recovering interrupted runs, cycles and roadmaps as a restart does.
@@ -248,6 +251,9 @@ export async function createServices(
     storage,
     config.execution,
     overrides.runLog ?? { warn: () => undefined },
+    undefined,
+    undefined,
+    overrides.crateChecksums ?? new CratesIoChecksums(join(config.dataDir, 'crate-checksums.json')),
   );
   checkRequests.stopLeftoverUnits();
   agentRunService.attachChecks(checkRequests);

@@ -184,7 +184,7 @@ itNeedsCargo(
     const { checkLogRoot } = f.state.context.config.execution;
     const head = git(['rev-parse', 'HEAD'], f.tree.path).trim();
     const location = new RegExp(
-      `checked in ${checkLogRoot}/${checked}/([^/ ]+)\\.private/tree agent absent cargo ${checkLogRoot}/${checked}/\\1\\.private/cargo-home target ${checkLogRoot}/${checked}/declared-target/${head}`,
+      `checked in ${checkLogRoot}/${checked}/([^/ ]+)\\.private/tree agent absent cargo ${checkLogRoot}/${checked}/cargo-home-0 target ${checkLogRoot}/${checked}/declared-target/${head}`,
     ).exec(output);
     expect(location, output).not.toBeNull();
     // The daemon names the clone's directory, never the request.
@@ -192,9 +192,12 @@ itNeedsCargo(
     expect(replies.some((name) => name.startsWith(location![1]!))).toBe(false);
     // Once the run's checks close, the clones and build outputs are gone; the logs stay.
     const kept = readdirSync(join(checkLogRoot, checked));
-    expect(kept.filter((name) => name === 'declared-target' || name.endsWith('.private'))).toEqual(
-      [],
-    );
+    expect(
+      kept.filter(
+        (name) =>
+          name === 'declared-target' || name.endsWith('.private') || name.startsWith('cargo-home-'),
+      ),
+    ).toEqual([]);
     expect(kept.some((name) => name.endsWith('.log'))).toBe(true);
     const [recorded] = storage.runtimeEvidence.checkReceipts(f.state.workspaceId, checked);
     expect(JSON.parse(recorded!.receipt)).toMatchObject({

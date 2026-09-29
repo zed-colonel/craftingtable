@@ -111,8 +111,8 @@ only the worktree, the run's directories, its scratch space and Cargo's `registr
 caches in the daemon's own Cargo home (`<data>/cargo-home`; never the operator's `~/.cargo`, so a
 crate an agent plants never runs in the operator's own builds, R-G5 review; check units do not build
 from it either: each gets a fresh Cargo home of its own, holding the index and only the downloads
-whose SHA-256 matches the checked tree's `Cargo.lock`, and cannot see the shared one; operator
-decision 2026-09-29), reaching nothing but loopback and the crates.io
+whose SHA-256 matches the checksum crates.io publishes, which the daemon reads from crates.io's
+index over HTTPS, and cannot see the shared one; operator decisions 2026-09-29), reaching nothing but loopback and the crates.io
 registry's index and downloads (`index.crates.io`, `static.crates.io`, a strict allowlist, so
 that `cargo fetch` can download dependencies; operator decision 2026-09-28; not the `crates.io`
 API, which publishes), unable to read Cargo's registry tokens, the user's runtime directory (the rootless Docker socket

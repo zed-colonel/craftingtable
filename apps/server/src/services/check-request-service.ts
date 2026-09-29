@@ -14,6 +14,7 @@ import {
 } from '@craftingtable/agents';
 import { isTerminalAgentRunStatus, type WorkspaceId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
+import type { CrateChecksumAuthority } from './crate-checksums.js';
 
 /**
  * One act run per workflow and Docker host at a time (LIVE-03). act names its containers after
@@ -112,6 +113,8 @@ interface ServedRun {
   readonly waiting: Waiting[];
   /** Bytes of check log this run may still keep. */
   logBudget: number;
+  /** Cargo home slots in use: one stable path per concurrent check (R-G13 review). */
+  readonly cargoSlots: Set<number>;
 }
 
 /**
@@ -154,6 +157,8 @@ export class CheckRequestService {
     },
     private readonly pollMs = 500,
     private readonly limits: typeof CHECK_LIMITS = CHECK_LIMITS,
+    /** Published crate checksums; without it no registry crate reaches a check (R-G13 review). */
+    private readonly checksums?: CrateChecksumAuthority,
   ) {
     const instance = createHash('sha256').update(config.checkLogRoot).digest('hex').slice(0, 12);
     this.unitPrefix = `craftingtable-check-${instance}-`;
@@ -178,7 +183,11 @@ export class CheckRequestService {
     const logs = join(this.config.checkLogRoot, runId);
     try {
       for (const name of readdirSync(logs))
-        if (name === 'declared-target' || name.endsWith('.private'))
+        if (
+          name === 'declared-target' ||
+          name.endsWith('.private') ||
+          name.startsWith('cargo-home-')
+        )
           rmSync(join(logs, name), { recursive: true, force: true });
     } catch {
       /* not a directory, or no checks ran */
@@ -204,6 +213,7 @@ export class CheckRequestService {
       inFlight: new Map(),
       waiting: [],
       logBudget: this.limits.logBytesPerRun,
+      cargoSlots: new Set(),
     });
     this.serve(context.runId);
   }
@@ -365,6 +375,9 @@ export class CheckRequestService {
       CARGO_TARGET_DIR: manifest.targetDirectory,
       CRAFTINGTABLE_RUN_NAMESPACE: context.runId,
     };
+    let slot = 0;
+    while (served.cargoSlots.has(slot)) slot++;
+    served.cargoSlots.add(slot);
     try {
       const outcome = await executeCheck({
         tool: request.tool,
@@ -386,6 +399,13 @@ export class CheckRequestService {
         signal,
         logLimitBytes: Math.min(this.limits.logBytesPerCheck, served.logBudget),
         declaredTargetDirectory: join(this.config.checkLogRoot, context.runId, 'declared-target'),
+        ...(this.checksums
+          ? {
+              crateChecksum: (source: string, name: string, version: string) =>
+                this.checksums!.checksum(source, name, version),
+            }
+          : {}),
+        cargoHomeDirectory: join(this.config.checkLogRoot, context.runId, `cargo-home-${slot}`),
       });
       served.logBudget = Math.max(0, served.logBudget - outcome.logBytes);
       const recorded = this.record(context, outcome.receipt);
@@ -398,6 +418,8 @@ export class CheckRequestService {
     } catch (error) {
       this.log.warn('Check failed to run', { runId: context.runId, error: String(error) });
       reply.finish(1, 'CraftingTable could not run this check.');
+    } finally {
+      served.cargoSlots.delete(slot);
     }
   }
 

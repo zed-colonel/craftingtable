@@ -5,18 +5,25 @@ import { createHash } from 'node:crypto';
 import {
   appendFileSync,
   chmodSync,
-  copyFileSync,
   lstatSync,
   mkdirSync,
   existsSync,
   rmSync,
   readFileSync,
-  readdirSync,
   statSync,
   realpathSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import {
+  lstat as fsLstat,
+  mkdir as fsMkdir,
+  open as fsOpen,
+  readdir as fsReaddir,
+  rm as fsRm,
+  writeFile as fsWriteFile,
+} from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import type { PinnedCargoManifest } from './pinned-cargo.js';
 
@@ -846,7 +853,20 @@ export interface CheckExecution {
    * root, so the agent cannot plant build outputs they reuse (R-G13 review).
    */
   readonly declaredTargetDirectory?: string;
+  /**
+   * The published checksum of a registry crate (operator decision 2026-09-29): a check's Cargo
+   * home holds only crates that match it. Without it, no registry crate reaches the check.
+   */
+  readonly crateChecksum?: CrateChecksum;
+  /** Where this check's fresh Cargo home is made: stable per concurrent check of a run. */
+  readonly cargoHomeDirectory?: string;
 }
+/** The published SHA-256 of a crate version, or undefined when it cannot be learned. */
+export type CrateChecksum = (
+  source: string,
+  name: string,
+  version: string,
+) => Promise<string | undefined>;
 export interface CheckOutcome {
   /** One receipt line, in the format frozen into the run's build record. */
   readonly receipt: Record<string, unknown>;
@@ -1120,128 +1140,217 @@ async function committedDigests(
 }
 
 /** PATH without any directory the run can write: an agent could plant a program there. */
-/** The registry packages a `Cargo.lock` pins, with their checksums (lock format 2 and later). */
-export function lockedRegistryPackages(
-  lock: string,
-): readonly { name: string; version: string; checksum: string }[] {
-  const packages: { name: string; version: string; checksum: string }[] = [];
-  for (const block of lock.split(/^\[\[package\]\][ \t]*$/m).slice(1)) {
+/**
+ * What a `Cargo.lock` pins (lock format 2 and later): registry packages with the checksum the
+ * lock claims, and the commits of Git dependencies. The claim is not trusted: every crate is
+ * checked against the daemon's checksum authority, so a misread lock can only leave a crate
+ * out, never let one in.
+ */
+export function lockedPackages(lock: string): {
+  readonly registry: readonly {
+    source: string;
+    name: string;
+    version: string;
+    checksum?: string;
+  }[];
+  readonly gitCommits: readonly string[];
+} {
+  const registry: { source: string; name: string; version: string; checksum?: string }[] = [];
+  const gitCommits: string[] = [];
+  for (const block of lock.split(/^\[\[package\]\][ \t]*\r?$/m).slice(1)) {
+    const body = block.split(/^\[/m)[0]!;
     const field = (key: string) =>
-      new RegExp(`^${key} = "([^"\\n]*)"[ \\t]*$`, 'm').exec(block.split(/^\[/m)[0]!)?.[1];
+      new RegExp(`^${key} = "([^"\\n]*)"[ \\t]*\\r?$`, 'm').exec(body)?.[1];
     const name = field('name'),
       version = field('version'),
       source = field('source'),
       checksum = field('checksum');
-    if (
-      name &&
-      version &&
-      /^(registry|sparse)\+/.test(source ?? '') &&
-      /^[a-f0-9]{64}$/.test(checksum ?? '') &&
-      /^[A-Za-z0-9_-]+$/.test(name) &&
-      /^[A-Za-z0-9.+-]+$/.test(version)
-    )
-      packages.push({ name, version, checksum: checksum! });
+    if (!name || !version || !source) continue;
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(name) || !/^[A-Za-z0-9.+-]{1,64}$/.test(version)) continue;
+    if (/^(registry|sparse)\+/.test(source))
+      registry.push({
+        source,
+        name,
+        version,
+        ...(checksum && /^[a-f0-9]{64}$/.test(checksum) ? { checksum } : {}),
+      });
+    else if (source.startsWith('git+')) {
+      const commit = /#([a-f0-9]{40}|[a-f0-9]{64})$/.exec(source)?.[1];
+      if (commit) gitCommits.push(commit);
+    }
   }
-  return packages;
+  return { registry, gitCommits };
+}
+
+/** A file's bytes, only if it is a regular file within `limit`; never blocks on a FIFO. */
+export async function readRegular(path: string, limit: number): Promise<Buffer | undefined> {
+  let handle: import('node:fs/promises').FileHandle | undefined;
+  try {
+    handle = await fsOpen(
+      path,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
+    );
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size > limit) return undefined;
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for (;;) {
+      const chunk = Buffer.alloc(Math.min(1024 * 1024, limit + 1 - total));
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+      if (!bytesRead) break;
+      total += bytesRead;
+      if (total > limit) return undefined;
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+    return Buffer.concat(chunks);
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+export interface PrivateCargoHome {
+  /** Crates copied, each matching the checksum authority. */
+  readonly crates: number;
+  /** Crates or Git databases left out, and why. */
+  readonly leftOut: readonly string[];
+  /** Whether the tree had any lock to read. */
+  readonly locked: boolean;
 }
 
 /**
- * A fresh Cargo home for one check (operator decision 2026-09-29, R-G13 review): agents fetch
+ * A fresh Cargo home for one check (operator decisions 2026-09-29, R-G13 review): agents fetch
  * into the daemon's shared Cargo home, which they can therefore write, and Cargo trusts what it
- * finds there without checking it again. The check gets the registry index, and only the
- * downloaded crates whose SHA-256 matches a checksum in the checked tree's `Cargo.lock`, each
- * copied and then hashed; Cargo extracts their sources afresh. Git dependencies are cloned
- * through a pack, which Git hashes on receipt. Nothing else of the shared home comes along: no
- * extracted sources, checkouts, configuration or credentials. The unit cannot see the shared
- * home. A crate that is missing or does not match is left out, and the offline build fails.
+ * finds there without checking it again. The check gets a copy of the registry index, and only
+ * the downloaded crates its tree's locks pin whose SHA-256 matches the published checksum the
+ * daemon's authority reports (crates.io's own index); each is read without following links or
+ * blocking, then hashed and written. Cargo extracts their sources afresh. Git dependencies whose
+ * locked commit a database holds are cloned through a pack, which Git hashes on receipt.
+ * Nothing else of the shared home comes along: no extracted sources, checkouts, configuration or
+ * credentials. A crate that is missing, rewritten or unverifiable is left out and named, and the
+ * offline build fails. The index is metadata Cargo reads for features and dependencies; a
+ * poisoned entry can no longer vouch for different bytes.
  */
 async function preparePrivateCargoHome(
   m: PinnedCargoManifest,
   shared: string,
   into: string,
   locks: readonly string[],
-): Promise<{ readonly crates: number; readonly refused: readonly string[] }> {
-  rmSync(into, { recursive: true, force: true });
-  mkdirSync(into, { recursive: true, mode: 0o700 });
-  const regularTree = (from: string, to: string) => {
-    let entries: string[];
+  checksum: CrateChecksum | undefined,
+  within: () => void,
+): Promise<PrivateCargoHome> {
+  await fsRm(into, { recursive: true, force: true });
+  await fsMkdir(into, { recursive: true, mode: 0o700 });
+  const limits = { files: 200_000, bytes: 2 * 1024 * 1024 * 1024 };
+  let files = 0,
+    bytes = 0;
+  const regularTree = async (from: string, to: string): Promise<void> => {
+    within();
+    let entries: import('node:fs').Dirent[];
     try {
-      if (!lstatSync(from).isDirectory()) return;
-      entries = readdirSync(from);
+      if (!(await fsLstat(from)).isDirectory()) return;
+      entries = await fsReaddir(from, { withFileTypes: true });
     } catch {
       return;
     }
-    mkdirSync(to, { recursive: true, mode: 0o700 });
-    for (const name of entries) {
-      const source = join(from, name);
-      const stat = lstatSync(source);
-      if (stat.isDirectory()) regularTree(source, join(to, name));
-      else if (stat.isFile()) copyFileSync(source, join(to, name));
+    await fsMkdir(to, { recursive: true, mode: 0o700 });
+    for (const entry of entries) {
+      const source = join(from, entry.name);
+      if (entry.isDirectory()) await regularTree(source, join(to, entry.name));
+      else if (entry.isFile()) {
+        if (++files > limits.files)
+          throw new Error('The shared registry index is too large to copy.');
+        const content = await readRegular(source, 64 * 1024 * 1024);
+        if (!content) continue;
+        bytes += content.byteLength;
+        if (bytes > limits.bytes)
+          throw new Error('The shared registry index is too large to copy.');
+        await fsWriteFile(join(to, entry.name), content, { mode: 0o600 });
+      }
     }
   };
-  // The index says what exists; the lock's checksums say which bytes are those crates.
-  regularTree(join(shared, 'registry', 'index'), join(into, 'registry', 'index'));
-  const wanted = new Map<string, string>();
-  for (const lock of locks)
-    for (const p of lockedRegistryPackages(lock))
-      wanted.set(`${p.name}-${p.version}.crate`, p.checksum);
+  await regularTree(join(shared, 'registry', 'index'), join(into, 'registry', 'index'));
+  const pinned = locks.map(lockedPackages);
+  const wanted = new Map<string, { source: string; name: string; version: string }>();
+  for (const lock of pinned)
+    for (const p of lock.registry) wanted.set(`${p.source}\0${p.name}\0${p.version}`, p);
+  const leftOut: string[] = [];
   let crates = 0;
-  const refused: string[] = [];
   const cache = join(shared, 'registry', 'cache');
   let registries: string[] = [];
   try {
-    registries = readdirSync(cache).filter((d) => lstatSync(join(cache, d)).isDirectory());
+    registries = (await fsReaddir(cache, { withFileTypes: true }))
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
   } catch {
     // Nothing downloaded yet.
   }
-  for (const [file, checksum] of wanted) {
+  for (const p of wanted.values()) {
+    within();
+    const file = `${p.name}-${p.version}.crate`;
+    const published = await checksum?.(p.source, p.name, p.version);
+    if (!published) {
+      leftOut.push(`${file} (its published checksum could not be learned)`);
+      continue;
+    }
+    let found = false;
     for (const registry of registries) {
-      const source = join(cache, registry, file);
-      try {
-        if (!lstatSync(source).isFile()) continue;
-      } catch {
+      const content = await readRegular(join(cache, registry, file), 256 * 1024 * 1024);
+      if (!content) continue;
+      found = true;
+      if (hash(content) !== published) {
+        leftOut.push(`${registry}/${file} (does not match its published checksum)`);
         continue;
       }
       const target = join(into, 'registry', 'cache', registry, file);
-      mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
-      copyFileSync(source, target);
-      // Hash the copy, never the shared file, which may change after it was read.
-      if (hash(readFileSync(target)) === checksum) {
-        crates++;
-        break;
-      }
-      rmSync(target, { force: true });
-      refused.push(`${registry}/${file}`);
+      await fsMkdir(dirname(target), { recursive: true, mode: 0o700 });
+      await fsWriteFile(target, content, { mode: 0o600 });
+      crates++;
+      break;
     }
+    if (!found) leftOut.push(`${file} (not downloaded)`);
   }
+  const commits = [...new Set(pinned.flatMap((lock) => lock.gitCommits))];
   const db = join(shared, 'git', 'db');
   let repositories: string[] = [];
   try {
-    repositories = readdirSync(db).filter((d) => lstatSync(join(db, d)).isDirectory());
+    repositories = commits.length
+      ? (await fsReaddir(db, { withFileTypes: true }))
+          .filter((d) => d.isDirectory())
+          .map((d) => d.name)
+      : [];
   } catch {
-    // No Git dependencies.
+    // No Git dependencies downloaded.
   }
   for (const repository of repositories) {
-    mkdirSync(join(into, 'git', 'db'), { recursive: true, mode: 0o700 });
+    within();
+    const source = join(db, repository);
+    // Only databases that hold a locked commit; each is then copied through a pack.
+    let holds = false;
+    for (const commit of commits)
+      if (!holds)
+        holds = await daemonGit(
+          m,
+          ['--git-dir', source, 'cat-file', '-e', `${commit}^{commit}`],
+          into,
+        )
+          .then(() => true)
+          .catch(() => false);
+    if (!holds) continue;
+    await fsMkdir(join(into, 'git', 'db'), { recursive: true, mode: 0o700 });
     try {
       await daemonGit(
         m,
-        [
-          'clone',
-          '--quiet',
-          '--mirror',
-          '--no-local',
-          join(db, repository),
-          join(into, 'git', 'db', repository),
-        ],
+        ['clone', '--quiet', '--mirror', '--no-local', source, join(into, 'git', 'db', repository)],
         into,
       );
     } catch {
-      refused.push(`git/db/${repository}`);
-      rmSync(join(into, 'git', 'db', repository), { recursive: true, force: true });
+      leftOut.push(`git/db/${repository} (its objects do not match their names)`);
+      await fsRm(join(into, 'git', 'db', repository), { recursive: true, force: true });
     }
   }
-  return { crates, refused };
+  return { crates, leftOut, locked: locks.length > 0 };
 }
 
 /** The `Cargo.lock` files of a tree: tracked, or untracked and not ignored, and the root's. */
@@ -1386,17 +1495,27 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     };
     const usePrivateCargoHome = async (manifest: PinnedCargoManifest, root: string) => {
       if (!sharedCargoHome || native || act) return;
-      privateCargoHome = join(e.privateDirectory, 'cargo-home');
+      // A stable path per concurrent check of a run keeps Cargo's fingerprints, which name the
+      // sources' path, valid from one check to the next; the home itself is always fresh.
+      privateCargoHome = e.cargoHomeDirectory ?? join(e.privateDirectory, 'cargo-home');
       const prepared = await preparePrivateCargoHome(
         manifest,
         sharedCargoHome,
         privateCargoHome,
         await cargoLocks(manifest, root),
+        e.crateChecksum,
+        () => {
+          if (e.signal.aborted) throw new Error('Interrupted.');
+          if (Date.now() > deadline)
+            throw new Error('The check time limit passed while its Cargo home was prepared.');
+        },
       );
-      if (prepared.refused.length)
+      if (!prepared.locked)
         e.onOutput(
-          `Left out of this check's Cargo home because they do not match the lock: ${prepared.refused.join(', ')}.\n`,
+          'No Cargo.lock in the checked tree, so no registry dependency is available to this offline check. Commit Cargo.lock.\n',
         );
+      if (prepared.leftOut.length)
+        e.onOutput(`Left out of this check's Cargo home: ${prepared.leftOut.join('; ')}.\n`);
       environment = { ...environment, CARGO_HOME: privateCargoHome };
       writable = [...writable.filter((p) => !within(sharedCargoHome, p)), privateCargoHome];
       inaccessible = [...inaccessible, sharedCargoHome];

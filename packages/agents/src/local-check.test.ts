@@ -21,7 +21,8 @@ import {
   confinedCheckArguments,
   declaredUnitSettings,
   executeCheck,
-  lockedRegistryPackages,
+  lockedPackages,
+  readRegular,
   resolveGitDirectories,
   loadLocalCiConfig,
   localActArguments,
@@ -866,15 +867,22 @@ const commitAll = (cwd: string) => {
   ])
     expect(spawnSync(hostGit(), args, { cwd }).status).toBe(0);
 };
-const lockOf = (packages: readonly { name: string; version: string; checksum: string }[]) =>
+const REGISTRY_SOURCE = 'registry+https://github.com/rust-lang/crates.io-index';
+const lockOf = (
+  packages: readonly { name: string; version: string; checksum?: string; source?: string }[],
+) =>
   `version = 4\n\n${packages
     .map(
       (p) =>
-        `[[package]]\nname = "${p.name}"\nversion = "${p.version}"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${p.checksum}"\n`,
+        `[[package]]\nname = "${p.name}"\nversion = "${p.version}"\nsource = "${p.source ?? REGISTRY_SOURCE}"\n${p.checksum ? `checksum = "${p.checksum}"\n` : ''}`,
     )
     .join('\n')}`;
+/** A checksum authority that knows only the given crates. */
+const authority =
+  (known: Record<string, string>) => async (source: string, name: string, version: string) =>
+    source === REGISTRY_SOURCE ? known[`${name}@${version}`] : undefined;
 
-it('reads the registry packages a lock pins, with their checksums', () => {
+it('reads the registry packages and Git commits a lock pins', () => {
   const lock = `${lockOf([{ name: 'itoa', version: '1.0.18', checksum: 'a'.repeat(64) }])}
 [[package]]
 name = "local"
@@ -885,58 +893,20 @@ name = "from-git"
 version = "0.2.0"
 source = "git+https://example.invalid/x#${'b'.repeat(40)}"
 `;
-  expect(lockedRegistryPackages(lock)).toEqual([
-    { name: 'itoa', version: '1.0.18', checksum: 'a'.repeat(64) },
-  ]);
+  expect(lockedPackages(lock)).toEqual({
+    registry: [
+      { source: REGISTRY_SOURCE, name: 'itoa', version: '1.0.18', checksum: 'a'.repeat(64) },
+    ],
+    gitCommits: ['b'.repeat(40)],
+  });
 });
 
-it('a check gets a fresh Cargo home: the index and only the downloads its lock pins, verified, and nothing else of the shared home (R-G13 review, operator decision 2026-09-29)', async () => {
-  const f = fixture();
-  const shared = join(f.root, 'shared-cargo');
-  const registry = 'index.crates.io-1949cf8c6b5b557f';
-  const put = (path: string, content: string) => {
-    mkdirSync(join(shared, path, '..'), { recursive: true });
-    writeFileSync(join(shared, path), content);
-  };
-  put(`registry/index/${registry}/config.json`, '{"dl":"https://static.crates.io/crates"}');
-  put(`registry/cache/${registry}/good-1.0.0.crate`, 'GENUINE GOOD');
-  // Rewritten after download: its bytes no longer match the lock.
-  put(`registry/cache/${registry}/bad-1.0.0.crate`, 'PLANTED');
-  put(`registry/cache/${registry}/unpinned-1.0.0.crate`, 'NOT IN THE LOCK');
-  // Extracted sources, configuration and credentials never come along.
-  put(`registry/src/${registry}/good-1.0.0/src/lib.rs`, 'PLANTED SOURCE');
-  put('config.toml', '[build]\nrustflags = ["--cfg", "planted"]\n');
-  put('credentials.toml', '[registry]\ntoken = "secret"\n');
-  put('git/checkouts/dep-1/abc/src/lib.rs', 'PLANTED CHECKOUT');
-  symlinkSync(f.m.workspacePath, join(shared, `registry/index/${registry}/linked`));
-  // Git dependencies: one database as fetched, one with an object rewritten after the fetch.
-  const gitDb = (name: string) => {
-    const source = join(f.root, `${name}-source`);
-    mkdirSync(source);
-    writeFileSync(join(source, 'lib.rs'), 'pub fn dep() {}\n');
-    expect(spawnSync(hostGit(), ['init', '-q', '-b', 'main'], { cwd: source }).status).toBe(0);
-    commitAll(source);
-    const db = join(shared, 'git/db', name);
-    expect(spawnSync(hostGit(), ['clone', '-q', '--bare', source, db]).status).toBe(0);
-    return db;
-  };
-  gitDb('dep-good');
-  const forged = gitDb('dep-forged');
-  const blob = spawnSync(hostGit(), ['rev-parse', 'HEAD:lib.rs'], {
-    cwd: forged,
-    encoding: 'utf8',
-  }).stdout.trim();
-  const object = join(forged, 'objects', blob.slice(0, 2), blob.slice(2));
-  chmodSync(object, 0o644);
-  writeFileSync(object, deflateSync(Buffer.from('blob 7\0forged\n')));
-  writeFileSync(
-    join(f.m.workspacePath, 'Cargo.lock'),
-    lockOf([
-      { name: 'good', version: '1.0.0', checksum: sha256('GENUINE GOOD') },
-      { name: 'bad', version: '1.0.0', checksum: sha256('GENUINE BAD') },
-    ]),
-  );
-  commitAll(f.m.workspacePath);
+/** Runs a ct-check that lists its Cargo home, with the shared home and authority given. */
+async function listCargoHome(
+  f: ReturnType<typeof fixture>,
+  shared: string,
+  crateChecksum?: ReturnType<typeof authority>,
+) {
   let output = '';
   const outcome = await executeCheck({
     tool: 'ct-check',
@@ -953,34 +923,159 @@ it('a check gets a fresh Cargo home: the index and only the downloads its lock p
     environment: { PATH: process.env.PATH ?? '/usr/bin', CARGO_HOME: shared },
     onOutput: (text) => (output += text),
     signal: new AbortController().signal,
+    ...(crateChecksum ? { crateChecksum } : {}),
+    cargoHomeDirectory: join(f.root, 'check-logs', 'cargo-home-0'),
   });
+  return { outcome, output, home: join(f.root, 'check-logs', 'cargo-home-0') };
+}
+
+it('a check gets a fresh Cargo home: the index and only the downloads whose published checksum they match, whichever lock names them, and nothing else of the shared home (R-G13 review, operator decisions 2026-09-29)', async () => {
+  const f = fixture();
+  const shared = join(f.root, 'shared-cargo');
+  const registry = 'index.crates.io-1949cf8c6b5b557f';
+  const put = (path: string, content: string) => {
+    mkdirSync(join(shared, path, '..'), { recursive: true });
+    writeFileSync(join(shared, path), content);
+  };
+  put(`registry/index/${registry}/config.json`, '{"dl":"https://static.crates.io/crates"}');
+  put(`registry/cache/${registry}/good-1.0.0.crate`, 'GENUINE GOOD');
+  // Rewritten after download: its bytes are not the published crate's.
+  put(`registry/cache/${registry}/bad-1.0.0.crate`, 'PLANTED');
+  // Planted with a lock of its own that claims the planted bytes (R-G13 review).
+  put(`registry/cache/${registry}/sub-1.0.0.crate`, 'PLANTED SUB');
+  put(`registry/cache/${registry}/unpinned-1.0.0.crate`, 'NOT IN ANY LOCK');
+  put(`registry/cache/${registry}/mystery-1.0.0.crate`, 'UNKNOWN TO THE AUTHORITY');
+  // Extracted sources, configuration and credentials never come along.
+  put(`registry/src/${registry}/good-1.0.0/src/lib.rs`, 'PLANTED SOURCE');
+  put('config.toml', '[build]\nrustflags = ["--cfg", "planted"]\n');
+  put('credentials.toml', '[registry]\ntoken = "secret"\n');
+  put('git/checkouts/dep-1/abc/src/lib.rs', 'PLANTED CHECKOUT');
+  symlinkSync(f.m.workspacePath, join(shared, `registry/index/${registry}/linked`));
+  // A FIFO in the index would block a copy that opens it for good (R-G13 review).
+  expect(spawnSync('mkfifo', [join(shared, `registry/index/${registry}/fifo`)]).status).toBe(0);
+  // Git dependencies: a database as fetched, one with an object rewritten after the fetch, and
+  // one no lock names.
+  const gitDb = (name: string) => {
+    const source = join(f.root, `${name}-source`);
+    mkdirSync(source);
+    writeFileSync(join(source, 'lib.rs'), `pub fn ${name.replace('-', '_')}() {}\n`);
+    expect(spawnSync(hostGit(), ['init', '-q', '-b', 'main'], { cwd: source }).status).toBe(0);
+    commitAll(source);
+    const db = join(shared, 'git/db', name);
+    expect(spawnSync(hostGit(), ['clone', '-q', '--bare', source, db]).status).toBe(0);
+    return {
+      db,
+      commit: spawnSync(hostGit(), ['rev-parse', 'HEAD'], {
+        cwd: db,
+        encoding: 'utf8',
+      }).stdout.trim(),
+    };
+  };
+  const good = gitDb('dep-good');
+  const forged = gitDb('dep-forged');
+  gitDb('dep-unlocked');
+  const blob = spawnSync(hostGit(), ['rev-parse', 'HEAD:lib.rs'], {
+    cwd: forged.db,
+    encoding: 'utf8',
+  }).stdout.trim();
+  const object = join(forged.db, 'objects', blob.slice(0, 2), blob.slice(2));
+  chmodSync(object, 0o644);
+  writeFileSync(object, deflateSync(Buffer.from('blob 7\0forged\n')));
+  writeFileSync(
+    join(f.m.workspacePath, 'Cargo.lock'),
+    lockOf([
+      { name: 'good', version: '1.0.0', checksum: sha256('GENUINE GOOD') },
+      { name: 'bad', version: '1.0.0', checksum: sha256('GENUINE BAD') },
+      { name: 'mystery', version: '1.0.0', checksum: sha256('UNKNOWN TO THE AUTHORITY') },
+      {
+        name: 'dep-good',
+        version: '0.1.0',
+        source: `git+https://example.invalid/good#${good.commit}`,
+      },
+      {
+        name: 'dep-forged',
+        version: '0.1.0',
+        source: `git+https://example.invalid/forged#${forged.commit}`,
+      },
+    ]),
+  );
+  mkdirSync(join(f.m.workspacePath, 'tests/fixtures/old'), { recursive: true });
+  writeFileSync(
+    join(f.m.workspacePath, 'tests/fixtures/old/Cargo.lock'),
+    lockOf([{ name: 'sub', version: '1.0.0', checksum: sha256('PLANTED SUB') }]),
+  );
+  commitAll(f.m.workspacePath);
+  const { outcome, output, home } = await listCargoHome(
+    f,
+    shared,
+    authority({
+      'good@1.0.0': sha256('GENUINE GOOD'),
+      'bad@1.0.0': sha256('GENUINE BAD'),
+      'sub@1.0.0': sha256('GENUINE SUB'),
+    }),
+  );
   expect(outcome.exitCode, output + outcome.diagnostic).toBe(0);
-  const home = join(f.root, 'daemon-private', 'cargo-home');
   expect(output).toContain(`home=${home}`);
   expect(output).toContain(`./registry/index/${registry}/config.json`);
   expect(output).toContain(`./registry/cache/${registry}/good-1.0.0.crate`);
   expect(output).toContain('./git/db/dep-good/HEAD');
-  expect(output).not.toContain('./git/db/dep-forged');
   for (const absent of [
-    'bad-1.0.0',
+    `./registry/cache/${registry}/bad`,
+    `./registry/cache/${registry}/sub`,
+    `./registry/cache/${registry}/mystery`,
     'unpinned',
     'registry/src',
     'config.toml',
     'credentials',
     'git/checkouts',
     'linked',
+    'fifo',
+    './git/db/dep-forged',
+    'dep-unlocked',
   ])
-    expect(output).not.toContain(
-      absent === 'bad-1.0.0' ? `./registry/cache/${registry}/bad` : absent,
-    );
-  expect(output).toContain(
-    `Left out of this check's Cargo home because they do not match the lock: ${registry}/bad-1.0.0.crate, git/db/dep-forged.`,
-  );
+    expect(output).not.toContain(absent);
+  for (const reason of [
+    `${registry}/bad-1.0.0.crate (does not match its published checksum)`,
+    `${registry}/sub-1.0.0.crate (does not match its published checksum)`,
+    'mystery-1.0.0.crate (its published checksum could not be learned)',
+    'git/db/dep-forged (its objects do not match their names)',
+  ])
+    expect(output).toContain(reason);
   // The check's home is gone once it ends; the shared home is untouched.
   expect(existsSync(home)).toBe(false);
   expect(readFileSync(join(shared, `registry/cache/${registry}/bad-1.0.0.crate`), 'utf8')).toBe(
     'PLANTED',
   );
+  // Without an authority, no registry crate reaches the check.
+  const none = await listCargoHome(f, shared);
+  expect(none.output).not.toContain('good-1.0.0.crate\n');
+  expect(none.output).toContain('good-1.0.0.crate (its published checksum could not be learned)');
+});
+
+it('reads only a regular file within its limit, never waiting on a FIFO or following a link (R-G13 review)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ct-read-regular-'));
+  roots.push(root);
+  writeFileSync(join(root, 'file'), 'content');
+  writeFileSync(join(root, 'large'), Buffer.alloc(2048));
+  symlinkSync(join(root, 'file'), join(root, 'link'));
+  // An agent can swap a file for a FIFO after it was listed; opening it must not wait.
+  expect(spawnSync('mkfifo', [join(root, 'fifo')]).status).toBe(0);
+  const started = Date.now();
+  expect(await readRegular(join(root, 'fifo'), 1024)).toBeUndefined();
+  expect(Date.now() - started).toBeLessThan(2000);
+  expect((await readRegular(join(root, 'file'), 1024))?.toString()).toBe('content');
+  expect(await readRegular(join(root, 'large'), 1024)).toBeUndefined();
+  expect(await readRegular(join(root, 'link'), 1024)).toBeUndefined();
+  expect(await readRegular(join(root, 'absent'), 1024)).toBeUndefined();
+}, 10_000);
+
+it('says so when the checked tree has no lock, since no registry crate can then be verified (R-G13 review)', async () => {
+  const f = fixture();
+  const shared = join(f.root, 'shared-cargo');
+  mkdirSync(join(shared, 'registry', 'index'), { recursive: true });
+  const { outcome, output } = await listCargoHome(f, shared, authority({}));
+  expect(outcome.exitCode).toBe(0);
+  expect(output).toContain('No Cargo.lock in the checked tree');
 });
 
 const cachedItoa = join(
@@ -988,7 +1083,7 @@ const cachedItoa = join(
   '.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/itoa-1.0.18.crate',
 );
 it.skipIf(!hostCargo || !existsSync(cachedItoa))(
-  'a planted dependency source in the shared Cargo home never builds, and a rewritten download is refused (R-G13 review)',
+  'a planted source, a rewritten download, or a lock and index rewritten to vouch for a planted crate never build in a check (R-G13 review)',
   { timeout: 120_000 },
   async () => {
     const f = fixture();
@@ -1002,6 +1097,8 @@ it.skipIf(!hostCargo || !existsSync(cachedItoa))(
       join(shared, 'registry/index'),
     ]);
     spawnSync('cp', [cachedItoa, join(shared, 'registry/cache', registry)]);
+    const published = sha256(readFileSync(cachedItoa));
+    const crateChecksum = authority({ 'itoa@1.0.18': published });
     writeFileSync(
       join(f.m.workspacePath, 'Cargo.toml'),
       '[package]\nname = "consumer"\nversion = "0.1.0"\nedition = "2021"\n[dependencies]\nitoa = "=1.0.18"\n',
@@ -1056,18 +1153,45 @@ it.skipIf(!hostCargo || !existsSync(cachedItoa))(
         },
         onOutput: (text) => (output += text),
         signal: new AbortController().signal,
+        crateChecksum,
+        cargoHomeDirectory: join(f.root, 'check-logs', 'cargo-home-0'),
       });
       return { outcome, output };
     };
     const planted = await build();
     expect(planted.outcome.exitCode, planted.output).toBe(0);
     expect(planted.output).not.toContain('PLANTED');
-    // A download rewritten after it was fetched is left out, and the offline build fails.
+    // A second check reuses the first's build outputs: its Cargo home has the same path.
+    const again = await build();
+    expect(again.outcome.exitCode, again.output).toBe(0);
+    expect(again.output).not.toContain('Compiling itoa');
+    // A crate replaced by planted bytes, and a lock and index rewritten to claim them.
     const crate = join(shared, 'registry/cache', registry, 'itoa-1.0.18.crate');
-    writeFileSync(crate, Buffer.concat([readFileSync(crate), Buffer.from('tampered')]));
-    const rewritten = await build();
-    expect(rewritten.outcome.exitCode).not.toBe(0);
-    expect(rewritten.output).toContain('do not match the lock');
+    const work = join(f.root, 'repack');
+    mkdirSync(work);
+    expect(spawnSync('tar', ['-xzf', crate, '-C', work]).status).toBe(0);
+    writeFileSync(
+      join(work, 'itoa-1.0.18/src/lib.rs'),
+      `${readFileSync(join(work, 'itoa-1.0.18/src/lib.rs'), 'utf8')}\ncompile_error!("PLANTED CRATE");\n`,
+    );
+    expect(spawnSync('tar', ['-czf', crate, '-C', work, 'itoa-1.0.18']).status).toBe(0);
+    const planted256 = sha256(readFileSync(crate));
+    const lock = join(f.m.workspacePath, 'Cargo.lock');
+    writeFileSync(lock, readFileSync(lock, 'utf8').replace(published, planted256));
+    const indexEntry = join(shared, 'registry/index', registry, '.cache/it/oa/itoa');
+    if (existsSync(indexEntry))
+      writeFileSync(
+        indexEntry,
+        Buffer.from(
+          readFileSync(indexEntry).toString('latin1').replaceAll(published, planted256),
+          'latin1',
+        ),
+      );
+    commitAll(f.m.workspacePath);
+    const vouched = await build();
+    expect(vouched.outcome.exitCode).not.toBe(0);
+    expect(vouched.output).not.toContain('PLANTED CRATE');
+    expect(vouched.output).toContain('itoa-1.0.18.crate (does not match its published checksum)');
   },
 );
 

@@ -27,7 +27,7 @@ export function claudeCodeArguments(request: AgentLaunchRequest): readonly strin
     '--strict-mcp-config',
     '--disable-slash-commands',
     '--settings',
-    JSON.stringify(claudeRunSettings()),
+    JSON.stringify(claudeRunSettings(request)),
   ];
   args.push(
     ...(request.readOnly
@@ -58,9 +58,42 @@ export function claudeCodeArguments(request: AgentLaunchRequest): readonly strin
   return args;
 }
 
-/** Settings every supervised Claude run gets on top of the repository's own. */
-function claudeRunSettings(): Record<string, unknown> {
-  return { autoMemoryEnabled: false };
+/**
+ * Hosts a sandboxed run may reach, to download the dependencies its checks need: Cargo's
+ * registry, npm's, and GitHub for git dependencies (R-G5). Everything else is refused.
+ */
+export const SANDBOX_ALLOWED_DOMAINS = [
+  'crates.io',
+  'index.crates.io',
+  'static.crates.io',
+  'registry.npmjs.org',
+  'github.com',
+  'codeload.github.com',
+  'objects.githubusercontent.com',
+] as const;
+
+/**
+ * Settings every supervised Claude run gets on top of the repository's own. Except with the
+ * unrestricted posture, Bash runs in Claude Code's OS sandbox (R-G5, SEC-02c): it may write
+ * only the worktree, the run's directories and its scratch space, reach only loopback and the
+ * dependency hosts, and use no Unix socket. The run does not start without the sandbox, and a
+ * command may not ask to leave it.
+ */
+function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown> {
+  return {
+    autoMemoryEnabled: false,
+    ...(request.permissionMode === 'unrestricted' && !request.readOnly
+      ? {}
+      : {
+          sandbox: {
+            enabled: true,
+            failIfUnavailable: true,
+            allowUnsandboxedCommands: false,
+            autoAllowBashIfSandboxed: true,
+            network: { allowLocalBinding: true, allowedDomains: [...SANDBOX_ALLOWED_DOMAINS] },
+          },
+        }),
+  };
 }
 
 function permissionArguments(mode: AgentPermissionMode): readonly string[] {

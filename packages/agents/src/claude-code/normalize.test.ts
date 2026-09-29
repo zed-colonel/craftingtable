@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { claudeCodeArguments, claudeUserMessageLine } from './arguments.js';
+import {
+  claudeCodeArguments,
+  SANDBOX_ALLOWED_DOMAINS,
+  claudeUserMessageLine,
+} from './arguments.js';
 import { ClaudeStreamNormalizer, summarizeToolCall, TOOL_RESULT_LIMIT_BYTES } from './normalize.js';
 
 const fixturePath = fileURLToPath(new URL('../../fixtures/claude-stream.jsonl', import.meta.url));
@@ -38,7 +42,16 @@ describe('claudeCodeArguments', () => {
       '--strict-mcp-config',
       '--disable-slash-commands',
       '--settings',
-      '{"autoMemoryEnabled":false}',
+      JSON.stringify({
+        autoMemoryEnabled: false,
+        sandbox: {
+          enabled: true,
+          failIfUnavailable: true,
+          allowUnsandboxedCommands: false,
+          autoAllowBashIfSandboxed: true,
+          network: { allowLocalBinding: true, allowedDomains: [...SANDBOX_ALLOWED_DOMAINS] },
+        },
+      }),
       '--permission-mode',
       'auto',
       '--model',

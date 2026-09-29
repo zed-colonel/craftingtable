@@ -44,3 +44,42 @@ it("passes the profile's reasoning effort rather than the operator's default (R-
     claudeCodeArguments({ cwd: '/work/x', prompt: 'Go', permissionMode: 'auto' }),
   ).not.toContain('--effort');
 });
+
+it('confines Bash in the OS sandbox on every posture but unrestricted, with no way out (R-G5, SEC-02)', () => {
+  const settings = (request: Partial<Parameters<typeof claudeCodeArguments>[0]>) => {
+    const args = claudeCodeArguments({
+      cwd: '/work/x',
+      prompt: 'Go',
+      permissionMode: 'auto',
+      ...request,
+    });
+    return JSON.parse(args[args.indexOf('--settings') + 1]!) as {
+      sandbox?: {
+        enabled: boolean;
+        failIfUnavailable: boolean;
+        allowUnsandboxedCommands: boolean;
+        network: {
+          allowLocalBinding: boolean;
+          allowedDomains: string[];
+          allowUnixSockets?: string[];
+        };
+      };
+    };
+  };
+  for (const request of [
+    { permissionMode: 'auto' as const },
+    { permissionMode: 'edit-only' as const },
+    { permissionMode: 'unrestricted' as const, readOnly: true },
+  ]) {
+    const sandbox = settings(request).sandbox!;
+    expect(sandbox).toMatchObject({
+      enabled: true,
+      failIfUnavailable: true,
+      allowUnsandboxedCommands: false,
+      network: { allowLocalBinding: true },
+    });
+    expect(sandbox.network.allowedDomains).toContain('static.crates.io');
+    expect(sandbox.network.allowUnixSockets ?? []).toEqual([]);
+  }
+  expect(settings({ permissionMode: 'unrestricted' }).sandbox).toBeUndefined();
+});

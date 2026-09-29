@@ -1672,6 +1672,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Tests.** `packages/git`, "daemon Git runs no repository hooks…": with hooks and fsmonitor configured in the repository, and a global configuration naming an fsmonitor, a checkpoint commit, worktree creation, a merge and an inspection run none of them. It fails without the change.
     - The GIT-01 timeout tests relied on hooks. They now slow the merge with a signing program (after `MERGE_HEAD`) or a merge driver (before it). For the driver case the check is on tracked state, because a killed driver leaves temporary files and recovery keeps unknown files.
     - Test fixture repositories name their own committer, as the live ones do.
+- **Increment 5 (2026-09-28): Claude runs' Bash in the OS sandbox** (SEC-02c).
+  - Every posture except unrestricted passes Claude Code's sandbox settings: enabled, `failIfUnavailable` (a run does not start without it), `allowUnsandboxedCommands: false` (no command may leave it), loopback binding for tests, and network only to the dependency hosts (`SANDBOX_ALLOWED_DOMAINS`: Cargo, npm, GitHub).
+  - Writes are limited to the worktree, the run's `--add-dir` directories (run directory, R-G7 cache) and its TMPDIR. Commits in a managed worktree still work.
+  - Edit and Write stay under the permission posture, as before; the sandbox covers Bash.
+  - The host needs bubblewrap and socat; this workstation has both.
+  - **Live check** (the real CLI through the adapter, `auto` posture, a managed worktree): a write to HOME gets "Read-only file system"; `git commit` succeeds; `curl https://example.com` gets "CONNECT tunnel failed, 403"; `static.crates.io` is reached.
+  - **Test.** `arguments.test.ts`: auto, edit-only and read-only carry the sandbox with no way out and no Unix sockets; unrestricted has none. It fails without the change.
+  - **Consequence:** a Claude run can no longer reach other hosts from Bash. Adding one means changing `SANDBOX_ALLOWED_DOMAINS`.
 
 ### R-G6
 

@@ -105,8 +105,11 @@ context, and every diff passes `--no-ext-diff --no-textconv`. It starts from nam
 daemon-written file holding the operator's `user.name` and `user.email`
 (`<data>/git-identity.gitconfig`): the operator's aliases, rerere and diff settings do not apply.
 A repository's own configuration still does, including its identity, merge drivers, signing
-program and filters. A sandboxed Codex agent cannot write it; an agent without an OS sandbox can,
-which the Claude sandbox increment addresses. Checks the daemon runs on a worktree use the git
+program and filters. A sandboxed agent cannot write it: Codex runs use Codex's sandbox, and since
+R-G5 Claude runs' Bash runs in Claude Code's OS sandbox (every posture but unrestricted), writing
+only the worktree, the run's directories and its scratch space, reaching only loopback and the
+dependency hosts, with no Unix sockets and no way to leave it. Claude's Edit and Write tools stay
+under the permission posture. Checks the daemon runs on a worktree use the git
 directory it resolved before the agent started, never the worktree's `.git` pointer (R-G4).
 
 ## Untrusted input

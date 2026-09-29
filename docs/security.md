@@ -107,9 +107,11 @@ daemon-written file holding the operator's `user.name` and `user.email`
 A repository's own configuration still does, including its identity, merge drivers, signing
 program and filters. A sandboxed agent cannot write it: Codex runs use Codex's sandbox, and since
 R-G5 Claude runs' Bash runs in Claude Code's OS sandbox (every posture but unrestricted), writing
-only the worktree, the run's directories and its scratch space, reaching only loopback and the
-dependency hosts, with no Unix sockets and no way to leave it. Claude's Edit and Write tools stay
-under the permission posture. Checks the daemon runs on a worktree use the git
+only the worktree, the run's directories and its scratch space, reaching nothing but loopback (an
+empty, strict allowlist), unable to read the user's runtime directory (the rootless Docker socket
+and session bus), system Docker sockets or the operator's credentials, and with no way to leave
+it. Claude loads no settings file from any scope, not even the repository's, so a worktree cannot
+widen its sandbox or add hooks. Claude's Edit and Write tools stay under the permission posture. Checks the daemon runs on a worktree use the git
 directory it resolved before the agent started, never the worktree's `.git` pointer (R-G4).
 The daemon also records a run's repository's branch heads when it starts and compares them when it
 ends (R-G5, SEC-02d): a branch no managed worktree owns that moved, and that none of the daemon's

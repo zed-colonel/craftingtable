@@ -1690,7 +1690,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - The host needs bubblewrap and socat; this workstation has both.
   - **Live check** (the real CLI through the adapter, `auto` posture, a managed worktree): a write to HOME gets "Read-only file system"; `git commit` succeeds; `curl https://example.com` gets "CONNECT tunnel failed, 403"; `static.crates.io` is reached.
   - **Test.** `arguments.test.ts`: auto, edit-only and read-only carry the sandbox with no way out and no Unix sockets; unrestricted has none. It fails without the change.
-  - **Consequence:** a Claude run can no longer reach other hosts from Bash. Adding one means changing `SANDBOX_ALLOWED_DOMAINS`.
+  - **Consequence:** a Claude run can no longer reach other hosts from Bash. After the review, it reaches no host at all (see below).
 - **Increment 6 (2026-09-28): protected-ref snapshots** (SEC-02d; schema 34 adds one audit action).
   - Before each run the daemon records its repository's branch heads (`branchHeads`, `services/ref-watch.ts`). When the run ends it compares every branch no managed worktree owns: main, integration branches, the operator's own.
   - A branch that moved counts as the daemon's if one of its own Git operations during the run left it at that commit. Every daemon operation that can move a branch records the heads it left behind (`RefWatch.wrap` around the daemon's Git).
@@ -1700,6 +1700,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Tests.**
     - `ref-watch.test.ts`: a daemon merge into the integration branch and a run's own branch move are not flagged; a main moved and an integration branch deleted outside the daemon are.
     - `server-execution-runs.test.ts`: `main` moved by `git update-ref` during a live run is audited against the run, with the move, and noted in its journal. Skipping the check fails it.
+- **Independent review of R-G5 (2026-09-28).** An adversarial reviewer in an isolated worktree reviewed 7b5751a..29d3524. It replayed all five snapshots in all three modes (0 changed) and ran the tests. Much of what it found is about increment 5, whose guarantees were weaker on this workstation than recorded.
+  - *HIGH, fixed:* the sandbox did not block Unix sockets, so the rootless Docker socket in `/run/user/<uid>` was reachable from sandboxed Bash, and through it a container with the operator's HOME mounted. Claude Code blocks sockets only with its optional seccomp helper, which this host lacks, and it runs without it after a warning. Sandboxed Bash may now not read `/run/user/<uid>` or the system Docker sockets.
+  - *MEDIUM, fixed (three findings):*
+    - the auto posture let each command name more hosts, because the allowlist was not strict;
+    - the allowed GitHub host plus readable credentials made an exfiltration or push channel;
+    - the dependency hosts were useless anyway, because Cargo's and npm's caches are not writable in the sandbox.
+    
+    The network is now empty and strict (loopback only), and sandboxed Bash may not read `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.docker`, `~/.config/gh`, `~/.git-credentials`, `~/.codex` or Claude's credentials. Dependencies come through the daemon's checks or are fetched beforehand, as for Codex runs.
+  - *MEDIUM, fixed:* project and local settings came from a worktree the agent can write, and they can widen the sandbox (`excludedCommands`, `allowWrite`) or add hooks that run outside it. Claude runs now load no settings file from any scope (`--setting-sources ''`); the repository's CLAUDE.md still applies. No live repository tracks Claude settings; their primary checkouts hold only the operator's untracked `settings.local.json`.
+  - *LOW, fixed:* `autoAllowBashIfSandboxed` had changed edit-only's meaning, auto-approving any sandboxed command. It is now set only for the auto posture.
+  - **Live check** (the real CLI through the adapter, auto): the Docker socket gets "Could not connect to server"; `ls ~/.ssh` shows nothing; `static.crates.io` gets "not on allow list"; a managed-worktree commit succeeds.
+  - **Tests.** `arguments.test.ts`: no setting sources; the empty strict network; the denied reads; auto-approval only in auto. Each fails without its change.
 - **Status (2026-09-28): code complete (increments 1 to 6), awaiting independent review.** Done-when evidence:
   - a run's environment holds only allowlisted variables (increment 1's test);
   - supervised Claude runs load no operator skills, plugins, MCP servers or memory (increment 2's live check); Codex runs load none of the operator's (increment 3's live check).

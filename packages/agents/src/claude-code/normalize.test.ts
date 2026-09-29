@@ -1,11 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import {
-  claudeCodeArguments,
-  SANDBOX_ALLOWED_DOMAINS,
-  claudeUserMessageLine,
-} from './arguments.js';
+import { claudeCodeArguments, claudeUserMessageLine } from './arguments.js';
 import { ClaudeStreamNormalizer, summarizeToolCall, TOOL_RESULT_LIMIT_BYTES } from './normalize.js';
 
 const fixturePath = fileURLToPath(new URL('../../fixtures/claude-stream.jsonl', import.meta.url));
@@ -38,7 +34,7 @@ describe('claudeCodeArguments', () => {
       '--permission-prompts',
       'none',
       '--setting-sources',
-      'project,local',
+      '',
       '--strict-mcp-config',
       '--disable-slash-commands',
       '--settings',
@@ -49,7 +45,22 @@ describe('claudeCodeArguments', () => {
           failIfUnavailable: true,
           allowUnsandboxedCommands: false,
           autoAllowBashIfSandboxed: true,
-          network: { allowLocalBinding: true, allowedDomains: [...SANDBOX_ALLOWED_DOMAINS] },
+          filesystem: {
+            denyRead: [
+              `/run/user/${process.getuid?.()}`,
+              '/var/run/docker.sock',
+              '/run/docker.sock',
+              '~/.ssh',
+              '~/.gnupg',
+              '~/.aws',
+              '~/.docker',
+              '~/.config/gh',
+              '~/.git-credentials',
+              '~/.codex',
+              '~/.claude/.credentials.json',
+            ],
+          },
+          network: { allowLocalBinding: true, strictAllowlist: true, allowedDomains: [] },
         },
       }),
       '--permission-mode',

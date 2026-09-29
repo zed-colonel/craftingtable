@@ -22,7 +22,7 @@ it("never loads the operator's settings, plugins, skills, MCP servers or memory,
     { permissionMode: 'auto' as const, readOnly: true },
   ]) {
     const args = claudeCodeArguments({ cwd: '/work/x', prompt: 'Go', ...request });
-    expect(args[args.indexOf('--setting-sources') + 1]).toBe('project,local');
+    expect(args[args.indexOf('--setting-sources') + 1]).toBe('');
     expect(args).toContain('--strict-mcp-config');
     expect(args).toContain('--disable-slash-commands');
     expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toMatchObject({
@@ -43,6 +43,36 @@ it("passes the profile's reasoning effort rather than the operator's default (R-
   expect(
     claudeCodeArguments({ cwd: '/work/x', prompt: 'Go', permissionMode: 'auto' }),
   ).not.toContain('--effort');
+});
+
+it("reads no settings file from any scope, not even the repository's (R-G5 review, AGT-14)", () => {
+  const args = claudeCodeArguments({ cwd: '/work/x', prompt: 'Go', permissionMode: 'auto' });
+  expect(args[args.indexOf('--setting-sources') + 1]).toBe('');
+});
+
+it("keeps the sandbox off the network, the Docker socket and the operator's credentials (R-G5 review)", () => {
+  const settings = (permissionMode: 'auto' | 'edit-only') => {
+    const args = claudeCodeArguments({ cwd: '/work/x', prompt: 'Go', permissionMode });
+    return JSON.parse(args[args.indexOf('--settings') + 1]!).sandbox;
+  };
+  const sandbox = settings('auto');
+  expect(sandbox.network).toEqual({
+    allowLocalBinding: true,
+    strictAllowlist: true,
+    allowedDomains: [],
+  });
+  expect(sandbox.filesystem.denyRead).toEqual(
+    expect.arrayContaining([
+      `/run/user/${process.getuid?.()}`,
+      '/var/run/docker.sock',
+      '~/.ssh',
+      '~/.codex',
+      '~/.claude/.credentials.json',
+    ]),
+  );
+  // Sandboxed Bash runs without asking only in the auto posture; edit-only keeps asking.
+  expect(sandbox.autoAllowBashIfSandboxed).toBe(true);
+  expect(settings('edit-only').autoAllowBashIfSandboxed).toBe(false);
 });
 
 it('confines Bash in the OS sandbox on every posture but unrestricted, with no way out (R-G5, SEC-02)', () => {
@@ -78,7 +108,6 @@ it('confines Bash in the OS sandbox on every posture but unrestricted, with no w
       allowUnsandboxedCommands: false,
       network: { allowLocalBinding: true },
     });
-    expect(sandbox.network.allowedDomains).toContain('static.crates.io');
     expect(sandbox.network.allowUnixSockets ?? []).toEqual([]);
   }
   expect(settings({ permissionMode: 'unrestricted' }).sandbox).toBeUndefined();

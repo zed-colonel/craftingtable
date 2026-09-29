@@ -19,11 +19,12 @@ export function claudeCodeArguments(request: AgentLaunchRequest): readonly strin
     '--verbose',
     '--permission-prompts',
     'none',
-    // Never the operator's own configuration (R-G5, AGT-14): only the repository's settings, no
-    // MCP servers, no skills or plugins, no auto-memory. The repository's own `.claude`
-    // settings and CLAUDE.md still apply; the repository declares them.
+    // Never the operator's own configuration (R-G5, AGT-14): no settings file from any scope, no
+    // MCP servers, no skills or plugins, no auto-memory. Not the repository's settings either: an
+    // agent can rewrite them in its worktree, and they could widen the sandbox or add hooks that
+    // run outside it (R-G5 review). CLAUDE.md still applies.
     '--setting-sources',
-    'project,local',
+    '',
     '--strict-mcp-config',
     '--disable-slash-commands',
     '--settings',
@@ -59,25 +60,36 @@ export function claudeCodeArguments(request: AgentLaunchRequest): readonly strin
 }
 
 /**
- * Hosts a sandboxed run may reach, to download the dependencies its checks need: Cargo's
- * registry, npm's, and GitHub for git dependencies (R-G5). Everything else is refused.
+ * What sandboxed Bash may not read (R-G5 review): the user's runtime directory, which holds the
+ * rootless Docker socket and the session bus (Unix sockets are not otherwise blocked where
+ * Claude Code's seccomp helper is absent), system Docker sockets, and the operator's
+ * credentials. Claude itself still reads its own login; only the agent's commands are denied.
  */
-export const SANDBOX_ALLOWED_DOMAINS = [
-  'crates.io',
-  'index.crates.io',
-  'static.crates.io',
-  'registry.npmjs.org',
-  'github.com',
-  'codeload.github.com',
-  'objects.githubusercontent.com',
-] as const;
+function sandboxDeniedReads(): string[] {
+  const uid = process.getuid?.();
+  return [
+    ...(uid === undefined ? [] : [`/run/user/${uid}`]),
+    '/var/run/docker.sock',
+    '/run/docker.sock',
+    '~/.ssh',
+    '~/.gnupg',
+    '~/.aws',
+    '~/.docker',
+    '~/.config/gh',
+    '~/.git-credentials',
+    '~/.codex',
+    '~/.claude/.credentials.json',
+  ];
+}
 
 /**
- * Settings every supervised Claude run gets on top of the repository's own. Except with the
- * unrestricted posture, Bash runs in Claude Code's OS sandbox (R-G5, SEC-02c): it may write
- * only the worktree, the run's directories and its scratch space, reach only loopback and the
- * dependency hosts, and use no Unix socket. The run does not start without the sandbox, and a
- * command may not ask to leave it.
+ * Settings every supervised Claude run gets. Except with the unrestricted posture, Bash runs in
+ * Claude Code's OS sandbox (R-G5, SEC-02c): it may write only the worktree, the run's
+ * directories and its scratch space; it reaches no network but loopback, and no command may
+ * name more hosts (a strict allowlist that is empty); it cannot read the Docker socket or the
+ * operator's credentials. The run does not start without the sandbox, and a command may not
+ * ask to leave it. Sandboxed commands run without asking only in the auto posture; edit-only
+ * keeps its approval rule for commands.
  */
 function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown> {
   return {
@@ -89,8 +101,9 @@ function claudeRunSettings(request: AgentLaunchRequest): Record<string, unknown>
             enabled: true,
             failIfUnavailable: true,
             allowUnsandboxedCommands: false,
-            autoAllowBashIfSandboxed: true,
-            network: { allowLocalBinding: true, allowedDomains: [...SANDBOX_ALLOWED_DOMAINS] },
+            autoAllowBashIfSandboxed: request.permissionMode === 'auto' && !request.readOnly,
+            filesystem: { denyRead: sandboxDeniedReads() },
+            network: { allowLocalBinding: true, strictAllowlist: true, allowedDomains: [] },
           },
         }),
   };

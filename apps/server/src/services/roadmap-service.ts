@@ -1461,8 +1461,13 @@ export class RoadmapService {
    */
   private resumable(cycle: WorkCycle): boolean {
     // Unsettled shared decisions hold the stop, paused or not; resuming would review into it
-    // again (LIVE-18).
-    if (unsettledDecisionsAt(this.storage, cycle).length) return false;
+    // again (LIVE-18). A report with open questions waits for guidance, not a resume.
+    if (
+      unsettledDecisionsAt(this.storage, cycle).length ||
+      (['paused', 'needs-attention'].includes(cycle.status) &&
+        this.cycles.resumeNeedsGuidance(cycle))
+    )
+      return false;
     return (
       cycle.status !== 'needs-attention' ||
       resumeRedirect(

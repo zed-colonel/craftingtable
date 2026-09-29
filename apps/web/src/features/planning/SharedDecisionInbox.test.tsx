@@ -419,3 +419,112 @@ it('gives a decision a stopped slice waits on a card and a one-step brief before
     instructions: '',
   });
 });
+
+const accepted = (record: typeof decisionRecord) => ({
+  ...record,
+  decision: {
+    id: 'approval',
+    workspaceId: asWorkspaceId('ws'),
+    submissionId: record.id,
+    outcome: 'accepted' as const,
+    rationale: 'Approved.',
+    decidedAt: '2026-09-20T00:00:00Z',
+    decidedByUserId: asUserId('owner'),
+  },
+});
+const preparations = (version: () => number, status?: string) =>
+  vi.mocked(request).mockImplementation(async (path: string, _s: unknown, init?: RequestInit) => {
+    if (path.endsWith('/decision-preparations'))
+      return {
+        version: version(),
+        status: 'paused',
+        decisions: [
+          {
+            id: 'EXO-ADR-037',
+            title: 'Instance design',
+            profile: { backend: 'codex' },
+            ...(status
+              ? {
+                  latest: {
+                    runId: '00000000-0000-4000-8000-00000000000a',
+                    status,
+                    summary: '',
+                    createdAt: '2026-09-29T00:00:00Z',
+                  },
+                }
+              : {}),
+          },
+        ],
+      };
+    if (path.endsWith('/prepare-decision')) {
+      const body = JSON.parse(String(init?.body));
+      if (body.expectedVersion !== version())
+        throw new Error('Roadmap changed. Refresh before preparing a decision.');
+      return body;
+    }
+    throw new Error(`unexpected ${path}`);
+  });
+const stoppedCard = (records: (typeof decisionRecord)[], withRecommendation = false) => {
+  const card = {
+    ...decisionInbox.decisions[0]!,
+    checkpointId: 'EXO-ADR-037',
+    title: 'Instance design',
+    stoppedSlices: ['exo/EXO-18/instance-design'],
+    records,
+  };
+  if (!withRecommendation) delete (card as { recommendation?: unknown }).recommendation;
+  else card.recommendation = { ...card.recommendation!, brief: undefined } as never;
+  return { ...decisionInbox, decisions: [card] };
+};
+const renderStopped = (data: ArchitectureDecisionInbox) =>
+  render(
+    <SharedDecisionInbox
+      data={data}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={() => undefined}
+      preparation={{ workspaceId: asWorkspaceId('ws'), roadmapId: 'roadmap-1' }}
+    />,
+  );
+
+it('does not call a decision settled for a stopped slice by another slice’s clause approval (LIVE-18 review)', async () => {
+  preparations(() => 3);
+  const otherSlice = accepted({
+    ...decisionRecord,
+    proposal: {
+      ...decisionRecord.proposal,
+      coverage: 'clauses',
+      consumers: [{ sliceId: 'exo/EXO-03/domain', phase: 'merge', replacesFullCheckpoint: true }],
+    },
+  });
+  renderStopped(stoppedCard([otherSlice]));
+  const region = screen.getByRole('region', { name: 'EXO-ADR-037' });
+  expect(within(region).getByText('Needed now by exo/EXO-18/instance-design.')).toBeTruthy();
+  expect(within(region).queryByText(/^Accepted/)).toBeNull();
+  expect(within(region).getByRole('button', { name: 'Prepare decision brief' })).toBeTruthy();
+});
+
+it('offers a brief when a reviewer asked for the decision but none was written (LIVE-18 review)', () => {
+  preparations(() => 3);
+  renderStopped(stoppedCard([], true));
+  expect(screen.getByRole('button', { name: 'Prepare decision brief' })).toBeTruthy();
+});
+
+it('prepares against the roadmap as it is when clicked, and waits while one is in flight (LIVE-18 review)', async () => {
+  // Another card's preparation moved the roadmap's version after this card loaded.
+  let version = 3;
+  preparations(() => version);
+  renderStopped(stoppedCard([]));
+  const prepare = screen.getByRole('button', { name: 'Prepare decision brief' });
+  await waitFor(() => expect((prepare as HTMLButtonElement).disabled).toBe(false));
+  version = 4;
+  fireEvent.click(prepare);
+  await waitFor(() => expect(screen.getByText(/Preparation started/)).toBeTruthy());
+  cleanup();
+  preparations(() => 4, 'running');
+  renderStopped(stoppedCard([]));
+  await screen.findByText('Preparing · running');
+  expect(
+    (screen.getByRole('button', { name: 'Prepare decision brief' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});

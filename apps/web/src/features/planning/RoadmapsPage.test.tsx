@@ -201,6 +201,43 @@ it('puts every setup panel on the setup page once, after an ordered checklist', 
   expect(MapAmendmentPanel).not.toHaveBeenCalled();
 });
 
+it("gives a single-project roadmap of one map's slices that map's decisions on its setup (LIVE-18 review)", async () => {
+  const slices = roadmap('r-slices', 'Slice roadmap', 'paused');
+  const entry = slices.roadmap.definition.entries[0]!;
+  const withScope = {
+    ...slices,
+    roadmap: {
+      ...slices.roadmap,
+      definition: {
+        ...slices.roadmap.definition,
+        entries: [
+          {
+            ...entry,
+            executionScope: {
+              kind: 'slice',
+              definitionId: 'def-9',
+              bindingRevision: 2,
+              sourceId: 'wi/WI-01/domain',
+            },
+          },
+        ],
+      },
+    },
+  } as unknown as RoadmapView;
+  vi.mocked(loadRoadmaps).mockResolvedValue({ roadmaps: [withScope] } as never);
+  render(<RoadmapPage {...common} roadmapId="r-slices" tab="setup" />);
+  expect(
+    await screen.findAllByRole('region', { name: 'Dependency environments and evidence' }),
+  ).toHaveLength(1);
+  expect(vi.mocked(RuntimeEvidencePanel).mock.calls[0]?.[0]).toMatchObject({
+    panelId: 'runtime-evidence-roadmap-r-slices',
+    definitionId: 'def-9',
+    bindingRevision: 2,
+    roadmapId: 'r-slices',
+  });
+  expect(CrossProjectPanel).not.toHaveBeenCalled();
+});
+
 it('loads revisions and amendments on the history page', async () => {
   render(<RoadmapPage {...common} roadmapId="r-active" tab="history" />);
   const revisions = await screen.findByRole('region', { name: 'Saved revisions' });

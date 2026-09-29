@@ -130,25 +130,46 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
   };
 }
 /**
- * The shared architecture decisions a slice's merge still needs (LIVE-18): each one neither
- * accepted in full on the binding nor settled by an approved clause-level decision naming this
- * slice. It is the rule the merge gate and the workflow already use, so the stop, the resume
- * refusal and the gate cannot disagree.
+ * The shared architecture decisions a slice's merge still waits on the operator for (LIVE-18):
+ * each one neither accepted in full on the binding nor settled by an approved clause-level
+ * decision naming this slice (the workflow's rule, which the merge gate shares for decisions).
+ * A decision whose prerequisite is a checkpoint this slice's own workflow review produces is
+ * left out: it cannot be approved until that review runs, so holding the resume for it would
+ * leave only Stop (LIVE-18 review).
  */
 export function unsettledMergeDecisions(tx: StorageRepositories, cycle: WorkCycle): string[] {
-  return (
-    workflowContext(tx, cycle)
-      ?.checkpoints.filter((c) => c.sharedDecision && !c.accepted)
-      .map((c) => c.id) ?? []
+  const context = workflowContext(tx, cycle);
+  if (!context) return [];
+  const produced = new Set(
+    context.checkpoints.filter((c) => !c.sharedDecision && !c.accepted).map((c) => c.id),
   );
+  const definition = tx.imports.definition(cycle.workspaceId, context.definitionId);
+  return context.checkpoints
+    .filter((c) => c.sharedDecision && !c.accepted)
+    .filter(
+      (c) =>
+        !c.pending.length ||
+        !definition ||
+        !prerequisiteEvaluation(tx, definition, context.bindingRevision, {
+          kind: 'checkpoint',
+          sourceId: c.id,
+        }).gaps.some((gap) => gap.checkpointId !== undefined && produced.has(gap.checkpointId)),
+    )
+    .map((c) => c.id);
 }
 /**
  * The decisions a cycle stopped at `shared-decision-required` still waits on; none for any other
- * stop. A pause taken at the stop keeps its code.
+ * stop. A pause taken at the stop keeps its code. A scope that no longer resolves has none: the
+ * stop's own controls say what is wrong, and every reader of this list keeps working.
  */
 export function unsettledDecisionsAt(tx: StorageRepositories, cycle: WorkCycle): string[] {
   const stop = cycle.status === 'paused' ? cycle.attention : effectiveCycleAttention(cycle);
-  return stop?.code === 'shared-decision-required' ? unsettledMergeDecisions(tx, cycle) : [];
+  if (stop?.code !== 'shared-decision-required') return [];
+  try {
+    return unsettledMergeDecisions(tx, cycle);
+  } catch {
+    return [];
+  }
 }
 /** A specialist receipt follows the candidate, policy and consumed dependency inputs. */
 export function securityReviewCurrent(tx: StorageRepositories, cycle: WorkCycle, review: AgentRun) {

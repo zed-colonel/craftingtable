@@ -38,8 +38,7 @@ export function SharedDecisionInbox({
   preparation?: Preparation;
 }) {
   if (!data.decisions.length) return null;
-  const accepted = (c: Card) =>
-    c.records.some((r) => r.applicable && !r.issues.length && r.decision?.outcome === 'accepted');
+  const accepted = (c: Card) => c.records.some((r) => settles(c, r));
   return (
     <Section
       title="Shared architecture decisions"
@@ -76,6 +75,24 @@ export function SharedDecisionInbox({
           />
         ))}
     </Section>
+  );
+}
+
+/**
+ * An accepted record that settles the decision. For a card that slices are stopped on, it must
+ * cover each of them, in full or by naming it: another slice's clause approval leaves them
+ * waiting (LIVE-18 review), as the daemon's rule does.
+ */
+function settles(card: Card, record: Card['records'][number]): boolean {
+  return (
+    record.applicable &&
+    !record.issues.length &&
+    record.decision?.outcome === 'accepted' &&
+    (!card.stoppedSlices?.length ||
+      record.proposal.coverage === 'full' ||
+      card.stoppedSlices.every((slice) =>
+        record.proposal.consumers.some((consumer) => consumer.sliceId === slice),
+      ))
   );
 }
 
@@ -207,9 +224,7 @@ function DecisionCard({
   const [reviewed, setReviewed] = useState(false);
   const recommendation = card.recommendation;
   const brief = recommendation?.brief;
-  const current = card.records.filter(
-    (r) => r.applicable && !r.issues.length && r.decision?.outcome === 'accepted',
-  );
+  const current = card.records.filter((r) => settles(card, r));
   const accepted = current.find((r) => r.proposal.coverage === 'full') ?? current[0];
   const fullApproval = accepted?.proposal.coverage === 'full';
   const pending = saved ?? card.records.find((r) => !r.decision && !r.issues.length);
@@ -317,7 +332,7 @@ function DecisionCard({
       {!accepted && card.stoppedSlices?.length ? (
         <p role="status">Needed now by {card.stoppedSlices.join(', ')}.</p>
       ) : null}
-      {!accepted && !pending && !recommendation && preparation && (
+      {!accepted && !pending && !brief && preparation && (
         <PrepareDecisionBrief
           preparation={preparation}
           checkpointId={card.checkpointId}
@@ -746,15 +761,17 @@ function PrepareDecisionBrief({
   const inFlight =
     !!latest && ['preparing', 'starting', 'running', 'waiting'].includes(latest.status);
   const prepare = async () => {
-    if (!settings || !decision) return;
+    if (!decision) return;
     setBusy(true);
     setMessage('');
     try {
+      // Another card's preparation moves the roadmap's version: read it as it is now.
+      const now = await request(`${base}/decision-preparations`, decisionPreparationSettingsSchema);
       await request(`${base}/prepare-decision`, roadmapViewSchema, {
         method: 'POST',
         headers: { 'x-craftingtable-csrf': csrfToken },
         body: JSON.stringify({
-          expectedVersion: settings.version,
+          expectedVersion: now.version,
           checkpointId,
           profile: decision.profile,
           minutes: 30,
@@ -765,6 +782,7 @@ function PrepareDecisionBrief({
       await load();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Could not prepare the brief.');
+      await load();
     } finally {
       setBusy(false);
     }

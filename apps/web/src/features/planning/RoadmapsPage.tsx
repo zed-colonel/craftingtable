@@ -907,6 +907,22 @@ export function RoadmapPage({
       </Link>
     );
   const runtimePanelId = `runtime-evidence-roadmap-${roadmap.id}`;
+  // A single-project roadmap whose slices all come from one map revision.
+  const scopes = [
+    ...new Map(
+      roadmap.definition.entries.flatMap((e) =>
+        e.executionScope
+          ? [
+              [
+                `${e.executionScope.definitionId}:${e.executionScope.bindingRevision}`,
+                e.executionScope,
+              ] as const,
+            ]
+          : [],
+      ),
+    ).values(),
+  ];
+  const mapScope = !crossProject && scopes.length === 1 ? scopes[0] : undefined;
 
   const board = (
     <>
@@ -1349,10 +1365,27 @@ export function RoadmapPage({
       />
     </>
   ) : (
-    <p className="empty-state">
-      This roadmap's entries, agents and policies are set in its editor on the board. Capacity and
-      agent profiles are workspace settings.
-    </p>
+    <>
+      <p className="empty-state">
+        This roadmap's entries, agents and policies are set in its editor on the board. Capacity and
+        agent profiles are workspace settings.
+      </p>
+      {/* Slices of one imported map share its dependency environment and decisions (LIVE-18). */}
+      {mapScope && (
+        <RuntimeEvidencePanel
+          panelId={runtimePanelId}
+          roadmapId={roadmap.id}
+          roadmapRevision={roadmap.definition.revision}
+          onViewChange={runtimeChanged}
+          onDraftChange={dependenciesChanged}
+          workspaceId={workspaceId}
+          definitionId={mapScope.definitionId}
+          bindingRevision={mapScope.bindingRevision}
+          csrfToken={csrfToken}
+          canMutate={canMutate}
+        />
+      )}
+    </>
   );
 
   const historyPart = (

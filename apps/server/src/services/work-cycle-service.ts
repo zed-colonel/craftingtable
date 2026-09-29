@@ -1494,17 +1494,7 @@ export class WorkCycleService {
     // Adopting a newer manual run launches nothing, so the launch gates do not apply.
     if (!run || run.id === cycle.currentRunId || run.id === cycle.parentRunId)
       await this.transitionGate(cycle);
-    const currentTurn =
-      run && this.storage.execution.runEvents.latestOfKind(workspaceId, run.id, 'turn-completed');
-    if (
-      reviewGuidance === undefined &&
-      !cycle.finalizationId &&
-      (!cycle.executionScope || cycle.executionScope.kind === 'slice') &&
-      ['implement', 'remediate', 'review'].includes(cycle.step) &&
-      currentTurn?.kind === 'turn-completed' &&
-      /^## Open questions[ \t]*$/m.test(currentTurn.payload.resultText) &&
-      !finalizationHasNoQuestions(currentTurn.payload.resultText)
-    )
+    if (reviewGuidance === undefined && this.resumeNeedsGuidance(cycle))
       throw new ExecutionRequestError(
         'conflict',
         'This step has open questions. Use Continue with guidance to supply answers before resuming.',
@@ -4207,6 +4197,29 @@ export class WorkCycleService {
         'conflict',
         `${stale.map((p) => p.alias).join(', ')} still differs from its saved pin. Preview and save the dependency refresh in the dependency environment, then resume.`,
       );
+  }
+
+  /**
+   * A step whose report still has open questions resumes only with guidance that answers them:
+   * a plain resume would reclassify the same report. The roadmap skips such a cycle when it
+   * resumes, rather than failing (LIVE-18 review).
+   */
+  resumeNeedsGuidance(cycle: WorkCycle): boolean {
+    if (
+      cycle.finalizationId ||
+      (cycle.executionScope && cycle.executionScope.kind !== 'slice') ||
+      !['implement', 'remediate', 'review'].includes(cycle.step)
+    )
+      return false;
+    const run = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId)[0];
+    const turn =
+      run &&
+      this.storage.execution.runEvents.latestOfKind(cycle.workspaceId, run.id, 'turn-completed');
+    return (
+      turn?.kind === 'turn-completed' &&
+      /^## Open questions[ \t]*$/m.test(turn.payload.resultText) &&
+      !finalizationHasNoQuestions(turn.payload.resultText)
+    );
   }
 
   /**

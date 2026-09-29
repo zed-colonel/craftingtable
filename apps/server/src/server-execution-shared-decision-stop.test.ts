@@ -100,8 +100,8 @@ function workflowReport(text: string, questions: readonly object[] = []) {
   );
 }
 
-async function fixture() {
-  const f = await supervisedMapFixture(true, 'automatic', false, false, false, withMergeDecisions);
+async function fixture(map: (source: ConcurrencySource) => ConcurrencySource = withMergeDecisions) {
+  const f = await supervisedMapFixture(true, 'automatic', false, false, false, map);
   const original = f.backend.replyForRequest!;
   // Slices run through the scripted cycle; a preparation recommends the checkpoint it names.
   f.backend.replyForRequest = async (request) => {
@@ -278,13 +278,23 @@ itNeedsCargo(
   },
 );
 
-itNeedsCargo(
-  'a sequential roadmap resumes past a paused shared-decision stop and leaves it in place (LIVE-18)',
+/** Only the checkpoints: no slice's merge requires them. */
+function withDecisionCheckpoints(source: ConcurrencySource): ConcurrencySource {
+  const all = withMergeDecisions(source);
+  return { ...all, slices: source.slices };
+}
+
+itNeedsCargo.each([
+  ['its merge still needs the decision', withMergeDecisions],
+  ['the reviewer asked about a decision the merge does not need', withDecisionCheckpoints],
+] as const)(
+  'a sequential roadmap resumes past a paused shared-decision stop and leaves it in place when %s (LIVE-18)',
   { timeout: 40000 },
-  async () => {
+  async (_case, map) => {
     // A single-project roadmap runs in sequence: a cycle whose resume is refused would fail the
-    // whole roadmap's resume, so the roadmap must skip it instead.
-    const f = await slicedFixture(withMergeDecisions);
+    // whole roadmap's resume, so the roadmap must skip it instead. That holds too once nothing
+    // is unsettled, while the reviewer's open questions still need Continue with guidance.
+    const f = await slicedFixture(map);
     configureLocalRuntime(f.auth, f.state, f.scopes[0]!.definitionId);
     const tx = f.state.context.storage;
     f.backend.replyForRequest = async (request) => {
@@ -329,6 +339,14 @@ itNeedsCargo(
       15000,
     );
     const reviewed = f.backend.launches.filter((r) => r.model === 'review-model').length;
+    // Its slices come from one map, so the roadmap's setup shows that map's decisions.
+    const roadmapId = storedRoadmap(f.state).id;
+    expect(
+      tx.attention.open(f.state.workspaceId).find((i) => i.subjectKey === `cycle:${slice()!.id}`)
+        ?.path,
+    ).toBe(
+      `/workspaces/${f.state.workspaceId}/roadmaps/${roadmapId}/setup#runtime-evidence-roadmap-${roadmapId}-decisions`,
+    );
     // A pause taken at the stop keeps its code.
     await controlCycle(f.state, slice()!, 'pause');
     await roadmapControl(f.state, 'pause');
@@ -336,5 +354,65 @@ itNeedsCargo(
     expect(slice()?.status).toBe('paused');
     expect(slice()?.attention?.code).toBe('shared-decision-required');
     expect(f.backend.launches.filter((r) => r.model === 'review-model')).toHaveLength(reviewed);
+  },
+);
+
+itNeedsCargo(
+  'lets a resume through to the review that produces a decision prerequisite (LIVE-18 review)',
+  { timeout: 40000 },
+  async () => {
+    // LOCAL-ADR-02 requires LOCAL-REVIEW, a checkpoint only this slice's workflow review can
+    // produce once LOCAL-ADR-01 is approved. Refusing the resume until LOCAL-ADR-02 is approved
+    // would leave nothing to do but stop.
+    const fx = await fixture((source) => {
+      const withBoth = withMergeDecisions(source);
+      return {
+        ...withBoth,
+        checkpoints: [
+          ...withBoth.checkpoints.map((c) =>
+            c.id === 'LOCAL-ADR-02'
+              ? {
+                  ...c,
+                  requires: [
+                    { kind: 'checkpoint' as const, id: 'LOCAL-REVIEW', state: 'passed' as const },
+                  ],
+                }
+              : c,
+          ),
+          {
+            ...source.checkpoints[0]!,
+            id: 'LOCAL-REVIEW',
+            kind: 'profile' as const,
+            owner: 'local',
+            requires: [
+              { kind: 'checkpoint' as const, id: 'LOCAL-ADR-01', state: 'passed' as const },
+            ],
+          },
+        ],
+        slices: withBoth.slices.map((s, i) =>
+          i
+            ? s
+            : {
+                ...s,
+                merge_requires: [
+                  ...s.merge_requires,
+                  { kind: 'checkpoint' as const, id: 'LOCAL-REVIEW', state: 'passed' as const },
+                ],
+              },
+        ),
+      };
+    });
+    const { f, tx, ws } = fx;
+    await roadmapControl(f.state, 'start');
+    await waitFor(() => !!stopped(fx), 'the shared-decision stop', 15000);
+    let cycle = stopped(fx)!;
+    expect(cycle.attention?.code).toBe('shared-decision-required');
+    // LOCAL-ADR-02 is named, but only LOCAL-ADR-01 can be approved now.
+    expect(cycle.reason).toContain('LOCAL-ADR-02');
+    await roadmapControl(f.state, 'pause');
+    await prepareAndAccept(fx, 'LOCAL-ADR-01');
+    cycle = tx.execution.cycles.find(ws, cycle.id)!;
+    const resumed = await resume(fx, cycle);
+    expect(resumed.statusCode, resumed.body).toBe(200);
   },
 );

@@ -13,6 +13,7 @@ import {
   nextReminderAt,
   notificationText,
   truncateUtf16,
+  type WorkCycle,
   type WorkspaceId,
   type WorktreeId,
 } from '@craftingtable/domain';
@@ -32,6 +33,27 @@ import { preparedDecisionAccepted } from './decision-preparation-policy.js';
  * id (`RuntimeEvidencePanel`). A cycle no roadmap owns keeps its own page: the definition's
  * panel renders only once its map revision is picked, so a link to it would land nowhere.
  */
+/**
+ * Where a cycle's shared decisions are decided (LIVE-18): its roadmap's setup when that page
+ * shows them (a cross-project roadmap, or one whose slices come from one map revision), else the
+ * page of the map its scope comes from. `ws` is already encoded.
+ */
+function decisionsPath(tx: StorageRepositories, ws: string, cycle: WorkCycle): string | undefined {
+  const scope = cycle.executionScope;
+  if (!scope) return undefined;
+  const roadmap = cycle.owner && tx.roadmaps.find(cycle.workspaceId, cycle.owner.roadmapId);
+  const maps = new Set(
+    roadmap?.definition.entries.flatMap((e) =>
+      e.executionScope
+        ? [`${e.executionScope.definitionId}:${e.executionScope.bindingRevision}`]
+        : [],
+    ),
+  );
+  if (roadmap && (roadmap.definition.crossProject || maps.size === 1))
+    return roadmapPath(ws, roadmap.id, 'setup', `runtime-evidence-roadmap-${roadmap.id}-decisions`);
+  return `/workspaces/${ws}/roadmaps/maps/${encodeURIComponent(scope.definitionId)}#${encodeURIComponent(`runtime-evidence-${scope.definitionId}-decisions`)}`;
+}
+
 function dependencyRefreshPath(ws: string, roadmapId: string | undefined): string | undefined {
   if (roadmapId === undefined) return undefined;
   return roadmapPath(ws, roadmapId, 'setup', `runtime-evidence-roadmap-${roadmapId}`);
@@ -696,14 +718,9 @@ export class AttentionProjector implements WriteObserver {
         path:
           !escalated && attention.code === 'upstream-pin-moved'
             ? (dependencyRefreshPath(ws, cycle.owner?.roadmapId) ?? path)
-            : // A shared-decision stop opens the owning roadmap's decision cards (LIVE-18).
-              !escalated && attention.code === 'shared-decision-required' && cycle.owner
-              ? roadmapPath(
-                  ws,
-                  cycle.owner.roadmapId,
-                  'setup',
-                  `runtime-evidence-roadmap-${cycle.owner.roadmapId}-decisions`,
-                )
+            : // A shared-decision stop opens the decision cards (LIVE-18).
+              !escalated && attention.code === 'shared-decision-required'
+              ? (decisionsPath(tx, ws, cycle) ?? path)
               : path,
         refs: { ...refs, cycleId: cycle.id, ...(cycle.owner ? ownerRefs(cycle.owner) : {}) },
       });

@@ -47,9 +47,13 @@ it('hosts the controls that resolve each stop of 2026-09-25', () => {
     });
   // Shared decisions and undeclared upstream transitions are decided in the roadmap's
   // dependency controls, so they open beside the cycle's resume.
-  // (A shared-decision stop also brings its decision cards into view: LIVE-18, below.)
-  for (const code of ['shared-decision-required', 'upstream-transition-undeclared'] as const)
-    expect(inboxHost(item({ code })).roadmap, code).toMatchObject({ open: true });
+  // A shared-decision stop also brings its decision cards into view (LIVE-18, below).
+  expect(inboxHost(item({ code: 'upstream-transition-undeclared' })).roadmap).toEqual({
+    open: true,
+  });
+  expect(inboxHost(item({ code: 'shared-decision-required' })).roadmap).toMatchObject({
+    open: true,
+  });
   // A held entry with stale evidence names its attempt's completed cycle, but is resolved
   // on the roadmap: its Re-verify control, brought into view, and no cycle controls.
   expect(

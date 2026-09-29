@@ -610,6 +610,137 @@ itNeedsCargo(
   },
 );
 
+itNeedsCargo(
+  'a delegated checkpoint whose upstream pin moved stops as upstream-pin-moved, and Resume is refused while it is stale (LIVE-21)',
+  { timeout: 20000 },
+  async () => {
+    const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
+      ...source,
+      checkpoints: [
+        ...source.checkpoints,
+        {
+          ...source.checkpoints[0]!,
+          id: 'LOCAL-REVIEW',
+          kind: 'contract',
+          owner: 'local',
+          requires: [],
+          pass_criteria: ['Candidate boundary is sound'],
+          evidence_profile: 'scope-review',
+        },
+      ],
+      slices: source.slices.map((s, i) =>
+        i
+          ? s
+          : {
+              ...s,
+              mode: 'domain',
+              merge_requires: [{ kind: 'checkpoint', id: 'LOCAL-REVIEW', state: 'passed' }],
+            },
+      ),
+    }));
+    const original = f.backend.replyForRequest!;
+    let reviewed = false;
+    f.backend.replyForRequest = async (request) => {
+      const reply = await original(request);
+      if (request.model !== 'review-model') return reply;
+      const checkpoint = request.prompt.includes('This is a separate checkpoint review.');
+      if (checkpoint) reviewed = true;
+      const def = f.state.context.storage.imports.definition(
+        f.state.workspaceId,
+        f.parentScope.definitionId,
+      )!;
+      const spec = requireSubjectRequirements(
+        def,
+        { kind: 'checkpoint', sourceId: 'LOCAL-REVIEW' },
+        f.scopes[0]!.sourceId,
+      );
+      return {
+        ...reply,
+        resultText: withWorkflowReport(
+          reply.resultText!,
+          checkpoint
+            ? {
+                checkpoint: {
+                  id: 'LOCAL-REVIEW',
+                  passed: true,
+                  requirements: spec.requirements.map((requirement) => ({
+                    requirement,
+                    evidence: 'Independent exact-candidate check and fixture receipts',
+                  })),
+                  caseIds: spec.cases.map((c) => c.id),
+                },
+              }
+            : {},
+        ),
+      };
+    };
+    // The replay case (2026-09-29, EXO-04/domain): an upstream the checkpoint's evidence
+    // depends on moved while the checkpoint was being reviewed, so the candidate is stale when
+    // the controller accepts the delegated review.
+    const svc = f.state.context.services.runtimeEvidenceService;
+    const issue =
+      'wi integration changed. Preview dependency refresh to review the new pin and affected evidence.';
+    const moved = {
+      alias: 'wi',
+      pinnedCommitSha: 'a'.repeat(40),
+      currentCommitSha: 'b'.repeat(40),
+    };
+    const recovery = svc.checkpointRecovery.bind(svc);
+    vi.spyOn(svc, 'checkpointRecovery').mockImplementation(async (...args) => {
+      const found = await recovery(...args);
+      if (!reviewed) return found;
+      return {
+        ...found,
+        candidates: found.candidates.map((c) => ({ ...c, issues: [...c.issues, issue] })),
+      };
+    });
+    const pins = svc as never as {
+      pinStatus: (ws: unknown, runtime: unknown, aliases?: readonly string[]) => Promise<unknown[]>;
+    };
+    const pinStatus = pins.pinStatus.bind(svc);
+    vi.spyOn(pins, 'pinStatus').mockImplementation(async (ws, runtime, aliases) =>
+      !reviewed || (aliases && !aliases.includes('wi'))
+        ? pinStatus(ws, runtime, aliases)
+        : [
+            ...(await pinStatus(ws, runtime, aliases)),
+            {
+              alias: 'wi',
+              savedCommitSha: moved.pinnedCommitSha,
+              currentCommitSha: moved.currentCommitSha,
+              issue,
+            },
+          ],
+    );
+    await adoptSupervisedMap(f);
+    f.service.save(f.auth, f.state.workspaceId, f.input);
+    await roadmapControl(f.state, 'start');
+    const stopped = () =>
+      f.state.context.storage.execution.cycles
+        .listForWorkspace(f.state.workspaceId)
+        .find((c) => c.executionScope?.kind === 'slice' && c.status === 'needs-attention');
+    await waitFor(() => !!stopped(), 'moved-pin stop', 15000).catch((error) => {
+      throw new Error(
+        `${error.message}: ${JSON.stringify(f.state.context.storage.execution.cycles.listForWorkspace(f.state.workspaceId).map((c) => ({ status: c.status, reason: c.reason, attention: c.attention, active: c.workflow?.activeReview })))}`,
+      );
+    });
+    const cycle = stopped()!;
+    // Typed, with the pins that moved, not controller-error.
+    expect(cycle.attention).toMatchObject({
+      code: 'upstream-pin-moved',
+      owner: 'operator',
+      refs: { pins: [moved] },
+    });
+    expect(cycle.reason).toContain('Preview dependency refresh');
+    const refused = await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(f.state),
+      payload: { action: 'resume', expectedVersion: cycle.version },
+    });
+    expect(refused.statusCode).toBe(409);
+  },
+);
+
 itNeedsCargo.each([
   { kind: 'contract', valid: true },
   { kind: 'profile', valid: true },

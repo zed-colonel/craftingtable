@@ -358,7 +358,7 @@ The operator deployed fccce06 at 06:48 UTC; the roadmap came up running. The ope
 ### LIVE-21: LIVE-15's typed stop misses a delegated checkpoint's acceptance, so EXO-04's review ran into the same untyped stop after the fix
 - Severity: medium
 - Category: typed stops (rule 4); dependency refresh ([ADR-058](../../../decisions/ADR-058-reviewed-dependency-refresh.md), [R-C4](../register.md#r-c4))
-- Status: CONFIRMED 2026-09-29 from the 2026-09-29 snapshot and the code at fccce06. Not fixed. It has a working exit: the dependency-refresh preview its prose names. Resume reruns the review, which ends at the same stop.
+- Status: CONFIRMED 2026-09-29 from the 2026-09-29 snapshot and the code at fccce06. FIXED 2026-09-29 by operator decision, on `remediation/p2`, not deployed: the delegated checkpoint's acceptance now raises the typed `upstream-pin-moved` stop for a moved pin, and Resume is refused while it is stale. See [R-C4](../register.md#r-c4).
 - Replay case: the 2026-09-29 snapshot, cycle b0de849a (exo/EXO-04/domain, delegated checkpoint review EXO-WI-TIME-REVIEW), current run 845e1ecf, stopped `controller-error` with "wi integration changed. Preview dependency refresh to review the new pin and affected evidence."
 - Evidence:
   - Four mergeable checkpoint reviews of this cycle ended at this stop: 082948fb (2026-09-28, 20:52 to 21:13 UTC), 47fb8caf (to 00:11), 66999724 (00:18 to 00:41) and 845e1ecf (06:51 to 07:14). The operator resumed after each of the first three (21:18, 00:18, 06:50).

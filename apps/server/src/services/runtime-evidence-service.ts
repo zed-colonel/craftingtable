@@ -1305,8 +1305,14 @@ export class RuntimeEvidenceService {
     };
     const preview = await this.checkpointRecovery(context, ws, id, cycle.worktreeId, true);
     const candidate = preview.candidates.find((c) => c.checkpointId === checkpoint.id);
-    if (!candidate || candidate.issues.length)
-      conflict(candidate?.issues.join(' ') || 'Checkpoint candidate is unavailable.');
+    if (!candidate) conflict('Checkpoint candidate is unavailable.');
+    if (candidate.issues.length) {
+      // A moved upstream pin stops the delegated checkpoint as it stops the tree, typed, with
+      // its refresh as the exit, and Resume refused while it is stale (LIVE-21, LIVE-15).
+      const generation = this.current(ws, id);
+      if (generation) await this.freshnessConflict(ws, generation, candidate.issues, ' ');
+      conflict(candidate.issues.join(' '));
+    }
     const tree = this.storage.execution.worktrees.find(ws, cycle.worktreeId)!;
     const run = this.storage.execution.runs.find(ws, cycle.currentRunId)!;
     if (candidate.runId !== run.id || active.sourceRunId === run.id)

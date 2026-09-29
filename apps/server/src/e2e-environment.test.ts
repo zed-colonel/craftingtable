@@ -10,10 +10,15 @@ it('passes the gate’s workstation capacity through to the e2e daemon (R-I9 rev
       CRAFTINGTABLE_LOG_LEVEL: 'debug',
     }),
   );
-  expect([config.execution?.developmentCapacity, config.execution?.verificationCapacity]).toEqual([8, 4]);
+  expect([config.execution?.developmentCapacity, config.execution?.verificationCapacity]).toEqual([
+    8, 4,
+  ]);
   // Anything else stays the daemon's own.
   expect(config.logLevel).toBe('warn');
   // Without them, the defaults the walkthrough photographs.
   const defaults = configFromEnv(e2eEnvironment('/data', {}));
-  expect([defaults.execution?.developmentCapacity, defaults.execution?.verificationCapacity]).toEqual([2, 1]);
+  expect([
+    defaults.execution?.developmentCapacity,
+    defaults.execution?.verificationCapacity,
+  ]).toEqual([2, 1]);
 });

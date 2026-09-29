@@ -2204,6 +2204,9 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - A partial directory: 39 MB, `backups` and `runs` (81 run directories) left and `state` removed. It came from the e2e run at load average 14 in which three specs failed; the removal stopped partway again. It could not be reproduced on demand, so the cause is still unproven.
       - A different pattern, twice: an entire data directory, `state` included, left from the walkthrough (17:45) and from the gate's walkthrough rehearsal (18:28), so cleanup never ran at all. A daemon SIGKILLed after the 10 s graceful stop, or a walkthrough web server stopped without SIGTERM, would explain it. Neither is proven.
       - All three were deleted afterwards; they sat in the session's own temporary directory.
+    - *Seen again (2026-09-28, the follow-up batch at 527d151):*
+      - The gate's `e2e-daemon-shutdown` test failed once at load average 14 with a data directory left behind. It passed rerun serially and three more times.
+      - The following e2e run (all passed) left a 43 MB partial directory: `backups` and `runs`, with `state` and the new `cargo-home` both removed. So the daemon's Cargo home does not cause the leak; the removal stopped partway, as before. It was deleted.
 
 ### R-I6
 

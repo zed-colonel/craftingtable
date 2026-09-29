@@ -591,6 +591,29 @@ independent review; every finding is fixed or its disposition is recorded in reg
     - The daemon needs its systemd user manager for check units (`CRAFTINGTABLE_CHECK_CONFINEMENT=none` otherwise), and bubblewrap and socat for Claude's sandbox; both are present on this workstation.
     - Checks, CI and native units now run in the daemon's units. Runs in flight at the deploy keep their old launchers.
   - **Next:** R-E2 (split the Roadmaps page), R-G13 (declared checks, scheduled by the operator 2026-09-28), then R-D4 and R-D5, then R-G9, R-I9, R-H4, R-I4, R-G6. R-G14 (configurable outside sources) is P3.
+- **Operator follow-ups to the R-G4/R-G5/R-E1 report (2026-09-28, same branch; not merged or deployed).** The operator answered the report's five decisions, and each was built test-first and reviewed.
+  - **crates.io for Claude's sandbox (R-G5): 214a844, after review 2806815 and 8a71388.**
+    - The sandbox reaches `index.crates.io` and `static.crates.io` only. The review dropped the `crates.io` apex, which is the publish API.
+    - It cannot read Cargo's tokens, and it may write the registry and git caches of the daemon's own Cargo home, `<data>/cargo-home`.
+    - By operator decision after the review, agents and check units use that home, never `~/.cargo`, so a planted crate cannot run in the operator's own builds. The daemon seeds it one way at each start.
+    - A place to configure outside sources, and Codex's all-or-nothing network, are R-G14 (P3).
+  - **Effort on Claude profiles: 0a198b2.** ADR-064 amended.
+  - **Protected-ref moves in the inbox with Acknowledge: 15b0154, after review 1f5b010 and 0d9b6c5.** Schema 35, `protected_ref_moves`.
+  - **Declared per-repository checks scheduled as R-G13, after R-E2: 2d67a0f.**
+  - **LIVE-15, the typed stop `upstream-pin-moved` (R-C4): 4498c01 and c9b3d78, after review 4475469.**
+    - Its refs name the moved pins, and Resume is refused while they are stale. ADR-058 amended.
+    - Starting the refresh preview automatically is an open follow-up.
+  - **Also:** the register summary now shows R-G4, R-G5 and R-E1 done (bb133c4). Review nits and wording: 527d151.
+  - **Review** (isolated worktree, d6823bf..c9b3d78): no HIGH. Two MEDIUM, both fixed: the apex host with readable tokens, and the shared Cargo cache. Four LOW, fixed. Two NITs and one out-of-scope wording point, addressed. The dispositions are on R-G5's follow-ups entry.
+  - **Gate at 527d151:**
+    - format, lint, typecheck and build pass;
+    - 212 test files and 1,662 unit tests pass: in the full run at load average 14, three tests in three files failed (two timeouts and the R-I5 shutdown leak), and all three files passed rerun serially, the shutdown test three more times;
+    - e2e: 21 tests and the walkthrough rehearsal pass;
+    - the scope check passes.
+  - **Replays at c9b3d78 and again at 527d151, on copies:** `golden.json`, `--every-run` and the scheduler replay report 0 changed and 0 missing on all five snapshots.
+  - **Before the deploy:**
+    - Schemas 33 to 35 are new. A release before this cannot open the database, read Claude-effort selections, or read cycles with the new stop.
+    - The first start copies the operator's Cargo registry cache into `<data>/cargo-home`: about 480 MB, and a full copy, because `/mnt/workhorse` is not on the home file system.
 - **Live-data work left:**
   1. Deploy. This runs schema 32, and the attention items rebuild on first boot.
   2. Enable notifications, and check that the inbox, rail count and push log agree.

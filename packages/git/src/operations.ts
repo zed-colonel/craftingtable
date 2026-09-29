@@ -208,6 +208,8 @@ export interface GitOperations {
   }): Promise<GitResult<WorktreeDiff>>;
   /** Local branches, and the one the primary checkout has checked out. */
   listBranches(repositoryPath: string): Promise<GitResult<BranchListing>>;
+  /** Every local branch and the commit it points at (R-G5: protected-ref snapshots). */
+  branchHeads(repositoryPath: string): Promise<GitResult<Record<string, string>>>;
   /**
    * Merges `branchName` into `targetBranch` with a merge commit.
    *
@@ -918,6 +920,22 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
         ...(primary?.branch === undefined ? {} : { checkedOut: primary.branch }),
       },
     };
+  }
+
+  async function branchHeads(repositoryPath: string): Promise<GitResult<Record<string, string>>> {
+    const repository = await canonicalDirectory(repositoryPath);
+    if (!repository.ok) return repository;
+    const listed = await runOk(
+      ['for-each-ref', '--format=%(refname:short)%00%(objectname)', 'refs/heads/'],
+      repository.value,
+    );
+    if (!listed.ok) return listed;
+    const heads: Record<string, string> = {};
+    for (const line of listed.value.stdout.toString('utf8').split('\n')) {
+      const [name, sha] = line.split('\0');
+      if (name && sha) heads[name] = sha;
+    }
+    return { ok: true, value: heads };
   }
 
   async function mergeInProgress(cwd: string): Promise<boolean> {
@@ -1920,6 +1938,7 @@ export function createGitOperations(options: GitOperationsOptions): GitOperation
     removeWorktree,
     worktreeDiff,
     listBranches,
+    branchHeads,
     mergeBranch,
     inspectMergeOperation,
     deleteBranch,

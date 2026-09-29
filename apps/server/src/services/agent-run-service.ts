@@ -178,6 +178,62 @@ export class AgentRunService {
   attachChecks(checks: import('./check-request-service.js').CheckRequestService): void {
     this.checks = checks;
   }
+  /** Protected-ref snapshots around each run (R-G5, SEC-02d). */
+  private refWatch:
+    | {
+        readonly watch: import('./ref-watch.js').RefWatch;
+        readonly git: import('@craftingtable/git').GitOperations;
+      }
+    | undefined;
+  attachRefWatch(
+    watch: import('./ref-watch.js').RefWatch,
+    git: import('@craftingtable/git').GitOperations,
+  ): void {
+    this.refWatch = { watch, git };
+  }
+
+  /** Flags protected branches that moved during a run by something other than the daemon. */
+  private async checkProtectedRefs(workspaceId: WorkspaceId, runId: AgentRunId): Promise<void> {
+    if (!this.refWatch) return;
+    const run = this.storage.execution.runs.find(workspaceId, runId);
+    const tree = run && this.storage.execution.worktrees.find(workspaceId, run.worktreeId);
+    const owned = this.storage.execution.worktrees
+      .listActive(workspaceId)
+      .filter((w) => w.repositoryId === tree?.repositoryId)
+      .map((w) => w.branchName)
+      .concat(tree ? [tree.branchName] : []);
+    const moves = await this.refWatch.watch.unexplainedMoves(runId, this.refWatch.git, owned);
+    if (!moves.length) return;
+    const described = moves
+      .map(
+        (m) =>
+          `${m.branch} ${m.before?.slice(0, 12) ?? '(absent)'} → ${m.after?.slice(0, 12) ?? '(deleted)'}`,
+      )
+      .join(', ');
+    this.appendEvent(workspaceId, runId, {
+      kind: 'notice',
+      payload: {
+        category: 'other',
+        message: `Protected branches moved during this run, not by CraftingTable: ${described}.`,
+      },
+    });
+    this.storage.transaction((tx) =>
+      tx.audit.append({
+        id: asAuditEventId(randomUUID()),
+        occurredAt: this.now().toISOString(),
+        actorKind: 'system',
+        workspaceId,
+        action: 'agent-run.protected-ref-moved',
+        targetType: 'agent-run',
+        targetId: runId,
+        outcome: 'failed',
+        metadata: {
+          repositoryId: tree?.repositoryId ?? null,
+          moves: moves.map((m) => ({ branch: m.branch, before: m.before, after: m.after })),
+        },
+      }),
+    );
+  }
 
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -1315,6 +1371,15 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
         this.finalize(workspaceId, runId, 'failed', { message: 'Could not register run storage.' });
         throw error;
       }
+      // The protected branches as the run starts (R-G5).
+      if (this.refWatch) {
+        const repository = this.storage.execution.sourceRepositories.find(
+          workspaceId,
+          prepared.worktree.repositoryId,
+        );
+        if (repository)
+          await this.refWatch.watch.snapshot(runId, this.refWatch.git, repository.rootPath);
+      }
       // The daemon runs and records this run's checks from here on (R-G4).
       if (pinned?.spoolDirectory && this.checks)
         this.checks.open({
@@ -2195,7 +2260,8 @@ Use this separate launcher ONLY to collect the historical baseline. It uses orig
     }
     if (changed) {
       const run = this.storage.execution.runs.find(workspaceId, runId);
-      const cleanup = Promise.resolve(this.runtimeEvidence?.cleanupRun(workspaceId, runId))
+      const cleanup = Promise.resolve(this.checkProtectedRefs(workspaceId, runId))
+        .then(() => this.runtimeEvidence?.cleanupRun(workspaceId, runId))
         .then(() =>
           run && status !== 'interrupted'
             ? this.storageService?.cleanupAfterRun(run.worktreeId)

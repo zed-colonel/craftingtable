@@ -111,6 +111,10 @@ only the worktree, the run's directories and its scratch space, reaching only lo
 dependency hosts, with no Unix sockets and no way to leave it. Claude's Edit and Write tools stay
 under the permission posture. Checks the daemon runs on a worktree use the git
 directory it resolved before the agent started, never the worktree's `.git` pointer (R-G4).
+The daemon also records a run's repository's branch heads when it starts and compares them when it
+ends (R-G5, SEC-02d): a branch no managed worktree owns that moved, and that none of the daemon's
+own Git operations left there, is noted in the run's journal and audited as
+`agent-run.protected-ref-moved`. It detects; it does not prevent.
 
 ## Untrusted input
 

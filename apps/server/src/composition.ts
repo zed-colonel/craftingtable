@@ -47,6 +47,7 @@ import { PlanningQueryService } from './services/planning-query-service.js';
 import { RoadmapService } from './services/roadmap-service.js';
 import { RunEventStreamService } from './services/run-event-stream-service.js';
 import { CheckRequestService } from './services/check-request-service.js';
+import { RefWatch } from './services/ref-watch.js';
 import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import { StorageService } from './services/storage-service.js';
 import { WorkCycleService } from './services/work-cycle-service.js';
@@ -142,7 +143,10 @@ export async function createServices(
     overrides.gitOperations === undefined
       ? resolveExecutable('git', config.execution.gitExecutable)
       : undefined;
-  const gitOperations: GitOperations | undefined =
+  // Every daemon Git operation that can move a branch records where it left it, so a run's
+  // protected-ref snapshot can tell the daemon's moves from anyone else's (R-G5).
+  const refWatch = new RefWatch();
+  const unwatchedGit: GitOperations | undefined =
     overrides.gitOperations === undefined
       ? gitExecutable === undefined
         ? undefined
@@ -155,6 +159,7 @@ export async function createServices(
             ),
           })
       : (overrides.gitOperations ?? undefined);
+  const gitOperations = unwatchedGit && refWatch.wrap(unwatchedGit);
   const backends = new Map<AgentBackendKind, AgentBackend>(overrides.agentBackends);
   if (overrides.agentBackends === undefined) {
     const claude = resolveExecutable('claude', config.execution.claudeExecutable, process.env, [
@@ -237,6 +242,7 @@ export async function createServices(
   );
   checkRequests.stopLeftoverUnits();
   agentRunService.attachChecks(checkRequests);
+  if (gitOperations) agentRunService.attachRefWatch(refWatch, gitOperations);
   storage.transaction((tx) => {
     tx.phaseScheduling.initializeCapacity(
       'local-development',

@@ -74,6 +74,7 @@ export const AUDIT_ACTIONS = [
   'evidence.submitted',
   'evidence.decided',
   'plan.version-activated',
+  'agent-run.protected-ref-moved',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -122,6 +123,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'storage.cleaned': 15,
   'storage.backup': 15,
   'storage.journal-compacted': 28,
+  'agent-run.protected-ref-moved': 34,
   'package.import': 16,
   'concurrency.bindings': 16,
   'scope.evidence-recorded': 18,
@@ -135,7 +137,28 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
 } as const satisfies Readonly<
   Record<
     AuditAction,
-    1 | 2 | 3 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 25 | 28
+    | 1
+    | 2
+    | 3
+    | 5
+    | 6
+    | 8
+    | 9
+    | 10
+    | 11
+    | 12
+    | 14
+    | 15
+    | 16
+    | 17
+    | 18
+    | 19
+    | 20
+    | 21
+    | 22
+    | 25
+    | 28
+    | 34
   >
 >;
 

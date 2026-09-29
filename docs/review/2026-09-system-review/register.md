@@ -1614,7 +1614,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G5
 
-**Agent environment and configuration isolation** · Phase P2 · Effort M · Status: in progress (design approved 2026-09-28)
+**Agent environment and configuration isolation** · Phase P2 · Effort M · Status: code complete (2026-09-28), awaiting review
 
 - **Resolves:** [SEC-02](findings/AGT-GIT-SEC-agents-git-security.md#sec-02-agent-confinement-is-cooperative-in-practice-inherited-desktop-environment-routine-sandbox-escalation-docker-socket), [SEC-03](findings/AGT-GIT-SEC-agents-git-security.md#sec-03-daemon-git-calls-execute-repository-controlled-hooks-and-config-the-existing-hardening-is-unused), [AGT-14](findings/AGT-GIT-SEC-agents-git-security.md#agt-14-supervised-agents-inherit-the-operators-personal-claudecodex-configuration-hooks-plugins-skills-memory-mcp), [GIT-08](findings/AGT-GIT-SEC-agents-git-security.md#git-08-daemon-authored-commits-and-merges-run-repository-hooks-outside-agent-supervision)
 - **Change:** Build the child environment from an allowlist in one place; run agents with isolated Claude/Codex configuration (no operator hooks, plugins, skills, memory or MCP unless declared); lay out the sandbox so ordinary commits and loopback tests need no escalation; disable repository hooks/fsmonitor for daemon Git operations; snapshot protected refs before/after each run and flag unexpected moves.
@@ -1680,6 +1680,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Live check** (the real CLI through the adapter, `auto` posture, a managed worktree): a write to HOME gets "Read-only file system"; `git commit` succeeds; `curl https://example.com` gets "CONNECT tunnel failed, 403"; `static.crates.io` is reached.
   - **Test.** `arguments.test.ts`: auto, edit-only and read-only carry the sandbox with no way out and no Unix sockets; unrestricted has none. It fails without the change.
   - **Consequence:** a Claude run can no longer reach other hosts from Bash. Adding one means changing `SANDBOX_ALLOWED_DOMAINS`.
+- **Increment 6 (2026-09-28): protected-ref snapshots** (SEC-02d; schema 34 adds one audit action).
+  - Before each run the daemon records its repository's branch heads (`branchHeads`, `services/ref-watch.ts`). When the run ends it compares every branch no managed worktree owns: main, integration branches, the operator's own.
+  - A branch that moved counts as the daemon's if one of its own Git operations during the run left it at that commit. Every daemon operation that can move a branch records the heads it left behind (`RefWatch.wrap` around the daemon's Git).
+  - Any other move is flagged in two places: a notice in the run's journal, "Protected branches moved during this run, not by CraftingTable: …", and an audit record, `agent-run.protected-ref-moved`, with the moves, shown in the audit panel.
+  - The snapshots are kept in memory, so a restart ends the runs it watched.
+  - Routing such a flag to the inbox would be a new attention kind (R-A4). It is left as an operator decision.
+  - **Tests.**
+    - `ref-watch.test.ts`: a daemon merge into the integration branch and a run's own branch move are not flagged; a main moved and an integration branch deleted outside the daemon are.
+    - `server-execution-runs.test.ts`: `main` moved by `git update-ref` during a live run is audited against the run, with the move, and noted in its journal. Skipping the check fails it.
+- **Status (2026-09-28): code complete (increments 1 to 6), awaiting independent review.** Done-when evidence:
+  - a run's environment holds only allowlisted variables (increment 1's test);
+  - supervised Claude runs load no operator skills, plugins, MCP servers or memory (increment 2's live check); Codex runs load none of the operator's (increment 3's live check).
 
 ### R-G6
 

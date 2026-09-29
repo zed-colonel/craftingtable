@@ -756,6 +756,72 @@ describe('agent runs', () => {
     }
   });
 
+  it('flags a protected branch moved during a run by something other than the daemon (R-G5, SEC-02)', async () => {
+    const state = await ready();
+    const root = fixtureRepository();
+    const { worktree } = await registerAndWorktree(state, root);
+    let release!: () => void;
+    state.backend.repliesForNextRun = [
+      { resultText: 'done', release: new Promise<void>((resolve) => (release = resolve)) },
+    ];
+    const started = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+      headers: mutationHeaders(state),
+      payload: { worktreeId: worktree.id, instructions: 'Work.' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const { run } = startAgentRunResponseSchema.parse(started.json());
+    // While the agent works, something other than CraftingTable moves main.
+    const tree = git(['rev-parse', 'main^{tree}'], root).trim();
+    const moved = git(['commit-tree', tree, '-p', 'main', '-m', 'outside'], root).trim();
+    const before = git(['rev-parse', 'main'], root).trim();
+    git(['update-ref', 'refs/heads/main', moved], root);
+    release();
+    await waitFor(
+      () =>
+        state.context.storage.execution.runs.find(state.workspaceId, run.id)?.status === 'waiting',
+      'turn',
+    );
+    await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/runs/${run.id}/end`,
+      headers: mutationHeaders(state),
+      payload: {},
+    });
+    const audited = () => {
+      const db = openDatabase(state.context.storage.databasePath);
+      try {
+        return db
+          .prepare(
+            "SELECT target_id, metadata_json FROM audit_events WHERE action = 'agent-run.protected-ref-moved'",
+          )
+          .all() as { target_id: string; metadata_json: string }[];
+      } finally {
+        db.close();
+      }
+    };
+    await waitFor(() => audited().length === 1, 'protected-ref audit');
+    const [row] = audited();
+    expect(row?.target_id).toBe(run.id);
+    expect(JSON.parse(row!.metadata_json).moves).toEqual([
+      { branch: 'main', before, after: moved },
+    ]);
+    const events = state.context.storage.execution.runEvents.listAfter({
+      workspaceId: state.workspaceId,
+      runId: run.id,
+      after: 0,
+      limit: 500,
+    });
+    expect(
+      events.some(
+        (e) =>
+          e.kind === 'notice' &&
+          (e.payload as { message: string }).message.includes('Protected branches moved'),
+      ),
+    ).toBe(true);
+  });
+
   it('gives every run in a worktree the same build cache, outside each run directory (R-G7)', async () => {
     const state = await ready();
     const { worktree } = await registerAndWorktree(state, fixtureRepository());

@@ -1625,7 +1625,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-G5
 
-**Agent environment and configuration isolation** · Phase P2 · Effort M · Status: code complete (2026-09-28), awaiting review
+**Agent environment and configuration isolation** · Phase P2 · Effort M · Status: done (2026-09-28)
 
 - **Resolves:** [SEC-02](findings/AGT-GIT-SEC-agents-git-security.md#sec-02-agent-confinement-is-cooperative-in-practice-inherited-desktop-environment-routine-sandbox-escalation-docker-socket), [SEC-03](findings/AGT-GIT-SEC-agents-git-security.md#sec-03-daemon-git-calls-execute-repository-controlled-hooks-and-config-the-existing-hardening-is-unused), [AGT-14](findings/AGT-GIT-SEC-agents-git-security.md#agt-14-supervised-agents-inherit-the-operators-personal-claudecodex-configuration-hooks-plugins-skills-memory-mcp), [GIT-08](findings/AGT-GIT-SEC-agents-git-security.md#git-08-daemon-authored-commits-and-merges-run-repository-hooks-outside-agent-supervision)
 - **Change:** Build the child environment from an allowlist in one place; run agents with isolated Claude/Codex configuration (no operator hooks, plugins, skills, memory or MCP unless declared); lay out the sandbox so ordinary commits and loopback tests need no escalation; disable repository hooks/fsmonitor for daemon Git operations; snapshot protected refs before/after each run and flag unexpected moves.
@@ -1728,7 +1728,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - The probe starts the operator's MCP server processes once per run.
     - `skills.config` disables by name, so a repository skill with a user skill's name is disabled too.
     - `--disable-slash-commands` disables repository skills for Claude, while Codex keeps them.
-- **Status (2026-09-28): code complete (increments 1 to 6), awaiting independent review.** Done-when evidence:
+- **Status (2026-09-28): done.** Increments 1 to 6 and the review fixes. Done-when evidence:
   - a run's environment holds only allowlisted variables (increment 1's test);
   - supervised Claude runs load no operator skills, plugins, MCP servers or memory (increment 2's live check); Codex runs load none of the operator's (increment 3's live check).
 

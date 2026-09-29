@@ -2014,6 +2014,14 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - Cargo becomes one declared check among others, not a special case.
 - **Needs a design first:** where declarations live (repository file, binding or plan); who may change them, given an agent can edit repository files; migration for repositories that declare nothing.
 - **Done when:** A scoped-check gate cannot be met by a command the agent chose, and a non-Rust repository can declare a check the daemon runs.
+- **Design, 2026-09-29 (operator decision: option A, fail closed).**
+  - **Where declarations live.** An immutable, operator-adopted check declaration per repository, stored by the daemon (a new record kind, schema 36, and an audit action; operator-approved as part of the option). The operator adopts it from a file in the repository, `.craftingtable/checks.json`, which the daemon reads with its own Git at a commit the operator names, never from an agent's branch or worktree. The file is only a proposal; the record is the authority.
+  - **Rejected:** declaring checks in the plan or map format (a format change, and plan-bundle and manual runs have no map), and reading the file from the integration tip at launch (delegated merges let an agent weaken the file in one slice for the next).
+  - **Undeclared repositories fail closed.** For runs prepared after the cutover, a scoped run in a repository with no adopted declaration does not start: it stops as `repository-checks-undeclared`, owned by the operator, whose exit is adopting a declaration. Records frozen earlier keep today's rule. WI and EXO each need one adoption after the deploy.
+  - **What counts.** In scoped mode, a gate is met only by daemon-recorded receipts of the adopted checks, one per declared check, on the gated commit. The daemon takes the command from the manifest it verified at launch (`ct-check --declared <id>`), never from the agent's request. Commands the agent chooses still run, and stay supplemental.
+  - **Definitions the agent can edit.** A declared check names the files that define it (its scripts). The daemon records their blob ids at the gated commit with the receipt, and a gate whose definitions differ from the adopted ones stops as `check-definition-changed`; the operator's exit is adopting the new definition.
+  - **The boundary, stated.** Declared checks stop agents choosing the gate's command and changing its harness unseen. They do not stop agents weakening the tests themselves; that stays the reviewer's job.
+  - **Increments:** (1) the record, adoption, the typed stops, declared receipts and the scoped gate; (2) Cargo as one declared check, for current-upstream gates; (3) the daemon runs declared checks itself when a review starts; (4) a check-only manifest for plan-bundle and non-Rust repositories (AGT-08); (5) the repository Checks panel beyond adoption, with receipts labelled declared or supplemental.
 
 ### R-G14
 
@@ -2408,7 +2416,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Found by the first parallel run:** after sign-in `/` opens the admin's last-used workspace, which is kept for the user, not the browser. Once one spec had opened its workspace, every other spec's "landed on Default workspace" check failed (10 of 21). Specs now wait for any workspace page (`expectSignedIn`).
   - **Parallel.** `fullyParallel` with 4 workers (`CRAFTINGTABLE_E2E_WORKERS` overrides). The e2e daemon gets 8 development and 4 verification slots, so parallel specs do not queue on each other's cycles; the walkthrough keeps the defaults it photographs.
   - **Installation-wide specs stay serial.** Storage (and workstation capacity, which it edits) runs in its own two projects, after every other spec, one viewport after the other.
-  - **R-I5's partial directory.** The e2e daemon's data-directory removal retries (`maxRetries`), for the removal seen stopping partway under load.
+  - **R-I5's partial directory, found and fixed.** With four workers every run left a partial data directory (`backups` and `runs`), so the cause could be seen: a run directory was created 20 ms after the removal began. Roadmaps the specs leave running keep launching until the daemon closes, and a launch already under way still creates its directory after the runtime closes. One removal lost that race; the e2e daemon now removes until the directory stays gone (up to 2 s).
+  - **10-run check.** The first repetition, at 3836b99, passed run 1 and failed run 2 in delegation with `spawnSync git ENOENT`: I had deleted leftover `craftingtable-e2e-*` directories during the run, and the pattern also matched that spec's live fixture repository (`craftingtable-e2e-repo-*`). The count restarts at the leak fix.
 
 ### R-I10
 

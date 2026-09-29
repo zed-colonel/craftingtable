@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRuntime } from './composition.js';
@@ -39,9 +39,14 @@ async function close(): Promise<void> {
   }
   closing = true;
   await runtime.close();
-  // Run directories written while the daemon closed made one removal stop partway (R-I5,
-  // seen at load average 14 to 20); retrying lets it finish.
-  rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  // A launch already under way when the stop came can still create its run directory for a
+  // moment after the runtime closes: roadmaps the specs leave running keep launching until
+  // then. One removal raced it and left `backups` and `runs` behind on every parallel run
+  // (R-I5, R-I9), so remove until the directory stays gone.
+  for (let attempt = 0; attempt < 20 && existsSync(directory); attempt++) {
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
 }
 
 process.once('SIGINT', () => void close());
